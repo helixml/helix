@@ -12,6 +12,7 @@ import {
   Typography,
 } from "@mui/material";
 import {
+  ArchiveRestore,
   CircleCheck as ApproveIcon,
   FileText as SpecIcon,
   GitPullRequest,
@@ -186,6 +187,15 @@ interface SpecTaskActionButtonsProps {
   externalRepoType?: string;
   /** Whether archive/reject is in progress */
   isArchiving?: boolean;
+  /**
+   * Called when Unarchive is clicked. When supplied, an archived task shows a
+   * single Unarchive button instead of the status toolbar — every button in that
+   * toolbar is disabled while archived, so there is nothing else to offer.
+   * Omitted by callers that already have their own unarchive control (TaskCard).
+   */
+  onUnarchive?: () => void;
+  /** Whether unarchive is in progress */
+  isUnarchiving?: boolean;
   /** Whether start planning is in progress */
   isStartingPlanning?: boolean;
   /** Whether the task is queued (for planning or implementation) */
@@ -330,6 +340,8 @@ export default function SpecTaskActionButtons({
   hasExternalRepo = false,
   externalRepoType,
   isArchiving = false,
+  onUnarchive,
+  isUnarchiving = false,
   isStartingPlanning = false,
   isQueued = false,
   isPlanningFull = false,
@@ -455,6 +467,46 @@ export default function SpecTaskActionButtons({
   const buttonSx = isInline
     ? { fontSize: "0.75rem", whiteSpace: "nowrap" }
     : { whiteSpace: "nowrap" };
+
+  // An archived task disables every action below, so offer the one action that
+  // is still meaningful: putting it back. Callers that render their own
+  // unarchive control leave onUnarchive unset and keep the old behaviour.
+  if (isArchived && onUnarchive) {
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: isInline ? "row" : "column",
+          gap: 1,
+          width: isInline ? "auto" : "100%",
+        }}
+      >
+        <Tooltip title="Restore this task to the board" placement="top">
+          <Button
+            size={buttonSize}
+            variant="outlined"
+            color="inherit"
+            startIcon={
+              isUnarchiving ? (
+                <CircularProgress size={14} color="inherit" />
+              ) : (
+                <ArchiveRestore size={18} />
+              )
+            }
+            onClick={(e) => {
+              e.stopPropagation();
+              onUnarchive();
+            }}
+            disabled={isUnarchiving}
+            fullWidth={!isInline}
+            sx={buttonSx}
+          >
+            {isUnarchiving ? "Unarchiving..." : "Unarchive"}
+          </Button>
+        </Tooltip>
+      </Box>
+    );
+  }
 
   // Backlog phase: Start Planning button
   if (task.status === "backlog") {
