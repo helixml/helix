@@ -6,11 +6,10 @@ import {
 
 export const extractErrorMessage = (error: any): string => {
   if(error.response && error.response.data) {
-    if (error.response.data.message || error.response.data.error) {
-      return (error.response.data.message || error.response.data.error) as string
-    }
-    if (error.response.data) return error.response.data as string
-    return error.toString()
+    const data = error.response.data
+    if (typeof data.message === 'string' && data.message) return data.message
+    if (typeof data.error === 'string' && data.error) return data.error
+    return typeof data === 'string' ? data : JSON.stringify(data)
   }
   else if(error.error) {
     return error.error
