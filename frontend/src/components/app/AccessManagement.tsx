@@ -357,8 +357,8 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
     if (!isTypedEmail) return 'Add to project';
     switch (typedEmailState) {
       case 'loading': return 'Checking…';
-      case 'already_invited': return 'Invitation already sent';
-      case 'not_helix': return 'Send invitation';
+      case 'already_invited': return 'Invitation already created';
+      case 'not_helix': return 'Create invitation';
       case 'not_in_org': return 'Add to org and project';
       case 'in_org': return 'Add to project';
       default: return 'Add';
@@ -405,7 +405,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
         //    visible in the org members list.
         if (response.data?.invited) {
           setOrgAddSnackbarSeverity('info');
-          setOrgAddSnackbar(`${userReference} has been invited. They will gain access once they create their account.`);
+          setOrgAddSnackbar(`Invitation created for ${userReference}. They will gain access once they create their account.`);
           await Promise.all([
             orgTools.loadOrganization(effectiveOrganizationId),
             loadInvitations(),
@@ -758,7 +758,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                         </Box>
                         <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
                           <Chip
-                            label="Invite sent"
+                            label="Invitation created"
                             size="small"
                             sx={{
                               mr: 0.5,
@@ -1159,12 +1159,12 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
           )}
           {isTypedEmail && typedEmailState === 'already_invited' && (
             <Alert severity="warning" sx={{ mb: 2 }}>
-              An invitation has already been sent to this email. They will join the organization automatically when they register — no need to resend.
+              An invitation already exists for this email. They will join the organization automatically when they register.
             </Alert>
           )}
           {isTypedEmail && typedEmailState === 'not_helix' && (
             <Alert severity="info" sx={{ mb: 2 }}>
-              No Helix account exists for this email yet. Confirming will email them an invitation — they will join the organization automatically when they register.
+              No Helix account exists for this email yet. They will join the organization automatically when they register.
             </Alert>
           )}
           {isTypedEmail && typedEmailState === 'not_in_org' && (

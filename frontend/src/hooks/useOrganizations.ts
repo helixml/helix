@@ -361,7 +361,7 @@ export default function useOrganizations(): IOrganizationTools {
 
       const response = await api.getApiClient().v1OrganizationsMembersCreate(organizationId, request)
       if (response.data?.invited) {
-        snackbar.success(`Invitation sent to ${userReference}`)
+        snackbar.success(`Invitation created for ${userReference}`)
       } else {
         snackbar.success('Member added')
       }
