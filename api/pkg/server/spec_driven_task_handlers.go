@@ -1263,13 +1263,18 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	// pre-start assignment.
 	task.AssigneeID = user.ID
 
-	// A launch can fail after its session row was claimed but before a sandbox
-	// exists. An explicit retry must release that stale claim or the next launch
-	// will correctly lose the atomic session race and stop before StartDesktop.
+	// A failed launch may still have created a desktop and session key. Tear it
+	// down before releasing the session claim for an explicit retry.
 	stalePlanningSessionID := ""
 	if task.PlanningSessionID != "" && task.Metadata != nil {
 		if errorMessage, ok := task.Metadata["error"].(string); ok && strings.TrimSpace(errorMessage) != "" {
 			stalePlanningSessionID = task.PlanningSessionID
+			if err := s.stopSessionAgent(ctx, stalePlanningSessionID, "retrying failed spec task"); err != nil {
+				log.Warn().Err(err).Str("task_id", task.ID).Str("session_id", stalePlanningSessionID).
+					Msg("Failed to stop agent session before retrying task")
+				http.Error(w, "failed to stop agent session", http.StatusInternalServerError)
+				return
+			}
 			task.PlanningSessionID = ""
 			task.ExternalAgentID = ""
 			task.ZedInstanceID = ""
@@ -1355,6 +1360,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.Status == types.TaskStatusPreparing {
 		http.Error(w, "preparing is an internal task status", http.StatusBadRequest)
 		return
+	}
+	resetPlanningSessionID := ""
+	if updateReq.Status == types.TaskStatusBacklog {
+		resetPlanningSessionID = task.PlanningSessionID
 	}
 
 	// Update fields if provided
@@ -1459,6 +1468,15 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 				continue
 			}
 			task.DependsOn = append(task.DependsOn, types.SpecTask{ID: dependsOnID})
+		}
+	}
+
+	if resetPlanningSessionID != "" {
+		if err := s.stopSessionAgent(ctx, resetPlanningSessionID, "spec task reset to backlog"); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Str("session_id", resetPlanningSessionID).
+				Msg("Failed to stop agent session before resetting task")
+			http.Error(w, "failed to stop agent session", http.StatusInternalServerError)
+			return
 		}
 	}
 
