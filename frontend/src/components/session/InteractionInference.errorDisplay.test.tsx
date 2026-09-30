@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InteractionInference } from "./InteractionInference";
 
-const { navigate, wallet } = vi.hoisted(() => ({
+const { navigate, params, wallet } = vi.hoisted(() => ({
   navigate: vi.fn(),
+  params: { org_id: "org_1", bot_id: "chief-of-staff" },
   wallet: { balance: 0 },
 }));
 
@@ -26,7 +27,7 @@ vi.mock("../../hooks/useAccount", () => ({
   default: () => ({ user: { id: "usr_1" }, admin: false, serverConfig: {} }),
 }));
 vi.mock("../../hooks/useRouter", () => ({
-  default: () => ({ navigate, params: { org_id: "org_1" } }),
+  default: () => ({ navigate, params }),
 }));
 vi.mock("../../services/interactionsService", () => ({
   useUpdateInteractionFeedback: () => ({ updateFeedback: vi.fn() }),
@@ -48,6 +49,8 @@ const baseProps = {
 
 describe("InteractionInference error display", () => {
   beforeEach(() => {
+    params.org_id = "org_1";
+    params.bot_id = "chief-of-staff";
     wallet.balance = 0;
     navigate.mockClear();
   });
@@ -116,14 +119,53 @@ describe("InteractionInference error display", () => {
   });
 
   it("does not offer credits for unrelated failures", () => {
-    render(<InteractionInference {...baseProps} error="agent turn timed out" />);
+    render(
+      <InteractionInference
+        {...baseProps}
+        error="configured NativeAgent model did not become available within 15s"
+      />,
+    );
 
     expect(
       screen.getByText("We couldn’t complete that request"),
     ).toBeInTheDocument();
-    expect(screen.getByText("agent turn timed out")).toBeInTheDocument();
+    expect(
+      screen.getByText("configured NativeAgent model did not become available within 15s"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Add credits" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([
+    "Agent startup failed: failed to fetch config: status 422: provider \"openai\" is not enabled for coding-agent runtime \"codex_cli\" in this organization",
+    "This agent's provider is not available to the organization. Configure the provider for the organization, then select it again in the agent settings.",
+  ])("links bot provider errors to its settings", (error) => {
+    render(<InteractionInference {...baseProps} error={error} />);
+
+    expect(screen.getByText("Provider setup required")).toBeInTheDocument();
+    expect(
+      screen.getByText("Configure this bot's provider and model."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Configure provider" }));
+    expect(navigate).toHaveBeenCalledWith("helix_org_bot_detail", {
+      org_id: "org_1",
+      bot_id: "chief-of-staff",
+    });
+  });
+
+  it("keeps provider errors unchanged outside bot chat", () => {
+    params.bot_id = "";
+    const error = "provider \"openai\" is not enabled for coding-agent runtime \"codex_cli\" in this organization";
+
+    render(<InteractionInference {...baseProps} error={error} />);
+
+    expect(screen.getByText("We couldn’t complete that request")).toBeInTheDocument();
+    expect(screen.getByText(error)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Configure provider" }),
     ).not.toBeInTheDocument();
   });
 
