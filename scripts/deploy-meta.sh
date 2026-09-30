@@ -121,14 +121,16 @@ fi
 
 sandbox_changed=false
 if [[ -z "$deployed_helix_sha" ]] || ! git diff --quiet "$deployed_helix_sha" "$TARGET_SHA" -- \
-  .dockerignore Dockerfile.sandbox stack go.mod go.sum api/ sandbox/ \
+  .dockerignore Dockerfile.sandbox go.mod go.sum sandbox/ sandbox-images/ \
+  api/cmd/{hydra,sandbox-heartbeat,compose-manager,inference-proxy}/ \
+  api/pkg/{composemgr,data,gpudetect,hydra,inferenceproxy,revdial,runner/composeparse,runner/gpuarch,system,types,util/error,util/prometheus}/ \
   desktop/sway-config/setup-telemetry-firewall.sh; then
   sandbox_changed=true
 fi
 
-if [[ "$zed_changed" == true || "$sandbox_changed" == true ]]; then
+if [[ "$sandbox_changed" == true ]]; then
   ./stack build-sandbox
-elif [[ "$ubuntu_changed" == true ]]; then
+elif [[ "$zed_changed" == true || "$ubuntu_changed" == true ]]; then
   ./stack build-ubuntu
 else
   echo "Zed, Ubuntu, and sandbox inputs unchanged; skipping image builds"
