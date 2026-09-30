@@ -1433,7 +1433,28 @@ function build-sandbox() {
   echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
   cleanup_sandbox_orphans
   docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
-  docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+
+  local sandbox_started=false
+  local sandbox_container_id
+  for attempt in 1 2; do
+    if docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" up -d "$SANDBOX_SERVICE"; then
+      sandbox_container_id=$(docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" ps -q "$SANDBOX_SERVICE" | head -n1 || true)
+      if [[ -n "$sandbox_container_id" ]] &&
+        [[ $(docker inspect --format '{{.State.Running}}' "$sandbox_container_id" 2>/dev/null) == true ]]; then
+        SANDBOX_CONTAINER=$sandbox_container_id
+        sandbox_started=true
+        break
+      fi
+    fi
+    if [[ "$attempt" == 1 ]]; then
+      echo "Sandbox did not start; retrying once..." >&2
+      cleanup_sandbox_orphans
+    fi
+  done
+  if [[ "$sandbox_started" != true ]]; then
+    echo "Sandbox failed to start after 2 attempts" >&2
+    return 1
+  fi
 
   echo "✅ Sandbox container rebuilt and restarted"
 

@@ -5,9 +5,24 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/types"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 )
+
+const metricsStoreTimeout = 2 * time.Second
+
+func desktopHostAvailable(hosts []*types.SandboxInstance, now time.Time) float64 {
+	cutoff := now.Add(-config.DefaultSandboxDispatchStaleThreshold)
+	for _, host := range hosts {
+		if host.Status == sandboxInstanceStatusOnline && host.LastSeen.After(cutoff) && host.CanHostDesktop() {
+			return 1
+		}
+	}
+	return 0
+}
 
 // startMetricsListener starts a dedicated Prometheus /metrics HTTP server on
 // Cfg.WebServer.MetricsListen, if configured. It is intentionally kept OFF the
@@ -22,8 +37,22 @@ func (apiServer *HelixAPIServer) startMetricsListener(ctx context.Context) {
 	if addr == "" {
 		return
 	}
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "helix_sandbox_desktop_host_available",
+		Help: "Whether at least one online, recently heartbeating sandbox host can run streamed desktops.",
+	}, func() float64 {
+		queryCtx, cancel := context.WithTimeout(ctx, metricsStoreTimeout)
+		defer cancel()
+		hosts, err := apiServer.Store.ListSandboxInstances(queryCtx)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to collect sandbox desktop host availability metric")
+			return 0
+		}
+		return desktopHostAvailable(hosts, time.Now())
+	}))
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/metrics", promhttp.HandlerFor(prometheus.Gatherers{prometheus.DefaultGatherer, registry}, promhttp.HandlerOpts{}))
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,

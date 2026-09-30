@@ -129,6 +129,7 @@ if [[ -z "$deployed_helix_sha" ]] || ! git diff --quiet "$deployed_helix_sha" "$
 fi
 
 if [[ "$sandbox_changed" == true ]]; then
+  sandbox_build_started_ns=$(date -u +%s%N)
   ./stack build-sandbox
 elif [[ "$zed_changed" == true || "$ubuntu_changed" == true ]]; then
   ./stack build-ubuntu
@@ -152,13 +153,46 @@ if [[ "$zed_changed" == true || "$ubuntu_changed" == true || "$sandbox_changed" 
   fi
 fi
 
+if [[ "$sandbox_changed" == true ]]; then
+  sandbox_image_id=$(docker image inspect helix-sandbox:latest --format '{{.Id}}')
+  if [[ $(docker inspect --format '{{.Image}}' "$sandbox_id") != "$sandbox_image_id" ]]; then
+    echo "Running sandbox is not the replacement built by this deployment" >&2
+    exit 1
+  fi
+  sandbox_started_at=$(docker inspect --format '{{.State.StartedAt}}' "$sandbox_id")
+  sandbox_started_ns=$(date -d "$sandbox_started_at" +%s%N)
+  sandbox_instance_id=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$sandbox_id" |
+    sed -n 's/^SANDBOX_INSTANCE_ID=//p')
+  if [[ ! "$sandbox_started_at" =~ ^[0-9TZ:+.-]+$ || ! "$sandbox_started_ns" =~ ^[0-9]+$ || ! "$sandbox_instance_id" =~ ^[[:alnum:]_.-]+$ ]]; then
+    echo "Invalid replacement sandbox identity or start time" >&2
+    exit 1
+  fi
+  if (( 10#$sandbox_started_ns < 10#$sandbox_build_started_ns )); then
+    echo "Running sandbox started before this deployment rebuilt it" >&2
+    exit 1
+  fi
+fi
+
 if [[ $(git rev-parse HEAD) != "$TARGET_SHA" ]]; then
   echo "Meta HEAD changed during deployment" >&2
   exit 1
 fi
 for _ in $(seq 1 60); do
+  api_healthy=false
+  sandbox_ready=true
   if curl -fsS --max-time 10 -D - -o /dev/null http://localhost:8080/api/v1/config \
     | grep -Eiq '^content-type:[[:space:]]*application/json([[:space:]]*;|[[:space:]]*$)'; then
+    api_healthy=true
+  fi
+  if [[ "$sandbox_changed" == true ]]; then
+    sandbox_ready=false
+    if [[ $(docker inspect --format '{{.State.Status}} {{.State.Health.Status}}' "$sandbox_id" 2>/dev/null) == "running healthy" ]] &&
+      [[ $(docker exec helix-postgres-1 psql -U postgres -d postgres -tAqc \
+        "SELECT EXISTS (SELECT 1 FROM sandbox_instances WHERE id = '$sandbox_instance_id' AND status = 'online' AND last_seen >= '$sandbox_started_at'::timestamptz)") == t ]]; then
+      sandbox_ready=true
+    fi
+  fi
+  if [[ "$api_healthy" == true && "$sandbox_ready" == true ]]; then
     mkdir -p "$(dirname "$STATE_FILE")"
     state_tmp=$(mktemp "$STATE_FILE.XXXXXX")
     printf '%s %s\n' "$TARGET_SHA" "$ZED_SHA_AFTER" > "$state_tmp"
@@ -168,6 +202,10 @@ for _ in $(seq 1 60); do
   fi
   sleep 5
 done
-echo "Meta did not become healthy at $TARGET_SHA" >&2
+if [[ "$sandbox_changed" == true ]]; then
+  echo "Meta replacement sandbox did not become healthy and register a fresh heartbeat" >&2
+else
+  echo "Meta did not become healthy at $TARGET_SHA" >&2
+fi
 exit 1
 REMOTE
