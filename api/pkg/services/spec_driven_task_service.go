@@ -1358,17 +1358,19 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			return fmt.Errorf("default branch not set for repository, please set it")
 		}
 
+		effectiveBaseBranch := TaskTargetBranch(repo, task, project.DefaultRepoID)
+
 		if repo.ExternalURL != "" {
-			log.Info().Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Msg("ApproveSpecs: syncing base branch from remote")
+			log.Info().Str("repo_id", repo.ID).Str("branch", effectiveBaseBranch).Msg("ApproveSpecs: syncing base branch from remote")
 
 			// Use SyncBaseBranch which handles divergence detection
-			err = s.gitRepositoryService.SyncBaseBranch(ctx, repo.ID, repo.DefaultBranch)
+			err = s.gitRepositoryService.SyncBaseBranch(ctx, repo.ID, effectiveBaseBranch)
 			if err != nil {
 				// Check for divergence error and format a user-friendly message
 				if divergeErr := GetBranchDivergenceError(err); divergeErr != nil {
 					return fmt.Errorf("%s", FormatDivergenceErrorForUser(divergeErr, repo.Name))
 				}
-				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Msg("Failed to sync from remote")
+				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", effectiveBaseBranch).Msg("Failed to sync from remote")
 				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", repo.ExternalURL, err)
 			}
 		}
@@ -1376,14 +1378,10 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// implementation_queued is a durable pending-handoff marker. Retries
 		// reuse the branch claimed by the first approver.
 		var branchName string
-		effectiveBaseBranch := repo.DefaultBranch
 		if task.Status == types.TaskStatusImplementationQueued {
 			branchName = task.BranchName
 			if branchName == "" {
 				return fmt.Errorf("implementation handoff is missing its branch name")
-			}
-			if task.BaseBranch != "" {
-				effectiveBaseBranch = task.BaseBranch
 			}
 		} else if task.BranchMode == types.BranchModeExisting && task.BranchName != "" {
 			// Existing mode: use the branch name that was set during task creation
@@ -1404,9 +1402,6 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			// Set base branch if not already set
 			if task.BaseBranch == "" {
 				task.BaseBranch = repo.DefaultBranch
-			}
-			if task.BranchMode == types.BranchModeNew {
-				effectiveBaseBranch = task.BaseBranch
 			}
 		}
 

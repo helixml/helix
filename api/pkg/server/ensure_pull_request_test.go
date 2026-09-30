@@ -309,15 +309,15 @@ func TestEnsurePullRequestForRepo_422AlreadyExistsRecovery(t *testing.T) {
 	assert.Equal(t, 2, listCallCount, "ListPullRequests should be called twice: once before create, once after 'already exists'")
 }
 
-func TestPullRequestTargetBranch(t *testing.T) {
+func TestTaskTargetBranch(t *testing.T) {
 	task := &types.SpecTask{BaseBranch: "develop"}
 	primary := &types.GitRepository{ID: "primary", DefaultBranch: "main"}
 	secondary := &types.GitRepository{ID: "secondary", DefaultBranch: "release"}
 
-	assert.Equal(t, "develop", services.PullRequestTargetBranch(primary, task, primary.ID))
-	assert.Equal(t, "release", services.PullRequestTargetBranch(secondary, task, primary.ID))
+	assert.Equal(t, "develop", services.TaskTargetBranch(primary, task, primary.ID))
+	assert.Equal(t, "release", services.TaskTargetBranch(secondary, task, primary.ID))
 	task.BaseBranch = ""
-	assert.Equal(t, "main", services.PullRequestTargetBranch(primary, task, primary.ID))
+	assert.Equal(t, "main", services.TaskTargetBranch(primary, task, primary.ID))
 }
 
 func TestEnsurePullRequestForRepo_ConcurrentCallsCreateOnce(t *testing.T) {
