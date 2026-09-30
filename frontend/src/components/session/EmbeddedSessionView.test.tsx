@@ -57,7 +57,9 @@ vi.mock('./Interaction', () => ({
 vi.mock('./InteractionLiveStream', () => ({ default: () => null }))
 vi.mock('./PausedBanner', () => ({ default: () => null }))
 vi.mock('./ForkBadge', () => ({ default: () => null }))
-vi.mock('./ChatTurnNavigator', () => ({ default: () => null }))
+vi.mock('./ChatTurnNavigator', () => ({
+  default: () => <div data-testid="chat-turn-navigator" />,
+}))
 
 const triggerResize = (element: Element, height: number) => {
   const callback = resizeCallbacks.get(element)
@@ -161,5 +163,35 @@ describe('EmbeddedSessionView follow-latest behavior', () => {
 
     expect(scrollContainer.scrollTop).toBe(650)
     expect(screen.getByRole('button', { name: 'Jump to latest' })).toBeInTheDocument()
+  })
+})
+
+describe('EmbeddedSessionView turn navigator visibility', () => {
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      disconnect() {}
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const renderView = (minimal?: boolean) =>
+    render(
+      <ThemeProvider theme={createTheme({ palette: { mode: 'dark' } })}>
+        <EmbeddedSessionView sessionId="session-1" minimal={minimal} />
+      </ThemeProvider>,
+    )
+
+  it('renders the turn navigator in the full app', () => {
+    renderView()
+    expect(screen.getByTestId('chat-turn-navigator')).toBeInTheDocument()
+  })
+
+  it('hides the turn navigator in the minimal embed', () => {
+    renderView(true)
+    expect(screen.queryByTestId('chat-turn-navigator')).not.toBeInTheDocument()
   })
 })

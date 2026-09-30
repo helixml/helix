@@ -764,11 +764,15 @@ const EmbeddedSessionView = forwardRef<
         </Box>
       </Box>
 
-      <ChatTurnNavigator
-        items={navigatorItems}
-        scrollContainer={scrollContainerEl}
-        onSelect={handleNavigateToTurn}
-      />
+      {/* The turn navigator's dash/tick markers read as a stray glyph in the
+          customer-facing minimal embed, so it is only shown in the full app. */}
+      {!minimal && (
+        <ChatTurnNavigator
+          items={navigatorItems}
+          scrollContainer={scrollContainerEl}
+          onSelect={handleNavigateToTurn}
+        />
+      )}
 
       {/* Jump-to-latest pill (bottom-center, only when content arrived while
           the user was reading above the latest message) */}
