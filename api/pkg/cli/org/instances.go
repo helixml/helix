@@ -107,7 +107,10 @@ func newInstancesCreateCmd() *cobra.Command {
 				return err
 			}
 			idleSeconds := 0
-			if idleTimeout > 0 {
+			if cmd.Flags().Changed("idle-timeout") {
+				if idleTimeout <= 0 {
+					return fmt.Errorf("--idle-timeout must be between 5m and 7d (e.g. 15m); omit the flag to inherit the bot profile or deployment default")
+				}
 				idleSeconds = int(idleTimeout.Seconds())
 				if _, err := types.NormalizeBotInstanceIdleTimeout(idleSeconds); err != nil {
 					return err
