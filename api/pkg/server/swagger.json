@@ -24363,6 +24363,10 @@
                 "disk_size_gb": {
                     "type": "integer"
                 },
+                "idle_timeout_seconds": {
+                    "description": "IdleTimeoutSeconds is the instance's own idle override; 0 means the\ndeployment's HELIX_DESKTOP_IDLE_TIMEOUT applies.",
+                    "type": "integer"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -24448,6 +24452,10 @@
             "properties": {
                 "disk_size_gb": {
                     "description": "DiskSizeGB is the persistent home filesystem capacity. Omitted defaults\nto 10 GB; accepted values are 1-1000.",
+                    "type": "integer"
+                },
+                "idle_timeout_seconds": {
+                    "description": "IdleTimeoutSeconds overrides the bot profile's (and the deployment's)\nidle timeout for this instance: the sandbox is stopped after this many\nseconds without interaction activity. 0 inherits the profile. Accepted\nrange 300 (5m) to 604800 (7d).",
                     "type": "integer"
                 },
                 "message": {
@@ -29223,24 +29231,24 @@
         "transport.Kind": {
             "type": "string",
             "enum": [
+                "gitlab",
+                "cron",
+                "webhook",
+                "helix_events",
                 "local",
                 "email",
-                "cron",
-                "helix_events",
-                "webhook",
                 "slack",
-                "github",
-                "gitlab"
+                "github"
             ],
             "x-enum-varnames": [
+                "KindGitLab",
+                "KindCron",
+                "KindWebhook",
+                "KindHelixEvents",
                 "KindLocal",
                 "KindEmail",
-                "KindCron",
-                "KindHelixEvents",
-                "KindWebhook",
                 "KindSlack",
-                "KindGitHub",
-                "KindGitLab"
+                "KindGitHub"
             ]
         },
         "transport.ResolvedActivation": {
@@ -30855,6 +30863,10 @@
                 "helix_skills": {
                     "description": "HelixSkills links the helix-* agent skills. The project repo's own\nskills are always linked.",
                     "type": "boolean"
+                },
+                "idle_timeout_seconds": {
+                    "description": "IdleTimeoutSeconds overrides HELIX_DESKTOP_IDLE_TIMEOUT for instances\nstarted with this profile: the sandbox is stopped after this many\nseconds without interaction activity. 0 inherits the deployment\ndefault. Accepted range 300 (5m) to 604800 (7d).",
+                    "type": "integer"
                 },
                 "mcp_servers": {
                     "description": "MCPServers lists the context servers kept in an instance's agent\nconfig: built-in names above or the bot project's own MCP servers.\nEvery other server is removed.",

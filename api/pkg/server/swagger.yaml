@@ -269,6 +269,11 @@ definitions:
         type: string
       disk_size_gb:
         type: integer
+      idle_timeout_seconds:
+        description: |-
+          IdleTimeoutSeconds is the instance's own idle override; 0 means the
+          deployment's HELIX_DESKTOP_IDLE_TIMEOUT applies.
+        type: integer
       name:
         type: string
       owner:
@@ -333,6 +338,13 @@ definitions:
         description: |-
           DiskSizeGB is the persistent home filesystem capacity. Omitted defaults
           to 10 GB; accepted values are 1-1000.
+        type: integer
+      idle_timeout_seconds:
+        description: |-
+          IdleTimeoutSeconds overrides the bot profile's (and the deployment's)
+          idle timeout for this instance: the sandbox is stopped after this many
+          seconds without interaction activity. 0 inherits the profile. Accepted
+          range 300 (5m) to 604800 (7d).
         type: integer
       message:
         description: Message is queued as the instance's first turn.
@@ -3731,24 +3743,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
+    - gitlab
+    - cron
+    - webhook
+    - helix_events
     - local
     - email
-    - cron
-    - helix_events
-    - webhook
     - slack
     - github
-    - gitlab
     type: string
     x-enum-varnames:
+    - KindGitLab
+    - KindCron
+    - KindWebhook
+    - KindHelixEvents
     - KindLocal
     - KindEmail
-    - KindCron
-    - KindHelixEvents
-    - KindWebhook
     - KindSlack
     - KindGitHub
-    - KindGitLab
   transport.ResolvedActivation:
     properties:
       address:
@@ -4941,6 +4953,13 @@ definitions:
           HelixSkills links the helix-* agent skills. The project repo's own
           skills are always linked.
         type: boolean
+      idle_timeout_seconds:
+        description: |-
+          IdleTimeoutSeconds overrides HELIX_DESKTOP_IDLE_TIMEOUT for instances
+          started with this profile: the sandbox is stopped after this many
+          seconds without interaction activity. 0 inherits the deployment
+          default. Accepted range 300 (5m) to 604800 (7d).
+        type: integer
       mcp_servers:
         description: |-
           MCPServers lists the context servers kept in an instance's agent

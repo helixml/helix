@@ -28,9 +28,7 @@ func RunDesktopIdleChecker(ctx context.Context, executor Executor, st store.Stor
 }
 
 func checkAndStopIdleDesktops(ctx context.Context, executor Executor, st store.Store, idleTimeout time.Duration) {
-	idleSince := time.Now().Add(-idleTimeout)
-
-	sessions, err := st.ListIdleDesktops(ctx, idleSince)
+	sessions, err := st.ListIdleDesktops(ctx, time.Now().UTC(), idleTimeout)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to list idle desktops")
 		return
