@@ -711,10 +711,13 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	// The 30s bound is for the LOOKUP only. It used to bound the whole proxied
+	// request too, which put a 30-second ceiling on every request to every
+	// Helix-hosted web service — a slow API call, a long upload, an SSE stream.
+	lookupCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	container, err := s.devContainerManager.GetDevContainer(ctx, sessionID)
+	container, err := s.devContainerManager.GetDevContainer(lookupCtx, sessionID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("dev container not found: %s", err), http.StatusNotFound)
 		return
@@ -758,7 +761,17 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	proxyReq, err := http.NewRequestWithContext(ctx, r.Method, targetURL, r.Body)
+	forwardToDevContainer(w, r, targetURL, sessionID, port)
+}
+
+// forwardToDevContainer proxies one plain HTTP request to a hosted web
+// service and streams the answer back. Split out of handleDevContainerProxy so
+// the timing behaviour can be tested without a dev container behind it.
+func forwardToDevContainer(w http.ResponseWriter, r *http.Request, targetURL, sessionID string, port int) {
+	// Bounded by the CLIENT: if the browser goes away, r.Context() is
+	// cancelled and so is this. What the upstream may take is bounded by the
+	// transport's header timeout, not by a flat wall-clock cap.
+	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to create proxy request: %s", err), http.StatusInternalServerError)
 		return
@@ -783,7 +796,13 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 	}
 
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		// NO overall Timeout. It covered reading the body as well, so it capped
+		// every response at 30s end to end. Found on we-find.ai, a Helix-hosted
+		// site, 30 Sept 2026: a CV parse or advert generation taking 32s came
+		// back as this proxy's 502 → the branded "Starting up" page at exactly
+		// 30.3s, while the same call made directly to its backend returned 200.
+		// That is the "Match service unavailable" from the Find AI demo.
+		Transport: devContainerProxyTransport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -813,6 +832,9 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 
 	w.WriteHeader(resp.StatusCode)
 
+	// Flush as we go, so a streamed response (SSE, chunked progress) reaches
+	// the client as it is produced rather than when it finishes.
+	flusher, _ := w.(http.Flusher)
 	buf := make([]byte, 32*1024)
 	for {
 		n, readErr := resp.Body.Read(buf)
@@ -820,11 +842,31 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
 				break
 			}
+			if flusher != nil {
+				flusher.Flush()
+			}
 		}
 		if readErr != nil {
 			break
 		}
 	}
+}
+
+// devContainerProxyResponseHeaderTimeout bounds how long a hosted web service
+// may take to START answering. Generous, because an API route can legitimately
+// wait on a model for a minute or two before writing a byte; bounded, so a
+// wedged upstream cannot hold a proxy connection forever. Once headers arrive
+// the body streams for as long as the client stays connected.
+const devContainerProxyResponseHeaderTimeout = 10 * time.Minute
+
+// devContainerProxyTransport is shared so connections to a container are
+// reused across requests.
+var devContainerProxyTransport = &http.Transport{
+	Proxy:                 nil,
+	DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+	ResponseHeaderTimeout: devContainerProxyResponseHeaderTimeout,
+	IdleConnTimeout:       90 * time.Second,
+	MaxIdleConnsPerHost:   16,
 }
 
 // inferenceProxyAddr is the host:port of the local inference-proxy process
