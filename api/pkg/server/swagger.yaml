@@ -3120,6 +3120,13 @@ definitions:
           $ref: '#/definitions/server.SandboxTerminalSession'
         type: array
     type: object
+  server.SecretIntakeConsumption:
+    properties:
+      values:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
   server.SecretIntakeCreateResponse:
     properties:
       intake:
@@ -3724,24 +3731,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - webhook
-    - email
-    - github
-    - gitlab
     - local
+    - email
     - cron
     - helix_events
+    - webhook
     - slack
+    - github
+    - gitlab
     type: string
     x-enum-varnames:
-    - KindWebhook
-    - KindEmail
-    - KindGitHub
-    - KindGitLab
     - KindLocal
+    - KindEmail
     - KindCron
     - KindHelixEvents
+    - KindWebhook
     - KindSlack
+    - KindGitHub
+    - KindGitLab
   transport.ResolvedActivation:
     properties:
       address:
@@ -23968,6 +23975,40 @@ paths:
       security:
       - BearerAuth: []
       summary: Get secret intake status
+      tags:
+      - Secret Intakes
+  /api/v1/projects/{id}/secret-intakes/{intake_id}/consume:
+    post:
+      description: 'One-time read for trusted integrations: returns the submitted
+        values and clears the stored ciphertext atomically. A failed or repeated call
+        cannot read them again.'
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SecretIntakeConsumption'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Consume secret intake values
       tags:
       - Secret Intakes
   /api/v1/projects/{id}/secret-intakes/{intake_id}/submissions:

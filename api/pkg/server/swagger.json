@@ -14690,6 +14690,56 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/secret-intakes/{intake_id}/consume": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "One-time read for trusted integrations: returns the submitted values and clears the stored ciphertext atomically. A failed or repeated call cannot read them again.",
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Consume secret intake values",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeConsumption"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/secret-intakes/{intake_id}/submissions": {
             "post": {
                 "security": [
@@ -28325,6 +28375,17 @@
                 }
             }
         },
+        "server.SecretIntakeConsumption": {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "server.SecretIntakeCreateResponse": {
             "type": "object",
             "properties": {
@@ -29162,24 +29223,24 @@
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "webhook",
-                "email",
-                "github",
-                "gitlab",
                 "local",
+                "email",
                 "cron",
                 "helix_events",
-                "slack"
+                "webhook",
+                "slack",
+                "github",
+                "gitlab"
             ],
             "x-enum-varnames": [
-                "KindWebhook",
-                "KindEmail",
-                "KindGitHub",
-                "KindGitLab",
                 "KindLocal",
+                "KindEmail",
                 "KindCron",
                 "KindHelixEvents",
-                "KindSlack"
+                "KindWebhook",
+                "KindSlack",
+                "KindGitHub",
+                "KindGitLab"
             ]
         },
         "transport.ResolvedActivation": {

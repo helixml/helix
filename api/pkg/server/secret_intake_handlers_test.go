@@ -12,8 +12,11 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func secretIntakeTestServer(t *testing.T) *HelixAPIServer {
@@ -31,7 +34,7 @@ func intakeOperatorRequest(method, path, body, projectID, intakeID string) *http
 func TestSecretIntakeBrowserAndConsumption(t *testing.T) {
 	s := secretIntakeTestServer(t)
 	input := types.SecretIntakeCreateRequest{CustomerID: "cust_1", ConversationID: "conv_1", Title: "Connect portal", Fields: []types.SecretIntakeField{{Name: "username", Label: "Username", Type: "text", Required: true}, {Name: "password", Label: "Password", Type: "password", Required: true}}}
-	view, link, err := s.createSecretIntake(t.Context(), "prj_test", input)
+	view, link, err := s.createSecretIntake(t.Context(), "prj_test", input, "")
 	require.NoError(t, err)
 	require.Equal(t, "pending", view.Status)
 	require.NotContains(t, link, "password")
@@ -102,7 +105,7 @@ func TestSecretIntakeBrowserAndConsumption(t *testing.T) {
 	}))
 	require.True(t, consumed)
 	require.Error(t, s.ConsumeSecretIntake(t.Context(), "prj_test", view.ID, func(map[string]string) error { return nil }))
-	newView, _, err := s.createSecretIntake(t.Context(), "prj_test", input)
+	newView, _, err := s.createSecretIntake(t.Context(), "prj_test", input, "")
 	require.NoError(t, err)
 	newPath := "/api/v1/projects/prj_test/secret-intakes/" + newView.ID + "/submissions"
 	newSubmission := httptest.NewRecorder()
@@ -115,10 +118,59 @@ func TestSecretIntakeBrowserAndConsumption(t *testing.T) {
 	require.Empty(t, item.ValuesEncrypted)
 }
 
+func TestSecretIntakeConsumeEndpoint(t *testing.T) {
+	s := secretIntakeTestServer(t)
+	input := types.SecretIntakeCreateRequest{CustomerID: "cust", ConversationID: "conv", Title: "Connect portal", Fields: []types.SecretIntakeField{{Name: "username", Label: "Username", Type: "text", Required: true}, {Name: "password", Label: "Password", Type: "password", Required: true}}}
+	view, _, err := s.createSecretIntake(t.Context(), "prj_test", input, "")
+	require.NoError(t, err)
+	path := "/api/v1/projects/prj_test/secret-intakes/" + view.ID + "/consume"
+	missing := httptest.NewRecorder()
+	s.consumeSecretIntakeAPI(missing, intakeOperatorRequest(http.MethodPost, path, "", "prj_test", "sci_missing"))
+	require.Equal(t, http.StatusNotFound, missing.Code)
+	pending := httptest.NewRecorder()
+	s.consumeSecretIntakeAPI(pending, intakeOperatorRequest(http.MethodPost, path, "", "prj_test", view.ID))
+	require.Equal(t, http.StatusConflict, pending.Code)
+	cross := httptest.NewRecorder()
+	s.consumeSecretIntakeAPI(cross, intakeOperatorRequest(http.MethodPost, path, "", "prj_other", view.ID))
+	require.Equal(t, http.StatusNotFound, cross.Code)
+	submitPath := "/api/v1/projects/prj_test/secret-intakes/" + view.ID + "/submissions"
+	submit := httptest.NewRecorder()
+	s.submitSecretIntakeAPI(submit, intakeOperatorRequest(http.MethodPost, submitPath, `{"values":{"username":"alice","password":"secret-789"}}`, "prj_test", view.ID))
+	require.Equal(t, http.StatusNoContent, submit.Code)
+	consume := httptest.NewRecorder()
+	s.consumeSecretIntakeAPI(consume, intakeOperatorRequest(http.MethodPost, path, "", "prj_test", view.ID))
+	require.Equal(t, http.StatusOK, consume.Code)
+	require.Contains(t, consume.Body.String(), `"username":"alice"`)
+	require.Contains(t, consume.Body.String(), `"password":"secret-789"`)
+	repeat := httptest.NewRecorder()
+	s.consumeSecretIntakeAPI(repeat, intakeOperatorRequest(http.MethodPost, path, "", "prj_test", view.ID))
+	require.Equal(t, http.StatusConflict, repeat.Code)
+	require.NotContains(t, repeat.Body.String(), "secret-789")
+	item, err := s.Store.GetSecretIntake(t.Context(), "prj_test", view.ID)
+	require.NoError(t, err)
+	require.Equal(t, "consumed", item.Status)
+	require.Empty(t, item.ValuesEncrypted)
+}
+
+func TestSecretIntakeWakeRouting(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+	s := &HelixAPIServer{Store: mockStore, Cfg: &config.ServerConfig{WebServer: config.WebServer{URL: "http://localhost:8080"}}}
+
+	// No session bound (project-API create) — no store calls, no wake.
+	s.notifySecretIntakeSubmitted(t.Context(), &types.SecretIntake{ID: "sci_no_session", ProjectID: "prj_test"})
+
+	// Session bound but from another project — the wake must not fire.
+	item := &types.SecretIntake{ID: "sci_cross", ProjectID: "prj_test", SessionID: "ses_other_project"}
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_other_project").Return(&types.Session{ID: "ses_other_project", ProjectID: "prj_other"}, nil)
+	s.notifySecretIntakeSubmitted(t.Context(), item)
+}
+
 func TestSecretIntakeDirectAPIAndValidation(t *testing.T) {
 	s := secretIntakeTestServer(t)
 	input := types.SecretIntakeCreateRequest{CustomerID: "cust", ConversationID: "conv", Title: "API key", Fields: []types.SecretIntakeField{{Name: "api_key", Label: "API key", Type: "password", Required: true}}}
-	view, _, err := s.createSecretIntake(t.Context(), "prj_test", input)
+	view, _, err := s.createSecretIntake(t.Context(), "prj_test", input, "")
 	require.NoError(t, err)
 	path := "/api/v1/projects/prj_test/secret-intakes/" + view.ID + "/submissions"
 	wrong := httptest.NewRecorder()
@@ -139,17 +191,17 @@ func TestSecretIntakeLogoBranding(t *testing.T) {
 
 	bad := base
 	bad.LogoURL = "http://cdn.example.com/logo.png"
-	_, _, err := s.createSecretIntake(t.Context(), "prj_test", bad)
+	_, _, err := s.createSecretIntake(t.Context(), "prj_test", bad, "")
 	require.Error(t, err)
 
 	relative := base
 	relative.LogoURL = "/logo.png"
-	_, _, err = s.createSecretIntake(t.Context(), "prj_test", relative)
+	_, _, err = s.createSecretIntake(t.Context(), "prj_test", relative, "")
 	require.Error(t, err)
 
 	ok := base
 	ok.LogoURL = "https://cdn.example.com/logo.svg"
-	view, link, err := s.createSecretIntake(t.Context(), "prj_test", ok)
+	view, link, err := s.createSecretIntake(t.Context(), "prj_test", ok, "")
 	require.NoError(t, err)
 
 	token := strings.Split(link, "#")[1]
@@ -167,7 +219,7 @@ func TestSecretIntakeLogoBranding(t *testing.T) {
 func TestSecretIntakeURLOverrides(t *testing.T) {
 	s := secretIntakeTestServer(t)
 	input := types.SecretIntakeCreateRequest{CustomerID: "cust", ConversationID: "conv", Title: "Connect", AccentColor: "#111111", Fields: []types.SecretIntakeField{{Name: "api_key", Label: "API key", Type: "password", Required: true}}}
-	view, link, err := s.createSecretIntake(t.Context(), "prj_test", input)
+	view, link, err := s.createSecretIntake(t.Context(), "prj_test", input, "")
 	require.NoError(t, err)
 	token := strings.Split(link, "#")[1]
 	redeemInput, _ := json.Marshal(map[string]string{"intake_id": view.ID, "token": token})
@@ -195,7 +247,7 @@ func TestSecretIntakeURLOverrides(t *testing.T) {
 func TestSecretIntakeDefaultLogo(t *testing.T) {
 	s := secretIntakeTestServer(t)
 	input := types.SecretIntakeCreateRequest{CustomerID: "cust", ConversationID: "conv", Title: "Connect", Fields: []types.SecretIntakeField{{Name: "api_key", Label: "API key", Type: "password", Required: true}}}
-	view, link, err := s.createSecretIntake(t.Context(), "prj_test", input)
+	view, link, err := s.createSecretIntake(t.Context(), "prj_test", input, "")
 	require.NoError(t, err)
 	token := strings.Split(link, "#")[1]
 	redeemInput, _ := json.Marshal(map[string]string{"intake_id": view.ID, "token": token})

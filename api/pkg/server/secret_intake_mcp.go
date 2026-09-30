@@ -34,7 +34,9 @@ func (s *secretIntakeMCPService) Create(ctx context.Context, orgID, botID string
 	if err != nil {
 		return types.SecretIntakeCreateResult{}, err
 	}
-	view, link, err := s.api.createSecretIntake(ctx, projectID, input)
+	// Bind the intake to the requesting session (instance or bot main
+	// session) so the submission wake reaches the right conversation.
+	view, link, err := s.api.createSecretIntake(ctx, projectID, input, runtimehelix.SessionIDFromContext(ctx))
 	if err != nil {
 		return types.SecretIntakeCreateResult{}, err
 	}

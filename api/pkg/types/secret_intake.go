@@ -40,6 +40,10 @@ type SecretIntake struct {
 	ProjectID           string `gorm:"index;not null"`
 	CustomerID          string `gorm:"not null"`
 	ConversationID      string `gorm:"not null"`
+	// SessionID is the bot or instance session that requested the intake,
+	// set only on the MCP create path. It routes the "credentials
+	// submitted" wake message and is never exposed through any API view.
+	SessionID           string `gorm:"index" json:"-"`
 	Title               string `gorm:"not null"`
 	Description         string
 	BrandName           string              `gorm:"not null"`

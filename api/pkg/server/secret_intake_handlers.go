@@ -52,6 +52,12 @@ type SecretIntakeSubmissionRequest struct {
 	Values map[string]string `json:"values"`
 }
 
+// SecretIntakeConsumption is the one-time response of the consume endpoint.
+// It exists only for trusted bearer-key integrations; the model never sees it.
+type SecretIntakeConsumption struct {
+	Values map[string]string `json:"values"`
+}
+
 func (s *HelixAPIServer) secretIntakeEnabled() bool {
 	if !s.Cfg.ConnectPortal.SecretIntakeEnabled || os.Getenv("HELIX_ENCRYPTION_KEY") == "" || strings.TrimSpace(s.Cfg.WebServer.URL) == "" {
 		return false
@@ -143,7 +149,7 @@ func validateSecretIntakeInput(input *secretIntakeInput) error {
 	return nil
 }
 
-func (s *HelixAPIServer) createSecretIntake(ctx context.Context, projectID string, input secretIntakeInput) (SecretIntakeView, string, error) {
+func (s *HelixAPIServer) createSecretIntake(ctx context.Context, projectID string, input secretIntakeInput, sessionID string) (SecretIntakeView, string, error) {
 	if !s.secretIntakeEnabled() {
 		return SecretIntakeView{}, "", errors.New("secret intake is disabled")
 	}
@@ -166,7 +172,7 @@ func (s *HelixAPIServer) createSecretIntake(ctx context.Context, projectID strin
 		return SecretIntakeView{}, "", err
 	}
 	now := time.Now().UTC()
-	item := &types.SecretIntake{ID: "sci_" + system.GenerateUUID(), ProjectID: projectID, CustomerID: input.CustomerID, ConversationID: input.ConversationID, Title: input.Title, Description: input.Description, BrandName: input.BrandName, AccentColor: input.AccentColor, LogoURL: input.LogoURL, Fields: input.Fields, ArtifactID: input.ArtifactID, ArtifactBefore: artifactBefore, ArtifactAfter: artifactAfter, Status: "pending", InvitationHash: secretIntakeHash(token), InvitationExpiresAt: now.Add(secretIntakeInvitationTTL), CreatedAt: now, UpdatedAt: now}
+	item := &types.SecretIntake{ID: "sci_" + system.GenerateUUID(), ProjectID: projectID, CustomerID: input.CustomerID, ConversationID: input.ConversationID, SessionID: sessionID, Title: input.Title, Description: input.Description, BrandName: input.BrandName, AccentColor: input.AccentColor, LogoURL: input.LogoURL, Fields: input.Fields, ArtifactID: input.ArtifactID, ArtifactBefore: artifactBefore, ArtifactAfter: artifactAfter, Status: "pending", InvitationHash: secretIntakeHash(token), InvitationExpiresAt: now.Add(secretIntakeInvitationTTL), CreatedAt: now, UpdatedAt: now}
 	if err := s.Store.CreateSecretIntake(ctx, item); err != nil {
 		return SecretIntakeView{}, "", err
 	}
@@ -183,6 +189,7 @@ func (s *HelixAPIServer) registerSecretIntakeRoutes(router, authRouter *mux.Rout
 	authRouter.HandleFunc("/projects/{id}/secret-intakes/{intake_id}", s.getSecretIntake).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/secret-intakes/{intake_id}", s.revokeSecretIntake).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/secret-intakes/{intake_id}/submissions", s.submitSecretIntakeAPI).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/secret-intakes/{intake_id}/consume", s.consumeSecretIntakeAPI).Methods(http.MethodPost)
 }
 
 // @Summary Create a secret intake
@@ -213,7 +220,7 @@ func (s *HelixAPIServer) createSecretIntakeHTTP(w http.ResponseWriter, r *http.R
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	view, link, err := s.createSecretIntake(r.Context(), project.ID, input)
+	view, link, err := s.createSecretIntake(r.Context(), project.ID, input, "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -366,8 +373,63 @@ func (s *HelixAPIServer) submitSecretIntakeAPI(w http.ResponseWriter, r *http.Re
 		http.Error(w, "invalid or unavailable submission", http.StatusBadRequest)
 		return
 	}
+	s.notifySecretIntakeSubmitted(r.Context(), item)
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// notifySecretIntakeSubmitted wakes the bot session that requested the intake
+// so the agent can continue its runbook without the customer reporting back.
+// Delivery goes through the session prompt queue, which busy-defers while the
+// agent is mid-turn and delivers on idle. Fire-and-forget: a missed wake only
+// costs the customer one "submitted" reply.
+func (s *HelixAPIServer) notifySecretIntakeSubmitted(ctx context.Context, item *types.SecretIntake) {
+	if item.SessionID == "" {
+		return
+	}
+	session, err := s.Store.GetSession(ctx, item.SessionID)
+	if err != nil || session == nil || session.ProjectID != item.ProjectID {
+		log.Warn().Str("intake_id", item.ID).Str("session_id", item.SessionID).Msg("intake submitted: requesting session missing or project mismatch, skipping wake")
+		return
+	}
+	message := fmt.Sprintf("[helix connect] The customer just submitted the credentials you requested (intake %s, status: submitted). Continue with your sign-in step now — do not ask them to confirm again.", item.ID)
+	if _, err := s.enqueueAgentMessage(ctx, session.ID, message, false, "", ""); err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Str("intake_id", item.ID).Msg("intake submitted: wake dispatch failed")
+	}
+}
+
+// @Summary Consume secret intake values
+// @Description One-time read for trusted integrations: returns the submitted values and clears the stored ciphertext atomically. A failed or repeated call cannot read them again.
+// @Tags Secret Intakes
+// @Param id path string true "Project ID"
+// @Param intake_id path string true "Intake ID"
+// @Success 200 {object} SecretIntakeConsumption
+// @Failure 404 {object} types.APIError
+// @Failure 409 {object} types.APIError
+// @Router /api/v1/projects/{id}/secret-intakes/{intake_id}/consume [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) consumeSecretIntakeAPI(w http.ResponseWriter, r *http.Request) {
+	item, ok := s.secretIntakeForProject(w, r, types.ActionUpdate)
+	if !ok {
+		return
+	}
+	var values map[string]string
+	consumed := false
+	err := s.ConsumeSecretIntake(r.Context(), item.ProjectID, item.ID, func(v map[string]string) error {
+		values = v
+		consumed = true
+		return nil
+	})
+	if err != nil || !consumed {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, "intake not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "intake unavailable", http.StatusConflict)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeResponse(w, SecretIntakeConsumption{Values: values}, http.StatusOK)
 }
 
 func (s *HelixAPIServer) secretIntakeFlow(r *http.Request) (*types.SecretIntake, error) {
@@ -464,6 +526,7 @@ func (s *HelixAPIServer) submitSecretIntakeForm(w http.ResponseWriter, r *http.R
 		http.Error(w, "invalid or unavailable submission", http.StatusBadRequest)
 		return
 	}
+	s.notifySecretIntakeSubmitted(r.Context(), item)
 	http.Redirect(w, r, "/connect/intake/"+item.ID, http.StatusSeeOther)
 }
 
