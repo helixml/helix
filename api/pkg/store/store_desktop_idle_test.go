@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -42,8 +43,8 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_ReturnsI
 	_, err = suite.db.CreateInteraction(ctx, interaction)
 	suite.NoError(err)
 
-	idleSince := time.Now().Add(-1 * time.Hour)
-	results, err := suite.db.ListIdleDesktops(ctx, idleSince)
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
 	suite.NoError(err)
 
 	found := false
@@ -89,8 +90,8 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsRec
 	_, err = suite.db.CreateInteraction(ctx, interaction)
 	suite.NoError(err)
 
-	idleSince := time.Now().Add(-1 * time.Hour)
-	results, err := suite.db.ListIdleDesktops(ctx, idleSince)
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
 	suite.NoError(err)
 
 	for _, s := range results {
@@ -118,8 +119,8 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsSto
 	suite.NoError(err)
 	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
 
-	idleSince := time.Now().Add(-1 * time.Hour)
-	results, err := suite.db.ListIdleDesktops(ctx, idleSince)
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
 	suite.NoError(err)
 
 	for _, s := range results {
@@ -175,8 +176,8 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsKee
 	suite.NoError(err)
 	suite.T().Cleanup(func() { _ = suite.db.gdb.WithContext(ctx).Delete(specTask).Error })
 
-	idleSince := time.Now().Add(-1 * time.Hour)
-	results, err := suite.db.ListIdleDesktops(ctx, idleSince)
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
 	suite.NoError(err)
 
 	for _, s := range results {
@@ -206,8 +207,8 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsRec
 	suite.NoError(err)
 	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
 
-	idleSince := time.Now().Add(-1 * time.Hour)
-	results, err := suite.db.ListIdleDesktops(ctx, idleSince)
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
 	suite.NoError(err)
 
 	for _, s := range results {
@@ -261,11 +262,234 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsRes
 	suite.NoError(err)
 
 	// The session was just restarted — it must NOT be considered idle
-	idleSince := time.Now().Add(-1 * time.Hour)
-	results, err := suite.db.ListIdleDesktops(ctx, idleSince)
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
 	suite.NoError(err)
 
 	for _, s := range results {
 		suite.NotEqual(session.ID, s.ID, "just-restarted desktop must not be returned as idle")
+	}
+}
+
+// TestPostgresStore_ListIdleDesktops_LongOverrideKeepsAlive verifies that a
+// desktop whose instance profile overrides the idle timeout to a LONGER value
+// than the deployment default stays up past the default.
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_LongOverrideKeepsAlive() {
+	ctx := context.Background()
+	containerID := "container-long-override-" + system.GenerateUUID()
+
+	oldTime := time.Now().Add(-2 * time.Hour)
+	profile := types.BotInstanceProfile{IdleTimeoutSeconds: 6 * 3600} // 6h > the 1h default
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Created: oldTime,
+		Updated: oldTime,
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus: "running",
+			DevContainerID:      containerID,
+			BotInstance:         &profile,
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	interaction := &types.Interaction{
+		ID:           system.GenerateInteractionID(),
+		SessionID:    session.ID,
+		GenerationID: 1,
+		UserID:       "user_id",
+		Created:      oldTime,
+		Updated:      oldTime,
+	}
+	_, err = suite.db.CreateInteraction(ctx, interaction)
+	suite.NoError(err)
+
+	// 2h idle vs the 1h default: without the override this would be returned.
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
+	suite.NoError(err)
+	for _, s := range results {
+		suite.NotEqual(session.ID, s.ID, "6h override must keep a 2h-idle desktop alive")
+	}
+}
+
+// TestPostgresStore_ListIdleDesktops_ShortOverrideStopsEarly verifies that an
+// override SHORTER than the deployment default stops the desktop early.
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_ShortOverrideStopsEarly() {
+	ctx := context.Background()
+	containerID := "container-short-override-" + system.GenerateUUID()
+
+	oldTime := time.Now().Add(-20 * time.Minute)
+	profile := types.BotInstanceProfile{IdleTimeoutSeconds: 300} // 5m < the 1h default
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Created: oldTime,
+		Updated: oldTime,
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus: "running",
+			DevContainerID:      containerID,
+			BotInstance:         &profile,
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	// 20m idle vs the 1h default: only the 5m override makes it idle.
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
+	suite.NoError(err)
+	found := false
+	for _, s := range results {
+		if s.ID == session.ID {
+			found = true
+		}
+	}
+	suite.True(found, "5m override must stop a 20m-idle desktop despite the 1h default")
+}
+
+// TestPostgresStore_ListIdleDesktops_GarbageOverrideIgnored verifies that a
+// non-numeric override value falls back to the deployment default instead of
+// erroring or changing the threshold.
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_GarbageOverrideIgnored() {
+	ctx := context.Background()
+	containerID := "container-garbage-override-" + system.GenerateUUID()
+
+	oldTime := time.Now().Add(-2 * time.Hour)
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Created: oldTime,
+		Updated: oldTime,
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus: "running",
+			DevContainerID:      containerID,
+		},
+	}
+	// Write a garbage override straight into the metadata jsonb.
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	interaction := &types.Interaction{
+		ID:           system.GenerateInteractionID(),
+		SessionID:    session.ID,
+		GenerationID: 1,
+		UserID:       "user_id",
+		Created:      oldTime,
+		Updated:      oldTime,
+	}
+	_, err = suite.db.CreateInteraction(ctx, interaction)
+	suite.NoError(err)
+
+	raw, err := json.Marshal(types.SessionMetadata{ExternalAgentStatus: "running", DevContainerID: containerID, BotInstance: &types.BotInstanceProfile{}})
+	suite.NoError(err)
+	var metadata map[string]any
+	suite.NoError(json.Unmarshal(raw, &metadata))
+	metadata["bot_instance"] = map[string]any{"idle_timeout_seconds": "soon"}
+	bts, err := json.Marshal(metadata)
+	suite.NoError(err)
+	err = suite.db.gdb.WithContext(ctx).Exec("UPDATE sessions SET config = ? WHERE id = ?", string(bts), session.ID).Error
+	suite.NoError(err)
+
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
+	suite.NoError(err)
+	found := false
+	for _, s := range results {
+		if s.ID == session.ID {
+			found = true
+		}
+	}
+	suite.True(found, "garbage override must fall back to the default (2h idle > 1h)")
+}
+
+// TestPostgresStore_ListIdleDesktops_ZeroOverrideInherits verifies that a
+// stored idle_timeout_seconds of 0 means "inherit the deployment default" —
+// in particular it must not act as a zero-second timeout that stops the
+// desktop on every check.
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_ZeroOverrideInherits() {
+	ctx := context.Background()
+	containerID := "container-zero-override-" + system.GenerateUUID()
+
+	// 20m idle with a 1h default: only a broken zero-override would stop it.
+	oldTime := time.Now().Add(-20 * time.Minute)
+	profile := types.BotInstanceProfile{IdleTimeoutSeconds: 0}
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Created: oldTime,
+		Updated: oldTime,
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus: "running",
+			DevContainerID:      containerID,
+			BotInstance:         &profile,
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	interaction := &types.Interaction{
+		ID:           system.GenerateInteractionID(),
+		SessionID:    session.ID,
+		GenerationID: 1,
+		UserID:       "user_id",
+		Created:      oldTime,
+		Updated:      oldTime,
+	}
+	_, err = suite.db.CreateInteraction(ctx, interaction)
+	suite.NoError(err)
+
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
+	suite.NoError(err)
+	for _, s := range results {
+		suite.NotEqual(session.ID, s.ID, "0 override must inherit the 1h default, not stop immediately")
+	}
+}
+
+// TestPostgresStore_ListIdleDesktops_InstanceOverrideSurvivesProfileSync
+// verifies that a per-instance idle override (stored outside the synced
+// bot_instance profile) wins over the profile AND survives a profile sync.
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_InstanceOverrideSurvivesProfileSync() {
+	ctx := context.Background()
+	containerID := "container-override-sync-" + system.GenerateUUID()
+
+	oldTime := time.Now().Add(-20 * time.Minute)
+	profile := types.BotInstanceProfile{IdleTimeoutSeconds: 300} // 5m: would reap a 20m-idle desktop
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Created: oldTime,
+		Updated: oldTime,
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus:                   "running",
+			DevContainerID:                        containerID,
+			BotInstance:                           &profile,
+			BotInstanceIdleTimeoutOverrideSeconds: 6 * 3600, // 6h per-instance override
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	// A profile sync overwrites config.bot_instance wholesale — the override
+	// field must survive it and keep winning.
+	synced := types.BotInstanceProfile{IdleTimeoutSeconds: 300}
+	suite.NoError(suite.db.SetSessionBotInstanceProfile(ctx, session.ID, synced))
+	sync, err := suite.db.GetSession(ctx, session.ID)
+	suite.NoError(err)
+	suite.Equal(6*3600, sync.Metadata.EffectiveIdleTimeoutSeconds(),
+		"the per-instance override must survive a profile sync")
+
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
+	suite.NoError(err)
+	for _, s := range results {
+		suite.NotEqual(session.ID, s.ID, "the surviving 6h override must keep a 20m-idle desktop alive despite the 5m profile")
 	}
 }

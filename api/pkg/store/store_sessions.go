@@ -544,17 +544,29 @@ func (s *PostgresStore) ListSessionsByOwner(ctx context.Context, ownerID string)
 }
 
 // ListIdleDesktops returns one representative session per desktop (identified by
-// external_agent_id) where no interaction has been created or updated since
-// idleSince. For desktops with no interactions at all, the session's own
-// updated timestamp is used as the activity marker.
-func (s *PostgresStore) ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) {
-	// CTE computes the last activity time per desktop, then the outer query
-	// selects one session per desktop that is past the idle threshold.
+// external_agent_id) whose last activity is older than the desktop's effective
+// idle timeout. Per-session overrides in the instance profile
+// (config.bot_instance.idle_timeout_seconds) replace the deployment default;
+// when a container backs several sessions the shortest override wins. For
+// desktops with no interactions at all, the session's own updated timestamp is
+// used as the activity marker.
+func (s *PostgresStore) ListIdleDesktops(ctx context.Context, now time.Time, defaultIdle time.Duration) ([]*types.Session, error) {
+	// CTE computes the last activity time per desktop and the desktop's
+	// effective idle timeout (the shortest override or the default), then the
+	// outer query selects one session per desktop that is past that threshold.
+	// Garbage in the override field is treated as absent (the CASE guard keeps
+	// a bad value from aborting the cast).
 	query := `
 WITH desktop_last_activity AS (
     SELECT
         s.config->>'dev_container_id' AS container_id,
-        GREATEST(COALESCE(MAX(i.updated), '1970-01-01'::timestamptz), MAX(s.updated)) AS last_activity
+        GREATEST(COALESCE(MAX(i.updated), '1970-01-01'::timestamptz), MAX(s.updated)) AS last_activity,
+        MIN(COALESCE(
+            CASE WHEN s.config->>'bot_instance_idle_timeout_seconds' ~ '^[0-9]{1,10}$'
+                 THEN NULLIF((s.config->>'bot_instance_idle_timeout_seconds')::bigint, 0) END,
+            CASE WHEN s.config->'bot_instance'->>'idle_timeout_seconds' ~ '^[0-9]{1,10}$'
+                 THEN NULLIF((s.config->'bot_instance'->>'idle_timeout_seconds')::bigint, 0) END,
+            ?::bigint)) AS effective_seconds
     FROM sessions s
     LEFT JOIN interactions i ON i.session_id = s.id
     WHERE s.deleted_at IS NULL
@@ -572,11 +584,11 @@ SELECT DISTINCT ON (s.config->>'dev_container_id') s.*
 FROM sessions s
 JOIN desktop_last_activity da ON da.container_id = s.config->>'dev_container_id'
 WHERE s.deleted_at IS NULL
-  AND da.last_activity < ?
+  AND da.last_activity < ?::timestamptz - (da.effective_seconds * interval '1 second')
 ORDER BY s.config->>'dev_container_id', s.created ASC`
 
 	var sessions []*types.Session
-	err := s.gdb.WithContext(ctx).Raw(query, idleSince).Scan(&sessions).Error
+	err := s.gdb.WithContext(ctx).Raw(query, defaultIdle/time.Second, now).Scan(&sessions).Error
 	if err != nil {
 		return nil, err
 	}

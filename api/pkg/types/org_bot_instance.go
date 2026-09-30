@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 // SessionRoleOrgBotInstance marks a session as an instance of an org bot: an
@@ -41,6 +43,26 @@ func (m SessionMetadata) BotInstanceSudo() bool {
 	return m.BotInstanceAllowSudo || m.SandboxRuntime == SandboxRuntimeUbuntuDesktop
 }
 
+// BotInstanceIdleTimeoutSeconds returns the instance's own idle override; 0
+// means the deployment's HELIX_DESKTOP_IDLE_TIMEOUT applies.
+func (m SessionMetadata) BotInstanceIdleTimeoutSeconds() int {
+	if m.BotInstance == nil {
+		return 0
+	}
+	return int(m.BotInstance.IdleTimeoutSeconds)
+}
+
+// EffectiveIdleTimeoutSeconds returns the idle override that applies to this
+// instance: the per-instance override captured at creation, else the
+// profile's value (kept current by profile syncs), else 0 — the deployment's
+// HELIX_DESKTOP_IDLE_TIMEOUT.
+func (m SessionMetadata) EffectiveIdleTimeoutSeconds() int {
+	if m.BotInstanceIdleTimeoutOverrideSeconds != 0 {
+		return m.BotInstanceIdleTimeoutOverrideSeconds
+	}
+	return m.BotInstanceIdleTimeoutSeconds()
+}
+
 // Built-in context servers an instance profile can keep. Project MCP servers
 // are referenced by their own names.
 const (
@@ -70,6 +92,52 @@ type BotInstanceProfile struct {
 	// HelixSkills links the helix-* agent skills. The project repo's own
 	// skills are always linked.
 	HelixSkills bool `json:"helix_skills,omitempty"`
+	// IdleTimeoutSeconds overrides HELIX_DESKTOP_IDLE_TIMEOUT for instances
+	// started with this profile: the sandbox is stopped after this many
+	// seconds without interaction activity. 0 inherits the deployment
+	// default. Accepted range 300 (5m) to 604800 (7d).
+	IdleTimeoutSeconds IdleSeconds `json:"idle_timeout_seconds,omitempty"`
+}
+
+// BotInstanceIdleTimeoutBounds are the accepted per-profile idle overrides.
+const (
+	MinBotInstanceIdleTimeoutSeconds = 300    // 5m: matches the idle-check interval
+	MaxBotInstanceIdleTimeoutSeconds = 604800 // 7d
+)
+
+// IdleSeconds is a seconds count that decodes leniently: JSON numbers and
+// numeric strings both decode, anything else decodes to 0 (inherit), so a
+// corrupt stored value degrades to the deployment default instead of failing
+// the whole session scan. It marshals as a plain number.
+type IdleSeconds int
+
+func (s *IdleSeconds) UnmarshalJSON(b []byte) error {
+	text := strings.Trim(string(b), `" `)
+	if text == "null" || text == "" {
+		*s = 0
+		return nil
+	}
+	value, err := strconv.ParseFloat(text, 64)
+	if err != nil || value < 0 || value > float64(MaxBotInstanceIdleTimeoutSeconds)*10 {
+		// Anything absurd degrades to "inherit" rather than failing the scan.
+		*s = 0
+		return nil
+	}
+	*s = IdleSeconds(value)
+	return nil
+}
+
+// NormalizeBotInstanceIdleTimeout validates a profile or per-instance idle
+// override. 0 means "inherit the deployment default".
+func NormalizeBotInstanceIdleTimeout(seconds int) (int, error) {
+	if seconds == 0 {
+		return 0, nil
+	}
+	if seconds < MinBotInstanceIdleTimeoutSeconds || seconds > MaxBotInstanceIdleTimeoutSeconds {
+		return 0, fmt.Errorf("idle_timeout_seconds must be 0 (inherit) or between %d and %d",
+			MinBotInstanceIdleTimeoutSeconds, MaxBotInstanceIdleTimeoutSeconds)
+	}
+	return seconds, nil
 }
 
 // DefaultBotInstanceProfile is the profile of a bot that never configured one.
@@ -89,6 +157,9 @@ func (p BotInstanceProfile) Validate() error {
 	}
 	if slices.Contains(p.MCPServers, InstanceMCPServerHelixOrg) {
 		return fmt.Errorf("the %q MCP server is controlled by instance tools, not mcp_servers", InstanceMCPServerHelixOrg)
+	}
+	if _, err := NormalizeBotInstanceIdleTimeout(int(p.IdleTimeoutSeconds)); err != nil {
+		return err
 	}
 	return nil
 }

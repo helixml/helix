@@ -4935,18 +4935,18 @@ func (mr *MockStoreMockRecorder) ListGuidelinesHistory(ctx, organizationID, proj
 }
 
 // ListIdleDesktops mocks base method.
-func (m *MockStore) ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) {
+func (m *MockStore) ListIdleDesktops(ctx context.Context, now time.Time, defaultIdle time.Duration) ([]*types.Session, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListIdleDesktops", ctx, idleSince)
+	ret := m.ctrl.Call(m, "ListIdleDesktops", ctx, now, defaultIdle)
 	ret0, _ := ret[0].([]*types.Session)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListIdleDesktops indicates an expected call of ListIdleDesktops.
-func (mr *MockStoreMockRecorder) ListIdleDesktops(ctx, idleSince any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ListIdleDesktops(ctx, now, defaultIdle any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListIdleDesktops", reflect.TypeOf((*MockStore)(nil).ListIdleDesktops), ctx, idleSince)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListIdleDesktops", reflect.TypeOf((*MockStore)(nil).ListIdleDesktops), ctx, now, defaultIdle)
 }
 
 // ListInteractions mocks base method.

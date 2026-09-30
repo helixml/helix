@@ -99,6 +99,17 @@ func TestBotInstanceRoutes(t *testing.T) {
 		t.Fatalf("create params = %+v", fake.created)
 	}
 
+	// A negative idle override must be rejected with 400, not silently inherited.
+	rec = do(t, h, "POST", "/bots/b-broker/instances", orgapi.CreateBotInstanceRequest{IdleTimeoutSeconds: -600})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("negative idle override: got %d; body=%s", rec.Code, rec.Body)
+	}
+	// Out of range likewise.
+	rec = do(t, h, "POST", "/bots/b-broker/instances", orgapi.CreateBotInstanceRequest{IdleTimeoutSeconds: 604801})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("over-max idle override: got %d; body=%s", rec.Code, rec.Body)
+	}
+
 	rec = do(t, h, "DELETE", "/bots/b-broker/instances/ses_one", nil)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete: got %d; body=%s", rec.Code, rec.Body)

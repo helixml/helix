@@ -31,6 +31,9 @@ type Params struct {
 	// headless instance. False enables no-new-privileges and is the safe
 	// default. Desktop instances always allow sudo.
 	AllowSudo bool
+	// IdleTimeoutSeconds overrides the bot profile's (and the deployment's)
+	// idle timeout for this instance. Zero inherits the profile.
+	IdleTimeoutSeconds int
 	// Secrets names the project development secrets explicitly granted to this
 	// instance. Empty means the instance receives no project secrets.
 	Secrets []string

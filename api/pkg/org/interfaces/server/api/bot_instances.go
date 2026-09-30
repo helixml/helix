@@ -26,8 +26,11 @@ type BotInstanceDTO struct {
 	Secrets    []string `json:"secrets"`
 	DiskSizeGB int      `json:"disk_size_gb"`
 	AllowSudo  bool     `json:"sudo"`
-	CreatedAt  string   `json:"created_at"`
-	UpdatedAt  string   `json:"updated_at"`
+	// IdleTimeoutSeconds is the instance's own idle override; 0 means the
+	// deployment's HELIX_DESKTOP_IDLE_TIMEOUT applies.
+	IdleTimeoutSeconds int    `json:"idle_timeout_seconds,omitempty"`
+	CreatedAt          string `json:"created_at"`
+	UpdatedAt          string `json:"updated_at"`
 }
 
 // CreateBotInstanceRequest is the body of POST /bots/{id}/instances.
@@ -45,23 +48,29 @@ type CreateBotInstanceRequest struct {
 	// SandboxRuntime overrides the Bot's instance profile runtime:
 	// "headless-ubuntu" or "ubuntu-desktop".
 	SandboxRuntime types.SandboxRuntime `json:"sandbox_runtime,omitempty"`
+	// IdleTimeoutSeconds overrides the bot profile's (and the deployment's)
+	// idle timeout for this instance: the sandbox is stopped after this many
+	// seconds without interaction activity. 0 inherits the profile. Accepted
+	// range 300 (5m) to 604800 (7d).
+	IdleTimeoutSeconds int `json:"idle_timeout_seconds,omitempty"`
 	// Message is queued as the instance's first turn.
 	Message string `json:"message,omitempty"`
 }
 
 func botInstanceDTO(session *types.Session) BotInstanceDTO {
 	return BotInstanceDTO{
-		SessionID:      session.ID,
-		BotID:          session.Metadata.OrgWorkerID,
-		Name:           session.Name,
-		SandboxRuntime: session.Metadata.SandboxRuntime,
-		SandboxStatus:  session.Metadata.ExternalAgentStatus,
-		Owner:          session.Owner,
-		Secrets:        append([]string{}, session.Metadata.BotInstanceSecrets...),
-		DiskSizeGB:     session.Metadata.BotInstanceDiskSize(),
-		AllowSudo:      session.Metadata.BotInstanceSudo(),
-		CreatedAt:      session.Created.Format(time.RFC3339),
-		UpdatedAt:      session.Updated.Format(time.RFC3339),
+		SessionID:          session.ID,
+		BotID:              session.Metadata.OrgWorkerID,
+		Name:               session.Name,
+		SandboxRuntime:     session.Metadata.SandboxRuntime,
+		SandboxStatus:      session.Metadata.ExternalAgentStatus,
+		Owner:              session.Owner,
+		Secrets:            append([]string{}, session.Metadata.BotInstanceSecrets...),
+		DiskSizeGB:         session.Metadata.BotInstanceDiskSize(),
+		AllowSudo:          session.Metadata.BotInstanceSudo(),
+		IdleTimeoutSeconds: session.Metadata.EffectiveIdleTimeoutSeconds(),
+		CreatedAt:          session.Created.Format(time.RFC3339),
+		UpdatedAt:          session.Updated.Format(time.RFC3339),
 	}
 }
 
@@ -130,13 +139,18 @@ func (a *apiHandler) createBotInstance(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if _, err := types.NormalizeBotInstanceIdleTimeout(req.IdleTimeoutSeconds); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	session, err := manager.Create(r.Context(), orgID, botID, instances.Params{
-		Name:           req.Name,
-		SandboxRuntime: req.SandboxRuntime,
-		Secrets:        req.Secrets,
-		DiskSizeGB:     req.DiskSizeGB,
-		AllowSudo:      req.AllowSudo,
-		Message:        req.Message,
+		Name:               req.Name,
+		SandboxRuntime:     req.SandboxRuntime,
+		IdleTimeoutSeconds: req.IdleTimeoutSeconds,
+		Secrets:            req.Secrets,
+		DiskSizeGB:         req.DiskSizeGB,
+		AllowSudo:          req.AllowSudo,
+		Message:            req.Message,
 	})
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("create instance of bot %s: %w", botID, err))
