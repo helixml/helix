@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -471,6 +472,10 @@ type secretIntakePageData struct {
 	Fields                                                              []types.SecretIntakeField
 	ArtifactBefore, ArtifactAfter                                       template.HTML
 	HasArtifact                                                         bool
+	// DefaultLogo is the embedded Helix mark rendered when neither the intake
+	// nor a URL override supplies a logo. Typed template.URL so the data URI
+	// survives the page's img-src CSP sanitization.
+	DefaultLogo template.URL
 }
 
 // Cosmetic defaults for the hosted intake page. Stored intake branding and
@@ -510,6 +515,14 @@ func applySecretIntakeQuery(data *secretIntakePageData, q url.Values) {
 //go:embed templates/secret_intake.html
 var secretIntakeTemplateText string
 
+// The Helix mark shown when an intake has no logo of its own. Inlined as a data
+// URI so the page stays self-contained under its img-src CSP.
+//
+//go:embed templates/helix_logo.png
+var secretIntakeHelixLogo []byte
+
+var secretIntakeHelixLogoURI = template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(secretIntakeHelixLogo))
+
 var secretIntakePage = template.Must(template.New("secret-intake").Parse(secretIntakeTemplateText))
 
 func (s *HelixAPIServer) serveSecretIntake(w http.ResponseWriter, r *http.Request) {
@@ -518,7 +531,7 @@ func (s *HelixAPIServer) serveSecretIntake(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "secret intake is disabled", http.StatusNotImplemented)
 		return
 	}
-	data := secretIntakePageData{Stage: "landing", Brand: "Helix Connect", Accent: secretIntakeDefaultAccent, Bg: secretIntakeDefaultBg, Card: secretIntakeDefaultCard, Ink: secretIntakeDefaultInk, Title: "Secure connection"}
+	data := secretIntakePageData{Stage: "landing", Brand: "Helix Connect", Accent: secretIntakeDefaultAccent, Bg: secretIntakeDefaultBg, Card: secretIntakeDefaultCard, Ink: secretIntakeDefaultInk, Title: "Secure connection", DefaultLogo: secretIntakeHelixLogoURI}
 	item, err := s.secretIntakeFlow(r)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "unable to load intake", http.StatusInternalServerError)

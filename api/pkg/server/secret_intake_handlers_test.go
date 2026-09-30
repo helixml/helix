@@ -187,7 +187,27 @@ func TestSecretIntakeURLOverrides(t *testing.T) {
 	require.Contains(t, body, "--ink:#eef3f5")
 	require.Contains(t, body, ">Acme</p>")
 	require.NotContains(t, body, "evil")
-	require.Contains(t, body, `class="mark"`) // non-https logo rejected, shield fallback kept
+	// non-https logo override rejected → falls back to the embedded Helix logo
+	require.NotContains(t, body, `class="mark"`)
+	require.Contains(t, body, `src="data:image/png;base64,`)
+}
+
+func TestSecretIntakeDefaultLogo(t *testing.T) {
+	s := secretIntakeTestServer(t)
+	input := types.SecretIntakeCreateRequest{CustomerID: "cust", ConversationID: "conv", Title: "Connect", Fields: []types.SecretIntakeField{{Name: "api_key", Label: "API key", Type: "password", Required: true}}}
+	view, link, err := s.createSecretIntake(t.Context(), "prj_test", input)
+	require.NoError(t, err)
+	token := strings.Split(link, "#")[1]
+	redeemInput, _ := json.Marshal(map[string]string{"intake_id": view.ID, "token": token})
+	redeem := httptest.NewRecorder()
+	s.redeemSecretIntake(redeem, intakeRequest(http.MethodPost, "/connect/intake/redeem", string(redeemInput)))
+	require.Equal(t, http.StatusNoContent, redeem.Code)
+	page := httptest.NewRecorder()
+	s.serveSecretIntake(page, mux.SetURLVars(intakeRequest(http.MethodGet, "/connect/intake/"+view.ID, "", redeem.Result().Cookies()...), map[string]string{"intake_id": view.ID}))
+	require.Equal(t, http.StatusOK, page.Code)
+	// No intake or override logo → the embedded Helix logo is the default header mark.
+	require.Contains(t, page.Body.String(), `src="data:image/png;base64,`)
+	require.NotContains(t, page.Body.String(), `class="mark"`)
 }
 
 func TestSecretIntakeArtifactSanitization(t *testing.T) {
