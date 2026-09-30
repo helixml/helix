@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
@@ -189,9 +190,13 @@ func (s *SpecTaskAssigneeSuite) TestStartPlanning_RetryReleasesFailedLaunchSessi
 		},
 	}
 	project := &types.Project{ID: projectID, UserID: starterID}
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
 
 	s.store.EXPECT().GetSpecTask(gomock.Any(), taskID).Return(task, nil)
 	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(project, nil).Times(3)
+	executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(nil)
+	s.store.EXPECT().ReapWaitingInteractions(gomock.Any(), sessionID, types.InteractionStateInterrupted, "retrying failed spec task").Return(nil, nil)
 	s.store.EXPECT().UpdateSpecTask(gomock.Any(), task).DoAndReturn(
 		func(_ context.Context, updated *types.SpecTask) error {
 			s.Equal(types.TaskStatusQueuedImplementation, updated.Status)
