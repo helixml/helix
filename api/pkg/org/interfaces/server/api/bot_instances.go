@@ -139,6 +139,10 @@ func (a *apiHandler) createBotInstance(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if _, err := types.NormalizeBotInstanceIdleTimeout(req.IdleTimeoutSeconds); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	session, err := manager.Create(r.Context(), orgID, botID, instances.Params{
 		Name:               req.Name,
 		SandboxRuntime:     req.SandboxRuntime,

@@ -563,7 +563,7 @@ WITH desktop_last_activity AS (
         GREATEST(COALESCE(MAX(i.updated), '1970-01-01'::timestamptz), MAX(s.updated)) AS last_activity,
         MIN(COALESCE(
             CASE WHEN s.config->'bot_instance'->>'idle_timeout_seconds' ~ '^[0-9]+$'
-                 THEN (s.config->'bot_instance'->>'idle_timeout_seconds')::bigint END,
+                 THEN NULLIF((s.config->'bot_instance'->>'idle_timeout_seconds')::bigint, 0) END,
             ?::bigint)) AS effective_seconds
     FROM sessions s
     LEFT JOIN interactions i ON i.session_id = s.id

@@ -3743,24 +3743,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - gitlab
-    - cron
-    - webhook
-    - helix_events
     - local
+    - helix_events
     - email
-    - slack
+    - cron
+    - gitlab
+    - webhook
     - github
+    - slack
     type: string
     x-enum-varnames:
-    - KindGitLab
-    - KindCron
-    - KindWebhook
-    - KindHelixEvents
     - KindLocal
+    - KindHelixEvents
     - KindEmail
-    - KindSlack
+    - KindCron
+    - KindGitLab
+    - KindWebhook
     - KindGitHub
+    - KindSlack
   transport.ResolvedActivation:
     properties:
       address:

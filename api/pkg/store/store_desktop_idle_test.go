@@ -406,3 +406,48 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_GarbageO
 	}
 	suite.True(found, "garbage override must fall back to the default (2h idle > 1h)")
 }
+
+// TestPostgresStore_ListIdleDesktops_ZeroOverrideInherits verifies that a
+// stored idle_timeout_seconds of 0 means "inherit the deployment default" —
+// in particular it must not act as a zero-second timeout that stops the
+// desktop on every check.
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_ZeroOverrideInherits() {
+	ctx := context.Background()
+	containerID := "container-zero-override-" + system.GenerateUUID()
+
+	// 20m idle with a 1h default: only a broken zero-override would stop it.
+	oldTime := time.Now().Add(-20 * time.Minute)
+	profile := types.BotInstanceProfile{IdleTimeoutSeconds: 0}
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Created: oldTime,
+		Updated: oldTime,
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus: "running",
+			DevContainerID:      containerID,
+			BotInstance:         &profile,
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	interaction := &types.Interaction{
+		ID:           system.GenerateInteractionID(),
+		SessionID:    session.ID,
+		GenerationID: 1,
+		UserID:       "user_id",
+		Created:      oldTime,
+		Updated:      oldTime,
+	}
+	_, err = suite.db.CreateInteraction(ctx, interaction)
+	suite.NoError(err)
+
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
+	suite.NoError(err)
+	for _, s := range results {
+		suite.NotEqual(session.ID, s.ID, "0 override must inherit the 1h default, not stop immediately")
+	}
+}

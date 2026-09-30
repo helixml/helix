@@ -114,12 +114,12 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 	}
 
 	profile := bot.EffectiveInstanceProfile()
-	if params.IdleTimeoutSeconds > 0 {
-		merged := profile
-		merged.IdleTimeoutSeconds = types.IdleSeconds(params.IdleTimeoutSeconds)
-		if err := merged.Validate(); err != nil {
+	if params.IdleTimeoutSeconds != 0 {
+		if _, err := types.NormalizeBotInstanceIdleTimeout(params.IdleTimeoutSeconds); err != nil {
 			return nil, fmt.Errorf("%w: %w", instances.ErrInvalidRequest, err)
 		}
+		merged := profile
+		merged.IdleTimeoutSeconds = types.IdleSeconds(params.IdleTimeoutSeconds)
 		profile = merged
 	}
 	orgRuntime, orgResources := b.configs.GetDefaultSandboxConfig(ctx, orgID)
