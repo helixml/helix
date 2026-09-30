@@ -3120,6 +3120,51 @@ definitions:
           $ref: '#/definitions/server.SandboxTerminalSession'
         type: array
     type: object
+  server.SecretIntakeCreateResponse:
+    properties:
+      intake:
+        $ref: '#/definitions/server.SecretIntakeView'
+      invite_url:
+        type: string
+    type: object
+  server.SecretIntakeRedeemRequest:
+    properties:
+      intake_id:
+        type: string
+      token:
+        type: string
+    required:
+    - intake_id
+    - token
+    type: object
+  server.SecretIntakeSubmissionRequest:
+    properties:
+      values:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  server.SecretIntakeView:
+    properties:
+      conversation_id:
+        type: string
+      customer_id:
+        type: string
+      expires_at:
+        type: string
+      fields:
+        items:
+          $ref: '#/definitions/types.SecretIntakeField'
+        type: array
+      id:
+        type: string
+      project_id:
+        type: string
+      status:
+        type: string
+      values_expires_at:
+        type: string
+    type: object
   server.SessionClaudeCredentialsResponse:
     properties:
       credential_type:
@@ -3679,24 +3724,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - slack
-    - github
-    - local
     - webhook
+    - email
+    - github
     - gitlab
+    - local
     - cron
     - helix_events
-    - email
+    - slack
     type: string
     x-enum-varnames:
-    - KindSlack
-    - KindGitHub
-    - KindLocal
     - KindWebhook
+    - KindEmail
+    - KindGitHub
     - KindGitLab
+    - KindLocal
     - KindCron
     - KindHelixEvents
-    - KindEmail
+    - KindSlack
   transport.ResolvedActivation:
     properties:
       address:
@@ -10335,6 +10380,42 @@ definitions:
         items:
           type: integer
         type: array
+    type: object
+  types.SecretIntakeCreateRequest:
+    properties:
+      accent_color:
+        type: string
+      artifact_id:
+        type: string
+      brand_name:
+        type: string
+      conversation_id:
+        type: string
+      customer_id:
+        type: string
+      description:
+        type: string
+      fields:
+        items:
+          $ref: '#/definitions/types.SecretIntakeField'
+        type: array
+      logo_url:
+        type: string
+      title:
+        type: string
+    type: object
+  types.SecretIntakeField:
+    properties:
+      autocomplete:
+        type: string
+      label:
+        type: string
+      name:
+        type: string
+      required:
+        type: boolean
+      type:
+        type: string
     type: object
   types.SecretScope:
     enum:
@@ -23795,6 +23876,139 @@ paths:
       summary: Set project primary repository
       tags:
       - Projects
+  /api/v1/projects/{id}/secret-intakes:
+    post:
+      consumes:
+      - application/json
+      description: Creates a short-lived, one-time link for collecting requested fields
+        outside chat. The response never contains submitted values.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Field schema and branding
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SecretIntakeCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/server.SecretIntakeCreateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create a secret intake
+      tags:
+      - Secret Intakes
+  /api/v1/projects/{id}/secret-intakes/{intake_id}:
+    delete:
+      description: Invalidates its link and clears any submitted ciphertext.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Revoke a secret intake
+      tags:
+      - Secret Intakes
+    get:
+      description: Returns metadata and status only; submitted values remain inaccessible
+        through this endpoint.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SecretIntakeView'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get secret intake status
+      tags:
+      - Secret Intakes
+  /api/v1/projects/{id}/secret-intakes/{intake_id}/submissions:
+    post:
+      consumes:
+      - application/json
+      description: Write-only project API for trusted integrations. Values are encrypted
+        and cannot be read through the API.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      - description: Submitted field values
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SecretIntakeSubmissionRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Submit secret intake values
+      tags:
+      - Secret Intakes
   /api/v1/projects/{id}/secrets:
     get:
       description: List all secrets associated with a specific project.
@@ -29756,6 +29970,29 @@ paths:
       summary: Update Zed thread activity
       tags:
       - zed-integration
+  /connect/intake/redeem:
+    post:
+      consumes:
+      - application/json
+      description: Exchanges a one-time invitation token for a short-lived browser
+        flow cookie.
+      parameters:
+      - description: Invitation token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SecretIntakeRedeemRequest'
+      responses:
+        "204":
+          description: No Content
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Redeem a secret intake invitation
+      tags:
+      - Secret Intakes
   /v1/chat/completions:
     post:
       description: Creates a model response for the given chat conversation.

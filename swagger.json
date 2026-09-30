@@ -14546,6 +14546,209 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/secret-intakes": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a short-lived, one-time link for collecting requested fields outside chat. The response never contains submitted values.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Create a secret intake",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Field schema and branding",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SecretIntakeCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeCreateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/secret-intakes/{intake_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns metadata and status only; submitted values remain inaccessible through this endpoint.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Get secret intake status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeView"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Invalidates its link and clears any submitted ciphertext.",
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Revoke a secret intake",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/secret-intakes/{intake_id}/submissions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Write-only project API for trusted integrations. Values are encrypted and cannot be read through the API.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Submit secret intake values",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Submitted field values",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeSubmissionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/secrets": {
             "get": {
                 "security": [
@@ -23608,6 +23811,40 @@
                 }
             }
         },
+        "/connect/intake/redeem": {
+            "post": {
+                "description": "Exchanges a one-time invitation token for a short-lived browser flow cookie.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Redeem a secret intake invitation",
+                "parameters": [
+                    {
+                        "description": "Invitation token",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeRedeemRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/chat/completions": {
             "post": {
                 "security": [
@@ -28088,6 +28325,75 @@
                 }
             }
         },
+        "server.SecretIntakeCreateResponse": {
+            "type": "object",
+            "properties": {
+                "intake": {
+                    "$ref": "#/definitions/server.SecretIntakeView"
+                },
+                "invite_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SecretIntakeRedeemRequest": {
+            "type": "object",
+            "required": [
+                "intake_id",
+                "token"
+            ],
+            "properties": {
+                "intake_id": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SecretIntakeSubmissionRequest": {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.SecretIntakeView": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string"
+                },
+                "customer_id": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SecretIntakeField"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "values_expires_at": {
+                    "type": "string"
+                }
+            }
+        },
         "server.SessionClaudeCredentialsResponse": {
             "type": "object",
             "properties": {
@@ -28856,24 +29162,24 @@
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "slack",
-                "github",
-                "local",
                 "webhook",
+                "email",
+                "github",
                 "gitlab",
+                "local",
                 "cron",
                 "helix_events",
-                "email"
+                "slack"
             ],
             "x-enum-varnames": [
-                "KindSlack",
-                "KindGitHub",
-                "KindLocal",
                 "KindWebhook",
+                "KindEmail",
+                "KindGitHub",
                 "KindGitLab",
+                "KindLocal",
                 "KindCron",
                 "KindHelixEvents",
-                "KindEmail"
+                "KindSlack"
             ]
         },
         "transport.ResolvedActivation": {
@@ -37811,6 +38117,61 @@
                     "items": {
                         "type": "integer"
                     }
+                }
+            }
+        },
+        "types.SecretIntakeCreateRequest": {
+            "type": "object",
+            "properties": {
+                "accent_color": {
+                    "type": "string"
+                },
+                "artifact_id": {
+                    "type": "string"
+                },
+                "brand_name": {
+                    "type": "string"
+                },
+                "conversation_id": {
+                    "type": "string"
+                },
+                "customer_id": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SecretIntakeField"
+                    }
+                },
+                "logo_url": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SecretIntakeField": {
+            "type": "object",
+            "properties": {
+                "autocomplete": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string"
                 }
             }
         },

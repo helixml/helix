@@ -29,6 +29,7 @@ import (
 
 type PostgresStore struct {
 	cfg config.Store
+	*SecretIntakePersistence
 
 	gdb    *gorm.DB
 	pubsub pubsub.PubSub
@@ -75,10 +76,11 @@ func NewPostgresStore(
 	}
 
 	store := &PostgresStore{
-		cfg:    cfg,
-		gdb:    gormDB,
-		pubsub: pubsub,
-		Store:  orgstore.New(gormDB),
+		cfg:                     cfg,
+		gdb:                     gormDB,
+		pubsub:                  pubsub,
+		Store:                   orgstore.New(gormDB),
+		SecretIntakePersistence: NewSecretIntakePersistence(gormDB),
 	}
 
 	if cfg.AutoMigrate {
@@ -215,6 +217,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.Project{},
 		&types.Artifact{},
 		&types.ArtifactVersion{},
+		&types.SecretIntake{},
 		&types.WebhookEndpoint{},
 		&types.WebhookEvent{},
 		&types.WebhookDelivery{},

@@ -228,6 +228,7 @@ var (
 )
 
 type Store interface {
+	SecretIntakeStore
 	//  Auth + Authz
 	CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
 	GetOrganization(ctx context.Context, q *GetOrganizationQuery) (*types.Organization, error)
@@ -1007,4 +1008,17 @@ type Store interface {
 	ListEnabledWebServiceProjectsByRepo(ctx context.Context, repoID string) ([]*types.Project, error)
 	ListActiveWebServices(ctx context.Context) ([]*types.ProjectWebServiceState, error)
 	ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error)
+}
+
+// SecretIntakeStore owns the atomic persistence operations used by secret intake.
+// The API and MCP layers never receive a database handle.
+type SecretIntakeStore interface {
+	CreateSecretIntake(context.Context, *types.SecretIntake) error
+	GetSecretIntake(context.Context, string, string) (*types.SecretIntake, error)
+	GetSecretIntakeByFlow(context.Context, string, time.Time) (*types.SecretIntake, error)
+	RedeemSecretIntakeInvitation(context.Context, string, string, string, string, time.Time, time.Time) (bool, error)
+	SubmitSecretIntake(context.Context, string, string, string, time.Time, time.Time) (bool, error)
+	RevokeSecretIntake(context.Context, string, string) error
+	TakeSecretIntake(context.Context, string, string, time.Time) (string, error)
+	ReapExpiredSecretIntakes(context.Context, time.Time) error
 }

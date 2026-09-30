@@ -980,6 +980,20 @@ func (mr *MockStoreMockRecorder) CreateSecret(ctx, secret any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSecret", reflect.TypeOf((*MockStore)(nil).CreateSecret), ctx, secret)
 }
 
+// CreateSecretIntake mocks base method.
+func (m *MockStore) CreateSecretIntake(arg0 context.Context, arg1 *types.SecretIntake) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSecretIntake", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateSecretIntake indicates an expected call of CreateSecretIntake.
+func (mr *MockStoreMockRecorder) CreateSecretIntake(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSecretIntake", reflect.TypeOf((*MockStore)(nil).CreateSecretIntake), arg0, arg1)
+}
+
 // CreateServiceConnection mocks base method.
 func (m *MockStore) CreateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error {
 	m.ctrl.T.Helper()
@@ -3705,6 +3719,36 @@ func (mr *MockStoreMockRecorder) GetSecret(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecret", reflect.TypeOf((*MockStore)(nil).GetSecret), ctx, id)
 }
 
+// GetSecretIntake mocks base method.
+func (m *MockStore) GetSecretIntake(arg0 context.Context, arg1, arg2 string) (*types.SecretIntake, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSecretIntake", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.SecretIntake)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSecretIntake indicates an expected call of GetSecretIntake.
+func (mr *MockStoreMockRecorder) GetSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretIntake", reflect.TypeOf((*MockStore)(nil).GetSecretIntake), arg0, arg1, arg2)
+}
+
+// GetSecretIntakeByFlow mocks base method.
+func (m *MockStore) GetSecretIntakeByFlow(arg0 context.Context, arg1 string, arg2 time.Time) (*types.SecretIntake, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSecretIntakeByFlow", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.SecretIntake)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSecretIntakeByFlow indicates an expected call of GetSecretIntakeByFlow.
+func (mr *MockStoreMockRecorder) GetSecretIntakeByFlow(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretIntakeByFlow", reflect.TypeOf((*MockStore)(nil).GetSecretIntakeByFlow), arg0, arg1, arg2)
+}
+
 // GetServiceConnection mocks base method.
 func (m *MockStore) GetServiceConnection(ctx context.Context, id string) (*types.ServiceConnection, error) {
 	m.ctrl.T.Helper()
@@ -6103,6 +6147,20 @@ func (mr *MockStoreMockRecorder) ParseAndCreateImplementationTasks(ctx, specTask
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ParseAndCreateImplementationTasks", reflect.TypeOf((*MockStore)(nil).ParseAndCreateImplementationTasks), ctx, specTaskID, implementationPlan)
 }
 
+// ReapExpiredSecretIntakes mocks base method.
+func (m *MockStore) ReapExpiredSecretIntakes(arg0 context.Context, arg1 time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReapExpiredSecretIntakes", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReapExpiredSecretIntakes indicates an expected call of ReapExpiredSecretIntakes.
+func (mr *MockStoreMockRecorder) ReapExpiredSecretIntakes(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapExpiredSecretIntakes", reflect.TypeOf((*MockStore)(nil).ReapExpiredSecretIntakes), arg0, arg1)
+}
+
 // ReapWaitingInteractions mocks base method.
 func (m *MockStore) ReapWaitingInteractions(ctx context.Context, sessionID string, newState types.InteractionState, reason string) ([]*types.Interaction, error) {
 	m.ctrl.T.Helper()
@@ -6131,6 +6189,21 @@ func (m *MockStore) ReconcileStuckSendingPrompts(ctx context.Context) (int, erro
 func (mr *MockStoreMockRecorder) ReconcileStuckSendingPrompts(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileStuckSendingPrompts", reflect.TypeOf((*MockStore)(nil).ReconcileStuckSendingPrompts), ctx)
+}
+
+// RedeemSecretIntakeInvitation mocks base method.
+func (m *MockStore) RedeemSecretIntakeInvitation(arg0 context.Context, arg1, arg2, arg3, arg4 string, arg5, arg6 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RedeemSecretIntakeInvitation", arg0, arg1, arg2, arg3, arg4, arg5, arg6)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RedeemSecretIntakeInvitation indicates an expected call of RedeemSecretIntakeInvitation.
+func (mr *MockStoreMockRecorder) RedeemSecretIntakeInvitation(arg0, arg1, arg2, arg3, arg4, arg5, arg6 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemSecretIntakeInvitation", reflect.TypeOf((*MockStore)(nil).RedeemSecretIntakeInvitation), arg0, arg1, arg2, arg3, arg4, arg5, arg6)
 }
 
 // RegisterSandboxInstance mocks base method.
@@ -6291,6 +6364,20 @@ func (m *MockStore) ResourceSearch(ctx context.Context, req *types.ResourceSearc
 func (mr *MockStoreMockRecorder) ResourceSearch(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceSearch", reflect.TypeOf((*MockStore)(nil).ResourceSearch), ctx, req)
+}
+
+// RevokeSecretIntake mocks base method.
+func (m *MockStore) RevokeSecretIntake(arg0 context.Context, arg1, arg2 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeSecretIntake", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokeSecretIntake indicates an expected call of RevokeSecretIntake.
+func (mr *MockStoreMockRecorder) RevokeSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeSecretIntake", reflect.TypeOf((*MockStore)(nil).RevokeSecretIntake), arg0, arg1, arg2)
 }
 
 // RotateVHostRouteHostname mocks base method.
@@ -6566,6 +6653,21 @@ func (mr *MockStoreMockRecorder) SpawnWorkSession(ctx, parentSessionID, config a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpawnWorkSession", reflect.TypeOf((*MockStore)(nil).SpawnWorkSession), ctx, parentSessionID, config)
 }
 
+// SubmitSecretIntake mocks base method.
+func (m *MockStore) SubmitSecretIntake(arg0 context.Context, arg1, arg2, arg3 string, arg4, arg5 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubmitSecretIntake", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SubmitSecretIntake indicates an expected call of SubmitSecretIntake.
+func (mr *MockStoreMockRecorder) SubmitSecretIntake(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubmitSecretIntake", reflect.TypeOf((*MockStore)(nil).SubmitSecretIntake), arg0, arg1, arg2, arg3, arg4, arg5)
+}
+
 // SubscribeForTasks mocks base method.
 func (m *MockStore) SubscribeForTasks(ctx context.Context, filter *SpecTaskSubscriptionFilter, handler func(*types.SpecTask) error) (pubsub.Subscription, error) {
 	m.ctrl.T.Helper()
@@ -6609,6 +6711,21 @@ func (m *MockStore) SyncPromptHistory(ctx context.Context, userID string, req *t
 func (mr *MockStoreMockRecorder) SyncPromptHistory(ctx, userID, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncPromptHistory", reflect.TypeOf((*MockStore)(nil).SyncPromptHistory), ctx, userID, req)
+}
+
+// TakeSecretIntake mocks base method.
+func (m *MockStore) TakeSecretIntake(arg0 context.Context, arg1, arg2 string, arg3 time.Time) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TakeSecretIntake", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TakeSecretIntake indicates an expected call of TakeSecretIntake.
+func (mr *MockStoreMockRecorder) TakeSecretIntake(arg0, arg1, arg2, arg3 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TakeSecretIntake", reflect.TypeOf((*MockStore)(nil).TakeSecretIntake), arg0, arg1, arg2, arg3)
 }
 
 // TouchSession mocks base method.
@@ -7738,4 +7855,145 @@ func (m *MockStore) UpsertZedSettingsOverride(ctx context.Context, override *typ
 func (mr *MockStoreMockRecorder) UpsertZedSettingsOverride(ctx, override any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).UpsertZedSettingsOverride), ctx, override)
+}
+
+// MockSecretIntakeStore is a mock of SecretIntakeStore interface.
+type MockSecretIntakeStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockSecretIntakeStoreMockRecorder
+	isgomock struct{}
+}
+
+// MockSecretIntakeStoreMockRecorder is the mock recorder for MockSecretIntakeStore.
+type MockSecretIntakeStoreMockRecorder struct {
+	mock *MockSecretIntakeStore
+}
+
+// NewMockSecretIntakeStore creates a new mock instance.
+func NewMockSecretIntakeStore(ctrl *gomock.Controller) *MockSecretIntakeStore {
+	mock := &MockSecretIntakeStore{ctrl: ctrl}
+	mock.recorder = &MockSecretIntakeStoreMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockSecretIntakeStore) EXPECT() *MockSecretIntakeStoreMockRecorder {
+	return m.recorder
+}
+
+// CreateSecretIntake mocks base method.
+func (m *MockSecretIntakeStore) CreateSecretIntake(arg0 context.Context, arg1 *types.SecretIntake) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSecretIntake", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateSecretIntake indicates an expected call of CreateSecretIntake.
+func (mr *MockSecretIntakeStoreMockRecorder) CreateSecretIntake(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSecretIntake", reflect.TypeOf((*MockSecretIntakeStore)(nil).CreateSecretIntake), arg0, arg1)
+}
+
+// GetSecretIntake mocks base method.
+func (m *MockSecretIntakeStore) GetSecretIntake(arg0 context.Context, arg1, arg2 string) (*types.SecretIntake, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSecretIntake", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.SecretIntake)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSecretIntake indicates an expected call of GetSecretIntake.
+func (mr *MockSecretIntakeStoreMockRecorder) GetSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretIntake", reflect.TypeOf((*MockSecretIntakeStore)(nil).GetSecretIntake), arg0, arg1, arg2)
+}
+
+// GetSecretIntakeByFlow mocks base method.
+func (m *MockSecretIntakeStore) GetSecretIntakeByFlow(arg0 context.Context, arg1 string, arg2 time.Time) (*types.SecretIntake, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSecretIntakeByFlow", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.SecretIntake)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSecretIntakeByFlow indicates an expected call of GetSecretIntakeByFlow.
+func (mr *MockSecretIntakeStoreMockRecorder) GetSecretIntakeByFlow(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretIntakeByFlow", reflect.TypeOf((*MockSecretIntakeStore)(nil).GetSecretIntakeByFlow), arg0, arg1, arg2)
+}
+
+// ReapExpiredSecretIntakes mocks base method.
+func (m *MockSecretIntakeStore) ReapExpiredSecretIntakes(arg0 context.Context, arg1 time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReapExpiredSecretIntakes", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReapExpiredSecretIntakes indicates an expected call of ReapExpiredSecretIntakes.
+func (mr *MockSecretIntakeStoreMockRecorder) ReapExpiredSecretIntakes(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapExpiredSecretIntakes", reflect.TypeOf((*MockSecretIntakeStore)(nil).ReapExpiredSecretIntakes), arg0, arg1)
+}
+
+// RedeemSecretIntakeInvitation mocks base method.
+func (m *MockSecretIntakeStore) RedeemSecretIntakeInvitation(arg0 context.Context, arg1, arg2, arg3, arg4 string, arg5, arg6 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RedeemSecretIntakeInvitation", arg0, arg1, arg2, arg3, arg4, arg5, arg6)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RedeemSecretIntakeInvitation indicates an expected call of RedeemSecretIntakeInvitation.
+func (mr *MockSecretIntakeStoreMockRecorder) RedeemSecretIntakeInvitation(arg0, arg1, arg2, arg3, arg4, arg5, arg6 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemSecretIntakeInvitation", reflect.TypeOf((*MockSecretIntakeStore)(nil).RedeemSecretIntakeInvitation), arg0, arg1, arg2, arg3, arg4, arg5, arg6)
+}
+
+// RevokeSecretIntake mocks base method.
+func (m *MockSecretIntakeStore) RevokeSecretIntake(arg0 context.Context, arg1, arg2 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeSecretIntake", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokeSecretIntake indicates an expected call of RevokeSecretIntake.
+func (mr *MockSecretIntakeStoreMockRecorder) RevokeSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeSecretIntake", reflect.TypeOf((*MockSecretIntakeStore)(nil).RevokeSecretIntake), arg0, arg1, arg2)
+}
+
+// SubmitSecretIntake mocks base method.
+func (m *MockSecretIntakeStore) SubmitSecretIntake(arg0 context.Context, arg1, arg2, arg3 string, arg4, arg5 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubmitSecretIntake", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SubmitSecretIntake indicates an expected call of SubmitSecretIntake.
+func (mr *MockSecretIntakeStoreMockRecorder) SubmitSecretIntake(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubmitSecretIntake", reflect.TypeOf((*MockSecretIntakeStore)(nil).SubmitSecretIntake), arg0, arg1, arg2, arg3, arg4, arg5)
+}
+
+// TakeSecretIntake mocks base method.
+func (m *MockSecretIntakeStore) TakeSecretIntake(arg0 context.Context, arg1, arg2 string, arg3 time.Time) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TakeSecretIntake", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TakeSecretIntake indicates an expected call of TakeSecretIntake.
+func (mr *MockSecretIntakeStoreMockRecorder) TakeSecretIntake(arg0, arg1, arg2, arg3 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TakeSecretIntake", reflect.TypeOf((*MockSecretIntakeStore)(nil).TakeSecretIntake), arg0, arg1, arg2, arg3)
 }

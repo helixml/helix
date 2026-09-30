@@ -77,7 +77,9 @@ func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 	}
 
 	workerID := session.Metadata.OrgWorkerID
-	rewritten := r.Clone(helixorgserver.WithOrgID(r.Context(), session.OrganizationID))
+	// Carry the session id so org tools can route follow-ups back to this
+	// session (e.g. a secret-intake submission waking its requesting session).
+	rewritten := r.Clone(helixorgserver.WithOrgID(runtimehelix.WithSessionID(r.Context(), session.ID), session.OrganizationID))
 	rewritten.URL.Path = "/orgs/" + session.OrganizationID + "/workers/" + workerID + "/mcp"
 	rewritten.URL.RawPath = ""
 	rewritten.RequestURI = rewritten.URL.RequestURI()
@@ -126,6 +128,7 @@ func (b *HelixOrgMCPBackend) serveInstance(w http.ResponseWriter, r *http.Reques
 	}
 	ctx := helixorgserver.WithOrgID(r.Context(), session.OrganizationID)
 	ctx = runtimehelix.WithUserID(ctx, user.ID)
+	ctx = runtimehelix.WithSessionID(ctx, session.ID)
 	if token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); token != "" && token != r.Header.Get("Authorization") {
 		ctx = runtimehelix.WithBearerToken(ctx, token)
 	}

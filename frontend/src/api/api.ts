@@ -2016,6 +2016,31 @@ export interface ServerSandboxTerminalSessionsResponse {
   sessions?: ServerSandboxTerminalSession[];
 }
 
+export interface ServerSecretIntakeCreateResponse {
+  intake?: ServerSecretIntakeView;
+  invite_url?: string;
+}
+
+export interface ServerSecretIntakeRedeemRequest {
+  intake_id: string;
+  token: string;
+}
+
+export interface ServerSecretIntakeSubmissionRequest {
+  values?: Record<string, string>;
+}
+
+export interface ServerSecretIntakeView {
+  conversation_id?: string;
+  customer_id?: string;
+  expires_at?: string;
+  fields?: TypesSecretIntakeField[];
+  id?: string;
+  project_id?: string;
+  status?: string;
+  values_expires_at?: string;
+}
+
 export interface ServerSessionClaudeCredentialsResponse {
   /** "oauth" or "setup_token" */
   credential_type?: string;
@@ -2379,14 +2404,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindSlack = "slack",
-  KindGitHub = "github",
-  KindLocal = "local",
   KindWebhook = "webhook",
+  KindEmail = "email",
+  KindGitHub = "github",
   KindGitLab = "gitlab",
+  KindLocal = "local",
   KindCron = "cron",
   KindHelixEvents = "helix_events",
-  KindEmail = "email",
+  KindSlack = "slack",
 }
 
 export interface TransportResolvedActivation {
@@ -6556,6 +6581,26 @@ export interface TypesSecret {
   scope?: TypesSecretScope;
   updated?: string;
   value?: number[];
+}
+
+export interface TypesSecretIntakeCreateRequest {
+  accent_color?: string;
+  artifact_id?: string;
+  brand_name?: string;
+  conversation_id?: string;
+  customer_id?: string;
+  description?: string;
+  fields?: TypesSecretIntakeField[];
+  logo_url?: string;
+  title?: string;
+}
+
+export interface TypesSecretIntakeField {
+  autocomplete?: string;
+  label?: string;
+  name?: string;
+  required?: boolean;
+  type?: string;
 }
 
 export enum TypesSecretScope {
@@ -16239,6 +16284,85 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Creates a short-lived, one-time link for collecting requested fields outside chat. The response never contains submitted values.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesCreate
+     * @summary Create a secret intake
+     * @request POST:/api/v1/projects/{id}/secret-intakes
+     * @secure
+     */
+    v1ProjectsSecretIntakesCreate: (id: string, request: TypesSecretIntakeCreateRequest, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeCreateResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Invalidates its link and clears any submitted ciphertext.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesDelete
+     * @summary Revoke a secret intake
+     * @request DELETE:/api/v1/projects/{id}/secret-intakes/{intake_id}
+     * @secure
+     */
+    v1ProjectsSecretIntakesDelete: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns metadata and status only; submitted values remain inaccessible through this endpoint.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesDetail
+     * @summary Get secret intake status
+     * @request GET:/api/v1/projects/{id}/secret-intakes/{intake_id}
+     * @secure
+     */
+    v1ProjectsSecretIntakesDetail: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeView, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Write-only project API for trusted integrations. Values are encrypted and cannot be read through the API.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesSubmissionsCreate
+     * @summary Submit secret intake values
+     * @request POST:/api/v1/projects/{id}/secret-intakes/{intake_id}/submissions
+     * @secure
+     */
+    v1ProjectsSecretIntakesSubmissionsCreate: (
+      id: string,
+      intakeId: string,
+      request: ServerSecretIntakeSubmissionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}/submissions`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description List all secrets associated with a specific project.
      *
      * @tags secrets
@@ -20260,6 +20384,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+  };
+  connect = {
+    /**
+     * @description Exchanges a one-time invitation token for a short-lived browser flow cookie.
+     *
+     * @tags Secret Intakes
+     * @name IntakeRedeemCreate
+     * @summary Redeem a secret intake invitation
+     * @request POST:/connect/intake/redeem
+     */
+    intakeRedeemCreate: (request: ServerSecretIntakeRedeemRequest, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/connect/intake/redeem`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
         ...params,
       }),
   };
