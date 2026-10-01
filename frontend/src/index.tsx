@@ -7,7 +7,7 @@ import ErrorBoundary from './components/system/ErrorBoundary'
 import { isMobileOrTablet } from './utils/isMobileOrTablet'
 import { logErrorToSession, getRecentErrors, clearErrorLog } from './utils/errorSessionLog'
 import { copyTextToClipboard } from './utils/clipboard'
-import { isOpaqueScriptError } from './utils/mobileErrorNoise'
+import { isOpaqueScriptError, isResizeObserverLoopError } from './utils/mobileErrorNoise'
 
 const win = (window as any)
 win.setUserFunctions = []
@@ -121,7 +121,7 @@ if (isMobileOrTablet()) {
 
   window.onerror = (message, source, lineno, colno, error) => {
     const msg = String(message)
-    if (isKnownNoise(msg) || isOpaqueScriptError(msg, source, lineno, colno, error)) {
+    if (isKnownNoise(msg) || isResizeObserverLoopError(msg, source, lineno, colno, error) || isOpaqueScriptError(msg, source, lineno, colno, error)) {
       reportError(msg)
       return true
     }
