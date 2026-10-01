@@ -3,11 +3,16 @@ package spectask
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -73,7 +78,7 @@ func TestCreateSpecTaskPayloadContainsNoAppIdentity(t *testing.T) {
 	}))
 	defer server.Close()
 
-	task, err := createSpecTask(server.URL, "test-token", "test", "prompt", "prj_test", "headless-ubuntu", true)
+	task, err := createSpecTask(server.URL, "test-token", "test", "prompt", "prj_test", "headless-ubuntu", true, nil)
 	if err != nil {
 		t.Fatalf("createSpecTask returned an error: %v", err)
 	}
@@ -92,6 +97,70 @@ func TestCreateSpecTaskPayloadContainsNoAppIdentity(t *testing.T) {
 	}
 	if payload["just_do_it_mode"] != true {
 		t.Fatalf("just_do_it_mode missing from payload: %#v", payload)
+	}
+}
+
+// The server decodes /from-prompt with encoding/json, which silently drops unknown
+// keys — that is how `-n` was once ignored. Every key the CLI sends must exist on
+// the server's request struct, and the values must survive the round trip.
+func TestCreateSpecTaskPayloadMatchesServerRequestStruct(t *testing.T) {
+	bodies := make(chan []byte, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodies <- body
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"spt_test"}`))
+	}))
+	defer server.Close()
+
+	attachments := []types.SpecTaskInlineAttachment{{Name: "a.log", ContentBase64: "aGk="}}
+	if _, err := createSpecTask(server.URL, "token", "My Task", "prompt", "prj_test", "headless-ubuntu", true, attachments); err != nil {
+		t.Fatalf("createSpecTask returned an error: %v", err)
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(<-bodies))
+	decoder.DisallowUnknownFields()
+	var req types.CreateTaskRequest
+	if err := decoder.Decode(&req); err != nil {
+		t.Fatalf("CLI sent a field types.CreateTaskRequest does not define: %v", err)
+	}
+	if req.Name != "My Task" {
+		t.Fatalf("name was not sent: got %q", req.Name)
+	}
+	if len(req.Attachments) != 1 || req.Attachments[0].Name != "a.log" {
+		t.Fatalf("attachments were not sent: %#v", req.Attachments)
+	}
+}
+
+func TestStartNameFlagDefaultsToDerivedName(t *testing.T) {
+	if got := newStartCommand().Flags().Lookup("name").DefValue; got != "" {
+		t.Fatalf("--name default = %q; want empty so the server derives it from the prompt", got)
+	}
+}
+
+func TestReadInlineAttachmentsReportsEveryLocalProblem(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.log")
+	if err := os.WriteFile(good, []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := readInlineAttachments([]string{good, filepath.Join(dir, "missing-1.log"), dir})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for _, want := range []string{"missing-1.log", "is a directory", "nothing was created"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not mention %q", err, want)
+		}
+	}
+
+	attachments, err := readInlineAttachments([]string{good})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attachments) != 1 || attachments[0].Name != "good.log" || attachments[0].ContentBase64 != "aGVsbG8=" {
+		t.Fatalf("unexpected attachments: %#v", attachments)
 	}
 }
 

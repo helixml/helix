@@ -609,7 +609,7 @@ Examples:
 			// Pinned to the desktop runtime: step 5 screenshots the session, which
 			// a headless project default would not provide.
 			task, err := createSpecTask(apiURL, token, "E2E Test Task", taskPrompt, projectID,
-				string(types.SandboxRuntimeUbuntuDesktop), false)
+				string(types.SandboxRuntimeUbuntuDesktop), false, nil)
 			if err != nil {
 				return fmt.Errorf("failed to create task: %w", err)
 			}

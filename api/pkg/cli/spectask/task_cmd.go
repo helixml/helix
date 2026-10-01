@@ -25,6 +25,10 @@ import (
 // taskRequest performs an authenticated JSON request against the control plane
 // and, when out is non-nil, decodes the response body into it.
 func taskRequest(method, path string, body interface{}, out interface{}) error {
+	return taskRequestWithTimeout(method, path, body, out, 60*time.Second)
+}
+
+func taskRequestWithTimeout(method, path string, body interface{}, out interface{}, timeout time.Duration) error {
 	var reader io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
@@ -43,7 +47,7 @@ func taskRequest(method, path string, body interface{}, out interface{}) error {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
 		return err
 	}
@@ -408,6 +412,10 @@ Examples:
 				return fmt.Errorf("one of --prompt or --prompt-file is required")
 			}
 
+			attachments, err := readInlineAttachments(attachFiles)
+			if err != nil {
+				return err
+			}
 			request := types.CreateTaskRequest{
 				ProjectID:      projectID,
 				Prompt:         taskPrompt,
@@ -417,17 +425,18 @@ Examples:
 				JustDoItMode:   justDoIt,
 				AutoStart:      autoStart,
 				SandboxRuntime: types.SandboxRuntime(runtime),
+				Attachments:    attachments,
 			}
 
 			var task types.SpecTask
-			if err := taskRequest(http.MethodPost, "/api/v1/spec-tasks/from-prompt", request, &task); err != nil {
-				return fmt.Errorf("failed to create task: %w", err)
+			// Inline attachments are ingested before the response is sent, which can
+			// take as long as the server's ingestion timeout for large files.
+			timeout := 60 * time.Second
+			if len(attachments) > 0 {
+				timeout = types.SpecTaskInlineAttachmentIngestionTimeout + time.Minute
 			}
-
-			if len(attachFiles) > 0 {
-				if err := uploadSpecTaskAttachments(getAPIURL(), getToken(), task.ID, attachFiles); err != nil {
-					return fmt.Errorf("task %s created but attachments failed: %w", task.ID, err)
-				}
+			if err := taskRequestWithTimeout(http.MethodPost, "/api/v1/spec-tasks/from-prompt", request, &task, timeout); err != nil {
+				return fmt.Errorf("failed to create task: %w", err)
 			}
 
 			if quiet {
@@ -436,8 +445,8 @@ Examples:
 			}
 			fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
 			fmt.Printf("   Status: %s\n", task.Status)
-			if len(attachFiles) > 0 {
-				fmt.Printf("   📎 %d attachment(s) uploaded\n", len(attachFiles))
+			if len(attachments) > 0 {
+				fmt.Printf("   📎 %d attachment(s) uploaded\n", len(attachments))
 			}
 			fmt.Printf("\n💡 Start planning: helix spectask start %s\n", task.ID)
 			return nil
@@ -448,7 +457,7 @@ Examples:
 	cmd.Flags().StringVarP(&taskName, "name", "n", "", "Task name (defaults to one derived from the prompt)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file. Appended after --prompt if both are set.")
-	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable)")
+	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable). "+attachFlagLimits)
 	cmd.Flags().StringVar(&priority, "priority", "", "Priority: low, medium, high, critical")
 	cmd.Flags().StringVar(&taskType, "type", "", "Task type, e.g. feature, bug, refactor")
 	cmd.Flags().StringVar(&runtime, "runtime", "", "Sandbox environment: ubuntu-desktop or headless-ubuntu. Empty = project default.")

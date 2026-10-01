@@ -130,6 +130,14 @@ Example workflow:
 						return fmt.Errorf("failed to enable just-do-it mode: %w", err)
 					}
 				}
+				if len(attachFiles) > 0 {
+					if err := uploadSpecTaskAttachments(apiURL, token, taskID, attachFiles); err != nil {
+						return fmt.Errorf("failed to upload attachments to %s: %w", taskID, err)
+					}
+					if !quiet {
+						fmt.Printf("📎 Uploaded %d attachment(s)\n", len(attachFiles))
+					}
+				}
 			} else {
 				// Create a new spec task
 				if projectID == "" {
@@ -156,7 +164,11 @@ Example workflow:
 				if taskPrompt == "" {
 					taskPrompt = "Complete the requested task"
 				}
-				task, err := createSpecTask(apiURL, token, taskName, taskPrompt, projectID, runtime, justDoIt)
+				attachments, err := readInlineAttachments(attachFiles)
+				if err != nil {
+					return err
+				}
+				task, err := createSpecTask(apiURL, token, taskName, taskPrompt, projectID, runtime, justDoIt, attachments)
 				if err != nil {
 					return fmt.Errorf("failed to create spec task: %w", err)
 				}
@@ -164,16 +176,8 @@ Example workflow:
 				if !quiet {
 					fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
 					fmt.Printf("   Environment: %s\n", types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime))
-				}
-				// Attach files (e.g. logfiles) — the agent reads them at
-				// design/tasks/<task>/attachments/<name>, keeping large context
-				// out of the prompt.
-				if len(attachFiles) > 0 {
-					if err := uploadSpecTaskAttachments(apiURL, token, taskID, attachFiles); err != nil {
-						return fmt.Errorf("failed to upload attachments: %w", err)
-					}
-					if !quiet {
-						fmt.Printf("📎 Uploaded %d attachment(s)\n", len(attachFiles))
+					if len(attachments) > 0 {
+						fmt.Printf("📎 Attached %d file(s)\n", len(attachments))
 					}
 				}
 			}
@@ -265,11 +269,11 @@ Example workflow:
 		},
 	}
 
-	cmd.Flags().StringVarP(&taskName, "name", "n", "CLI Test Task", "Task name")
+	cmd.Flags().StringVarP(&taskName, "name", "n", "", "Task name (default: derived from the prompt)")
 	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (required when creating new task)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file (e.g. a design doc) — dispatch a full brief without committing it to the repo. Appended after --prompt if both are set.")
-	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable). Uploaded as spec-task attachments the agent reads at design/tasks/<task>/attachments/<name> — good for logs/large context without bloating the prompt.")
+	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable). The agent reads them at design/tasks/<task>/attachments/<name> — good for logs/large context without bloating the prompt. "+attachFlagLimits)
 	cmd.Flags().StringVar(&runtime, "runtime", "", "Sandbox environment for the new task: ubuntu-desktop (streamable GNOME desktop) or headless-ubuntu (agent only, no desktop). Empty = project default. Immutable once the task exists.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output the task ID (session ID with --wait)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Block until the sandbox has booted, then print session-level connect info (default: return immediately with the task URL — the browser page shows it loading)")
@@ -581,13 +585,14 @@ type SessionMetadata struct {
 	StatusMessage   string `json:"status_message"`
 }
 
-func createSpecTask(apiURL, token, name, prompt, projectID, runtime string, justDoIt bool) (*SpecTask, error) {
+func createSpecTask(apiURL, token, name, prompt, projectID, runtime string, justDoIt bool, attachments []types.SpecTaskInlineAttachment) (*SpecTask, error) {
 	payload := types.CreateTaskRequest{
 		Name:           name,
 		Prompt:         prompt,
 		ProjectID:      projectID,
 		SandboxRuntime: types.SandboxRuntime(runtime),
 		JustDoItMode:   justDoIt,
+		Attachments:    attachments,
 	}
 	jsonData, _ := json.Marshal(payload)
 
