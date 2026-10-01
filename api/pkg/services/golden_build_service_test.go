@@ -275,3 +275,52 @@ func (s *GoldenBuildServiceSuite) TestNewBuildClearsPending() {
 	s.service.mu.Unlock()
 	assert.False(s.T(), stillPending, "starting a new build should clear pending")
 }
+
+// waitWithResult runs waitForGoldenBuildCompletion against a finished build
+// whose hydra result is res, and returns the sandbox cache state it persisted.
+func (s *GoldenBuildServiceSuite) waitWithResult(res *hydra.GoldenBuildResult) *types.SandboxCacheState {
+	orig := goldenBuildPollInterval
+	goldenBuildPollInterval = 10 * time.Millisecond
+	defer func() { goldenBuildPollInterval = orig }()
+
+	project := &types.Project{ID: "prj_test"}
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_build").Return(false)
+	s.executor.EXPECT().GetGoldenBuildResult(gomock.Any(), "sb_1", "prj_test").Return(res, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_test").Return(project, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	s.service.waitForGoldenBuildCompletion(ctx, project.ID, "sb_1", "ses_build")
+
+	return project.Metadata.DockerCacheStatus.Sandboxes["sb_1"]
+}
+
+// The startup script exited 0 but hydra failed to promote the cache: the
+// cache was NOT refreshed, so the status must be failed with hydra's error.
+func (s *GoldenBuildServiceSuite) TestPromotionFailureMarksCacheFailed() {
+	state := s.waitWithResult(&hydra.GoldenBuildResult{
+		Success:  false,
+		ExitCode: "0",
+		Error:    "Golden cache promotion failed: zvol device /dev/zvol/x did not appear within 2m0s",
+	})
+
+	assert.Equal(s.T(), "failed", state.Status)
+	assert.Equal(s.T(), "Golden cache promotion failed: zvol device /dev/zvol/x did not appear within 2m0s", state.Error)
+	assert.Nil(s.T(), state.LastReadyAt)
+}
+
+func (s *GoldenBuildServiceSuite) TestScriptFailureReportsExitCode() {
+	state := s.waitWithResult(&hydra.GoldenBuildResult{Success: false, ExitCode: "2"})
+
+	assert.Equal(s.T(), "failed", state.Status)
+	assert.Equal(s.T(), "Startup script exited with code 2", state.Error)
+}
+
+func (s *GoldenBuildServiceSuite) TestSuccessfulBuildMarksCacheReady() {
+	state := s.waitWithResult(&hydra.GoldenBuildResult{Success: true, ExitCode: "0", CacheSizeBytes: 42})
+
+	assert.Equal(s.T(), "ready", state.Status)
+	assert.Empty(s.T(), state.Error)
+	assert.Equal(s.T(), int64(42), state.SizeBytes)
+}

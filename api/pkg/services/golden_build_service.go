@@ -21,6 +21,10 @@ import (
 // container is stopped, so a blown build doesn't keep compiling and burning CPU.
 const goldenBuildTimeout = types.GoldenBuildTimeout
 
+// goldenBuildPollInterval is how often waitForGoldenBuildCompletion checks the
+// build container. Var so tests can shorten it.
+var goldenBuildPollInterval = 15 * time.Second
+
 // GoldenBuildService manages golden Docker cache builds for projects.
 // When a merge to main happens and the project has AutoWarmDockerCache enabled,
 // it triggers a golden build session that runs the startup script to populate
@@ -534,7 +538,7 @@ func (g *GoldenBuildService) runGoldenBuildOnSandbox(parentCtx context.Context, 
 // waitForGoldenBuildCompletion polls until the golden build container exits,
 // then queries Hydra for the build result and updates the cache status.
 func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, projectID, sandboxID, sessionID string) {
-	ticker := time.NewTicker(15 * time.Second)
+	ticker := time.NewTicker(goldenBuildPollInterval)
 	defer ticker.Stop()
 
 	key := buildKey(projectID, sandboxID)
@@ -593,7 +597,8 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 			// verifies with the actual sandbox via RevDial (not just a stale map).
 			if g.containerExecutor.HasRunningContainer(ctx, sessionID) {
 				log.Debug().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
-					Msg("Golden build: still running, polling again in 15s")
+					Dur("poll_interval", goldenBuildPollInterval).
+					Msg("Golden build: still running, polling again")
 				continue
 			}
 
@@ -621,7 +626,10 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 				})
 			} else {
 				errMsg := "Startup script failed"
-				if result != nil {
+				if result != nil && result.Error != "" {
+					// e.g. the script succeeded but promoting the cache failed
+					errMsg = result.Error
+				} else if result != nil {
 					errMsg = fmt.Sprintf("Startup script exited with code %s", result.ExitCode)
 				} else if err != nil {
 					errMsg = "Build completed but result unknown"
