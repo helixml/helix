@@ -853,20 +853,8 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		project.GuidelinesUpdatedAt = time.Now()
 		project.GuidelinesUpdatedBy = user.ID
 	}
-	if req.Metadata != nil {
-		// Merge metadata fields selectively to avoid overwriting fields
-		// managed by backend services (e.g., DockerCacheStatus).
-		if req.Metadata.BoardSettings != nil {
-			project.Metadata.BoardSettings = req.Metadata.BoardSettings
-		}
-		// AutoWarmDockerCache is a bool — always apply from the request
-		// since it's user-controlled.
-		project.Metadata.AutoWarmDockerCache = req.Metadata.AutoWarmDockerCache
-		if req.Metadata.OrgMembersAccess {
-			project.Metadata.OrgMembersAccess = true
-		}
-		// DockerCacheStatus is managed exclusively by GoldenBuildService — never overwrite from API request.
-	}
+	// Merge metadata selectively: omitted fields keep their stored value.
+	req.Metadata.ApplyTo(&project.Metadata)
 	// Skills can be set directly (nil means "don't update")
 	if req.Skills != nil {
 		project.Skills = req.Skills

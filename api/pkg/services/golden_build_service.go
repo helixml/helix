@@ -222,6 +222,9 @@ func (g *GoldenBuildService) TriggerGoldenBuild(ctx context.Context, project *ty
 	}
 
 	if !project.Metadata.AutoWarmDockerCache {
+		log.Info().
+			Str("project_id", project.ID).
+			Msg("Skipping golden build on merge to main: auto_warm_docker_cache is disabled for project")
 		return
 	}
 
