@@ -77,6 +77,11 @@ type GoldenBuildService struct {
 	// Whether a build is running is always read from golden_builds.
 	mu         sync.Mutex
 	monitoring map[string]bool
+
+	// ctx parents every background build and monitor; cancelling it (process
+	// shutdown) ends them without recording an outcome. wg tracks them.
+	ctx context.Context
+	wg  sync.WaitGroup
 }
 
 // NewGoldenBuildService creates a new golden build service.
@@ -90,7 +95,17 @@ func NewGoldenBuildService(
 		containerExecutor: containerExecutor,
 		specTaskService:   specTaskService,
 		monitoring:        make(map[string]bool),
+		ctx:               context.Background(),
 	}
+}
+
+// goBackground runs fn in a goroutine tracked by g.wg.
+func (g *GoldenBuildService) goBackground(fn func()) {
+	g.wg.Add(1)
+	go func() {
+		defer g.wg.Done()
+		fn()
+	}()
 }
 
 // startMonitoring marks sessionID as owned by a goroutine in this process.
@@ -187,7 +202,7 @@ func (g *GoldenBuildService) startBuild(ctx context.Context, project *types.Proj
 		Str("sandbox_id", sandboxID).
 		Bool("retry", trigger == triggerRetry).
 		Msg("Triggering golden Docker cache build on sandbox")
-	go g.runGoldenBuildOnSandbox(project, sandboxID)
+	g.goBackground(func() { g.runGoldenBuildOnSandbox(project, sandboxID) })
 	return true, false, nil
 }
 
@@ -227,12 +242,12 @@ func (g *GoldenBuildService) reconcileBuild(ctx context.Context, b *types.Sandbo
 		if b.LastBuildAt != nil {
 			deadline = b.LastBuildAt.Add(goldenBuildTimeout)
 		}
-		go func() {
+		g.goBackground(func() {
 			defer g.stopMonitoring(b.BuildSessionID)
-			ctx, cancel := context.WithDeadline(context.Background(), deadline)
+			ctx, cancel := context.WithDeadline(g.ctx, deadline)
 			defer cancel()
 			g.waitForGoldenBuildCompletion(ctx, b.ProjectID, b.SandboxID, b.BuildSessionID)
-		}()
+		})
 
 	case b.Status == types.GoldenBuildStatusRetrying || (!b.Active() && b.PendingRebuild):
 		trigger := triggerNew
@@ -372,7 +387,7 @@ func (g *GoldenBuildService) fanOutBuilds(ctx context.Context, project *types.Pr
 
 // runGoldenBuildOnSandbox runs a claimed golden build on a specific sandbox.
 func (g *GoldenBuildService) runGoldenBuildOnSandbox(project *types.Project, sandboxID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), goldenBuildTimeout)
+	ctx, cancel := context.WithTimeout(g.ctx, goldenBuildTimeout)
 	defer cancel()
 
 	// Get project repositories
@@ -571,6 +586,9 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 	for {
 		select {
 		case <-ctx.Done():
+			if g.ctx.Err() != nil {
+				return // shutting down; reconciliation resumes the build
+			}
 			bg := context.Background()
 			if unreachable != nil {
 				logger.Warn().Err(unreachable).Msg("Golden build: deadline passed while the sandbox was unreachable")

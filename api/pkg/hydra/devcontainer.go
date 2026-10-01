@@ -511,6 +511,13 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	if req.Persistent {
 		containerConfig.Labels[containerPersistentLabel] = "true"
 	}
+	var goldenDeadline time.Time
+	if req.GoldenBuild {
+		goldenDeadline = time.Now().Add(goldenBuildTimeout(req))
+		containerConfig.Labels[containerGoldenBuildLabel] = "true"
+		containerConfig.Labels[containerProjectIDLabel] = req.ProjectID
+		containerConfig.Labels[containerGoldenDeadlineLabel] = goldenDeadline.UTC().Format(time.RFC3339)
+	}
 	if len(req.Entrypoint) > 0 {
 		containerConfig.Entrypoint = req.Entrypoint
 	}
@@ -808,7 +815,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		ProjectID:     req.ProjectID,
 	}
 	if req.GoldenBuild {
-		dc.GoldenBuildTimeout = goldenBuildTimeout(req)
+		dc.GoldenBuildDeadline = goldenDeadline
 	}
 	dm.mu.Lock()
 	dm.containers[req.SessionID] = dc
@@ -2517,7 +2524,7 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 			break
 		}
 
-		dc := &DevContainer{
+		dm.adoptRecoveredContainer(&DevContainer{
 			SessionID:     sessionID,
 			ContainerID:   c.ID,
 			ContainerName: name,
@@ -2526,21 +2533,9 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 			ContainerType: containerTypeForName(name),
 			CreatedAt:     time.Unix(c.Created, 0),
 			DockerSocket:  dockerSocket,
-		}
-
-		dm.mu.Lock()
-		dm.containers[sessionID] = dc
-		dm.mu.Unlock()
-
-		// Start streaming logs for recovered container
-		go dm.streamContainerLogs(context.Background(), c.ID, name, dockerSocket)
+		}, c.Labels)
 
 		recoveredCount++
-		log.Info().
-			Str("session_id", sessionID).
-			Str("container_id", c.ID[:12]).
-			Str("container_name", name).
-			Msg("Recovered dev container from Docker")
 	}
 
 	if recoveredCount > 0 {
@@ -2548,6 +2543,54 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 	}
 
 	return nil
+}
+
+// adoptRecoveredContainer tracks a dev container found running in Docker after
+// a Hydra restart. A golden build gets its result monitor back, so a build
+// that survived the restart is still detected, promoted and reported.
+func (dm *DevContainerManager) adoptRecoveredContainer(dc *DevContainer, labels map[string]string) {
+	if labels[containerGoldenBuildLabel] == "true" {
+		dc.IsGoldenBuild = true
+		dc.ProjectID = labels[containerProjectIDLabel]
+		deadline, err := time.Parse(time.RFC3339, labels[containerGoldenDeadlineLabel])
+		if err != nil {
+			log.Warn().Err(err).Str("session_id", dc.SessionID).
+				Msg("Recovered golden build has no valid deadline label, using the default timeout from its creation")
+			deadline = dc.CreatedAt.Add(types.GoldenBuildTimeout)
+		}
+		dc.GoldenBuildDeadline = deadline
+	}
+
+	dm.mu.Lock()
+	dm.containers[dc.SessionID] = dc
+	dm.mu.Unlock()
+
+	// Start streaming logs for recovered container
+	go dm.streamContainerLogs(context.Background(), dc.ContainerID, dc.ContainerName, dc.DockerSocket)
+
+	log.Info().
+		Str("session_id", dc.SessionID).
+		Str("container_id", shortID(dc.ContainerID)).
+		Str("container_name", dc.ContainerName).
+		Bool("golden_build", dc.IsGoldenBuild).
+		Msg("Recovered dev container from Docker")
+
+	if dc.IsGoldenBuild {
+		log.Info().
+			Str("session_id", dc.SessionID).
+			Str("project_id", dc.ProjectID).
+			Time("deadline", dc.GoldenBuildDeadline).
+			Msg("Resuming golden build monitor for recovered container")
+		go dm.monitorGoldenBuild(dc)
+	}
+}
+
+// shortID returns the 12-character prefix Docker uses for container IDs.
+func shortID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
 }
 
 // containerTypeForName infers a DevContainerType from a container name for
@@ -2779,12 +2822,13 @@ func (dm *DevContainerManager) goldenBuildContainerExited(dc *DevContainer) (boo
 // promotes the Docker data if successful, and stops the container cleanly
 // via DeleteDevContainer.
 func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
-	buildStart := time.Now()
+	buildStart := dc.CreatedAt
+	timeout := time.Until(dc.GoldenBuildDeadline)
 	log.Info().
 		Str("session_id", dc.SessionID).
 		Str("project_id", dc.ProjectID).
 		Str("container_id", dc.ContainerID).
-		Dur("timeout", dc.GoldenBuildTimeout).
+		Dur("timeout", timeout).
 		Msg("Monitoring golden build container")
 
 	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
@@ -2796,13 +2840,13 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	fileCopyResultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
 
 	exited := func() (bool, string) { return dm.goldenBuildContainerExited(dc) }
-	resultData, err := waitForGoldenBuildResult(dc.GoldenBuildTimeout, goldenBuildPollInterval, exited, zvolResultFile, fileCopyResultFile)
+	resultData, err := waitForGoldenBuildResult(timeout, goldenBuildPollInterval, exited, zvolResultFile, fileCopyResultFile)
 	if err != nil {
 		log.Error().Err(err).
 			Str("session_id", dc.SessionID).
 			Str("project_id", dc.ProjectID).
 			Dur("build_duration", time.Since(buildStart)).
-			Dur("timeout", dc.GoldenBuildTimeout).
+			Time("deadline", dc.GoldenBuildDeadline).
 			Msg("Golden build: no result file")
 		// Stop the container via the clean API, then drop its half-built data
 		dm.DeleteDevContainer(context.Background(), dc.SessionID)
