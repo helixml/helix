@@ -21,6 +21,8 @@
 WORK_DIR="$HOME/work"
 COMPLETE_SIGNAL="$HOME/.helix-setup-complete"
 FOLDERS_FILE="$HOME/.helix-zed-folders"
+# Bash that runs in the agent CPU tier (see /etc/cont-init.d/16-cpu-tiers.sh).
+AGENT_TIER_BASH=/usr/local/libexec/helix/agent-tier/bash
 
 # Will be populated by read_zed_folders
 ZED_FOLDERS=()
@@ -30,7 +32,8 @@ ZED_FOLDERS=()
 # =========================================
 
 launch_setup_terminal() {
-    launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
+    # The setup runs the project's .helix/startup.sh: agent work.
+    launch_terminal "Helix Setup" "$WORK_DIR" "$AGENT_TIER_BASH" "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
     TERMINAL_PID=$!
     echo "Setup terminal launched (PID $TERMINAL_PID)"
 }
@@ -279,11 +282,14 @@ run_zed_restart_loop() {
         # MCP registration by the agent. Re-verify before each one.
         wait_for_mcp_endpoints
         echo "Launching Zed..."
+        # Zed's UI stays in the display tier. Zed starts ACP agents, MCP
+        # servers, terminals and tasks through $SHELL, which puts them and
+        # everything they spawn in the agent tier.
         # ZED_EXTRA_FILES can be set by desktop-specific script (e.g., user guide)
         if [ "${HELIX_HEADLESS}" = "1" ]; then
-            /zed-build/zed --headless "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
+            SHELL="$AGENT_TIER_BASH" /zed-build/zed --headless "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
         else
-            /zed-build/zed "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
+            SHELL="$AGENT_TIER_BASH" /zed-build/zed "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
         fi
         echo "Zed exited, restarting in 2 seconds..."
         sleep 2
