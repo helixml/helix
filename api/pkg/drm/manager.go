@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -44,6 +45,13 @@ type Manager struct {
 	leases      map[uint32]*LeaseInfo // scanout_idx -> lease
 	crtcIDs     []uint32
 	connectorIDs []uint32
+	planeIDs    map[int][]uint32 // CRTC index (= scanout index) -> plane IDs, ascending
+}
+
+// planeInfo is a plane ID and its possible_crtcs bitmask (bit i = CRTC index i).
+type planeInfo struct {
+	ID            uint32
+	PossibleCrtcs uint32
 }
 
 // New creates a DRM manager. Opens the DRM device and becomes master.
@@ -81,6 +89,22 @@ func New(cfg Config, logger *slog.Logger) (*Manager, error) {
 		available = append(available, uint32(i))
 	}
 
+	planes, err := getPlanes(drmFile)
+	if err != nil {
+		drmFile.Close()
+		return nil, fmt.Errorf("get planes: %w", err)
+	}
+	planeIDs := groupPlanesByCRTC(planes)
+	for i := 0; i < len(crtcIDs); i++ {
+		logger.Debug("planes", "crtc_index", i, "crtc_id", crtcIDs[i], "plane_ids", planeIDs[i])
+	}
+	// Fail closed: guessing plane IDs leases the wrong objects (EINVAL, or
+	// worse, the wrong display), so refuse to start if any scanout lacks them.
+	if err := validatePlanes(planeIDs, crtcIDs, available); err != nil {
+		drmFile.Close()
+		return nil, err
+	}
+
 	return &Manager{
 		cfg:          cfg,
 		logger:       logger,
@@ -89,6 +113,7 @@ func New(cfg Config, logger *slog.Logger) (*Manager, error) {
 		leases:       make(map[uint32]*LeaseInfo),
 		crtcIDs:      crtcIDs,
 		connectorIDs: connectorIDs,
+		planeIDs:     planeIDs,
 	}, nil
 }
 
@@ -269,10 +294,10 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 	objectIDs := []uint32{connectorID, crtcID, primaryPlaneID, cursorPlaneID}
 	leaseFD, lesseeID, err := createLease(m.drmFile, objectIDs)
 	if err != nil {
-		m.logger.Error("create lease failed", "err", err)
+		m.logger.Error("create lease failed", "err", err, "object_ids", objectIDs)
 		m.disableScanoutInQEMU(scanoutIdx)
 		m.releaseScanout(scanoutIdx)
-		m.sendError(conn, fmt.Sprintf("DRM lease failed: %v", err))
+		m.sendError(conn, fmt.Sprintf("DRM lease failed (objects %v): %v", objectIDs, err))
 		return 0
 	}
 
@@ -397,14 +422,43 @@ func (m *Manager) crtcIDForScanout(scanoutIdx uint32) uint32 {
 }
 
 // planeIDsForScanout returns the primary and cursor plane IDs for a scanout.
-// virtio-gpu creates 2 planes per CRTC: primary (type=1) and cursor (type=2).
-// Pattern: primary = base + scanout * 7, cursor = base + 1 + scanout * 7
+// virtio-gpu creates 2 planes per CRTC, primary before cursor, and each is only
+// usable with its own CRTC. New() has already checked that both exist.
 func (m *Manager) planeIDsForScanout(scanoutIdx uint32) (primaryPlaneID, cursorPlaneID uint32) {
-	// The plane IDs follow the pattern: 33 + N*7 (primary), 34 + N*7 (cursor)
-	// This matches the connector/CRTC pattern but offset by -4
-	primaryPlaneID = 33 + scanoutIdx*7
-	cursorPlaneID = 34 + scanoutIdx*7
-	return
+	planes := m.planeIDs[int(scanoutIdx)]
+	return planes[0], planes[1]
+}
+
+// groupPlanesByCRTC maps each CRTC index to the planes usable with it, in
+// ascending plane ID order.
+func groupPlanesByCRTC(planes []planeInfo) map[int][]uint32 {
+	sorted := append([]planeInfo(nil), planes...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
+
+	byCRTC := make(map[int][]uint32)
+	for _, p := range sorted {
+		for i := 0; i < 32; i++ {
+			if p.PossibleCrtcs&(1<<i) != 0 {
+				byCRTC[i] = append(byCRTC[i], p.ID)
+			}
+		}
+	}
+	return byCRTC
+}
+
+// validatePlanes checks that every leasable scanout has a primary and a cursor plane.
+func validatePlanes(planeIDs map[int][]uint32, crtcIDs []uint32, scanouts []uint32) error {
+	for _, idx := range scanouts {
+		var crtcID uint32
+		if int(idx) < len(crtcIDs) {
+			crtcID = crtcIDs[idx]
+		}
+		if planes := planeIDs[int(idx)]; len(planes) < 2 {
+			return fmt.Errorf("scanout %d (crtc %d): found %d plane(s) %v, need primary+cursor",
+				idx, crtcID, len(planes), planes)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) enableScanoutInQEMU(scanoutIdx, width, height uint32) error {
