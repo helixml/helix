@@ -11,6 +11,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -1101,6 +1102,11 @@ const stallRestartTimeout = 30 * time.Second
 // a steady ~10 FPS on static screens.
 const frameKeepaliveInterval = 100 * time.Millisecond
 
+// maxFirstFrameRetries bounds pipeline restarts after pipewirezerocopysrc's
+// first-frame deadline (10s each) before any frame has ever arrived. Together
+// they give a starved compositor about a minute, plus restart time.
+const maxFirstFrameRetries = 5
+
 // maxStallRestarts is the maximum number of pipeline restarts before giving up.
 // This prevents infinite restart loops if the pipeline keeps failing.
 const maxStallRestarts = 100
@@ -1156,6 +1162,7 @@ func (s *SharedVideoSource) broadcastFrames() {
 	var frameCount uint64
 	var keyframeCount uint64
 	var restartCount int
+	var firstFrameRetries int
 
 	// Stall detection timer - fires when no frames arrive for stallRestartTimeout
 	stallTimer := time.NewTimer(stallRestartTimeout)
@@ -1244,6 +1251,30 @@ func (s *SharedVideoSource) broadcastFrames() {
 			}
 
 		case pipelineErr := <-errorCh:
+			// The compositor has not delivered a first frame yet. Under CPU
+			// starvation mutter is alive but slow; restart rather than end every
+			// viewer's stream with an error. Clients keep getting "starting video"
+			// heartbeats meanwhile. Bounded: an idle/broken compositor still ends
+			// in the error after maxFirstFrameRetries.
+			if frameCount == 0 && errors.Is(pipelineErr, ErrNoFirstFrame) &&
+				firstFrameRetries < maxFirstFrameRetries && s.GetClientCount() > 0 {
+				firstFrameRetries++
+				log.Warn().
+					Uint32("node_id", s.nodeID).
+					Int("retry", firstFrameRetries).
+					Int("max", maxFirstFrameRetries).
+					Msg("[SHARED_VIDEO] No first frame from the compositor yet, restarting pipeline")
+				newPipeline, err := s.restartPipeline()
+				if err != nil {
+					log.Error().Err(err).Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Pipeline restart failed")
+					s.broadcastError(err)
+					return
+				}
+				frameCh = newPipeline.Frames()
+				errorCh = newPipeline.Errors()
+				stallTimer.Reset(stallRestartTimeout)
+				continue
+			}
 			// Pipeline error (e.g., GPU OOM) - broadcast to all clients
 			log.Error().Err(pipelineErr).Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Pipeline error")
 			s.broadcastError(pipelineErr)

@@ -7,6 +7,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -699,7 +700,31 @@ func (g *GstPipeline) Errors() <-chan error {
 // everything after the delimiter as smaller, monospaced technical detail, so the
 // underlying failure (element, raw error, GStreamer debug string) is diagnosable
 // from the UI instead of being flattened to a generic sentence.
+// ErrNoFirstFrame marks a pipeline that failed only because the compositor
+// had not delivered its first frame by pipewirezerocopysrc's deadline
+// (FIRST_FRAME_TIMEOUT in desktop/gst-pipewire-zerocopy/src/pipewiresrc/imp.rs).
+// On a CPU-starved host mutter is alive but slow, so this is retryable.
+var ErrNoFirstFrame = errors.New("no first video frame from the compositor")
+
+// noFirstFrameMarker is the start of the element error text imp.rs posts.
+const noFirstFrameMarker = "no video frame received from the compositor"
+
 func (g *GstPipeline) createUserFriendlyError(errMsg, debugStr, srcElement string) error {
+	err := g.userFriendlyError(errMsg, debugStr, srcElement)
+	if strings.Contains(errMsg, noFirstFrameMarker) {
+		return noFirstFrameError{err}
+	}
+	return err
+}
+
+// noFirstFrameError keeps the user-facing message unchanged while matching
+// errors.Is(err, ErrNoFirstFrame).
+type noFirstFrameError struct{ error }
+
+func (e noFirstFrameError) Is(target error) bool { return target == ErrNoFirstFrame }
+func (e noFirstFrameError) Unwrap() error        { return e.error }
+
+func (g *GstPipeline) userFriendlyError(errMsg, debugStr, srcElement string) error {
 	friendly := friendlyVideoError(errMsg)
 
 	// Assemble the technical detail: source element + raw error, plus the
