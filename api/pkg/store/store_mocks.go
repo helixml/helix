@@ -1638,6 +1638,20 @@ func (mr *MockStoreMockRecorder) DeleteGitRepository(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGitRepository", reflect.TypeOf((*MockStore)(nil).DeleteGitRepository), ctx, id)
 }
 
+// DeleteGoldenBuilds mocks base method.
+func (m *MockStore) DeleteGoldenBuilds(ctx context.Context, projectID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteGoldenBuilds", ctx, projectID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteGoldenBuilds indicates an expected call of DeleteGoldenBuilds.
+func (mr *MockStoreMockRecorder) DeleteGoldenBuilds(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGoldenBuilds", reflect.TypeOf((*MockStore)(nil).DeleteGoldenBuilds), ctx, projectID)
+}
+
 // DeleteInteraction mocks base method.
 func (m *MockStore) DeleteInteraction(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -2995,6 +3009,21 @@ func (m *MockStore) GetGitRepositoryByExternalURL(ctx context.Context, orgID, ex
 func (mr *MockStoreMockRecorder) GetGitRepositoryByExternalURL(ctx, orgID, externalURL any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGitRepositoryByExternalURL", reflect.TypeOf((*MockStore)(nil).GetGitRepositoryByExternalURL), ctx, orgID, externalURL)
+}
+
+// GetGoldenBuild mocks base method.
+func (m *MockStore) GetGoldenBuild(ctx context.Context, projectID, sandboxID string) (*types.SandboxCacheState, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGoldenBuild", ctx, projectID, sandboxID)
+	ret0, _ := ret[0].(*types.SandboxCacheState)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGoldenBuild indicates an expected call of GetGoldenBuild.
+func (mr *MockStoreMockRecorder) GetGoldenBuild(ctx, projectID, sandboxID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGoldenBuild", reflect.TypeOf((*MockStore)(nil).GetGoldenBuild), ctx, projectID, sandboxID)
 }
 
 // GetInteraction mocks base method.
@@ -4918,6 +4947,21 @@ func (mr *MockStoreMockRecorder) ListGitRepositories(ctx, request any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGitRepositories", reflect.TypeOf((*MockStore)(nil).ListGitRepositories), ctx, request)
 }
 
+// ListGoldenBuilds mocks base method.
+func (m *MockStore) ListGoldenBuilds(ctx context.Context, q *ListGoldenBuildsQuery) ([]*types.SandboxCacheState, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListGoldenBuilds", ctx, q)
+	ret0, _ := ret[0].([]*types.SandboxCacheState)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListGoldenBuilds indicates an expected call of ListGoldenBuilds.
+func (mr *MockStoreMockRecorder) ListGoldenBuilds(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGoldenBuilds", reflect.TypeOf((*MockStore)(nil).ListGoldenBuilds), ctx, q)
+}
+
 // ListGuidelinesHistory mocks base method.
 func (m *MockStore) ListGuidelinesHistory(ctx context.Context, organizationID, projectID, userID string) ([]*types.GuidelinesHistory, error) {
 	m.ctrl.T.Helper()
@@ -5233,21 +5277,6 @@ func (m *MockStore) ListProjects(ctx context.Context, query *ListProjectsQuery) 
 func (mr *MockStoreMockRecorder) ListProjects(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjects", reflect.TypeOf((*MockStore)(nil).ListProjects), ctx, query)
-}
-
-// ListProjectsWithActiveGoldenBuild mocks base method.
-func (m *MockStore) ListProjectsWithActiveGoldenBuild(ctx context.Context) ([]*types.Project, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListProjectsWithActiveGoldenBuild", ctx)
-	ret0, _ := ret[0].([]*types.Project)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListProjectsWithActiveGoldenBuild indicates an expected call of ListProjectsWithActiveGoldenBuild.
-func (mr *MockStoreMockRecorder) ListProjectsWithActiveGoldenBuild(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjectsWithActiveGoldenBuild", reflect.TypeOf((*MockStore)(nil).ListProjectsWithActiveGoldenBuild), ctx)
 }
 
 // ListPromptHistory mocks base method.
@@ -7087,6 +7116,21 @@ func (m *MockStore) UpdateGitRepository(ctx context.Context, repo *types.GitRepo
 func (mr *MockStoreMockRecorder) UpdateGitRepository(ctx, repo any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateGitRepository", reflect.TypeOf((*MockStore)(nil).UpdateGitRepository), ctx, repo)
+}
+
+// UpdateGoldenBuild mocks base method.
+func (m *MockStore) UpdateGoldenBuild(ctx context.Context, projectID, sandboxID string, update func(*types.SandboxCacheState) bool) (*types.SandboxCacheState, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateGoldenBuild", ctx, projectID, sandboxID, update)
+	ret0, _ := ret[0].(*types.SandboxCacheState)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateGoldenBuild indicates an expected call of UpdateGoldenBuild.
+func (mr *MockStoreMockRecorder) UpdateGoldenBuild(ctx, projectID, sandboxID, update any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateGoldenBuild", reflect.TypeOf((*MockStore)(nil).UpdateGoldenBuild), ctx, projectID, sandboxID, update)
 }
 
 // UpdateInteraction mocks base method.

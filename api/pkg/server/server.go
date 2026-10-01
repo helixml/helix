@@ -699,10 +699,6 @@ func NewServer(
 	}
 	gitRepositoryService.SetGitHubReviewWebhooks(reviewWebhookURL)
 
-	// Recover golden builds that were in progress when the API last restarted.
-	// Re-attaches monitoring goroutines for still-running builds, resets stale ones.
-	go apiServer.goldenBuildService.RecoverStaleBuilds(context.Background())
-
 	// Start orchestrator
 	go func() {
 		if err := apiServer.specTaskOrchestrator.Start(context.Background()); err != nil {
@@ -2826,6 +2822,9 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 				if err := apiServer.externalAgentExecutor.DiscoverContainersFromSandbox(ctx, sandboxID); err != nil {
 					log.Debug().Err(err).Str("sandbox_id", sandboxID).Msg("Container discovery failed on revdial connect")
 				}
+				// Resume golden builds from persisted state now that this
+				// sandbox's Hydra is reachable (API or Hydra restart).
+				apiServer.goldenBuildService.ReconcileSandbox(context.Background(), sandboxID)
 			}()
 		}
 

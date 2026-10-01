@@ -1307,6 +1307,29 @@ func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID strin
 	return session.Status == "running"
 }
 
+// GoldenBuildContainerRunning asks the sandbox's Hydra directly whether the
+// golden build container for sessionID is running. Unlike HasRunningContainer
+// it does not depend on the in-memory sessions map (empty after an API
+// restart). A non-nil error means Hydra could not be asked — the sandbox is
+// disconnected or restarting — so nothing can be concluded about the build.
+func (h *HydraExecutor) GoldenBuildContainerRunning(ctx context.Context, sandboxID, sessionID string) (bool, error) {
+	if h.connman == nil {
+		return false, fmt.Errorf("connection manager not available")
+	}
+	if sandboxID == "" {
+		sandboxID = "local"
+	}
+	hydraClient := hydra.NewRevDialClient(h.connman, fmt.Sprintf("hydra-%s", sandboxID))
+	container, err := hydraClient.GetDevContainer(ctx, sessionID)
+	if err != nil {
+		if strings.Contains(err.Error(), "status 404") {
+			return false, nil
+		}
+		return false, err
+	}
+	return container.Status == hydra.DevContainerStatusRunning, nil
+}
+
 // Helper methods
 
 // GetGoldenBuildResult queries a specific sandbox for the latest golden build result.
@@ -2093,6 +2116,7 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 			ContainerIP:    container.containerIP,
 			SandboxID:      sandboxID,
 			LastAccess:     time.Now(),
+			GoldenBuild:    dbSession.Metadata.GoldenBuild,
 		}
 		h.mutex.Unlock()
 

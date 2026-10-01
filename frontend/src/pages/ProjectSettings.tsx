@@ -102,6 +102,11 @@ import {
   useGetProjectGuidelinesHistory,
 } from "../services";
 import { isProjectAccessDeniedError } from "../services/projectService";
+import {
+  goldenBuildStatusDetail,
+  goldenBuildStatusLabel,
+  isGoldenBuildActive,
+} from "../utils/goldenBuildStatus";
 
 interface ProjectSettingsProps {
   projectId: string;
@@ -239,7 +244,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   // Per-sandbox golden cache state
   const sandboxCacheMap = project?.metadata?.docker_cache_status?.sandboxes ?? {};
   const sandboxEntries = Object.entries(sandboxCacheMap);
-  const anyBuilding = sandboxEntries.some(([, s]) => s.status === "building");
+  const anyBuilding = sandboxEntries.some(([, s]) => isGoldenBuildActive(s));
   const anyReady = sandboxEntries.some(([, s]) => s.status === "ready");
   const anyFailed = sandboxEntries.some(([, s]) => s.status === "failed");
 
@@ -279,14 +284,15 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     refetchInterval: 30000,
   });
 
-  // Poll project status while any golden build is running and viewer is open
+  // Poll project status while any golden build is running or waiting to
+  // retry, so attempts, interruptions and the outcome show up live.
   useEffect(() => {
-    if (!showGoldenBuildViewer || !anyBuilding) return;
+    if (!anyBuilding) return;
     const interval = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     }, 10000);
     return () => clearInterval(interval);
-  }, [showGoldenBuildViewer, anyBuilding, projectId]);
+  }, [anyBuilding, projectId]);
 
   // After Prime Cache is clicked, the dev container takes several seconds to
   // provision before the sandbox flips to "building". Poll fast for up to 60s
@@ -1238,10 +1244,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                         sx={{ fontFamily: "monospace", fontSize: "0.7rem" }}
                       />
                       <Typography variant="caption" color="text.secondary">
-                        {sbState.status === "ready" && "Ready"}
-                        {sbState.status === "building" && "Building..."}
-                        {sbState.status === "failed" && "Failed"}
-                        {sbState.status === "none" && "No cache"}
+                        {goldenBuildStatusLabel(sbState)}
+                        {sbState.pending_rebuild && sbState.status === "building" && (
+                          <> &middot; rebuild queued</>
+                        )}
                         {sbState.status === "building" && (sbState.size_bytes ?? 0) > 0 && (
                           <> &middot; {((sbState.size_bytes ?? 0) / 1e9).toFixed(1)} GB</>
                         )}
@@ -1277,11 +1283,19 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                         </Button>
                       )}
                     </Box>
-                    {sbState.error && (
-                      <Typography variant="caption" color="error" component="div" sx={{ mt: 0.25, ml: 1 }}>
-                        {sbState.error}
-                      </Typography>
-                    )}
+                    {(() => {
+                      const detail = goldenBuildStatusDetail(sbState);
+                      return detail ? (
+                        <Typography
+                          variant="caption"
+                          color={detail.severity === "error" ? "error" : "warning.main"}
+                          component="div"
+                          sx={{ mt: 0.25, ml: 1 }}
+                        >
+                          {detail.text}
+                        </Typography>
+                      ) : null;
+                    })()}
                   </Box>
                 ))
               )}

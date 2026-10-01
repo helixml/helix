@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -10,9 +11,84 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
+
+// fakeGoldenBuilds backs the mocked golden_builds store methods with a map,
+// so the persisted state survives across GoldenBuildService instances (a
+// simulated API restart).
+type fakeGoldenBuilds struct {
+	mu   sync.Mutex
+	rows map[string]*types.SandboxCacheState
+}
+
+func (f *fakeGoldenBuilds) get(projectID, sandboxID string) *types.SandboxCacheState {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	row, ok := f.rows[projectID+"/"+sandboxID]
+	if !ok {
+		return nil
+	}
+	cp := *row
+	return &cp
+}
+
+func (f *fakeGoldenBuilds) set(row *types.SandboxCacheState) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cp := *row
+	f.rows[row.ProjectID+"/"+row.SandboxID] = &cp
+}
+
+func (f *fakeGoldenBuilds) install(m *store.MockStore) {
+	m.EXPECT().UpdateGoldenBuild(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, projectID, sandboxID string, update func(*types.SandboxCacheState) bool) (*types.SandboxCacheState, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			key := projectID + "/" + sandboxID
+			row, ok := f.rows[key]
+			if !ok {
+				row = &types.SandboxCacheState{ProjectID: projectID, SandboxID: sandboxID, Status: types.GoldenBuildStatusNone}
+			}
+			cp := *row
+			if update(&cp) {
+				f.rows[key] = &cp
+			} else {
+				f.rows[key] = row
+				cp = *row
+			}
+			return &cp, nil
+		}).AnyTimes()
+	m.EXPECT().GetGoldenBuild(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, projectID, sandboxID string) (*types.SandboxCacheState, error) {
+			if row := f.get(projectID, sandboxID); row != nil {
+				return row, nil
+			}
+			return nil, store.ErrNotFound
+		}).AnyTimes()
+	m.EXPECT().ListGoldenBuilds(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, q *store.ListGoldenBuildsQuery) ([]*types.SandboxCacheState, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			var out []*types.SandboxCacheState
+			for _, row := range f.rows {
+				if q.ProjectID != "" && row.ProjectID != q.ProjectID {
+					continue
+				}
+				if q.SandboxID != "" && row.SandboxID != q.SandboxID {
+					continue
+				}
+				if q.ActiveOnly && !row.Active() {
+					continue
+				}
+				cp := *row
+				out = append(out, &cp)
+			}
+			return out, nil
+		}).AnyTimes()
+}
 
 type GoldenBuildServiceSuite struct {
 	suite.Suite
@@ -20,6 +96,19 @@ type GoldenBuildServiceSuite struct {
 	store    *store.MockStore
 	executor *MockContainerExecutor
 	service  *GoldenBuildService
+	builds   *fakeGoldenBuilds
+	project  *types.Project
+
+	// services are cancelled and drained at teardown.
+	services []*GoldenBuildService
+	cancels  []context.CancelFunc
+
+	sessionSeq int
+	sessionsMu sync.Mutex
+	// destroyed records sessions whose on-host resources were destroyed.
+	destroyed []string
+	// started receives the session ID of every build container started.
+	started chan string
 }
 
 func TestGoldenBuildServiceSuite(t *testing.T) {
@@ -30,355 +119,428 @@ func (s *GoldenBuildServiceSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.store = store.NewMockStore(s.ctrl)
 	s.executor = NewMockContainerExecutor(s.ctrl)
-	s.service = NewGoldenBuildService(s.store, s.executor, nil)
+	s.builds = &fakeGoldenBuilds{rows: make(map[string]*types.SandboxCacheState)}
+	s.builds.install(s.store)
+	s.services, s.cancels = nil, nil
+	s.service = s.newService()
+	s.project = &types.Project{
+		ID:       "prj_test",
+		Name:     "test",
+		UserID:   "user_1",
+		Metadata: types.ProjectMetadata{AutoWarmDockerCache: true},
+	}
+	s.started = make(chan string, 16)
+	s.sessionSeq = 0
+	s.destroyed = nil
+	s.executor.EXPECT().DestroyDesktop(gomock.Any(), gomock.Any(), "").DoAndReturn(
+		func(_ context.Context, sessionID, _ string) error {
+			s.sessionsMu.Lock()
+			defer s.sessionsMu.Unlock()
+			s.destroyed = append(s.destroyed, sessionID)
+			return nil
+		}).AnyTimes()
+
+	origPoll, origBackoff, origGrace := goldenBuildPollInterval, goldenBuildRetryBackoff, goldenBuildClaimGrace
+	goldenBuildPollInterval = 5 * time.Millisecond
+	goldenBuildRetryBackoff = func(int) time.Duration { return 0 }
+	s.T().Cleanup(func() {
+		goldenBuildPollInterval, goldenBuildRetryBackoff, goldenBuildClaimGrace = origPoll, origBackoff, origGrace
+	})
+
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_test").DoAndReturn(
+		func(context.Context, string) (*types.Project, error) { return s.project, nil }).AnyTimes()
+	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return(
+		[]*types.SandboxInstance{{ID: "sb_1", Status: "online"}}, nil).AnyTimes()
+	s.store.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(
+		&types.Session{Metadata: types.SessionMetadata{ExternalAgentStatus: "running", GoldenBuild: true}}, nil).AnyTimes()
+}
+
+// newService returns a GoldenBuildService whose background goroutines are
+// stopped and drained at teardown.
+func (s *GoldenBuildServiceSuite) newService() *GoldenBuildService {
+	svc := NewGoldenBuildService(s.store, s.executor, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	svc.ctx = ctx
+	s.services = append(s.services, svc)
+	s.cancels = append(s.cancels, cancel)
+	return svc
 }
 
 func (s *GoldenBuildServiceSuite) TearDownTest() {
+	for _, cancel := range s.cancels {
+		cancel()
+	}
+	for _, svc := range s.services {
+		svc.wg.Wait()
+	}
 	s.ctrl.Finish()
 }
 
-func (s *GoldenBuildServiceSuite) TestTriggerSkipsWhenAutoWarmDisabled() {
-	project := &types.Project{
-		ID: "prj_test",
-		Metadata: types.ProjectMetadata{
-			AutoWarmDockerCache: false,
-		},
-	}
-
-	// Should not call ListSandboxes — early return
-	s.service.TriggerGoldenBuild(context.Background(), project)
+// allowBuildStarts lets runGoldenBuildOnSandbox get as far as StartDesktop.
+// The service under test has no SpecDrivenTaskService, so it is given one
+// whose API key lookup is served by the mock store.
+func (s *GoldenBuildServiceSuite) allowBuildStarts(svc *GoldenBuildService) {
+	svc.specTaskService = &SpecDrivenTaskService{store: s.store}
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(
+		[]*types.GitRepository{{ID: "repo_1"}}, nil).AnyTimes()
+	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, session types.Session) (*types.Session, error) {
+			s.sessionsMu.Lock()
+			s.sessionSeq++
+			session.ID = fmt.Sprintf("ses_%d", s.sessionSeq)
+			s.sessionsMu.Unlock()
+			return &session, nil
+		}).AnyTimes()
+	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(
+		&types.ApiKey{Key: "hl-test"}, nil).AnyTimes()
+	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
+			s.started <- agent.SessionID
+			return &types.DesktopAgentResponse{}, nil
+		}).AnyTimes()
 }
 
-func (s *GoldenBuildServiceSuite) TestFanOutQueuesPendingWhenBuildRunning() {
-	project := &types.Project{
-		ID: "prj_test",
-		Metadata: types.ProjectMetadata{
-			AutoWarmDockerCache: true,
-		},
-	}
-	sandbox := &types.SandboxInstance{ID: "sb_1", Status: "online"}
-	key := buildKey(project.ID, sandbox.ID)
-
-	// Simulate a running build
-	s.service.mu.Lock()
-	s.service.building[key] = time.Now()
-	s.service.mu.Unlock()
-
-	// Trigger while build is running
-	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{sandbox}, nil)
-	s.service.TriggerGoldenBuild(context.Background(), project)
-
-	// Should have queued a pending rebuild
-	s.service.mu.Lock()
-	pending, ok := s.service.pendingRebuild[key]
-	s.service.mu.Unlock()
-	assert.True(s.T(), ok, "should have queued a pending rebuild")
-	assert.Equal(s.T(), project.ID, pending.ID)
+func (s *GoldenBuildServiceSuite) destroyedSessions() []string {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	return append([]string(nil), s.destroyed...)
 }
 
-func (s *GoldenBuildServiceSuite) TestMultipleTriggersCoalesceToOnePending() {
-	project1 := &types.Project{
-		ID: "prj_test",
-		Metadata: types.ProjectMetadata{
-			AutoWarmDockerCache: true,
-		},
-	}
-	project2 := &types.Project{
-		ID:   "prj_test",
-		Name: "updated-name",
-		Metadata: types.ProjectMetadata{
-			AutoWarmDockerCache: true,
-		},
-	}
-	sandbox := &types.SandboxInstance{ID: "sb_1", Status: "online"}
-	key := buildKey(project1.ID, sandbox.ID)
-
-	// Simulate a running build
-	s.service.mu.Lock()
-	s.service.building[key] = time.Now()
-	s.service.mu.Unlock()
-
-	// Trigger 3 times with different project states
-	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{sandbox}, nil).Times(3)
-	s.service.TriggerGoldenBuild(context.Background(), project1)
-	s.service.TriggerGoldenBuild(context.Background(), project1)
-	s.service.TriggerGoldenBuild(context.Background(), project2) // latest
-
-	// Should only have one pending rebuild (latest wins)
-	s.service.mu.Lock()
-	assert.Len(s.T(), s.service.pendingRebuild, 1)
-	pending := s.service.pendingRebuild[key]
-	s.service.mu.Unlock()
-	assert.Equal(s.T(), "updated-name", pending.Name, "should keep latest project state")
-}
-
-func (s *GoldenBuildServiceSuite) TestManualTriggerAlsoQueuesPending() {
-	project := &types.Project{
-		ID: "prj_test",
-	}
-	sandbox := &types.SandboxInstance{ID: "sb_1", Status: "online"}
-	key := buildKey(project.ID, sandbox.ID)
-
-	// Simulate a running build
-	s.service.mu.Lock()
-	s.service.building[key] = time.Now()
-	s.service.mu.Unlock()
-
-	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{sandbox}, nil)
-	err := s.service.TriggerManualGoldenBuild(context.Background(), project)
-	// Returns error because no new builds started (all queued)
-	assert.Error(s.T(), err)
-	assert.Contains(s.T(), err.Error(), "already running")
-
-	// Should still have queued the pending rebuild
-	s.service.mu.Lock()
-	_, ok := s.service.pendingRebuild[key]
-	s.service.mu.Unlock()
-	assert.True(s.T(), ok, "manual trigger should queue pending rebuild")
-}
-
-func (s *GoldenBuildServiceSuite) TestPendingRebuildTriggersAfterCompletion() {
-	project := &types.Project{
-		ID:     "prj_test",
-		UserID: "user_1",
-		Metadata: types.ProjectMetadata{
-			AutoWarmDockerCache: true,
-		},
-	}
-	sandbox := &types.SandboxInstance{ID: "sb_1", Status: "online"}
-	key := buildKey(project.ID, sandbox.ID)
-
-	// Set up: build running + pending rebuild queued
-	s.service.mu.Lock()
-	s.service.building[key] = time.Now()
-	s.service.pendingRebuild[key] = project
-	s.service.mu.Unlock()
-
-	// Expectations for build completion (container gone, result success)
-	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_original").Return(false)
-	s.executor.EXPECT().GetGoldenBuildResult(gomock.Any(), "sb_1", "prj_test").Return(
-		&hydra.GoldenBuildResult{Success: true, CacheSizeBytes: 1000}, nil,
-	)
-	s.store.EXPECT().GetProject(gomock.Any(), "prj_test").Return(project, nil).AnyTimes()
-	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-
-	// The defer will call fanOutBuilds which calls ListSandboxes.
-	// This proves the pending rebuild was triggered.
-	fanOutCalled := make(chan struct{})
-	s.store.EXPECT().ListSandboxInstances(gomock.Any()).DoAndReturn(
-		func(_ context.Context) ([]*types.SandboxInstance, error) {
-			close(fanOutCalled)
-			return []*types.SandboxInstance{sandbox}, nil
-		},
-	)
-	// runGoldenBuildOnSandbox will be spawned and fail on nil specTaskService — that's OK.
-	// We only care that fanOutBuilds was called (proving the pending rebuild triggered).
-	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{
-		{ID: "repo_1"},
-	}, nil).AnyTimes()
-	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(&types.Session{ID: "ses_rebuild"}, nil).AnyTimes()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		s.service.waitForGoldenBuildCompletion(ctx, project.ID, sandbox.ID, "ses_original")
-	}()
-
+func (s *GoldenBuildServiceSuite) waitStarted() string {
 	select {
-	case <-fanOutCalled:
-		// fanOutBuilds was called — pending rebuild triggered
-	case <-time.After(20 * time.Second):
-		s.T().Fatal("pending rebuild did not trigger fanOutBuilds within timeout")
+	case id := <-s.started:
+		return id
+	case <-time.After(5 * time.Second):
+		s.T().Fatal("no build container was started")
+		return ""
 	}
-
-	cancel()
-	wg.Wait()
-
-	// Pending should be cleared
-	s.service.mu.Lock()
-	_, stillPending := s.service.pendingRebuild[key]
-	s.service.mu.Unlock()
-	assert.False(s.T(), stillPending, "pending rebuild should be cleared after triggering")
 }
 
-func (s *GoldenBuildServiceSuite) TestNoPendingDoesNotRetrigger() {
-	project := &types.Project{
-		ID:     "prj_test",
-		UserID: "user_1",
+func (s *GoldenBuildServiceSuite) assertNoStart() {
+	select {
+	case id := <-s.started:
+		s.T().Fatalf("unexpected build container start: %s", id)
+	case <-time.After(100 * time.Millisecond):
 	}
-	sandbox := &types.SandboxInstance{ID: "sb_1", Status: "online"}
-	key := buildKey(project.ID, sandbox.ID)
-
-	// Build running, NO pending
-	s.service.mu.Lock()
-	s.service.building[key] = time.Now()
-	s.service.mu.Unlock()
-
-	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_1").Return(false)
-	s.executor.EXPECT().GetGoldenBuildResult(gomock.Any(), "sb_1", "prj_test").Return(
-		&hydra.GoldenBuildResult{Success: true}, nil,
-	)
-	s.store.EXPECT().GetProject(gomock.Any(), "prj_test").Return(project, nil).AnyTimes()
-	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-
-	// StartDesktop should NOT be called (no pending)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	s.service.waitForGoldenBuildCompletion(ctx, project.ID, sandbox.ID, "ses_1")
-
-	// Building entry should be cleared
-	s.service.mu.Lock()
-	_, stillBuilding := s.service.building[key]
-	s.service.mu.Unlock()
-	assert.False(s.T(), stillBuilding)
 }
 
-func (s *GoldenBuildServiceSuite) TestNewBuildClearsPending() {
-	project := &types.Project{
-		ID: "prj_test",
-		Metadata: types.ProjectMetadata{
-			AutoWarmDockerCache: true,
-		},
+// waitFor polls the persisted state until cond holds.
+func (s *GoldenBuildServiceSuite) waitFor(desc string, cond func(*types.SandboxCacheState) bool) *types.SandboxCacheState {
+	var row *types.SandboxCacheState
+	require.Eventually(s.T(), func() bool {
+		row = s.builds.get("prj_test", "sb_1")
+		return row != nil && cond(row)
+	}, 5*time.Second, 5*time.Millisecond, "state never became %s (last: %+v)", desc, row)
+	return row
+}
+
+func (s *GoldenBuildServiceSuite) buildingRow(sessionID string, attempt int) *types.SandboxCacheState {
+	now := time.Now()
+	return &types.SandboxCacheState{
+		ProjectID: "prj_test", SandboxID: "sb_1",
+		Status: types.GoldenBuildStatusBuilding, BuildSessionID: sessionID,
+		Attempt: attempt, LastBuildAt: &now, TriggeredAt: &now,
 	}
-	sandbox := &types.SandboxInstance{ID: "sb_1", Status: "online"}
-	key := buildKey(project.ID, sandbox.ID)
-
-	// Queue a pending rebuild
-	s.service.mu.Lock()
-	s.service.pendingRebuild[key] = project
-	s.service.mu.Unlock()
-
-	// Verify the pending is cleared when fanOutBuilds starts a new build.
-	// fanOutBuilds calls delete(g.pendingRebuild, key) synchronously before
-	// spawning the goroutine.
-	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{sandbox}, nil)
-	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{
-		{ID: "repo_1"},
-	}, nil).AnyTimes()
-	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(&types.Session{ID: "ses_1"}, nil).AnyTimes()
-	s.store.EXPECT().GetProject(gomock.Any(), gomock.Any()).Return(project, nil).AnyTimes()
-	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-
-	s.service.fanOutBuilds(context.Background(), project)
-
-	// Give the goroutine a moment to run (it'll fail on nil specTaskService, that's fine)
-	time.Sleep(100 * time.Millisecond)
-
-	// Pending should be cleared (fanOutBuilds clears it synchronously)
-	s.service.mu.Lock()
-	_, stillPending := s.service.pendingRebuild[key]
-	s.service.mu.Unlock()
-	assert.False(s.T(), stillPending, "starting a new build should clear pending")
 }
 
-// waitWithResult runs waitForGoldenBuildCompletion against a finished build
-// whose hydra result is res, and returns the sandbox cache state it persisted.
-func (s *GoldenBuildServiceSuite) waitWithResult(res *hydra.GoldenBuildResult) *types.SandboxCacheState {
-	return s.waitWithResults(res, "running", 1)
+// containerDone makes sessionID's container gone and hydra report res for it.
+func (s *GoldenBuildServiceSuite) containerDone(sessionID string, res *hydra.GoldenBuildResult) {
+	s.executor.EXPECT().GoldenBuildContainerRunning(gomock.Any(), "sb_1", sessionID).Return(false, nil).AnyTimes()
+	s.executor.EXPECT().GetGoldenBuildResult(gomock.Any(), "sb_1", "prj_test").Return(res, nil).AnyTimes()
 }
 
-// waitWithResults is waitWithResult where hydra keeps returning res for polls
-// polls, and the build session's external_agent_status is sessionStatus.
-func (s *GoldenBuildServiceSuite) waitWithResults(res *hydra.GoldenBuildResult, sessionStatus string, polls int) *types.SandboxCacheState {
-	orig := goldenBuildPollInterval
-	goldenBuildPollInterval = 10 * time.Millisecond
-	defer func() { goldenBuildPollInterval = orig }()
-
+func (s *GoldenBuildServiceSuite) TestTriggerSkipsWhenAutoWarmDisabled() {
 	project := &types.Project{ID: "prj_test"}
-	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_build").Return(false).Times(polls)
-	s.executor.EXPECT().GetGoldenBuildResult(gomock.Any(), "sb_1", "prj_test").Return(res, nil).Times(polls)
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_build").Return(&types.Session{
-		ID:       "ses_build",
-		Metadata: types.SessionMetadata{ExternalAgentStatus: sessionStatus, GoldenBuild: true},
-	}, nil).AnyTimes()
-	s.store.EXPECT().GetProject(gomock.Any(), "prj_test").Return(project, nil)
-	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	s.service.waitForGoldenBuildCompletion(ctx, project.ID, "sb_1", "ses_build")
-
-	return project.Metadata.DockerCacheStatus.Sandboxes["sb_1"]
+	s.service.TriggerGoldenBuild(context.Background(), project)
+	assert.Nil(s.T(), s.builds.get("prj_test", "sb_1"))
 }
 
-// The startup script exited 0 but hydra failed to promote the cache: the
-// cache was NOT refreshed, so the status must be failed with hydra's error.
-func (s *GoldenBuildServiceSuite) TestPromotionFailureMarksCacheFailed() {
-	state := s.waitWithResult(&hydra.GoldenBuildResult{
-		Success:  false,
-		ExitCode: "0",
-		Error:    "Golden cache promotion failed: zvol device /dev/zvol/x did not appear within 2m0s",
+func (s *GoldenBuildServiceSuite) TestTriggerWhileBuildingQueuesOnePendingRebuild() {
+	s.builds.set(s.buildingRow("ses_running", 1))
+
+	s.service.TriggerGoldenBuild(context.Background(), s.project)
+	s.service.TriggerGoldenBuild(context.Background(), s.project)
+
+	row := s.builds.get("prj_test", "sb_1")
+	assert.True(s.T(), row.PendingRebuild)
+	assert.Equal(s.T(), types.GoldenBuildStatusBuilding, row.Status)
+	assert.Equal(s.T(), "ses_running", row.BuildSessionID, "the running build is untouched")
+}
+
+func (s *GoldenBuildServiceSuite) TestManualTriggerWhileBuildingQueuesPending() {
+	s.builds.set(s.buildingRow("ses_running", 1))
+
+	err := s.service.TriggerManualGoldenBuild(context.Background(), s.project)
+	require.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "already running")
+	assert.True(s.T(), s.builds.get("prj_test", "sb_1").PendingRebuild)
+}
+
+func (s *GoldenBuildServiceSuite) TestSuccessfulBuildIsReadyAndPersistsAttempt() {
+	s.allowBuildStarts(s.service)
+	s.executor.EXPECT().GoldenBuildContainerRunning(gomock.Any(), "sb_1", "ses_1").Return(false, nil).AnyTimes()
+	s.executor.EXPECT().GetGoldenBuildResult(gomock.Any(), "sb_1", "prj_test").Return(
+		&hydra.GoldenBuildResult{SessionID: "ses_1", Success: true, ExitCode: "0", CacheSizeBytes: 42}, nil).AnyTimes()
+
+	s.service.TriggerGoldenBuild(context.Background(), s.project)
+	assert.Equal(s.T(), "ses_1", s.waitStarted())
+
+	row := s.waitFor("ready", func(r *types.SandboxCacheState) bool { return r.Status == types.GoldenBuildStatusReady })
+	assert.Equal(s.T(), int64(42), row.SizeBytes)
+	assert.Equal(s.T(), 1, row.Attempt)
+	assert.Empty(s.T(), row.BuildSessionID)
+	assert.NotNil(s.T(), row.LastReadyAt)
+}
+
+// The sandbox was recreated mid-build: Hydra comes back without the container
+// and without a result. That is an interruption: the build is retried on the
+// same sandbox as attempt 2 of the same trigger.
+func (s *GoldenBuildServiceSuite) TestInterruptedBuildIsRetried() {
+	s.allowBuildStarts(s.service)
+	// Attempt 1: hydra unreachable for a while (sandbox recreating), then
+	// back with no container and no result.
+	unreachable := 3
+	s.executor.EXPECT().GoldenBuildContainerRunning(gomock.Any(), "sb_1", "ses_1").DoAndReturn(
+		func(context.Context, string, string) (bool, error) {
+			if unreachable > 0 {
+				unreachable--
+				return false, fmt.Errorf("failed to dial Hydra via RevDial")
+			}
+			return false, nil
+		}).AnyTimes()
+	// Attempt 2 succeeds.
+	s.executor.EXPECT().GoldenBuildContainerRunning(gomock.Any(), "sb_1", "ses_2").Return(false, nil).AnyTimes()
+	var mu sync.Mutex
+	var result *hydra.GoldenBuildResult
+	s.executor.EXPECT().GetGoldenBuildResult(gomock.Any(), "sb_1", "prj_test").DoAndReturn(
+		func(context.Context, string, string) (*hydra.GoldenBuildResult, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			return result, nil
+		}).AnyTimes()
+
+	s.service.TriggerGoldenBuild(context.Background(), s.project)
+	assert.Equal(s.T(), "ses_1", s.waitStarted())
+
+	retrying := s.waitFor("building attempt 2", func(r *types.SandboxCacheState) bool {
+		return r.Status == types.GoldenBuildStatusBuilding && r.Attempt == 2
+	})
+	assert.Contains(s.T(), retrying.InterruptReason, "disappeared without a result")
+	mu.Lock()
+	result = &hydra.GoldenBuildResult{SessionID: "ses_2", Success: true, ExitCode: "0"}
+	mu.Unlock()
+	assert.Equal(s.T(), "ses_2", s.waitStarted())
+
+	row := s.waitFor("ready", func(r *types.SandboxCacheState) bool { return r.Status == types.GoldenBuildStatusReady })
+	assert.Equal(s.T(), 2, row.Attempt)
+	assert.Equal(s.T(), []string{"ses_1"}, s.destroyedSessions(), "only the interrupted attempt's resources are destroyed")
+}
+
+// The startup script ran and exited non-zero: a real failure, not retried.
+func (s *GoldenBuildServiceSuite) TestNonZeroExitFailsWithoutRetry() {
+	s.allowBuildStarts(s.service)
+	s.containerDone("ses_1", &hydra.GoldenBuildResult{SessionID: "ses_1", ExitCode: "2"})
+
+	s.service.TriggerGoldenBuild(context.Background(), s.project)
+	s.waitStarted()
+
+	row := s.waitFor("failed", func(r *types.SandboxCacheState) bool { return r.Status == types.GoldenBuildStatusFailed })
+	assert.Equal(s.T(), "Startup script exited with code 2", row.Error)
+	assert.Equal(s.T(), 1, row.Attempt)
+	assert.Empty(s.T(), s.destroyedSessions(), "hydra discards a failed build's data itself")
+	s.service.ReconcileSandbox(context.Background(), "sb_1")
+	s.assertNoStart()
+}
+
+// Promotion failed after the script succeeded: the cache wasn't refreshed,
+// so the build failed with hydra's error and is not retried.
+func (s *GoldenBuildServiceSuite) TestPromotionFailureFailsWithoutRetry() {
+	s.builds.set(s.buildingRow("ses_build", 1))
+	s.containerDone("ses_build", &hydra.GoldenBuildResult{
+		SessionID: "ses_build", ExitCode: "0",
+		Error: "Golden cache promotion failed: zvol device /dev/zvol/x did not appear within 2m0s",
 	})
 
-	assert.Equal(s.T(), "failed", state.Status)
-	assert.Equal(s.T(), "Golden cache promotion failed: zvol device /dev/zvol/x did not appear within 2m0s", state.Error)
-	assert.Nil(s.T(), state.LastReadyAt)
+	s.service.ReconcileSandbox(context.Background(), "sb_1")
+
+	row := s.waitFor("failed", func(r *types.SandboxCacheState) bool { return r.Status == types.GoldenBuildStatusFailed })
+	assert.Equal(s.T(), "Golden cache promotion failed: zvol device /dev/zvol/x did not appear within 2m0s", row.Error)
+	assert.Nil(s.T(), row.LastReadyAt)
 }
 
-func (s *GoldenBuildServiceSuite) TestScriptFailureReportsExitCode() {
-	state := s.waitWithResult(&hydra.GoldenBuildResult{Success: false, ExitCode: "2"})
+// The last allowed attempt was interrupted too: give up with the reason.
+func (s *GoldenBuildServiceSuite) TestRetryBudgetExhaustedFails() {
+	s.builds.set(s.buildingRow("ses_build", types.GoldenBuildMaxAttempts))
+	s.containerDone("ses_build", &hydra.GoldenBuildResult{
+		SessionID: "ses_build", ExitCode: "exited",
+		Error: "build container was removed without writing a golden build result",
+	})
 
-	assert.Equal(s.T(), "failed", state.Status)
-	assert.Equal(s.T(), "Startup script exited with code 2", state.Error)
+	s.service.ReconcileSandbox(context.Background(), "sb_1")
+
+	row := s.waitFor("failed", func(r *types.SandboxCacheState) bool { return r.Status == types.GoldenBuildStatusFailed })
+	assert.Equal(s.T(), fmt.Sprintf("Interrupted %d times, giving up: build container was removed without writing a golden build result", types.GoldenBuildMaxAttempts), row.Error)
+	s.assertNoStart()
 }
 
-func (s *GoldenBuildServiceSuite) TestSuccessfulBuildMarksCacheReady() {
-	state := s.waitWithResult(&hydra.GoldenBuildResult{Success: true, ExitCode: "0", CacheSizeBytes: 42})
+// Interruptions are only retried for auto-warm projects.
+func (s *GoldenBuildServiceSuite) TestInterruptedManualBuildWithoutAutoWarmFails() {
+	s.project.Metadata.AutoWarmDockerCache = false
+	s.builds.set(s.buildingRow("ses_build", 1))
+	s.containerDone("ses_build", nil)
 
-	assert.Equal(s.T(), "ready", state.Status)
-	assert.Empty(s.T(), state.Error)
-	assert.Equal(s.T(), int64(42), state.SizeBytes)
+	s.service.ReconcileSandbox(context.Background(), "sb_1")
+
+	row := s.waitFor("failed", func(r *types.SandboxCacheState) bool { return r.Status == types.GoldenBuildStatusFailed })
+	assert.Contains(s.T(), row.Error, "not retried because auto-warm is off")
 }
 
-// The meta incident: the desktop idle checker stopped the golden build. The
-// failure must name the cause, not the generic "Startup script failed".
+// The idle checker stopping a golden build names the cause.
 func (s *GoldenBuildServiceSuite) TestIdleStoppedBuildReportsIdleChecker() {
-	state := s.waitWithResults(&hydra.GoldenBuildResult{
-		SessionID: "ses_build",
-		ExitCode:  "exited",
-		Error:     "build container was removed without writing a golden build result",
-	}, "terminated_idle", 1)
+	s.store = store.NewMockStore(s.ctrl)
+	s.builds.install(s.store)
+	s.service = s.newService()
+	s.service.store = s.store
+	s.project.Metadata.AutoWarmDockerCache = false
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_test").Return(s.project, nil).AnyTimes()
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_build").Return(&types.Session{
+		Metadata: types.SessionMetadata{ExternalAgentStatus: "terminated_idle", GoldenBuild: true},
+	}, nil).AnyTimes()
+	s.builds.set(s.buildingRow("ses_build", 1))
+	s.containerDone("ses_build", &hydra.GoldenBuildResult{
+		SessionID: "ses_build", ExitCode: "exited",
+		Error: "build container was removed without writing a golden build result",
+	})
 
-	assert.Equal(s.T(), "failed", state.Status)
-	assert.Equal(s.T(), "Stopped by the desktop idle checker: build container was removed without writing a golden build result", state.Error)
+	s.service.ReconcileSandbox(context.Background(), "sb_1")
+
+	row := s.waitFor("failed", func(r *types.SandboxCacheState) bool { return r.Status == types.GoldenBuildStatusFailed })
+	assert.Contains(s.T(), row.Error, "stopped by the desktop idle checker: build container was removed")
 }
 
-// Hydra keeps the latest result per project. A successful result from an
-// earlier build must not mark this build ready; with no result of its own the
-// build fails with an explicit cause.
+// Hydra keeps the latest result per project; one from an earlier build is
+// not this build's result.
 func (s *GoldenBuildServiceSuite) TestStaleResultFromEarlierBuildIsIgnored() {
-	state := s.waitWithResults(&hydra.GoldenBuildResult{
-		SessionID: "ses_previous",
-		Success:   true,
-		ExitCode:  "0",
-	}, "stopped", goldenBuildResultPolls+1)
+	s.project.Metadata.AutoWarmDockerCache = false
+	s.builds.set(s.buildingRow("ses_build", 1))
+	s.containerDone("ses_build", &hydra.GoldenBuildResult{SessionID: "ses_previous", Success: true, ExitCode: "0"})
 
-	assert.Equal(s.T(), "failed", state.Status)
-	assert.Equal(s.T(), "Build container stopped without reporting a result (stopped externally or crashed)", state.Error)
+	s.service.ReconcileSandbox(context.Background(), "sb_1")
+
+	row := s.waitFor("failed", func(r *types.SandboxCacheState) bool { return r.Status == types.GoldenBuildStatusFailed })
+	assert.Nil(s.T(), row.LastReadyAt)
+	assert.Contains(s.T(), row.Error, "disappeared without a result")
+}
+
+// A merge arrives mid-build, then the API restarts. The new service instance
+// reads the persisted state, resumes polling the still-running build, and
+// once it completes starts the pending rebuild.
+func (s *GoldenBuildServiceSuite) TestPendingRebuildSurvivesRestartAndFiresAfterCompletion() {
+	s.builds.set(s.buildingRow("ses_running", 1))
+	s.service.TriggerGoldenBuild(context.Background(), s.project)
+	require.True(s.T(), s.builds.get("prj_test", "sb_1").PendingRebuild)
+
+	// API restart: a fresh service with no in-memory state.
+	restarted := s.newService()
+	s.allowBuildStarts(restarted)
+	var mu sync.Mutex
+	running := true
+	s.executor.EXPECT().GoldenBuildContainerRunning(gomock.Any(), "sb_1", "ses_running").DoAndReturn(
+		func(context.Context, string, string) (bool, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			return running, nil
+		}).AnyTimes()
+	s.executor.EXPECT().GetGoldenBuildResult(gomock.Any(), "sb_1", "prj_test").Return(
+		&hydra.GoldenBuildResult{SessionID: "ses_running", Success: true, ExitCode: "0"}, nil).AnyTimes()
+	s.executor.EXPECT().GoldenBuildContainerRunning(gomock.Any(), "sb_1", "ses_1").Return(true, nil).AnyTimes()
+
+	restarted.ReconcileSandbox(context.Background(), "sb_1")
+	restarted.ReconcileSandbox(context.Background(), "sb_1") // idempotent: one monitor
+	s.assertNoStart()
+	assert.True(s.T(), restarted.isMonitoring("ses_running"), "startup reconcile resumes polling the running build")
+
+	mu.Lock()
+	running = false
+	mu.Unlock()
+
+	assert.Equal(s.T(), "ses_1", s.waitStarted(), "pending rebuild starts after the running build completes")
+	row := s.waitFor("rebuilding", func(r *types.SandboxCacheState) bool { return r.BuildSessionID == "ses_1" })
+	assert.False(s.T(), row.PendingRebuild)
+	assert.Equal(s.T(), 1, row.Attempt, "a pending rebuild is a new trigger with a fresh budget")
+	assert.NotNil(s.T(), row.LastReadyAt, "the completed build was recorded before the rebuild")
+}
+
+// The API died between claiming a build and creating its session: the claim
+// is abandoned and treated as an interruption.
+func (s *GoldenBuildServiceSuite) TestAbandonedClaimIsRetried() {
+	goldenBuildClaimGrace = 0
+	row := s.buildingRow("", 1)
+	s.builds.set(row)
+	s.allowBuildStarts(s.service)
+	s.executor.EXPECT().GoldenBuildContainerRunning(gomock.Any(), "sb_1", "ses_1").Return(true, nil).AnyTimes()
+
+	s.service.ReconcileSandbox(context.Background(), "sb_1")
+
+	assert.Equal(s.T(), "ses_1", s.waitStarted())
+	got := s.waitFor("attempt 2", func(r *types.SandboxCacheState) bool { return r.Attempt == 2 })
+	assert.Contains(s.T(), got.InterruptReason, "before the build container was created")
+}
+
+// A retry waits for its backoff.
+func (s *GoldenBuildServiceSuite) TestRetryWaitsForBackoff() {
+	next := time.Now().Add(time.Hour)
+	s.builds.set(&types.SandboxCacheState{
+		ProjectID: "prj_test", SandboxID: "sb_1", Status: types.GoldenBuildStatusRetrying,
+		Attempt: 1, NextRetryAt: &next, InterruptReason: "sandbox restarted",
+	})
+	s.service.ReconcileSandbox(context.Background(), "sb_1")
+	s.assertNoStart()
+	assert.Equal(s.T(), types.GoldenBuildStatusRetrying, s.builds.get("prj_test", "sb_1").Status)
+}
+
+// Cancelling stops the container and the monitor exits without overwriting
+// the cancelled state.
+func (s *GoldenBuildServiceSuite) TestCancelStopsBuildAndMonitorDoesNotOverwrite() {
+	s.builds.set(s.buildingRow("ses_build", 1))
+	s.executor.EXPECT().GoldenBuildContainerRunning(gomock.Any(), "sb_1", "ses_build").Return(true, nil).AnyTimes()
+	s.service.ReconcileSandbox(context.Background(), "sb_1")
+	require.True(s.T(), s.service.isMonitoring("ses_build"))
+
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_build").Return(nil)
+	require.NoError(s.T(), s.service.CancelGoldenBuilds(context.Background(), s.project))
+
+	require.Eventually(s.T(), func() bool { return !s.service.isMonitoring("ses_build") }, 5*time.Second, 5*time.Millisecond)
+	row := s.builds.get("prj_test", "sb_1")
+	assert.Equal(s.T(), types.GoldenBuildStatusNone, row.Status)
+	assert.Empty(s.T(), row.Error)
 }
 
 // Golden build sessions are created marked GoldenBuild so the desktop idle
 // checker (ListIdleDesktops) never stops them.
 func (s *GoldenBuildServiceSuite) TestGoldenBuildSessionIsMarkedGoldenBuild() {
-	project := &types.Project{ID: "prj_test", Name: "test"}
-	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{{ID: "repo_1"}}, nil)
+	s.allowBuildStarts(s.service)
+	s.executor.EXPECT().GoldenBuildContainerRunning(gomock.Any(), "sb_1", "ses_1").Return(true, nil).AnyTimes()
 	var created types.Session
+	s.store = store.NewMockStore(s.ctrl)
+	s.builds.install(s.store)
+	s.service.store = s.store
+	s.service.specTaskService = &SpecDrivenTaskService{store: s.store}
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{{ID: "repo_1"}}, nil)
 	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
 			created = session
+			session.ID = "ses_1"
 			return &session, nil
-		},
-	)
-	// Status updates; the build then stops at the nil specTaskService.
-	s.store.EXPECT().GetProject(gomock.Any(), "prj_test").Return(project, nil).AnyTimes()
-	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		})
+	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(&types.ApiKey{Key: "hl-test"}, nil).AnyTimes()
+	s.store.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
 
-	s.service.runGoldenBuildOnSandbox(context.Background(), project, "sb_1")
+	claimed, _, err := s.service.claimBuild(context.Background(), "prj_test", "sb_1", triggerNew)
+	require.NoError(s.T(), err)
+	require.True(s.T(), claimed)
+	s.service.goBackground(func() { s.service.runGoldenBuildOnSandbox(s.project, "sb_1") })
+	s.waitStarted()
 
 	assert.True(s.T(), created.Metadata.GoldenBuild, "golden build session must be marked GoldenBuild")
 }

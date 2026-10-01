@@ -28,6 +28,15 @@ const containerSessionIDLabel = "helix.session_id"
 // boot-time stopped-container reaper skips them and they survive a reboot.
 const containerPersistentLabel = "helix.persistent"
 
+// Golden build containers carry these labels so a restarted Hydra can resume
+// monitorGoldenBuild for a build whose container survived the restart, and
+// still detect, promote and report its result.
+const (
+	containerGoldenBuildLabel    = "helix.golden_build" // "true"
+	containerProjectIDLabel      = "helix.project_id"
+	containerGoldenDeadlineLabel = "helix.golden_build_deadline" // RFC3339
+)
+
 // DevContainerType represents the type of dev container
 type DevContainerType string
 
@@ -215,8 +224,9 @@ type DevContainer struct {
 	IsGoldenBuild bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
 	ProjectID     string `json:"project_id,omitempty"`      // Project ID for golden promotion
 
-	// GoldenBuildTimeout is the deadline monitorGoldenBuild waits for the result file.
-	GoldenBuildTimeout time.Duration `json:"-"`
+	// GoldenBuildDeadline is when monitorGoldenBuild gives up waiting for the
+	// result file. Stored on the container as a label so it survives restarts.
+	GoldenBuildDeadline time.Time `json:"-"`
 }
 
 // ListDevContainersResponse is the response listing all dev containers

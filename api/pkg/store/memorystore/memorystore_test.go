@@ -2,8 +2,10 @@ package memorystore
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -94,5 +96,55 @@ func TestSpecTaskThreadTracking(t *testing.T) {
 	}
 	if updated, err := store.GetSpecTaskZedThreadByZedThreadID(ctx, "thread-2"); err != nil || updated.ID != zedThread.ID {
 		t.Fatalf("updated thread = %#v, err = %v", updated, err)
+	}
+}
+
+func TestGoldenBuilds(t *testing.T) {
+	ctx := context.Background()
+	m := New()
+
+	builds, err := m.ListGoldenBuilds(ctx, &store.ListGoldenBuildsQuery{ProjectID: "prj_1"})
+	if err != nil || len(builds) != 0 {
+		t.Fatalf("empty store: builds=%v err=%v", builds, err)
+	}
+	if _, err := m.GetGoldenBuild(ctx, "prj_1", "sb_1"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetGoldenBuild on missing row: err=%v, want ErrNotFound", err)
+	}
+
+	// update=false creates the row but leaves it at its defaults.
+	row, err := m.UpdateGoldenBuild(ctx, "prj_1", "sb_1", func(*types.SandboxCacheState) bool { return false })
+	if err != nil || row.Status != types.GoldenBuildStatusNone {
+		t.Fatalf("seeded row: %+v err=%v", row, err)
+	}
+	row, err = m.UpdateGoldenBuild(ctx, "prj_1", "sb_1", func(s *types.SandboxCacheState) bool {
+		s.Status = types.GoldenBuildStatusBuilding
+		s.Attempt = 1
+		return true
+	})
+	if err != nil || row.Status != types.GoldenBuildStatusBuilding || row.Attempt != 1 {
+		t.Fatalf("updated row: %+v err=%v", row, err)
+	}
+	if _, err := m.UpdateGoldenBuild(ctx, "prj_2", "sb_1", func(s *types.SandboxCacheState) bool {
+		s.Status = types.GoldenBuildStatusReady
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	active, _ := m.ListGoldenBuilds(ctx, &store.ListGoldenBuildsQuery{ActiveOnly: true})
+	if len(active) != 1 || active[0].ProjectID != "prj_1" {
+		t.Fatalf("active builds = %+v, want only prj_1", active)
+	}
+	onSandbox, _ := m.ListGoldenBuilds(ctx, &store.ListGoldenBuildsQuery{SandboxID: "sb_1"})
+	if len(onSandbox) != 2 {
+		t.Fatalf("builds on sb_1 = %d, want 2", len(onSandbox))
+	}
+
+	if err := m.DeleteGoldenBuilds(ctx, "prj_1"); err != nil {
+		t.Fatal(err)
+	}
+	left, _ := m.ListGoldenBuilds(ctx, nil)
+	if len(left) != 1 || left[0].ProjectID != "prj_2" {
+		t.Fatalf("after delete = %+v, want only prj_2", left)
 	}
 }

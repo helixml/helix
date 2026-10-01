@@ -775,10 +775,15 @@ type Store interface {
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
 	GetProject(ctx context.Context, projectID string) (*types.Project, error)
 	ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error)
-	ListProjectsWithActiveGoldenBuild(ctx context.Context) ([]*types.Project, error)
 	GetProjectsCount(ctx context.Context, query *GetProjectsCountQuery) (int64, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error
+
+	// Golden Docker cache build state, per project per sandbox
+	ListGoldenBuilds(ctx context.Context, q *ListGoldenBuildsQuery) ([]*types.SandboxCacheState, error)
+	GetGoldenBuild(ctx context.Context, projectID, sandboxID string) (*types.SandboxCacheState, error)
+	UpdateGoldenBuild(ctx context.Context, projectID, sandboxID string, update func(*types.SandboxCacheState) bool) (*types.SandboxCacheState, error)
+	DeleteGoldenBuilds(ctx context.Context, projectID string) error
 
 	// Project artifacts
 	CreateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error
