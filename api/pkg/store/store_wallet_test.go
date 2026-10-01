@@ -480,17 +480,19 @@ func (suite *WalletTestSuite) TestUpdateWalletBalance_TopUpIdempotency() {
 	})
 	suite.NoError(err)
 
-	_, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
+	duplicateWallet, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
 		TransactionType:         types.TransactionTypeTopUp,
 		StripeCheckoutSessionID: checkoutSessionID,
 	})
 	suite.NoError(err)
+	suite.Nil(duplicateWallet)
 
-	_, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
+	duplicateWallet, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
 		TransactionType:       types.TransactionTypeTopUp,
 		StripePaymentIntentID: paymentIntentID,
 	})
 	suite.NoError(err)
+	suite.Nil(duplicateWallet)
 
 	finalWallet, err := suite.db.GetWallet(suite.ctx, createdWallet.ID)
 	suite.NoError(err)

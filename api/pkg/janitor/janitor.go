@@ -89,6 +89,13 @@ func (j *Janitor) SendMessage(userEmail string, message string) error {
 	return sendSlackNotification(j.cfg.SlackWebhookURL, message)
 }
 
+func (j *Janitor) SendSubscriptionMessage(message string) error {
+	if j.cfg.SubscriptionsSlackWebhookURL == "" {
+		return nil
+	}
+	return sendSlackNotification(j.cfg.SubscriptionsSlackWebhookURL, message)
+}
+
 func (j *Janitor) WriteSessionError(session *types.Session, sessionErr error) error {
 	err := j.CaptureError(sessionErr)
 	if err != nil {

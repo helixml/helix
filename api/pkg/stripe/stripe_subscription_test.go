@@ -19,6 +19,15 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+type recordingSlackSender struct {
+	messages []string
+}
+
+func (s *recordingSlackSender) SendSubscriptionMessage(message string) error {
+	s.messages = append(s.messages, message)
+	return nil
+}
+
 func Test_handleSubscriptionEvent(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -73,6 +82,52 @@ func Test_handleSubscriptionEvent_NotFound(t *testing.T) {
 	err = s.handleSubscriptionEvent(event)
 	require.NoError(t, err)
 
+}
+
+func TestHandleSubscriptionEvent_SendsDistinctTrialNotifications(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		eventType      stripe.EventType
+		previousStatus stripe.SubscriptionStatus
+		status         stripe.SubscriptionStatus
+		message        string
+	}{
+		{"trial started", stripe.EventTypeCustomerSubscriptionCreated, "", stripe.SubscriptionStatusTrialing, "🆓 Free trial started: test@example.com"},
+		{"trial converted", stripe.EventTypeCustomerSubscriptionUpdated, stripe.SubscriptionStatusTrialing, stripe.SubscriptionStatusActive, "💰 Free trial converted to a paid subscription: test@example.com"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			db := store.NewMockStore(ctrl)
+			slack := &recordingSlackSender{}
+			s := NewStripe(config.Stripe{}, db)
+			s.SetSlackSender(slack)
+			wallet := &types.Wallet{ID: "wallet_123", UserID: "user_123", SubscriptionStatus: tt.previousStatus}
+
+			db.EXPECT().GetWalletByStripeCustomerID(gomock.Any(), "cus_123").Return(wallet, nil)
+			db.EXPECT().UpdateWallet(gomock.Any(), wallet).Return(wallet, nil)
+			db.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{Email: "test@example.com"}, nil)
+
+			event := stripeEvent(t, tt.eventType, &stripe.Subscription{
+				ID:       "sub_123",
+				Customer: &stripe.Customer{ID: "cus_123"},
+				Status:   tt.status,
+			})
+			require.NoError(t, s.handleSubscriptionEvent(event))
+			require.Equal(t, []string{tt.message}, slack.messages)
+		})
+	}
+}
+
+func TestBillingAccount_PrefersOrganizationForOrgWallet(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{}, db)
+	wallet := &types.Wallet{ID: "wallet_123", OrgID: "org_123"}
+
+	db.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(&types.Organization{Name: "Acme"}, nil)
+	db.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{Email: "initiator@example.com"}, nil)
+
+	require.Equal(t, "Acme (initiated by initiator@example.com)", s.billingAccount(context.Background(), wallet, "initiator_123"))
 }
 
 type mockSubscriptionBackend struct {
