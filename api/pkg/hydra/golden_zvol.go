@@ -1508,18 +1508,6 @@ func GCMigratedGoldenDirs() {
 	}
 }
 
-// purgeContainerDirs removes container-specific state from a mounted Docker data dir.
-// Same logic as PurgeContainersFromGolden but operates on an arbitrary mount path.
-func purgeContainerDirs(dockerDir string) {
-	for _, dir := range []string{"containers", "network", "containerd", "buildx", "volumes"} {
-		os.RemoveAll(filepath.Join(dockerDir, dir))
-	}
-	os.Remove(filepath.Join(dockerDir, ".golden-build-result"))
-
-	// Prune unreferenced overlay2 layers left behind by previous image builds.
-	pruneUnreferencedOverlay2Layers(dockerDir)
-}
-
 const seedCompleteMarker = ".zvol-seed-complete"
 
 // seedZvolFromGoldenDir copies the contents of the old file-based golden dir
