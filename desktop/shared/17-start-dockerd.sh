@@ -167,14 +167,17 @@ fi
 
 echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
 
-    # Use iptables-legacy for DinD compatibility
-    if [ -d /usr/local/sbin/.iptables-legacy ]; then
-        export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
-    fi
-    # Prefer iptables-legacy if available (Docker requires it in nested containers)
-    if command -v iptables-legacy &>/dev/null; then
+    # Prefer iptables-legacy for DinD compatibility, but only if it works.
+    # Legacy needs the ip_tables/iptable_nat kernel modules, which the container
+    # can't load itself (no /lib/modules). Otherwise stay on nf_tables.
+    if command -v iptables-legacy &>/dev/null && iptables-legacy -t nat -L >/dev/null 2>&1; then
+        if [ -d /usr/local/sbin/.iptables-legacy ]; then
+            export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
+        fi
         update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null || true
         update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null || true
+    else
+        echo "[dockerd] iptables-legacy unavailable or unusable (ip_tables module not loaded?) - using nf_tables"
     fi
 
     # Enable cgroup v2 controller delegation for Kind/systemd containers.
