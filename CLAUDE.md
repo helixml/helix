@@ -77,6 +77,7 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 - QEMU builds must include `--enable-spice`; NEVER modify UTM source
 - Build QEMU: **ALWAYS use `cd for-mac && make rebuild-qemu`** (stop VM first). This builds, installs to app bundle, fixes dylib rpaths, copies to dev-qemu, and signs. **NEVER** use raw `ninja install` + manual `cp` + `codesign` — this breaks rpaths (`@rpath/pixman-1.0.framework` etc. won't resolve).
 - QEMU source: `~/pm/qemu-utm` (default branch)
+- **Release CI builds QEMU** from the helixml/qemu-utm commit pinned in `for-mac/qemu-helix/QEMU_UTM_COMMIT` (`for-mac/qemu-helix/build-qemu-ci.sh`, cached per commit on the Mac runner). After changing qemu-utm, bump the pin — same ordering as `ZED_COMMIT`. libslirp is vendored in qemu-utm (`subprojects/slirp/`), not taken from the UTM sysroot.
 - If signing fails with `errSecInternalComponent`, use `codesign --force --sign - --timestamp=none --options runtime --entitlements build/darwin/entitlements.plist build/dev-qemu/*`
 - QEMU version string is in `hw/display/helix/helix-frame-export.m` `helix_frame_export_init()` — update it when making QEMU changes
 - Dev-mode uses `build/dev-qemu/qemu-system-aarch64` (separate from app bundle)
