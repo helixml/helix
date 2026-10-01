@@ -80,7 +80,7 @@ fi
 
 # helixml/qemu-utm vendors a patched libslirp and links it statically.
 # A dylib that still links slirp.0 is a stale build without those fixes.
-if otool -L "$QEMU_DYLIB" | grep -q slirp; then
+if otool -L "$QEMU_DYLIB" | tail -n +2 | grep -q slirp; then
     echo "ERROR: $QEMU_DYLIB links an external libslirp (stale QEMU build)"
     echo "Rebuild QEMU from helixml/qemu-utm: ./qemu-helix/build-qemu-standalone.sh"
     exit 1

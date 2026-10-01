@@ -2354,7 +2354,7 @@ steps:
       # 3. libslirp must be linked statically (no external slirp dylib) and include the fix
       - cd "$WORK/qemu/build" && otool -L libqemu-aarch64-softmmu.dylib
       - |
-        if otool -L "$WORK/qemu/build/libqemu-aarch64-softmmu.dylib" | grep -qi slirp; then
+        if otool -L "$WORK/qemu/build/libqemu-aarch64-softmmu.dylib" | tail -n +2 | grep -qi slirp; then
           echo "FAIL - links external libslirp"; exit 1
         fi
       - nm "$WORK/qemu/build/libqemu-aarch64-softmmu.dylib" | grep resolv_conf_scope_id
