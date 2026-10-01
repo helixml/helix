@@ -45,7 +45,9 @@ func (j *Janitor) Initialize() error {
 			return fmt.Errorf("Sentry initialization failed: %v", err)
 		}
 		system.SetHTTPErrorHandler(func(err *system.HTTPError, req *http.Request) {
-			reportErrorWithRequest(err, req, map[string]interface{}{})
+			if err.StatusCode == 0 || err.StatusCode >= http.StatusInternalServerError {
+				reportErrorWithRequest(err, req, map[string]interface{}{})
+			}
 		})
 		system.SetErrorHandler(func(err error, req *http.Request) {
 			reportErrorWithRequest(err, req, map[string]interface{}{})
@@ -85,6 +87,13 @@ func (j *Janitor) SendMessage(userEmail string, message string) error {
 		}
 	}
 	return sendSlackNotification(j.cfg.SlackWebhookURL, message)
+}
+
+func (j *Janitor) SendSubscriptionMessage(message string) error {
+	if j.cfg.SubscriptionsSlackWebhookURL == "" {
+		return nil
+	}
+	return sendSlackNotification(j.cfg.SubscriptionsSlackWebhookURL, message)
 }
 
 func (j *Janitor) WriteSessionError(session *types.Session, sessionErr error) error {

@@ -531,9 +531,21 @@ runcmd:
   - update-locale LANG=en_US.UTF-8
   # Configure serial-getty on ttyAMA0 for clean output (no DSR queries, UTF-8)
   - mkdir -p /etc/systemd/system/serial-getty@ttyAMA0.service.d
+  # Load iptables modules now (modules-load.d below covers later boots)
+  - modprobe -a ip_tables iptable_nat iptable_filter ip6_tables ip6table_nat ip6table_filter || true
   - touch /var/lib/cloud/instance/provision-ready
 
 write_files:
+  # iptables-legacy in desktop containers (Docker-in-Docker) needs these modules,
+  # and containers have no /lib/modules to load them themselves.
+  - path: /etc/modules-load.d/helix-iptables.conf
+    content: |
+      ip_tables
+      iptable_nat
+      iptable_filter
+      ip6_tables
+      ip6table_nat
+      ip6table_filter
   # Override zfs-import-scan to use -f (needed after root disk swap changes hostid)
   - path: /etc/systemd/system/zfs-import-scan.service.d/force-import.conf
     content: |

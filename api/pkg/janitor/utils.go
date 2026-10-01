@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
+
+const slackRequestTimeout = 5 * time.Second
 
 type SlackRequestBody struct {
 	Text string `json:"text"`
@@ -25,7 +28,7 @@ func sendSlackNotification(webhookURL string, message string) error {
 	}
 	req.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: slackRequestTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

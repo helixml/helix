@@ -246,6 +246,9 @@ type VideoStreamer struct {
 	// Frame tracking
 	frameCount uint64
 	startTime  time.Time
+	// videoFlowing is set once the first frame arrives from the shared source.
+	// Until then heartbeat() tells the client the video is still starting.
+	videoFlowing atomic.Bool
 
 	// Video pause control (for screenshot mode switching)
 	videoEnabled atomic.Bool
@@ -288,6 +291,7 @@ func NewVideoStreamer(nodeID uint32, cursorNodeID uint32, pipeWireFd int, config
 		config:       config,
 		ws:           ws,
 		logger:       logger,
+		startTime:    time.Now(),
 	}
 	v.videoEnabled.Store(true) // Video enabled by default
 	return v
@@ -311,7 +315,6 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	}
 
 	ctx, v.cancel = context.WithCancel(ctx)
-	v.startTime = time.Now()
 
 	// Scanout mode: receive H.264 from QEMU TCP (macOS ARM, no GStreamer)
 	if v.videoMode == VideoModeScanout {
@@ -340,6 +343,12 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 		"bitrate", v.config.Bitrate,
 	)
 
+	// Encoder selection waits on GStreamer's first init, which can take
+	// minutes on a starved host. Don't attach a client that has since left.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Get or create shared video source for this PipeWire node
 	// All clients connecting to the same node share ONE GStreamer pipeline
 	opts := GstPipelineOptions{
@@ -352,6 +361,13 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	v.frameCh, v.errorCh, v.sharedClientID, err = v.sharedSource.Subscribe()
 	if err != nil {
 		return fmt.Errorf("subscribe to shared video source: %w", err)
+	}
+	// Subscribe waits for an in-flight pipeline start. If this client left
+	// meanwhile, don't register it: a late presence registration with the
+	// same client_unique_id evicts the reconnected, live viewer.
+	if err := ctx.Err(); err != nil {
+		v.sharedSource.Unsubscribe(v.sharedClientID)
+		return err
 	}
 
 	v.logger.Info("subscribed to shared video source",
@@ -411,9 +427,6 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 
 	// Read frames from appsink and send to WebSocket
 	go v.readFramesAndSend(ctx)
-
-	// Handle ping/pong
-	go v.heartbeat(ctx)
 
 	return nil
 }
@@ -508,9 +521,6 @@ func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
 
 	// Read frames from shared source and send to WebSocket
 	go v.readFramesAndSend(ctx)
-
-	// Handle ping/pong
-	go v.heartbeat(ctx)
 
 	return nil
 }
@@ -1161,9 +1171,16 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 			return
 		case frame, ok := <-frameCh:
 			if !ok {
-				// Shared source stopped or we were unsubscribed
+				// Shared source stopped or we were unsubscribed. Drop the socket
+				// so the client reconnects and attaches to a live source: the
+				// heartbeat would otherwise keep a video-less connection looking
+				// healthy indefinitely.
 				v.logger.Info("shared video source channel closed")
+				v.ws.UnderlyingConn().Close()
 				return
+			}
+			if !v.videoFlowing.Swap(true) {
+				v.logger.Info("first video frame", "since_connect", time.Since(v.startTime).Round(time.Millisecond))
 			}
 
 			// Measure WebSocket send time
@@ -1454,17 +1471,64 @@ func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, isReplay bo
 	return v.writeMessage(websocket.BinaryMessage, msg)
 }
 
-// heartbeat sends periodic WebSocket pings to keep connection alive
-// Uses WebSocket's built-in ping/pong mechanism, not binary protocol messages.
-// The binary Ping (0x40) / Pong (0x41) messages are for client-initiated RTT measurement.
+// videoStartingInterval is how often a client waiting for the first frame is
+// told the video is still starting. Well inside the client's 10s stale timeout.
+const videoStartingInterval = 2 * time.Second
+
+// streamStatusMsg is a JSON control message telling the client what the
+// server is doing while there is no video yet. Clients that do not know it
+// ignore it, but it still counts as traffic for their stale detection.
+type streamStatusMsg struct {
+	StreamStatus struct {
+		State     string `json:"state"`
+		ElapsedMs int64  `json:"elapsed_ms"`
+	} `json:"StreamStatus"`
+}
+
+func (v *VideoStreamer) sendVideoStarting() error {
+	var msg streamStatusMsg
+	msg.StreamStatus.State = "starting_video"
+	msg.StreamStatus.ElapsedMs = time.Since(v.startTime).Milliseconds()
+	return v.writeJSON(msg)
+}
+
+// heartbeat runs for the life of the connection, from the moment init is
+// received — not from when the pipeline is up. Pipeline construction has taken
+// 75s on a CPU-saturated host; a silent socket for that long is
+// indistinguishable from a dead one to the client, which tore it down and
+// reconnected every 10s.
+//
+// Two signals:
+//   - WebSocket pings every 5s keep the server's read deadline alive (the
+//     client's pongs extend it) and detect dead clients.
+//   - Until the first frame arrives, a StreamStatus "starting_video" message
+//     every videoStartingInterval. WebSocket pings are invisible to browser
+//     JS, so the client's stale detection needs real messages.
+//
+// The binary Ping (0x40) / Pong (0x41) messages are for client-initiated RTT
+// measurement and are answered by the read loop.
 func (v *VideoStreamer) heartbeat(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
+	startingTicker := time.NewTicker(videoStartingInterval)
+	defer startingTicker.Stop()
+
+	if err := v.sendVideoStarting(); err != nil {
+		v.logger.Debug("failed to send video starting status", "err", err)
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-startingTicker.C:
+			if v.videoFlowing.Load() {
+				startingTicker.Stop()
+				continue
+			}
+			if err := v.sendVideoStarting(); err != nil {
+				v.logger.Debug("failed to send video starting status", "err", err)
+			}
 		case <-ticker.C:
 			// Use WebSocket ping frame, not binary message
 			if _, err := v.writeMessage(websocket.PingMessage, nil); err != nil {
@@ -1835,9 +1899,8 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	// and ReadMessage() returns an error, triggering cleanup via the defer chain.
 	//
 	// Note: This deadline also acts as a 30s timeout for the init message handshake below.
-	// The pong handler only becomes active once the heartbeat goroutine starts sending pings
-	// (after streamer.Start()), but the deadline ensures connections that never send init
-	// are cleaned up rather than blocking forever.
+	// The heartbeat goroutine (and so the pings that keep extending it) starts as soon as
+	// init is received, before the video pipeline is up.
 	ws.SetReadDeadline(time.Now().Add(30 * time.Second))
 	ws.SetPongHandler(func(string) error {
 		ws.SetReadDeadline(time.Now().Add(30 * time.Second))
@@ -1906,20 +1969,46 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	logger.Info("using pipewirezerocopysrc (zero-copy)", "video_node", nodeID, "cursor_node", cursorNodeID, "pipewire_fd", pipeWireFd)
 	streamer := NewVideoStreamer(nodeID, cursorNodeID, pipeWireFd, config, ws, logger)
 
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-
 	// Ensure cleanup happens even if Start() fails - the pipeline may have
 	// allocated CUDA contexts before failing, which need to be freed
 	defer streamer.Stop()
 
-	if err := streamer.Start(ctx); err != nil {
-		logger.Error("failed to start streamer", "err", err)
-		// Send error to WebSocket client so they see what went wrong
-		if sendErr := streamer.sendStreamError(err.Error()); sendErr != nil {
-			logger.Error("failed to send start error to client", "sendErr", sendErr)
+	// Deferred after Stop so it runs first: Stop waits for an in-flight Start,
+	// and Start must see that this client has gone. (r.Context() is not
+	// cancelled when a hijacked WebSocket closes.)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	// Talk to the client from now on, not from when the pipeline is up.
+	go streamer.heartbeat(ctx)
+
+	// Start (which may wait a long time on pipeline construction, or on
+	// another client's in-flight start of the same shared source) runs beside
+	// the read loop below, so client pings are answered and pongs keep the read
+	// deadline alive the whole time.
+	started := make(chan struct{})
+	go func() {
+		if err := streamer.Start(ctx); err != nil {
+			logger.Error("failed to start streamer", "err", err)
+			// Send error to WebSocket client so they see what went wrong
+			if sendErr := streamer.sendStreamError(err.Error()); sendErr != nil {
+				logger.Error("failed to send start error to client", "sendErr", sendErr)
+			}
+			// Unblock ReadMessage so the handler returns and cleans up. Closing
+			// the TCP conn, not ws.Close(): that would be an unserialized write.
+			ws.UnderlyingConn().Close()
+			return
 		}
-		return
+		close(started)
+	}()
+	// sessionClient is assigned inside Start; read it only once Start is done.
+	sessionClient := func() *ConnectedClient {
+		select {
+		case <-started:
+			return streamer.sessionClient
+		default:
+			return nil
+		}
 	}
 
 	// Handle incoming messages (input events, ping/pong, etc.)
@@ -1959,8 +2048,8 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 		}
 
 		// Update client activity timestamp on any message to prevent stale client cleanup
-		if streamer.sessionClient != nil && config.SessionID != "" {
-			GetSessionRegistry().UpdateClientActivity(config.SessionID, streamer.sessionClient.ID)
+		if sc := sessionClient(); sc != nil && config.SessionID != "" {
+			GetSessionRegistry().UpdateClientActivity(config.SessionID, sc.ID)
 		}
 
 		if messageType == websocket.BinaryMessage && len(msg) > 0 {
@@ -2037,8 +2126,8 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 			if server != nil {
 				// Pass client ID for multi-player cursor broadcasting
 				clientID := uint32(0)
-				if streamer.sessionClient != nil {
-					clientID = streamer.sessionClient.ID
+				if sc := sessionClient(); sc != nil {
+					clientID = sc.ID
 				}
 				server.handleStreamInputMessageWithClient(msg, streamer.config.SessionID, clientID)
 			} else {

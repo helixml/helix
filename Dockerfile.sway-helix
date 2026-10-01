@@ -748,9 +748,16 @@ ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
 ADD desktop/sway-config/15-setup-gpu-permissions.sh /etc/cont-init.d/15-setup-gpu-permissions.sh
 RUN chmod 755 /etc/cont-init.d/15-setup-gpu-permissions.sh
 
+# CPU tiers: agent work (Zed's shell children, inner dockerd) runs in an
+# idle-class cgroup so the display path keeps the CPU during builds.
+ADD desktop/shared/16-cpu-tiers.sh /etc/cont-init.d/16-cpu-tiers.sh
+ADD desktop/shared/agent-tier-bash.sh /usr/local/libexec/helix/agent-tier/bash
+RUN chmod 755 /etc/cont-init.d/16-cpu-tiers.sh /usr/local/libexec/helix/agent-tier/bash
+
 # Start dockerd inside desktop container if /var/lib/docker is volume-mounted
 ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
-RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
+ADD desktop/shared/helix-buildkit-cache-stats.sh /usr/local/bin/helix-buildkit-cache-stats
+RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh /usr/local/bin/helix-buildkit-cache-stats
 
 # Workspace README
 RUN mkdir -p /opt/helix

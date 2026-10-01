@@ -355,7 +355,8 @@ type SpecTask struct {
 	DesignDocPath string `json:"design_doc_path,omitempty" gorm:"size:255"`
 
 	// Multi-repo PR tracking: list of PRs across all project repositories
-	RepoPullRequests []RepoPR `json:"repo_pull_requests,omitempty" gorm:"type:jsonb;serializer:json"`
+	RepoPullRequests       []RepoPR `json:"repo_pull_requests,omitempty" gorm:"type:jsonb;serializer:json"`
+	RepoPullRequestHistory []RepoPR `json:"repo_pull_request_history,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Agent activity tracking (computed from session/activity data, not stored)
 	LastMessageAt        *time.Time     `json:"last_message_at,omitempty" gorm:"->;-:migration"` // Newest conversation interaction, selected for last-message sorting

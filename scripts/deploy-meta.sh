@@ -39,9 +39,18 @@ ZED_DIR=/prod/home/luke/pm/zed
 STATE_FILE=/prod/home/luke/.local/state/helix-meta-deploy
 PRE_DEPLOY_SHA=$(git -C "$HELIX_DIR" rev-parse HEAD)
 
+sandbox_restart_started=false
 report_failure() {
   status=$?
   if (( status != 0 )); then
+    # A failed sandbox restart must not leave Meta without a sandbox: bring one
+    # back up (the new image, else the pre-deploy one) and still fail.
+    if [[ "$sandbox_restart_started" == true ]]; then
+      echo "Deployment failed after the sandbox restart began; ensuring a sandbox is running" >&2
+      if ! (cd "$HELIX_DIR" && ./stack ensure-sandbox); then
+        echo "CRITICAL: Meta has NO running sandbox" >&2
+      fi
+    fi
     echo "Meta deployment failed. Pre-deploy Helix SHA: $PRE_DEPLOY_SHA" >&2
     echo "Inspect Meta and restore that SHA manually if recovery is required." >&2
   fi
@@ -130,6 +139,7 @@ fi
 
 if [[ "$sandbox_changed" == true ]]; then
   sandbox_build_started_ns=$(date -u +%s%N)
+  sandbox_restart_started=true
   ./stack build-sandbox
 elif [[ "$zed_changed" == true || "$ubuntu_changed" == true ]]; then
   ./stack build-ubuntu

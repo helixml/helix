@@ -7505,6 +7505,7 @@ export interface TypesSpecTask {
   queue_reason?: string;
   /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
   rebase_requested_at?: string;
+  repo_pull_request_history?: TypesRepoPR[];
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
@@ -7927,6 +7928,7 @@ export interface TypesSpecTaskWithProject {
   queue_reason?: string;
   /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
   rebase_requested_at?: string;
+  repo_pull_request_history?: TypesRepoPR[];
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */

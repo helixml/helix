@@ -130,4 +130,33 @@ func (s *DesktopMCPBackendSuite) TestSandboxNotConnected() {
 
 	s.Equal(http.StatusServiceUnavailable, w.Code)
 	s.Contains(w.Body.String(), "not connected")
+	s.Equal("not-connected", w.Header().Get(desktopMCPUnavailableHeader))
+}
+
+// The RevDial tunnel is up but the desktop-bridge behind it is not listening
+// yet: the tunnel accepts and drops the request. That is a booting desktop, and
+// must be distinguishable from the sandbox proxy's 502 "Helix API unavailable".
+func (s *DesktopMCPBackendSuite) TestDesktopBridgeNotListening() {
+	s.mockStore.EXPECT().GetSession(gomock.Any(), "ses-123").Return(s.session(), nil)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	s.Require().NoError(err)
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	s.dialer.server = &httptest.Server{URL: "http://" + ln.Addr().String()}
+	defer func() { s.dialer.server = nil }() // not a started server; TearDown must not Close it
+
+	w, req := s.mcpRequest("ses-123")
+	s.backend.ServeHTTP(w, req, &types.User{ID: "user-1"})
+
+	s.Equal(http.StatusServiceUnavailable, w.Code)
+	s.Equal("not-listening", w.Header().Get(desktopMCPUnavailableHeader))
+	s.Contains(w.Body.String(), "desktop-bridge")
 }

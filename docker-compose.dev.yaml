@@ -29,6 +29,7 @@ services:
       - SERVER_URL=${SERVER_URL:-http://localhost:8080}
       - ASSET_SSH_PROXY_LISTEN=:2224
       - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
+      - HELIX_SUBSCRIPTIONS_SLACK_WEBHOOK_URL=${HELIX_SUBSCRIPTIONS_SLACK_WEBHOOK_URL:-}
       - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
@@ -308,6 +309,9 @@ services:
     cap_add:
       - SYS_PTRACE # Thread diagnostics
     restart: unless-stopped
+    # Room for helix-sandbox-shutdown to stop every desktop (and its nested
+    # dockerd) before the kernel has to tear them down after SIGKILL.
+    stop_grace_period: 5m
     healthcheck:
       test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
       interval: 30s
@@ -401,6 +405,9 @@ services:
     cap_add:
       - SYS_PTRACE # Thread diagnostics
     restart: unless-stopped
+    # Room for helix-sandbox-shutdown to stop every desktop (and its nested
+    # dockerd) before the kernel has to tear them down after SIGKILL.
+    stop_grace_period: 5m
     healthcheck:
       test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
       interval: 30s
@@ -496,6 +503,9 @@ services:
     cap_add:
       - SYS_PTRACE # Thread diagnostics
     restart: unless-stopped
+    # Room for helix-sandbox-shutdown to stop every desktop (and its nested
+    # dockerd) before the kernel has to tear them down after SIGKILL.
+    stop_grace_period: 5m
     healthcheck:
       test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
       interval: 30s
@@ -599,6 +609,9 @@ services:
     cap_add:
       - SYS_PTRACE # Thread diagnostics
     restart: unless-stopped
+    # Room for helix-sandbox-shutdown to stop every desktop (and its nested
+    # dockerd) before the kernel has to tear them down after SIGKILL.
+    stop_grace_period: 5m
     healthcheck:
       test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
       interval: 30s

@@ -197,6 +197,9 @@ function mapStatusToPhase(status: string): {
   return { phase, planningStatus, hasSpecs };
 }
 
+// HelixOS names its unattended bot-run tasks with this prefix; hidden by default
+const HELIXOS_BOT_TASK_PREFIX = "[helixos:bot=";
+
 // Board-specific extensions of SpecTaskWithExtras (imported from TaskCard)
 // Use type alias to avoid TS2719 "two different types with this name" error
 type BoardTask = SpecTaskWithExtras & {
@@ -259,6 +262,7 @@ interface SpecTaskKanbanBoardProps {
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
+  showBotTasks?: boolean; // Show HelixOS bot-run tasks (name starts with "[helixos:bot=")
 }
 
 const DroppableColumn: React.FC<{
@@ -676,6 +680,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
+  showBotTasks = false,
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -948,9 +953,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Org members for resolving assignee names/avatars
   const orgMembers = account.organizationTools.organization?.memberships || [];
 
-  // Apply search + label + assignee filters to tasks
+  // Apply bot + search + label + assignee filters to tasks
   const filteredTasks = useMemo(() => {
     let result = filterTasks(tasks, searchFilter);
+    if (!showBotTasks) {
+      result = result.filter(
+        (task) => !task.name?.startsWith(HELIXOS_BOT_TASK_PREFIX),
+      );
+    }
     if (labelFilter.length > 0) {
       result = result.filter((task) =>
         labelFilter.every((l) => (task.labels || []).includes(l)),
@@ -962,7 +972,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       );
     }
     return result;
-  }, [tasks, searchFilter, labelFilter, assigneeFilter]);
+  }, [tasks, searchFilter, labelFilter, assigneeFilter, showBotTasks]);
 
   // Kanban columns configuration - Linear color scheme
   // Pull Request column only shown for external repos (ADO)

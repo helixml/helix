@@ -518,8 +518,19 @@ type SessionMetadata struct {
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
+	// ExternalAgentConnected reports whether the agent currently holds a live
+	// sync WebSocket — i.e. whether a message sent now would actually reach it.
+	//
+	// SEPARATE FROM ExternalAgentStatus ON PURPOSE. That field is "running" as
+	// soon as the CONTAINER is up, which is not the same thing: a container can
+	// be running for hours with Zed never having dialled home (helixml/helix#2397).
+	// Anything embedding a session — Find AI presented a chat box to candidates
+	// on this basis — needs to know it can send, not merely that a machine
+	// exists. Computed per request, never stored.
+	ExternalAgentConnected  bool                 `json:"external_agent_connected"`
 	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
+	GoldenBuild             bool                 `json:"golden_build,omitempty"`              // Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
 	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
@@ -2119,6 +2130,15 @@ type KeyPair struct {
 // for an app, run which script with what input?
 
 // DesktopAgent represents a Zed editor instance configuration
+// GoldenBuildTimeout bounds a single golden build's wall-clock duration. A cold
+// `build-zed release` + `build-sandbox` under heavy CPU contention can take
+// hours (especially after a zed bump invalidates the cargo cache), so this
+// ceiling is deliberately generous. It is the single source of truth for both
+// the API (golden_build_service) and Hydra (monitorGoldenBuild): if Hydra gave
+// up earlier than the API, a cold build could never finish and the cache would
+// never refresh.
+const GoldenBuildTimeout = 6 * time.Hour
+
 type DesktopAgent struct {
 	OrganizationID string `json:"organization_id"` // Organization ID
 	// Session ID - the Helix session this desktop agent serves
@@ -2192,6 +2212,10 @@ type DesktopAgent struct {
 
 	// Golden build mode: session builds a golden Docker cache snapshot
 	GoldenBuild bool `json:"golden_build,omitempty"`
+	// GoldenBuildTimeoutSeconds is the API's deadline for this golden build.
+	// Hydra's result monitor uses it so it never kills a build the API is
+	// still waiting on. 0 = GoldenBuildTimeout.
+	GoldenBuildTimeoutSeconds int `json:"golden_build_timeout_seconds,omitempty"`
 
 	// Optional task-level resource limits. SpecTask launchers resolve zero values
 	// to the task default; non-task desktop sessions remain unchanged.

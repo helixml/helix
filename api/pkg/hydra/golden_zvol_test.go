@@ -40,6 +40,43 @@ type mockZFS struct {
 	// seconds), returned by `zfs get -Hp -o value creation <ds>`. Datasets not
 	// present here report "now" (age ~0).
 	creationByDataset map[string]int64
+	// props holds ZFS user properties set via `zfs set`, per dataset.
+	props map[string]map[string]string
+	// deviceDelay makes /dev/zvol/<dataset> missing for this many stats after
+	// the dataset exists (simulates udev lagging behind zfs create/rename).
+	// -1 = never appears.
+	deviceDelay map[string]int
+	// deviceStats counts stats of each dataset's device node.
+	deviceStats map[string]int
+}
+
+// fakeBlockDevice is the os.FileInfo of a present /dev/zvol block device.
+type fakeBlockDevice struct{ name string }
+
+func (f fakeBlockDevice) Name() string       { return f.name }
+func (f fakeBlockDevice) Size() int64        { return 0 }
+func (f fakeBlockDevice) Mode() os.FileMode  { return os.ModeDevice | 0660 }
+func (f fakeBlockDevice) ModTime() time.Time { return time.Time{} }
+func (f fakeBlockDevice) IsDir() bool        { return false }
+func (f fakeBlockDevice) Sys() any           { return nil }
+
+func (m *mockZFS) statDevice(path string) (os.FileInfo, error) {
+	dataset := strings.TrimPrefix(path, "/dev/zvol/")
+	if m.datasets[dataset] {
+		m.deviceStats[dataset]++
+	}
+	if !m.deviceVisible(dataset) {
+		return nil, os.ErrNotExist
+	}
+	return fakeBlockDevice{name: filepath.Base(path)}, nil
+}
+
+func (m *mockZFS) deviceVisible(dataset string) bool {
+	if !m.datasets[dataset] {
+		return false
+	}
+	delay, ok := m.deviceDelay[dataset]
+	return !ok || (delay >= 0 && m.deviceStats[dataset] > delay)
 }
 
 func newMockZFS() *mockZFS {
@@ -49,6 +86,9 @@ func newMockZFS() *mockZFS {
 		snapshotsByDataset: make(map[string][]string),
 		failCommands:       make(map[string]error),
 		creationByDataset:  make(map[string]int64),
+		props:              make(map[string]map[string]string),
+		deviceDelay:        make(map[string]int),
+		deviceStats:        make(map[string]int),
 	}
 }
 
@@ -115,6 +155,13 @@ func (m *mockZFS) install() func() {
 	origCombined := execCmdCombinedOutput
 	origRun := execCmdRun
 	origMkdir := osMkdirAll
+	origStat := statZvolDevice
+	origTimeout := zvolDeviceWaitTimeout
+	origInterval := zvolDevicePollInterval
+
+	statZvolDevice = m.statDevice
+	zvolDeviceWaitTimeout = 200 * time.Millisecond
+	zvolDevicePollInterval = time.Millisecond
 
 	// Mock os.MkdirAll to succeed without actually creating /container-docker/...
 	osMkdirAll = func(path string, perm os.FileMode) error {
@@ -150,6 +197,9 @@ func (m *mockZFS) install() func() {
 		execCmdCombinedOutput = origCombined
 		execCmdRun = origRun
 		osMkdirAll = origMkdir
+		statZvolDevice = origStat
+		zvolDeviceWaitTimeout = origTimeout
+		zvolDevicePollInterval = origInterval
 	}
 }
 
@@ -180,7 +230,12 @@ func (m *mockZFS) handleOutput(name string, args ...string) ([]byte, error) {
 	case "zfs":
 		return m.handleZFS(args...)
 	case "mount", "umount", "mkfs.xfs", "cp":
-		// Simulate success for these
+		// Like the real commands, fail on a /dev/zvol node that isn't there yet
+		for _, a := range args {
+			if dataset, ok := strings.CutPrefix(a, "/dev/zvol/"); ok && !m.deviceVisible(dataset) {
+				return []byte("special device " + a + " does not exist."), fmt.Errorf("exit status 32")
+			}
+		}
 		m.handleSideEffects(name, args...)
 		return nil, nil
 	}
@@ -194,6 +249,21 @@ func (m *mockZFS) handleZFS(args ...string) ([]byte, error) {
 
 	switch args[0] {
 	case "get":
+		if contains(args, goldenPendingPromotionProp) {
+			if contains(args, "-r") {
+				// zfs get -H -r -t volume -s local -o name <prop> <parent>
+				parent := args[len(args)-1]
+				var names []string
+				for ds, props := range m.props {
+					if _, ok := props[goldenPendingPromotionProp]; ok && strings.HasPrefix(ds, parent+"/") {
+						names = append(names, ds)
+					}
+				}
+				return []byte(strings.Join(names, "\n")), nil
+			}
+			// zfs get -H -s local -o value <prop> <dataset>: no output when unset
+			return []byte(m.props[args[len(args)-1]][goldenPendingPromotionProp]), nil
+		}
 		// zfs get -Hp -o value creation <dataset>
 		// Return the recorded creation unix-secs, or "now" if not set.
 		dataset := args[len(args)-1]
@@ -254,6 +324,25 @@ func (m *mockZFS) handleZFS(args ...string) ([]byte, error) {
 	case "destroy":
 		target := args[len(args)-1]
 		delete(m.datasets, target)
+		delete(m.props, target)
+		return nil, nil
+
+	case "set":
+		// zfs set key=value <dataset>
+		dataset := args[len(args)-1]
+		if !m.datasets[dataset] {
+			return nil, fmt.Errorf("dataset %s not found", dataset)
+		}
+		key, value, _ := strings.Cut(args[1], "=")
+		if m.props[dataset] == nil {
+			m.props[dataset] = make(map[string]string)
+		}
+		m.props[dataset][key] = value
+		return nil, nil
+
+	case "inherit":
+		// zfs inherit key <dataset>
+		delete(m.props[args[len(args)-1]], args[1])
 		return nil, nil
 
 	case "create":
@@ -281,6 +370,10 @@ func (m *mockZFS) handleZFS(args ...string) ([]byte, error) {
 			if m.datasets[old] {
 				delete(m.datasets, old)
 				m.datasets[new] = true
+				if props, ok := m.props[old]; ok {
+					delete(m.props, old)
+					m.props[new] = props
+				}
 				// Move snapshots too
 				if snaps, ok := m.snapshotsByDataset[old]; ok {
 					delete(m.snapshotsByDataset, old)

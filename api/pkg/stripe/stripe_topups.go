@@ -156,13 +156,15 @@ func (s *Stripe) handleTopUpEvent(event stripe.Event) error {
 	if wallet == nil {
 		return nil
 	}
-
-	_, err = s.store.UpdateWalletBalance(ctx, wallet.ID, amount, types.TransactionMetadata{
+	updatedWallet, err := s.store.UpdateWalletBalance(ctx, wallet.ID, amount, types.TransactionMetadata{
 		TransactionType:       types.TransactionTypeTopUp,
 		StripePaymentIntentID: paymentIntent.ID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create topup for user %s: %w", userID, err)
+	}
+	if updatedWallet != nil {
+		s.notifyTopUp(ctx, updatedWallet, userID, amount)
 	}
 
 	log.Info().
@@ -223,14 +225,16 @@ func (s *Stripe) handleTopUpCheckoutSessionCompletedEvent(event stripe.Event) er
 	if wallet == nil {
 		return nil
 	}
-
-	_, err = s.store.UpdateWalletBalance(ctx, wallet.ID, amount, types.TransactionMetadata{
+	updatedWallet, err := s.store.UpdateWalletBalance(ctx, wallet.ID, amount, types.TransactionMetadata{
 		TransactionType:         types.TransactionTypeTopUp,
 		StripePaymentIntentID:   paymentIntentIDFromCheckoutSession(&checkoutSession),
 		StripeCheckoutSessionID: checkoutSession.ID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create topup for checkout session %s: %w", checkoutSession.ID, err)
+	}
+	if updatedWallet != nil {
+		s.notifyTopUp(ctx, updatedWallet, userID, amount)
 	}
 
 	log.Info().
@@ -242,6 +246,16 @@ func (s *Stripe) handleTopUpCheckoutSessionCompletedEvent(event stripe.Event) er
 		Msg("topup checkout session completed successfully")
 
 	return nil
+}
+
+func (s *Stripe) notifyTopUp(ctx context.Context, wallet *types.Wallet, userID string, amount float64) {
+	if s.slack == nil {
+		return
+	}
+	account := s.billingAccount(ctx, wallet, userID)
+	if err := s.slack.SendSubscriptionMessage(fmt.Sprintf("💳 Credits added: %s — $%.2f", account, amount)); err != nil {
+		log.Error().Err(err).Str("account", account).Msg("failed to send Stripe top-up Slack notification")
+	}
 }
 
 func (s *Stripe) getTopUpWallet(ctx context.Context, userID, orgID, stripeCustomerID string) (*types.Wallet, error) {

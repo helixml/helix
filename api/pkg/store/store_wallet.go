@@ -175,13 +175,15 @@ func (s *PostgresStore) DeleteWallet(ctx context.Context, id string) error {
 	return nil
 }
 
-// UpdateWalletBalance safely updates the wallet balance using a database transaction
+// UpdateWalletBalance safely updates the wallet balance using a database transaction.
+// It returns nil, nil when a Stripe top-up was already processed.
 func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error) {
 	if walletID == "" {
 		return nil, fmt.Errorf("wallet_id not specified")
 	}
 
 	var wallet types.Wallet
+	balanceUpdated := false
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ?", walletID).
@@ -221,6 +223,7 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 		if result.RowsAffected == 0 {
 			return ErrNotFound
 		}
+		balanceUpdated = true
 
 		transaction := &types.Transaction{
 			ID:                 system.GenerateTransactionID(),
@@ -270,6 +273,9 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 
 	if err != nil {
 		return nil, err
+	}
+	if !balanceUpdated {
+		return nil, nil
 	}
 
 	return &wallet, nil

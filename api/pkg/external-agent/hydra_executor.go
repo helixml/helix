@@ -464,6 +464,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		BrowserSandbox:          isolation.browserSandbox,
 		ProjectID:               agent.ProjectID,
 		GoldenBuild:             agent.GoldenBuild,
+		// Hydra's golden build monitor uses the API's deadline.
+		GoldenBuildTimeoutSeconds: agent.GoldenBuildTimeoutSeconds,
 		VCPUs:                   agent.VCPUs,
 		MemoryMB:                agent.MemoryMB,
 		DiskSizeGB:              agent.DiskSizeGB,

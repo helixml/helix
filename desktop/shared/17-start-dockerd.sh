@@ -167,33 +167,25 @@ fi
 
 echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
 
-    # Use iptables-legacy for DinD compatibility
-    if [ -d /usr/local/sbin/.iptables-legacy ]; then
-        export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
-    fi
-    # Prefer iptables-legacy if available (Docker requires it in nested containers)
-    if command -v iptables-legacy &>/dev/null; then
+    # Prefer iptables-legacy for DinD compatibility, but only if it works.
+    # Legacy needs the ip_tables/iptable_nat kernel modules, which the container
+    # can't load itself (no /lib/modules). Otherwise stay on nf_tables.
+    if command -v iptables-legacy &>/dev/null && iptables-legacy -t nat -L >/dev/null 2>&1; then
+        if [ -d /usr/local/sbin/.iptables-legacy ]; then
+            export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
+        fi
         update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null || true
         update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null || true
+    else
+        echo "[dockerd] iptables-legacy unavailable or unusable (ip_tables module not loaded?) - using nf_tables"
     fi
 
-    # Enable cgroup v2 controller delegation for Kind/systemd containers.
-    # Move all root-cgroup processes to init.scope (required by cgroup v2's
-    # "no internal processes" rule), then enable all controllers for subtrees.
-    if [ -f /sys/fs/cgroup/cgroup.subtree_control ]; then
-        mkdir -p /sys/fs/cgroup/init.scope
-        for pid in $(cat /sys/fs/cgroup/cgroup.procs 2>/dev/null); do
-            echo "$pid" > /sys/fs/cgroup/init.scope/cgroup.procs 2>/dev/null || true
-        done
-        AVAILABLE=$(cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null)
-        ENABLE=""
-        for ctrl in $AVAILABLE; do
-            ENABLE="$ENABLE +$ctrl"
-        done
-        if [ -n "$ENABLE" ]; then
-            echo "$ENABLE" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
-        fi
-        echo "[dockerd] cgroup v2 subtree controllers: $(cat /sys/fs/cgroup/cgroup.subtree_control)"
+    # dockerd and its containers are agent work: they run in the agent CPU
+    # tier that 16-cpu-tiers.sh set up (privileged desktops always have it).
+    AGENT_CGROUP=/sys/fs/cgroup/desktop/agent
+    if [ ! -d "${AGENT_CGROUP}/procs" ] || [ ! -d "${AGENT_CGROUP}/docker" ]; then
+        echo "[dockerd] FATAL: agent CPU tier ${AGENT_CGROUP} is missing"
+        exit 1
     fi
 
     # Compute non-overlapping address pool based on nesting depth.
@@ -210,6 +202,34 @@ echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
     fi
     echo "[dockerd] Nesting depth=$DEPTH, address pool=10.${POOL_OCTET}.0.0/16"
 
+    # BuildKit GC policy: size-only, as fractions of the /var/lib/docker
+    # filesystem (the session's or golden build's zvol).
+    #   reservedSpace 10%: never prune the cache below this
+    #   maxUsedSpace  25%: LRU-prune the cache above this
+    #   minFreeSpace  10%: LRU-prune while the filesystem has less free space
+    # No age-based (keepDuration) rules, unlike dockerd's default, which
+    # evicts RUN --mount=type=cache data unused for 48h: a golden snapshot
+    # freezes "last used", so age rules would delete a golden's cache mounts
+    # at the first GC pass of every session cloned from a golden older than
+    # the rule. Golden builds apply this same policy synchronously before the
+    # snapshot (helix-workspace-setup.sh), so a golden never carries cache
+    # that a session's GC would immediately evict.
+    DOCKER_FS_BYTES=$(df -B1 --output=size /var/lib/docker | tail -1 | tr -d ' ')
+    GC_LIMITS="\"reservedSpace\": \"$((DOCKER_FS_BYTES / 10))\", \"maxUsedSpace\": \"$((DOCKER_FS_BYTES / 4))\", \"minFreeSpace\": \"$((DOCKER_FS_BYTES / 10))\""
+
+    # Add NVIDIA runtime if GPU available
+    RUNTIMES=""
+    if [ "${HELIX_HEADLESS}" != "1" ] && [ -e /dev/nvidia0 ] && command -v nvidia-container-runtime &>/dev/null; then
+        echo "[dockerd] NVIDIA GPU detected - adding nvidia runtime"
+        RUNTIMES=',
+    "runtimes": {
+        "nvidia": {
+            "path": "nvidia-container-runtime",
+            "runtimeArgs": []
+        }
+    }'
+    fi
+
     # Write daemon.json
     # NOTE: No explicit "dns" setting — Docker inherits DNS from the desktop
     # container's /etc/resolv.conf, which chains through the sandbox's dockerd
@@ -219,31 +239,22 @@ echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
 {
     "storage-driver": "overlay2",
     "log-level": "warn",
-    "default-address-pools": [
-        {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
-    ]
-}
-EOF
-
-    # Add NVIDIA runtime if GPU available
-    if [ "${HELIX_HEADLESS}" != "1" ] && [ -e /dev/nvidia0 ] && command -v nvidia-container-runtime &>/dev/null; then
-        echo "[dockerd] NVIDIA GPU detected - adding nvidia runtime"
-        cat > /etc/docker/daemon.json <<EOF
-{
-    "storage-driver": "overlay2",
-    "log-level": "warn",
+    "cgroup-parent": "/desktop/agent/docker",
     "default-address-pools": [
         {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
     ],
-    "runtimes": {
-        "nvidia": {
-            "path": "nvidia-container-runtime",
-            "runtimeArgs": []
+    "builder": {
+        "gc": {
+            "enabled": true,
+            "policy": [
+                {${GC_LIMITS}},
+                {"all": true, ${GC_LIMITS}}
+            ]
         }
-    }
+    }${RUNTIMES}
 }
 EOF
-    fi
+    echo "[dockerd] BuildKit GC: $(jq -c '.builder.gc.policy[0]' /etc/docker/daemon.json) of ${DOCKER_FS_BYTES} bytes"
 
     # Enable forwarding so inner containers can reach outer networks.
     # Without this, traffic from inner compose containers can't route
@@ -255,6 +266,7 @@ EOF
     # Start dockerd in background with auto-restart
     # The loop checks /tmp/.dockerd-stop to allow clean shutdown (e.g. golden builds)
     (
+        echo 0 > "${AGENT_CGROUP}/procs/cgroup.procs"
         while true; do
             if [ -f /tmp/.dockerd-stop ]; then
                 echo "[$(date -Iseconds)] dockerd stop requested, exiting restart loop"
@@ -294,6 +306,19 @@ EOF
         usermod -aG docker retro 2>/dev/null || true
         echo "[dockerd] Added retro user to docker group"
     fi
+
+    # Log the BuildKit cache this session starts with (inherited from the
+    # golden snapshot, if any) next to what the golden recorded before its
+    # snapshot. Delayed past BuildKit's GC pass at dockerd start, so cache the
+    # GC evicts on boot shows up as a mismatch. Backgrounded: not on the
+    # agent's startup path.
+    (
+        sleep 10
+        echo "[buildkit-cache] session: $(helix-buildkit-cache-stats 2>&1)"
+        if [ -f /var/lib/docker/.golden-buildkit-stats.json ]; then
+            echo "[buildkit-cache] golden:  $(jq -c '.pre_snapshot' /var/lib/docker/.golden-buildkit-stats.json)"
+        fi
+    ) &
 
     # Sandboxes build through their per-session inner daemon.
     BUILDER_NAME="default"
