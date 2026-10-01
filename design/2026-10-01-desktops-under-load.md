@@ -87,7 +87,12 @@ never retried).
 - `ws_stream.go`: heartbeat goroutine starts as soon as init is received; it
   sends WS pings every 5s and a JSON `{"StreamStatus":{"state":"starting_video","elapsed_ms":N}}`
   every 2s until the first frame arrives. `Start()` runs in a goroutine beside
-  the read loop, so client pings get pongs throughout.
+  the read loop, so client pings get pongs throughout. A handler whose client
+  left while `Start()` waited bails out (its context is cancelled before the
+  deferred `Stop()` waits) instead of registering presence with the same
+  `client_unique_id`, which would evict the reconnected live viewer. When a
+  viewer's shared source goes away the socket is dropped so the client
+  reconnects, rather than being held open by the heartbeat.
 - Frontend: `videoStarting` info event → overlay shows "Starting video… (Ns)";
   the 15s video-start timeout is re-armed by each status (it means "no
   progress for 15s", not "no video 15s after ConnectionComplete"). Stale
@@ -97,8 +102,54 @@ never retried).
   alive source; a second client's `Subscribe` waits on `startMu` for the
   in-flight start and then catches up. `stop()` waits out an in-flight start
   before tearing down; `start()` refuses after `stop()`; `startErr` is
-  recorded once.
+  recorded once. The grace-period `doStop` spares a source a client joined
+  after the stop was scheduled. pipewirezerocopysrc's 10s first-frame
+  timeout (`ErrNoFirstFrame`) restarts the pipeline up to 5 times while
+  viewers are attached and no frame has ever arrived, instead of ending the
+  stream with an error banner.
 
-### Why construction took 75s
+## Why construction took 75s — findings
 
-See "Findings" below (measured in the inner Helix).
+Measured on this host (16 cores, 1× RTX 2000 Ada) and in inner-Helix desktops:
+
+| what | condition | time |
+|---|---|---|
+| `gst-inspect-1.0 nvh264enc`, fresh registry (full plugin scan) | host load ~265 | 61s |
+| same, cached registry (in-process nvcodec load only) | host load ~265 | 3.5–5.8s |
+| `fakesink` / `pipewirezerocopysrc` inspect, cached registry | host load ~265 | 0.06–0.08s |
+| desktop-bridge `InitGStreamer()` at boot | inner desktop, moderate load | 17s |
+| same | desktop throttled to 0.1–0.5 CPU | 10m8s |
+| nvcodec in-process preload | throttled inner desktop | 12.8s |
+| `NewGstPipelineWithOptions` (parse) before fix | 0.1 CPU | 28s |
+| same after nvcodec preload | 0.1 CPU | 0.3s |
+| pipeline `SetState(PLAYING)` | 0.1 CPU | 13–94s |
+
+- **No registry cache is baked into the image.** `~/.cache/gstreamer-1.0/registry.x86_64.bin`
+  lives in the container's writable layer and is rebuilt on every container
+  start (outer desktop: written 5m20s after container start). The scan runs
+  in desktop-bridge's `InitGStreamer()`, which used to block its HTTP listener
+  (and so helix-desktop MCP — Bug 1) until done.
+- **CUDA/NVENC init:** the scan happens in `gst-plugin-scanner`, so nvcodec's
+  `plugin_init` (CUDA init + NVENC capability probing per GPU) runs *again*
+  in-process on first use, i.e. inside the first viewer's pipeline parse.
+  Scales with GPU count and contends with every other desktop doing the same.
+- **Fix shipped (cheap):** `WarmUpGStreamer` runs init + `gst_plugin_load_by_name("nvcodec")`
+  in the background at bridge start (under `pipelineCreateMu`). The HTTP
+  listener binds without waiting (8.5s vs 17s+ in a booting desktop) and
+  first pipeline parse dropped from 28s to 0.3s at 0.1 CPU.
+- **Not done:** baking the registry at image build. The build has no GPU, so
+  nvcodec would be cached with zero features; whether GStreamer rescans it on
+  a GPU host depends on dependencies nvcodec declares, which I did not
+  verify. Worth doing with that check — it removes a 17s–10min CPU-bound scan
+  from every boot.
+- **Remaining:** under extreme starvation `SetState(PLAYING)` (CUDA context
+  + PipeWire negotiation) is still tens of seconds, and the pre-existing 30s
+  stall restart can fire before a starved compositor delivers anything. The
+  client now rides this out ("Starting video… (Ns)") instead of churning.
+
+## Interplay with auto-wake
+
+`auto_wake_stuck_interactions.go` recreates a container whose agent has not
+connected within `coldStartGracePeriod` (5 min). The gate's dependency budget
+is sized to that envelope; past it the API's restart, not the gate, is what
+acts on a stuck boot.
