@@ -29290,24 +29290,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "webhook",
-                "slack",
-                "local",
-                "email",
-                "helix_events",
                 "cron",
+                "email",
+                "local",
+                "gitlab",
+                "webhook",
                 "github",
-                "gitlab"
+                "slack",
+                "helix_events"
             ],
             "x-enum-varnames": [
-                "KindWebhook",
-                "KindSlack",
-                "KindLocal",
-                "KindEmail",
-                "KindHelixEvents",
                 "KindCron",
+                "KindEmail",
+                "KindLocal",
+                "KindGitLab",
+                "KindWebhook",
                 "KindGitHub",
-                "KindGitLab"
+                "KindSlack",
+                "KindHelixEvents"
             ]
         },
         "transport.ResolvedActivation": {
@@ -36410,7 +36410,12 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.BoardSettings"
                 },
                 "docker_cache_status": {
-                    "$ref": "#/definitions/types.DockerCacheState"
+                    "description": "Computed from golden_builds on read",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.DockerCacheState"
+                        }
+                    ]
                 },
                 "org_members_access": {
                     "type": "boolean"
@@ -37932,22 +37937,56 @@ const docTemplate = `{
         "types.SandboxCacheState": {
             "type": "object",
             "properties": {
+                "attempt": {
+                    "description": "Attempt is the 1-based attempt number for the current trigger.",
+                    "type": "integer"
+                },
                 "build_session_id": {
                     "type": "string"
                 },
                 "error": {
                     "type": "string"
                 },
+                "interrupt_reason": {
+                    "description": "InterruptReason is why the last attempt ended without a result.",
+                    "type": "string"
+                },
                 "last_build_at": {
+                    "description": "when the current/last attempt started",
                     "type": "string"
                 },
                 "last_ready_at": {
+                    "type": "string"
+                },
+                "max_attempts": {
+                    "description": "MaxAttempts is GoldenBuildMaxAttempts, exposed for the UI.",
+                    "type": "integer"
+                },
+                "next_retry_at": {
+                    "description": "NextRetryAt is when the retry of an interrupted build may start.",
+                    "type": "string"
+                },
+                "pending_rebuild": {
+                    "description": "PendingRebuild: a trigger arrived while a build was running; build again\nas soon as it finishes.",
+                    "type": "boolean"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "sandbox_id": {
                     "type": "string"
                 },
                 "size_bytes": {
                     "type": "integer"
                 },
                 "status": {
+                    "type": "string"
+                },
+                "triggered_at": {
+                    "description": "TriggeredAt identifies the trigger (merge or manual build) the attempts\nbelong to. A new trigger resets Attempt and the retry budget.",
+                    "type": "string"
+                },
+                "updated": {
                     "type": "string"
                 }
             }

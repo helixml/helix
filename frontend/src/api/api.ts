@@ -2413,14 +2413,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindWebhook = "webhook",
-  KindSlack = "slack",
-  KindLocal = "local",
-  KindEmail = "email",
-  KindHelixEvents = "helix_events",
   KindCron = "cron",
-  KindGitHub = "github",
+  KindEmail = "email",
+  KindLocal = "local",
   KindGitLab = "gitlab",
+  KindWebhook = "webhook",
+  KindGitHub = "github",
+  KindSlack = "slack",
+  KindHelixEvents = "helix_events",
 }
 
 export interface TransportResolvedActivation {
@@ -5660,6 +5660,7 @@ export interface TypesProjectKanban {
 export interface TypesProjectMetadata {
   auto_warm_docker_cache?: boolean;
   board_settings?: TypesBoardSettings;
+  /** Computed from golden_builds on read */
   docker_cache_status?: TypesDockerCacheState;
   org_members_access?: boolean;
 }
@@ -6377,12 +6378,34 @@ export interface TypesSandbox {
 }
 
 export interface TypesSandboxCacheState {
+  /** Attempt is the 1-based attempt number for the current trigger. */
+  attempt?: number;
   build_session_id?: string;
   error?: string;
+  /** InterruptReason is why the last attempt ended without a result. */
+  interrupt_reason?: string;
+  /** when the current/last attempt started */
   last_build_at?: string;
   last_ready_at?: string;
+  /** MaxAttempts is GoldenBuildMaxAttempts, exposed for the UI. */
+  max_attempts?: number;
+  /** NextRetryAt is when the retry of an interrupted build may start. */
+  next_retry_at?: string;
+  /**
+   * PendingRebuild: a trigger arrived while a build was running; build again
+   * as soon as it finishes.
+   */
+  pending_rebuild?: boolean;
+  project_id?: string;
+  sandbox_id?: string;
   size_bytes?: number;
   status?: string;
+  /**
+   * TriggeredAt identifies the trigger (merge or manual build) the attempts
+   * belong to. A new trigger resets Attempt and the retry budget.
+   */
+  triggered_at?: string;
+  updated?: string;
 }
 
 export interface TypesSandboxFileUploadResponse {
