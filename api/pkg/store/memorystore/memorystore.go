@@ -36,6 +36,7 @@ type MemoryStore struct {
 	workSessions map[string]*types.SpecTaskWorkSession
 	zedThreads   map[string]*types.SpecTaskZedThread
 	prompts      map[string]*types.PromptHistoryEntry // prompt_history_entries by id
+	goldenBuilds map[string]*types.SandboxCacheState  // golden_builds by projectID/sandboxID
 	// planningSessionClaims tracks the atomic claim set by
 	// SetPlanningSessionIDIfEmpty; keyed by taskID, value is the winning
 	// sessionID. Allocated lazily.
@@ -58,6 +59,7 @@ func New() *MemoryStore {
 		workSessions: make(map[string]*types.SpecTaskWorkSession),
 		zedThreads:   make(map[string]*types.SpecTaskZedThread),
 		prompts:      make(map[string]*types.PromptHistoryEntry),
+		goldenBuilds: make(map[string]*types.SandboxCacheState),
 	}
 }
 
@@ -1095,6 +1097,85 @@ func (m *MemoryStore) SeedProject(p *types.Project) {
 	defer m.mu.Unlock()
 	cp := *p
 	m.projects[p.ID] = &cp
+}
+
+// --- Golden builds (golden_builds) ---
+
+func goldenBuildKey(projectID, sandboxID string) string {
+	return projectID + "/" + sandboxID
+}
+
+func (m *MemoryStore) ListGoldenBuilds(_ context.Context, q *store.ListGoldenBuildsQuery) ([]*types.SandboxCacheState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []*types.SandboxCacheState
+	for _, b := range m.goldenBuilds {
+		if q != nil {
+			if q.ProjectID != "" && b.ProjectID != q.ProjectID {
+				continue
+			}
+			if q.SandboxID != "" && b.SandboxID != q.SandboxID {
+				continue
+			}
+			if q.ActiveOnly && !b.Active() {
+				continue
+			}
+		}
+		cp := *b
+		out = append(out, &cp)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return goldenBuildKey(out[i].ProjectID, out[i].SandboxID) < goldenBuildKey(out[j].ProjectID, out[j].SandboxID)
+	})
+	return out, nil
+}
+
+func (m *MemoryStore) GetGoldenBuild(_ context.Context, projectID, sandboxID string) (*types.SandboxCacheState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	b, ok := m.goldenBuilds[goldenBuildKey(projectID, sandboxID)]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	cp := *b
+	return &cp, nil
+}
+
+func (m *MemoryStore) UpdateGoldenBuild(_ context.Context, projectID, sandboxID string, update func(*types.SandboxCacheState) bool) (*types.SandboxCacheState, error) {
+	if projectID == "" || sandboxID == "" {
+		return nil, fmt.Errorf("project ID and sandbox ID are required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := goldenBuildKey(projectID, sandboxID)
+	b, ok := m.goldenBuilds[key]
+	if !ok {
+		b = &types.SandboxCacheState{ProjectID: projectID, SandboxID: sandboxID, Status: types.GoldenBuildStatusNone, Updated: time.Now()}
+		m.goldenBuilds[key] = b
+	}
+	cp := *b
+	if update(&cp) {
+		cp.Updated = time.Now()
+		saved := cp
+		m.goldenBuilds[key] = &saved
+		return &cp, nil
+	}
+	out := *b
+	return &out, nil
+}
+
+func (m *MemoryStore) DeleteGoldenBuilds(_ context.Context, projectID string) error {
+	if projectID == "" {
+		return fmt.Errorf("project ID is required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, b := range m.goldenBuilds {
+		if b.ProjectID == projectID {
+			delete(m.goldenBuilds, key)
+		}
+	}
+	return nil
 }
 
 // Zed settings override — always return "not found"
