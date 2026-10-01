@@ -16,6 +16,9 @@ var ErrCGORequired = errors.New("GStreamer support requires CGO")
 // InitGStreamer is a no-op when CGO is disabled.
 func InitGStreamer() {}
 
+// WarmUpGStreamer is a no-op when CGO is disabled.
+func WarmUpGStreamer(logger interface{ Info(string, ...any) }) {}
+
 // VideoFrame represents a video frame from the GStreamer pipeline
 type VideoFrame struct {
 	Data       []byte    // H.264 NAL units (Annex B format with start codes)

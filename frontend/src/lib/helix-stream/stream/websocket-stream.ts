@@ -85,7 +85,10 @@ export class WebSocketStream {
   // Heartbeat for stale connection detection
   private heartbeatIntervalId: ReturnType<typeof setInterval> | null = null
   private lastMessageTime = 0
-  private heartbeatTimeout = 10000  // 10 seconds without data = stale
+  // 10 seconds without ANY message = stale. The server answers our 500ms pings
+  // and sends a StreamStatus every 2s until video flows, so silence this long
+  // means the connection is dead, not that the desktop is slow.
+  private heartbeatTimeout = 10000
 
   // Connection stability tracking - for diagnosing reconnect loops
   private lastOpenTime = 0  // Timestamp when connection was established
@@ -816,7 +819,9 @@ export class WebSocketStream {
   }
 
   private handleControlMessage(msg: any) {
-    console.log("[WebSocketStream] Control message:", msg)
+    if (!msg.StreamStatus) {
+      console.log("[WebSocketStream] Control message:", msg)
+    }
 
     if (msg.ConnectionComplete) {
       const { capabilities, width, height } = msg.ConnectionComplete
@@ -825,6 +830,13 @@ export class WebSocketStream {
         capabilities: capabilities || { touch: false },
       })
       this.input.onStreamStart(capabilities || { touch: false }, [width, height])
+    } else if (msg.StreamStatus) {
+      // Sent from the moment init is received until the first frame. Pipeline
+      // construction can take over a minute on a loaded host; these messages
+      // are what keep the stale detector below from tearing the socket down.
+      if (msg.StreamStatus.state === "starting_video") {
+        this.dispatchInfoEvent({ type: "videoStarting", elapsedMs: msg.StreamStatus.elapsed_ms ?? 0 })
+      }
     } else if (msg.error) {
       this.dispatchInfoEvent({ type: "error", message: msg.error })
     }

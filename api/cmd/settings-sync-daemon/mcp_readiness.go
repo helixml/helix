@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -38,14 +41,58 @@ import (
 // one-shot MCP registration, so each one needs its own verdict.
 // start-zed-core.sh asks /mcp-readiness for a fresh one before every launch.
 //
-// See design/2026-09-01-opencode-mcp-tools-unavailable.md.
+// That shell gate is the only place that decides how long a launch may wait
+// and when to give up. When it gives up it tells this daemon
+// (/mcp-readiness/gave-up), which reports the failure against the user's turn.
+// Nothing else here fails a turn: an earlier boot-time probe with its own,
+// shorter deadline errored turns that the gate went on to launch successfully.
+//
+// See design/2026-09-01-opencode-mcp-tools-unavailable.md and
+// design/2026-10-01-desktops-under-load.md.
 
 const (
 	// mcpProbeTimeout bounds one endpoint probe. Endpoints are probed
 	// concurrently, so this is also roughly the bound on a whole pass, which is
 	// what keeps /mcp-readiness prompt enough for the shell gate to poll it.
 	mcpProbeTimeout = 5 * time.Second
+
+	// helixDesktopServerName is the context server served by this container's
+	// own desktop-bridge. The API reaches the bridge over RevDial
+	// (api/pkg/server/mcp_backend_desktop.go), so the endpoint cannot work
+	// before the bridge's HTTP listener is up — and under CPU load that is
+	// minutes after the daemon starts, because the bridge only binds once the
+	// GNOME session is set up.
+	helixDesktopServerName = "helix-desktop"
+
+	// desktopUnavailableHeader is set by the API on its answer when it could not
+	// reach this container's desktop-bridge (mirrors
+	// server.desktopMCPUnavailableHeader). It is what separates "the bridge is
+	// not listening" from the sandbox proxy's own 502 "Helix API unavailable".
+	desktopUnavailableHeader = "X-Helix-Desktop-Unavailable"
+
+	// mcpReadinessPendingStatus is the /mcp-readiness answer while a context
+	// server is waiting on an in-container dependency that is still starting.
+	// It is not a failure verdict: the gate does not count that time against
+	// its MCP deadline. 425 Too Early: "ask again later, nothing is wrong yet".
+	mcpReadinessPendingStatus = http.StatusTooEarly
 )
+
+// errDependencyStarting is wrapped by a probe failure that only means an
+// in-container dependency (the desktop-bridge) has not started listening yet.
+var errDependencyStarting = errors.New("in-container dependency still starting")
+
+// mcpVerdictPending reports whether err only says that dependencies are still
+// starting, as opposed to a context server actually being unreachable.
+func mcpVerdictPending(err error) bool {
+	var pending *pendingVerdictError
+	return errors.As(err, &pending)
+}
+
+// pendingVerdictError is what probeMCPEndpoints returns when every failure is
+// errDependencyStarting.
+type pendingVerdictError struct{ msg string }
+
+func (e *pendingVerdictError) Error() string { return e.msg }
 
 // contextServerEndpoint is one URL-addressed MCP server exactly as Zed will
 // hand it to the agent.
@@ -69,29 +116,36 @@ func (d *SettingsDaemon) probeMCPEndpoints(ctx context.Context, settingsPath str
 		return nil
 	}
 
-	failures := make([]string, len(endpoints))
+	failures := make([]error, len(endpoints))
 	var wg sync.WaitGroup
 	for i, ep := range endpoints {
 		wg.Add(1)
 		go func(i int, ep contextServerEndpoint) {
 			defer wg.Done()
-			if err := d.probeContextServer(ctx, ep); err != nil {
-				failures[i] = err.Error()
-			}
+			failures[i] = d.probeContextServer(ctx, ep)
 		}(i, ep)
 	}
 	wg.Wait()
 
 	var reasons []string
+	allPending := true
 	for _, f := range failures {
-		if f != "" {
-			reasons = append(reasons, f)
+		if f == nil {
+			continue
+		}
+		reasons = append(reasons, f.Error())
+		if !errors.Is(f, errDependencyStarting) {
+			allPending = false
 		}
 	}
-	if len(reasons) > 0 {
-		return fmt.Errorf("%s", strings.Join(reasons, "; "))
+	if len(reasons) == 0 {
+		return nil
 	}
-	return nil
+	msg := strings.Join(reasons, "; ")
+	if allPending {
+		return &pendingVerdictError{msg: msg}
+	}
+	return errors.New(msg)
 }
 
 // probeContextServer reports whether the agent will be able to reach this
@@ -147,6 +201,12 @@ func (d *SettingsDaemon) probeContextServer(ctx context.Context, ep contextServe
 	probeCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
 	defer cancel()
 
+	if ep.name == helixDesktopServerName {
+		if err := d.probeDesktopBridge(probeCtx); err != nil {
+			return fmt.Errorf("probe %s (%s): %w", ep.name, ep.url, err)
+		}
+	}
+
 	req, err := http.NewRequestWithContext(probeCtx, http.MethodOptions, ep.url, nil)
 	if err != nil {
 		return fmt.Errorf("probe %s (%s): %w", ep.name, ep.url, err)
@@ -160,9 +220,14 @@ func (d *SettingsDaemon) probeContextServer(ctx context.Context, ep contextServe
 	}
 	defer resp.Body.Close()
 	switch {
+	case resp.Header.Get(desktopUnavailableHeader) != "":
+		// The API is up and answered; it is the hop from the API back into
+		// this container that failed. The local bridge was listening a moment
+		// ago, so this is the RevDial tunnel, not the bridge or the proxy.
+		return fmt.Errorf("probe %s (%s): %s: the Helix API is up but cannot reach this container's "+
+			"desktop-bridge over RevDial (%s)", ep.name, ep.url, resp.Status, responseSnippet(resp))
 	case resp.StatusCode >= 500:
-		return fmt.Errorf("probe %s (%s): %s (the Helix API behind the sandbox proxy is unavailable)",
-			ep.name, ep.url, resp.Status)
+		return fmt.Errorf("probe %s (%s): %s: %s", ep.name, ep.url, resp.Status, responseSnippet(resp))
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
 		return fmt.Errorf("probe %s (%s): %s (the configured Authorization header is not accepted; "+
 			"the agent sends the same header and its MCP registration would fail)",
@@ -171,36 +236,46 @@ func (d *SettingsDaemon) probeContextServer(ctx context.Context, ep contextServe
 	return nil
 }
 
-// waitForMCPEndpoints retries probeMCPEndpoints until timeout elapses. Used on
-// the boot path, where a failure is reported to the API so the operator sees it
-// in the session rather than having to read container logs.
-func (d *SettingsDaemon) waitForMCPEndpoints(ctx context.Context, settingsPath string, timeout, retryDelay time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	var lastErr error
-	for {
-		lastErr = d.probeMCPEndpoints(ctx, settingsPath)
-		if lastErr == nil {
-			log.Printf("MCP readiness: context servers reachable")
-			return nil
-		}
-		if time.Now().After(deadline) || ctx.Err() != nil {
-			break
-		}
-		log.Printf("MCP readiness: %v (retrying in %s)", lastErr, retryDelay)
-		select {
-		case <-ctx.Done():
-		case <-time.After(retryDelay):
-		}
+// probeDesktopBridge checks the in-container desktop-bridge that serves
+// helix-desktop. Until its listener is up, the API's RevDial hop into this
+// container has nothing to connect to and the remote probe can only fail; the
+// right verdict for that window is "still starting", not "the API is down".
+func (d *SettingsDaemon) probeDesktopBridge(ctx context.Context) error {
+	if d.desktopBridgeHealthURL == "" {
+		return nil
 	}
-	return fmt.Errorf("Helix MCP context servers are not usable from this container "+
-		"(unreachable after %s: %w). The coding agent connects to them exactly once when it "+
-		"starts and never retries, so it would run with no Helix tools for the whole session",
-		timeout, lastErr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.desktopBridgeHealthURL, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("desktop-bridge (%s) is not up yet (%v): %w", d.desktopBridgeHealthURL, err, errDependencyStarting)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("desktop-bridge (%s) answered %s: %w", d.desktopBridgeHealthURL, resp.Status, errDependencyStarting)
+	}
+	return nil
+}
+
+// responseSnippet returns the start of an error response body, which is where
+// the API and the sandbox proxy say what went wrong (the proxy's is "Helix API
+// unavailable"). Quoting it beats guessing which hop failed.
+func responseSnippet(resp *http.Response) string {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return "empty body"
+	}
+	return fmt.Sprintf("%q", text)
 }
 
 // mcpReadinessHandler answers the per-launch gate in start-zed-core.sh with a
-// freshly measured verdict. 200 means "safe to launch Zed"; 503 carries the
-// reason, which the gate prints.
+// freshly measured verdict. 200 means "safe to launch Zed"; 425 means "an
+// in-container dependency is still starting, this is not a failure yet"; 503
+// means a context server is unreachable. The non-200 bodies carry the reason,
+// which the gate prints.
 //
 // It is deliberately a single pass with no internal retry: the waiting policy
 // lives in the shell loop that polls this, so there is exactly one place that
@@ -208,12 +283,53 @@ func (d *SettingsDaemon) waitForMCPEndpoints(ctx context.Context, settingsPath s
 func (d *SettingsDaemon) mcpReadinessHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	if err := d.probeMCPEndpoints(r.Context(), SettingsPath); err != nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
+		status := http.StatusServiceUnavailable
+		if mcpVerdictPending(err) {
+			status = mcpReadinessPendingStatus
+		}
+		w.WriteHeader(status)
 		fmt.Fprintln(w, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintln(w, "ready")
+}
+
+// mcpGaveUpHandler is how the gate in start-zed-core.sh reports that it has
+// stopped waiting. It is the only path that fails the user's turn over MCP
+// readiness, so the turn fails exactly when — and only if — the authoritative
+// gate gives up.
+//
+// The gate passes how long it waited, what it was waiting for, and its last
+// verdict (the request body), so the message says what actually happened
+// rather than re-deriving it from a fresh probe that may disagree.
+func (d *SettingsDaemon) mcpGaveUpHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	verdict, _ := io.ReadAll(io.LimitReader(r.Body, maxAgentStartupErrorBytes))
+	startupErr := mcpGaveUpError(r.URL.Query().Get("waiting_for"), r.URL.Query().Get("waited"),
+		strings.TrimSpace(string(verdict)))
+	log.Printf("FATAL for the agent: %v", startupErr)
+	if err := d.reportAgentStartupError(startupErr); err != nil {
+		log.Printf("Failed to report unreachable MCP context servers: %v", err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func mcpGaveUpError(waitingFor, waited, verdict string) error {
+	const consequence = "The coding agent connects to them exactly once when it starts and never " +
+		"retries, so it is being held back rather than started with no Helix tools; it will start " +
+		"if they recover"
+	if waitingFor == "desktop-bridge" {
+		return fmt.Errorf("Helix MCP context servers are not usable from this container: the desktop-bridge "+
+			"that serves helix-desktop did not become reachable within %ss (%s). %s", waited, verdict, consequence)
+	}
+	return fmt.Errorf("Helix MCP context servers are not usable from this container "+
+		"(unreachable for %ss after the desktop came up: %s). %s", waited, verdict, consequence)
 }
 
 // contextServerEndpoints reads the settings file on disk and returns every
@@ -303,4 +419,14 @@ func stringHeaders(raw interface{}) map[string]string {
 		}
 	}
 	return headers
+}
+
+// desktopBridgeHealthURL is the in-container desktop-bridge's health endpoint.
+// The bridge reads its port from SCREENSHOT_PORT (default 9876); so do we.
+func desktopBridgeHealthURL() string {
+	port := os.Getenv("SCREENSHOT_PORT")
+	if port == "" {
+		port = "9876"
+	}
+	return "http://" + net.JoinHostPort("127.0.0.1", port) + "/health"
 }
