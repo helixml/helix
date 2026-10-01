@@ -1083,8 +1083,8 @@ export default function SpecTaskActionButtons({
       const prLabel =
         normalizePRState(onlyPR.pr_state) === "merged"
           ? "Merged"
-          : onlyPR.repository_name
-            ? `PR: ${onlyPR.repository_name}`
+          : onlyPR.pr_number
+            ? `PR: #${onlyPR.pr_number}`
             : "Pull Request";
 
       if (isInline) {
