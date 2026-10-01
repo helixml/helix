@@ -2357,7 +2357,8 @@ steps:
         if otool -L "$WORK/qemu/build/libqemu-aarch64-softmmu.dylib" | tail -n +2 | grep -qi slirp; then
           echo "FAIL - links external libslirp"; exit 1
         fi
-      - nm "$WORK/qemu/build/libqemu-aarch64-softmmu.dylib" | grep resolv_conf_scope_id
+      # The patched macOS path is the only user of this string (resolv_conf_scope_id is inlined)
+      - strings "$WORK/qemu/build/libqemu-aarch64-softmmu.dylib" | grep -x /etc/resolv.conf
       - nm "$WORK/qemu/build/libqemu-aarch64-softmmu.dylib" | grep -m1 slirp_new
       - cd "$WORK/qemu/build" && ./qemu-system-aarch64 --version
 
