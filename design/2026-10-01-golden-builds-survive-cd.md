@@ -68,3 +68,27 @@ data, because session data is protected by `.last-active` markers.
   retries. That costs one extra build; it doesn't lose correctness.
 - Containers created before this change have no golden labels. A Hydra restart
   during such a build is handled as an interruption (retried), not resumed.
+
+### Interrupted builds' on-host data
+When an interruption is recorded, the API calls `DestroyDesktop` for the dead
+attempt's session. This removes its session zvol / docker-data dir and workspace,
+which would otherwise wait out the orphan reaper's 30-day grace. Each one can be
+tens of GB, and retries can add up to 3 per merge.
+
+## Live test results (inner Helix, 2026-10-01)
+The inner Hydra runs in file-copy mode: it sees meta's real `prod` pool but can't
+map `/container-docker` to it, so it deliberately falls back. That means promotion
+evidence is the file-copy golden (`/container-docker/golden/<project>`) plus Hydra's
+`GOLDEN_BUILD_SUMMARY`, not a `@genN` zvol snapshot. The inner `.env` also needed
+`CONTAINER_DOCKER_PATH=sandbox-container-docker`. Without it, inner dockerd data lives
+in a named volume, Hydra can never read `.golden-build-result`, and no golden build
+can complete in the inner stack — before or after this change.
+
+| Test | Result |
+|---|---|
+| a) API restart mid-build | reconcile resumed the monitor 2s after restart → `ready`, promoted |
+| b) `pkill -TERM hydra` mid-build | "Resuming golden build monitor for recovered container" → `ready`, promoted |
+| c) sandbox `--force-recreate` mid-build | interrupted → `retrying` (1m backoff) → attempt 2 → `ready`, promoted; dead attempt's data destroyed |
+| d) second trigger → pending, then API restart | `pending_rebuild` survived → fired when build 1 completed → rebuild `ready` |
+| e) startup script `exit 3` | `failed: Startup script exited with code 3`, one session, never retried, golden untouched |
+| unplanned | meta CD killed the whole inner stack mid-build → on boot: interrupted → attempt 2 → `ready` |
