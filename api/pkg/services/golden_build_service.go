@@ -12,15 +12,14 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// goldenBuildTimeout bounds a single golden build's wall-clock duration. A cold
-// `build-zed release` + `build-sandbox` under heavy CPU contention can take
-// hours (especially after a zed bump invalidates the cargo cache), so this
-// ceiling is deliberately generous. It doubles as the staleness threshold for
+// goldenBuildTimeout bounds a single golden build's wall-clock duration (see
+// types.GoldenBuildTimeout). It is passed to Hydra in the create request so the
+// sandbox-side result monitor uses the same deadline. It doubles as the staleness threshold for
 // the in-memory `building` map: an entry older than this with no live monitor
 // goroutine (e.g. an API restart that recovery missed) is treated as dead, so a
 // fresh build is allowed. On timeout the build is marked failed AND its
 // container is stopped, so a blown build doesn't keep compiling and burning CPU.
-const goldenBuildTimeout = 6 * time.Hour
+const goldenBuildTimeout = types.GoldenBuildTimeout
 
 // GoldenBuildService manages golden Docker cache builds for projects.
 // When a merge to main happens and the project has AutoWarmDockerCache enabled,
@@ -506,7 +505,9 @@ func (g *GoldenBuildService) runGoldenBuildOnSandbox(parentCtx context.Context, 
 		Resolution:          "1080p",
 		ZoomLevel:           200,
 		GoldenBuild:         true,
-		SandboxID:           sandboxID,
+		// Hydra must not give up on the build before we do.
+		GoldenBuildTimeoutSeconds: int(goldenBuildTimeout / time.Second),
+		SandboxID:                 sandboxID,
 	}
 
 	// Start the desktop container

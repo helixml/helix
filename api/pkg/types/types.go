@@ -2119,6 +2119,15 @@ type KeyPair struct {
 // for an app, run which script with what input?
 
 // DesktopAgent represents a Zed editor instance configuration
+// GoldenBuildTimeout bounds a single golden build's wall-clock duration. A cold
+// `build-zed release` + `build-sandbox` under heavy CPU contention can take
+// hours (especially after a zed bump invalidates the cargo cache), so this
+// ceiling is deliberately generous. It is the single source of truth for both
+// the API (golden_build_service) and Hydra (monitorGoldenBuild): if Hydra gave
+// up earlier than the API, a cold build could never finish and the cache would
+// never refresh.
+const GoldenBuildTimeout = 6 * time.Hour
+
 type DesktopAgent struct {
 	OrganizationID string `json:"organization_id"` // Organization ID
 	// Session ID - the Helix session this desktop agent serves
@@ -2192,6 +2201,10 @@ type DesktopAgent struct {
 
 	// Golden build mode: session builds a golden Docker cache snapshot
 	GoldenBuild bool `json:"golden_build,omitempty"`
+	// GoldenBuildTimeoutSeconds is the API's deadline for this golden build.
+	// Hydra's result monitor uses it so it never kills a build the API is
+	// still waiting on. 0 = GoldenBuildTimeout.
+	GoldenBuildTimeoutSeconds int `json:"golden_build_timeout_seconds,omitempty"`
 
 	// Optional task-level resource limits. SpecTask launchers resolve zero values
 	// to the task default; non-task desktop sessions remain unchanged.

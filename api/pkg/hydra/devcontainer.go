@@ -24,6 +24,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-units"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -804,6 +805,9 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		DockerSocket:  req.DockerSocket,
 		IsGoldenBuild: req.GoldenBuild,
 		ProjectID:     req.ProjectID,
+	}
+	if req.GoldenBuild {
+		dc.GoldenBuildTimeout = goldenBuildTimeout(req)
 	}
 	dm.mu.Lock()
 	dm.containers[req.SessionID] = dc
@@ -2682,6 +2686,45 @@ func GetRegistryHost() string {
 	return fmt.Sprintf("%s:%s", ip, SharedRegistryPort)
 }
 
+// goldenBuildPollInterval is how often monitorGoldenBuild checks for the result file.
+var goldenBuildPollInterval = 5 * time.Second
+
+// goldenBuildTimeout returns how long Hydra waits for a golden build's result.
+// The API sends its own deadline so Hydra never kills a build the API is still
+// waiting on; older APIs that don't send one get the shared default.
+func goldenBuildTimeout(req *CreateDevContainerRequest) time.Duration {
+	if req.GoldenBuildTimeoutSeconds > 0 {
+		return time.Duration(req.GoldenBuildTimeoutSeconds) * time.Second
+	}
+	return types.GoldenBuildTimeout
+}
+
+// waitForGoldenBuildResult polls paths (in order) every interval until one is
+// readable, returning its contents, or returns an error once timeout elapses.
+func waitForGoldenBuildResult(timeout, interval time.Duration, paths ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Poll for the result file. The workspace-setup script writes this after
+	// the startup script completes and dockerd is stopped.
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("no golden build result after %s", timeout)
+		case <-ticker.C:
+			for _, p := range paths {
+				if data, err := os.ReadFile(p); err == nil {
+					return data, nil
+				}
+			}
+			// File doesn't exist yet — build still running
+		}
+	}
+}
+
 // monitorGoldenBuild watches a golden build container for the result signal file.
 // When helix-workspace-setup.sh (golden build mode) finishes the startup script,
 // it writes .golden-build-result and stops dockerd. Hydra detects the file,
@@ -2693,10 +2736,8 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 		Str("session_id", dc.SessionID).
 		Str("project_id", dc.ProjectID).
 		Str("container_id", dc.ContainerID).
+		Dur("timeout", dc.GoldenBuildTimeout).
 		Msg("Monitoring golden build container")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
 
 	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
 
@@ -2706,42 +2747,21 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	zvolResultFile := filepath.Join(zvolMountBase, dc.SessionID, ".golden-build-result")
 	fileCopyResultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
 
-	// Poll for the result file. The workspace-setup script writes this after
-	// the startup script completes and dockerd is stopped.
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	var resultData []byte
-	for {
-		select {
-		case <-ctx.Done():
-			buildDuration := time.Since(buildStart)
-			log.Error().
-				Str("session_id", dc.SessionID).
-				Str("project_id", dc.ProjectID).
-				Dur("build_duration", buildDuration).
-				Msg("Golden build: timed out waiting for result file (30 min)")
-			// Store timeout result so the API can query it
-			dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, false, "timeout", 0)
-			// Stop the container via the clean API
-			dm.DeleteDevContainer(context.Background(), dc.SessionID)
-			return
-
-		case <-ticker.C:
-			// Try ZFS zvol path first, then file-copy path
-			data, err := os.ReadFile(zvolResultFile)
-			if err != nil {
-				data, err = os.ReadFile(fileCopyResultFile)
-			}
-			if err != nil {
-				continue // File doesn't exist yet — build still running
-			}
-			resultData = data
-			goto done
-		}
+	resultData, err := waitForGoldenBuildResult(dc.GoldenBuildTimeout, goldenBuildPollInterval, zvolResultFile, fileCopyResultFile)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", dc.SessionID).
+			Str("project_id", dc.ProjectID).
+			Dur("build_duration", time.Since(buildStart)).
+			Dur("timeout", dc.GoldenBuildTimeout).
+			Msg("Golden build: timed out waiting for result file")
+		// Store timeout result so the API can query it
+		dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, false, "timeout", 0)
+		// Stop the container via the clean API
+		dm.DeleteDevContainer(context.Background(), dc.SessionID)
+		return
 	}
 
-done:
 	buildDuration := time.Since(buildStart)
 	result := strings.TrimSpace(string(resultData))
 	buildSucceeded := result == "0"
