@@ -533,11 +533,22 @@ runcmd:
   - mkdir -p /etc/systemd/system/serial-getty@ttyAMA0.service.d
   # Load iptables modules now (modules-load.d below covers later boots)
   - modprobe -a ip_tables iptable_nat iptable_filter ip6_tables ip6table_nat ip6table_filter || true
+  # Pick up the global DNS drop-in below
+  - systemctl restart systemd-resolved
   - touch /var/lib/cloud/instance/provision-ready
 
 write_files:
   # iptables-legacy in desktop containers (Docker-in-Docker) needs these modules,
   # and containers have no /lib/modules to load them themselves.
+  # Stopgap: libslirp can't forward to an IPv6 link-local host nameserver
+  # (macOS, e.g. phone hotspots), so 10.0.2.3/fec0::3 stop answering. Global
+  # servers are queried in parallel with the per-link ones and the first
+  # successful answer wins, so internal/VPN names still resolve via slirp.
+  # Remove once libslirp is fixed.
+  - path: /etc/systemd/resolved.conf.d/helix-public-dns.conf
+    content: |
+      [Resolve]
+      DNS=1.1.1.1 8.8.8.8
   - path: /etc/modules-load.d/helix-iptables.conf
     content: |
       ip_tables
