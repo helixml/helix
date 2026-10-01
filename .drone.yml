@@ -2348,10 +2348,10 @@ steps:
       - export HOME=/Users/luke
       - export COMMIT="$(cat for-mac/qemu-helix/QEMU_UTM_COMMIT)"
       # 1. Unit-test the libslirp scope helper at the pinned commit
-      - mkdir -p "$TMPDIR/slirptest"
+      - mkdir -p "$HOME/.cache/helix-ci/slirptest"
       - curl -fsSL "https://raw.githubusercontent.com/helixml/qemu-utm/$COMMIT/subprojects/slirp/src/slirp.c" | awk '/^static uint32_t resolv_conf_scope_id/{p=1} p{print} p&&/^}/{exit}' > "$TMPDIR/slirptest/helper.c"
       - cp for-mac/qemu-helix/ci/test-slirp-dns-scope.c "$TMPDIR/slirptest/"
-      - (cd "$TMPDIR/slirptest" && clang -Wall -Wextra -Werror -o t test-slirp-dns-scope.c && ./t)
+      - (cd "$HOME/.cache/helix-ci/slirptest" && clang -Wall -Wextra -Werror -o t test-slirp-dns-scope.c && ./t)
       # 2. Same QEMU build as the release pipeline (cached per commit)
       - ./for-mac/qemu-helix/build-qemu-ci.sh
       # 3. Same app build as the release pipeline (ad-hoc signed, not uploaded)
