@@ -64,6 +64,14 @@ type authMiddleware struct {
 	lastSeenCache sync.Map
 }
 
+func rejectWaitlisted(w http.ResponseWriter, user *types.User) bool {
+	if user == nil || !user.Waitlisted {
+		return false
+	}
+	http.Error(w, "Account is waiting for approval", http.StatusForbidden)
+	return true
+}
+
 func newAuthMiddleware(
 	authenticator authpkg.Authenticator,
 	oidcClient authpkg.OIDC,
@@ -340,6 +348,9 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 		if auth.sessionManager != nil {
 			user, err = auth.getUserFromSession(r.Context(), r)
 			if err == nil && user != nil {
+				if rejectWaitlisted(w, user) {
+					return
+				}
 				// Successfully authenticated via session
 				auth.touchUserLastSeen(user)
 				r = r.WithContext(setRequestUser(r.Context(), *user))
@@ -390,6 +401,9 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 		}
 		if user == nil {
 			user = &types.User{}
+		}
+		if rejectWaitlisted(w, user) {
+			return
 		}
 
 		// If app API key, check if the path is in the allowed list
@@ -453,6 +467,9 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 		}
 		if user == nil {
 			user = &types.User{}
+		}
+		if rejectWaitlisted(w, user) {
+			return
 		}
 
 		if user.AppID != "" {

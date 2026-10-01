@@ -483,6 +483,53 @@ RUN mkdir -p /etc/pipewire/pipewire.conf.d && \
     echo '}' >> /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf
 
 # ====================================================================
+# Headless document extraction - read a document without opening it
+# ====================================================================
+# The office editors installed below are GUI applications. They let an agent
+# OPEN and EDIT a document on the desktop, which is a different job from
+# reading one: a great deal of agent work is "a user uploaded a file, extract
+# the text", and driving a GUI to do that is slow, flaky and needs a display.
+#
+# There was no headless path for it, and the gap was arch-dependent and
+# therefore easy to miss: the arm64 branch below installs LibreOffice, which
+# brings `soffice --headless --convert-to`, while the amd64 branch installs
+# OnlyOffice Desktop Editors, which does not ship a supported conversion CLI.
+# So .docx extraction worked on an arm64 laptop and not on an amd64 server.
+#
+# Found via Find AI (we-find.ai), where candidates upload CVs for an agent to
+# read. PDFs worked, because the agent's own Read tool renders PDF pages for
+# the model; Word CVs — the commonest format in recruitment — silently could
+# not be read at all, since a .docx is a ZIP of XML and there was no unzip
+# either.
+#
+# These three are the small, boring, deterministic tools for the job:
+#   pandoc        .docx/.odt/.rtf/.epub/.html → text or markdown. One binary,
+#                 no GUI, no Java — unlike headless LibreOffice, which is slow
+#                 to start and unreliable in a container.
+#   antiword      legacy binary .doc, which pandoc does not handle.
+#   poppler-utils pdftotext/pdfimages, as a cheap deterministic fallback when
+#                 a PDF is long enough that reading it page-by-page as images
+#                 is wasteful, or when exact text is wanted.
+#   unzip         a .docx is a ZIP of XML, and there was no unzip either.
+#
+# SIZE: ~238MB installed, of which pandoc is ~191MB (it is Haskell). That is
+# not cheap and was weighed: the 47MB alternative (docx2txt instead of pandoc)
+# extracts a plain CV just as well, but flattens the two-column layouts and
+# skills tables that real CVs are full of, and handles neither .odt nor .rtf.
+# Extraction quality is the point of having these at all, so pandoc stays.
+#
+# Identical on both architectures — so a document that extracts in development
+# extracts in production, which was not previously true.
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    pandoc \
+    antiword \
+    poppler-utils \
+    unzip \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
 # OnlyOffice Desktop Editors - Office document support
 # ====================================================================
 # Enables AI agents to open and edit Word, Excel, and PowerPoint documents.
@@ -676,21 +723,46 @@ if [ "$(id -u)" = "0" ]; then
         source "${init_script}"
     done
 fi
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
     if [ -f /zed-build/zed ] && [ ! -e /usr/local/bin/zed ]; then
         ln -sf /zed-build/zed /usr/local/bin/zed
     fi
     if [ -n "${WORKSPACE_DIR:-}" ] && [ -d "${WORKSPACE_DIR}" ] && [ -d /home/retro/work ]; then
         chown "${UNAME}:${UNAME}" "${WORKSPACE_DIR}" /home/retro/work
     fi
+    drop_privileges=(setpriv --bounding-set=-sys_admin --nnp --)
+    if [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+        # util-linux mountpoint exits 32 for "not a mount point" and 1 for
+        # errors; any error keeps the lockdown below.
+        home_mount=0
+        mountpoint -q /home/retro || home_mount=$?
+        if [ "${HELIX_ALLOW_SUDO:-0}" = "1" ]; then
+            drop_privileges=()
+        elif [ "${home_mount}" = "32" ]; then
+            # A control plane or Hydra that predates quota-backed homes leaves
+            # the home on the root filesystem; closing it would lock the agent
+            # out of its own home.
+            gow_log "WARNING: /home/retro is not a quota-backed mount; leaving the root filesystem writable"
+        else
+            # An untrusted instance keeps all writable state on its
+            # quota-backed home disk and bounded tmpfs mounts. Close every
+            # other path on the root filesystem to the agent user, so it
+            # cannot fill the host disk through the container's writable
+            # layer. Mount points are pruned: they are the allowed storage.
+            prune=()
+            while read -r _ _ _ _ mount_point _; do
+                [ "${mount_point}" = "/" ] || prune+=(-path "$(printf '%b' "${mount_point}")" -o)
+            done < /proc/self/mountinfo
+            find / -xdev \( "${prune[@]}" -false \) -prune -o ! -type l \
+                \( \( -user "${UNAME}" -exec chown root:root {} + \) , \( -perm /0022 -exec chmod go-w {} + \) \)
+        fi
+    fi
     if [ -n "${@:-}" ]; then
-        exec setpriv --bounding-set=-sys_admin --nnp -- \
-            gosu "${UNAME}" /bin/bash -c "$@"
+        exec "${drop_privileges[@]}" gosu "${UNAME}" /bin/bash -c "$@"
     fi
     gow_log "Launching the container's startup script as user '${UNAME}'"
     chmod +x /opt/gow/startup.sh 2>/dev/null || true
-    exec setpriv --bounding-set=-sys_admin --nnp -- \
-        gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
+    exec "${drop_privileges[@]}" gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
 fi
 if [ -n "${@:-}" ]; then
     /bin/bash -c "$@"

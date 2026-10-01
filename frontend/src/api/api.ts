@@ -188,6 +188,7 @@ export interface ApiBotDetailDTO {
 export interface ApiBotInstanceDTO {
   bot_id?: string;
   created_at?: string;
+  disk_size_gb?: number;
   name?: string;
   owner?: string;
   sandbox_runtime?: TypesSandboxRuntime;
@@ -196,7 +197,13 @@ export interface ApiBotInstanceDTO {
    * "starting", "running", "restarting", "terminated_idle" …
    */
   sandbox_status?: string;
+  /**
+   * Secrets are the names granted when the instance was created. Values are
+   * never returned.
+   */
+  secrets?: string[];
   session_id?: string;
+  sudo?: boolean;
   updated_at?: string;
 }
 
@@ -221,6 +228,11 @@ export interface ApiCreateAssetRequest {
 }
 
 export interface ApiCreateBotInstanceRequest {
+  /**
+   * DiskSizeGB is the persistent home filesystem capacity. Omitted defaults
+   * to 10 GB; accepted values are 1-1000.
+   */
+  disk_size_gb?: number;
   /** Message is queued as the instance's first turn. */
   message?: string;
   name?: string;
@@ -229,6 +241,16 @@ export interface ApiCreateBotInstanceRequest {
    * "headless-ubuntu" or "ubuntu-desktop".
    */
   sandbox_runtime?: TypesSandboxRuntime;
+  /**
+   * Secrets names project development secrets to grant to this instance.
+   * Omitted or empty means no project secrets.
+   */
+  secrets?: string[];
+  /**
+   * AllowSudo opts a headless instance out of no-new-privileges. It is
+   * false by default. ubuntu-desktop instances always allow sudo.
+   */
+  sudo?: boolean;
 }
 
 export interface ApiCreateBotRequest {
@@ -1994,6 +2016,31 @@ export interface ServerSandboxTerminalSessionsResponse {
   sessions?: ServerSandboxTerminalSession[];
 }
 
+export interface ServerSecretIntakeCreateResponse {
+  intake?: ServerSecretIntakeView;
+  invite_url?: string;
+}
+
+export interface ServerSecretIntakeRedeemRequest {
+  intake_id: string;
+  token: string;
+}
+
+export interface ServerSecretIntakeSubmissionRequest {
+  values?: Record<string, string>;
+}
+
+export interface ServerSecretIntakeView {
+  conversation_id?: string;
+  customer_id?: string;
+  expires_at?: string;
+  fields?: TypesSecretIntakeField[];
+  id?: string;
+  project_id?: string;
+  status?: string;
+  values_expires_at?: string;
+}
+
 export interface ServerSessionClaudeCredentialsResponse {
   /** "oauth" or "setup_token" */
   credential_type?: string;
@@ -2357,14 +2404,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindGitLab = "gitlab",
-  KindGitHub = "github",
-  KindHelixEvents = "helix_events",
-  KindEmail = "email",
-  KindSlack = "slack",
   KindWebhook = "webhook",
-  KindCron = "cron",
+  KindEmail = "email",
+  KindGitHub = "github",
+  KindGitLab = "gitlab",
   KindLocal = "local",
+  KindCron = "cron",
+  KindHelixEvents = "helix_events",
+  KindSlack = "slack",
 }
 
 export interface TransportResolvedActivation {
@@ -2394,6 +2441,7 @@ export enum TypesAPIKeyType {
   APIkeytypeAPI = "api",
   APIkeytypeApp = "app",
   APIkeytypeEmbed = "embed",
+  APIkeytypeBotInstance = "bot_instance",
 }
 
 export interface TypesAccessGrant {
@@ -6535,6 +6583,26 @@ export interface TypesSecret {
   value?: number[];
 }
 
+export interface TypesSecretIntakeCreateRequest {
+  accent_color?: string;
+  artifact_id?: string;
+  brand_name?: string;
+  conversation_id?: string;
+  customer_id?: string;
+  description?: string;
+  fields?: TypesSecretIntakeField[];
+  logo_url?: string;
+  title?: string;
+}
+
+export interface TypesSecretIntakeField {
+  autocomplete?: string;
+  label?: string;
+  name?: string;
+  required?: boolean;
+  type?: string;
+}
+
 export enum TypesSecretScope {
   SecretScopeDev = "dev",
   SecretScopeProd = "prod",
@@ -6930,6 +6998,19 @@ export interface TypesSessionMetadata {
    * sync, which shapes the instance's MCP servers, org tools and skills.
    */
   bot_instance?: TypesBotInstanceProfile;
+  bot_instance_allow_sudo?: boolean;
+  /**
+   * BotInstanceDiskSizeGB is the hard capacity of the instance's persistent
+   * home filesystem. BotInstanceAllowSudo is the requested opt-out from the
+   * default no-new-privileges policy. Read both through BotInstanceDiskSize
+   * and BotInstanceSudo, which apply defaults and runtime rules.
+   */
+  bot_instance_disk_size_gb?: number;
+  /**
+   * BotInstanceSecrets names the project development secrets explicitly
+   * granted when this instance was created. Empty means no project secrets.
+   */
+  bot_instance_secrets?: string[];
   /** Webhook URL to POST on session completion */
   callback_url?: string;
   /**
@@ -7133,6 +7214,64 @@ export enum TypesSessionType {
   SessionTypeNone = "",
   SessionTypeText = "text",
   SessionTypeImage = "image",
+}
+
+export interface TypesSessionUsage {
+  calls?: TypesSessionUsageCall[];
+  session_id?: string;
+  summary?: TypesSessionUsageSummary;
+  /**
+   * Truncated is set when the session has more calls than the endpoint returns;
+   * the summary then covers only the returned calls.
+   */
+  truncated?: boolean;
+  turns?: TypesSessionUsageTurn[];
+}
+
+export interface TypesSessionUsageCall {
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  completion_tokens?: number;
+  created?: string;
+  duration_ms?: number;
+  interaction_id?: string;
+  model?: string;
+  prompt_tokens?: number;
+  time_to_first_token_ms?: number;
+  total_cost?: number;
+}
+
+export interface TypesSessionUsageSummary {
+  /** CacheHitRatio is cache-read / prompt tokens; nil when there were no prompt tokens. */
+  cache_hit_ratio?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  calls?: number;
+  completion_tokens?: number;
+  duration_p50_ms?: number;
+  duration_p90_ms?: number;
+  /** LLMMs is the summed duration of the calls (calls can overlap, so this can exceed wall time). */
+  llm_ms?: number;
+  models?: string[];
+  prompt_tokens?: number;
+  total_cost?: number;
+  ttft_p50_ms?: number;
+  ttft_p90_ms?: number;
+}
+
+export interface TypesSessionUsageTurn {
+  cache_hit_ratio?: number;
+  cache_read_tokens?: number;
+  calls?: number;
+  completed?: string;
+  completion_tokens?: number;
+  interaction_id?: string;
+  llm_ms?: number;
+  prompt?: string;
+  prompt_tokens?: number;
+  started?: string;
+  state?: string;
+  total_cost?: number;
 }
 
 export interface TypesSkillDefinition {
@@ -16145,6 +16284,85 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Creates a short-lived, one-time link for collecting requested fields outside chat. The response never contains submitted values.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesCreate
+     * @summary Create a secret intake
+     * @request POST:/api/v1/projects/{id}/secret-intakes
+     * @secure
+     */
+    v1ProjectsSecretIntakesCreate: (id: string, request: TypesSecretIntakeCreateRequest, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeCreateResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Invalidates its link and clears any submitted ciphertext.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesDelete
+     * @summary Revoke a secret intake
+     * @request DELETE:/api/v1/projects/{id}/secret-intakes/{intake_id}
+     * @secure
+     */
+    v1ProjectsSecretIntakesDelete: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns metadata and status only; submitted values remain inaccessible through this endpoint.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesDetail
+     * @summary Get secret intake status
+     * @request GET:/api/v1/projects/{id}/secret-intakes/{intake_id}
+     * @secure
+     */
+    v1ProjectsSecretIntakesDetail: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeView, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Write-only project API for trusted integrations. Values are encrypted and cannot be read through the API.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesSubmissionsCreate
+     * @summary Submit secret intake values
+     * @request POST:/api/v1/projects/{id}/secret-intakes/{intake_id}/submissions
+     * @secure
+     */
+    v1ProjectsSecretIntakesSubmissionsCreate: (
+      id: string,
+      intakeId: string,
+      request: ServerSecretIntakeSubmissionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}/submissions`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description List all secrets associated with a specific project.
      *
      * @tags secrets
@@ -18331,6 +18549,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Spend, tokens, latency and prompt-cache hit ratio of one session, overall, per turn and per LLM call.
+     *
+     * @tags sessions
+     * @name V1SessionsUsageDetail
+     * @summary Get a session's LLM usage
+     * @request GET:/api/v1/sessions/{id}/usage
+     * @secure
+     */
+    v1SessionsUsageDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSessionUsage, any>({
+        path: `/api/v1/sessions/${id}/usage`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Used by the fork-confirm modal so we can show "N files will be committed & pushed" or just proceed silently when the workspace is clean. Aborts gracefully on unreachable containers — the frontend treats that as "unknown".
      *
      * @tags sessions
@@ -20149,6 +20384,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+  };
+  connect = {
+    /**
+     * @description Exchanges a one-time invitation token for a short-lived browser flow cookie.
+     *
+     * @tags Secret Intakes
+     * @name IntakeRedeemCreate
+     * @summary Redeem a secret intake invitation
+     * @request POST:/connect/intake/redeem
+     */
+    intakeRedeemCreate: (request: ServerSecretIntakeRedeemRequest, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/connect/intake/redeem`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
         ...params,
       }),
   };

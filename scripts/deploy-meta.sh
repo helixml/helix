@@ -36,6 +36,7 @@ fi
 
 HELIX_DIR=/prod/home/luke/pm/helix
 ZED_DIR=/prod/home/luke/pm/zed
+STATE_FILE=/prod/home/luke/.local/state/helix-meta-deploy
 PRE_DEPLOY_SHA=$(git -C "$HELIX_DIR" rev-parse HEAD)
 
 report_failure() {
@@ -84,25 +85,127 @@ else
 fi
 
 git -C "$ZED_DIR" pull --ff-only origin main
+ZED_SHA_AFTER=$(git -C "$ZED_DIR" rev-parse HEAD)
+
+deployed_helix_sha=
+deployed_zed_sha=
+if [[ -f "$STATE_FILE" ]]; then
+  read -r deployed_helix_sha deployed_zed_sha < "$STATE_FILE"
+  if [[ ! "$deployed_helix_sha" =~ ^[0-9a-f]{40}$ || ! "$deployed_zed_sha" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Invalid Meta deployment state in $STATE_FILE" >&2
+    exit 1
+  fi
+fi
 
 cd "$HELIX_DIR"
-./stack build
-./stack build-zed release
-./stack build-sandbox
-./stack start
+(cd frontend && yarn build)
+
+if [[ -z "$deployed_helix_sha" ]] ||
+  ! git diff --quiet "$deployed_helix_sha" "$TARGET_SHA" -- go.mod go.sum; then
+  ./stack up --force-recreate --no-deps api
+fi
+
+zed_changed=false
+if [[ -z "$deployed_zed_sha" || "$deployed_zed_sha" != "$ZED_SHA_AFTER" || ! -f zed-build/zed ]] ||
+  ! git diff --quiet "$deployed_helix_sha" "$TARGET_SHA" -- Dockerfile.zed-build; then
+  zed_changed=true
+  ./stack build-zed release
+fi
+
+ubuntu_changed=false
+if [[ -z "$deployed_helix_sha" ]] || ! git diff --quiet "$deployed_helix_sha" "$TARGET_SHA" -- \
+  Dockerfile.ubuntu-helix go.mod go.sum api/ desktop/ mcp-servers/drone-ci/ \
+  qwen-code-build/ sandbox-versions.txt WORKDIR_README.md; then
+  ubuntu_changed=true
+fi
+
+sandbox_changed=false
+if [[ -z "$deployed_helix_sha" ]] || ! git diff --quiet "$deployed_helix_sha" "$TARGET_SHA" -- \
+  .dockerignore Dockerfile.sandbox go.mod go.sum sandbox/ sandbox-images/ \
+  api/cmd/{hydra,sandbox-heartbeat,compose-manager,inference-proxy}/ \
+  api/pkg/{composemgr,data,gpudetect,hydra,inferenceproxy,revdial,runner/composeparse,runner/gpuarch,system,types,util/error,util/prometheus}/ \
+  desktop/sway-config/setup-telemetry-firewall.sh; then
+  sandbox_changed=true
+fi
+
+if [[ "$sandbox_changed" == true ]]; then
+  sandbox_build_started_ns=$(date -u +%s%N)
+  ./stack build-sandbox
+elif [[ "$zed_changed" == true || "$ubuntu_changed" == true ]]; then
+  ./stack build-ubuntu
+else
+  echo "Zed, Ubuntu, and sandbox inputs unchanged; skipping image builds"
+fi
+
+if [[ "$zed_changed" == true || "$ubuntu_changed" == true || "$sandbox_changed" == true ]]; then
+  ubuntu_version=$(<sandbox-images/helix-ubuntu.version)
+  if [[ ! "$ubuntu_version" =~ ^[0-9a-f]{6}$ ]]; then
+    echo "Invalid Ubuntu image version: $ubuntu_version" >&2
+    exit 1
+  fi
+  sandbox_id=$(docker ps --filter label=com.docker.compose.service \
+    --format '{{.ID}} {{.Label "com.docker.compose.service"}}' \
+    | awk '$2 ~ /^sandbox-(nvidia|amd-intel|software|macos)$/ && !found { print $1; found=1 }')
+  if [[ -z "$sandbox_id" ]] ||
+    ! docker exec "$sandbox_id" docker image inspect "helix-ubuntu:$ubuntu_version" >/dev/null; then
+    echo "Ubuntu image helix-ubuntu:$ubuntu_version is not loaded in the sandbox" >&2
+    exit 1
+  fi
+fi
+
+if [[ "$sandbox_changed" == true ]]; then
+  sandbox_image_id=$(docker image inspect helix-sandbox:latest --format '{{.Id}}')
+  if [[ $(docker inspect --format '{{.Image}}' "$sandbox_id") != "$sandbox_image_id" ]]; then
+    echo "Running sandbox is not the replacement built by this deployment" >&2
+    exit 1
+  fi
+  sandbox_started_at=$(docker inspect --format '{{.State.StartedAt}}' "$sandbox_id")
+  sandbox_started_ns=$(date -d "$sandbox_started_at" +%s%N)
+  sandbox_instance_id=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$sandbox_id" |
+    sed -n 's/^SANDBOX_INSTANCE_ID=//p')
+  if [[ ! "$sandbox_started_at" =~ ^[0-9TZ:+.-]+$ || ! "$sandbox_started_ns" =~ ^[0-9]+$ || ! "$sandbox_instance_id" =~ ^[[:alnum:]_.-]+$ ]]; then
+    echo "Invalid replacement sandbox identity or start time" >&2
+    exit 1
+  fi
+  if (( 10#$sandbox_started_ns < 10#$sandbox_build_started_ns )); then
+    echo "Running sandbox started before this deployment rebuilt it" >&2
+    exit 1
+  fi
+fi
 
 if [[ $(git rev-parse HEAD) != "$TARGET_SHA" ]]; then
   echo "Meta HEAD changed during deployment" >&2
   exit 1
 fi
 for _ in $(seq 1 60); do
+  api_healthy=false
+  sandbox_ready=true
   if curl -fsS --max-time 10 -D - -o /dev/null http://localhost:8080/api/v1/config \
     | grep -Eiq '^content-type:[[:space:]]*application/json([[:space:]]*;|[[:space:]]*$)'; then
+    api_healthy=true
+  fi
+  if [[ "$sandbox_changed" == true ]]; then
+    sandbox_ready=false
+    if [[ $(docker inspect --format '{{.State.Status}} {{.State.Health.Status}}' "$sandbox_id" 2>/dev/null) == "running healthy" ]] &&
+      [[ $(docker exec helix-postgres-1 psql -U postgres -d postgres -tAqc \
+        "SELECT EXISTS (SELECT 1 FROM sandbox_instances WHERE id = '$sandbox_instance_id' AND status = 'online' AND last_seen >= '$sandbox_started_at'::timestamptz)") == t ]]; then
+      sandbox_ready=true
+    fi
+  fi
+  if [[ "$api_healthy" == true && "$sandbox_ready" == true ]]; then
+    mkdir -p "$(dirname "$STATE_FILE")"
+    state_tmp=$(mktemp "$STATE_FILE.XXXXXX")
+    printf '%s %s\n' "$TARGET_SHA" "$ZED_SHA_AFTER" > "$state_tmp"
+    mv "$state_tmp" "$STATE_FILE"
     echo "Meta is healthy at $TARGET_SHA"
     exit 0
   fi
   sleep 5
 done
-echo "Meta did not become healthy at $TARGET_SHA" >&2
+if [[ "$sandbox_changed" == true ]]; then
+  echo "Meta replacement sandbox did not become healthy and register a fresh heartbeat" >&2
+else
+  echo "Meta did not become healthy at $TARGET_SHA" >&2
+fi
 exit 1
 REMOTE

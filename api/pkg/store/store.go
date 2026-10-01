@@ -228,6 +228,7 @@ var (
 )
 
 type Store interface {
+	SecretIntakeStore
 	//  Auth + Authz
 	CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
 	GetOrganization(ctx context.Context, q *GetOrganizationQuery) (*types.Organization, error)
@@ -284,6 +285,9 @@ type Store interface {
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
 	UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error
+	// ClaimSessionAutoRestart atomically records a restart unless another restart
+	// was recorded after before.
+	ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error)
 	// SetSessionBotInstanceProfile replaces only config.bot_instance, so it
 	// cannot revert status fields a concurrent writer changed.
 	SetSessionBotInstanceProfile(ctx context.Context, sessionID string, profile types.BotInstanceProfile) error
@@ -947,10 +951,8 @@ type Store interface {
 	// once at server startup as a one-shot janitor; idempotent and safe to re-run.
 	// Returns the number of prompts reconciled.
 	ReconcileStuckSendingPrompts(ctx context.Context) (int, error)
-	// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
-	// it as "failed" so the retry mechanism picks it up. Used when message_completed
-	// arrives with an empty response (bounce).
-	RequeueBouncedPrompt(ctx context.Context, sessionID string) error
+	// RequeueBouncedPrompt marks an exact in-flight prompt as failed so it can retry.
+	RequeueBouncedPrompt(ctx context.Context, promptID string) error
 	// ClaimPromptForSending atomically transitions a prompt from pending/failed→sending.
 	// Returns true if this caller won the claim (rows affected > 0). If false, another
 	// goroutine already claimed it and the caller must not send the prompt.
@@ -1006,4 +1008,17 @@ type Store interface {
 	ListEnabledWebServiceProjectsByRepo(ctx context.Context, repoID string) ([]*types.Project, error)
 	ListActiveWebServices(ctx context.Context) ([]*types.ProjectWebServiceState, error)
 	ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error)
+}
+
+// SecretIntakeStore owns the atomic persistence operations used by secret intake.
+// The API and MCP layers never receive a database handle.
+type SecretIntakeStore interface {
+	CreateSecretIntake(context.Context, *types.SecretIntake) error
+	GetSecretIntake(context.Context, string, string) (*types.SecretIntake, error)
+	GetSecretIntakeByFlow(context.Context, string, time.Time) (*types.SecretIntake, error)
+	RedeemSecretIntakeInvitation(context.Context, string, string, string, string, time.Time, time.Time) (bool, error)
+	SubmitSecretIntake(context.Context, string, string, string, time.Time, time.Time) (bool, error)
+	RevokeSecretIntake(context.Context, string, string) error
+	TakeSecretIntake(context.Context, string, string, time.Time) (string, error)
+	ReapExpiredSecretIntakes(context.Context, time.Time) error
 }

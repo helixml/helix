@@ -67,6 +67,15 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+# The user agent a regular (non-headless) Chrome of this build sends: Chrome reports
+# only the major version ("Chrome/152.0.0.0").
+headless_user_agent() {
+    local major
+    major=$("$CHROME_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9.]+' | head -1 | cut -d. -f1)
+    [ -n "$major" ] || return 1
+    echo "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36"
+}
+
 chrome_running() {
     curl -fsS --max-time 2 "$CHROME_URL/json/version" >/dev/null 2>&1
 }
@@ -98,9 +107,18 @@ start_chrome() {
     )
     if $headless; then
         flags+=("--headless=new")
+        local ua_set=false
         for flag in "${chrome_flags[@]}"; do
+            [[ "$flag" == --user-agent=* ]] && ua_set=true
             [ "$flag" = "--ozone-platform=wayland" ] || flags+=("$flag")
         done
+        # Headless Chrome announces itself as "HeadlessChrome/<version>", which sites
+        # with bot detection may treat differently from the desktop browser. Send the
+        # user agent a normal Chrome of the same major version sends.
+        local ua
+        if ! $ua_set && ua=$(headless_user_agent); then
+            flags+=("--user-agent=$ua")
+        fi
     else
         flags+=("${chrome_flags[@]}")
     fi

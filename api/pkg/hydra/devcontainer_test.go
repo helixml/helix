@@ -114,6 +114,31 @@ func TestBuildHostConfigHeadlessUsesDockerSecurityDefaults(t *testing.T) {
 	require.Empty(t, hostConfig.Resources.Devices)
 }
 
+func TestBuildHostConfigUntrustedInstanceLimits(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:   DevContainerTypeHeadless,
+		BrowserSandbox:  true,
+		DiskSizeGB:      10,
+		PidsLimit:       512,
+		NoNewPrivileges: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, hostConfig.Resources.PidsLimit)
+	require.Equal(t, int64(512), *hostConfig.Resources.PidsLimit)
+	require.Contains(t, hostConfig.SecurityOpt, "no-new-privileges")
+	require.Contains(t, hostConfig.SecurityOpt, "seccomp="+mustBrowserSandboxSeccomp(t))
+	require.Equal(t, "rw,nosuid,nodev,size=256m,mode=1777", hostConfig.Tmpfs["/tmp"])
+	require.Equal(t, "rw,nosuid,nodev,size=64m,mode=1777", hostConfig.Tmpfs["/var/tmp"])
+}
+
+func mustBrowserSandboxSeccomp(t *testing.T) string {
+	t.Helper()
+	profile, err := browserSandboxSeccomp()
+	require.NoError(t, err)
+	return profile
+}
+
 func TestBuildHostConfigRootlessContainerEngine(t *testing.T) {
 	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
 

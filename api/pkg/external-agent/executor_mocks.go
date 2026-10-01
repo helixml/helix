@@ -55,18 +55,18 @@ func (mr *MockExecutorMockRecorder) CleanupExpiredSessions(ctx, timeout any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupExpiredSessions", reflect.TypeOf((*MockExecutor)(nil).CleanupExpiredSessions), ctx, timeout)
 }
 
-// DeleteWorkspace mocks base method.
-func (m *MockExecutor) DeleteWorkspace(ctx context.Context, sessionID, sandboxID string) error {
+// DestroyDesktop mocks base method.
+func (m *MockExecutor) DestroyDesktop(ctx context.Context, sessionID, specTaskID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteWorkspace", ctx, sessionID, sandboxID)
+	ret := m.ctrl.Call(m, "DestroyDesktop", ctx, sessionID, specTaskID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// DeleteWorkspace indicates an expected call of DeleteWorkspace.
-func (mr *MockExecutorMockRecorder) DeleteWorkspace(ctx, sessionID, sandboxID any) *gomock.Call {
+// DestroyDesktop indicates an expected call of DestroyDesktop.
+func (mr *MockExecutorMockRecorder) DestroyDesktop(ctx, sessionID, specTaskID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkspace", reflect.TypeOf((*MockExecutor)(nil).DeleteWorkspace), ctx, sessionID, sandboxID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyDesktop", reflect.TypeOf((*MockExecutor)(nil).DestroyDesktop), ctx, sessionID, specTaskID)
 }
 
 // DiscoverContainersFromSandbox mocks base method.

@@ -82,6 +82,9 @@ interface EmbeddedSessionViewProps {
    * had typed a word. The agent's REPLY to it is kept: that is the greeting.
    */
   minimal?: boolean;
+  // False for an org bot instance, whose first interaction is the customer's
+  // own message rather than a hidden briefing. Defaults to the spec-task shape.
+  hasBriefingTurn?: boolean;
 }
 
 export interface EmbeddedSessionViewHandle {
@@ -101,7 +104,7 @@ export interface EmbeddedSessionViewHandle {
 const EmbeddedSessionView = forwardRef<
   EmbeddedSessionViewHandle,
   EmbeddedSessionViewProps
->(({ sessionId, onScrollToBottom, enableInteractionDebugCopy, minimal = false }, ref) => {
+>(({ sessionId, onScrollToBottom, enableInteractionDebugCopy, minimal = false, hasBriefingTurn = true }, ref) => {
   const account = useAccount();
   const api = useApi();
   const lightTheme = useLightTheme();
@@ -540,7 +543,7 @@ const EmbeddedSessionView = forwardRef<
   const totalCount = paginatedData?.totalCount || 0;
   const hasOlderInteractions = oldestPageLoaded < totalPages - 1;
   // The session's opening prompt, or -1 when it is not on screen.
-  const seedIndex = seedPromptIndex(minimal, hasOlderInteractions);
+  const seedIndex = seedPromptIndex(minimal, hasOlderInteractions, hasBriefingTurn);
   const remainingOlderCount = Math.max(0, totalCount - totalInteractions);
 
   const isOwner = account.user?.id === session?.owner;
@@ -761,11 +764,15 @@ const EmbeddedSessionView = forwardRef<
         </Box>
       </Box>
 
-      <ChatTurnNavigator
-        items={navigatorItems}
-        scrollContainer={scrollContainerEl}
-        onSelect={handleNavigateToTurn}
-      />
+      {/* The turn navigator's dash/tick markers read as a stray glyph in the
+          customer-facing minimal embed, so it is only shown in the full app. */}
+      {!minimal && (
+        <ChatTurnNavigator
+          items={navigatorItems}
+          scrollContainer={scrollContainerEl}
+          onSelect={handleNavigateToTurn}
+        />
+      )}
 
       {/* Jump-to-latest pill (bottom-center, only when content arrived while
           the user was reading above the latest message) */}

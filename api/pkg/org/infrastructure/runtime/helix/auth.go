@@ -30,6 +30,26 @@ import (
 type bearerTokenKey struct{}
 type userIDKey struct{}
 type userKey struct{}
+type sessionIDKey struct{}
+
+// WithSessionID stashes the requesting session's id on the context so
+// server-side tools can route follow-ups (e.g. a secret-intake
+// submission waking the session that asked for it). Empty is a no-op.
+func WithSessionID(ctx context.Context, sessionID string) context.Context {
+	if sessionID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, sessionIDKey{}, sessionID)
+}
+
+// SessionIDFromContext returns the session id stashed by WithSessionID.
+// Empty when the call didn't come from a session (service paths).
+func SessionIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(sessionIDKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
 
 // WithBearerToken returns a context carrying the given token as the
 // bearer realClient should use on its next request. Empty token is a

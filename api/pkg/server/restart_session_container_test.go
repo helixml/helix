@@ -144,13 +144,27 @@ func (s *RestartSessionContainerSuite) TestRestartRecreatesContainerInOrder() {
 	}
 }
 
-// TestRestartMarksRestartingBeforeTeardown pins the fix for the "restart looks
-// broken" bug: the session must be marked "restarting" BEFORE StopDesktop, so
-// the whole teardown+boot window reads as a boot in flight. Without the marker
-// the session sits with an empty status and a still-set ContainerName, which
-// the live executor probe downgrades to "stopped" — the UI then renders the
-// paused placeholder and a "Start sandbox" button mid-restart.
-func (s *RestartSessionContainerSuite) TestRestartMarksRestartingBeforeTeardown() {
+func (s *RestartSessionContainerSuite) TestRestartAbortsWhenStopFails() {
+	ctx := context.Background()
+	const sessionID = "ses_restart"
+	user := &types.User{ID: "user_op"}
+	session := zedSession(sessionID, user.ID, "prj_restart")
+
+	s.executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(errors.New("hydra disconnected")).Times(1)
+
+	_, herr := s.server.restartSessionContainer(ctx, user, session, false)
+
+	s.Require().NotNil(herr)
+	s.Equal(http.StatusInternalServerError, herr.StatusCode)
+	s.Contains(herr.Error(), "failed to stop agent for restart")
+	// No StartDesktop expectation: restart must not reuse the container whose
+	// teardown could not be confirmed.
+}
+
+// TestRestartMarksRestartingAfterTeardown ensures a failed teardown leaves the
+// still-running container's status untouched while a successful one advances
+// to the boot marker before StartDesktop.
+func (s *RestartSessionContainerSuite) TestRestartMarksRestartingAfterTeardown() {
 	ctx := context.Background()
 	const (
 		userID    = "user_op"
@@ -165,10 +179,10 @@ func (s *RestartSessionContainerSuite) TestRestartMarksRestartingBeforeTeardown(
 	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
 	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil).AnyTimes()
 
-	// The load-bearing ordering: mark THEN tear down THEN boot.
+	// The load-bearing ordering: tear down THEN mark THEN boot.
 	gomock.InOrder(
-		s.store.EXPECT().MarkSessionRestarting(gomock.Any(), sessionID).Return(nil).Times(1),
 		s.executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(nil).Times(1),
+		s.store.EXPECT().MarkSessionRestarting(gomock.Any(), sessionID).Return(nil).Times(1),
 		s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(&types.DesktopAgentResponse{DevContainerID: "dev_new"}, nil).Times(1),
 	)
 	// A successful restart never clears the marker — StartDesktop owns the

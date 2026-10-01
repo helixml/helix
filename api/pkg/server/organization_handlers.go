@@ -444,9 +444,11 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	// the rows that track them. DeleteOrganization only removes DB rows; the
 	// containers are owned by the sessions (which it does not delete), so
 	// without this they linger until the desktop idle reaper stops them
-	// (HELIX_DESKTOP_IDLE_TIMEOUT, default 1h). Best-effort: the reaper is the
-	// backstop, so a teardown failure must not block the org delete.
-	apiServer.stopOrgDesktops(r.Context(), orgID)
+	// (HELIX_DESKTOP_IDLE_TIMEOUT, default 1h).
+	if err := apiServer.stopOrgDesktops(r.Context(), orgID); err != nil {
+		http.Error(rw, "Could not stop organization desktops: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	// Public artifacts remain independently addressable, so deleting only the
 	// project rows would orphan live content. Remove every artifact route and
@@ -475,28 +477,27 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 
 // stopOrgDesktops stops and soft-deletes every running external-agent desktop
 // session in the org. Called on org delete so spec-task sandboxes are torn down
-// promptly instead of waiting for the idle reaper. Best-effort throughout —
-// every failure is logged and skipped; the idle reaper remains the backstop.
-func (apiServer *HelixAPIServer) stopOrgDesktops(ctx context.Context, orgID string) {
+// promptly instead of waiting for the idle reaper.
+func (apiServer *HelixAPIServer) stopOrgDesktops(ctx context.Context, orgID string) error {
 	sessions, _, err := apiServer.Store.ListSessions(ctx, store.ListSessionsQuery{
 		OrganizationID:        orgID,
 		IncludeExternalAgents: true,
 	})
 	if err != nil {
-		log.Warn().Err(err).Str("org_id", orgID).Msg("org delete: could not list sessions for desktop teardown; idle reaper will clean up")
-		return
+		return fmt.Errorf("list organization desktops: %w", err)
 	}
 	for _, session := range sessions {
 		if session.Metadata.DevContainerID == "" {
 			continue
 		}
 		if err := apiServer.externalAgentExecutor.StopDesktop(ctx, session.ID); err != nil {
-			log.Warn().Err(err).Str("org_id", orgID).Str("session_id", session.ID).Msg("org delete: failed to stop desktop; idle reaper will clean up")
+			return fmt.Errorf("stop desktop %s: %w", session.ID, err)
 		}
 		if _, err := apiServer.Store.DeleteSession(ctx, session.ID); err != nil {
-			log.Warn().Err(err).Str("org_id", orgID).Str("session_id", session.ID).Msg("org delete: failed to soft-delete desktop session")
+			return fmt.Errorf("delete desktop session %s: %w", session.ID, err)
 		}
 	}
+	return nil
 }
 
 // updateOrganization godoc

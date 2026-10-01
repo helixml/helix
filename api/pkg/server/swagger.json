@@ -14546,6 +14546,259 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/secret-intakes": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a short-lived, one-time link for collecting requested fields outside chat. The response never contains submitted values.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Create a secret intake",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Field schema and branding",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SecretIntakeCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeCreateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/secret-intakes/{intake_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns metadata and status only; submitted values remain inaccessible through this endpoint.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Get secret intake status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeView"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Invalidates its link and clears any submitted ciphertext.",
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Revoke a secret intake",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/secret-intakes/{intake_id}/consume": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "One-time read for trusted integrations: returns the submitted values and clears the stored ciphertext atomically. A failed or repeated call cannot read them again.",
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Consume secret intake values",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeConsumption"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/secret-intakes/{intake_id}/submissions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Write-only project API for trusted integrations. Values are encrypted and cannot be read through the API.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Submit secret intake values",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Submitted field values",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeSubmissionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/secrets": {
             "get": {
                 "security": [
@@ -19434,6 +19687,37 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Spend, tokens, latency and prompt-cache hit ratio of one session, overall, per turn and per LLM call.",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get a session's LLM usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionUsage"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/workspace-status": {
             "get": {
                 "security": [
@@ -23577,6 +23861,40 @@
                 }
             }
         },
+        "/connect/intake/redeem": {
+            "post": {
+                "description": "Exchanges a one-time invitation token for a short-lived browser flow cookie.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Redeem a secret intake invitation",
+                "parameters": [
+                    {
+                        "description": "Invitation token",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeRedeemRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/chat/completions": {
             "post": {
                 "security": [
@@ -24042,6 +24360,9 @@
                 "created_at": {
                     "type": "string"
                 },
+                "disk_size_gb": {
+                    "type": "integer"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -24055,8 +24376,18 @@
                     "description": "SandboxStatus is the sandbox's external agent status: \"\" (stopped),\n\"starting\", \"running\", \"restarting\", \"terminated_idle\" …",
                     "type": "string"
                 },
+                "secrets": {
+                    "description": "Secrets are the names granted when the instance was created. Values are\nnever returned.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "session_id": {
                     "type": "string"
+                },
+                "sudo": {
+                    "type": "boolean"
                 },
                 "updated_at": {
                     "type": "string"
@@ -24115,6 +24446,10 @@
         "api.CreateBotInstanceRequest": {
             "type": "object",
             "properties": {
+                "disk_size_gb": {
+                    "description": "DiskSizeGB is the persistent home filesystem capacity. Omitted defaults\nto 10 GB; accepted values are 1-1000.",
+                    "type": "integer"
+                },
                 "message": {
                     "description": "Message is queued as the instance's first turn.",
                     "type": "string"
@@ -24129,6 +24464,17 @@
                             "$ref": "#/definitions/types.SandboxRuntime"
                         }
                     ]
+                },
+                "secrets": {
+                    "description": "Secrets names project development secrets to grant to this instance.\nOmitted or empty means no project secrets.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sudo": {
+                    "description": "AllowSudo opts a headless instance out of no-new-privileges. It is\nfalse by default. ubuntu-desktop instances always allow sudo.",
+                    "type": "boolean"
                 }
             }
         },
@@ -28029,6 +28375,86 @@
                 }
             }
         },
+        "server.SecretIntakeConsumption": {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.SecretIntakeCreateResponse": {
+            "type": "object",
+            "properties": {
+                "intake": {
+                    "$ref": "#/definitions/server.SecretIntakeView"
+                },
+                "invite_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SecretIntakeRedeemRequest": {
+            "type": "object",
+            "required": [
+                "intake_id",
+                "token"
+            ],
+            "properties": {
+                "intake_id": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SecretIntakeSubmissionRequest": {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.SecretIntakeView": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string"
+                },
+                "customer_id": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SecretIntakeField"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "values_expires_at": {
+                    "type": "string"
+                }
+            }
+        },
         "server.SessionClaudeCredentialsResponse": {
             "type": "object",
             "properties": {
@@ -28797,24 +29223,24 @@
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "gitlab",
-                "github",
-                "helix_events",
+                "local",
                 "email",
-                "slack",
-                "webhook",
                 "cron",
-                "local"
+                "helix_events",
+                "webhook",
+                "slack",
+                "github",
+                "gitlab"
             ],
             "x-enum-varnames": [
-                "KindGitLab",
-                "KindGitHub",
-                "KindHelixEvents",
+                "KindLocal",
                 "KindEmail",
-                "KindSlack",
-                "KindWebhook",
                 "KindCron",
-                "KindLocal"
+                "KindHelixEvents",
+                "KindWebhook",
+                "KindSlack",
+                "KindGitHub",
+                "KindGitLab"
             ]
         },
         "transport.ResolvedActivation": {
@@ -28875,13 +29301,15 @@
                 "",
                 "api",
                 "app",
-                "embed"
+                "embed",
+                "bot_instance"
             ],
             "x-enum-varnames": [
                 "APIkeytypeNone",
                 "APIkeytypeAPI",
                 "APIkeytypeApp",
-                "APIkeytypeEmbed"
+                "APIkeytypeEmbed",
+                "APIkeytypeBotInstance"
             ]
         },
         "types.AccessGrant": {
@@ -37753,6 +38181,61 @@
                 }
             }
         },
+        "types.SecretIntakeCreateRequest": {
+            "type": "object",
+            "properties": {
+                "accent_color": {
+                    "type": "string"
+                },
+                "artifact_id": {
+                    "type": "string"
+                },
+                "brand_name": {
+                    "type": "string"
+                },
+                "conversation_id": {
+                    "type": "string"
+                },
+                "customer_id": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SecretIntakeField"
+                    }
+                },
+                "logo_url": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SecretIntakeField": {
+            "type": "object",
+            "properties": {
+                "autocomplete": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "types.SecretScope": {
             "type": "string",
             "enum": [
@@ -38480,6 +38963,20 @@
                         }
                     ]
                 },
+                "bot_instance_allow_sudo": {
+                    "type": "boolean"
+                },
+                "bot_instance_disk_size_gb": {
+                    "description": "BotInstanceDiskSizeGB is the hard capacity of the instance's persistent\nhome filesystem. BotInstanceAllowSudo is the requested opt-out from the\ndefault no-new-privileges policy. Read both through BotInstanceDiskSize\nand BotInstanceSudo, which apply defaults and runtime rules.",
+                    "type": "integer"
+                },
+                "bot_instance_secrets": {
+                    "description": "BotInstanceSecrets names the project development secrets explicitly\ngranted when this instance was created. Empty means no project secrets.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "callback_url": {
                     "description": "Webhook URL to POST on session completion",
                     "type": "string"
@@ -38882,6 +39379,158 @@
                 "SessionTypeText",
                 "SessionTypeImage"
             ]
+        },
+        "types.SessionUsage": {
+            "type": "object",
+            "properties": {
+                "calls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionUsageCall"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "summary": {
+                    "$ref": "#/definitions/types.SessionUsageSummary"
+                },
+                "truncated": {
+                    "description": "Truncated is set when the session has more calls than the endpoint returns;\nthe summary then covers only the returned calls.",
+                    "type": "boolean"
+                },
+                "turns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionUsageTurn"
+                    }
+                }
+            }
+        },
+        "types.SessionUsageCall": {
+            "type": "object",
+            "properties": {
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "time_to_first_token_ms": {
+                    "type": "integer"
+                },
+                "total_cost": {
+                    "type": "number"
+                }
+            }
+        },
+        "types.SessionUsageSummary": {
+            "type": "object",
+            "properties": {
+                "cache_hit_ratio": {
+                    "description": "CacheHitRatio is cache-read / prompt tokens; nil when there were no prompt tokens.",
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
+                "calls": {
+                    "type": "integer"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "duration_p50_ms": {
+                    "type": "integer"
+                },
+                "duration_p90_ms": {
+                    "type": "integer"
+                },
+                "llm_ms": {
+                    "description": "LLMMs is the summed duration of the calls (calls can overlap, so this can exceed wall time).",
+                    "type": "integer"
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "total_cost": {
+                    "type": "number"
+                },
+                "ttft_p50_ms": {
+                    "type": "integer"
+                },
+                "ttft_p90_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SessionUsageTurn": {
+            "type": "object",
+            "properties": {
+                "cache_hit_ratio": {
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "calls": {
+                    "type": "integer"
+                },
+                "completed": {
+                    "type": "string"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "llm_ms": {
+                    "type": "integer"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "started": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "total_cost": {
+                    "type": "number"
+                }
+            }
         },
         "types.SkillDefinition": {
             "type": "object",

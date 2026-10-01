@@ -212,8 +212,18 @@ func embedKeyAllows(user *types.User, r *http.Request) bool {
 	if path == "" {
 		return false
 	}
-	// A key with no task bound to it can address nothing.
-	if user.SpecTaskID == "" {
+	// A key with NOTHING bound to it can address nothing.
+	//
+	// Either binding is enough, and each confines on its own: the scopeTask
+	// rules compare against user.SpecTaskID and the scopeSession rules against
+	// user.SessionID, and embedSubjectInScope rejects an empty id. So a
+	// session-only key (no task) silently fails every task rule, and vice
+	// versa — there is no need to know which kind of key this is here.
+	//
+	// Session-only keys exist for org bot INSTANCES, which are bare sessions
+	// (session_role = org_bot_instance) with no spec task behind them. Their
+	// chat is embedded exactly as a task's is, through /embed/session.
+	if user.SpecTaskID == "" && user.SessionID == "" {
 		return false
 	}
 

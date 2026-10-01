@@ -577,6 +577,8 @@ type SpecTaskFilters struct {
 	PlanningSessionID  string           `json:"planning_session_id,omitempty"` // Filter by PlanningSessionID (reverse lookup)
 	Labels             []string         `json:"labels,omitempty"`              // Filter tasks that have ALL of these labels (AND semantics)
 	PRMatch            *SpecTaskPRMatch `json:"pr_match,omitempty"`            // Filter tasks tracking this repo + PR (webhook correlation)
+	// ExcludeDeletedProjects drops tasks whose project is soft-deleted.
+	ExcludeDeletedProjects bool `json:"exclude_deleted_projects,omitempty"`
 }
 
 // SpecTaskPRMatch selects tasks whose RepoPullRequests contain an entry with

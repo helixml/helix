@@ -4,6 +4,7 @@ import { Box, CircularProgress, useTheme } from '@mui/material'
 import SpecTaskDetailContent from '../components/tasks/SpecTaskDetailContent'
 import AgentChat from '../components/session/AgentChat'
 import { useSpecTask } from '../services/specTaskService'
+import { initialQueryParams } from '../router'
 
 const EmbedTaskPage: FC = () => {
   const { route } = useRoute()
@@ -24,8 +25,13 @@ const EmbedTaskPage: FC = () => {
   // subheading let the host name its own agent; they only show on the welcome
   // screen, before anyone has said anything.
   const minimal = route.params.minimal === '1' || route.params.minimal === 'true'
-  const welcomeHeading = (route.params.heading as string) || undefined
-  const welcomeSubheading = (route.params.subheading as string) || undefined
+  // Read the welcome copy from the RAW query, not from route.params: router5
+  // form-encodes a space as "+" when it re-serialises the URL on start, so a
+  // host that correctly sent %20 had its heading rendered with literal plus
+  // signs. See initialQueryParams in router.tsx. Fall back to route.params so
+  // an in-app navigation that sets them still works.
+  const welcomeHeading = initialQueryParams.heading || (route.params.heading as string) || undefined
+  const welcomeSubheading = initialQueryParams.subheading || (route.params.subheading as string) || undefined
 
   // Embed contexts (iframes) don't have a parent body bg, so the white iframe
   // default leaks through anywhere the content doesn't paint. Force the theme

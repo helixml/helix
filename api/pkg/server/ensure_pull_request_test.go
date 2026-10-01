@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -172,7 +173,7 @@ func (f *fakeGitRepoService) WithExternalRepoWrite(ctx context.Context, repo *ty
 
 // TestEnsurePullRequestForRepo_TrackedPRReturnsDirectly verifies that when a task already has a
 // tracked RepoPR for the repo, ensurePullRequestForRepo returns that PR immediately without
-// touching the git repository service at all (no ListBranches, ListPullRequests, or CreatePullRequest).
+// listing branches or pull requests or creating a pull request.
 func TestEnsurePullRequestForRepo_TrackedPRReturnsDirectly(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -206,15 +207,17 @@ func TestEnsurePullRequestForRepo_TrackedPRReturnsDirectly(t *testing.T) {
 		},
 	}
 
-	// fake has no funcs set — any method call panics.
-	// This proves the dedup short-circuit happens before any git call.
-	fake := &fakeGitRepoService{}
+	fake := &fakeGitRepoService{
+		withRepoLockFunc: func(_ string, fn func() error) error {
+			return fn()
+		},
+	}
 
 	server := &HelixAPIServer{
 		gitRepositoryService: fake,
 	}
 
-	result, err := server.ensurePullRequestForRepo(context.Background(), repo, task, t.TempDir(), "")
+	result, err := server.ensurePullRequestForRepo(context.Background(), repo, task, repoID, t.TempDir(), "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, repoID, result.RepositoryID)
@@ -251,6 +254,7 @@ func TestEnsurePullRequestForRepo_422AlreadyExistsRecovery(t *testing.T) {
 	task := &types.SpecTask{
 		ID:         "task-2",
 		BranchName: branch,
+		BaseBranch: "develop",
 		Name:       "My Task",
 		// OrganizationID left empty to avoid Store.GetOrganization call in buildPRFooterForTask.
 	}
@@ -283,7 +287,8 @@ func TestEnsurePullRequestForRepo_422AlreadyExistsRecovery(t *testing.T) {
 			// Second call (after "already exists" error): return the existing PR.
 			return []*types.PullRequest{existingPR}, nil
 		},
-		createPRFunc: func(_ context.Context, _, _, _, _, _, _ string) (string, error) {
+		createPRFunc: func(_ context.Context, _, _, _, _, target, _ string) (string, error) {
+			assert.Equal(t, "develop", target)
 			return "", errors.New("pull request already exists")
 		},
 	}
@@ -294,7 +299,7 @@ func TestEnsurePullRequestForRepo_422AlreadyExistsRecovery(t *testing.T) {
 		Cfg:                  &config.ServerConfig{},
 	}
 
-	result, err := server.ensurePullRequestForRepo(context.Background(), repo, task, t.TempDir(), "")
+	result, err := server.ensurePullRequestForRepo(context.Background(), repo, task, repoID, t.TempDir(), "")
 	require.NoError(t, err, "should recover from 'already exists' error without propagating it")
 	require.NotNil(t, result)
 	assert.Equal(t, repoID, result.RepositoryID)
@@ -302,4 +307,98 @@ func TestEnsurePullRequestForRepo_422AlreadyExistsRecovery(t *testing.T) {
 	assert.Equal(t, prNumber, result.PRNumber)
 	assert.Equal(t, prURL, result.PRURL)
 	assert.Equal(t, 2, listCallCount, "ListPullRequests should be called twice: once before create, once after 'already exists'")
+}
+
+func TestTaskTargetBranch(t *testing.T) {
+	task := &types.SpecTask{BaseBranch: "develop"}
+	primary := &types.GitRepository{ID: "primary", DefaultBranch: "main"}
+	secondary := &types.GitRepository{ID: "secondary", DefaultBranch: "release"}
+
+	assert.Equal(t, "develop", services.TaskTargetBranch(primary, task, primary.ID))
+	assert.Equal(t, "release", services.TaskTargetBranch(secondary, task, primary.ID))
+	task.BaseBranch = ""
+	assert.Equal(t, "main", services.TaskTargetBranch(primary, task, primary.ID))
+}
+
+func TestEnsurePullRequestForRepo_ConcurrentCallsCreateOnce(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	const (
+		repoID = "repo-concurrent"
+		branch = "feature/concurrent"
+		prID   = "pr-created"
+	)
+	repo := &types.GitRepository{
+		ID:            repoID,
+		Name:          "myrepo",
+		ExternalURL:   "https://gitlab.example.com/org/repo",
+		DefaultBranch: "main",
+	}
+	task := &types.SpecTask{ID: "task-concurrent", BranchName: branch, Name: "Concurrent task"}
+
+	var repoLock sync.Mutex
+	var lockHeld atomic.Bool
+	created := false
+	createCalls := 0
+	fake := &fakeGitRepoService{
+		listBranchesFunc: func(_ context.Context, _ string) ([]string, error) {
+			if !lockHeld.Load() {
+				return nil, errors.New("repository lock not held while listing branches")
+			}
+			return []string{branch}, nil
+		},
+		withRepoLockFunc: func(_ string, fn func() error) error {
+			repoLock.Lock()
+			defer repoLock.Unlock()
+			lockHeld.Store(true)
+			defer lockHeld.Store(false)
+			return fn()
+		},
+		pushBranchFunc: func(_ context.Context, _, _ string, _ bool, _ ...string) error {
+			if !lockHeld.Load() {
+				return errors.New("repository lock not held while pushing")
+			}
+			return nil
+		},
+		listPullRequestsFunc: func(_ context.Context, _ string) ([]*types.PullRequest, error) {
+			if !lockHeld.Load() {
+				return nil, errors.New("repository lock not held while listing pull requests")
+			}
+			if !created {
+				return nil, nil
+			}
+			return []*types.PullRequest{{ID: prID, SourceBranch: branch, State: types.PullRequestStateOpen}}, nil
+		},
+		createPRFunc: func(_ context.Context, _, _, _, _, target, _ string) (string, error) {
+			if !lockHeld.Load() {
+				return "", errors.New("repository lock not held while creating pull request")
+			}
+			assert.Equal(t, "main", target)
+			createCalls++
+			created = true
+			return prID, nil
+		},
+	}
+	server := &HelixAPIServer{
+		gitRepositoryService: fake,
+		Store:                mockStore,
+		Cfg:                  &config.ServerConfig{},
+	}
+	primaryRepoPath := t.TempDir()
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, err := server.ensurePullRequestForRepo(context.Background(), repo, task, repoID, primaryRepoPath, "")
+			errs <- err
+		}()
+	}
+	close(start)
+	require.NoError(t, <-errs)
+	require.NoError(t, <-errs)
+	assert.Equal(t, 1, createCalls)
 }

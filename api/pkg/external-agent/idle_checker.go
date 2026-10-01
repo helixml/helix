@@ -52,6 +52,7 @@ func stopIdleDesktop(ctx context.Context, executor Executor, st store.Store, ses
 			Err(err).
 			Str("session_id", session.ID).
 			Msg("failed to stop idle desktop")
+		return
 	}
 
 	// Reap any interaction left in state=waiting. The desktop we just stopped was

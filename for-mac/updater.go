@@ -49,10 +49,15 @@ type UpdateProgress struct {
 }
 
 const (
-	latestVersionURL = "https://get.helix.ml/latest.txt"
+	latestReleaseURL = "https://dl.helix.ml/desktop/latest.json"
 	dmgURLTemplate   = "https://dl.helix.ml/desktop/%s/Helix-for-Mac.dmg"
 	vmManifestURLTpl = "https://dl.helix.ml/vm/%s/manifest.json"
 )
+
+type macRelease struct {
+	Version string `json:"version"`
+	DMGURL  string `json:"dmg_url"`
+}
 
 var semverRegex = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$`)
 
@@ -166,14 +171,29 @@ func isDevMode() bool {
 	return Version == "dev"
 }
 
-// CheckForUpdate fetches the latest version from the CDN and compares.
+func readMacRelease(r io.Reader) (macRelease, error) {
+	var release macRelease
+	if err := json.NewDecoder(io.LimitReader(r, 4096)).Decode(&release); err != nil {
+		return macRelease{}, fmt.Errorf("failed to read latest Mac release: %w", err)
+	}
+	if ParseSemVer(release.Version) == nil {
+		return macRelease{}, fmt.Errorf("invalid latest Mac version %q", release.Version)
+	}
+	expectedURL := fmt.Sprintf(dmgURLTemplate, release.Version)
+	if release.DMGURL != expectedURL {
+		return macRelease{}, fmt.Errorf("unexpected latest Mac DMG URL %q", release.DMGURL)
+	}
+	return release, nil
+}
+
+// CheckForUpdate fetches the latest successful Mac release from the CDN and compares.
 func (u *Updater) CheckForUpdate() (UpdateInfo, error) {
 	if isDevMode() {
 		return UpdateInfo{CurrentVersion: Version}, nil
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(latestVersionURL)
+	resp, err := client.Get(latestReleaseURL)
 	if err != nil {
 		return UpdateInfo{}, fmt.Errorf("failed to check for updates: %w", err)
 	}
@@ -183,22 +203,20 @@ func (u *Updater) CheckForUpdate() (UpdateInfo, error) {
 		return UpdateInfo{}, fmt.Errorf("update check returned HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 256))
+	release, err := readMacRelease(resp.Body)
 	if err != nil {
-		return UpdateInfo{}, fmt.Errorf("failed to read latest version: %w", err)
+		return UpdateInfo{}, err
 	}
-
-	latest := strings.TrimSpace(string(body))
 
 	info := UpdateInfo{
 		CurrentVersion: Version,
-		LatestVersion:  latest,
-		Available:      IsNewer(Version, latest),
+		LatestVersion:  release.Version,
+		Available:      IsNewer(Version, release.Version),
 	}
 
 	if info.Available {
-		info.DMGURL = fmt.Sprintf(dmgURLTemplate, latest)
-		info.VMManifestURL = fmt.Sprintf(vmManifestURLTpl, latest)
+		info.DMGURL = release.DMGURL
+		info.VMManifestURL = fmt.Sprintf(vmManifestURLTpl, release.Version)
 	}
 
 	u.mu.Lock()

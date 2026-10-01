@@ -555,14 +555,25 @@ export const InteractionInference: FC<{
   const showAddCredits = isInsufficientBalance
     && !hasCredits
     && !!router.params.org_id;
+  const isBotProviderUnavailable = !!error
+    && !!router.params.org_id
+    && !!router.params.bot_id
+    && (
+      /provider is not available to the organization/i.test(error)
+      || /provider ".+" is not enabled for coding-agent (?:runtime|harness) ".+" in this organization/i.test(error)
+    );
   const errorTitle = isInsufficientBalance
     ? "More credits needed"
-    : "We couldn’t complete that request";
+    : isBotProviderUnavailable
+      ? "Provider setup required"
+      : "We couldn’t complete that request";
   const errorMessage = isInsufficientBalance
     ? hasCredits
       ? "Credits are available now. Retry to continue."
       : "Your organization doesn’t have enough credits. Add credits to continue."
-    : error;
+    : isBotProviderUnavailable
+      ? "Configure this bot's provider and model."
+      : error;
   const handleCancel =
     externalHandleCancel ||
     (() => {
@@ -1115,10 +1126,27 @@ export const InteractionInference: FC<{
                   Add credits
                 </Button>
               )}
+              {isBotProviderUnavailable && (
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  size="small"
+                  sx={{ mt: 1 }}
+                  onClick={() =>
+                    router.navigate("helix_org_bot_detail", {
+                      org_id: router.params.org_id,
+                      bot_id: router.params.bot_id,
+                    })
+                  }
+                >
+                  Configure provider
+                </Button>
+              )}
             </Alert>
           </Cell>
           {onRegenerate
             && !message
+            && !isBotProviderUnavailable
             && (!isInsufficientBalance || hasCredits) && (
             <Cell
               sx={{

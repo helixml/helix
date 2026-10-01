@@ -1308,6 +1308,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	}
 	assetSSH.WithAudit(orgAudit, auditProjects)
 	assetSSHProxy.WithAudit(orgAudit, auditProjects)
+	deps.SecretIntakes = &secretIntakeMCPService{api: cfg.APIServer, orgStore: st}
 	deps.Assets = assetsSvc
 	deps.AssetSSH = assetSSH
 	deps.AssetSSHIssuer = assetSSHIssuer

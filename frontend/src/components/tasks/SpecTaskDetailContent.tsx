@@ -87,6 +87,7 @@ import {
   useRemoveLabel,
   useGetSpecTaskExecutionConfig,
   useUpdateSpecTaskExecutionConfig,
+  invalidateSpecTaskStatusQueries,
 } from "../../services/specTaskService";
 import {
   useGetProject,
@@ -131,6 +132,7 @@ import useIsBigScreen from "../../hooks/useIsBigScreen";
 import useIsPhone from "../../hooks/useIsPhone";
 import useLightTheme from "../../hooks/useLightTheme";
 import {
+  ArchiveRestore,
   ChartNoAxesCombined,
   PanelLeft,
   PanelRight,
@@ -622,6 +624,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Archive state
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
+  const [isUnarchiving, setIsUnarchiving] = useState(false);
 
   // Public design docs state
   const [isPublicDesignDocs, setIsPublicDesignDocs] = useState(
@@ -1437,6 +1440,29 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     onTaskArchived,
   ]);
 
+  // Unarchiving is non-destructive, so it skips the confirmation dialog. It must
+  // not navigate away either: the user got here from a direct link to an
+  // archived task and wants to keep working on it.
+  const performUnarchive = useCallback(async () => {
+    if (!task?.id || isUnarchiving) return;
+
+    setIsUnarchiving(true);
+    try {
+      await api
+        .getApiClient()
+        .v1SpecTasksArchivePartialUpdate(task.id, { archived: false });
+      snackbar.success("Task unarchived");
+      // Refresh the task itself plus every task list (kanban, sidebar) so
+      // editability and desktop availability recover without a reload.
+      await invalidateSpecTaskStatusQueries(queryClient, task.id);
+    } catch (err) {
+      console.error("Failed to unarchive task:", err);
+      snackbar.error("Failed to unarchive task");
+    } finally {
+      setIsUnarchiving(false);
+    }
+  }, [task?.id, isUnarchiving, api, snackbar, queryClient]);
+
   const renderTaskActions = (
     variant: "inline" | "stacked",
     density: ToolbarDensity = "comfortable",
@@ -1473,6 +1499,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           (repository) => repository.external_type,
         )?.external_type}
         isStartingPlanning={isStartingPlanning}
+        onUnarchive={performUnarchive}
+        isUnarchiving={isUnarchiving}
       />
     );
   };
@@ -2364,25 +2392,58 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             </Button>
           )}
 
-          <Tooltip title="Hold Shift to skip confirmation">
-            <Button
-              size="small"
-              variant="text"
-              color="error"
-              startIcon={
-                isArchiving ? (
-                  <CircularProgress size={16} color="inherit" />
-                ) : (
-                  <Trash2 size={16} />
-                )
-              }
-              onClick={handleArchiveClick}
-              disabled={isArchiving || task?.archived}
-              sx={ACTION_BUTTON_SX}
-            >
-              {isArchiving ? "Archiving..." : "Archive Task"}
-            </Button>
-          </Tooltip>
+          {/* An archived task swaps Archive for Unarchive rather than showing a
+              disabled button, so a direct link to an archived task is not a
+              dead end. */}
+          {isTaskArchived ? (
+            <>
+              <Chip
+                size="small"
+                variant="outlined"
+                color="warning"
+                icon={<Trash2 size={14} />}
+                label="This task is archived"
+                sx={{ mr: "auto" }}
+              />
+              <Button
+                size="small"
+                variant="text"
+                color="inherit"
+                startIcon={
+                  isUnarchiving ? (
+                    <CircularProgress size={16} color="inherit" />
+                  ) : (
+                    <ArchiveRestore size={16} />
+                  )
+                }
+                onClick={performUnarchive}
+                disabled={isUnarchiving}
+                sx={ACTION_BUTTON_SX}
+              >
+                {isUnarchiving ? "Unarchiving..." : "Unarchive Task"}
+              </Button>
+            </>
+          ) : (
+            <Tooltip title="Hold Shift to skip confirmation">
+              <Button
+                size="small"
+                variant="text"
+                color="error"
+                startIcon={
+                  isArchiving ? (
+                    <CircularProgress size={16} color="inherit" />
+                  ) : (
+                    <Trash2 size={16} />
+                  )
+                }
+                onClick={handleArchiveClick}
+                disabled={isArchiving}
+                sx={ACTION_BUTTON_SX}
+              >
+                {isArchiving ? "Archiving..." : "Archive Task"}
+              </Button>
+            </Tooltip>
+          )}
         </Box>
       </Box>
         </Box>

@@ -62,12 +62,11 @@ func callerCtx(userID string, role types.OrganizationRole) context.Context {
 	return helixorgserver.WithOrgAuthorization(ctx, role, false)
 }
 
-// The owner's delete tears down in order: sandbox, workspace, then session.
-func (s *BotInstancesDeleteSuite) TestOwnerDeletesSandboxWorkspaceAndSession() {
+// The owner's delete tears down in order: sandbox and its host data, then session.
+func (s *BotInstancesDeleteSuite) TestOwnerDeletesSandboxAndSession() {
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_instance").Return(instanceSession(), nil)
 	gomock.InOrder(
-		s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_instance").Return(nil),
-		s.executor.EXPECT().DeleteWorkspace(gomock.Any(), "ses_instance", "sbx_host1").Return(nil),
+		s.executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_instance", "").Return(nil),
 		s.store.EXPECT().DeleteSession(gomock.Any(), "ses_instance").Return(instanceSession(), nil),
 	)
 
@@ -76,8 +75,7 @@ func (s *BotInstancesDeleteSuite) TestOwnerDeletesSandboxWorkspaceAndSession() {
 
 func (s *BotInstancesDeleteSuite) TestOrgOwnerMayDeleteAnotherUsersInstance() {
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_instance").Return(instanceSession(), nil)
-	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_instance").Return(nil)
-	s.executor.EXPECT().DeleteWorkspace(gomock.Any(), "ses_instance", "sbx_host1").Return(nil)
+	s.executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_instance", "").Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), "ses_instance").Return(instanceSession(), nil)
 
 	s.Require().NoError(s.instances.Delete(callerCtx("usr_admin", types.OrganizationRoleOwner), "org_one", "b-broker", "ses_instance"))
@@ -113,12 +111,11 @@ func (s *BotInstancesDeleteSuite) TestMissingSessionIsNotFound() {
 	s.Require().ErrorIs(err, helixorgstore.ErrNotFound)
 }
 
-// A workspace that can't be deleted keeps the session, so the delete can be
-// retried rather than leaving an orphaned workspace behind.
-func (s *BotInstancesDeleteSuite) TestWorkspaceFailureKeepsSession() {
+// A sandbox that can't be destroyed keeps the session, so the delete can be
+// retried rather than leaving orphaned host data behind.
+func (s *BotInstancesDeleteSuite) TestDestroyFailureKeepsSession() {
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_instance").Return(instanceSession(), nil)
-	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_instance").Return(nil)
-	s.executor.EXPECT().DeleteWorkspace(gomock.Any(), "ses_instance", "sbx_host1").Return(errors.New("sandbox offline"))
+	s.executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_instance", "").Return(errors.New("sandbox offline"))
 
 	err := s.instances.Delete(callerCtx("usr_owner", types.OrganizationRoleMember), "org_one", "b-broker", "ses_instance")
 	s.Require().ErrorContains(err, "sandbox offline")
@@ -143,4 +140,21 @@ func TestBotInstancesSyncProfileAttemptsEveryInstance(t *testing.T) {
 
 	err := instances.SyncProfile(context.Background(), "org-test", "b-broker")
 	require.ErrorContains(t, err, "instance ses_one: db down")
+}
+
+func TestBotInstancesDeleteAllPreservesSessionWhenDestroyFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	executor := external_agent.NewMockExecutor(ctrl)
+	orgStore := orgmemory.New()
+	bot := mustBot(t, "b-broker", time.Now()).WithAgentID("app_broker")
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), bot))
+	instances := botInstances{server: &HelixAPIServer{Store: st, externalAgentExecutor: executor}, store: orgStore}
+
+	first := &types.Session{ID: "ses_one", Metadata: types.SessionMetadata{OrgWorkerID: "b-broker"}}
+	second := &types.Session{ID: "ses_two", Metadata: types.SessionMetadata{OrgWorkerID: "b-broker"}}
+	st.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return([]*types.Session{first, second}, int64(2), nil)
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_one", "").Return(errors.New("sandbox offline"))
+
+	require.ErrorContains(t, instances.DeleteAll(context.Background(), bot.OrganizationID, "b-broker"), "destroy instance sandbox ses_one")
 }

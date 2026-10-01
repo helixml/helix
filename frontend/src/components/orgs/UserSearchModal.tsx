@@ -193,10 +193,10 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
       return { state: 'loading', label: 'Checking…', helper: 'Checking whether this email already has a Helix account…' }
     }
     if (emailLookup.is_invited) {
-      return { state: 'already_invited', label: 'Invitation sent', helper: 'An invitation has already been sent to this email. They will join the organization automatically when they register.' }
+      return { state: 'already_invited', label: 'Invitation created', helper: 'An invitation already exists for this email. They will join the organization automatically when they register.' }
     }
     if (!emailLookup.exists) {
-      return { state: 'not_helix', label: 'Send invitation', helper: 'No Helix account exists for this email. We\'ll email them an invitation — they\'ll join the org automatically when they register.' }
+      return { state: 'not_helix', label: 'Create invitation', helper: 'No Helix account exists for this email. They will join the organization automatically when they register.' }
     }
     if (emailLookup.is_member) {
       return { state: 'in_org', label: 'Already a member', helper: 'This user is already in the organization.' }
@@ -337,4 +337,4 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
   )
 }
 
-export default UserSearchModal 
+export default UserSearchModal

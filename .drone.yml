@@ -1676,7 +1676,7 @@ steps:
 
         echo "Running live compatibility test: claude-agent-acp@latest (all phases)..."
         docker run --rm \
-          -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
+          -e ANTHROPIC_API_KEY \
           -e E2E_AGENTS="claude" \
           -e TEST_TIMEOUT=600 \
           zed-ws-e2e:$${ZED_COMMIT}

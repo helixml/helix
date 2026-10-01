@@ -1385,6 +1385,9 @@ func main() {
 	// leaving a Zed thread waiting for an agent server that was never written.
 	const maxRetries = 5
 	if err := daemon.syncInitialConfig(maxRetries, 2*time.Second); err != nil {
+		if isFatalZedConfigError(err) {
+			log.Fatalf("Fatal initial sync failure: %v", err)
+		}
 		log.Printf("Warning: Initial sync failed: %v", err)
 	}
 

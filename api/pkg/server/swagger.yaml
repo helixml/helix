@@ -267,6 +267,8 @@ definitions:
         type: string
       created_at:
         type: string
+      disk_size_gb:
+        type: integer
       name:
         type: string
       owner:
@@ -278,8 +280,17 @@ definitions:
           SandboxStatus is the sandbox's external agent status: "" (stopped),
           "starting", "running", "restarting", "terminated_idle" …
         type: string
+      secrets:
+        description: |-
+          Secrets are the names granted when the instance was created. Values are
+          never returned.
+        items:
+          type: string
+        type: array
       session_id:
         type: string
+      sudo:
+        type: boolean
       updated_at:
         type: string
     type: object
@@ -318,6 +329,11 @@ definitions:
     type: object
   api.CreateBotInstanceRequest:
     properties:
+      disk_size_gb:
+        description: |-
+          DiskSizeGB is the persistent home filesystem capacity. Omitted defaults
+          to 10 GB; accepted values are 1-1000.
+        type: integer
       message:
         description: Message is queued as the instance's first turn.
         type: string
@@ -329,6 +345,18 @@ definitions:
         description: |-
           SandboxRuntime overrides the Bot's instance profile runtime:
           "headless-ubuntu" or "ubuntu-desktop".
+      secrets:
+        description: |-
+          Secrets names project development secrets to grant to this instance.
+          Omitted or empty means no project secrets.
+        items:
+          type: string
+        type: array
+      sudo:
+        description: |-
+          AllowSudo opts a headless instance out of no-new-privileges. It is
+          false by default. ubuntu-desktop instances always allow sudo.
+        type: boolean
     type: object
   api.CreateBotRequest:
     properties:
@@ -3092,6 +3120,58 @@ definitions:
           $ref: '#/definitions/server.SandboxTerminalSession'
         type: array
     type: object
+  server.SecretIntakeConsumption:
+    properties:
+      values:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  server.SecretIntakeCreateResponse:
+    properties:
+      intake:
+        $ref: '#/definitions/server.SecretIntakeView'
+      invite_url:
+        type: string
+    type: object
+  server.SecretIntakeRedeemRequest:
+    properties:
+      intake_id:
+        type: string
+      token:
+        type: string
+    required:
+    - intake_id
+    - token
+    type: object
+  server.SecretIntakeSubmissionRequest:
+    properties:
+      values:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  server.SecretIntakeView:
+    properties:
+      conversation_id:
+        type: string
+      customer_id:
+        type: string
+      expires_at:
+        type: string
+      fields:
+        items:
+          $ref: '#/definitions/types.SecretIntakeField'
+        type: array
+      id:
+        type: string
+      project_id:
+        type: string
+      status:
+        type: string
+      values_expires_at:
+        type: string
+    type: object
   server.SessionClaudeCredentialsResponse:
     properties:
       credential_type:
@@ -3651,24 +3731,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - gitlab
-    - github
-    - helix_events
-    - email
-    - slack
-    - webhook
-    - cron
     - local
+    - email
+    - cron
+    - helix_events
+    - webhook
+    - slack
+    - github
+    - gitlab
     type: string
     x-enum-varnames:
-    - KindGitLab
-    - KindGitHub
-    - KindHelixEvents
-    - KindEmail
-    - KindSlack
-    - KindWebhook
-    - KindCron
     - KindLocal
+    - KindEmail
+    - KindCron
+    - KindHelixEvents
+    - KindWebhook
+    - KindSlack
+    - KindGitHub
+    - KindGitLab
   transport.ResolvedActivation:
     properties:
       address:
@@ -3709,12 +3789,14 @@ definitions:
     - api
     - app
     - embed
+    - bot_instance
     type: string
     x-enum-varnames:
     - APIkeytypeNone
     - APIkeytypeAPI
     - APIkeytypeApp
     - APIkeytypeEmbed
+    - APIkeytypeBotInstance
   types.AccessGrant:
     properties:
       created_at:
@@ -10306,6 +10388,42 @@ definitions:
           type: integer
         type: array
     type: object
+  types.SecretIntakeCreateRequest:
+    properties:
+      accent_color:
+        type: string
+      artifact_id:
+        type: string
+      brand_name:
+        type: string
+      conversation_id:
+        type: string
+      customer_id:
+        type: string
+      description:
+        type: string
+      fields:
+        items:
+          $ref: '#/definitions/types.SecretIntakeField'
+        type: array
+      logo_url:
+        type: string
+      title:
+        type: string
+    type: object
+  types.SecretIntakeField:
+    properties:
+      autocomplete:
+        type: string
+      label:
+        type: string
+      name:
+        type: string
+      required:
+        type: boolean
+      type:
+        type: string
+    type: object
   types.SecretScope:
     enum:
     - dev
@@ -10883,6 +11001,22 @@ definitions:
           BotInstance is set on org bot instance sessions (SessionRole
           SessionRoleOrgBotInstance): the bot's instance profile as of the last
           sync, which shapes the instance's MCP servers, org tools and skills.
+      bot_instance_allow_sudo:
+        type: boolean
+      bot_instance_disk_size_gb:
+        description: |-
+          BotInstanceDiskSizeGB is the hard capacity of the instance's persistent
+          home filesystem. BotInstanceAllowSudo is the requested opt-out from the
+          default no-new-privileges policy. Read both through BotInstanceDiskSize
+          and BotInstanceSudo, which apply defaults and runtime rules.
+        type: integer
+      bot_instance_secrets:
+        description: |-
+          BotInstanceSecrets names the project development secrets explicitly
+          granted when this instance was created. Empty means no project secrets.
+        items:
+          type: string
+        type: array
       callback_url:
         description: Webhook URL to POST on session completion
         type: string
@@ -11201,6 +11335,111 @@ definitions:
     - SessionTypeNone
     - SessionTypeText
     - SessionTypeImage
+  types.SessionUsage:
+    properties:
+      calls:
+        items:
+          $ref: '#/definitions/types.SessionUsageCall'
+        type: array
+      session_id:
+        type: string
+      summary:
+        $ref: '#/definitions/types.SessionUsageSummary'
+      truncated:
+        description: |-
+          Truncated is set when the session has more calls than the endpoint returns;
+          the summary then covers only the returned calls.
+        type: boolean
+      turns:
+        items:
+          $ref: '#/definitions/types.SessionUsageTurn'
+        type: array
+    type: object
+  types.SessionUsageCall:
+    properties:
+      cache_read_tokens:
+        type: integer
+      cache_write_tokens:
+        type: integer
+      completion_tokens:
+        type: integer
+      created:
+        type: string
+      duration_ms:
+        type: integer
+      interaction_id:
+        type: string
+      model:
+        type: string
+      prompt_tokens:
+        type: integer
+      time_to_first_token_ms:
+        type: integer
+      total_cost:
+        type: number
+    type: object
+  types.SessionUsageSummary:
+    properties:
+      cache_hit_ratio:
+        description: CacheHitRatio is cache-read / prompt tokens; nil when there were
+          no prompt tokens.
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_tokens:
+        type: integer
+      calls:
+        type: integer
+      completion_tokens:
+        type: integer
+      duration_p50_ms:
+        type: integer
+      duration_p90_ms:
+        type: integer
+      llm_ms:
+        description: LLMMs is the summed duration of the calls (calls can overlap,
+          so this can exceed wall time).
+        type: integer
+      models:
+        items:
+          type: string
+        type: array
+      prompt_tokens:
+        type: integer
+      total_cost:
+        type: number
+      ttft_p50_ms:
+        type: integer
+      ttft_p90_ms:
+        type: integer
+    type: object
+  types.SessionUsageTurn:
+    properties:
+      cache_hit_ratio:
+        type: number
+      cache_read_tokens:
+        type: integer
+      calls:
+        type: integer
+      completed:
+        type: string
+      completion_tokens:
+        type: integer
+      interaction_id:
+        type: string
+      llm_ms:
+        type: integer
+      prompt:
+        type: string
+      prompt_tokens:
+        type: integer
+      started:
+        type: string
+      state:
+        type: string
+      total_cost:
+        type: number
+    type: object
   types.SkillDefinition:
     properties:
       baseUrl:
@@ -23644,6 +23883,173 @@ paths:
       summary: Set project primary repository
       tags:
       - Projects
+  /api/v1/projects/{id}/secret-intakes:
+    post:
+      consumes:
+      - application/json
+      description: Creates a short-lived, one-time link for collecting requested fields
+        outside chat. The response never contains submitted values.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Field schema and branding
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SecretIntakeCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/server.SecretIntakeCreateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create a secret intake
+      tags:
+      - Secret Intakes
+  /api/v1/projects/{id}/secret-intakes/{intake_id}:
+    delete:
+      description: Invalidates its link and clears any submitted ciphertext.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Revoke a secret intake
+      tags:
+      - Secret Intakes
+    get:
+      description: Returns metadata and status only; submitted values remain inaccessible
+        through this endpoint.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SecretIntakeView'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get secret intake status
+      tags:
+      - Secret Intakes
+  /api/v1/projects/{id}/secret-intakes/{intake_id}/consume:
+    post:
+      description: 'One-time read for trusted integrations: returns the submitted
+        values and clears the stored ciphertext atomically. A failed or repeated call
+        cannot read them again.'
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SecretIntakeConsumption'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Consume secret intake values
+      tags:
+      - Secret Intakes
+  /api/v1/projects/{id}/secret-intakes/{intake_id}/submissions:
+    post:
+      consumes:
+      - application/json
+      description: Write-only project API for trusted integrations. Values are encrypted
+        and cannot be read through the API.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      - description: Submitted field values
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SecretIntakeSubmissionRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Submit secret intake values
+      tags:
+      - Secret Intakes
   /api/v1/projects/{id}/secrets:
     get:
       description: List all secrets associated with a specific project.
@@ -26880,6 +27286,26 @@ paths:
       summary: Get interaction by turn number
       tags:
       - Sessions
+  /api/v1/sessions/{id}/usage:
+    get:
+      description: Spend, tokens, latency and prompt-cache hit ratio of one session,
+        overall, per turn and per LLM call.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SessionUsage'
+      security:
+      - BearerAuth: []
+      summary: Get a session's LLM usage
+      tags:
+      - sessions
   /api/v1/sessions/{id}/workspace-status:
     get:
       description: Used by the fork-confirm modal so we can show "N files will be
@@ -29585,6 +30011,29 @@ paths:
       summary: Update Zed thread activity
       tags:
       - zed-integration
+  /connect/intake/redeem:
+    post:
+      consumes:
+      - application/json
+      description: Exchanges a one-time invitation token for a short-lived browser
+        flow cookie.
+      parameters:
+      - description: Invitation token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SecretIntakeRedeemRequest'
+      responses:
+        "204":
+          description: No Content
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Redeem a secret intake invitation
+      tags:
+      - Secret Intakes
   /v1/chat/completions:
     post:
       description: Creates a model response for the given chat conversation.

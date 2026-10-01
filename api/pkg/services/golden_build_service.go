@@ -299,8 +299,7 @@ func (g *GoldenBuildService) CancelGoldenBuilds(ctx context.Context, project *ty
 		// Stop the container
 		sessionID := sbState.BuildSessionID
 		if err := g.containerExecutor.StopDesktop(ctx, sessionID); err != nil {
-			log.Warn().Err(err).Str("session_id", sessionID).Str("sandbox_id", sbID).
-				Msg("Golden build: failed to stop container (may have already exited)")
+			return fmt.Errorf("stop golden build %s on sandbox %s: %w", sessionID, sbID, err)
 		}
 
 		// Clear the debounce entry
@@ -501,13 +500,13 @@ func (g *GoldenBuildService) runGoldenBuildOnSandbox(parentCtx context.Context, 
 		Env:                 envVars,
 		BranchMode:          "existing",
 		WorkingBranch:       defaultBranch,
-		DisplayWidth:       1920,
-		DisplayHeight:      1080,
-		DisplayRefreshRate: 60,
-		Resolution:         "1080p",
-		ZoomLevel:          200,
-		GoldenBuild:        true,
-		SandboxID:          sandboxID,
+		DisplayWidth:        1920,
+		DisplayHeight:       1080,
+		DisplayRefreshRate:  60,
+		Resolution:          "1080p",
+		ZoomLevel:           200,
+		GoldenBuild:         true,
+		SandboxID:           sandboxID,
 	}
 
 	// Start the desktop container
@@ -574,11 +573,13 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 			// Stop the container so a blown build doesn't keep compiling and
 			// burning CPU. ctx is already cancelled, so use a fresh context.
 			stopCtx, stopCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			if err := g.containerExecutor.StopDesktop(stopCtx, sessionID); err != nil {
-				log.Warn().Err(err).Str("session_id", sessionID).Str("sandbox_id", sandboxID).
-					Msg("Golden build: failed to stop timed-out container (may have already exited)")
-			}
+			stopErr := g.containerExecutor.StopDesktop(stopCtx, sessionID)
 			stopCancel()
+			if stopErr != nil {
+				log.Warn().Err(stopErr).Str("session_id", sessionID).Str("sandbox_id", sandboxID).
+					Msg("Golden build: failed to stop timed-out container")
+				return
+			}
 			g.updateSandboxCacheStatus(context.Background(), projectID, sandboxID, func(s *types.SandboxCacheState) {
 				s.Status = "failed"
 				s.Error = fmt.Sprintf("Build timed out (%s)", goldenBuildTimeout)

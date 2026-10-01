@@ -576,6 +576,9 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	} else if !filters.IncludeArchived {
 		db = db.Where("archived = ? OR archived IS NULL", false)
 	}
+	if filters.ExcludeDeletedProjects {
+		db = db.Where("NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = spec_tasks.project_id AND p.deleted_at IS NOT NULL)")
+	}
 	// DesignDocPath filter - used for matching pushed design doc directories to tasks
 	if filters.DesignDocPath != "" {
 		db = db.Where("design_doc_path = ?", filters.DesignDocPath)
