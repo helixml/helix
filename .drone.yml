@@ -2360,7 +2360,9 @@ steps:
       # The patched macOS path is the only user of this string (resolv_conf_scope_id is inlined)
       - strings "$WORK/qemu/build/libqemu-aarch64-softmmu.dylib" | grep -x /etc/resolv.conf
       - nm "$WORK/qemu/build/libqemu-aarch64-softmmu.dylib" | grep -m1 slirp_new
-      - cd "$WORK/qemu/build" && ls qemu-system-aarch64* && ./qemu-system-aarch64-unsigned --version
+      - find "$SYSROOT" /Applications/Helix.app -maxdepth 4 -name pixman-1.0.framework 2>/dev/null
+      - FWDIR=$(dirname "$(find "$SYSROOT" /Applications/Helix.app -maxdepth 4 -name pixman-1.0.framework 2>/dev/null | head -1)")
+      - cd "$WORK/qemu/build" && DYLD_FRAMEWORK_PATH="$FWDIR" ./qemu-system-aarch64-unsigned --version
 
 ---
 # ====================================================================
