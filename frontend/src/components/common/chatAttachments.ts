@@ -1,4 +1,5 @@
 import { createRandomId } from '../../utils/randomId'
+import { isPlaceholderClipboardImage } from '../../utils/clipboardPlaceholder'
 
 export const CHAT_ATTACHMENT_MAX_COUNT = 10
 export const CHAT_ATTACHMENT_MAX_BYTES = 500 * 1024 * 1024
@@ -82,6 +83,21 @@ export function validateChatAttachmentFiles(
 }
 
 export function filesFromClipboard(data: DataTransfer): File[] {
+  const files = clipboardFileList(data)
+
+  // A text copy out of the remote desktop leaves a 1x1 transparent placeholder
+  // PNG alongside the real text/plain (see utils/clipboardPlaceholder.ts for
+  // why the copy handler cannot omit it). Treating that placeholder as an
+  // attachment swallows the paste and loses the text, so drop it whenever the
+  // clipboard also carries real text. Genuine image copies out of the desktop
+  // carry an EMPTY text/plain, so they are unaffected.
+  if (!files.some(isPlaceholderClipboardImage)) return files
+  if (!data.getData('text/plain')) return files
+
+  return files.filter((file) => !isPlaceholderClipboardImage(file))
+}
+
+function clipboardFileList(data: DataTransfer): File[] {
   const directFiles = Array.from(data.files)
   if (directFiles.length > 0) return directFiles
 

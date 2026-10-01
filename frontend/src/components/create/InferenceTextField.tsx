@@ -16,6 +16,7 @@ import {
 } from '../../types'
 
 import { PROMPT_LABELS } from '../../config'
+import { isPlaceholderClipboardImage } from '../../utils/clipboardPlaceholder'
 
 const InferenceTextField: FC<{
   type: ISessionType,
@@ -148,13 +149,18 @@ const InferenceTextField: FC<{
       const items = event.clipboardData?.items
       if (!items || items.length === 0) return
 
+      // A text copy out of the remote desktop carries a 1x1 placeholder PNG
+      // alongside the real text; attaching it would swallow the text paste.
+      const hasText = Boolean(event.clipboardData?.getData('text/plain'))
       const imageFiles: File[] = []
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
         if (item.kind !== 'file') continue
         if (!item.type.startsWith('image/')) continue
         const file = item.getAsFile()
-        if (file) imageFiles.push(file)
+        if (!file) continue
+        if (hasText && isPlaceholderClipboardImage(file)) continue
+        imageFiles.push(file)
       }
 
       if (imageFiles.length === 0) return

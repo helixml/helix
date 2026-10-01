@@ -3,11 +3,23 @@ import { describe, expect, it } from 'vitest'
 import {
   buildMessageWithAttachments,
   createPendingChatAttachment,
+  filesFromClipboard,
   parseMessageWithAttachments,
   PendingChatAttachment,
   validateChatAttachmentFiles,
   workspaceAttachmentURL,
 } from './chatAttachments'
+import { PLACEHOLDER_PNG_BYTE_LENGTH } from '../../utils/clipboardPlaceholder'
+
+// The 1x1 transparent PNG the desktop copy handler writes alongside copied text.
+const placeholderPng = () =>
+  new File([new Uint8Array(PLACEHOLDER_PNG_BYTE_LENGTH)], 'image.png', { type: 'image/png' })
+
+const clipboard = (text: string, files: File[]): DataTransfer => ({
+  files,
+  items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+  getData: (type: string) => (type === 'text/plain' ? text : ''),
+} as unknown as DataTransfer)
 
 const uploaded = (overrides: Partial<PendingChatAttachment>): PendingChatAttachment => ({
   id: 'attachment-1',
@@ -92,6 +104,27 @@ describe('chat attachments', () => {
 
     const nested = content.replace('/etc/passwd', '/home/retro/work/incoming/nested/image.png')
     expect(parseMessageWithAttachments(nested)).toEqual({ message: nested, attachments: [] })
+  })
+
+  it('drops the desktop placeholder PNG when the clipboard also carries text', () => {
+    const data = clipboard('hello from the desktop', [placeholderPng()])
+    expect(filesFromClipboard(data)).toEqual([])
+  })
+
+  it('keeps the placeholder-sized image when the clipboard has no text (a real image copy)', () => {
+    const image = placeholderPng()
+    expect(filesFromClipboard(clipboard('', [image]))).toEqual([image])
+  })
+
+  it('keeps real images and files pasted alongside text', () => {
+    const screenshot = new File([new Uint8Array(4096)], 'screenshot.png', { type: 'image/png' })
+    const pdf = new File([new Uint8Array(32)], 'spec.pdf', { type: 'application/pdf' })
+    expect(filesFromClipboard(clipboard('see attached', [screenshot, pdf]))).toEqual([screenshot, pdf])
+  })
+
+  it('keeps real images pasted alongside the desktop placeholder', () => {
+    const screenshot = new File([new Uint8Array(4096)], 'screenshot.png', { type: 'image/png' })
+    expect(filesFromClipboard(clipboard('caption', [placeholderPng(), screenshot]))).toEqual([screenshot])
   })
 
   it('builds an encoded same-origin workspace URL', () => {

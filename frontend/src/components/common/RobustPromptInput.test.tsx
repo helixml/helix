@@ -4,6 +4,7 @@ import { PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import RobustPromptInput from './RobustPromptInput'
 import { buildWorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
 import { QUEUE_DISPATCH_GRACE_MS } from '../../utils/promptQueueVisibility'
+import { PLACEHOLDER_PNG_BYTE_LENGTH } from '../../utils/clipboardPlaceholder'
 
 const updateInterrupt = vi.fn()
 const saveToHistory = vi.fn()
@@ -507,6 +508,56 @@ describe('RobustPromptInput rich attachments', () => {
 
     expect(onSend).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Preview diagram.png' })).toBeInTheDocument()
+  })
+
+  it('pastes desktop-copied text as text, ignoring the 1x1 placeholder PNG', async () => {
+    const onFileUpload = vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`)
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        onSend={vi.fn()}
+        onFileUpload={onFileUpload}
+      />,
+    )
+
+    const placeholder = new File([new Uint8Array(PLACEHOLDER_PNG_BYTE_LENGTH)], 'image.png', { type: 'image/png' })
+    const textarea = screen.getByPlaceholderText('Send message to agent...')
+    const notPrevented = fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [placeholder],
+        items: [],
+        getData: (type: string) => (type === 'text/plain' ? 'hello from the desktop' : ''),
+      },
+    })
+
+    // Default must survive so the browser inserts the text itself.
+    expect(notPrevented).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+    expect(onFileUpload).not.toHaveBeenCalled()
+  })
+
+  it('still converts a large desktop text paste into a text attachment', async () => {
+    const onFileUpload = vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`)
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        onSend={vi.fn()}
+        onFileUpload={onFileUpload}
+      />,
+    )
+
+    const placeholder = new File([new Uint8Array(PLACEHOLDER_PNG_BYTE_LENGTH)], 'image.png', { type: 'image/png' })
+    const textarea = screen.getByPlaceholderText('Send message to agent...')
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [placeholder],
+        items: [],
+        getData: (type: string) => (type === 'text/plain' ? 'x'.repeat(20000) : ''),
+      },
+    })
+
+    expect(await screen.findByText(/pasted-text-.*\.txt/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
   })
 
   it('keeps a failed upload visible and blocks send until it is retried', async () => {
