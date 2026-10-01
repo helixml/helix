@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -108,6 +109,9 @@ func (s *SessionMessagesHandlerSuite) TestEnqueuesOntoQueue() {
 			return nil
 		},
 	)
+	// This is a plain session (org chat / bot), so the spec-task reverse lookup
+	// finds nothing and an empty spec_task_id is the correct outcome.
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	// The background nudge lists the session's prompts; return none so the
 	// poller bails immediately and the test stays deterministic.
 	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
@@ -124,10 +128,74 @@ func (s *SessionMessagesHandlerSuite) TestEnqueuesOntoQueue() {
 	s.Equal("hello", captured.Content)
 	s.Equal("pending", captured.Status)
 	s.False(captured.Interrupt)
+	s.Empty(captured.SpecTaskID, "a session with no spec task must still enqueue, unstamped")
 
 	// Let the background nudge run its single (AnyTimes) list call and exit
 	// before the controller is finished.
 	time.Sleep(100 * time.Millisecond)
+}
+
+// TestStampsSpecTaskIDFromPlanningSession is the regression test for the bug
+// this endpoint had: it passed an empty specTaskID, the row was written with an
+// empty spec_task_id, and the prompt-queue UI — which queries BY spec_task_id —
+// filtered it out. The message was queued and would be delivered, but was
+// invisible. 53 approvals vanished this way.
+func (s *SessionMessagesHandlerSuite) TestStampsSpecTaskIDFromPlanningSession() {
+	user := &types.User{ID: "user-1"}
+	sessionID := "ses_planning"
+
+	session := &types.Session{ID: sessionID, Owner: user.ID}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
+
+	// The reverse lookup must go through planning_session_id, and must include
+	// archived tasks — an archived task's queue still has to render.
+	var filters *types.SpecTaskFilters
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, f *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+			filters = f
+			return []*types.SpecTask{{ID: "spt_owner", PlanningSessionID: sessionID}}, nil
+		},
+	).AnyTimes()
+
+	var captured *types.PromptHistoryEntry
+	s.store.EXPECT().CreatePromptHistoryEntry(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, e *types.PromptHistoryEntry) error {
+			captured = e
+			return nil
+		},
+	)
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
+
+	rr := s.callHandler(sessionID, SessionMessageRequest{Content: "approve card"}, user)
+	s.Require().Equal(http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+
+	s.Require().NotNil(captured)
+	s.Equal("spt_owner", captured.SpecTaskID, "the queued row must carry the owning spec task or the queue UI cannot see it")
+
+	s.Require().NotNil(filters)
+	s.Equal(sessionID, filters.PlanningSessionID)
+	s.True(filters.IncludeArchived)
+
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestSpecTaskLookupErrorFailsEnqueue verifies we do not silently write an
+// unstamped (invisible) row when the reverse lookup errors. Failing loudly is
+// the house rule; a caller retry is better than a message the user cannot see.
+func (s *SessionMessagesHandlerSuite) TestSpecTaskLookupErrorFailsEnqueue() {
+	user := &types.User{ID: "user-1"}
+	sessionID := "ses_lookup_err"
+
+	session := &types.Session{ID: sessionID, Owner: user.ID}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("db exploded")).AnyTimes()
+	// Nothing may be written when the lookup fails.
+	s.store.EXPECT().CreatePromptHistoryEntry(gomock.Any(), gomock.Any()).Times(0)
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
+
+	rr := s.callHandler(sessionID, SessionMessageRequest{Content: "hello"}, user)
+	s.Equal(http.StatusInternalServerError, rr.Code)
 }
 
 // TestRejectsCrossUser verifies authorizeUserToSession blocks a different
@@ -168,6 +236,7 @@ func (s *SessionMessagesHandlerSuite) TestNotifyUserIDCarriedOnRow() {
 			return nil
 		},
 	)
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
 
 	rr := s.callHandler(sessionID, SessionMessageRequest{Content: "x", NotifyUserID: "commenter-9"}, user)
@@ -185,4 +254,139 @@ func TestErrNoExternalAgentWSIsRecognisable(t *testing.T) {
 	if !errors.Is(wrapped, ErrNoExternalAgentWS) {
 		t.Fatalf("expected wrapped error to satisfy errors.Is")
 	}
+}
+
+// --- Busy-defer vs real failure -------------------------------------------
+//
+// The headline behaviour of the prompt-queue fix: a busy-defer must return the
+// prompt to the queue with its retry budget INTACT, while a genuine dispatch
+// error must still be recorded as failed (which charges the budget and sets
+// backoff). Getting this wrong is silent data loss — processAnyPendingPrompt
+// runs on every user interrupt, so charging defers exhausts the 20-retry cap
+// and the selectors stop seeing the prompt forever.
+
+// PromptRequeueSuite exercises requeueUndispatchedPrompt, the single place the
+// three drain paths classify a failed dispatch attempt.
+type PromptRequeueSuite struct {
+	suite.Suite
+	ctrl   *gomock.Controller
+	store  *store.MockStore
+	server *HelixAPIServer
+}
+
+func TestPromptRequeueSuite(t *testing.T) { suite.Run(t, new(PromptRequeueSuite)) }
+
+func (s *PromptRequeueSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
+	s.store = store.NewMockStore(s.ctrl)
+	s.server = &HelixAPIServer{Store: s.store}
+}
+
+func (s *PromptRequeueSuite) TestBusyDeferPreservesRetryBudget() {
+	prompt := &types.PromptHistoryEntry{ID: "prompt_busy", RetryCount: 7}
+
+	// The defining assertion: reverted to pending, and MarkPromptAsFailed is
+	// never called, so retry_count is untouched.
+	s.store.EXPECT().RevertPromptToPending(gomock.Any(), "prompt_busy").Return(nil)
+	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	deferErr := fmt.Errorf("session ses_x became busy (interaction int_y is Waiting), deferring queue prompt: %w", ErrPromptBusyDeferred)
+	s.server.requeueUndispatchedPrompt(context.Background(), "ses_x", prompt, deferErr)
+}
+
+func (s *PromptRequeueSuite) TestRealErrorStillCountsAsFailure() {
+	prompt := &types.PromptHistoryEntry{ID: "prompt_broken", RetryCount: 1}
+
+	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt_broken", "interaction creation exploded").Return(nil)
+	s.store.EXPECT().RevertPromptToPending(gomock.Any(), gomock.Any()).Times(0)
+
+	s.server.requeueUndispatchedPrompt(context.Background(), "ses_x", prompt, errors.New("interaction creation exploded"))
+}
+
+// TestBusyDeferSentinelSurvivesWrapping guards the mechanism the classifier
+// relies on: sendQueuedPromptToSession wraps the sentinel with %w inside a
+// message that carries the session and interaction ids.
+func TestBusyDeferSentinelSurvivesWrapping(t *testing.T) {
+	wrapped := fmt.Errorf("session %s became busy (interaction %s is Waiting), deferring queue prompt: %w", "ses_1", "int_1", ErrPromptBusyDeferred)
+	if !errors.Is(wrapped, ErrPromptBusyDeferred) {
+		t.Fatalf("expected wrapped busy-defer to satisfy errors.Is")
+	}
+	if errors.Is(errors.New("some other failure"), ErrPromptBusyDeferred) {
+		t.Fatalf("unrelated error must not be classified as a busy-defer")
+	}
+}
+
+// --- Sync write-side authorization ----------------------------------------
+//
+// A synced entry carries its OWN session_id, and that is what the queue drain
+// dispatches to. The request-scope check does not cover it, so without
+// authorizeSyncEntryTargets any authenticated user could sync an entry naming
+// a session they cannot access and have their content delivered into that
+// session's agent turn.
+
+type SyncEntryAuthzSuite struct {
+	suite.Suite
+	ctrl   *gomock.Controller
+	store  *store.MockStore
+	server *HelixAPIServer
+}
+
+func TestSyncEntryAuthzSuite(t *testing.T) { suite.Run(t, new(SyncEntryAuthzSuite)) }
+
+func (s *SyncEntryAuthzSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
+	s.store = store.NewMockStore(s.ctrl)
+	s.server = &HelixAPIServer{Store: s.store}
+}
+
+// The attack: scope is a session the attacker legitimately owns, but the entry
+// names the victim's session.
+func (s *SyncEntryAuthzSuite) TestRejectsEntryTargetingForeignSession() {
+	attacker := &types.User{ID: "usr_attacker"}
+	victimSession := &types.Session{ID: "ses_victim", Owner: "usr_victim"}
+
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_victim").Return(victimSession, nil)
+
+	httpErr := s.server.authorizeSyncEntryTargets(
+		context.Background(), attacker,
+		[]types.PromptHistoryEntrySync{{ID: "p1", SessionID: "ses_victim", Content: "injected"}},
+		"ses_attacker_own",
+	)
+	s.Require().NotNil(httpErr, "syncing into another user's session must be refused")
+	s.Equal(http.StatusForbidden, httpErr.StatusCode)
+}
+
+// Non-regression: a spec-task view drives more than one session, so an entry
+// naming a DIFFERENT session the caller is authorized for must pass. Collapsing
+// these onto the scope session would silently drop the prompt.
+func (s *SyncEntryAuthzSuite) TestAllowsOtherSessionCallerOwns() {
+	user := &types.User{ID: "usr_1"}
+	otherOwn := &types.Session{ID: "ses_other", Owner: "usr_1"}
+
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_other").Return(otherOwn, nil)
+
+	httpErr := s.server.authorizeSyncEntryTargets(
+		context.Background(), user,
+		[]types.PromptHistoryEntrySync{{ID: "p1", SessionID: "ses_other", Content: "mine"}},
+		"ses_scope",
+	)
+	s.Nil(httpErr)
+}
+
+// Entries matching the authorized scope, or carrying no session at all, need no
+// extra lookup — GetSession is never called.
+func (s *SyncEntryAuthzSuite) TestSkipsScopeAndEmptySessionsWithoutLookup() {
+	user := &types.User{ID: "usr_1"}
+	s.store.EXPECT().GetSession(gomock.Any(), gomock.Any()).Times(0)
+
+	httpErr := s.server.authorizeSyncEntryTargets(
+		context.Background(), user,
+		[]types.PromptHistoryEntrySync{
+			{ID: "p1", SessionID: "ses_scope"},
+			{ID: "p2", SessionID: ""},
+			{ID: "p3", SessionID: "ses_scope"},
+		},
+		"ses_scope",
+	)
+	s.Nil(httpErr)
 }

@@ -690,6 +690,23 @@ func (m *MemoryStore) MarkPromptAsPending(_ context.Context, id string) error {
 	m.setPromptStatus(id, "pending")
 	return nil
 }
+
+// RevertPromptToPending mirrors the Postgres store: back to pending with
+// next_retry_at and error_message cleared, and crucially without touching
+// RetryCount (a busy-defer is not a failure). The field clearing matters for
+// parity — a stale NextRetryAt would gate re-selection, and a stale
+// ErrorMessage would keep the UI showing "Failed - retrying" for a prompt that
+// is merely waiting.
+func (m *MemoryStore) RevertPromptToPending(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if p, ok := m.prompts[id]; ok {
+		p.Status = "pending"
+		p.NextRetryAt = nil
+		p.ErrorMessage = ""
+	}
+	return nil
+}
 func (m *MemoryStore) MarkPromptAsSent(_ context.Context, id string) error {
 	m.setPromptStatus(id, "sent")
 	return nil
