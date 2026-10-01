@@ -255,6 +255,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.VHostRoute{},
 		&types.ProjectWebServiceState{},
 		&types.WebServiceDeploy{},
+		&types.SandboxCacheState{}, // golden_builds
 	)
 	if err != nil {
 		return err
@@ -309,6 +310,10 @@ func (s *PostgresStore) runMigrations() error {
 		).Error; err != nil {
 			return fmt.Errorf("failed to backfill sandboxes.org_bot_id: %w", err)
 		}
+	}
+
+	if err := s.migrateGoldenBuildsFromProjectMetadata(context.Background()); err != nil {
+		return fmt.Errorf("failed to migrate golden build state out of project metadata: %w", err)
 	}
 
 	err = s.AutoMigrateRoleConfig(context.Background())
@@ -398,6 +403,10 @@ func (s *PostgresStore) runMigrations() error {
 	}
 	if err := createFK(s.gdb, types.ProjectRepository{}, types.GitRepository{}, "repository_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK for project_repositories -> git_repositories")
+	}
+
+	if err := createFK(s.gdb, types.SandboxCacheState{}, types.Project{}, "project_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK for golden_builds -> projects")
 	}
 
 	// Ensure default project exists for spec tasks

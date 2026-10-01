@@ -517,19 +517,19 @@ type SampleProjectTask struct {
 type ProjectMetadata struct {
 	BoardSettings       *BoardSettings    `json:"board_settings,omitempty"`
 	AutoWarmDockerCache bool              `json:"auto_warm_docker_cache,omitempty"`
-	DockerCacheStatus   *DockerCacheState `json:"docker_cache_status,omitempty"`
+	DockerCacheStatus   *DockerCacheState `json:"docker_cache_status,omitempty"` // Computed from golden_builds on read
 	OrgMembersAccess    bool              `json:"org_members_access,omitempty"`
 }
 
-// DockerCacheState tracks the current state of the golden Docker cache for a project,
-// per sandbox. Each sandbox has its own cache state since golden caches are local
-// to the sandbox's filesystem.
+// DockerCacheState is the API view of a project's golden Docker cache, per
+// sandbox. Golden caches are local to each sandbox's filesystem. It is built
+// from the golden_builds table on read; it is not stored in ProjectMetadata.
 type DockerCacheState struct {
 	Sandboxes map[string]*SandboxCacheState `json:"sandboxes,omitempty"`
 }
 
 // OverallStatus returns an aggregate status across all sandboxes:
-// "building" if any sandbox is building, "ready" if all are ready,
+// "building" if any sandbox is building or retrying, "ready" if all are ready,
 // "failed" if any failed (and none building), "none" otherwise.
 func (d *DockerCacheState) OverallStatus() string {
 	if d == nil || len(d.Sandboxes) == 0 {
@@ -540,38 +540,87 @@ func (d *DockerCacheState) OverallStatus() string {
 	allReady := true
 	for _, s := range d.Sandboxes {
 		switch s.Status {
-		case "building":
+		case GoldenBuildStatusBuilding, GoldenBuildStatusRetrying:
 			anyBuilding = true
 			allReady = false
-		case "failed":
+		case GoldenBuildStatusFailed:
 			anyFailed = true
 			allReady = false
-		case "ready":
+		case GoldenBuildStatusReady:
 			// ok
 		default:
 			allReady = false
 		}
 	}
 	if anyBuilding {
-		return "building"
+		return GoldenBuildStatusBuilding
 	}
 	if allReady && len(d.Sandboxes) > 0 {
-		return "ready"
+		return GoldenBuildStatusReady
 	}
 	if anyFailed {
-		return "failed"
+		return GoldenBuildStatusFailed
 	}
-	return "none"
+	return GoldenBuildStatusNone
 }
 
-// SandboxCacheState tracks the golden Docker cache state for a single sandbox.
+// Golden build statuses (SandboxCacheState.Status).
+const (
+	GoldenBuildStatusNone     = "none"
+	GoldenBuildStatusBuilding = "building"
+	// GoldenBuildStatusRetrying: the last attempt was interrupted (sandbox,
+	// Hydra or API went away mid-build); a new attempt starts at NextRetryAt
+	// once the sandbox is connected.
+	GoldenBuildStatusRetrying = "retrying"
+	GoldenBuildStatusReady    = "ready"
+	GoldenBuildStatusFailed   = "failed"
+)
+
+// GoldenBuildMaxAttempts bounds how many times one trigger (a merge to main or
+// a manual build) is attempted when builds keep getting interrupted, so a
+// startup that reliably kills its own container can't loop forever.
+const GoldenBuildMaxAttempts = 3
+
+// SandboxCacheState is the persisted state of a project's golden Docker cache
+// on one sandbox (table golden_builds). It is the single source of truth for
+// the golden build lifecycle: GoldenBuildService reads and writes it
+// transactionally, the API serves it as-is, and startup/reconnect
+// reconciliation resumes from it after an API restart.
 type SandboxCacheState struct {
+	ProjectID string `json:"project_id" gorm:"primaryKey"`
+	SandboxID string `json:"sandbox_id" gorm:"primaryKey"`
+
 	Status         string     `json:"status"`
 	SizeBytes      int64      `json:"size_bytes,omitempty"`
-	LastBuildAt    *time.Time `json:"last_build_at,omitempty"`
+	LastBuildAt    *time.Time `json:"last_build_at,omitempty"` // when the current/last attempt started
 	LastReadyAt    *time.Time `json:"last_ready_at,omitempty"`
 	BuildSessionID string     `json:"build_session_id,omitempty"`
 	Error          string     `json:"error,omitempty"`
+
+	// Attempt is the 1-based attempt number for the current trigger.
+	Attempt int `json:"attempt,omitempty"`
+	// MaxAttempts is GoldenBuildMaxAttempts, exposed for the UI.
+	MaxAttempts int `json:"max_attempts,omitempty" gorm:"-"`
+	// TriggeredAt identifies the trigger (merge or manual build) the attempts
+	// belong to. A new trigger resets Attempt and the retry budget.
+	TriggeredAt *time.Time `json:"triggered_at,omitempty"`
+	// PendingRebuild: a trigger arrived while a build was running; build again
+	// as soon as it finishes.
+	PendingRebuild bool `json:"pending_rebuild,omitempty"`
+	// InterruptReason is why the last attempt ended without a result.
+	InterruptReason string `json:"interrupt_reason,omitempty"`
+	// NextRetryAt is when the retry of an interrupted build may start.
+	NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
+
+	Updated time.Time `json:"updated"`
+}
+
+// TableName keeps the table name stable regardless of the Go type name.
+func (SandboxCacheState) TableName() string { return "golden_builds" }
+
+// Active reports whether a build is in flight or scheduled to retry.
+func (s *SandboxCacheState) Active() bool {
+	return s.Status == GoldenBuildStatusBuilding || s.Status == GoldenBuildStatusRetrying
 }
 
 // ZFSTree is the full ZFS snapshot/clone tree for a project's golden cache.
