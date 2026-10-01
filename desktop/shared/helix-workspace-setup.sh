@@ -998,42 +998,56 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
         echo ""
         echo "✅ Golden build: startup script completed successfully"
 
-        # Clean up Docker artifacts that inflate the golden cache.
-        # Sessions only need the final built images — these intermediates
-        # are push/build artifacts that accumulate across golden builds:
+        # The BuildKit cache (layer cache and RUN --mount=type=cache data) is
+        # what makes sessions' builds fast, so it goes into the golden.
+        # Record it as the startup script left it.
+        BUILDKIT_BUILD_END=$(sudo helix-buildkit-cache-stats || echo null)
+
+        # Clean up Docker artifacts that inflate the golden cache without
+        # speeding anything up:
         #   - Registry-tagged images (10.x.x.x:5000/buildcache/...) from
-        #     the docker wrapper's push-to-registry optimization
-        #   - Dangling (untagged) images from intermediate build steps
-        #   - Unused volumes (build caches, node_modules from build steps)
+        #     the docker wrapper's push-to-registry path (remote builders only)
+        #   - Dangling (untagged) images replaced by newer builds
+        #   - Unused anonymous volumes
         echo "Cleaning Docker build artifacts before golden promotion..."
 
         # Show before state
         echo "  Before cleanup:"
         docker system df 2>/dev/null | sed 's/^/    /' || true
 
-        # Remove images tagged with registry IPs (e.g. 10.213.0.2:5000/buildcache/...)
-        # These are push artifacts — the built images are already tagged locally
-        REGISTRY_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^\d+\.\d+\.\d+\.\d+:' || true)
+        REGISTRY_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:' || true)
         if [ -n "$REGISTRY_IMAGES" ]; then
             echo "$REGISTRY_IMAGES" | xargs docker rmi 2>/dev/null || true
             echo "  Removed registry-tagged images"
         fi
 
-        # Remove dangling images (intermediate build layers with <none> tag)
         docker image prune -f 2>/dev/null || true
-
-        # Remove unused volumes (build step caches that won't carry forward)
         docker volume prune -f 2>/dev/null || true
 
-        # Prune Docker build cache — keep only layers referenced by existing
-        # images. Without this, build cache grows ~5GB per golden build and
-        # the golden zvol balloons from 56GB to 95GB+ over 20 builds.
-        docker builder prune -f --filter 'unused-for=0s' 2>/dev/null || true
+        # Bound the build cache with dockerd's own GC policy (written by
+        # 17-start-dockerd.sh), applied now because BuildKit's GC runs
+        # asynchronously. It evicts least-recently-used records first, so the
+        # cache this build used survives. Never prune the build cache wholesale
+        # here (e.g. --filter unused-for=0s): that throws away the cache the
+        # golden exists to carry.
+        GC_RULE=$(jq -c '.builder.gc.policy[0]' /etc/docker/daemon.json)
+        docker builder prune -f \
+            --reserved-space "$(jq -r '.reservedSpace' <<<"$GC_RULE")" \
+            --max-used-space "$(jq -r '.maxUsedSpace' <<<"$GC_RULE")" \
+            --min-free-space "$(jq -r '.minFreeSpace' <<<"$GC_RULE")" || true
 
         # Show after state
         echo "  After cleanup:"
         docker system df 2>/dev/null | sed 's/^/    /' || true
         echo "✅ Docker cleanup complete"
+
+        # Hydra reads this into GOLDEN_BUILD_SUMMARY; sessions log their own
+        # cache against pre_snapshot after boot (17-start-dockerd.sh).
+        BUILDKIT_PRE_SNAPSHOT=$(sudo helix-buildkit-cache-stats || echo null)
+        jq -n --argjson build_end "$BUILDKIT_BUILD_END" --argjson pre_snapshot "$BUILDKIT_PRE_SNAPSHOT" \
+            '{build_end: $build_end, pre_snapshot: $pre_snapshot}' \
+            | sudo tee /var/lib/docker/.golden-buildkit-stats.json
+        echo ""
 
         echo "Stopping dockerd for clean shutdown..."
         # Stop dockerd cleanly so Docker data on disk is consistent

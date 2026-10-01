@@ -202,6 +202,34 @@ echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
     fi
     echo "[dockerd] Nesting depth=$DEPTH, address pool=10.${POOL_OCTET}.0.0/16"
 
+    # BuildKit GC policy: size-only, as fractions of the /var/lib/docker
+    # filesystem (the session's or golden build's zvol).
+    #   reservedSpace 10%: never prune the cache below this
+    #   maxUsedSpace  25%: LRU-prune the cache above this
+    #   minFreeSpace  10%: LRU-prune while the filesystem has less free space
+    # No age-based (keepDuration) rules, unlike dockerd's default, which
+    # evicts RUN --mount=type=cache data unused for 48h: a golden snapshot
+    # freezes "last used", so age rules would delete a golden's cache mounts
+    # at the first GC pass of every session cloned from a golden older than
+    # the rule. Golden builds apply this same policy synchronously before the
+    # snapshot (helix-workspace-setup.sh), so a golden never carries cache
+    # that a session's GC would immediately evict.
+    DOCKER_FS_BYTES=$(df -B1 --output=size /var/lib/docker | tail -1 | tr -d ' ')
+    GC_LIMITS="\"reservedSpace\": \"$((DOCKER_FS_BYTES / 10))\", \"maxUsedSpace\": \"$((DOCKER_FS_BYTES / 4))\", \"minFreeSpace\": \"$((DOCKER_FS_BYTES / 10))\""
+
+    # Add NVIDIA runtime if GPU available
+    RUNTIMES=""
+    if [ "${HELIX_HEADLESS}" != "1" ] && [ -e /dev/nvidia0 ] && command -v nvidia-container-runtime &>/dev/null; then
+        echo "[dockerd] NVIDIA GPU detected - adding nvidia runtime"
+        RUNTIMES=',
+    "runtimes": {
+        "nvidia": {
+            "path": "nvidia-container-runtime",
+            "runtimeArgs": []
+        }
+    }'
+    fi
+
     # Write daemon.json
     # NOTE: No explicit "dns" setting — Docker inherits DNS from the desktop
     # container's /etc/resolv.conf, which chains through the sandbox's dockerd
@@ -214,30 +242,19 @@ echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
     "cgroup-parent": "/desktop/agent/docker",
     "default-address-pools": [
         {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
-    ]
-}
-EOF
-
-    # Add NVIDIA runtime if GPU available
-    if [ "${HELIX_HEADLESS}" != "1" ] && [ -e /dev/nvidia0 ] && command -v nvidia-container-runtime &>/dev/null; then
-        echo "[dockerd] NVIDIA GPU detected - adding nvidia runtime"
-        cat > /etc/docker/daemon.json <<EOF
-{
-    "storage-driver": "overlay2",
-    "log-level": "warn",
-    "cgroup-parent": "/desktop/agent/docker",
-    "default-address-pools": [
-        {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
     ],
-    "runtimes": {
-        "nvidia": {
-            "path": "nvidia-container-runtime",
-            "runtimeArgs": []
+    "builder": {
+        "gc": {
+            "enabled": true,
+            "policy": [
+                {${GC_LIMITS}},
+                {"all": true, ${GC_LIMITS}}
+            ]
         }
-    }
+    }${RUNTIMES}
 }
 EOF
-    fi
+    echo "[dockerd] BuildKit GC: $(jq -c '.builder.gc.policy[0]' /etc/docker/daemon.json) of ${DOCKER_FS_BYTES} bytes"
 
     # Enable forwarding so inner containers can reach outer networks.
     # Without this, traffic from inner compose containers can't route
@@ -289,6 +306,19 @@ EOF
         usermod -aG docker retro 2>/dev/null || true
         echo "[dockerd] Added retro user to docker group"
     fi
+
+    # Log the BuildKit cache this session starts with (inherited from the
+    # golden snapshot, if any) next to what the golden recorded before its
+    # snapshot. Delayed past BuildKit's GC pass at dockerd start, so cache the
+    # GC evicts on boot shows up as a mismatch. Backgrounded: not on the
+    # agent's startup path.
+    (
+        sleep 10
+        echo "[buildkit-cache] session: $(helix-buildkit-cache-stats 2>&1)"
+        if [ -f /var/lib/docker/.golden-buildkit-stats.json ]; then
+            echo "[buildkit-cache] golden:  $(jq -c '.pre_snapshot' /var/lib/docker/.golden-buildkit-stats.json)"
+        fi
+    ) &
 
     # Sandboxes build through their per-session inner daemon.
     BUILDER_NAME="default"

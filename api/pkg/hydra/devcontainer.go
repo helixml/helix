@@ -2817,6 +2817,8 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	}
 
 	buildDuration := time.Since(buildStart)
+	// Read before promotion: the zvol is renamed and unmounted by it.
+	buildKitStats := readGoldenBuildKitStats(filepath.Dir(zvolResultFile), filepath.Dir(fileCopyResultFile))
 	res := dm.completeGoldenBuild(dc, strings.TrimSpace(string(resultData)), buildDuration)
 
 	// Stop and clean up the container via the standard API.
@@ -2825,7 +2827,7 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	dm.DeleteDevContainer(context.Background(), dc.SessionID)
 
 	// Structured summary log for golden build history tracking
-	log.Info().
+	addGoldenBuildKitStats(log.Info(), buildKitStats).
 		Str("session_id", dc.SessionID).
 		Str("project_id", dc.ProjectID).
 		Bool("succeeded", res.Success).

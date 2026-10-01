@@ -756,7 +756,8 @@ RUN chmod 755 /etc/cont-init.d/16-cpu-tiers.sh /usr/local/libexec/helix/agent-ti
 
 # Start dockerd inside desktop container if /var/lib/docker is volume-mounted
 ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
-RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
+ADD desktop/shared/helix-buildkit-cache-stats.sh /usr/local/bin/helix-buildkit-cache-stats
+RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh /usr/local/bin/helix-buildkit-cache-stats
 
 # Workspace README
 RUN mkdir -p /opt/helix

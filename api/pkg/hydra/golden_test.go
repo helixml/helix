@@ -549,76 +549,133 @@ func TestParallelCopyDir_MixedContent(t *testing.T) {
 	assertIdenticalFS(t, src, dst)
 }
 
-func TestPruneUnreferencedOverlay2Layers(t *testing.T) {
+// buildDockerDataDir lays out a minimal /var/lib/docker after a golden build:
+// one image layer (layerdb/sha256), two BuildKit-only snapshots (an
+// intermediate layer and a RUN --mount=type=cache dir, referenced only from
+// buildkit/*.db), and one container with its RW + init layers (layerdb/mounts).
+func buildDockerDataDir(t *testing.T) string {
+	t.Helper()
 	dockerDir := t.TempDir()
-
-	// Create overlay2 dirs: 3 referenced, 2 orphaned
-	overlay2 := filepath.Join(dockerDir, "overlay2")
-	os.MkdirAll(filepath.Join(overlay2, "l"), 0755)
-	for _, name := range []string{"layer-aaa", "layer-bbb", "layer-ccc", "orphan-111", "orphan-222"} {
-		dir := filepath.Join(overlay2, name, "diff")
-		os.MkdirAll(dir, 0755)
-		os.WriteFile(filepath.Join(dir, "data"), []byte("some layer data"), 0644)
+	write := func(rel, content string) {
+		p := filepath.Join(dockerDir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
-
-	// Create symlinks in l/ — some point to valid dirs, some to orphans
-	os.Symlink("../layer-aaa/diff", filepath.Join(overlay2, "l", "AAAA"))
-	os.Symlink("../orphan-111/diff", filepath.Join(overlay2, "l", "OOOO"))
-
-	// Create layerdb with cache-id files referencing only the 3 valid layers
-	layerdb := filepath.Join(dockerDir, "image", "overlay2", "layerdb", "sha256")
-	for i, cacheID := range []string{"layer-aaa", "layer-bbb", "layer-ccc"} {
-		chainID := fmt.Sprintf("chain%d", i)
-		dir := filepath.Join(layerdb, chainID)
-		os.MkdirAll(dir, 0755)
-		os.WriteFile(filepath.Join(dir, "cache-id"), []byte(cacheID), 0644)
-	}
-
-	pruneUnreferencedOverlay2Layers(dockerDir)
-
-	// Referenced layers must still exist
-	for _, name := range []string{"layer-aaa", "layer-bbb", "layer-ccc"} {
-		if _, err := os.Stat(filepath.Join(overlay2, name)); err != nil {
-			t.Errorf("referenced layer %s was incorrectly removed", name)
+	link := func(name, target string) {
+		if err := os.Symlink(target, filepath.Join(dockerDir, "overlay2", "l", name)); err != nil {
+			t.Fatal(err)
 		}
 	}
 
-	// Orphaned layers must be gone
-	for _, name := range []string{"orphan-111", "orphan-222"} {
-		if _, err := os.Stat(filepath.Join(overlay2, name)); !os.IsNotExist(err) {
-			t.Errorf("orphaned layer %s was not removed", name)
+	for _, layer := range []string{"image-layer", "bk-intermediate", "bk-cachemount", "ctr-rw", "ctr-rw-init"} {
+		write(filepath.Join("overlay2", layer, "diff", "data"), "layer data")
+	}
+	os.MkdirAll(filepath.Join(dockerDir, "overlay2", "l"), 0755)
+	link("IMG", "../image-layer/diff")
+	link("BKI", "../bk-intermediate/diff")
+	link("BKC", "../bk-cachemount/diff")
+	link("CTR", "../ctr-rw/diff")
+	link("CTRINIT", "../ctr-rw-init/diff")
+
+	write("image/overlay2/layerdb/sha256/chain1/cache-id", "image-layer")
+	write("image/overlay2/layerdb/mounts/ctr1/mount-id", "ctr-rw")
+	write("image/overlay2/layerdb/mounts/ctr1/init-id", "ctr-rw-init")
+	write("buildkit/snapshots.db", "bolt")
+	write("buildkit/metadata_v2.db", "bolt")
+	write("containers/ctr1/config.v2.json", "{}")
+	write("volumes/metadata.db", "bolt")
+	write("network/files/local-kv.db", "bolt")
+	write("containerd/daemon/state", "x")
+	write(".golden-build-result", "0")
+	return dockerDir
+}
+
+func assertExists(t *testing.T, dockerDir string, rels ...string) {
+	t.Helper()
+	for _, rel := range rels {
+		if _, err := os.Lstat(filepath.Join(dockerDir, rel)); err != nil {
+			t.Errorf("%s should have been kept: %v", rel, err)
 		}
-	}
-
-	// l/ dir must still exist
-	if _, err := os.Stat(filepath.Join(overlay2, "l")); err != nil {
-		t.Error("overlay2/l/ directory was incorrectly removed")
-	}
-
-	// Valid symlink must still exist
-	if _, err := os.Lstat(filepath.Join(overlay2, "l", "AAAA")); err != nil {
-		t.Error("valid symlink l/AAAA was incorrectly removed")
-	}
-
-	// Stale symlink (pointed to orphan) must be gone
-	if _, err := os.Lstat(filepath.Join(overlay2, "l", "OOOO")); !os.IsNotExist(err) {
-		t.Error("stale symlink l/OOOO was not removed")
 	}
 }
 
-func TestPruneUnreferencedOverlay2Layers_EmptyLayerdb(t *testing.T) {
-	dockerDir := t.TempDir()
+func assertGone(t *testing.T, dockerDir string, rels ...string) {
+	t.Helper()
+	for _, rel := range rels {
+		if _, err := os.Lstat(filepath.Join(dockerDir, rel)); !os.IsNotExist(err) {
+			t.Errorf("%s should have been removed (err=%v)", rel, err)
+		}
+	}
+}
 
-	// Create overlay2 with some dirs but no layerdb — should NOT delete anything (safety)
-	overlay2 := filepath.Join(dockerDir, "overlay2")
-	os.MkdirAll(filepath.Join(overlay2, "l"), 0755)
-	os.MkdirAll(filepath.Join(overlay2, "some-layer", "diff"), 0755)
+func TestPurgeContainerDirs_KeepsBuildKitCache(t *testing.T) {
+	dockerDir := buildDockerDataDir(t)
 
-	// No layerdb at all
-	pruneUnreferencedOverlay2Layers(dockerDir)
+	purgeContainerDirs(dockerDir)
 
-	// Layer must NOT be deleted (safety: empty layerdb means we can't tell what's valid)
-	if _, err := os.Stat(filepath.Join(overlay2, "some-layer")); err != nil {
-		t.Error("layer was deleted despite empty layerdb (safety violation)")
+	// Image layers and BuildKit state (snapshots are referenced only from
+	// buildkit/*.db, never from the image layerdb) must all survive.
+	assertExists(t, dockerDir,
+		"overlay2/image-layer", "overlay2/bk-intermediate", "overlay2/bk-cachemount",
+		"overlay2/l/IMG", "overlay2/l/BKI", "overlay2/l/BKC",
+		"image/overlay2/layerdb/sha256/chain1/cache-id",
+		"buildkit/snapshots.db", "buildkit/metadata_v2.db")
+
+	// Container state, the container's RW layers and their records go.
+	assertGone(t, dockerDir,
+		"overlay2/ctr-rw", "overlay2/ctr-rw-init", "overlay2/l/CTR", "overlay2/l/CTRINIT",
+		"image/overlay2/layerdb/mounts/ctr1",
+		"containers", "volumes", "network", "containerd", ".golden-build-result")
+}
+
+func TestRemoveContainerLayers_IgnoresUnsafeLayerIDs(t *testing.T) {
+	dockerDir := buildDockerDataDir(t)
+	outside := filepath.Join(dockerDir, "outside")
+	os.MkdirAll(outside, 0755)
+	for i, id := range []string{"../outside", "l", "..", ".", ""} {
+		rec := filepath.Join(dockerDir, "image", "overlay2", "layerdb", "mounts", fmt.Sprintf("bad%d", i))
+		os.MkdirAll(rec, 0755)
+		os.WriteFile(filepath.Join(rec, "mount-id"), []byte(id), 0644)
+	}
+
+	removeContainerLayers(dockerDir)
+
+	assertExists(t, dockerDir, "outside", "overlay2", "overlay2/l", "overlay2/image-layer",
+		"overlay2/bk-intermediate", "overlay2/bk-cachemount")
+	assertGone(t, dockerDir, "overlay2/ctr-rw", "overlay2/ctr-rw-init")
+}
+
+func TestRemoveContainerLayers_NoContainers(t *testing.T) {
+	dockerDir := buildDockerDataDir(t)
+	os.RemoveAll(filepath.Join(dockerDir, "image", "overlay2", "layerdb", "mounts"))
+
+	removeContainerLayers(dockerDir)
+
+	assertExists(t, dockerDir, "overlay2/image-layer", "overlay2/bk-intermediate",
+		"overlay2/bk-cachemount", "overlay2/ctr-rw", "overlay2/l/CTR")
+}
+
+func TestReadGoldenBuildKitStats(t *testing.T) {
+	missing := t.TempDir()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, goldenBuildKitStatsFile), []byte(`{
+  "build_end": {"records": 120, "total_bytes": 9000, "cache_mount_count": 4, "cache_mount_bytes": 5000,
+                "cache_mounts": [{"mount": "/root/.cargo/registry", "bytes": 3000}]},
+  "pre_snapshot": {"records": 100, "total_bytes": 8000, "cache_mount_count": 4, "cache_mount_bytes": 5000}
+}`), 0644)
+
+	if got := readGoldenBuildKitStats(missing); got != nil {
+		t.Fatalf("expected nil for dir without stats, got %+v", got)
+	}
+	got := readGoldenBuildKitStats(missing, dir)
+	if got == nil || got.BuildEnd == nil || got.PreSnapshot == nil {
+		t.Fatalf("stats not read: %+v", got)
+	}
+	if got.BuildEnd.CacheMountBytes != 5000 || got.PreSnapshot.TotalBytes != 8000 || got.PreSnapshot.Records != 100 {
+		t.Errorf("unexpected stats: build_end=%+v pre_snapshot=%+v", *got.BuildEnd, *got.PreSnapshot)
 	}
 }

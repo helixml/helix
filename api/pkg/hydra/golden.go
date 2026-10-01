@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -513,162 +514,201 @@ func DeleteGolden(projectID string) error {
 // /home/retro/work/helix/...) that don't exist in new sessions. When inner
 // dockerd starts, it tries to restart those containers and auto-creates missing
 // bind mount sources as empty directories, corrupting the workspace.
-//
-// We keep: overlay2/ (image layers), image/ (image metadata), tmp/ (build cache).
 func PurgeContainersFromGolden(projectID string) error {
 	golden := goldenDir(projectID)
 
-	// Remove container metadata — they reference session-specific bind mounts
-	// that corrupt the workspace when dockerd auto-creates them as directories
-	os.RemoveAll(filepath.Join(golden, "containers"))
-
-	// Remove network state — stale sandbox-specific bridge/endpoint references
-	os.RemoveAll(filepath.Join(golden, "network"))
-
-	// Remove containerd state — stale shim references from the build session
-	os.RemoveAll(filepath.Join(golden, "containerd"))
-
-	// Remove buildx state — not needed, sessions use shared buildkit
-	os.RemoveAll(filepath.Join(golden, "buildx"))
-
-	// Remove volumes — stale named/anonymous volumes from build steps
-	// (node_modules, Go module cache, etc). Sessions create their own.
-	// This is a safety net; the in-container cleanup (workspace-setup.sh)
-	// runs `docker volume prune` before dockerd stops, but if that was
-	// skipped or incomplete, this catches it at the filesystem level.
-	os.RemoveAll(filepath.Join(golden, "volumes"))
-
-	// Remove the golden build result marker. If this file is left in the golden
-	// cache, monitorGoldenBuild() on subsequent golden builds will find it
+	// If the golden build result marker is left in the golden cache,
+	// monitorGoldenBuild() on subsequent golden builds will find it
 	// immediately after SetupGoldenCopy and promote prematurely — before the
-	// startup script has actually run. This was the root cause of golden builds
-	// completing in ~1 minute instead of the expected 10+ minutes.
+	// startup script has actually run.
 	resultFile := filepath.Join(golden, ".golden-build-result")
 	if err := os.Remove(resultFile); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove golden build result marker at %s (risk of premature promotion): %w", resultFile, err)
 	}
 
-	// Prune unreferenced overlay2 layers left behind by previous image builds.
-	pruneUnreferencedOverlay2Layers(golden)
+	purgeContainerDirs(golden)
 
 	log.Info().
 		Str("project_id", projectID).
 		Str("golden", golden).
-		Msg("Purged container/network/containerd/buildx/volumes/result state from golden cache")
+		Msg("Purged container/network/containerd/volumes/result state from golden cache")
 
 	return nil
 }
 
-// pruneUnreferencedOverlay2Layers removes overlay2 directories that are not
-// referenced by any image in the Docker data directory. During golden builds,
-// ./stack build rebuilds images multiple times — each rebuild creates new
-// overlay2 layer dirs, but the old ones are never cleaned up because dockerd's
-// GC only runs via `docker system prune`. Since we operate on the filesystem
-// after dockerd has stopped, we do the GC ourselves.
+// purgeContainerDirs removes container-specific state from a Docker data dir
+// that is about to become a golden snapshot.
 //
-// Safety: this only deletes overlay2 dirs that have NO corresponding entry in
-// the layerdb. Image layers, shared layers, and all tagged images are preserved.
-// BuildKit cache lives on the shared remote builder, not in local overlay2.
-func pruneUnreferencedOverlay2Layers(dockerDir string) {
+// Everything else is kept: image/ and overlay2/ hold both image layers and
+// BuildKit's snapshots (intermediate layers and RUN --mount=type=cache data),
+// and buildkit/ holds the databases that reference those snapshots. BuildKit's
+// references are not visible in the image layerdb, so overlay2 must never be
+// pruned by "not referenced by an image" — that deletes the build cache the
+// golden exists to carry. The build cache is bounded inside the golden build
+// instead, by dockerd's own GC (see helix-workspace-setup.sh).
+func purgeContainerDirs(dockerDir string) {
+	// Container RW layers first: their records are found via layerdb/mounts,
+	// which only containers create.
+	removeContainerLayers(dockerDir)
+
+	// containers: metadata with session-specific bind mounts.
+	// network: stale bridge/endpoint references.
+	// containerd: runtime state (shims, tasks) of the build session.
+	// volumes: named/anonymous volumes from build steps; sessions create their own.
+	// buildx: not dockerd state; removed in case an old desktop image wrote it.
+	for _, dir := range []string{"containers", "network", "containerd", "buildx", "volumes"} {
+		os.RemoveAll(filepath.Join(dockerDir, dir))
+	}
+	os.Remove(filepath.Join(dockerDir, ".golden-build-result"))
+}
+
+// removeContainerLayers deletes the overlay2 RW and init layers of every
+// container recorded in image/overlay2/layerdb/mounts, plus those records.
+// purgeContainerDirs removes containers/, so without this the containers'
+// writable layers would be orphaned in the golden forever. Only containers
+// create layerdb/mounts entries (BuildKit snapshots never do), so this cannot
+// touch image layers or build cache.
+func removeContainerLayers(dockerDir string) {
 	overlay2Dir := filepath.Join(dockerDir, "overlay2")
-	layerdbDir := filepath.Join(dockerDir, "image", "overlay2", "layerdb", "sha256")
+	mountsDir := filepath.Join(dockerDir, "image", "overlay2", "layerdb", "mounts")
 
-	// Read all cache-id files from layerdb — these reference overlay2 dirs
-	referencedDirs := make(map[string]bool)
-
-	layerEntries, err := os.ReadDir(layerdbDir)
+	entries, err := os.ReadDir(mountsDir)
 	if err != nil {
-		log.Warn().Err(err).Str("path", layerdbDir).
-			Msg("Cannot read layerdb, skipping overlay2 prune")
+		if !os.IsNotExist(err) {
+			log.Warn().Err(err).Str("path", mountsDir).Msg("Cannot read layerdb mounts, container layers not removed")
+		}
 		return
 	}
 
-	for _, entry := range layerEntries {
+	var removed int
+	var freedBytes int64
+	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		cacheIDFile := filepath.Join(layerdbDir, entry.Name(), "cache-id")
-		data, err := os.ReadFile(cacheIDFile)
-		if err != nil {
-			continue
-		}
-		cacheID := strings.TrimSpace(string(data))
-		if cacheID != "" {
-			referencedDirs[cacheID] = true
-		}
-	}
-
-	if len(referencedDirs) == 0 {
-		log.Warn().Msg("No referenced layers found in layerdb, skipping overlay2 prune (safety)")
-		return
-	}
-
-	// List all overlay2 directories
-	overlay2Entries, err := os.ReadDir(overlay2Dir)
-	if err != nil {
-		log.Warn().Err(err).Str("path", overlay2Dir).
-			Msg("Cannot read overlay2 dir, skipping prune")
-		return
-	}
-
-	var pruned int
-	var prunedBytes int64
-	for _, entry := range overlay2Entries {
-		name := entry.Name()
-		// Skip the "l" directory (short symlinks for layer identification)
-		if name == "l" || !entry.IsDir() {
-			continue
-		}
-		if referencedDirs[name] {
-			continue
-		}
-
-		dirPath := filepath.Join(overlay2Dir, name)
-		// Get size before removal for logging
-		var size int64
-		if out, err := exec.Command("du", "-sb", dirPath).Output(); err == nil {
-			fmt.Sscanf(string(out), "%d", &size)
-		}
-
-		if err := os.RemoveAll(dirPath); err != nil {
-			log.Warn().Err(err).Str("path", dirPath).
-				Msg("Failed to remove unreferenced overlay2 dir")
-			continue
-		}
-		pruned++
-		prunedBytes += size
-	}
-
-	// Clean up stale symlinks in overlay2/l/
-	linksDir := filepath.Join(overlay2Dir, "l")
-	if linkEntries, err := os.ReadDir(linksDir); err == nil {
-		var staleLinks int
-		for _, entry := range linkEntries {
-			linkPath := filepath.Join(linksDir, entry.Name())
-			target, err := os.Readlink(linkPath)
+		recordDir := filepath.Join(mountsDir, entry.Name())
+		for _, idFile := range []string{"mount-id", "init-id"} {
+			data, err := os.ReadFile(filepath.Join(recordDir, idFile))
 			if err != nil {
 				continue
 			}
-			// Links are relative (e.g., ../abc123/diff), resolve to check existence
-			resolved := filepath.Join(linksDir, target)
-			if _, err := os.Stat(resolved); os.IsNotExist(err) {
-				os.Remove(linkPath)
-				staleLinks++
+			layerID := strings.TrimSpace(string(data))
+			// Must name a direct child of overlay2/ (and not the l/ links dir)
+			if layerID == "" || layerID == "l" || layerID == "." || layerID == ".." || strings.Contains(layerID, "/") {
+				continue
 			}
+			layerDir := filepath.Join(overlay2Dir, layerID)
+			if _, err := os.Stat(layerDir); err != nil {
+				continue
+			}
+			freedBytes += dirSizeBytes(layerDir)
+			if err := os.RemoveAll(layerDir); err != nil {
+				log.Warn().Err(err).Str("path", layerDir).Msg("Failed to remove container layer")
+				continue
+			}
+			removed++
 		}
-		if staleLinks > 0 {
-			log.Info().Int("stale_links", staleLinks).
-				Msg("Removed stale overlay2/l/ symlinks")
+		if err := os.RemoveAll(recordDir); err != nil {
+			log.Warn().Err(err).Str("path", recordDir).Msg("Failed to remove container layer record")
 		}
 	}
 
-	if pruned > 0 {
-		log.Info().
-			Int("pruned_layers", pruned).
-			Int64("freed_bytes", prunedBytes).
-			Int("referenced_layers", len(referencedDirs)).
-			Msg("Pruned unreferenced overlay2 layers from golden cache")
+	removeStaleOverlay2Links(overlay2Dir)
+
+	log.Info().
+		Int("container_records", len(entries)).
+		Int("removed_layers", removed).
+		Int64("freed_bytes", freedBytes).
+		Msg("Removed container RW layers from golden cache")
+}
+
+// removeStaleOverlay2Links removes overlay2/l/ short-name symlinks whose
+// layer directory no longer exists.
+func removeStaleOverlay2Links(overlay2Dir string) {
+	linksDir := filepath.Join(overlay2Dir, "l")
+	linkEntries, err := os.ReadDir(linksDir)
+	if err != nil {
+		return
 	}
+	for _, entry := range linkEntries {
+		linkPath := filepath.Join(linksDir, entry.Name())
+		target, err := os.Readlink(linkPath)
+		if err != nil {
+			continue
+		}
+		// Links are relative (e.g., ../abc123/diff)
+		if _, err := os.Stat(filepath.Join(linksDir, target)); os.IsNotExist(err) {
+			os.Remove(linkPath)
+		}
+	}
+}
+
+// dirSizeBytes returns the apparent size of a directory tree, or 0 on error.
+func dirSizeBytes(dir string) int64 {
+	var size int64
+	if out, err := exec.Command("du", "-sb", dir).Output(); err == nil {
+		fmt.Sscanf(string(out), "%d", &size)
+	}
+	return size
+}
+
+// goldenBuildKitStatsFile is written to the Docker data root by
+// helix-workspace-setup.sh at the end of a successful golden build. It records
+// the BuildKit cache as the startup script left it (build_end) and as it goes
+// into the snapshot after the golden's GC pass (pre_snapshot). It stays in the
+// golden so sessions can compare their own cache against it.
+const goldenBuildKitStatsFile = ".golden-buildkit-stats.json"
+
+// BuildKitCacheStats summarises a dockerd's BuildKit cache
+// (see desktop/shared/helix-buildkit-cache-stats.sh).
+type BuildKitCacheStats struct {
+	Records         int   `json:"records"`
+	TotalBytes      int64 `json:"total_bytes"`
+	CacheMountCount int   `json:"cache_mount_count"`
+	CacheMountBytes int64 `json:"cache_mount_bytes"`
+}
+
+// GoldenBuildKitStats is the content of goldenBuildKitStatsFile.
+type GoldenBuildKitStats struct {
+	BuildEnd    *BuildKitCacheStats `json:"build_end"`
+	PreSnapshot *BuildKitCacheStats `json:"pre_snapshot"`
+}
+
+// readGoldenBuildKitStats reads goldenBuildKitStatsFile from the first of
+// dockerDirs that has it. Returns nil if none does (e.g. older desktop image).
+func readGoldenBuildKitStats(dockerDirs ...string) *GoldenBuildKitStats {
+	for _, dir := range dockerDirs {
+		data, err := os.ReadFile(filepath.Join(dir, goldenBuildKitStatsFile))
+		if err != nil {
+			continue
+		}
+		var stats GoldenBuildKitStats
+		if err := json.Unmarshal(data, &stats); err != nil {
+			log.Warn().Err(err).Str("dir", dir).Msg("Invalid golden BuildKit stats file")
+			return nil
+		}
+		return &stats
+	}
+	return nil
+}
+
+// addGoldenBuildKitStats adds the golden build's BuildKit cache numbers to a
+// log event, so cache loss across promotion shows up in GOLDEN_BUILD_SUMMARY.
+func addGoldenBuildKitStats(ev *zerolog.Event, stats *GoldenBuildKitStats) *zerolog.Event {
+	if stats == nil {
+		return ev.Bool("buildkit_stats_missing", true)
+	}
+	if s := stats.BuildEnd; s != nil {
+		ev = ev.Int64("buildkit_build_end_bytes", s.TotalBytes).
+			Int64("buildkit_build_end_cache_mount_bytes", s.CacheMountBytes)
+	}
+	if s := stats.PreSnapshot; s != nil {
+		ev = ev.Int64("buildkit_golden_bytes", s.TotalBytes).
+			Int("buildkit_golden_records", s.Records).
+			Int("buildkit_golden_cache_mounts", s.CacheMountCount).
+			Int64("buildkit_golden_cache_mount_bytes", s.CacheMountBytes)
+	}
+	return ev
 }
 
 // GetGoldenSize returns the size of a project's golden cache in bytes.
