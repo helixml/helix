@@ -170,6 +170,29 @@ func TestHandleTopUpEvent_SendsCreditsAddedNotification(t *testing.T) {
 	require.Equal(t, []string{"💳 Credits added: test@example.com — $25.00"}, slack.messages)
 }
 
+func TestHandleTopUpEvent_DoesNotNotifyAlreadyProcessedTopUp(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	slack := &recordingSlackSender{}
+	s := NewStripe(config.Stripe{}, db)
+	s.SetSlackSender(slack)
+	wallet := &types.Wallet{ID: "wallet_123", UserID: "user_123", Balance: 10}
+
+	db.EXPECT().GetWalletByUser(gomock.Any(), "user_123").Return(wallet, nil)
+	db.EXPECT().UpdateWalletBalance(gomock.Any(), "wallet_123", 25.0, gomock.Any()).Return(nil, nil)
+
+	event := stripeEvent(t, stripe.EventTypePaymentIntentSucceeded, &stripe.PaymentIntent{
+		ID:     "pi_123",
+		Amount: 2500,
+		Metadata: map[string]string{
+			topUpMetadataType:   topUpMetadataTypeValue,
+			topUpMetadataUserID: "user_123",
+		},
+	})
+	require.NoError(t, s.handleTopUpEvent(event))
+	require.Empty(t, slack.messages)
+}
+
 func TestHandleTopUpCheckoutSessionCompleted_NoPaymentRequired(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

@@ -156,8 +156,6 @@ func (s *Stripe) handleTopUpEvent(event stripe.Event) error {
 	if wallet == nil {
 		return nil
 	}
-	previousBalance := wallet.Balance
-
 	updatedWallet, err := s.store.UpdateWalletBalance(ctx, wallet.ID, amount, types.TransactionMetadata{
 		TransactionType:       types.TransactionTypeTopUp,
 		StripePaymentIntentID: paymentIntent.ID,
@@ -165,7 +163,7 @@ func (s *Stripe) handleTopUpEvent(event stripe.Event) error {
 	if err != nil {
 		return fmt.Errorf("failed to create topup for user %s: %w", userID, err)
 	}
-	if updatedWallet.Balance != previousBalance {
+	if updatedWallet != nil {
 		s.notifyTopUp(ctx, updatedWallet, userID, amount)
 	}
 
@@ -227,8 +225,6 @@ func (s *Stripe) handleTopUpCheckoutSessionCompletedEvent(event stripe.Event) er
 	if wallet == nil {
 		return nil
 	}
-	previousBalance := wallet.Balance
-
 	updatedWallet, err := s.store.UpdateWalletBalance(ctx, wallet.ID, amount, types.TransactionMetadata{
 		TransactionType:         types.TransactionTypeTopUp,
 		StripePaymentIntentID:   paymentIntentIDFromCheckoutSession(&checkoutSession),
@@ -237,7 +233,7 @@ func (s *Stripe) handleTopUpCheckoutSessionCompletedEvent(event stripe.Event) er
 	if err != nil {
 		return fmt.Errorf("failed to create topup for checkout session %s: %w", checkoutSession.ID, err)
 	}
-	if updatedWallet.Balance != previousBalance {
+	if updatedWallet != nil {
 		s.notifyTopUp(ctx, updatedWallet, userID, amount)
 	}
 
