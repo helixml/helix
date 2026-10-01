@@ -135,6 +135,11 @@ type CreateDevContainerRequest struct {
 	// and the data is promoted to golden when the container exits with code 0.
 	GoldenBuild bool `json:"golden_build,omitempty"`
 
+	// GoldenBuildTimeoutSeconds is how long monitorGoldenBuild waits for the
+	// result file before killing the build. Sent by the API so both sides use
+	// the same deadline; 0 (older API) = types.GoldenBuildTimeout.
+	GoldenBuildTimeoutSeconds int `json:"golden_build_timeout_seconds,omitempty"`
+
 	// VCPUs caps the number of CPUs the container can use. 0 = no cap.
 	VCPUs int `json:"vcpus,omitempty"`
 
@@ -209,6 +214,9 @@ type DevContainer struct {
 	// Golden build fields
 	IsGoldenBuild bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
 	ProjectID     string `json:"project_id,omitempty"`      // Project ID for golden promotion
+
+	// GoldenBuildTimeout is the deadline monitorGoldenBuild waits for the result file.
+	GoldenBuildTimeout time.Duration `json:"-"`
 }
 
 // ListDevContainersResponse is the response listing all dev containers
