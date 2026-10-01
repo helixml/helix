@@ -342,7 +342,7 @@ func TestMCPGaveUpReportsTheGatesVerdict(t *testing.T) {
 		want       []string
 	}{
 		{"mcp", []string{"unreachable for 180s after the desktop came up", "probe helix-tasks"}},
-		{"desktop-bridge", []string{"desktop-bridge", "did not start listening within 180s", "probe helix-tasks"}},
+		{"desktop-bridge", []string{"desktop-bridge", "did not become reachable within 180s", "probe helix-tasks"}},
 	}
 	for _, c := range cases {
 		resp, err := http.Post(gate.URL+"?waiting_for="+c.waitingFor+"&waited=180", "text/plain",

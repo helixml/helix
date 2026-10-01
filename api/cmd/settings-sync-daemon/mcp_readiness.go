@@ -326,7 +326,7 @@ func mcpGaveUpError(waitingFor, waited, verdict string) error {
 		"if they recover"
 	if waitingFor == "desktop-bridge" {
 		return fmt.Errorf("Helix MCP context servers are not usable from this container: the desktop-bridge "+
-			"that serves helix-desktop did not start listening within %ss (%s). %s", waited, verdict, consequence)
+			"that serves helix-desktop did not become reachable within %ss (%s). %s", waited, verdict, consequence)
 	}
 	return fmt.Errorf("Helix MCP context servers are not usable from this container "+
 		"(unreachable for %ss after the desktop came up: %s). %s", waited, verdict, consequence)
