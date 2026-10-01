@@ -23,7 +23,7 @@ type recordingSlackSender struct {
 	messages []string
 }
 
-func (s *recordingSlackSender) SendMessage(_ string, message string) error {
+func (s *recordingSlackSender) SendSubscriptionMessage(message string) error {
 	s.messages = append(s.messages, message)
 	return nil
 }
@@ -116,6 +116,17 @@ func TestHandleSubscriptionEvent_SendsDistinctTrialNotifications(t *testing.T) {
 			require.Equal(t, []string{tt.message}, slack.messages)
 		})
 	}
+}
+
+func TestBillingAccount_PrefersOrganizationForOrgWallet(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{}, db)
+	wallet := &types.Wallet{ID: "wallet_123", OrgID: "org_123"}
+
+	db.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(&types.Organization{Name: "Acme"}, nil)
+
+	require.Equal(t, "Acme", s.billingAccount(context.Background(), wallet, "initiator_123"))
 }
 
 type mockSubscriptionBackend struct {

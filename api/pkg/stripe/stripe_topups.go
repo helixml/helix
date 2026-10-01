@@ -256,8 +256,8 @@ func (s *Stripe) notifyTopUp(ctx context.Context, wallet *types.Wallet, userID s
 	if s.slack == nil {
 		return
 	}
-	email, account := s.billingAccount(ctx, wallet, userID)
-	if err := s.slack.SendMessage(email, fmt.Sprintf("💳 Credits added: %s — $%.2f", account, amount)); err != nil {
+	account := s.billingAccount(ctx, wallet, userID)
+	if err := s.slack.SendSubscriptionMessage(fmt.Sprintf("💳 Credits added: %s — $%.2f", account, amount)); err != nil {
 		log.Error().Err(err).Str("account", account).Msg("failed to send Stripe top-up Slack notification")
 	}
 }

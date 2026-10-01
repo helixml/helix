@@ -233,8 +233,8 @@ func (s *Stripe) notifySubscriptionChange(ctx context.Context, wallet *types.Wal
 		return
 	}
 
-	email, account := s.billingAccount(ctx, wallet, userID)
-	if err := s.slack.SendMessage(email, fmt.Sprintf("%s: %s", message, account)); err != nil {
+	account := s.billingAccount(ctx, wallet, userID)
+	if err := s.slack.SendSubscriptionMessage(fmt.Sprintf("%s: %s", message, account)); err != nil {
 		log.Error().Err(err).Str("account", account).Msg("failed to send Stripe subscription Slack notification")
 	}
 }
