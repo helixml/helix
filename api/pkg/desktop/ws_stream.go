@@ -343,6 +343,12 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 		"bitrate", v.config.Bitrate,
 	)
 
+	// Encoder selection waits on GStreamer's first init, which can take
+	// minutes on a starved host. Don't attach a client that has since left.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Get or create shared video source for this PipeWire node
 	// All clients connecting to the same node share ONE GStreamer pipeline
 	opts := GstPipelineOptions{
@@ -355,6 +361,13 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	v.frameCh, v.errorCh, v.sharedClientID, err = v.sharedSource.Subscribe()
 	if err != nil {
 		return fmt.Errorf("subscribe to shared video source: %w", err)
+	}
+	// Subscribe waits for an in-flight pipeline start. If this client left
+	// meanwhile, don't register it: a late presence registration with the
+	// same client_unique_id evicts the reconnected, live viewer.
+	if err := ctx.Err(); err != nil {
+		v.sharedSource.Unsubscribe(v.sharedClientID)
+		return err
 	}
 
 	v.logger.Info("subscribed to shared video source",

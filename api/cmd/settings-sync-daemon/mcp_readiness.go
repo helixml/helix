@@ -250,7 +250,7 @@ func (d *SettingsDaemon) probeDesktopBridge(ctx context.Context) error {
 	}
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("desktop-bridge (%s) is not listening yet: %w", d.desktopBridgeHealthURL, errDependencyStarting)
+		return fmt.Errorf("desktop-bridge (%s) is not up yet (%v): %w", d.desktopBridgeHealthURL, err, errDependencyStarting)
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
