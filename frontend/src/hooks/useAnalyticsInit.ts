@@ -33,12 +33,6 @@ export default function useAnalyticsInit() {
         tracesSampleRate: 0.1,
         replaysSessionSampleRate: 1.0,
         replaysOnErrorSampleRate: 1.0,
-        beforeSend(event) {
-          if (event.exception) {
-            Sentry.showReportDialog({ eventId: event.event_id })
-          }
-          return event
-        },
       })
     }
 

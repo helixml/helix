@@ -5,7 +5,6 @@ vi.mock('@sentry/react', () => ({
   init: vi.fn(),
   setUser: vi.fn(),
   captureException: vi.fn(),
-  showReportDialog: vi.fn(),
   BrowserTracing: vi.fn(),
   Replay: vi.fn(),
 }))
@@ -63,13 +62,14 @@ describe('useAnalyticsInit', () => {
   })
 
   describe('Sentry', () => {
-    it('initializes Sentry when sentry_dsn_frontend is set', () => {
+    it('initializes Sentry without an automatic report dialog hook', () => {
       mockConfigData = { sentry_dsn_frontend: 'https://abc@sentry.io/123' }
       renderHook(() => useAnalyticsInit())
 
       expect(Sentry.init).toHaveBeenCalledWith(
         expect.objectContaining({ dsn: 'https://abc@sentry.io/123' })
       )
+      expect((Sentry.init as any).mock.calls[0][0]).not.toHaveProperty('beforeSend')
     })
 
     it('registers setUser callback for Sentry', () => {
