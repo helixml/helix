@@ -25,6 +25,12 @@ ssh \
   -o ServerAliveInterval=30 \
   luke@node01.lukemarsden.net \
   bash -s -- "$TARGET_SHA" <<'REMOTE'
+# The whole remote body is one function so bash has read all of it before
+# anything runs; it is then invoked with stdin from /dev/null. Without this,
+# any child that reads stdin (docker, compose, ssh, ...) swallows the rest of
+# this heredoc, bash hits EOF and exits 0 mid-deploy — Drone reports success
+# but the health gate never runs and the state file is never written.
+deploy_meta() {
 set -euo pipefail
 
 TARGET_SHA=$1
@@ -218,4 +224,6 @@ else
   echo "Meta did not become healthy at $TARGET_SHA" >&2
 fi
 exit 1
+}
+deploy_meta "$@" </dev/null
 REMOTE
