@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/store"
@@ -149,127 +148,6 @@ func (s *HasReadAccessSuite) TestNonOwner_AuthorizeFnDenies() {
 	user := &types.User{ID: "user2"}
 	result := server.hasReadAccess(context.Background(), user, "repo3")
 	s.False(result)
-}
-
-func TestDetectFollowUpPullRequestReady_MarksNewSecondaryRepoWithChanges(t *testing.T) {
-	repoPath, remotePath := createFollowUpTestRepo(t, true)
-	ctrl := gomock.NewController(t)
-	mockStore := store.NewMockStore(ctrl)
-	task := &types.SpecTask{
-		ID:         "task-1",
-		ProjectID:  "project-1",
-		BranchName: "feature/follow-up",
-		Status:     types.TaskStatusDone,
-		RepoPullRequests: []types.RepoPR{
-			{RepositoryID: "repo-1", PRID: "67", PRState: "merged"},
-		},
-	}
-	repo := &types.GitRepository{ID: "repo-2", ExternalURL: remotePath, IsExternal: true, LocalPath: repoPath, DefaultBranch: "main"}
-	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
-	mockStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{ID: task.ProjectID, DefaultRepoID: "repo-1"}, nil)
-	mockStore.EXPECT().GetGitRepository(gomock.Any(), repo.ID).Return(repo, nil).AnyTimes()
-	mockStore.EXPECT().UpdateGitRepository(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, updated *types.SpecTask) error {
-		assert.Equal(t, types.TaskStatusDone, updated.Status)
-		assert.Equal(t, []types.RepoPR{
-			{RepositoryID: "repo-1", PRID: "67", PRState: "merged"},
-		}, updated.RepoPullRequests)
-		assert.Equal(t, map[string]bool{"repo-2": true}, updated.Metadata[FollowUpPRReadyMetadataKey])
-		return nil
-	})
-	server := &GitHTTPServer{
-		store: mockStore,
-		gitRepoService: &GitRepositoryService{
-			store:     mockStore,
-			repoLocks: make(map[string]*sync.Mutex),
-		},
-	}
-
-	require.NoError(t, server.detectFollowUpPullRequestReady(context.Background(), repo, task.ID, task.BranchName, repoPath))
-}
-
-func TestDetectFollowUpPullRequestReady_NoDiffClearsRepositoryReadiness(t *testing.T) {
-	repoPath, remotePath := createFollowUpTestRepo(t, false)
-	ctrl := gomock.NewController(t)
-	mockStore := store.NewMockStore(ctrl)
-	task := &types.SpecTask{
-		ID:         "task-1",
-		ProjectID:  "project-1",
-		BranchName: "feature/follow-up",
-		Status:     types.TaskStatusDone,
-		Metadata: map[string]interface{}{
-			FollowUpPRReadyMetadataKey: map[string]interface{}{"repo-1": true},
-		},
-		RepoPullRequests: []types.RepoPR{
-			{RepositoryID: "repo-1", PRID: "67", PRState: "merged"},
-		},
-	}
-	repo := &types.GitRepository{ID: "repo-1", ExternalURL: remotePath, IsExternal: true, LocalPath: repoPath, DefaultBranch: "main"}
-	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
-	mockStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{ID: task.ProjectID, DefaultRepoID: repo.ID}, nil)
-	mockStore.EXPECT().GetGitRepository(gomock.Any(), repo.ID).Return(repo, nil).AnyTimes()
-	mockStore.EXPECT().UpdateGitRepository(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, updated *types.SpecTask) error {
-		_, exists := updated.Metadata[FollowUpPRReadyMetadataKey]
-		assert.False(t, exists)
-		return nil
-	})
-	server := &GitHTTPServer{
-		store: mockStore,
-		gitRepoService: &GitRepositoryService{
-			store:     mockStore,
-			repoLocks: make(map[string]*sync.Mutex),
-		},
-	}
-
-	require.NoError(t, server.detectFollowUpPullRequestReady(context.Background(), repo, task.ID, task.BranchName, repoPath))
-	assert.NotContains(t, task.Metadata, FollowUpPRReadyMetadataKey)
-	assert.Equal(t, types.TaskStatusDone, task.Status)
-}
-
-func TestSetFollowUpPRReady_PreservesOtherRepositories(t *testing.T) {
-	metadata := map[string]interface{}{
-		FollowUpPRReadyMetadataKey: map[string]interface{}{
-			"repo-1": true,
-			"repo-2": true,
-		},
-	}
-
-	assert.True(t, setFollowUpPRReady(metadata, "repo-1", false))
-	assert.Equal(t, map[string]bool{"repo-2": true}, metadata[FollowUpPRReadyMetadataKey])
-}
-
-func createFollowUpTestRepo(t *testing.T, changed bool) (string, string) {
-	t.Helper()
-	root := t.TempDir()
-	workPath := filepath.Join(root, "work")
-	require.NoError(t, os.Mkdir(workPath, 0o700))
-	run := func(dir string, args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		output, err := cmd.CombinedOutput()
-		require.NoError(t, err, "%s", output)
-	}
-	run(workPath, "init", "-b", "main")
-	run(workPath, "config", "user.email", "test@example.com")
-	run(workPath, "config", "user.name", "Test User")
-	require.NoError(t, os.WriteFile(filepath.Join(workPath, "file.txt"), []byte("base\n"), 0o600))
-	run(workPath, "add", "file.txt")
-	run(workPath, "commit", "-m", "base")
-	run(workPath, "checkout", "-b", "feature/follow-up")
-	if changed {
-		require.NoError(t, os.WriteFile(filepath.Join(workPath, "file.txt"), []byte("follow-up\n"), 0o600))
-		run(workPath, "add", "file.txt")
-		run(workPath, "commit", "-m", "follow-up")
-	} else {
-		run(workPath, "commit", "--allow-empty", "-m", "merge-only")
-	}
-	remotePath := filepath.Join(root, "remote.git")
-	repoPath := filepath.Join(root, "local.git")
-	run(root, "clone", "--bare", workPath, remotePath)
-	run(root, "clone", "--bare", workPath, repoPath)
-	return repoPath, remotePath
 }
 
 // TestParsePullRequestMarkdown tests the parsePullRequestMarkdown function

@@ -501,21 +501,11 @@ func (s *HelixAPIServer) prepareFollowUpPullRequest(ctx context.Context, taskID 
 		}
 
 		if len(changedRepos) == 0 {
-			if task.Metadata != nil {
-				if _, ok := task.Metadata[services.FollowUpPRReadyMetadataKey]; ok {
-					delete(task.Metadata, services.FollowUpPRReadyMetadataKey)
-					if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
-						return fmt.Errorf("failed to clear follow-up PR readiness: %w", err)
-					}
-				}
-			}
 			return errNoFollowUpChanges
 		}
 
+		task.RepoPullRequestHistory = appendRepoPullRequestHistory(task.RepoPullRequestHistory, task.RepoPullRequests, changedRepos)
 		task.RepoPullRequests = resetRepoPullRequests(task.RepoPullRequests, repos, changedRepos)
-		if task.Metadata != nil {
-			delete(task.Metadata, services.FollowUpPRReadyMetadataKey)
-		}
 		now := time.Now()
 		task.ImplementationApprovedBy = userID
 		task.ImplementationApprovedAt = &now
@@ -533,6 +523,26 @@ func (s *HelixAPIServer) prepareFollowUpPullRequest(ctx context.Context, taskID 
 		return nil
 	})
 	return updatedTask, err
+}
+
+func appendRepoPullRequestHistory(history, current []types.RepoPR, repoIDs map[string]bool) []types.RepoPR {
+	for _, pr := range current {
+		if !repoIDs[pr.RepositoryID] || (pr.PRID == "" && pr.PRURL == "") {
+			continue
+		}
+		found := false
+		for _, historical := range history {
+			if historical.RepositoryID == pr.RepositoryID &&
+				((pr.PRID != "" && historical.PRID == pr.PRID) || (pr.PRURL != "" && historical.PRURL == pr.PRURL)) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			history = append(history, pr)
+		}
+	}
+	return history
 }
 
 func resetRepoPullRequests(repoPRs []types.RepoPR, repos []*types.GitRepository, repoIDs map[string]bool) []types.RepoPR {

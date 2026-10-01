@@ -150,3 +150,18 @@ func TestResetRepoPullRequests_PreservesUnchangedRepositories(t *testing.T) {
 		{RepositoryID: "new", RepositoryName: "new repo", PRState: "unknown"},
 	}, resetRepoPullRequests(repoPRs, repos, map[string]bool{"changed": true, "new": true}))
 }
+
+func TestAppendRepoPullRequestHistory(t *testing.T) {
+	history := []types.RepoPR{{RepositoryID: "changed", PRID: "66", PRURL: "https://example/pull/66"}}
+	current := []types.RepoPR{
+		{RepositoryID: "changed", PRID: "66", PRURL: "https://example/pull/66"},
+		{RepositoryID: "changed", PRID: "67", PRURL: "https://example/pull/67", PRState: "merged"},
+		{RepositoryID: "unchanged", PRID: "68", PRURL: "https://example/pull/68", PRState: "merged"},
+		{RepositoryID: "pending", PRState: "unknown"},
+	}
+
+	assert.Equal(t, []types.RepoPR{
+		{RepositoryID: "changed", PRID: "66", PRURL: "https://example/pull/66"},
+		{RepositoryID: "changed", PRID: "67", PRURL: "https://example/pull/67", PRState: "merged"},
+	}, appendRepoPullRequestHistory(history, current, map[string]bool{"changed": true, "pending": true}))
+}

@@ -127,60 +127,84 @@ describe.each(["inline", "stacked"] as const)(
 describe.each(["inline", "stacked"] as const)(
   "SpecTaskActionButtons (%s) completed follow-up",
   (variant) => {
-    const doneTask = (ready: boolean): SpecTaskForActions => ({
+    const doneTask = (): SpecTaskForActions => ({
       id: "spt_1",
       status: "done",
       base_branch: "main",
       branch_name: "feature/follow-up",
       sandbox_state: "absent",
-      metadata: ready
-        ? { follow_up_pr_ready: { "repo-1": true } }
-        : undefined,
       repo_pull_requests: [
         {
           repository_id: "repo-1",
           pr_id: "67",
+          pr_number: 67,
           pr_url: "https://github.com/helixml/helix/pull/67",
+          pr_state: "merged",
+        },
+      ],
+      repo_pull_request_history: [
+        {
+          repository_id: "repo-1",
+          pr_id: "66",
+          pr_number: 66,
+          pr_url: "https://github.com/helixml/helix/pull/66",
           pr_state: "merged",
         },
       ],
     });
 
-    it("shows Merged and Create new PR when new changes are ready", () => {
+    it("shows New PR and enforces OAuth", () => {
       render(
         <SpecTaskActionButtons
-          task={doneTask(true)}
+          task={doneTask()}
           variant={variant}
           hasExternalRepo
           externalRepoType="github"
         />,
       );
 
-      expect(screen.getByRole("link", { name: /Merged/i })).toBeInTheDocument();
-      const createButton = screen.getByRole("button", { name: /Create new PR/i });
+      const createButton = screen.getByRole("button", { name: /New PR/i });
       fireEvent.click(createButton);
       expect(
         screen.getByText(/GitHub OAuth is not configured/i),
       ).toBeInTheDocument();
     });
 
-    it("keeps the merged PR visible without offering a new PR when no changes are ready", () => {
-      render(<SpecTaskActionButtons task={doneTask(false)} variant={variant} />);
+    it("keeps all pull requests in the adjacent menu", () => {
+      render(<SpecTaskActionButtons task={doneTask()} variant={variant} />);
 
-      expect(screen.getByRole("link", { name: /Merged/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /New PR/i })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "PRs (2)" }));
       expect(
-        screen.queryByRole("button", { name: /Create new PR/i }),
-      ).not.toBeInTheDocument();
+        screen
+          .getAllByRole("menuitem")
+          .map((item) => item.getAttribute("href")),
+      ).toEqual([
+        "https://github.com/helixml/helix/pull/67",
+        "https://github.com/helixml/helix/pull/66",
+      ]);
     });
 
     it("does not offer a new PR when the tracked PR is not merged", () => {
-      const task = doneTask(true);
+      const task = doneTask();
       task.repo_pull_requests![0].pr_state = "open";
       render(<SpecTaskActionButtons task={task} variant={variant} />);
 
       expect(
-        screen.queryByRole("button", { name: /Create new PR/i }),
+        screen.queryByRole("button", { name: /New PR/i }),
       ).not.toBeInTheDocument();
+    });
+
+    it("shows pull request history while the current PR is open", () => {
+      const task = doneTask();
+      task.status = "pull_request";
+      task.repo_pull_requests![0].pr_state = "open";
+      render(<SpecTaskActionButtons task={task} variant={variant} />);
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /2 (PRs|Pull Requests)/i }),
+      );
+      expect(screen.getAllByRole("menuitem")).toHaveLength(2);
     });
   },
 );

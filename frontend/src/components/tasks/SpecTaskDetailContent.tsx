@@ -1477,15 +1477,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           status: task.status || "",
           design_docs_pushed_at: task.design_docs_pushed_at,
           repo_pull_requests: task.repo_pull_requests,
+          repo_pull_request_history: (task as typeof task & {
+            repo_pull_request_history?: typeof task.repo_pull_requests;
+          }).repo_pull_request_history,
           base_branch: task.base_branch,
           branch_name: task.branch_name,
           archived: task.archived,
           just_do_it_mode: justDoItMode,
           planning_session_id: task.planning_session_id,
-          metadata: task.metadata as {
-            error?: string;
-            follow_up_pr_ready?: Record<string, boolean>;
-          },
+          metadata: task.metadata as { error?: string },
           last_push_at: task.last_push_at,
           rebase_requested_at: task.rebase_requested_at,
           sandbox_state: task.sandbox_state,

@@ -120,7 +120,7 @@ const PRMenuItem: React.FC<PRMenuItemProps> = ({ pr, idx, onSelect }) => {
   const isClosed = normalizePRState(pr.pr_state) === "closed";
   return (
     <MenuItem
-      key={pr.repository_id || idx}
+      key={pr.pr_id || pr.pr_url || idx}
       component="a"
       href={pr.pr_url}
       target="_blank"
@@ -150,11 +150,9 @@ export interface SpecTaskForActions {
   archived?: boolean;
   just_do_it_mode?: boolean;
   planning_session_id?: string;
-  metadata?: {
-    error?: string;
-    follow_up_pr_ready?: Record<string, boolean>;
-  };
+  metadata?: { error?: string };
   repo_pull_requests?: RepoPR[];
+  repo_pull_request_history?: RepoPR[];
   last_push_at?: string;
   rebase_requested_at?: string;
   /** "running" | "starting" | "absent" — derived server-side from the session's live container state.
@@ -946,68 +944,31 @@ export default function SpecTaskActionButtons({
   }
 
   // Pull Request phase: View Pull Request button(s)
-  const pullRequests = task.repo_pull_requests?.filter(pr => pr.pr_url) || [];
+  const currentPullRequests =
+    task.repo_pull_requests?.filter((pr) => pr.pr_url) || [];
+  const pullRequests = [
+    ...currentPullRequests,
+    ...(task.repo_pull_request_history?.filter((pr) => pr.pr_url) || []),
+  ];
   const hasMultiplePRs = pullRequests.length > 1;
   const hasAnyPR = pullRequests.length > 0;
+  const mergedPullRequests = currentPullRequests.filter(
+    (pullRequest) => normalizePRState(pullRequest.pr_state) === "merged",
+  );
   const allPRsMerged =
     hasAnyPR &&
     pullRequests.every(
       (pullRequest) => normalizePRState(pullRequest.pr_state) === "merged",
     );
   const followUpReady =
-    task.status === "done" &&
-    pullRequests.some(
-      (pullRequest) => normalizePRState(pullRequest.pr_state) === "merged",
-    ) &&
-    Object.values(task.metadata?.follow_up_pr_ready || {}).some(Boolean);
+    task.status === "done" && mergedPullRequests.length > 0;
   const isCreatingFollowUp = approveImplementationMutation.isPending;
-  const followUpAction = followUpReady ? (
-    isInline ? (
-      <CompactActionButton
-        density={density}
-        tooltip={
-          isArchived
-            ? "Task is archived"
-            : "Create a pull request for the new changes"
-        }
-        variant="outlined"
-        disabled={isArchived || isCreatingFollowUp}
-        icon={
-          isCreatingFollowUp ? (
-            <CircularProgress size={18} color="inherit" />
-          ) : (
-            <GitPullRequest size={18} />
-          )
-        }
-        label={isCreatingFollowUp ? "Creating..." : "Create new PR"}
-        onClick={handleOpenPR}
-      />
-    ) : (
-      <Tooltip title={isArchived ? "Task is archived" : ""} placement="top">
-        <span style={{ width: "100%", display: "block" }}>
-          <Button
-            size={buttonSize}
-            variant="outlined"
-            startIcon={
-              isCreatingFollowUp ? (
-                <CircularProgress size={18} color="inherit" />
-              ) : (
-                <GitPullRequest size={18} />
-              )
-            }
-            onClick={handleOpenPR}
-            disabled={isArchived || isCreatingFollowUp}
-            fullWidth
-            sx={buttonSx}
-          >
-            {isCreatingFollowUp ? "Creating..." : "Create new PR"}
-          </Button>
-        </span>
-      </Tooltip>
-    )
-  ) : null;
 
-  if (task.status === "pull_request" && !hasAnyPR && task.metadata?.error) {
+  if (
+    task.status === "pull_request" &&
+    currentPullRequests.length === 0 &&
+    task.metadata?.error
+  ) {
     return (
       <Box sx={{ display: "flex", flexDirection: "column", gap: 1, width: "100%" }}>
         <Alert severity="error" sx={{ py: 0.5 }}>
@@ -1018,6 +979,103 @@ export default function SpecTaskActionButtons({
   }
 
   if ((task.status === "pull_request" || task.status === "done") && hasAnyPR) {
+    if (followUpReady) {
+      return (
+        <Box
+          sx={
+            isInline
+              ? inlineRowSx
+              : { display: "flex", alignItems: "center", gap: 0.75, mt: 1.5 }
+          }
+        >
+          {isInline ? (
+            <CompactActionButton
+              density={density}
+              tooltip={
+                isArchived
+                  ? "Task is archived"
+                  : "Create a pull request for the new changes"
+              }
+              variant="contained"
+              color="secondary"
+              disabled={isArchived || isCreatingFollowUp}
+              icon={
+                isCreatingFollowUp ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <GitPullRequest size={18} />
+                )
+              }
+              label={isCreatingFollowUp ? "Creating..." : "New PR"}
+              onClick={handleOpenPR}
+            />
+          ) : (
+            <Button
+              size={buttonSize}
+              variant="contained"
+              color="secondary"
+              startIcon={
+                isCreatingFollowUp ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <GitPullRequest size={18} />
+                )
+              }
+              onClick={handleOpenPR}
+              disabled={isArchived || isCreatingFollowUp}
+              fullWidth
+              sx={buttonSx}
+            >
+              {isCreatingFollowUp ? "Creating..." : "New PR"}
+            </Button>
+          )}
+          {isInline ? (
+            <CompactActionButton
+              density={density}
+              tooltip="View all pull requests"
+              variant="outlined"
+              disabled={isArchived}
+              icon={<GitPullRequest size={18} />}
+              label={`PRs (${pullRequests.length})`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPrMenuAnchor(e.currentTarget);
+              }}
+            />
+          ) : (
+            <Button
+              size={buttonSize}
+              variant="outlined"
+              startIcon={<GitPullRequest size={18} />}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPrMenuAnchor(e.currentTarget);
+              }}
+              disabled={isArchived}
+              sx={buttonSx}
+            >
+              {`PRs (${pullRequests.length})`}
+            </Button>
+          )}
+          <Menu
+            anchorEl={prMenuAnchor}
+            open={Boolean(prMenuAnchor)}
+            onClose={() => setPrMenuAnchor(null)}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {pullRequests.map((pr, idx) => (
+              <PRMenuItem
+                key={pr.pr_id || pr.pr_url || idx}
+                pr={pr}
+                idx={idx}
+                onSelect={() => setPrMenuAnchor(null)}
+              />
+            ))}
+          </Menu>
+        </Box>
+      );
+    }
+
     // Single PR case
     if (pullRequests.length === 1) {
       const onlyPR = pullRequests[0];
@@ -1048,7 +1106,6 @@ export default function SpecTaskActionButtons({
               <PRStateIcon state={onlyPR.pr_state} />
               <CIStatusIcon prs={[onlyPR]} />
             </Box>
-            {followUpAction}
           </Box>
         );
       }
@@ -1076,7 +1133,6 @@ export default function SpecTaskActionButtons({
               </Button>
             </span>
           </Tooltip>
-          {followUpAction}
         </Box>
       );
     }
@@ -1111,14 +1167,13 @@ export default function SpecTaskActionButtons({
             >
               {pullRequests.map((pr, idx) => (
                 <PRMenuItem
-                  key={pr.repository_id || idx}
+                  key={pr.pr_id || pr.pr_url || idx}
                   pr={pr}
                   idx={idx}
                   onSelect={() => setPrMenuAnchor(null)}
                 />
               ))}
             </Menu>
-            {followUpAction}
           </Box>
         );
       }
@@ -1154,14 +1209,13 @@ export default function SpecTaskActionButtons({
           >
             {pullRequests.map((pr, idx) => (
               <PRMenuItem
-                key={pr.repository_id || idx}
+                key={pr.pr_id || pr.pr_url || idx}
                 pr={pr}
                 idx={idx}
                 onSelect={() => setPrMenuAnchor(null)}
               />
             ))}
           </Menu>
-          {followUpAction}
         </Box>
       );
     }
