@@ -15,10 +15,6 @@ import {
 } from './useErrorCallback'
 
 import {
-  reportError,
-} from '../utils/analytics'
-
-import {
   getCSRFToken,
   CSRF_HEADER_NAME,
 } from '../utils/csrf'
@@ -262,7 +258,6 @@ export const useApi = () => {
       if(options?.snackbar !== false && !isAuthError(e)) {
         const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
         snackbar.setSnackbar(safeErrorMsg, 'error')
-        reportError(new Error(safeErrorMsg))
       }
       if(options?.loading === true) loading.setLoading(false)
       return null
@@ -282,7 +277,6 @@ export const useApi = () => {
       if(options?.snackbar !== false && !isAuthError(e)) {
         const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
         snackbar.setSnackbar(safeErrorMsg, 'error')
-        reportError(new Error(safeErrorMsg))
       }
       if(options?.loading === true) loading.setLoading(false)
       return null
@@ -305,7 +299,6 @@ export const useApi = () => {
       if(options?.snackbar !== false && !isAuthError(e)) {
         const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
         snackbar.setSnackbar(safeErrorMsg, 'error')
-        reportError(new Error(safeErrorMsg))
         throw e
       }
       if(options?.loading === true) loading.setLoading(false)
@@ -326,7 +319,6 @@ export const useApi = () => {
       if(options?.snackbar !== false && !isAuthError(e)) {
         const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
         snackbar.setSnackbar(safeErrorMsg, 'error')
-        reportError(new Error(safeErrorMsg))
       }
       if(options?.loading === true) loading.setLoading(false)
       return null

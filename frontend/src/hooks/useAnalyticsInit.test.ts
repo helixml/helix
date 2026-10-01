@@ -63,13 +63,21 @@ describe('useAnalyticsInit', () => {
   })
 
   describe('Sentry', () => {
-    it('initializes Sentry when sentry_dsn_frontend is set', () => {
+    it('shows the report dialog only for exception events', () => {
       mockConfigData = { sentry_dsn_frontend: 'https://abc@sentry.io/123' }
       renderHook(() => useAnalyticsInit())
 
-      expect(Sentry.init).toHaveBeenCalledWith(
-        expect.objectContaining({ dsn: 'https://abc@sentry.io/123' })
-      )
+      const options = (Sentry.init as any).mock.calls[0][0]
+      const errorEvent = { event_id: 'error-event', exception: { values: [{ type: 'Error', value: 'boom' }] } }
+      const messageEvent = { event_id: 'message-event', message: 'handled API error' }
+
+      expect(options.ignoreErrors).toEqual([/runtime\.sendMessage.*Tab not found/i])
+      expect(options.beforeSend(errorEvent)).toBe(errorEvent)
+      expect(Sentry.showReportDialog).toHaveBeenCalledWith({ eventId: 'error-event' })
+
+      vi.mocked(Sentry.showReportDialog).mockClear()
+      expect(options.beforeSend(messageEvent)).toBe(messageEvent)
+      expect(Sentry.showReportDialog).not.toHaveBeenCalled()
     })
 
     it('registers setUser callback for Sentry', () => {

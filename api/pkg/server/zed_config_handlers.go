@@ -115,7 +115,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			if runtime == "" {
 				runtime = types.CodeAgentRuntimeZedAgent
 			}
-			providerRef, _ := acpUsageProviderAndModel(assistant)
+			providerRef, _ := external_agent.AssistantModelSelection(assistant)
 			if err := apiServer.validateOrgCodeAgentHarness(
 				ctx,
 				app.OrganizationID,
