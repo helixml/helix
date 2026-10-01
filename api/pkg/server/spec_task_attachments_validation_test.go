@@ -93,11 +93,14 @@ func TestAllowedMimeTypes(t *testing.T) {
 	for _, mime := range []string{
 		"image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml",
 		"application/pdf", "text/plain", "text/markdown", "text/csv",
+		// Compressed archives, so large logs can be attached. Never decompressed
+		// server-side; served as downloads.
+		"application/gzip", "application/zip",
 	} {
 		assert.True(t, types.SpecTaskAttachmentAllowedMimeTypes[mime], "%s should be allowed", mime)
 	}
 	for _, mime := range []string{
-		"image/bmp", "application/zip", "application/x-executable",
+		"image/bmp", "application/x-gzip", "application/x-executable",
 		"video/mp4", "text/html",
 	} {
 		assert.False(t, types.SpecTaskAttachmentAllowedMimeTypes[mime], "%s should be rejected", mime)

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/sandbox"
@@ -179,6 +180,11 @@ func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.Response
 
 	// Strip null bytes that Postgres rejects (SQLSTATE 22021)
 	req.Prompt = strings.ReplaceAll(req.Prompt, "\x00", "")
+	req.Name = strings.ReplaceAll(req.Name, "\x00", "")
+	if utf8.RuneCountInString(strings.TrimSpace(req.Name)) > types.SpecTaskNameMaxRunes {
+		http.Error(w, fmt.Sprintf("name must be at most %d characters", types.SpecTaskNameMaxRunes), http.StatusBadRequest)
+		return
+	}
 
 	// Validate request
 	if req.Prompt == "" {

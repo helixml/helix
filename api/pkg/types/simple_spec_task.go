@@ -704,6 +704,10 @@ func (SpecTaskAttachment) TableName() string {
 	return "spec_task_attachments"
 }
 
+// SpecTaskNameMaxRunes bounds explicit task names. spec_tasks.name is B-tree
+// indexed, and Postgres rejects index entries over ~2.7 KB.
+const SpecTaskNameMaxRunes = 200
+
 // SpecTask attachment limits
 const (
 	SpecTaskAttachmentMaxBytes        = 100 * 1024 * 1024 // 100 MB per file
