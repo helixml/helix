@@ -16,6 +16,7 @@ import {
   listPromptHistory,
   backendToLocal,
 } from '../services/promptHistoryService'
+import useAccount from './useAccount'
 
 const HISTORY_STORAGE_KEY = 'helix_prompt_history'
 const DRAFT_STORAGE_KEY = 'helix_prompt_draft'
@@ -198,6 +199,10 @@ export function usePromptHistory({
   projectId,
   apiClient,
 }: UsePromptHistoryOptions): UsePromptHistoryReturn {
+  // Needed to tell our own queued prompts from other owners' — the queue is
+  // task/session-scoped now, not per-user.
+  const account = useAccount()
+  const currentUserId = account.user?.id
   // Load initial state from localStorage
   const [history, setHistory] = useState<PromptHistoryEntry[]>(() => loadHistory(specTaskId))
   // Mirror of the latest history for synchronous reads in event handlers (e.g.
@@ -284,6 +289,9 @@ export function usePromptHistory({
         // Update status of pending messages from backend
         setHistory(prev => {
           let updated = false
+          // Foreign rows that have disappeared server-side; removed after the
+          // map so the pass stays a pure reconcile.
+          const droppedIds = new Set<string>()
           const newHistory = prev.map(h => {
             if (h.deleted) return h // Don't update tombstoned entries
             const backendEntry = backendEntriesMap.get(h.id)
@@ -317,6 +325,17 @@ export function usePromptHistory({
               h.syncedToBackend &&
               (h.status === 'pending' || h.status === 'sending')
             ) {
+              // Someone else's prompt that has vanished must be DROPPED, not
+              // marked failed. The queue now shows every owner's rows, so a
+              // viewer caches prompts they don't own; when the owner deletes one
+              // the "failed — delete it to clear" state is a dead end for the
+              // viewer, who has no delete affordance for a foreign row (hidden in
+              // the UI, 403 from the API). It would sit there forever.
+              if (h.userId && currentUserId && h.userId !== currentUserId) {
+                droppedIds.add(h.id)
+                updated = true
+                return h
+              }
               updated = true
               return {
                 ...h,
@@ -328,8 +347,11 @@ export function usePromptHistory({
           })
 
           if (updated) {
-            saveHistory(newHistory, specTaskId)
-            return newHistory
+            const pruned = droppedIds.size > 0
+              ? newHistory.filter(h => !droppedIds.has(h.id))
+              : newHistory
+            saveHistory(pruned, specTaskId)
+            return pruned
           }
           return prev
         })
@@ -338,7 +360,7 @@ export function usePromptHistory({
       // Silently ignore polling errors - not critical
       console.debug('[PromptHistory] Poll failed:', e)
     }
-  }, [apiClient, specTaskId, projectId])
+  }, [apiClient, specTaskId, projectId, currentUserId])
 
   // The backend dispatches a synced prompt from a goroutine kicked off by the
   // sync request itself, so an idle agent takes it almost immediately. Refresh

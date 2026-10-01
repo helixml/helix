@@ -61,13 +61,24 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		}
 
 		if result.RowsAffected == 0 {
+			// The row's session_id is what the queue drain dispatches to, so it is
+			// security-relevant. The handler has authorized the caller against every
+			// distinct session named by these entries (authorizeSyncEntryTargets);
+			// an entry that names none falls back to the authorized scope session
+			// rather than being created with an empty session_id, which would never
+			// dispatch. Do not relax this to trust entry.SessionID unchecked.
+			sessionID := entry.SessionID
+			if sessionID == "" {
+				sessionID = req.SessionID
+			}
+
 			// Entry doesn't exist - create it with all frontend fields
 			dbEntry := &types.PromptHistoryEntry{
 				ID:            entry.ID,
 				UserID:        userID,
 				ProjectID:     req.ProjectID,
 				SpecTaskID:    req.SpecTaskID,
-				SessionID:     entry.SessionID,
+				SessionID:     sessionID,
 				Content:       entry.Content,
 				Status:        entry.Status,
 				Interrupt:     interrupt,
