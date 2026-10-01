@@ -712,6 +712,17 @@ func (g *GoldenBuildService) setFailed(ctx context.Context, projectID, sandboxID
 // result. Auto-warm projects retry after a backoff until the trigger's attempt
 // budget is spent; the next attempt is started by reconcileBuild.
 func (g *GoldenBuildService) finishInterrupted(ctx context.Context, projectID, sandboxID, sessionID, reason string) {
+	if sessionID != "" {
+		// The dead attempt's container is gone, but its Docker data (a session
+		// zvol of tens of GB on ZFS hosts) and workspace would otherwise sit
+		// until the orphan reaper's grace period. A promoted build's data has
+		// already moved into the golden, so destroying is always safe here.
+		// Best-effort: the orphan reaper is the backstop.
+		if err := g.containerExecutor.DestroyDesktop(context.WithoutCancel(ctx), sessionID, ""); err != nil {
+			log.Warn().Err(err).Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
+				Msg("Golden build: failed to destroy interrupted build's resources")
+		}
+	}
 	autoWarm := false
 	if project, err := g.store.GetProject(ctx, projectID); err == nil {
 		autoWarm = project.Metadata.AutoWarmDockerCache

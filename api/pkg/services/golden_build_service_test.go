@@ -105,6 +105,8 @@ type GoldenBuildServiceSuite struct {
 
 	sessionSeq int
 	sessionsMu sync.Mutex
+	// destroyed records sessions whose on-host resources were destroyed.
+	destroyed []string
 	// started receives the session ID of every build container started.
 	started chan string
 }
@@ -129,6 +131,14 @@ func (s *GoldenBuildServiceSuite) SetupTest() {
 	}
 	s.started = make(chan string, 16)
 	s.sessionSeq = 0
+	s.destroyed = nil
+	s.executor.EXPECT().DestroyDesktop(gomock.Any(), gomock.Any(), "").DoAndReturn(
+		func(_ context.Context, sessionID, _ string) error {
+			s.sessionsMu.Lock()
+			defer s.sessionsMu.Unlock()
+			s.destroyed = append(s.destroyed, sessionID)
+			return nil
+		}).AnyTimes()
 
 	origPoll, origBackoff, origGrace := goldenBuildPollInterval, goldenBuildRetryBackoff, goldenBuildClaimGrace
 	goldenBuildPollInterval = 5 * time.Millisecond
@@ -188,6 +198,12 @@ func (s *GoldenBuildServiceSuite) allowBuildStarts(svc *GoldenBuildService) {
 			s.started <- agent.SessionID
 			return &types.DesktopAgentResponse{}, nil
 		}).AnyTimes()
+}
+
+func (s *GoldenBuildServiceSuite) destroyedSessions() []string {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	return append([]string(nil), s.destroyed...)
 }
 
 func (s *GoldenBuildServiceSuite) waitStarted() string {
@@ -317,6 +333,7 @@ func (s *GoldenBuildServiceSuite) TestInterruptedBuildIsRetried() {
 
 	row := s.waitFor("ready", func(r *types.SandboxCacheState) bool { return r.Status == types.GoldenBuildStatusReady })
 	assert.Equal(s.T(), 2, row.Attempt)
+	assert.Equal(s.T(), []string{"ses_1"}, s.destroyedSessions(), "only the interrupted attempt's resources are destroyed")
 }
 
 // The startup script ran and exited non-zero: a real failure, not retried.
@@ -330,6 +347,7 @@ func (s *GoldenBuildServiceSuite) TestNonZeroExitFailsWithoutRetry() {
 	row := s.waitFor("failed", func(r *types.SandboxCacheState) bool { return r.Status == types.GoldenBuildStatusFailed })
 	assert.Equal(s.T(), "Startup script exited with code 2", row.Error)
 	assert.Equal(s.T(), 1, row.Attempt)
+	assert.Empty(s.T(), s.destroyedSessions(), "hydra discards a failed build's data itself")
 	s.service.ReconcileSandbox(context.Background(), "sb_1")
 	s.assertNoStart()
 }

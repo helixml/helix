@@ -57,6 +57,20 @@ func (mr *MockContainerExecutorMockRecorder) GetGoldenBuildResult(ctx, sandboxID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGoldenBuildResult", reflect.TypeOf((*MockContainerExecutor)(nil).GetGoldenBuildResult), ctx, sandboxID, projectID)
 }
 
+// DestroyDesktop mocks base method.
+func (m *MockContainerExecutor) DestroyDesktop(ctx context.Context, sessionID, specTaskID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyDesktop", ctx, sessionID, specTaskID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyDesktop indicates an expected call of DestroyDesktop.
+func (mr *MockContainerExecutorMockRecorder) DestroyDesktop(ctx, sessionID, specTaskID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyDesktop", reflect.TypeOf((*MockContainerExecutor)(nil).DestroyDesktop), ctx, sessionID, specTaskID)
+}
+
 // GoldenBuildContainerRunning mocks base method.
 func (m *MockContainerExecutor) GoldenBuildContainerRunning(ctx context.Context, sandboxID, sessionID string) (bool, error) {
 	m.ctrl.T.Helper()

@@ -76,6 +76,7 @@ const (
 type ContainerExecutor interface {
 	StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error)
 	StopDesktop(ctx context.Context, sessionID string) error
+	DestroyDesktop(ctx context.Context, sessionID, specTaskID string) error
 	// GoldenBuildContainerRunning returns an error when the sandbox's Hydra
 	// can't be reached, so callers can tell "gone" from "unknown".
 	GoldenBuildContainerRunning(ctx context.Context, sandboxID, sessionID string) (bool, error)
