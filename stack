@@ -130,6 +130,161 @@ function cleanup_sandbox_orphans() {
   fi
 }
 
+# Sandbox restart tuning. A sandbox hosting many desktops (each with a nested
+# dockerd, BuildKit and a zvol-backed /var/lib/docker) needs minutes to shut
+# down cleanly; never recreate over one that is still dying.
+SANDBOX_STOP_TIMEOUT=${SANDBOX_STOP_TIMEOUT:-300}
+SANDBOX_EXIT_WAIT_TIMEOUT=${SANDBOX_EXIT_WAIT_TIMEOUT:-900}
+SANDBOX_HEALTHY_TIMEOUT=${SANDBOX_HEALTHY_TIMEOUT:-300}
+SANDBOX_START_ATTEMPTS=${SANDBOX_START_ATTEMPTS:-3}
+# Tag of the image the sandbox ran before build-sandbox replaced it; the
+# fallback when the new one cannot be brought up.
+SANDBOX_PREVIOUS_IMAGE=helix-sandbox:previous
+
+function sandbox_compose() {
+  docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" "$@"
+}
+
+# stop_sandbox stops and removes every $SANDBOX_SERVICE container, including
+# hash-prefixed leftovers of an interrupted recreate (they keep the compose
+# labels). It returns only once each one has really exited — `docker stop`
+# gives up with "did not receive an exit event" while a sandbox with many
+# desktops is still tearing down, and recreating over it then fails and
+# strands the host without a sandbox.
+function stop_sandbox() {
+  local ids=() busy=() id status deadline next_report
+  mapfile -t ids < <(sandbox_compose ps -aq "$SANDBOX_SERVICE" 2>/dev/null || true)
+  [[ ${#ids[@]} -eq 0 ]] && return 0
+
+  deadline=$((SECONDS + SANDBOX_EXIT_WAIT_TIMEOUT))
+  echo "🛑 Stopping sandbox ${SANDBOX_SERVICE} (grace ${SANDBOX_STOP_TIMEOUT}s, waiting up to ${SANDBOX_EXIT_WAIT_TIMEOUT}s for exit)..."
+  if ! docker stop -t "$SANDBOX_STOP_TIMEOUT" "${ids[@]}" >/dev/null; then
+    echo "⚠️  docker stop returned an error; waiting for the sandbox to actually exit" >&2
+  fi
+  next_report=$SECONDS
+  while :; do
+    busy=()
+    for id in "${ids[@]}"; do
+      status=$(docker inspect --format '{{.State.Status}}' "$id" 2>/dev/null || echo gone)
+      case "$status" in
+        created|exited|dead|gone) ;;
+        *) busy+=("${id:0:12}=$status") ;;
+      esac
+    done
+    [[ ${#busy[@]} -eq 0 ]] && break
+    if (( SECONDS >= deadline )); then
+      echo "❌ Sandbox still not exited after ${SANDBOX_EXIT_WAIT_TIMEOUT}s ($(printf '%s ' "${busy[@]}")); not recreating over it" >&2
+      return 1
+    fi
+    if (( SECONDS >= next_report )); then
+      echo "⏳ Waiting for sandbox to exit: $(printf '%s ' "${busy[@]}")($((deadline - SECONDS))s left)"
+      next_report=$((SECONDS + 30))
+    fi
+    sleep 5
+  done
+  docker rm -f "${ids[@]}" >/dev/null 2>&1 || true
+  cleanup_sandbox_orphans
+  echo "✅ Sandbox ${SANDBOX_SERVICE} stopped and removed"
+}
+
+# start_sandbox brings $SANDBOX_SERVICE up (image: $SANDBOX_IMAGE or the compose
+# default) and waits for its healthcheck. Only the bring-up is retried; a
+# failed attempt's container is fresh, so removing it is quick.
+function start_sandbox() {
+  local attempt id health deadline
+  for (( attempt = 1; attempt <= SANDBOX_START_ATTEMPTS; attempt++ )); do
+    cleanup_sandbox_orphans
+    if sandbox_compose up -d --no-deps "$SANDBOX_SERVICE"; then
+      id=$(sandbox_compose ps -q "$SANDBOX_SERVICE" | head -n1 || true)
+      deadline=$((SECONDS + SANDBOX_HEALTHY_TIMEOUT))
+      while [[ -n "$id" ]] && (( SECONDS < deadline )); do
+        health=$(docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id" 2>/dev/null || true)
+        case "$health" in
+          "running healthy")
+            SANDBOX_CONTAINER=$id
+            echo "✅ Sandbox ${SANDBOX_SERVICE} is running and healthy (${id:0:12})"
+            return 0 ;;
+          "running starting") sleep 5 ;;
+          *) break ;;
+        esac
+      done
+      echo "⚠️  Sandbox not healthy (state: ${health:-none})" >&2
+    fi
+    echo "⚠️  Sandbox did not start (attempt ${attempt}/${SANDBOX_START_ATTEMPTS})" >&2
+    stop_sandbox || return 1
+    sleep 5
+  done
+  return 1
+}
+
+# restart-sandbox replaces the running sandbox with helix-sandbox:latest: wait
+# for the old one to fully exit, start the new one, and if that fails bring the
+# previous image back so the host is not left without a sandbox.
+function restart-sandbox() {
+  if [[ -f "$DIR/.env" ]]; then
+    source "$DIR/.env"
+  fi
+  get_sandbox_names
+  echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
+  local previous_id
+  previous_id=$(sandbox_compose ps -q --status running "$SANDBOX_SERVICE" | head -n1 || true)
+  if [[ -n "$previous_id" ]]; then
+    docker tag "$(docker inspect --format '{{.Image}}' "$previous_id")" "$SANDBOX_PREVIOUS_IMAGE"
+  fi
+  if ! stop_sandbox; then
+    echo "❌ Old sandbox did not exit; not starting the new one" >&2
+    return 1
+  fi
+  if ! start_sandbox; then
+    echo "❌ New sandbox failed to start after ${SANDBOX_START_ATTEMPTS} attempts; restoring the previous one" >&2
+    ensure-sandbox "$SANDBOX_PREVIOUS_IMAGE" || true
+    return 1
+  fi
+}
+
+# sandbox_is_serving <id>: running, not unhealthy, and not mid-shutdown (a
+# stopping sandbox reports "running" until it has exited, which can take minutes).
+function sandbox_is_serving() {
+  local state
+  state=$(docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$1" 2>/dev/null || true)
+  [[ "$state" == "running healthy" || "$state" == "running starting" ]] || return 1
+  timeout 30 docker exec "$1" test ! -e /run/helix-sandbox-stopping >/dev/null 2>&1
+}
+
+# ensure-sandbox [image...] is the last resort after a failed sandbox restart:
+# if no sandbox is running, bring one up from the first image that exists and
+# starts (default: helix-sandbox:latest, then the pre-restart image).
+function ensure-sandbox() {
+  if [[ -f "$DIR/.env" ]]; then
+    source "$DIR/.env"
+  fi
+  get_sandbox_names
+  local images=("$@") image id
+  if [[ ${#images[@]} -eq 0 ]]; then
+    images=(helix-sandbox:latest "$SANDBOX_PREVIOUS_IMAGE")
+  fi
+  id=$(sandbox_compose ps -q --status running "$SANDBOX_SERVICE" | head -n1 || true)
+  if [[ -n "$id" ]] && sandbox_is_serving "$id"; then
+    echo "✅ Sandbox ${SANDBOX_SERVICE} is running (${id:0:12})"
+    return 0
+  fi
+  # Anything left is stopped, broken, or still dying from an earlier stop:
+  # wait for it to exit before replacing it.
+  stop_sandbox || return 1
+  for image in "${images[@]}"; do
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+      echo "⚠️  Sandbox image $image not present; skipping" >&2
+      continue
+    fi
+    echo "🚑 Bringing sandbox ${SANDBOX_SERVICE} up from $image"
+    if SANDBOX_IMAGE=$image start_sandbox; then
+      return 0
+    fi
+  done
+  echo "❌ Could not bring any sandbox up for ${SANDBOX_SERVICE}" >&2
+  return 1
+}
+
 # Helper function to detect GPU type and set appropriate sandbox profile
 # Sets COMPOSE_PROFILES to include 'code-nvidia' (NVIDIA) or 'code-amd-intel' (AMD/Intel) if not already set
 function setup_sandbox_profile() {
@@ -1430,46 +1585,7 @@ function build-sandbox() {
     fi
   done
 
-  echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
-  cleanup_sandbox_orphans
-  docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
-
-  local sandbox_started=false
-  local sandbox_container_id
-  for attempt in 1 2; do
-    if docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" up -d "$SANDBOX_SERVICE"; then
-      sandbox_container_id=$(docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" ps -q "$SANDBOX_SERVICE" | head -n1 || true)
-      if [[ -n "$sandbox_container_id" ]] &&
-        [[ $(docker inspect --format '{{.State.Running}}' "$sandbox_container_id" 2>/dev/null) == true ]]; then
-        SANDBOX_CONTAINER=$sandbox_container_id
-        sandbox_started=true
-        break
-      fi
-    fi
-    if [[ "$attempt" == 1 ]]; then
-      echo "Sandbox did not start; retrying once..." >&2
-      cleanup_sandbox_orphans
-    fi
-  done
-  if [[ "$sandbox_started" != true ]]; then
-    echo "Sandbox failed to start after 2 attempts" >&2
-    return 1
-  fi
-
-  echo "✅ Sandbox container rebuilt and restarted"
-
-  # Wait for sandbox's nested dockerd to be ready
-  echo "⏳ Waiting for sandbox dockerd..."
-  local TIMEOUT=30
-  local ELAPSED=0
-  until docker exec "$SANDBOX_CONTAINER" docker info >/dev/null 2>&1; do
-    if [ $ELAPSED -ge $TIMEOUT ]; then
-      echo "⚠️  Sandbox dockerd not ready after ${TIMEOUT}s"
-      break
-    fi
-    sleep 1
-    ELAPSED=$((ELAPSED + 1))
-  done
+  restart-sandbox || return 1
 
   # Transfer all production desktop images to sandbox
   echo ""
@@ -1919,6 +2035,8 @@ function help() {
   echo ""
   echo "Build commands:"
   echo "  build-sandbox      - Build sandbox container (DinD + Hydra + RevDial)"
+  echo "  restart-sandbox    - Replace the running sandbox with helix-sandbox:latest (waits for clean exit)"
+  echo "  ensure-sandbox     - Bring a sandbox up if none is running (latest, else previous image)"
   echo "  build-desktop <name> - Build desktop container (sway, kde, zorin, ubuntu, xfce, hyprland)"
   echo "  build-sway         - Build Sway+Zed container (alias for build-desktop sway)"
   echo "  build-hyprland     - Build Hyprland+Zed container (alias for build-desktop hyprland)"

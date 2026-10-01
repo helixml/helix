@@ -150,7 +150,9 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
     # abort it the moment dockerd crashes, leaving it dead and the runner wedged
     # (same class of bug that took a runner offline via hydra — see 10-start-hydra).
     set +e
-    while true; do
+    # Stop supervising once the graceful shutdown (helix-sandbox-shutdown) has
+    # started, so the dockerd it stops is not restarted under it.
+    while [ ! -e /run/helix-sandbox-stopping ]; do
         rm -f "$HELIX_NETWORK_READY_FILE"
 
         # Clean up stale PID files before each restart attempt
@@ -199,6 +201,7 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
 
         wait "$DOCKERD_PID"
         EXIT_CODE=$?
+        [ -e /run/helix-sandbox-stopping ] && break
         echo "[$(date -Iseconds)] ⚠️  dockerd exited with code $EXIT_CODE, restarting in 2s..."
         sleep 2
     done

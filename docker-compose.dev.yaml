@@ -309,6 +309,9 @@ services:
     cap_add:
       - SYS_PTRACE # Thread diagnostics
     restart: unless-stopped
+    # Room for helix-sandbox-shutdown to stop every desktop (and its nested
+    # dockerd) before the kernel has to tear them down after SIGKILL.
+    stop_grace_period: 5m
     healthcheck:
       test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
       interval: 30s
@@ -402,6 +405,9 @@ services:
     cap_add:
       - SYS_PTRACE # Thread diagnostics
     restart: unless-stopped
+    # Room for helix-sandbox-shutdown to stop every desktop (and its nested
+    # dockerd) before the kernel has to tear them down after SIGKILL.
+    stop_grace_period: 5m
     healthcheck:
       test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
       interval: 30s
@@ -497,6 +503,9 @@ services:
     cap_add:
       - SYS_PTRACE # Thread diagnostics
     restart: unless-stopped
+    # Room for helix-sandbox-shutdown to stop every desktop (and its nested
+    # dockerd) before the kernel has to tear them down after SIGKILL.
+    stop_grace_period: 5m
     healthcheck:
       test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
       interval: 30s
@@ -600,6 +609,9 @@ services:
     cap_add:
       - SYS_PTRACE # Thread diagnostics
     restart: unless-stopped
+    # Room for helix-sandbox-shutdown to stop every desktop (and its nested
+    # dockerd) before the kernel has to tear them down after SIGKILL.
+    stop_grace_period: 5m
     healthcheck:
       test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
       interval: 30s

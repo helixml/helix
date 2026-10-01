@@ -31,7 +31,9 @@ mkdir -p /hydra-data
     # manually intervenes (this took a whole runner offline in prod). With
     # `set +e` the loop always restarts hydra.
     set +e
-    while true; do
+    # /run/helix-sandbox-stopping is created by the graceful shutdown
+    # (helix-sandbox-shutdown); restarting hydra then would race the teardown.
+    while [ ! -e /run/helix-sandbox-stopping ]; do
         echo "[$(date -Iseconds)] Starting Hydra daemon..."
         /usr/local/bin/hydra \
             --socket /var/run/hydra/hydra.sock \
@@ -39,6 +41,7 @@ mkdir -p /hydra-data
             --data-dir /hydra-data \
             --log-level info
         EXIT_CODE=$?
+        [ -e /run/helix-sandbox-stopping ] && break
         echo "[$(date -Iseconds)] ⚠️  Hydra exited with code $EXIT_CODE, restarting in 2s..."
         sleep 2
     done
