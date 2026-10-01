@@ -427,7 +427,33 @@ type ProjectUpdateRequest struct {
 	Guidelines                      *string                   `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
 	Skills                          *AssistantSkills          `json:"skills,omitempty"`                             // Project-level skills
 	AgentTools                      *[]string                 `json:"agent_tools,omitempty"`                        // Helix MCP tools granted to every spec task
-	Metadata                        *ProjectMetadata          `json:"metadata,omitempty"`
+	Metadata                        *ProjectMetadataUpdate    `json:"metadata,omitempty"`
+}
+
+// ProjectMetadataUpdate is the partial-update form of ProjectMetadata used by
+// PUT /api/v1/projects/{id}. Every field is optional: nil means "don't change".
+// DockerCacheStatus is deliberately absent — it is managed exclusively by
+// GoldenBuildService and must never be overwritten from an API request.
+type ProjectMetadataUpdate struct {
+	BoardSettings       *BoardSettings `json:"board_settings,omitempty"`
+	AutoWarmDockerCache *bool          `json:"auto_warm_docker_cache,omitempty"`
+	OrgMembersAccess    *bool          `json:"org_members_access,omitempty"`
+}
+
+// ApplyTo merges the non-nil fields of the update into metadata.
+func (u *ProjectMetadataUpdate) ApplyTo(metadata *ProjectMetadata) {
+	if u == nil || metadata == nil {
+		return
+	}
+	if u.BoardSettings != nil {
+		metadata.BoardSettings = u.BoardSettings
+	}
+	if u.AutoWarmDockerCache != nil {
+		metadata.AutoWarmDockerCache = *u.AutoWarmDockerCache
+	}
+	if u.OrgMembersAccess != nil {
+		metadata.OrgMembersAccess = *u.OrgMembersAccess
+	}
 }
 
 // MoveProjectRequest represents a request to move a project to an organization

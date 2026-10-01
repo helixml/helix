@@ -129,7 +129,7 @@ func (f *fakeProjectService) UpdateProject(_ context.Context, id string, patch t
 	defer f.mu.Unlock()
 	f.updateProjectCalls++
 	f.updateProjectPatchLast = patch
-	if patch.Metadata != nil && patch.Metadata.OrgMembersAccess {
+	if patch.Metadata != nil && patch.Metadata.OrgMembersAccess != nil && *patch.Metadata.OrgMembersAccess {
 		f.orgMembersAccessGranted = true
 	}
 	// Start from the seeded GetProject response so updates are
@@ -143,7 +143,7 @@ func (f *fakeProjectService) UpdateProject(_ context.Context, id string, patch t
 		updated.Name = *patch.Name
 	}
 	if patch.Metadata != nil {
-		updated.Metadata = *patch.Metadata
+		patch.Metadata.ApplyTo(&updated.Metadata)
 	}
 	if patch.DefaultHelixAppID != nil {
 		updated.DefaultHelixAppID = *patch.DefaultHelixAppID
