@@ -1163,3 +1163,43 @@ func TestIsNonRetryableIdentityError(t *testing.T) {
 		})
 	}
 }
+
+func TestSpecDrivenTaskService_CreateTaskFromPromptName(t *testing.T) {
+	for name, tc := range map[string]struct {
+		requested string
+		want      string
+	}{
+		"explicit name wins":        {"Fix desktop-bridge GPU leak", "Fix desktop-bridge GPU leak"},
+		"explicit name is trimmed":  {"  Fix leak  ", "Fix leak"},
+		"empty derives from prompt": {"", ""},
+		"blank derives from prompt": {"   ", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			service := NewSpecDrivenTaskService(
+				mockStore, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+			)
+			service.SetTestMode(true)
+			ctx := context.Background()
+			mockStore.EXPECT().GetProject(ctx, "project_1").Return(&types.Project{
+				ID: "project_1", CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+			}, nil)
+			mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
+			mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).Return(nil)
+
+			task, err := service.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
+				ProjectID: "project_1",
+				UserID:    "usr_member",
+				Name:      tc.requested,
+				Prompt:    "Complete the task below end-to-end, testing live in this inner Helix. Fix desktop-bridge GPU leak: ~28 MiB per session",
+			})
+			require.NoError(t, err)
+			want := tc.want
+			if want == "" {
+				want = GenerateTaskNameFromPrompt(task.OriginalPrompt)
+			}
+			require.Equal(t, want, task.Name)
+		})
+	}
+}
