@@ -2,8 +2,10 @@ package hydra
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +43,8 @@ func TestGoldenBuildTimeout_JSONRoundTrip(t *testing.T) {
 	}
 }
 
+func stillRunning() (bool, string) { return false, "" }
+
 // waitForGoldenBuildResult keeps polling until the configured deadline: a
 // result that arrives after a short deadline would have been lost, but is
 // picked up when the deadline is longer.
@@ -56,9 +60,9 @@ func TestWaitForGoldenBuildResult_HonoursConfiguredDeadline(t *testing.T) {
 		path := filepath.Join(t.TempDir(), ".golden-build-result")
 		writeAfter(path, 500*time.Millisecond)
 		start := time.Now()
-		_, err := waitForGoldenBuildResult(100*time.Millisecond, 10*time.Millisecond, path)
-		if err == nil {
-			t.Fatal("expected timeout error")
+		_, err := waitForGoldenBuildResult(100*time.Millisecond, 10*time.Millisecond, stillRunning, path)
+		if !errors.Is(err, errGoldenBuildTimeout) {
+			t.Fatalf("err = %v, want errGoldenBuildTimeout", err)
 		}
 		if elapsed := time.Since(start); elapsed < 100*time.Millisecond {
 			t.Fatalf("gave up after %s, before the configured 100ms deadline", elapsed)
@@ -68,7 +72,7 @@ func TestWaitForGoldenBuildResult_HonoursConfiguredDeadline(t *testing.T) {
 	t.Run("result within long deadline is returned", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), ".golden-build-result")
 		writeAfter(path, 300*time.Millisecond)
-		data, err := waitForGoldenBuildResult(5*time.Second, 10*time.Millisecond, path)
+		data, err := waitForGoldenBuildResult(5*time.Second, 10*time.Millisecond, stillRunning, path)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -84,9 +88,43 @@ func TestWaitForGoldenBuildResult_HonoursConfiguredDeadline(t *testing.T) {
 		if err := os.WriteFile(present, []byte("1"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		data, err := waitForGoldenBuildResult(time.Second, 10*time.Millisecond, missing, present)
+		data, err := waitForGoldenBuildResult(time.Second, 10*time.Millisecond, stillRunning, missing, present)
 		if err != nil || string(data) != "1" {
 			t.Fatalf("got (%q, %v), want (\"1\", nil)", data, err)
 		}
 	})
+}
+
+// A build container that dies without a result must fail the wait right
+// away, not hold the build's data until the hours-long deadline.
+func TestWaitForGoldenBuildResult_ContainerExitedWithoutResult(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".golden-build-result")
+	exited := func() (bool, string) { return true, "build container exited with code 1" }
+
+	start := time.Now()
+	_, err := waitForGoldenBuildResult(time.Hour, 10*time.Millisecond, exited, path)
+	if err == nil || errors.Is(err, errGoldenBuildTimeout) {
+		t.Fatalf("err = %v, want container-exited error", err)
+	}
+	if !strings.Contains(err.Error(), "build container exited with code 1 without writing a golden build result") {
+		t.Fatalf("err = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("took %s to notice the exited container", elapsed)
+	}
+}
+
+// The container may exit right after writing the result: that's a result,
+// not a failure.
+func TestWaitForGoldenBuildResult_ResultWrittenJustBeforeExit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".golden-build-result")
+	exited := func() (bool, string) {
+		_ = os.WriteFile(path, []byte("0\n"), 0o644)
+		return true, "build container exited with code 0"
+	}
+
+	data, err := waitForGoldenBuildResult(time.Hour, 10*time.Millisecond, exited, path)
+	if err != nil || string(data) != "0\n" {
+		t.Fatalf("got (%q, %v), want (\"0\\n\", nil)", data, err)
+	}
 }
