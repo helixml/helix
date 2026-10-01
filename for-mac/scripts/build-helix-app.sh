@@ -78,6 +78,14 @@ if [ ! -f "$QEMU_DYLIB" ]; then
     exit 1
 fi
 
+# helixml/qemu-utm vendors a patched libslirp and links it statically.
+# A dylib that still links slirp.0 is a stale build without those fixes.
+if otool -L "$QEMU_DYLIB" | grep -q slirp; then
+    echo "ERROR: $QEMU_DYLIB links an external libslirp (stale QEMU build)"
+    echo "Rebuild QEMU from helixml/qemu-utm: ./qemu-helix/build-qemu-standalone.sh"
+    exit 1
+fi
+
 if [ ! -f "$EFI_CODE" ]; then
     echo "ERROR: EFI firmware not found at: $EFI_CODE"
     echo "Install with: brew install qemu"
@@ -162,7 +170,7 @@ mkdir -p "$FRAMEWORKS_DIR"
 #
 # Direct QEMU deps:
 #   pixman-1.0, jpeg.62, epoxy.0, gio-2.0.0, gobject-2.0.0, glib-2.0.0,
-#   zstd.1, slirp.0, spice-server.1, virglrenderer.1, usbredirparser.1,
+#   zstd.1, spice-server.1, virglrenderer.1, usbredirparser.1,
 #   usb-1.0.0, gmodule-2.0.0
 #
 # Transitive deps:
@@ -182,7 +190,6 @@ REQUIRED_FRAMEWORKS=(
     "gobject-2.0.0"
     "glib-2.0.0"
     "zstd.1"
-    "slirp.0"
     "spice-server.1"
     "virglrenderer.1"
     "usbredirparser.1"

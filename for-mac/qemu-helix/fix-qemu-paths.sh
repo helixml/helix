@@ -27,7 +27,6 @@ sudo install_name_tool -change "$SYSROOT/libgio-2.0.0.dylib" @rpath/gio-2.0.0.fr
 sudo install_name_tool -change "$SYSROOT/libgobject-2.0.0.dylib" @rpath/gobject-2.0.0.framework/Versions/A/gobject-2.0.0 "$QEMU" 2>/dev/null || true
 sudo install_name_tool -change "$SYSROOT/libglib-2.0.0.dylib" @rpath/glib-2.0.0.framework/Versions/A/glib-2.0.0 "$QEMU" 2>/dev/null || true
 sudo install_name_tool -change "$SYSROOT/libzstd.1.dylib" @rpath/zstd.1.framework/Versions/A/zstd.1 "$QEMU" 2>/dev/null || true
-sudo install_name_tool -change "$SYSROOT/libslirp.0.dylib" @rpath/slirp.0.framework/Versions/A/slirp.0 "$QEMU" 2>/dev/null || true
 sudo install_name_tool -change "$SYSROOT/libspice-server.1.dylib" @rpath/spice-server.1.framework/Versions/A/spice-server.1 "$QEMU" 2>/dev/null || true
 sudo install_name_tool -change "$SYSROOT/libvirglrenderer.1.dylib" @rpath/virglrenderer.1.framework/Versions/A/virglrenderer.1 "$QEMU" 2>/dev/null || true
 sudo install_name_tool -change "$SYSROOT/libusbredirparser.1.dylib" @rpath/usbredirparser.1.framework/Versions/A/usbredirparser.1 "$QEMU" 2>/dev/null || true

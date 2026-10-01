@@ -2314,6 +2314,51 @@ steps:
         fi
 
 ---
+# TEMPORARY (task 003513): build helixml/qemu-utm with its vendored libslirp
+# on the Mac runner. Remove before merging.
+kind: pipeline
+type: exec
+name: qemu-slirp-check
+
+platform:
+  os: darwin
+  arch: arm64
+
+trigger:
+  branch:
+    - feature/003513-fix-helix-for-mac-agent
+  event:
+    - push
+
+steps:
+  - name: build-qemu
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      QEMU_UTM_REF: feature/003513-fix-helix-for-mac-agent
+    commands:
+      - export HOME=/Users/luke
+      - export SYSROOT=$HOME/pm/UTM/sysroot-macOS-arm64
+      - export WORK=/Volumes/Big/qemu-slirp-ci
+      - rm -rf "$WORK" && mkdir -p "$WORK"
+      - git clone -q --depth 1 -b "$QEMU_UTM_REF" https://github.com/helixml/qemu-utm "$WORK/qemu"
+      - git -C "$WORK/qemu" log --oneline -1
+      # 1. Unit-test the scope helper with the macOS toolchain
+      - awk '/^static uint32_t resolv_conf_scope_id/{p=1} p{print} p&&/^}/{exit}' "$WORK/qemu/subprojects/slirp/src/slirp.c" > "$WORK/helper.c"
+      - cp for-mac/qemu-helix/ci/test-slirp-dns-scope.c "$WORK/"
+      - cd "$WORK" && clang -Wall -Wextra -Werror -o test-slirp-dns-scope test-slirp-dns-scope.c && ./test-slirp-dns-scope
+      # 2. Build QEMU against the vendored libslirp (temp prefix, never the sysroot)
+      - export PKG_CONFIG="$SYSROOT/host/bin/pkg-config" PKG_CONFIG_PATH="$SYSROOT/lib/pkgconfig" PATH="$SYSROOT/host/bin:$PATH" MACOSX_DEPLOYMENT_TARGET=14.0
+      - cd "$WORK/qemu" && ./configure --prefix="$WORK/prefix" --target-list=aarch64-softmmu -Dshared_lib=true -Dcocoa=disabled -Db_pie=false -Ddocs=disabled -Dplugins=true > "$WORK/configure.log" 2>&1 || (tail -80 "$WORK/configure.log"; exit 1)
+      - grep -n -i "slirp" "$WORK/qemu/build/meson-logs/meson-log.txt" | head -20
+      - cd "$WORK/qemu/build" && ninja -j$(sysctl -n hw.ncpu) > "$WORK/ninja.log" 2>&1 || (grep -n -B5 -A20 "error:" "$WORK/ninja.log" | head -150; exit 1)
+      # 3. libslirp must be linked statically (no external slirp dylib) and include the fix
+      - cd "$WORK/qemu/build" && otool -L libqemu-aarch64-softmmu.dylib
+      - if otool -L "$WORK/qemu/build/libqemu-aarch64-softmmu.dylib" | grep -qi slirp; then echo "FAIL: links external libslirp"; exit 1; fi
+      - nm "$WORK/qemu/build/libqemu-aarch64-softmmu.dylib" | grep resolv_conf_scope_id
+      - nm "$WORK/qemu/build/libqemu-aarch64-softmmu.dylib" | grep -m1 slirp_new
+      - cd "$WORK/qemu/build" && ./qemu-system-aarch64 --version
+
+---
 # ====================================================================
 # Publish Helm charts only after every release image manifest exists.
 # ====================================================================
