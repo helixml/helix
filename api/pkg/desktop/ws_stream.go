@@ -1965,12 +1965,15 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	logger.Info("using pipewirezerocopysrc (zero-copy)", "video_node", nodeID, "cursor_node", cursorNodeID, "pipewire_fd", pipeWireFd)
 	streamer := NewVideoStreamer(nodeID, cursorNodeID, pipeWireFd, config, ws, logger)
 
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-
 	// Ensure cleanup happens even if Start() fails - the pipeline may have
 	// allocated CUDA contexts before failing, which need to be freed
 	defer streamer.Stop()
+
+	// Deferred after Stop so it runs first: Stop waits for an in-flight Start,
+	// and Start must see that this client has gone. (r.Context() is not
+	// cancelled when a hijacked WebSocket closes.)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
 
 	// Talk to the client from now on, not from when the pipeline is up.
 	go streamer.heartbeat(ctx)
