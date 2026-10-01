@@ -719,17 +719,21 @@ const (
 )
 
 // SpecTaskAttachmentAllowedMimeTypes is the allowlist of MIME types accepted for upload.
-// Kept narrow on purpose: images the agent can visually read, plus common text formats.
+// Kept narrow on purpose: images the agent can visually read, common text formats, and
+// compressed archives for large logs. Archives are never decompressed server-side —
+// they are stored, served as downloads, and unpacked by the agent in its sandbox.
 var SpecTaskAttachmentAllowedMimeTypes = map[string]bool{
-	"image/png":       true,
-	"image/jpeg":      true,
-	"image/gif":       true,
-	"image/webp":      true,
-	"image/svg+xml":   true,
-	"application/pdf": true,
-	"text/plain":      true,
-	"text/markdown":   true,
-	"text/csv":        true,
+	"image/png":        true,
+	"image/jpeg":       true,
+	"image/gif":        true,
+	"image/webp":       true,
+	"image/svg+xml":    true,
+	"application/pdf":  true,
+	"text/plain":       true,
+	"text/markdown":    true,
+	"text/csv":         true,
+	"application/gzip": true,
+	"application/zip":  true,
 }
 
 // SpecTaskExternalAgent represents the external agent (desktop container) for a SpecTask

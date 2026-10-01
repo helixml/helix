@@ -20,6 +20,9 @@ export const SPEC_TASK_ATTACHMENT_ACCEPTED_MIME: Record<string, string[]> = {
   'text/plain': ['.txt'],
   'text/markdown': ['.md', '.markdown'],
   'text/csv': ['.csv'],
+  'application/gzip': ['.gz', '.tgz'],
+  'application/x-gzip': [],
+  'application/zip': ['.zip'],
 }
 
 // useSpecTaskAttachments fetches the attachment list for a task.

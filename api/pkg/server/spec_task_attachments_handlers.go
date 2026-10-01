@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -72,6 +73,39 @@ type specTaskAttachmentInputError struct {
 
 func (e *specTaskAttachmentInputError) Error() string {
 	return e.message
+}
+
+func asSpecTaskAttachmentInputError(err error) *specTaskAttachmentInputError {
+	var inputErr *specTaskAttachmentInputError
+	if errors.As(err, &inputErr) {
+		return inputErr
+	}
+	return &specTaskAttachmentInputError{status: http.StatusBadRequest, message: err.Error()}
+}
+
+// joinSpecTaskAttachmentRejections reports every rejected file in a batch in one
+// error, so the caller can fix them all in a single round-trip. Nothing in the
+// batch has been written when this is returned. The body stays plain text because
+// clients render it verbatim.
+func joinSpecTaskAttachmentRejections(total int, rejected []*specTaskAttachmentInputError) error {
+	if len(rejected) == 0 {
+		return nil
+	}
+	status := http.StatusRequestEntityTooLarge
+	lines := make([]string, 0, len(rejected))
+	for _, r := range rejected {
+		if r.status != http.StatusRequestEntityTooLarge {
+			status = http.StatusBadRequest
+		}
+		lines = append(lines, "- "+r.message)
+	}
+	return &specTaskAttachmentInputError{
+		status: status,
+		message: fmt.Sprintf(
+			"%d of %d attachment(s) rejected; nothing was saved:\n%s",
+			len(rejected), total, strings.Join(lines, "\n"),
+		),
+	}
 }
 
 func prepareSpecTaskAttachment(name string, body []byte, caption string) (*preparedSpecTaskAttachment, error) {
@@ -159,62 +193,49 @@ func validateInlineSpecTaskAttachmentsWithLimits(
 
 	seen := make(map[string]struct{}, len(inputs))
 	totalBytes := 0
+	var rejected []*specTaskAttachmentInputError
+	reject := func(status int, format string, args ...any) {
+		rejected = append(rejected, &specTaskAttachmentInputError{status: status, message: fmt.Sprintf(format, args...)})
+	}
 	for _, input := range inputs {
 		if strings.TrimSpace(input.Name) == "" {
-			return &specTaskAttachmentInputError{
-				status:  http.StatusBadRequest,
-				message: "attachment name is required",
-			}
+			reject(http.StatusBadRequest, "attachment name is required")
+			continue
 		}
 		if input.ContentBase64 == "" {
-			return &specTaskAttachmentInputError{
-				status:  http.StatusBadRequest,
-				message: fmt.Sprintf("content_base64 is required for %s", input.Name),
-			}
+			reject(http.StatusBadRequest, "content_base64 is required for %s", input.Name)
+			continue
 		}
 		if len(input.ContentBase64) > base64.StdEncoding.EncodedLen(maxFileBytes) {
-			return &specTaskAttachmentInputError{
-				status:  http.StatusRequestEntityTooLarge,
-				message: fmt.Sprintf("%s exceeds max size", input.Name),
-			}
+			reject(http.StatusRequestEntityTooLarge, "%s exceeds max size", input.Name)
+			continue
 		}
 		body, err := base64.StdEncoding.DecodeString(input.ContentBase64)
 		if err != nil {
-			return &specTaskAttachmentInputError{
-				status:  http.StatusBadRequest,
-				message: fmt.Sprintf("invalid base64 content for %s", input.Name),
-			}
+			reject(http.StatusBadRequest, "invalid base64 content for %s", input.Name)
+			continue
 		}
 		if len(body) > maxFileBytes {
-			return &specTaskAttachmentInputError{
-				status:  http.StatusRequestEntityTooLarge,
-				message: fmt.Sprintf("%s exceeds max size", input.Name),
-			}
-		}
-		attachment, err := prepareSpecTaskAttachment(input.Name, body, input.Caption)
-		if err != nil {
-			return err
+			reject(http.StatusRequestEntityTooLarge, "%s exceeds max size", input.Name)
+			continue
 		}
 		totalBytes += len(body)
-		if totalBytes > maxTotalBytes {
-			return &specTaskAttachmentInputError{
-				status: http.StatusRequestEntityTooLarge,
-				message: fmt.Sprintf(
-					"inline attachments exceed total size limit of %d bytes",
-					maxTotalBytes,
-				),
-			}
+		attachment, err := prepareSpecTaskAttachment(input.Name, body, input.Caption)
+		if err != nil {
+			rejected = append(rejected, asSpecTaskAttachmentInputError(err))
+			continue
 		}
 		if _, exists := seen[attachment.filename]; exists {
-			return &specTaskAttachmentInputError{
-				status:  http.StatusBadRequest,
-				message: fmt.Sprintf("duplicate attachment filename: %s", attachment.filename),
-			}
+			reject(http.StatusBadRequest, "duplicate attachment filename: %s", attachment.filename)
+			continue
 		}
 		seen[attachment.filename] = struct{}{}
 		attachment.body = nil
 	}
-	return nil
+	if totalBytes > maxTotalBytes {
+		reject(http.StatusRequestEntityTooLarge, "inline attachments exceed total size limit of %d bytes", maxTotalBytes)
+	}
+	return joinSpecTaskAttachmentRejections(len(inputs), rejected)
 }
 
 func prepareInlineSpecTaskAttachment(input types.SpecTaskInlineAttachment) (*preparedSpecTaskAttachment, error) {
@@ -279,6 +300,49 @@ func (s *HelixAPIServer) cleanupFailedSpecTaskAttachmentBlob(ctx context.Context
 	if err := s.Controller.FilestoreSpecTaskAttachmentDelete(cleanupCtx, path); err != nil {
 		log.Warn().Err(err).Str("path", path).Msg("Failed to delete attachment blob after persistence failed")
 	}
+}
+
+// readMultipartSpecTaskAttachment reads and validates one uploaded file. Validation
+// failures are *specTaskAttachmentInputError; any other error is a server fault.
+func readMultipartSpecTaskAttachment(fh *multipart.FileHeader, caption string) (*preparedSpecTaskAttachment, error) {
+	if fh.Size > types.SpecTaskAttachmentMaxBytes {
+		return nil, &specTaskAttachmentInputError{
+			status:  http.StatusRequestEntityTooLarge,
+			message: fmt.Sprintf("%s is too large (%d > %d bytes)", fh.Filename, fh.Size, types.SpecTaskAttachmentMaxBytes),
+		}
+	}
+	src, err := fh.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open uploaded file: %w", err)
+	}
+	defer src.Close()
+	body, err := io.ReadAll(io.LimitReader(src, types.SpecTaskAttachmentMaxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read uploaded file: %w", err)
+	}
+	return prepareSpecTaskAttachment(fh.Filename, body, caption)
+}
+
+// rollbackSpecTaskAttachments deletes rows and blobs created earlier in a failed
+// batch. It returns the filenames it could not fully remove.
+func (s *HelixAPIServer) rollbackSpecTaskAttachments(ctx context.Context, created []*types.SpecTaskAttachment) []string {
+	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	var leaked []string
+	for _, row := range created {
+		rowErr := s.Store.DeleteSpecTaskAttachment(rollbackCtx, row.ID)
+		blobErr := s.Controller.FilestoreSpecTaskAttachmentDelete(rollbackCtx, row.FilestorePath)
+		if rowErr != nil || blobErr != nil {
+			log.Error().
+				AnErr("row_err", rowErr).
+				AnErr("blob_err", blobErr).
+				Str("attachment_id", row.ID).
+				Str("path", row.FilestorePath).
+				Msg("Failed to roll back attachment")
+			leaked = append(leaked, row.Filename)
+		}
+	}
+	return leaked
 }
 
 func (s *HelixAPIServer) cleanupInlineSpecTaskAttachments(ctx context.Context, taskID string) {
@@ -374,43 +438,49 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// Validate every file before writing any, so one bad file rejects the whole batch
+	// and the caller hears about every bad file at once. Bodies are dropped after
+	// validation and re-read from the multipart temp files when committing, keeping
+	// memory bounded to one file.
+	var rejected []*specTaskAttachmentInputError
+	for _, fh := range files {
+		if _, err := readMultipartSpecTaskAttachment(fh, caption); err != nil {
+			var inputErr *specTaskAttachmentInputError
+			if !errors.As(err, &inputErr) {
+				log.Error().Err(err).Str("task_id", taskID).Str("filename", fh.Filename).Msg("Failed to read uploaded attachment")
+				http.Error(w, "failed to read uploaded file", http.StatusInternalServerError)
+				return
+			}
+			rejected = append(rejected, inputErr)
+		}
+	}
+	if err := joinSpecTaskAttachmentRejections(len(files), rejected); err != nil {
+		writeSpecTaskAttachmentInputError(w, err)
+		return
+	}
+
 	created := make([]*types.SpecTaskAttachment, 0, len(files))
 	for _, fh := range files {
-		if fh.Size > types.SpecTaskAttachmentMaxBytes {
-			http.Error(w, fmt.Sprintf("%s is too large (%d > %d bytes)", fh.Filename, fh.Size, types.SpecTaskAttachmentMaxBytes), http.StatusRequestEntityTooLarge)
+		attachment, err := readMultipartSpecTaskAttachment(fh, caption)
+		if err == nil {
+			var row *types.SpecTaskAttachment
+			row, err = s.persistSpecTaskAttachment(ctx, taskID, task.ProjectID, user.ID, attachment)
+			attachment.body = nil
+			if err == nil {
+				created = append(created, row)
+				continue
+			}
+		}
+		log.Error().Err(err).Str("task_id", taskID).Str("filename", fh.Filename).Msg("Failed to persist attachment; rolling back batch")
+		if leaked := s.rollbackSpecTaskAttachments(ctx, created); len(leaked) > 0 {
+			http.Error(w, fmt.Sprintf(
+				"failed to save %s, and rollback failed for %s — these attachments may still be on the task",
+				fh.Filename, strings.Join(leaked, ", "),
+			), http.StatusInternalServerError)
 			return
 		}
-		src, err := fh.Open()
-		if err != nil {
-			http.Error(w, "failed to open uploaded file", http.StatusInternalServerError)
-			return
-		}
-		// Read the whole body once: needed for content-sniff and SVG script check, then
-		// the same bytes are written to filestore. Capped at the per-file limit by
-		// ParseMultipartForm + the Size check above.
-		body, err := io.ReadAll(io.LimitReader(src, types.SpecTaskAttachmentMaxBytes+1))
-		_ = src.Close()
-		if err != nil {
-			http.Error(w, "failed to read uploaded file", http.StatusInternalServerError)
-			return
-		}
-		if int64(len(body)) > types.SpecTaskAttachmentMaxBytes {
-			http.Error(w, fmt.Sprintf("%s exceeds max size", fh.Filename), http.StatusRequestEntityTooLarge)
-			return
-		}
-
-		attachment, err := prepareSpecTaskAttachment(fh.Filename, body, caption)
-		if err != nil {
-			writeSpecTaskAttachmentInputError(w, err)
-			return
-		}
-		row, err := s.persistSpecTaskAttachment(ctx, taskID, task.ProjectID, user.ID, attachment)
-		if err != nil {
-			log.Error().Err(err).Str("task_id", taskID).Str("filename", attachment.filename).Msg("Failed to persist attachment")
-			http.Error(w, "failed to record attachment", http.StatusInternalServerError)
-			return
-		}
-		created = append(created, row)
+		http.Error(w, fmt.Sprintf("failed to save %s; the batch was rolled back and nothing was saved", fh.Filename), http.StatusInternalServerError)
+		return
 	}
 
 	// Stage the uploaded attachments into the helix-specs branch immediately, so they
@@ -530,8 +600,9 @@ func (s *HelixAPIServer) getSpecTaskAttachmentContent(w http.ResponseWriter, r *
 	defer rc.Close()
 
 	w.Header().Set("Content-Type", att.MimeType)
-	// Force download for SVGs (defence-in-depth against any browser that ignores script-strip).
-	if att.MimeType == "image/svg+xml" {
+	// Force download for SVGs (defence-in-depth against any browser that ignores
+	// script-strip) and for archives, which browsers cannot display inline.
+	if att.MimeType == "image/svg+xml" || att.MimeType == "application/gzip" || att.MimeType == "application/zip" {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", att.Filename))
 	} else {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", att.Filename))
@@ -650,6 +721,10 @@ func detectAttachmentMime(filename string, body []byte) string {
 	// but for plain text it includes a charset; strip it.
 	if i := strings.IndexByte(ct, ';'); i > 0 {
 		ct = strings.TrimSpace(ct[:i])
+	}
+	// The sniffer reports gzip magic bytes under the legacy x-gzip name.
+	if ct == "application/x-gzip" {
+		return "application/gzip"
 	}
 	return ct
 }
