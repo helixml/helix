@@ -962,6 +962,8 @@ func (s *WebSocketSyncSuite) TestMessageAdded_MissingFields() {
 // ──────────────────────────────────────────────────────────────────────────────
 
 func (s *WebSocketSyncSuite) TestMessageCompleted_Normal() {
+	// message_completed retries the comment lookup by the completing interaction id.
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	s.server.contextMappings[routeKey("agent-1", "thread-mc")] = "ses_mc"
 
 	session := &types.Session{
@@ -1181,6 +1183,8 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_NoWaitingInteraction() {
 }
 
 func (s *WebSocketSyncSuite) TestMessageCompleted_ContextMappingMiss_DBFallback() {
+	// message_completed retries the comment lookup by the completing interaction id.
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	// contextMappings is empty
 	session := &types.Session{
 		ID:    "ses_mc_fb",
@@ -1304,6 +1308,8 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_WithCommentFinalization() {
 // user is clearly looking at the UI and an "agent finished" notification
 // would just be noise.
 func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive() {
+	// message_completed retries the comment lookup by the completing interaction id.
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	s.server.contextMappings[routeKey("agent-1", "thread-skip")] = "ses_skip"
 	s.server.requestToInteractionMapping["req-skip"] = "int-target-skip"
 	s.server.attentionService = services.NewAttentionService(s.store, s.server.Cfg)
@@ -1383,6 +1389,8 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive()
 // newer waiting interaction — the normal completion case where the user is
 // not actively engaged.
 func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup() {
+	// message_completed retries the comment lookup by the completing interaction id.
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	s.server.contextMappings[routeKey("agent-1", "thread-emit")] = "ses_emit"
 	s.server.requestToInteractionMapping["req-emit"] = "int-target-emit"
 	s.server.attentionService = services.NewAttentionService(s.store, s.server.Cfg)
@@ -1518,6 +1526,8 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_AlreadyCompleteStillSignalsDon
 // waiter registered under interaction.ID (the post-fix request_id convention)
 // and message_completed carries that same id.
 func (s *WebSocketSyncSuite) TestMessageCompleted_SignalsDoneUnderInteractionID() {
+	// message_completed retries the comment lookup by the completing interaction id.
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	const (
 		helixSessionID = "ses_int_id"
 		interactionID  = "int_is_request"
@@ -3338,6 +3348,8 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries
 }
 
 func (s *WebSocketSyncSuite) TestStreamingContextCache_ClearedOnMessageCompleted() {
+	// message_completed retries the comment lookup by the completing interaction id.
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	s.server.contextMappings[routeKey("agent-1", "thread-clear")] = "ses_clear"
 
 	session := &types.Session{
@@ -3503,6 +3515,8 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 }
 
 func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted() {
+	// message_completed retries the comment lookup by the completing interaction id.
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	// Test that dirty interaction is flushed to DB when message_completed arrives.
 	s.server.contextMappings[routeKey("agent-1", "thread-flush")] = "ses_flush"
 

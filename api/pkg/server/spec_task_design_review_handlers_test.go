@@ -359,7 +359,7 @@ func (s *CommentTimerSuite) TestHandleCommentTimeout_SkipsErrorWhenInteractionHa
 	// re-arms (in-memory only) and defers. gomock's strict mode fails the test if
 	// any unexpected store call is made.
 
-	s.server.handleCommentTimeout(context.Background(), "ses-streaming", "comment-streaming")
+	s.server.handleCommentTimeout(context.Background(), "ses-streaming", "comment-streaming", 0)
 
 	// Re-arm scheduled a real 2-minute timer; stop it so it can't fire after the
 	// mock controller is torn down.
@@ -406,7 +406,7 @@ func (s *CommentTimerSuite) TestHandleCommentTimeout_FinalizesStalledStream() {
 	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "review-stalled").
 		Return(nil, errNotFound{}).AnyTimes()
 
-	s.server.handleCommentTimeout(context.Background(), "ses-stalled", "comment-stalled")
+	s.server.handleCommentTimeout(context.Background(), "ses-stalled", "comment-stalled", 0)
 }
 
 // TestHandleCommentTimeout_FinalizesWhenInteractionIsTerminal covers the core
@@ -448,16 +448,107 @@ func (s *CommentTimerSuite) TestHandleCommentTimeout_FinalizesWhenInteractionIsT
 	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "review-terminal").
 		Return(nil, errNotFound{}).AnyTimes()
 
-	s.server.handleCommentTimeout(context.Background(), "ses-terminal", "comment-terminal")
+	s.server.handleCommentTimeout(context.Background(), "ses-terminal", "comment-terminal", 0)
 }
 
-// TestHandleCommentTimeout_StampsErrorWhenInteractionEmpty is the
-// regression guard for the genuine no-response case: the comment was sent
-// to the agent, two minutes passed, AND the interaction has no content and
-// is still waiting (the agent really did go silent — desktop died, network
-// dropped, whatever). In that case the user must still see the
-// "try sending your comment again" message so they know to act.
-func (s *CommentTimerSuite) TestHandleCommentTimeout_StampsErrorWhenInteractionEmpty() {
+// stopRearmedTimer asserts the handler re-armed the session timer and stops it
+// so it can't fire after the mock controller is torn down.
+func (s *CommentTimerSuite) stopRearmedTimer(sessionID string) {
+	t := s.server.sessionCommentTimeout[sessionID]
+	s.Require().NotNil(t, "timer must be re-armed")
+	t.Stop()
+}
+
+// expectQueueAdvance allows the processNextCommentInQueue goroutine spawned
+// after a stamp to run against an empty queue.
+func (s *CommentTimerSuite) expectQueueAdvance(sessionID string) {
+	s.store.EXPECT().IsCommentBeingProcessedForSession(gomock.Any(), sessionID).
+		Return(false, nil).MinTimes(1)
+	// Empty queue is signalled as an error in the real store
+	// (gorm.ErrRecordNotFound); a nil comment + nil err would nil-deref.
+	s.store.EXPECT().GetNextQueuedCommentForSession(gomock.Any(), sessionID).
+		Return(nil, errNotFound{}).AnyTimes()
+}
+
+// TestHandleCommentTimeout_RearmsWhenInteractionQueuedWithNoOutput reproduces
+// the meta incident: the comment's interaction sat `waiting` with zero bytes
+// for ~18 minutes behind four earlier prompts on the same session. "The agent
+// hasn't started yet" must not be stamped as "the agent did not respond".
+func (s *CommentTimerSuite) TestHandleCommentTimeout_RearmsWhenInteractionQueuedWithNoOutput() {
+	comment := &types.SpecTaskDesignReviewComment{
+		ID:            "comment-queued",
+		RequestID:     "req-queued",
+		InteractionID: "int-queued",
+	}
+	queuedInteraction := &types.Interaction{
+		ID:      "int-queued",
+		State:   types.InteractionStateWaiting,
+		Updated: time.Now().Add(-10 * commentResponseTimeout), // untouched while queued
+	}
+
+	s.store.EXPECT().GetSpecTaskDesignReviewComment(gomock.Any(), "comment-queued").
+		Return(comment, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-queued").
+		Return(queuedInteraction, nil)
+	// NO UpdateSpecTaskDesignReviewComment: gomock strict mode fails on a stamp.
+
+	s.server.handleCommentTimeout(context.Background(), "ses-queued", "comment-queued", 3)
+
+	s.stopRearmedTimer("ses-queued")
+}
+
+// TestHandleCommentTimeout_RearmsWhilePromptAwaitingDispatch covers the comment
+// whose prompt is still in the session prompt queue: RequestID holds the
+// prompt-id placeholder and no interaction exists yet.
+func (s *CommentTimerSuite) TestHandleCommentTimeout_RearmsWhilePromptAwaitingDispatch() {
+	comment := &types.SpecTaskDesignReviewComment{
+		ID:        "comment-pending",
+		RequestID: "prompt-pending",
+		PromptID:  "prompt-pending",
+	}
+
+	s.store.EXPECT().GetSpecTaskDesignReviewComment(gomock.Any(), "comment-pending").
+		Return(comment, nil)
+	s.store.EXPECT().GetPromptHistoryEntry(gomock.Any(), "prompt-pending").
+		Return(&types.PromptHistoryEntry{ID: "prompt-pending", Status: "pending"}, nil)
+
+	s.server.handleCommentTimeout(context.Background(), "ses-pending", "comment-pending", 0)
+
+	s.stopRearmedTimer("ses-pending")
+}
+
+// TestHandleCommentTimeout_StampsWhenNoInteractionAndPromptGone: the prompt was
+// removed from the queue (or never existed) and no interaction was ever created
+// — the agent will never see this comment.
+func (s *CommentTimerSuite) TestHandleCommentTimeout_StampsWhenNoInteractionAndPromptGone() {
+	removed := time.Now()
+	comment := &types.SpecTaskDesignReviewComment{
+		ID:        "comment-orphan",
+		RequestID: "prompt-orphan",
+		PromptID:  "prompt-orphan",
+	}
+
+	s.store.EXPECT().GetSpecTaskDesignReviewComment(gomock.Any(), "comment-orphan").
+		Return(comment, nil)
+	s.store.EXPECT().GetPromptHistoryEntry(gomock.Any(), "prompt-orphan").
+		Return(&types.PromptHistoryEntry{ID: "prompt-orphan", Status: "pending", DeletedAt: &removed}, nil)
+	s.store.EXPECT().UpdateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c *types.SpecTaskDesignReviewComment) error {
+			s.Equal(CommentTimerNoResponseMessage, c.AgentResponse)
+			s.Empty(c.RequestID)
+			return nil
+		},
+	)
+	s.expectQueueAdvance("ses-orphan")
+
+	s.server.handleCommentTimeout(context.Background(), "ses-orphan", "comment-orphan", 0)
+	time.Sleep(50 * time.Millisecond)
+}
+
+// TestHandleCommentTimeout_StampsWhenTerminalWithNoText is the genuine
+// no-response case: the agent finished its turn without producing anything.
+// Stamp the error so the user knows to retry, and advance the queue.
+func (s *CommentTimerSuite) TestHandleCommentTimeout_StampsWhenTerminalWithNoText() {
 	comment := &types.SpecTaskDesignReviewComment{
 		ID:            "comment-silent",
 		ReviewID:      "review-silent",
@@ -465,10 +556,8 @@ func (s *CommentTimerSuite) TestHandleCommentTimeout_StampsErrorWhenInteractionE
 		InteractionID: "int-silent",
 	}
 	silentInteraction := &types.Interaction{
-		ID:              "int-silent",
-		SessionID:       "ses-silent",
-		State:           types.InteractionStateWaiting,
-		ResponseMessage: "",
+		ID:    "int-silent",
+		State: types.InteractionStateError,
 	}
 
 	s.store.EXPECT().GetSpecTaskDesignReviewComment(gomock.Any(), "comment-silent").
@@ -483,20 +572,43 @@ func (s *CommentTimerSuite) TestHandleCommentTimeout_StampsErrorWhenInteractionE
 			return nil
 		},
 	)
-	// processNextCommentInQueue is spawned in a goroutine after the
-	// update — it calls IsCommentBeingProcessedForSession. Allow that
-	// follow-up call to return any sensible result without coupling this
-	// test to queue internals.
-	s.store.EXPECT().IsCommentBeingProcessedForSession(gomock.Any(), "ses-silent").
-		Return(false, nil).AnyTimes()
-	// Empty queue is signalled as an error in the real store
-	// (gorm.ErrRecordNotFound); a nil comment + nil err would nil-deref.
-	s.store.EXPECT().GetNextQueuedCommentForSession(gomock.Any(), "ses-silent").
-		Return(nil, errNotFound{}).AnyTimes()
+	s.expectQueueAdvance("ses-silent")
 
-	s.server.handleCommentTimeout(context.Background(), "ses-silent", "comment-silent")
+	s.server.handleCommentTimeout(context.Background(), "ses-silent", "comment-silent", 0)
 	// Let the goroutine spawn settle so gomock's strict mode evaluates it.
 	time.Sleep(50 * time.Millisecond)
+}
+
+// TestHandleCommentTimeout_StampsAfterRearmCap bounds the wait: an interaction
+// that stays non-terminal with no output for maxCommentTimerRearms windows is
+// treated as dead, so it can't block the session's comment queue forever.
+func (s *CommentTimerSuite) TestHandleCommentTimeout_StampsAfterRearmCap() {
+	comment := &types.SpecTaskDesignReviewComment{
+		ID:            "comment-dead",
+		RequestID:     "req-dead",
+		InteractionID: "int-dead",
+	}
+	deadInteraction := &types.Interaction{
+		ID:    "int-dead",
+		State: types.InteractionStateWaiting,
+	}
+
+	s.store.EXPECT().GetSpecTaskDesignReviewComment(gomock.Any(), "comment-dead").
+		Return(comment, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-dead").
+		Return(deadInteraction, nil)
+	s.store.EXPECT().UpdateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c *types.SpecTaskDesignReviewComment) error {
+			s.Equal(CommentTimerNoResponseMessage, c.AgentResponse)
+			s.Empty(c.RequestID)
+			return nil
+		},
+	)
+	s.expectQueueAdvance("ses-dead")
+
+	s.server.handleCommentTimeout(context.Background(), "ses-dead", "comment-dead", maxCommentTimerRearms)
+	time.Sleep(50 * time.Millisecond)
+	s.Nil(s.server.sessionCommentTimeout["ses-dead"], "timer must not be re-armed past the cap")
 }
 
 // TestHandleCommentTimeout_NoopWhenAlreadyResolved verifies the early-exit
@@ -514,7 +626,7 @@ func (s *CommentTimerSuite) TestHandleCommentTimeout_NoopWhenAlreadyResolved() {
 		Return(comment, nil)
 	// NO further calls expected.
 
-	s.server.handleCommentTimeout(context.Background(), "ses-resolved", "comment-resolved")
+	s.server.handleCommentTimeout(context.Background(), "ses-resolved", "comment-resolved", 0)
 }
 
 // TestFinalizeCommentResponse_OverwritesStaleTimerError pins the repair
@@ -559,6 +671,97 @@ func (s *CommentTimerSuite) TestFinalizeCommentResponse_OverwritesStaleTimerErro
 
 	err := s.server.finalizeCommentResponse(context.Background(), "req-repair")
 	s.NoError(err)
+}
+
+// TestFinalizeCommentResponseForInteraction_HealsStampedComment is the meta
+// incident's second half: the timer stamped the comment and cleared its
+// request_id, then the real answer arrived. The request_id lookup misses, so
+// the completing interaction's id must find the comment and overwrite the stamp
+// with the real response AND its entries.
+func (s *CommentTimerSuite) TestFinalizeCommentResponseForInteraction_HealsStampedComment() {
+	stamped := &types.SpecTaskDesignReviewComment{
+		ID:            "comment-stamped",
+		ReviewID:      "review-stamped",
+		RequestID:     "",
+		InteractionID: "int-late",
+		AgentResponse: CommentTimerNoResponseMessage,
+	}
+	entries := []byte(`[{"type":"text","content":"89KB of real answer"}]`)
+	lateInteraction := &types.Interaction{
+		ID:              "int-late",
+		State:           types.InteractionStateComplete,
+		ResponseMessage: "89KB of real answer",
+		ResponseEntries: entries,
+	}
+
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "int-late").
+		Return(nil, errNotFound{})
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-late").
+		Return(stamped, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-late").
+		Return(lateInteraction, nil)
+	s.store.EXPECT().UpdateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c *types.SpecTaskDesignReviewComment) error {
+			s.Equal("comment-stamped", c.ID)
+			s.Equal("89KB of real answer", c.AgentResponse, "stale stamp must be overwritten")
+			s.JSONEq(string(entries), string(c.AgentResponseEntries), "entries must be copied so tool calls render")
+			s.NotNil(c.AgentResponseAt)
+			return nil
+		},
+	)
+	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "review-stamped").
+		Return(nil, errNotFound{}).AnyTimes()
+
+	s.NoError(s.server.finalizeCommentResponseForInteraction(context.Background(), "int-late", "int-late"))
+}
+
+// TestFinalizeCommentResponseForInteraction_NoRequestIDBranch covers the
+// message_completed fallback for agents that don't echo request_id.
+func (s *CommentTimerSuite) TestFinalizeCommentResponseForInteraction_NoRequestIDBranch() {
+	stamped := &types.SpecTaskDesignReviewComment{
+		ID:            "comment-noreq",
+		ReviewID:      "review-noreq",
+		InteractionID: "int-noreq",
+		AgentResponse: CommentTimerNoResponseMessage,
+	}
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-noreq").
+		Return(stamped, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-noreq").
+		Return(&types.Interaction{ID: "int-noreq", State: types.InteractionStateComplete, ResponseMessage: "answer"}, nil)
+	s.store.EXPECT().UpdateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c *types.SpecTaskDesignReviewComment) error {
+			s.Equal("answer", c.AgentResponse)
+			return nil
+		},
+	)
+	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "review-noreq").
+		Return(nil, errNotFound{}).AnyTimes()
+
+	s.NoError(s.server.finalizeCommentResponseForInteraction(context.Background(), "", "int-noreq"))
+}
+
+// TestFinalizeCommentResponseForInteraction_DoesNotClobberResentComment: the
+// user re-sent a stamped comment; the re-send is a new row on a new interaction
+// and has been answered. A late completion for the OLD interaction must only
+// ever touch the old row, and must never overwrite a real answer.
+func (s *CommentTimerSuite) TestFinalizeCommentResponseForInteraction_DoesNotClobberResentComment() {
+	resent := &types.SpecTaskDesignReviewComment{
+		ID:            "comment-resent",
+		InteractionID: "int-new",
+		AgentResponse: "Answer to the re-sent comment.",
+	}
+	// A store that (wrongly) resolved the old interaction to the re-sent row
+	// must still be rejected by the exact-id guard.
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-old").
+		Return(resent, nil)
+	// A comment already holding a real answer is left alone too.
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-new").
+		Return(resent, nil)
+	// NO UpdateSpecTaskDesignReviewComment expected.
+
+	s.Error(s.server.finalizeCommentResponseForInteraction(context.Background(), "", "int-old"))
+	s.Error(s.server.finalizeCommentResponseForInteraction(context.Background(), "", "int-new"))
+	s.Equal("Answer to the re-sent comment.", resent.AgentResponse)
 }
 
 // TestFinalizeCommentResponse_PopulatesEmptyComment is the standard happy

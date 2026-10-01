@@ -3467,7 +3467,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			Str("helix_session_id", helixSessionID).
 			Msg("🎯 [HELIX] Using request_id from message_completed data to finalize comment")
 
-		if err := apiServer.finalizeCommentResponse(context.Background(), messageRequestID); err != nil {
+		if err := apiServer.finalizeCommentResponseForInteraction(context.Background(), messageRequestID, targetInteraction.ID); err != nil {
 			log.Debug().
 				Err(err).
 				Str("request_id", messageRequestID).
@@ -3490,8 +3490,14 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			Str("helix_session_id", helixSessionID).
 			Msg("No request_id in message_completed data, falling back to session-based lookup")
 
-		pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID)
-		if err == nil && pendingComment != nil {
+		// Exact interaction match first: it also finds a comment the no-response
+		// timer already stamped (request_id cleared), which the pending lookup
+		// below can never see.
+		if finalizeErr := apiServer.finalizeCommentResponseForInteraction(context.Background(), "", targetInteraction.ID); finalizeErr == nil {
+			log.Info().
+				Str("interaction_id", targetInteraction.ID).
+				Msg("✅ [HELIX] Finalized comment response via interaction id (fallback)")
+		} else if pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID); err == nil && pendingComment != nil {
 			requestID := pendingComment.RequestID
 			commentID := pendingComment.ID
 
