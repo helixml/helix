@@ -477,6 +477,20 @@ func (r *SharedVideoSourceRegistry) doStop(pending *pendingStop) {
 
 	// Remove from pending map before releasing lock
 	delete(r.pendingStops, pending.nodeID)
+
+	// A client can subscribe to a source after its last client left and the
+	// stop was scheduled: it got the pointer from GetOrCreate before the
+	// source moved to pendingStops. Stopping it would cut that viewer off, so
+	// put it back instead.
+	if pending.source.GetClientCount() > 0 {
+		if _, taken := r.sources[pending.nodeID]; !taken {
+			r.sources[pending.nodeID] = pending.source
+			r.cancelledStops.Add(1)
+			r.mu.Unlock()
+			log.Info().Uint32("node_id", pending.nodeID).Msg("[SHARED_VIDEO] Stop cancelled (clients attached during grace period)")
+			return
+		}
+	}
 	r.mu.Unlock()
 
 	// Stop the pipeline (outside lock - may take time for cleanup)

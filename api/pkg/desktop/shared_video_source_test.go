@@ -74,3 +74,26 @@ func TestStartAfterStopDoesNotBuildPipeline(t *testing.T) {
 		t.Fatal("no pipeline may be created after stop")
 	}
 }
+
+// A client that subscribed after the stop was scheduled must keep its source.
+func TestGracePeriodStopSparesSourceWithClients(t *testing.T) {
+	r := newTestVideoRegistry()
+	src := r.GetOrCreate(4, "x", GstPipelineOptions{})
+	r.ScheduleStop(4) // last client left
+	if _, pending := r.pendingStops[4]; !pending {
+		t.Fatal("precondition: stop scheduled")
+	}
+	// A viewer that already held the pointer subscribes now.
+	src.clientsMu.Lock()
+	src.clients[99] = &sharedVideoClient{id: 99, frameCh: make(chan VideoFrame, 1), errorCh: make(chan error, 1)}
+	src.clientsMu.Unlock()
+
+	r.doStop(r.pendingStops[4])
+
+	if src.stopped.Load() {
+		t.Fatal("source with an attached client was stopped")
+	}
+	if r.sources[4] != src {
+		t.Fatal("source must be active again")
+	}
+}

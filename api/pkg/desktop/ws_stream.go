@@ -1171,8 +1171,12 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 			return
 		case frame, ok := <-frameCh:
 			if !ok {
-				// Shared source stopped or we were unsubscribed
+				// Shared source stopped or we were unsubscribed. Drop the socket
+				// so the client reconnects and attaches to a live source: the
+				// heartbeat would otherwise keep a video-less connection looking
+				// healthy indefinitely.
 				v.logger.Info("shared video source channel closed")
+				v.ws.UnderlyingConn().Close()
 				return
 			}
 			if !v.videoFlowing.Swap(true) {
