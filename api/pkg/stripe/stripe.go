@@ -37,12 +37,21 @@ func (s *Stripe) SetSlackSender(slack SlackSender) {
 
 func (s *Stripe) billingAccount(ctx context.Context, wallet *types.Wallet, userID string) string {
 	if wallet.OrgID != "" {
+		account := wallet.OrgID
 		org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: wallet.OrgID})
 		if err == nil {
-			return org.Name
+			account = org.Name
+		} else {
+			log.Warn().Err(err).Str("org_id", wallet.OrgID).Msg("failed to resolve Stripe billing organization for Slack notification")
 		}
-		log.Warn().Err(err).Str("org_id", wallet.OrgID).Msg("failed to resolve Stripe billing organization for Slack notification")
-		return wallet.OrgID
+		if userID != "" {
+			user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+			if err == nil {
+				return fmt.Sprintf("%s (initiated by %s)", account, user.Email)
+			}
+			log.Warn().Err(err).Str("user_id", userID).Msg("failed to resolve Stripe billing user for Slack notification")
+		}
+		return account
 	}
 	if userID == "" {
 		userID = wallet.UserID

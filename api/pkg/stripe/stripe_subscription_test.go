@@ -125,8 +125,9 @@ func TestBillingAccount_PrefersOrganizationForOrgWallet(t *testing.T) {
 	wallet := &types.Wallet{ID: "wallet_123", OrgID: "org_123"}
 
 	db.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(&types.Organization{Name: "Acme"}, nil)
+	db.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{Email: "initiator@example.com"}, nil)
 
-	require.Equal(t, "Acme", s.billingAccount(context.Background(), wallet, "initiator_123"))
+	require.Equal(t, "Acme (initiated by initiator@example.com)", s.billingAccount(context.Background(), wallet, "initiator_123"))
 }
 
 type mockSubscriptionBackend struct {
