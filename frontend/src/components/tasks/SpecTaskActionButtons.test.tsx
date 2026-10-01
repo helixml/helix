@@ -157,3 +157,27 @@ describe("SpecTaskForActions", () => {
     expect(screen.getByRole("button", { name: /Open PR/i })).toBeEnabled();
   });
 });
+
+describe("SpecTaskActionButtons pull request label", () => {
+  it("shows the pull request number instead of the repository name", () => {
+    render(
+      <SpecTaskActionButtons
+        task={implementationTask({
+          status: "pull_request",
+          repo_pull_requests: [{
+            repository_name: "birding-3",
+            pr_number: 19,
+            pr_url: "https://github.com/ayghri/birding-3/pull/19",
+          }],
+        })}
+        variant="inline"
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "PR: #19" })).toHaveAttribute(
+      "href",
+      "https://github.com/ayghri/birding-3/pull/19",
+    );
+    expect(screen.queryByText("PR: birding-3")).not.toBeInTheDocument();
+  });
+});

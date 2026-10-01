@@ -167,33 +167,25 @@ fi
 
 echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
 
-    # Use iptables-legacy for DinD compatibility
-    if [ -d /usr/local/sbin/.iptables-legacy ]; then
-        export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
-    fi
-    # Prefer iptables-legacy if available (Docker requires it in nested containers)
-    if command -v iptables-legacy &>/dev/null; then
+    # Prefer iptables-legacy for DinD compatibility, but only if it works.
+    # Legacy needs the ip_tables/iptable_nat kernel modules, which the container
+    # can't load itself (no /lib/modules). Otherwise stay on nf_tables.
+    if command -v iptables-legacy &>/dev/null && iptables-legacy -t nat -L >/dev/null 2>&1; then
+        if [ -d /usr/local/sbin/.iptables-legacy ]; then
+            export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
+        fi
         update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null || true
         update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null || true
+    else
+        echo "[dockerd] iptables-legacy unavailable or unusable (ip_tables module not loaded?) - using nf_tables"
     fi
 
-    # Enable cgroup v2 controller delegation for Kind/systemd containers.
-    # Move all root-cgroup processes to init.scope (required by cgroup v2's
-    # "no internal processes" rule), then enable all controllers for subtrees.
-    if [ -f /sys/fs/cgroup/cgroup.subtree_control ]; then
-        mkdir -p /sys/fs/cgroup/init.scope
-        for pid in $(cat /sys/fs/cgroup/cgroup.procs 2>/dev/null); do
-            echo "$pid" > /sys/fs/cgroup/init.scope/cgroup.procs 2>/dev/null || true
-        done
-        AVAILABLE=$(cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null)
-        ENABLE=""
-        for ctrl in $AVAILABLE; do
-            ENABLE="$ENABLE +$ctrl"
-        done
-        if [ -n "$ENABLE" ]; then
-            echo "$ENABLE" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
-        fi
-        echo "[dockerd] cgroup v2 subtree controllers: $(cat /sys/fs/cgroup/cgroup.subtree_control)"
+    # dockerd and its containers are agent work: they run in the agent CPU
+    # tier that 16-cpu-tiers.sh set up (privileged desktops always have it).
+    AGENT_CGROUP=/sys/fs/cgroup/desktop/agent
+    if [ ! -d "${AGENT_CGROUP}/procs" ] || [ ! -d "${AGENT_CGROUP}/docker" ]; then
+        echo "[dockerd] FATAL: agent CPU tier ${AGENT_CGROUP} is missing"
+        exit 1
     fi
 
     # Compute non-overlapping address pool based on nesting depth.
@@ -219,6 +211,7 @@ echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
 {
     "storage-driver": "overlay2",
     "log-level": "warn",
+    "cgroup-parent": "/desktop/agent/docker",
     "default-address-pools": [
         {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
     ]
@@ -232,6 +225,7 @@ EOF
 {
     "storage-driver": "overlay2",
     "log-level": "warn",
+    "cgroup-parent": "/desktop/agent/docker",
     "default-address-pools": [
         {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
     ],
@@ -255,6 +249,7 @@ EOF
     # Start dockerd in background with auto-restart
     # The loop checks /tmp/.dockerd-stop to allow clean shutdown (e.g. golden builds)
     (
+        echo 0 > "${AGENT_CGROUP}/procs/cgroup.procs"
         while true; do
             if [ -f /tmp/.dockerd-stop ]; then
                 echo "[$(date -Iseconds)] dockerd stop requested, exiting restart loop"
