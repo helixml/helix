@@ -72,6 +72,8 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	switch specTask.Status {
 	case types.TaskStatusImplementation, types.TaskStatusImplementationReview:
 		// Expected states — proceed normally
+	case types.TaskStatusDone:
+		// A completed task can open a new PR after the agent pushes more changes.
 	case types.TaskStatusSpecReview, types.TaskStatusSpecApproved:
 		// Stuck in spec phase — auto-approve specs to unstick
 		log.Warn().
@@ -107,6 +109,50 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	default:
 		http.Error(w, fmt.Sprintf("Task in unexpected status: %s", specTask.Status), http.StatusBadRequest)
+		return
+	}
+
+	if specTask.Status == types.TaskStatusDone {
+		if project.DefaultRepoID == "" {
+			http.Error(w, "Default repository not set for project", http.StatusBadRequest)
+			return
+		}
+		updatedTask, err := s.prepareFollowUpPullRequest(ctx, specTask.ID, project, user.ID)
+		if err != nil {
+			var oauthErr *services.OAuthRequiredError
+			if errors.As(err, &oauthErr) {
+				writeResponse(w, map[string]interface{}{
+					"error":         "oauth_required",
+					"message":       oauthErr.Error(),
+					"provider_type": oauthErr.ProviderType,
+				}, http.StatusUnprocessableEntity)
+				return
+			}
+			if errors.Is(err, errNoFollowUpChanges) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
+			writeErrResponse(w, err, http.StatusInternalServerError)
+			return
+		}
+
+		repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+		if err != nil {
+			writeErrResponse(w, fmt.Errorf("failed to get default repository: %w", err), http.StatusInternalServerError)
+			return
+		}
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			if err := s.ensurePullRequestsForAllRepos(context.Background(), updatedTask, project.DefaultRepoID, user.ID); err != nil {
+				log.Error().Err(err).Str("task_id", updatedTask.ID).Msg("Failed to create follow-up PRs")
+			}
+			if s.gitHTTPServer != nil {
+				s.gitHTTPServer.SyncOpenPRDescriptions(context.Background(), updatedTask, repo.LocalPath)
+			}
+		}()
+
+		writeResponse(w, updatedTask, http.StatusOK)
 		return
 	}
 
@@ -387,6 +433,128 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	// Return updated task
 	writeResponse(w, specTask, http.StatusOK)
+}
+
+var errNoFollowUpChanges = errors.New("no new changes are available to open a pull request")
+
+func (s *HelixAPIServer) prepareFollowUpPullRequest(ctx context.Context, taskID string, project *types.Project, userID string) (*types.SpecTask, error) {
+	var updatedTask *types.SpecTask
+	err := s.gitRepositoryService.WithRepoLock("task:"+taskID, func() error {
+		task, err := s.Store.GetSpecTask(ctx, taskID)
+		if err != nil {
+			return fmt.Errorf("failed to reload task: %w", err)
+		}
+		if task.Status != types.TaskStatusDone {
+			return fmt.Errorf("task in unexpected status: %s", task.Status)
+		}
+
+		repos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{ProjectID: task.ProjectID})
+		if err != nil {
+			return fmt.Errorf("failed to list project repositories: %w", err)
+		}
+		hasMergedPR := false
+		currentPRs := make(map[string]bool, len(task.RepoPullRequests))
+		for _, repoPR := range task.RepoPullRequests {
+			if repoPR.PRState == string(types.PullRequestStateMerged) {
+				hasMergedPR = true
+			}
+			if repoPR.PRState == string(types.PullRequestStateOpen) || repoPR.PRState == string(types.PullRequestStateClosed) {
+				currentPRs[repoPR.RepositoryID] = true
+			}
+		}
+		if !hasMergedPR {
+			return errNoFollowUpChanges
+		}
+
+		changedRepos := make(map[string]bool)
+		for _, repo := range repos {
+			if repo.ExternalURL == "" || currentPRs[repo.ID] || !s.shouldOpenPullRequest(repo) {
+				continue
+			}
+			if err := s.gitRepositoryService.WithRepoLock(repo.ID, func() error {
+				if err := s.gitRepositoryService.SyncAllBranches(ctx, repo.ID, true); err != nil {
+					return fmt.Errorf("failed to refresh repository %s: %w", repo.Name, err)
+				}
+				if _, err := services.GetBranchCommitID(ctx, repo.LocalPath, task.BranchName); err != nil {
+					return nil
+				}
+				targetBranch := services.TaskTargetBranch(repo, task, project.DefaultRepoID)
+				changed, err := services.BranchHasChanges(ctx, repo.LocalPath, targetBranch, task.BranchName)
+				if err != nil {
+					return err
+				}
+				if !changed {
+					return nil
+				}
+				if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, userID); err != nil {
+					var oauthErr *services.OAuthRequiredError
+					if errors.As(err, &oauthErr) {
+						return err
+					}
+					log.Warn().Err(err).Str("task_id", task.ID).Str("repo_id", repo.ID).Msg("Failed to validate user OAuth, proceeding anyway")
+				}
+				changedRepos[repo.ID] = true
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+
+		if len(changedRepos) == 0 {
+			if task.Metadata != nil {
+				if _, ok := task.Metadata[services.FollowUpPRReadyMetadataKey]; ok {
+					delete(task.Metadata, services.FollowUpPRReadyMetadataKey)
+					if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
+						return fmt.Errorf("failed to clear follow-up PR readiness: %w", err)
+					}
+				}
+			}
+			return errNoFollowUpChanges
+		}
+
+		task.RepoPullRequests = resetRepoPullRequests(task.RepoPullRequests, repos, changedRepos)
+		if task.Metadata != nil {
+			delete(task.Metadata, services.FollowUpPRReadyMetadataKey)
+		}
+		now := time.Now()
+		task.ImplementationApprovedBy = userID
+		task.ImplementationApprovedAt = &now
+		task.Status = types.TaskStatusPullRequest
+		task.StatusUpdatedAt = &now
+		task.CompletedAt = nil
+		task.MergedToMain = false
+		task.MergedAt = nil
+		task.MergeCommitHash = ""
+		task.UpdatedAt = now
+		if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
+			return fmt.Errorf("failed to prepare follow-up pull request: %w", err)
+		}
+		updatedTask = task
+		return nil
+	})
+	return updatedTask, err
+}
+
+func resetRepoPullRequests(repoPRs []types.RepoPR, repos []*types.GitRepository, repoIDs map[string]bool) []types.RepoPR {
+	reset := make([]types.RepoPR, 0, len(repoPRs)+len(repoIDs))
+	pending := make(map[string]bool, len(repoIDs))
+	for repoID := range repoIDs {
+		pending[repoID] = true
+	}
+	for _, repoPR := range repoPRs {
+		if repoIDs[repoPR.RepositoryID] {
+			reset = append(reset, types.RepoPR{RepositoryID: repoPR.RepositoryID, RepositoryName: repoPR.RepositoryName, PRState: string(types.PullRequestStateUnknown)})
+			delete(pending, repoPR.RepositoryID)
+		} else {
+			reset = append(reset, repoPR)
+		}
+	}
+	for _, repo := range repos {
+		if pending[repo.ID] {
+			reset = append(reset, types.RepoPR{RepositoryID: repo.ID, RepositoryName: repo.Name, PRState: string(types.PullRequestStateUnknown)})
+		}
+	}
+	return reset
 }
 
 // sendImplementationPushInstruction asks the agent, in the background, to write

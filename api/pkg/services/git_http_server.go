@@ -1227,10 +1227,108 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 					}()
 				}
 			}(task, repo, commitHash)
+		case types.TaskStatusDone:
+			s.wg.Add(1)
+			go func(taskID string, r *types.GitRepository) {
+				defer s.wg.Done()
+				if err := s.detectFollowUpPullRequestReady(context.Background(), r, taskID, branchName, repoPath); err != nil {
+					log.Error().Err(err).Str("spec_task_id", taskID).Msg("Failed to detect follow-up pull request changes")
+				}
+			}(task.ID, repo)
 		default:
 			continue
 		}
 	}
+}
+
+const FollowUpPRReadyMetadataKey = "follow_up_pr_ready"
+
+func (s *GitHTTPServer) detectFollowUpPullRequestReady(ctx context.Context, repo *types.GitRepository, taskID, branch, repoPath string) error {
+	if repo.ExternalURL == "" {
+		return nil
+	}
+	return s.gitRepoService.WithRepoLock("task:"+taskID, func() error {
+		return s.gitRepoService.WithRepoLock(repo.ID, func() error {
+			task, err := s.store.GetSpecTask(ctx, taskID)
+			if err != nil {
+				return fmt.Errorf("failed to reload task: %w", err)
+			}
+			if task.Status != types.TaskStatusDone || task.BranchName != branch {
+				return nil
+			}
+			hasMergedPR := false
+			hasCurrentPR := false
+			for _, pr := range task.RepoPullRequests {
+				if pr.PRState == string(types.PullRequestStateMerged) {
+					hasMergedPR = true
+				}
+				if pr.RepositoryID == repo.ID && (pr.PRState == string(types.PullRequestStateOpen) || pr.PRState == string(types.PullRequestStateClosed)) {
+					hasCurrentPR = true
+				}
+			}
+			if !hasMergedPR || hasCurrentPR {
+				return nil
+			}
+			if err := s.gitRepoService.SyncAllBranches(ctx, repo.ID, true); err != nil {
+				return fmt.Errorf("failed to refresh target branch before checking follow-up changes: %w", err)
+			}
+			project, err := s.store.GetProject(ctx, task.ProjectID)
+			if err != nil {
+				return fmt.Errorf("failed to get project: %w", err)
+			}
+			targetBranch := TaskTargetBranch(repo, task, project.DefaultRepoID)
+			changed, err := BranchHasChanges(ctx, repoPath, targetBranch, branch)
+			if err != nil {
+				return err
+			}
+			if task.Metadata == nil {
+				task.Metadata = make(map[string]interface{})
+			}
+			if !setFollowUpPRReady(task.Metadata, repo.ID, changed) {
+				return nil
+			}
+			task.UpdatedAt = time.Now()
+			return s.store.UpdateSpecTask(ctx, task)
+		})
+	})
+}
+
+func setFollowUpPRReady(metadata map[string]interface{}, repoID string, ready bool) bool {
+	repos := make(map[string]bool)
+	switch current := metadata[FollowUpPRReadyMetadataKey].(type) {
+	case map[string]bool:
+		for id, value := range current {
+			repos[id] = value
+		}
+	case map[string]interface{}:
+		for id, value := range current {
+			if value, ok := value.(bool); ok && value {
+				repos[id] = true
+			}
+		}
+	}
+	wasReady := repos[repoID]
+	if ready {
+		repos[repoID] = true
+	} else {
+		delete(repos, repoID)
+	}
+	if len(repos) == 0 {
+		delete(metadata, FollowUpPRReadyMetadataKey)
+	} else {
+		metadata[FollowUpPRReadyMetadataKey] = repos
+	}
+	return wasReady != ready
+}
+
+func BranchHasChanges(ctx context.Context, repoPath, targetBranch, featureBranch string) (bool, error) {
+	stdout, _, err := gitcmd.NewCommand("diff", "--name-only").
+		AddDynamicArguments(targetBranch+"..."+featureBranch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return false, fmt.Errorf("failed to compare %s with %s: %w", featureBranch, targetBranch, err)
+	}
+	return strings.TrimSpace(stdout) != "", nil
 }
 
 // tryAutoMergeAfterRebase re-attempts the server-side fast-forward merge after the

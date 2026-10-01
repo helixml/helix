@@ -721,7 +721,7 @@ func (s *GitRepositoryService) ensureGitHubReviewWebhook(ctx context.Context, in
 		return
 	}
 
-	err := s.WithRepoLock(repoID, func() error {
+	err := s.WithRepoLock("webhook:"+repoID, func() error {
 		// Re-read the row inside the lock so a concurrent install's secret
 		// is adopted rather than overwritten.
 		repo, err := s.GetRepositoryMetadata(ctx, repoID)

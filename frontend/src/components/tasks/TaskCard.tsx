@@ -127,7 +127,11 @@ export interface SpecTaskWithExtras {
     | "queued";
   planning_session_id?: string;
   archived?: boolean;
-  metadata?: { error?: string; error_timestamp?: string };
+  metadata?: {
+    error?: string;
+    error_timestamp?: string;
+    follow_up_pr_ready?: Record<string, boolean>;
+  };
   merged_to_main?: boolean;
   just_do_it_mode?: boolean;
   started_at?: string;
@@ -1624,6 +1628,21 @@ function TaskCardInner({
                   Merged to default branch
                 </Typography>
               </Alert>
+              <SpecTaskActionButtons
+                task={{
+                  id: task.id,
+                  status: "done",
+                  repo_pull_requests: task.repo_pull_requests,
+                  metadata: task.metadata,
+                  base_branch: task.base_branch,
+                  branch_name: task.branch_name,
+                  archived: task.archived,
+                  sandbox_state: task.sandbox_state,
+                }}
+                variant="stacked"
+                hasExternalRepo={hasExternalRepo}
+                externalRepoType={externalRepoType}
+              />
             </Box>
           )}
       </CardContent>

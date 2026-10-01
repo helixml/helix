@@ -1482,7 +1482,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           archived: task.archived,
           just_do_it_mode: justDoItMode,
           planning_session_id: task.planning_session_id,
-          metadata: task.metadata as { error?: string },
+          metadata: task.metadata as {
+            error?: string;
+            follow_up_pr_ready?: Record<string, boolean>;
+          },
           last_push_at: task.last_push_at,
           rebase_requested_at: task.rebase_requested_at,
           sandbox_state: task.sandbox_state,
