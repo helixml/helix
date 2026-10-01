@@ -33,6 +33,13 @@ export default function useAnalyticsInit() {
         tracesSampleRate: 0.1,
         replaysSessionSampleRate: 1.0,
         replaysOnErrorSampleRate: 1.0,
+        ignoreErrors: [/runtime\.sendMessage.*Tab not found/i],
+        beforeSend(event) {
+          if (event.exception?.values?.length) {
+            Sentry.showReportDialog({ eventId: event.event_id })
+          }
+          return event
+        },
       })
     }
 
