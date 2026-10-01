@@ -21,6 +21,10 @@ import (
 // container is stopped, so a blown build doesn't keep compiling and burning CPU.
 const goldenBuildTimeout = types.GoldenBuildTimeout
 
+// goldenBuildResultPolls is how many extra polls waitForGoldenBuildCompletion
+// waits for hydra to record a result after the build container has gone.
+const goldenBuildResultPolls = 4
+
 // goldenBuildPollInterval is how often waitForGoldenBuildCompletion checks the
 // build container. Var so tests can shorten it.
 var goldenBuildPollInterval = 15 * time.Second
@@ -446,6 +450,9 @@ func (g *GoldenBuildService) runGoldenBuildOnSandbox(parentCtx context.Context, 
 		OrganizationID: project.OrganizationID,
 		ProjectID:      project.ID,
 		OwnerType:      types.OwnerTypeUser,
+		// Excludes the session from the desktop idle checker: a golden build
+		// never has interactions, so it would look idle after an hour.
+		Metadata: types.SessionMetadata{GoldenBuild: true},
 	}
 
 	session, err = g.store.CreateSession(ctx, *session)
@@ -535,6 +542,14 @@ func (g *GoldenBuildService) runGoldenBuildOnSandbox(parentCtx context.Context, 
 	g.waitForGoldenBuildCompletion(ctx, project.ID, sandboxID, session.ID)
 }
 
+// stoppedByIdleChecker reports whether the desktop idle checker stopped the
+// session. It should never stop a golden build (ListIdleDesktops excludes
+// them), but say so if it did rather than blame the startup script.
+func (g *GoldenBuildService) stoppedByIdleChecker(sessionID string) bool {
+	session, err := g.store.GetSession(context.Background(), sessionID)
+	return err == nil && session.Metadata.ExternalAgentStatus == "terminated_idle"
+}
+
 // waitForGoldenBuildCompletion polls until the golden build container exits,
 // then queries Hydra for the build result and updates the cache status.
 func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, projectID, sandboxID, sessionID string) {
@@ -569,6 +584,7 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 		}
 	}()
 
+	missingResultPolls := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -611,6 +627,16 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 				log.Warn().Err(err).Str("project_id", projectID).Str("sandbox_id", sandboxID).
 					Msg("Golden build: failed to get build result from sandbox")
 			}
+			// Results are keyed by project: one from an earlier build is not ours.
+			if result != nil && result.SessionID != "" && result.SessionID != sessionID {
+				result = nil
+			}
+			// Hydra records the outcome a few seconds after the container goes
+			// away (e.g. when it was stopped from outside); give it a few polls.
+			if result == nil && missingResultPolls < goldenBuildResultPolls {
+				missingResultPolls++
+				continue
+			}
 
 			if result != nil && result.Success {
 				log.Info().Str("project_id", projectID).Str("sandbox_id", sandboxID).
@@ -625,14 +651,16 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 					s.SizeBytes = result.CacheSizeBytes
 				})
 			} else {
-				errMsg := "Startup script failed"
+				errMsg := "Build container stopped without reporting a result (stopped externally or crashed)"
 				if result != nil && result.Error != "" {
-					// e.g. the script succeeded but promoting the cache failed
+					// e.g. the script succeeded but promoting the cache failed,
+					// or the container exited/was removed mid-build
 					errMsg = result.Error
 				} else if result != nil {
 					errMsg = fmt.Sprintf("Startup script exited with code %s", result.ExitCode)
-				} else if err != nil {
-					errMsg = "Build completed but result unknown"
+				}
+				if g.stoppedByIdleChecker(sessionID) {
+					errMsg = "Stopped by the desktop idle checker: " + errMsg
 				}
 				log.Warn().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("error", errMsg).
 					Msg("Golden build: failed")

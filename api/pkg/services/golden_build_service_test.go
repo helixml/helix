@@ -279,13 +279,23 @@ func (s *GoldenBuildServiceSuite) TestNewBuildClearsPending() {
 // waitWithResult runs waitForGoldenBuildCompletion against a finished build
 // whose hydra result is res, and returns the sandbox cache state it persisted.
 func (s *GoldenBuildServiceSuite) waitWithResult(res *hydra.GoldenBuildResult) *types.SandboxCacheState {
+	return s.waitWithResults(res, "running", 1)
+}
+
+// waitWithResults is waitWithResult where hydra keeps returning res for polls
+// polls, and the build session's external_agent_status is sessionStatus.
+func (s *GoldenBuildServiceSuite) waitWithResults(res *hydra.GoldenBuildResult, sessionStatus string, polls int) *types.SandboxCacheState {
 	orig := goldenBuildPollInterval
 	goldenBuildPollInterval = 10 * time.Millisecond
 	defer func() { goldenBuildPollInterval = orig }()
 
 	project := &types.Project{ID: "prj_test"}
-	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_build").Return(false)
-	s.executor.EXPECT().GetGoldenBuildResult(gomock.Any(), "sb_1", "prj_test").Return(res, nil)
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_build").Return(false).Times(polls)
+	s.executor.EXPECT().GetGoldenBuildResult(gomock.Any(), "sb_1", "prj_test").Return(res, nil).Times(polls)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_build").Return(&types.Session{
+		ID:       "ses_build",
+		Metadata: types.SessionMetadata{ExternalAgentStatus: sessionStatus, GoldenBuild: true},
+	}, nil).AnyTimes()
 	s.store.EXPECT().GetProject(gomock.Any(), "prj_test").Return(project, nil)
 	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil)
 
@@ -323,4 +333,52 @@ func (s *GoldenBuildServiceSuite) TestSuccessfulBuildMarksCacheReady() {
 	assert.Equal(s.T(), "ready", state.Status)
 	assert.Empty(s.T(), state.Error)
 	assert.Equal(s.T(), int64(42), state.SizeBytes)
+}
+
+// The meta incident: the desktop idle checker stopped the golden build. The
+// failure must name the cause, not the generic "Startup script failed".
+func (s *GoldenBuildServiceSuite) TestIdleStoppedBuildReportsIdleChecker() {
+	state := s.waitWithResults(&hydra.GoldenBuildResult{
+		SessionID: "ses_build",
+		ExitCode:  "exited",
+		Error:     "build container was removed without writing a golden build result",
+	}, "terminated_idle", 1)
+
+	assert.Equal(s.T(), "failed", state.Status)
+	assert.Equal(s.T(), "Stopped by the desktop idle checker: build container was removed without writing a golden build result", state.Error)
+}
+
+// Hydra keeps the latest result per project. A successful result from an
+// earlier build must not mark this build ready; with no result of its own the
+// build fails with an explicit cause.
+func (s *GoldenBuildServiceSuite) TestStaleResultFromEarlierBuildIsIgnored() {
+	state := s.waitWithResults(&hydra.GoldenBuildResult{
+		SessionID: "ses_previous",
+		Success:   true,
+		ExitCode:  "0",
+	}, "stopped", goldenBuildResultPolls+1)
+
+	assert.Equal(s.T(), "failed", state.Status)
+	assert.Equal(s.T(), "Build container stopped without reporting a result (stopped externally or crashed)", state.Error)
+}
+
+// Golden build sessions are created marked GoldenBuild so the desktop idle
+// checker (ListIdleDesktops) never stops them.
+func (s *GoldenBuildServiceSuite) TestGoldenBuildSessionIsMarkedGoldenBuild() {
+	project := &types.Project{ID: "prj_test", Name: "test"}
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{{ID: "repo_1"}}, nil)
+	var created types.Session
+	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, session types.Session) (*types.Session, error) {
+			created = session
+			return &session, nil
+		},
+	)
+	// Status updates; the build then stops at the nil specTaskService.
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_test").Return(project, nil).AnyTimes()
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	s.service.runGoldenBuildOnSandbox(context.Background(), project, "sb_1")
+
+	assert.True(s.T(), created.Metadata.GoldenBuild, "golden build session must be marked GoldenBuild")
 }

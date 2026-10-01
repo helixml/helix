@@ -520,6 +520,7 @@ type SessionMetadata struct {
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
 	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
+	GoldenBuild             bool                 `json:"golden_build,omitempty"`              // Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
 	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
