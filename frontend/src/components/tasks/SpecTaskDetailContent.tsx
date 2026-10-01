@@ -1477,9 +1477,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           status: task.status || "",
           design_docs_pushed_at: task.design_docs_pushed_at,
           repo_pull_requests: task.repo_pull_requests,
-          repo_pull_request_history: (task as typeof task & {
-            repo_pull_request_history?: typeof task.repo_pull_requests;
-          }).repo_pull_request_history,
+          repo_pull_request_history: task.repo_pull_request_history,
           base_branch: task.base_branch,
           branch_name: task.branch_name,
           archived: task.archived,

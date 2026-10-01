@@ -152,7 +152,13 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			}
 		}()
 
-		writeResponse(w, updatedTask, http.StatusOK)
+		responseTask, err := s.Store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get updated spec task: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		writeResponse(w, responseTask, http.StatusOK)
 		return
 	}
 
