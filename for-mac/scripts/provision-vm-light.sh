@@ -841,11 +841,11 @@ if ! step_done "prime_stack"; then
             # Create version file so the sandbox heartbeat reports available desktop images.
             # The heartbeat daemon scans /opt/images/helix-*.version and reports them
             # in desktop_versions, which FindAvailableSandbox uses to match sessions to sandboxes.
-            run_ssh "echo '${HELIX_VERSION}' > ~/helix/sandbox-images/helix-ubuntu.version"
+            run_ssh "printf '%s\n' '${HELIX_VERSION}' | sudo tee ~/helix/sandbox-images/helix-ubuntu.version >/dev/null"
 
             # Create .ref file so sandbox startup can re-pull the image if it's missing
             # (e.g., if the disk image was compressed before Docker fully flushed)
-            run_ssh "echo 'ghcr.io/helixml/helix-ubuntu:${PULL_TAG}' > ~/helix/sandbox-images/helix-ubuntu.ref"
+            run_ssh "printf '%s\n' 'ghcr.io/helixml/helix-ubuntu:${PULL_TAG}' | sudo tee ~/helix/sandbox-images/helix-ubuntu.ref >/dev/null"
             log "Created sandbox-images/helix-ubuntu.version and .ref"
         fi
     fi

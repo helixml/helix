@@ -37,6 +37,8 @@ type ServerConfig struct {
 	Organizations      Organizations
 	Sandboxes          Sandboxes
 	Compute            Compute
+	Webhooks           Webhooks
+	ConnectPortal      ConnectPortalConfig
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
 	// Inactivity is measured as the time since the last interaction was created or updated
@@ -149,6 +151,18 @@ type ServerConfig struct {
 	Edition string `envconfig:"HELIX_EDITION" default:""`
 
 	SBMessage string `envconfig:"SB_MESSAGE" default:""`
+}
+
+type ConnectPortalConfig struct {
+	SecretIntakeEnabled bool `envconfig:"HELIX_SECRET_INTAKE_ENABLED" default:"false"`
+}
+
+// Webhooks controls the in-process durable outbound delivery worker.
+type Webhooks struct {
+	AllowPrivateEndpoints bool          `envconfig:"WEBHOOK_ALLOW_PRIVATE_ENDPOINTS" default:"false" description:"Allow HTTP and private-network webhook destinations. Development only."`
+	DeliveryTimeout       time.Duration `envconfig:"WEBHOOK_DELIVERY_TIMEOUT" default:"20s" description:"Timeout for one outbound webhook attempt."`
+	WorkerInterval        time.Duration `envconfig:"WEBHOOK_WORKER_INTERVAL" default:"2s" description:"How often the webhook outbox is scanned."`
+	MaxAttempts           int           `envconfig:"WEBHOOK_MAX_ATTEMPTS" default:"8" description:"Maximum delivery attempts before a webhook delivery is marked failed."`
 }
 
 // Sandboxes configures the user-facing Sandboxes API.
@@ -739,6 +753,7 @@ type Stripe struct {
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET" description:"The webhook signing secret for stripe."`
 	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY" default:"helix-subscription" description:"The lookup key for the stripe price."`
+	PromoCreditPriceID   string `envconfig:"STRIPE_PROMO_CREDIT_PRICE_ID" description:"The Stripe price ID for the fixed $5 promotional credit top-up."`
 	OrgPriceLookupKey    string `envconfig:"STRIPE_ORG_PRICE_LOOKUP_KEY" default:"helix-org-subscription" description:"The lookup key for the stripe price."`
 	OrgPriceCents        int64  `envconfig:"STRIPE_ORG_PRICE_CENTS" default:"49900" description:"Expected organization subscription price in the smallest currency unit."`
 	OrgPriceCurrency     string `envconfig:"STRIPE_ORG_PRICE_CURRENCY" default:"usd" description:"Expected organization subscription price currency."`

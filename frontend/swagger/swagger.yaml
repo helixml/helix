@@ -140,6 +140,12 @@ definitions:
         type: string
       agent_runtime:
         type: string
+      agent_work_state:
+        allOf:
+        - $ref: '#/definitions/types.AgentWorkState'
+        description: |-
+          AgentWorkState is "working" only while the running Bot's latest
+          interaction is still waiting for its external agent.
       code_agent_credential_type:
         $ref: '#/definitions/types.CodeAgentCredentialType'
       code_agent_runtime:
@@ -163,6 +169,12 @@ definitions:
         $ref: '#/definitions/types.SandboxRuntime'
       id:
         type: string
+      instance_profile:
+        allOf:
+        - $ref: '#/definitions/types.BotInstanceProfile'
+        description: |-
+          InstanceProfile is the effective profile of this Bot's instances (the
+          default when the Bot never configured one).
       legacy_app_id:
         type: string
       model:
@@ -249,6 +261,39 @@ definitions:
       project_id:
         type: string
     type: object
+  api.BotInstanceDTO:
+    properties:
+      bot_id:
+        type: string
+      created_at:
+        type: string
+      disk_size_gb:
+        type: integer
+      name:
+        type: string
+      owner:
+        type: string
+      sandbox_runtime:
+        $ref: '#/definitions/types.SandboxRuntime'
+      sandbox_status:
+        description: |-
+          SandboxStatus is the sandbox's external agent status: "" (stopped),
+          "starting", "running", "restarting", "terminated_idle" …
+        type: string
+      secrets:
+        description: |-
+          Secrets are the names granted when the instance was created. Values are
+          never returned.
+        items:
+          type: string
+        type: array
+      session_id:
+        type: string
+      sudo:
+        type: boolean
+      updated_at:
+        type: string
+    type: object
   api.ChartPositionDTO:
     properties:
       id:
@@ -281,6 +326,37 @@ definitions:
         type: string
       server:
         $ref: '#/definitions/api.ServerAssetWriteRequest'
+    type: object
+  api.CreateBotInstanceRequest:
+    properties:
+      disk_size_gb:
+        description: |-
+          DiskSizeGB is the persistent home filesystem capacity. Omitted defaults
+          to 10 GB; accepted values are 1-1000.
+        type: integer
+      message:
+        description: Message is queued as the instance's first turn.
+        type: string
+      name:
+        type: string
+      sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          SandboxRuntime overrides the Bot's instance profile runtime:
+          "headless-ubuntu" or "ubuntu-desktop".
+      secrets:
+        description: |-
+          Secrets names project development secrets to grant to this instance.
+          Omitted or empty means no project secrets.
+        items:
+          type: string
+        type: array
+      sudo:
+        description: |-
+          AllowSudo opts a headless instance out of no-new-privileges. It is
+          false by default. ubuntu-desktop instances always allow sudo.
+        type: boolean
     type: object
   api.CreateBotRequest:
     properties:
@@ -728,6 +804,12 @@ definitions:
         $ref: '#/definitions/types.CodeAgentRuntime'
       content:
         type: string
+      instance_profile:
+        allOf:
+        - $ref: '#/definitions/types.BotInstanceProfile'
+        description: |-
+          InstanceProfile replaces the profile of the Bot's instances. It applies
+          to new instances and to existing ones on their next sandbox start.
       model:
         type: string
       name:
@@ -3038,6 +3120,51 @@ definitions:
           $ref: '#/definitions/server.SandboxTerminalSession'
         type: array
     type: object
+  server.SecretIntakeCreateResponse:
+    properties:
+      intake:
+        $ref: '#/definitions/server.SecretIntakeView'
+      invite_url:
+        type: string
+    type: object
+  server.SecretIntakeRedeemRequest:
+    properties:
+      intake_id:
+        type: string
+      token:
+        type: string
+    required:
+    - intake_id
+    - token
+    type: object
+  server.SecretIntakeSubmissionRequest:
+    properties:
+      values:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  server.SecretIntakeView:
+    properties:
+      conversation_id:
+        type: string
+      customer_id:
+        type: string
+      expires_at:
+        type: string
+      fields:
+        items:
+          $ref: '#/definitions/types.SecretIntakeField'
+        type: array
+      id:
+        type: string
+      project_id:
+        type: string
+      status:
+        type: string
+      values_expires_at:
+        type: string
+    type: object
   server.SessionClaudeCredentialsResponse:
     properties:
       credential_type:
@@ -3404,6 +3531,57 @@ definitions:
       vendor:
         $ref: '#/definitions/types.GPUVendor'
     type: object
+  server.webhookDeliveryView:
+    properties:
+      attempt_count:
+        type: integer
+      created_at:
+        type: string
+      delivered_at:
+        type: string
+      endpoint_id:
+        type: string
+      event_id:
+        type: string
+      event_type:
+        type: string
+      id:
+        type: string
+      last_attempt_at:
+        type: string
+      last_error:
+        type: string
+      last_status_code:
+        type: integer
+      next_attempt_at:
+        type: string
+      status:
+        $ref: '#/definitions/types.WebhookDeliveryStatus'
+      updated_at:
+        type: string
+    type: object
+  server.webhookEndpointRequest:
+    properties:
+      description:
+        type: string
+      enabled:
+        type: boolean
+      events:
+        items:
+          type: string
+        type: array
+      project_id:
+        type: string
+      url:
+        type: string
+    type: object
+  server.webhookEndpointSecretResponse:
+    properties:
+      endpoint:
+        $ref: '#/definitions/types.WebhookEndpoint'
+      secret:
+        type: string
+    type: object
   services.StartupScriptVersion:
     properties:
       author:
@@ -3546,24 +3724,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - local
-    - slack
-    - cron
     - webhook
+    - email
     - github
     - gitlab
+    - local
+    - cron
     - helix_events
-    - email
+    - slack
     type: string
     x-enum-varnames:
-    - KindLocal
-    - KindSlack
-    - KindCron
     - KindWebhook
+    - KindEmail
     - KindGitHub
     - KindGitLab
+    - KindLocal
+    - KindCron
     - KindHelixEvents
-    - KindEmail
+    - KindSlack
   transport.ResolvedActivation:
     properties:
       address:
@@ -3604,12 +3782,14 @@ definitions:
     - api
     - app
     - embed
+    - bot_instance
     type: string
     x-enum-varnames:
     - APIkeytypeNone
     - APIkeytypeAPI
     - APIkeytypeApp
     - APIkeytypeEmbed
+    - APIkeytypeBotInstance
   types.AccessGrant:
     properties:
       created_at:
@@ -4186,7 +4366,7 @@ definitions:
           CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
           which the claude-agent-acp package reads (resolveModelPreference) to pick the
           model — otherwise Claude Code defaults to Sonnet. Empty means
-          "claude-opus-5" (the current 1M-context Opus model).
+          "claude-opus-5-5" (the current 1M-context Opus model).
         type: string
       code_agent_credential_type:
         allOf:
@@ -4746,6 +4926,35 @@ definitions:
     properties:
       wip_limits:
         $ref: '#/definitions/types.WIPLimits'
+    type: object
+  types.BotInstanceProfile:
+    properties:
+      helix_skills:
+        description: |-
+          HelixSkills links the helix-* agent skills. The project repo's own
+          skills are always linked.
+        type: boolean
+      mcp_servers:
+        description: |-
+          MCPServers lists the context servers kept in an instance's agent
+          config: built-in names above or the bot project's own MCP servers.
+          Every other server is removed.
+        items:
+          type: string
+        type: array
+      sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          SandboxRuntime is the default runtime for new instances. Empty means the
+          bot's own runtime.
+      tools:
+        description: |-
+          Tools lists the helix-org tools an instance may call. The served set is
+          Tools ∩ the bot's own tools. Empty removes the org tools server.
+        items:
+          type: string
+        type: array
     type: object
   types.BranchMode:
     enum:
@@ -5710,6 +5919,12 @@ definitions:
       assignee_id:
         description: 'Optional: team member assigned to the task'
         type: string
+      attachments:
+        description: Attachments are validated and stored before the task is exposed
+          to dispatchers.
+        items:
+          $ref: '#/definitions/types.SpecTaskInlineAttachment'
+        type: array
       auto_start:
         description: 'Optional: Skip backlog and start immediately, regardless of
           project auto-start setting'
@@ -6415,6 +6630,15 @@ definitions:
       private_key:
         description: PEM-encoded private key for JWT signing
         type: string
+      review_bot_user_id:
+        type: integer
+      webhook_secret:
+        description: |-
+          WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review
+          deliveries with (spec task PR review feedback). Auto-generated at first
+          webhook install; one repo's secret never validates another repo's
+          deliveries, keeping orgs isolated on shared deployments.
+        type: string
     type: object
   types.GitLab:
     properties:
@@ -6703,6 +6927,8 @@ definitions:
         type: string
       password:
         type: string
+      review_bot_user_id:
+        type: integer
       username:
         type: string
     type: object
@@ -7261,6 +7487,8 @@ definitions:
         items:
           type: integer
         type: array
+      request_id:
+        type: string
       response:
         items:
           type: integer
@@ -7942,7 +8170,7 @@ definitions:
     properties:
       members:
         items:
-          $ref: '#/definitions/types.User'
+          $ref: '#/definitions/types.OrganizationMembership'
         type: array
       organization:
         $ref: '#/definitions/types.Organization'
@@ -9405,6 +9633,14 @@ definitions:
         items:
           type: string
         type: array
+      responses_only:
+        description: |-
+          ResponsesOnly lists values accepted on /v1/responses but rejected on
+          /v1/chat/completions. They are not in Supported: only a harness that
+          speaks the Responses API may offer them.
+        items:
+          type: string
+        type: array
       source:
         allOf:
         - $ref: '#/definitions/types.EffortSource'
@@ -10145,6 +10381,42 @@ definitions:
           type: integer
         type: array
     type: object
+  types.SecretIntakeCreateRequest:
+    properties:
+      accent_color:
+        type: string
+      artifact_id:
+        type: string
+      brand_name:
+        type: string
+      conversation_id:
+        type: string
+      customer_id:
+        type: string
+      description:
+        type: string
+      fields:
+        items:
+          $ref: '#/definitions/types.SecretIntakeField'
+        type: array
+      logo_url:
+        type: string
+      title:
+        type: string
+    type: object
+  types.SecretIntakeField:
+    properties:
+      autocomplete:
+        type: string
+      label:
+        type: string
+      name:
+        type: string
+      required:
+        type: boolean
+      type:
+        type: string
+    type: object
   types.SecretScope:
     enum:
     - dev
@@ -10208,6 +10480,9 @@ definitions:
           -1 = unlimited. Note: /config is unauthenticated, so this is the
           Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
         type: integer
+      minimum_inference_balance:
+        description: Minimum wallet balance required for inference
+        type: number
       onboarding_helix_model:
         type: string
       onboarding_helix_model_effort:
@@ -10651,6 +10926,22 @@ definitions:
         items:
           type: string
         type: array
+      agent_config_applied_at:
+        description: |-
+          AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop
+          settings-sync daemon's /agent-config-applied callback for the most recent
+          in-place switch. They are the explicit "the fast hot-reload path worked"
+          signal that agentSwitchRestartFallback consults instead of deciding purely
+          on a timer — without them a confirmed-applied config was still restarted
+          5s later, killing Zed mid-new_session().
+
+          AgentHandoffDeliveredAt is only set when the handoff actually reached a
+          live connection; a callback with nothing delivered is not evidence the
+          turn is moving. Persisted (not an in-memory map) so it is correct when the
+          callback lands on a different API replica than the fallback goroutine.
+        type: string
+      agent_handoff_delivered_at:
+        type: string
       agent_switched_at:
         description: |-
           AgentSwitchedAt is set when the agent framework is switched IN PLACE on
@@ -10696,6 +10987,29 @@ definitions:
         type: boolean
       avatar:
         type: string
+      bot_instance:
+        allOf:
+        - $ref: '#/definitions/types.BotInstanceProfile'
+        description: |-
+          BotInstance is set on org bot instance sessions (SessionRole
+          SessionRoleOrgBotInstance): the bot's instance profile as of the last
+          sync, which shapes the instance's MCP servers, org tools and skills.
+      bot_instance_allow_sudo:
+        type: boolean
+      bot_instance_disk_size_gb:
+        description: |-
+          BotInstanceDiskSizeGB is the hard capacity of the instance's persistent
+          home filesystem. BotInstanceAllowSudo is the requested opt-out from the
+          default no-new-privileges policy. Read both through BotInstanceDiskSize
+          and BotInstanceSudo, which apply defaults and runtime rules.
+        type: integer
+      bot_instance_secrets:
+        description: |-
+          BotInstanceSecrets names the project development secrets explicitly
+          granted when this instance was created. Empty means no project secrets.
+        items:
+          type: string
+        type: array
       callback_url:
         description: Webhook URL to POST on session completion
         type: string
@@ -11014,6 +11328,111 @@ definitions:
     - SessionTypeNone
     - SessionTypeText
     - SessionTypeImage
+  types.SessionUsage:
+    properties:
+      calls:
+        items:
+          $ref: '#/definitions/types.SessionUsageCall'
+        type: array
+      session_id:
+        type: string
+      summary:
+        $ref: '#/definitions/types.SessionUsageSummary'
+      truncated:
+        description: |-
+          Truncated is set when the session has more calls than the endpoint returns;
+          the summary then covers only the returned calls.
+        type: boolean
+      turns:
+        items:
+          $ref: '#/definitions/types.SessionUsageTurn'
+        type: array
+    type: object
+  types.SessionUsageCall:
+    properties:
+      cache_read_tokens:
+        type: integer
+      cache_write_tokens:
+        type: integer
+      completion_tokens:
+        type: integer
+      created:
+        type: string
+      duration_ms:
+        type: integer
+      interaction_id:
+        type: string
+      model:
+        type: string
+      prompt_tokens:
+        type: integer
+      time_to_first_token_ms:
+        type: integer
+      total_cost:
+        type: number
+    type: object
+  types.SessionUsageSummary:
+    properties:
+      cache_hit_ratio:
+        description: CacheHitRatio is cache-read / prompt tokens; nil when there were
+          no prompt tokens.
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_tokens:
+        type: integer
+      calls:
+        type: integer
+      completion_tokens:
+        type: integer
+      duration_p50_ms:
+        type: integer
+      duration_p90_ms:
+        type: integer
+      llm_ms:
+        description: LLMMs is the summed duration of the calls (calls can overlap,
+          so this can exceed wall time).
+        type: integer
+      models:
+        items:
+          type: string
+        type: array
+      prompt_tokens:
+        type: integer
+      total_cost:
+        type: number
+      ttft_p50_ms:
+        type: integer
+      ttft_p90_ms:
+        type: integer
+    type: object
+  types.SessionUsageTurn:
+    properties:
+      cache_hit_ratio:
+        type: number
+      cache_read_tokens:
+        type: integer
+      calls:
+        type: integer
+      completed:
+        type: string
+      completion_tokens:
+        type: integer
+      interaction_id:
+        type: string
+      llm_ms:
+        type: integer
+      prompt:
+        type: string
+      prompt_tokens:
+        type: integer
+      started:
+        type: string
+      state:
+        type: string
+      total_cost:
+        type: number
+    type: object
   types.SkillDefinition:
     properties:
       baseUrl:
@@ -11751,6 +12170,20 @@ definitions:
       task:
         $ref: '#/definitions/types.SpecTask'
     type: object
+  types.SpecTaskInlineAttachment:
+    properties:
+      caption:
+        type: string
+      content_base64:
+        description: Standard base64-encoded file bytes.
+        type: string
+      name:
+        description: Filename visible in the task workspace.
+        type: string
+    required:
+    - content_base64
+    - name
+    type: object
   types.SpecTaskPhase:
     enum:
     - planning
@@ -11775,6 +12208,7 @@ definitions:
     - SpecTaskPriorityCritical
   types.SpecTaskStatus:
     enum:
+    - preparing
     - backlog
     - queued_implementation
     - queued_spec_generation
@@ -11797,6 +12231,7 @@ definitions:
       TaskStatusImplementationFailed: Implementation failed
       TaskStatusImplementationQueued: Waiting for Zed agent pickup
       TaskStatusImplementationReview: Code review (PR created)
+      TaskStatusPreparing: Internal intake state; never dispatched
       TaskStatusPullRequest: 'External repo: PR opened, awaiting merge'
       TaskStatusQueuedImplementation: Transitional state, waiting for the orchestrator
         to pick it up
@@ -11808,6 +12243,7 @@ definitions:
       TaskStatusSpecReview: Human reviewing generated specs
       TaskStatusSpecRevision: Human requested spec changes
     x-enum-varnames:
+    - TaskStatusPreparing
     - TaskStatusBacklog
     - TaskStatusQueuedImplementation
     - TaskStatusQueuedSpecGeneration
@@ -13817,6 +14253,88 @@ definitions:
     - WebServiceDeployStatusLive
     - WebServiceDeployStatusFailed
     - WebServiceDeployStatusSuperseded
+  types.WebhookDelivery:
+    properties:
+      attempt_count:
+        type: integer
+      created_at:
+        type: string
+      delivered_at:
+        type: string
+      endpoint_id:
+        type: string
+      event_id:
+        type: string
+      id:
+        type: string
+      last_attempt_at:
+        type: string
+      last_error:
+        type: string
+      last_status_code:
+        type: integer
+      next_attempt_at:
+        type: string
+      status:
+        $ref: '#/definitions/types.WebhookDeliveryStatus'
+      updated_at:
+        type: string
+    type: object
+  types.WebhookDeliveryStatus:
+    enum:
+    - pending
+    - processing
+    - retrying
+    - delivered
+    - failed
+    - disabled
+    type: string
+    x-enum-varnames:
+    - WebhookDeliveryStatusPending
+    - WebhookDeliveryStatusProcessing
+    - WebhookDeliveryStatusRetrying
+    - WebhookDeliveryStatusDelivered
+    - WebhookDeliveryStatusFailed
+    - WebhookDeliveryStatusDisabled
+  types.WebhookEndpoint:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      disabled_reason:
+        type: string
+      events:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      organization_id:
+        type: string
+      project_id:
+        type: string
+      secret_preview:
+        type: string
+      status:
+        $ref: '#/definitions/types.WebhookEndpointStatus'
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      url:
+        type: string
+    type: object
+  types.WebhookEndpointStatus:
+    enum:
+    - active
+    - disabled
+    type: string
+    x-enum-varnames:
+    - WebhookEndpointStatusActive
+    - WebhookEndpointStatusDisabled
   types.WebsiteCrawler:
     properties:
       enabled:
@@ -14551,7 +15069,8 @@ paths:
       - organizations
   /api/v1/admin/orgs:
     get:
-      description: List organizations with server-side pagination and name search
+      description: List organizations with server-side pagination and name or owner
+        email search
       parameters:
       - description: 'Page number (default: 1)'
         in: query
@@ -14561,7 +15080,7 @@ paths:
         in: query
         name: per_page
         type: integer
-      - description: Search organization display name or name
+      - description: Search organization display name, name, or owner email
         in: query
         name: query
         type: string
@@ -14800,14 +15319,19 @@ paths:
   /api/v1/admin/users/{id}/trial-activate:
     delete:
       description: Clears any stashed trial intent on the user and cancels the trialing
-        Stripe subscription on the oldest owned org whose readable wallet is trialing.
-        At most one subscription is cancelled per call. Paid (active) subscriptions
-        are never cancelled.
+        Stripe subscription on the specified owned org (org_id required when the user
+        owns organisations; the cancelled wallet state is mirrored immediately). Paid
+        (active) subscriptions are never cancelled.
       parameters:
       - description: User ID
         in: path
         name: id
         required: true
+        type: string
+      - description: Owned organisation whose trialing subscription to cancel (required
+          iff the user owns an organisation)
+        in: query
+        name: org_id
         type: string
       produces:
       - application/json
@@ -17471,10 +17995,12 @@ paths:
     post:
       consumes:
       - multipart/form-data
-      description: Upload one or more files to the specified path in the filestore.
-        Supports multipart form data with 'files' field
+      description: Upload one or more files to the filestore. The path may be a directory,
+        in which case multipart filenames are appended, or the exact full path when
+        its basename matches the multipart filename.
       parameters:
-      - description: Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')
+      - description: Destination directory or exact full file path (e.g., 'documents'
+          or 'documents/report.json')
         in: query
         name: path
         required: true
@@ -20192,6 +20718,178 @@ paths:
       summary: Look up a user by email within the context of an organization
       tags:
       - organizations
+  /api/v1/organizations/{id}/webhook-endpoints:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.WebhookEndpoint'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List organization webhook endpoints
+      tags:
+      - organizations
+    post:
+      description: Creates a Standard Webhooks endpoint. The signing secret is returned
+        once.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Webhook endpoint
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.webhookEndpointRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/server.webhookEndpointSecretResponse'
+      security:
+      - BearerAuth: []
+      summary: Create an organization webhook endpoint
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}:
+    delete:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Webhook endpoint ID
+        in: path
+        name: endpoint_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Disable an organization webhook endpoint
+      tags:
+      - organizations
+    put:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Webhook endpoint ID
+        in: path
+        name: endpoint_id
+        required: true
+        type: string
+      - description: Webhook endpoint
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.webhookEndpointRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.WebhookEndpoint'
+      security:
+      - BearerAuth: []
+      summary: Update an organization webhook endpoint
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Webhook endpoint ID
+        in: path
+        name: endpoint_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.webhookDeliveryView'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List recent webhook deliveries
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries/{delivery_id}/replay:
+    post:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Webhook endpoint ID
+        in: path
+        name: endpoint_id
+        required: true
+        type: string
+      - description: Webhook delivery ID
+        in: path
+        name: delivery_id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/types.WebhookDelivery'
+      security:
+      - BearerAuth: []
+      summary: Replay a webhook delivery
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/rotate-secret:
+    post:
+      description: Returns the new secret once. Helix signs with both keys for a 24-hour
+        overlap.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Webhook endpoint ID
+        in: path
+        name: endpoint_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.webhookEndpointSecretResponse'
+      security:
+      - BearerAuth: []
+      summary: Rotate a webhook signing secret
+      tags:
+      - organizations
   /api/v1/organizations/{org_id}/code-agent-harnesses:
     get:
       description: Returns every selectable coding-agent runtime, whether the organization
@@ -21073,6 +21771,34 @@ paths:
       summary: 'Helix-org: manually trigger a bot activation'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/apply-config:
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: apply Bot config to its running sandbox'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/attachments:
     get:
       parameters:
@@ -21188,6 +21914,90 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: provision a per-bot chat app'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/instances:
+    get:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.BotInstanceDTO'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list a bot''s instances'
+      tags:
+      - HelixOrg
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Instance
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateBotInstanceRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.BotInstanceDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: create a bot instance'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/instances/{session_id}:
+    delete:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Instance session ID
+        in: path
+        name: session_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: delete a bot instance'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/parents:
@@ -23066,6 +23876,139 @@ paths:
       summary: Set project primary repository
       tags:
       - Projects
+  /api/v1/projects/{id}/secret-intakes:
+    post:
+      consumes:
+      - application/json
+      description: Creates a short-lived, one-time link for collecting requested fields
+        outside chat. The response never contains submitted values.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Field schema and branding
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SecretIntakeCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/server.SecretIntakeCreateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create a secret intake
+      tags:
+      - Secret Intakes
+  /api/v1/projects/{id}/secret-intakes/{intake_id}:
+    delete:
+      description: Invalidates its link and clears any submitted ciphertext.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Revoke a secret intake
+      tags:
+      - Secret Intakes
+    get:
+      description: Returns metadata and status only; submitted values remain inaccessible
+        through this endpoint.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SecretIntakeView'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get secret intake status
+      tags:
+      - Secret Intakes
+  /api/v1/projects/{id}/secret-intakes/{intake_id}/submissions:
+    post:
+      consumes:
+      - application/json
+      description: Write-only project API for trusted integrations. Values are encrypted
+        and cannot be read through the API.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      - description: Submitted field values
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SecretIntakeSubmissionRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Submit secret intake values
+      tags:
+      - Secret Intakes
   /api/v1/projects/{id}/secrets:
     get:
       description: List all secrets associated with a specific project.
@@ -26302,6 +27245,26 @@ paths:
       summary: Get interaction by turn number
       tags:
       - Sessions
+  /api/v1/sessions/{id}/usage:
+    get:
+      description: Spend, tokens, latency and prompt-cache hit ratio of one session,
+        overall, per turn and per LLM call.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SessionUsage'
+      security:
+      - BearerAuth: []
+      summary: Get a session's LLM usage
+      tags:
+      - sessions
   /api/v1/sessions/{id}/workspace-status:
     get:
       description: Used by the fork-confirm modal so we can show "N files will be
@@ -27855,6 +28818,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/types.APIError'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
           schema:
@@ -29003,6 +29970,29 @@ paths:
       summary: Update Zed thread activity
       tags:
       - zed-integration
+  /connect/intake/redeem:
+    post:
+      consumes:
+      - application/json
+      description: Exchanges a one-time invitation token for a short-lived browser
+        flow cookie.
+      parameters:
+      - description: Invitation token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SecretIntakeRedeemRequest'
+      responses:
+        "204":
+          description: No Content
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Redeem a secret intake invitation
+      tags:
+      - Secret Intakes
   /v1/chat/completions:
     post:
       description: Creates a model response for the given chat conversation.

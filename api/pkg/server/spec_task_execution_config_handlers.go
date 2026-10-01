@@ -103,6 +103,9 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
 
 	response := &types.SpecTaskExecutionConfigUpdateResponse{Task: task}
 	if req.SandboxResourceOverrides != nil {

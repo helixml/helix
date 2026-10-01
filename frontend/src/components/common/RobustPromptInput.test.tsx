@@ -49,6 +49,40 @@ const mkEntry = (id: string, ts: number, overrides: Partial<PromptHistoryEntry> 
   ...overrides,
 })
 
+describe('RobustPromptInput responsive actions', () => {
+  it('collapses leading actions when the composer is narrow', async () => {
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 320,
+      height: 0,
+      top: 0,
+      right: 320,
+      bottom: 0,
+      left: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+
+    try {
+      render(
+        <RobustPromptInput
+          sessionId="ses_test"
+          onSend={vi.fn()}
+          leadingActions={<button type="button">Agent controls</button>}
+        />,
+      )
+
+      const settings = await screen.findByRole('button', { name: 'Execution settings' })
+      expect(screen.queryByRole('button', { name: 'Agent controls' })).not.toBeInTheDocument()
+
+      fireEvent.click(settings)
+      expect(screen.getByRole('button', { name: 'Agent controls' })).toBeInTheDocument()
+    } finally {
+      bounds.mockRestore()
+    }
+  })
+})
+
 describe('RobustPromptInput autofocus', () => {
   it('returns focus to the composer when the selected session changes', async () => {
     const view = render(

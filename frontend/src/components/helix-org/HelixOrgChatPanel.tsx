@@ -31,6 +31,7 @@ import { useStreaming } from '../../contexts/streaming'
 import {
   BotDTO,
   useActivateBot,
+  useApplyBotConfig,
   useHelixOrgBot,
   useListHelixOrgBots,
   useRestartBotAgent,
@@ -132,6 +133,7 @@ const HelixOrgChatPanel: FC = () => {
   const activateAgent = useActivateBot()
   const stopAgent = useStopBotAgent()
   const restartAgent = useRestartBotAgent()
+  const applyBotConfig = useApplyBotConfig()
 
   const [chatSessionId, setChatSessionId] = useState<string | null>(null)
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
@@ -236,7 +238,7 @@ const HelixOrgChatPanel: FC = () => {
     persistSelection(botId)
   }
 
-  const busy = activateAgent.isPending || stopAgent.isPending || restartAgent.isPending
+  const busy = activateAgent.isPending || stopAgent.isPending || restartAgent.isPending || applyBotConfig.isPending
   const border = lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
   const statusColor = botOnline
     ? 'rgb(46, 160, 67)'
@@ -415,7 +417,7 @@ const HelixOrgChatPanel: FC = () => {
             visible={!!selectedBot?.restart_required}
             working={!!chatSessionId && streaming.currentResponses.has(chatSessionId)}
             busy={busy}
-            onRestart={() => { void handleRestart() }}
+            onRestart={() => { if (selectedBot?.id) void applyBotConfig.mutateAsync(selectedBot.id) }}
           />
         </Box>
         {!selectedBotId ? (

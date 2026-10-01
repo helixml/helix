@@ -1676,7 +1676,7 @@ steps:
 
         echo "Running live compatibility test: claude-agent-acp@latest (all phases)..."
         docker run --rm \
-          -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
+          -e ANTHROPIC_API_KEY \
           -e E2E_AGENTS="claude" \
           -e TEST_TIMEOUT=600 \
           zed-ws-e2e:$${ZED_COMMIT}
@@ -2237,7 +2237,16 @@ steps:
       # Clean up VM disk (no longer needed after upload to R2)
       - rm -rf /Volumes/Big/helix-vm/ci-provision
 
-  # Step 2: Build Helix.app with embedded QEMU, frameworks, and vm-manifest.json
+  # Step 2: Build QEMU from the qemu-utm commit pinned in for-mac/qemu-helix/QEMU_UTM_COMMIT
+  # (cached per commit on the runner; never installs into the shared UTM sysroot)
+  - name: build-qemu
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+    commands:
+      - export HOME=/Users/luke
+      - ./for-mac/qemu-helix/build-qemu-ci.sh
+
+  # Step 3: Build Helix.app with embedded QEMU, frameworks, and vm-manifest.json
   - name: build-app
     environment:
       PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
@@ -2253,9 +2262,10 @@ steps:
       # Create .env.signing so build scripts use Developer ID instead of ad-hoc
       - echo "APPLE_SIGNING_IDENTITY='$APPLE_SIGNING_IDENTITY'" > for-mac/.env.signing
       - cd for-mac
+      - export QEMU_PREFIX="$(./qemu-helix/build-qemu-ci.sh --prefix)"
       - ./scripts/build-helix-app.sh
 
-  # Step 3: Create DMG, sign, notarize, upload to R2
+  # Step 4: Create DMG, sign, notarize, upload to R2
   - name: create-dmg
     # Non-blocking: a Mac-client signing/notarization problem (e.g. an expired
     # Apple Developer agreement) must not fail the tag build and block the
@@ -2482,3 +2492,30 @@ steps:
       - apt-get update -qq
       - apt-get install -y -qq curl ca-certificates openssh-client > /dev/null
       - scripts/deploy-prod.sh "$DRONE_TAG"
+
+---
+kind: pipeline
+type: docker
+name: deploy-meta
+
+depends_on:
+  - build-sandbox-amd64
+
+trigger:
+  event:
+    - push
+  ref:
+    include:
+      - refs/heads/main
+  status:
+    - success
+
+steps:
+  - name: deploy-meta
+    image: alpine:3.21
+    environment:
+      META_DEPLOY_SSH_KEY:
+        from_secret: meta_deploy_ssh_key
+    commands:
+      - apk add --no-cache bash openssh-client
+      - scripts/deploy-meta.sh "$DRONE_COMMIT_SHA"

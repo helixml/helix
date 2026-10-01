@@ -196,7 +196,8 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 				}
 			}
 			defer func() {
-				if completeErr := cfg.Store.Activations.Complete(ctx, orgID, act.ID, activation.OutcomeFromError(retErr), cfg.Now()); completeErr != nil && cfg.Logger != nil {
+				// A deleted or restarted bot cancels ctx; the row must still close.
+				if completeErr := cfg.Store.Activations.Complete(context.WithoutCancel(ctx), orgID, act.ID, activation.OutcomeFromError(retErr), cfg.Now()); completeErr != nil && cfg.Logger != nil {
 					cfg.Logger.Warn("helix spawner: complete activation row", "worker", workerID, "activation", act.ID, "err", completeErr)
 				}
 			}()
@@ -554,6 +555,9 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID, priorIntera
 			observedCurrentInteraction = true
 			if IsTerminalOutput(out) {
 				if out.Status == "error" {
+					if strings.Contains(strings.ToLower(out.Output), types.ErrorInsufficientBalance) {
+						return fmt.Errorf("%w: session error: %s", activation.ErrNonRetryable, briefing.OneLine(out.Output, 500))
+					}
 					return fmt.Errorf("session error: %s", briefing.OneLine(out.Output, 500))
 				}
 				return nil

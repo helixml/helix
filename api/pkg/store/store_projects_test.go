@@ -30,6 +30,16 @@ func TestDeleteProjectPreservesRepositoryAndAttachment(t *testing.T) {
 	require.NoError(t, db.First(&types.ProjectRepository{}, "project_id = ? AND repository_id = ?", project.ID, repository.ID).Error)
 }
 
+func TestGetProjectMapsRecordNotFound(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&types.Project{}))
+	projectStore := &PostgresStore{gdb: db}
+
+	_, err = projectStore.GetProject(context.Background(), "missing-project")
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func (suite *PostgresStoreTestSuite) TestListProjects_WithStats_EmptyProject() {
 	project := &types.Project{
 		ID:     "proj-stats-empty-" + system.GenerateUUID(),

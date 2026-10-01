@@ -3,12 +3,9 @@
 // fetched once at agent startup and never refreshed, so the only way to
 // apply those changes is a restart.
 //
-// The restart mints a brand-new session and thread on purpose: a preserved
-// transcript still contains successful tool calls for tools that no longer
-// exist, and the model reads its own history as proof of capability. It is
-// never automatic — an in-flight turn is the one thing a restart destroys,
-// so the button is gated while the agent is working and the cost is spelled
-// out in a confirm dialog.
+// The restart recreates the current container while preserving the session and
+// healthy ACP thread. It is never automatic because an in-flight turn would be
+// interrupted, so the button is gated while the agent is working.
 
 import { FC, useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
@@ -151,8 +148,8 @@ const AgentRestartRequiredBanner: FC<AgentRestartRequiredBannerProps> = ({
         <DialogTitle>Restart the org bot?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            The org bot starts again with a fresh conversation. The workspace and
-            committed work are kept; the current chat history is discarded.
+            The org bot container restarts with the latest configuration. The
+            workspace and current conversation are kept.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

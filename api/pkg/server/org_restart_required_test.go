@@ -15,7 +15,10 @@ import (
 
 // fakeSessionReader satisfies the anonymous interface orgWorkerRuntime
 // holds for the Helix session/app store.
-type fakeSessionReader struct{ session *types.Session }
+type fakeSessionReader struct {
+	session     *types.Session
+	interaction *types.Interaction
+}
 
 func (f fakeSessionReader) GetSession(_ context.Context, _ string) (*types.Session, error) {
 	return f.session, nil
@@ -25,6 +28,12 @@ func (f fakeSessionReader) GetApp(_ context.Context, _ string) (*types.App, erro
 }
 func (f fakeSessionReader) GetSandboxBySession(_ context.Context, _ string) (*types.Sandbox, error) {
 	return nil, store.ErrNotFound
+}
+func (f fakeSessionReader) GetLatestInteractionsForSessions(_ context.Context, sessionIDs []string) (map[string]*types.Interaction, error) {
+	if f.interaction == nil || len(sessionIDs) == 0 {
+		return map[string]*types.Interaction{}, nil
+	}
+	return map[string]*types.Interaction{sessionIDs[0]: f.interaction}, nil
 }
 
 func runtimeFor(t *testing.T, stamp, containerID, agentStatus string) helixorgapi.BotRuntimeInfo {
@@ -70,6 +79,41 @@ func TestState_RestartNotRequiredWhenSandboxStopped(t *testing.T) {
 func TestState_EmptyStampNeverMatches(t *testing.T) {
 	info := runtimeFor(t, "", "", "running")
 	require.False(t, info.RestartRequired)
+}
+
+func TestState_WorkingOnlyForRunningSessionWithWaitingLatestInteraction(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	require.NoError(t, runtimehelix.SaveProject(ctx, st, "org-rr", "b-rr", "prj_1", "app_1", "repo_1"))
+	require.NoError(t, runtimehelix.SaveSession(ctx, st, "org-rr", "b-rr", "ses_1"))
+
+	for _, tc := range []struct {
+		name   string
+		status string
+		state  types.InteractionState
+		want   types.AgentWorkState
+	}{
+		{name: "running waiting", status: "running", state: types.InteractionStateWaiting, want: types.AgentWorkStateWorking},
+		{name: "running complete", status: "running", state: types.InteractionStateComplete},
+		{name: "running editing", status: "running", state: types.InteractionStateEditing},
+		{name: "running error", status: "running", state: types.InteractionStateError},
+		{name: "running none", status: "running", state: types.InteractionStateNone},
+		{name: "stopped waiting", status: "stopped", state: types.InteractionStateWaiting},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session := &types.Session{ID: "ses_1"}
+			session.Metadata.ExternalAgentStatus = tc.status
+			info, err := orgWorkerRuntime{
+				st: st,
+				sessions: fakeSessionReader{
+					session:     session,
+					interaction: &types.Interaction{State: tc.state},
+				},
+			}.State(ctx, "org-rr", "b-rr")
+			require.NoError(t, err)
+			require.Equal(t, tc.want, info.AgentWorkState)
+		})
+	}
 }
 
 // fakeSessionGetter satisfies restartStampSessions with a configurable

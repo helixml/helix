@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -167,6 +166,17 @@ func TestEnrichUserTrialDisplay_FindsTrialOnNonFirstOrg(t *testing.T) {
 	require.Equal(t, int64(1234), *user.TrialEndsAt)
 }
 
+// Plan- or credit-only stashes must also surface as "stashed" in the users
+// list, not just trial-day stashes.
+func TestEnrichUserTrialDisplay_MarksPlanAndCreditStashes(t *testing.T) {
+	plan := types.PlanOverridePro
+	credits := 50.0
+	user := &types.User{ID: "target", PlanOnFirstOrg: &plan, PendingAdminCreditsOnFirstOrg: &credits}
+
+	(&HelixAPIServer{Store: store.NewMockStore(gomock.NewController(t))}).enrichUserTrialDisplay(context.Background(), user)
+	require.Equal(t, "stashed", user.TrialStatus)
+}
+
 type adminTrialStripeBackend struct {
 	t *testing.T
 }
@@ -250,15 +260,33 @@ func TestAdminActivateTrial_AppliesStripeTrialToSelectedOrgAndApprovesUser(t *te
 	require.False(t, resp.User.Waitlisted)
 }
 
-func TestAdminRevokeTrial_CancelsOldestTrialingOrg(t *testing.T) {
+func revokeTrialRequest(t *testing.T, orgID string) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/users/target/trial-activate", nil)
+	if orgID != "" {
+		q := req.URL.Query()
+		q.Set("org_id", orgID)
+		req.URL.RawQuery = q.Encode()
+	}
+	req = mux.SetURLVars(req, map[string]string{"id": "target"})
+	return req.WithContext(setTestRequestUser(req.Context(), &types.User{ID: "admin", Admin: true}))
+}
+
+func TestAdminRevokeTrial_CancelsTrialOnSelectedOrg(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	db := store.NewMockStore(ctrl)
-	oldOrg := &types.Organization{ID: "org-b", CreatedAt: time.Unix(1000, 0)}
-	newOrg := &types.Organization{ID: "org-c", CreatedAt: time.Unix(2000, 0)}
+	orgA := &types.Organization{ID: "org-a", Owner: "target"}
+	orgB := &types.Organization{ID: "org-b", Owner: "target"}
+	walletB := &types.Wallet{ID: "wallet-b", OrgID: "org-b", StripeSubscriptionID: "sub-b", SubscriptionStatus: stripeapi.SubscriptionStatusTrialing}
 
 	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(&types.User{ID: "target"}, nil)
-	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{newOrg, oldOrg}, nil)
-	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(&types.Wallet{StripeSubscriptionID: "sub-b", SubscriptionStatus: stripeapi.SubscriptionStatusTrialing}, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{orgA, orgB}, nil)
+	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(walletB, nil)
+	db.EXPECT().UpdateWallet(gomock.Any(), walletB).DoAndReturn(func(_ context.Context, got *types.Wallet) (*types.Wallet, error) {
+		require.Equal(t, stripeapi.SubscriptionStatusCanceled, got.SubscriptionStatus)
+		require.False(t, got.SubscriptionCancelAtPeriodEnd)
+		return got, nil
+	})
 
 	originalBackend := stripeapi.GetBackend(stripeapi.APIBackend)
 	stripeapi.SetBackend(stripeapi.APIBackend, &adminTrialStripeBackend{t: t})
@@ -271,26 +299,75 @@ func TestAdminRevokeTrial_CancelsOldestTrialingOrg(t *testing.T) {
 		Cfg:    cfg,
 		Stripe: helixstripe.NewStripe(cfg.Stripe, db),
 	}
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/users/target/trial-activate", nil)
-	req = mux.SetURLVars(req, map[string]string{"id": "target"})
-	req = req.WithContext(setTestRequestUser(req.Context(), &types.User{ID: "admin", Admin: true}))
 
-	resp, err := s.adminRevokeTrial(httptest.NewRecorder(), req)
+	resp, err := s.adminRevokeTrial(httptest.NewRecorder(), revokeTrialRequest(t, "org-b"))
 	require.NoError(t, err)
 	require.Equal(t, "cancelled", resp.Status)
 	require.Equal(t, "org-b", resp.OrgID)
 }
 
-func TestAdminRevokeTrial_ContinuesAfterWalletReadError(t *testing.T) {
+func TestAdminRevokeTrial_RequiresOwnedOrgSelection(t *testing.T) {
+	for _, orgID := range []string{"", "org-other"} {
+		t.Run(orgID, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			db := store.NewMockStore(ctrl)
+			db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(&types.User{ID: "target"}, nil)
+			db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{{ID: "org-owned"}}, nil)
+
+			cfg := cloudBillingCfg()
+			cfg.Stripe.SecretKey = "sk_test"
+			cfg.Stripe.WebhookSigningSecret = "whsec_test"
+			s := &HelixAPIServer{
+				Store:  db,
+				Cfg:    cfg,
+				Stripe: helixstripe.NewStripe(cfg.Stripe, db),
+			}
+
+			_, err := s.adminRevokeTrial(httptest.NewRecorder(), revokeTrialRequest(t, orgID))
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestAdminRevokeTrial_ClearsStashWhenNoOrgs(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	db := store.NewMockStore(ctrl)
-	oldOrg := &types.Organization{ID: "org-a", CreatedAt: time.Unix(1000, 0)}
-	laterOrg := &types.Organization{ID: "org-b", CreatedAt: time.Unix(2000, 0)}
+	days := 30
+	user := &types.User{ID: "target", TrialDaysOnFirstOrg: &days}
+
+	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(user, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return(nil, nil)
+	db.EXPECT().UpdateUser(gomock.Any(), user).DoAndReturn(func(_ context.Context, got *types.User) (*types.User, error) {
+		require.Nil(t, got.TrialDaysOnFirstOrg)
+		return got, nil
+	})
+
+	cfg := cloudBillingCfg()
+	cfg.Stripe.SecretKey = "sk_test"
+	cfg.Stripe.WebhookSigningSecret = "whsec_test"
+	s := &HelixAPIServer{
+		Store:  db,
+		Cfg:    cfg,
+		Stripe: helixstripe.NewStripe(cfg.Stripe, db),
+	}
+
+	resp, err := s.adminRevokeTrial(httptest.NewRecorder(), revokeTrialRequest(t, ""))
+	require.NoError(t, err)
+	require.Equal(t, "cleared", resp.Status)
+}
+
+// Paid (active) subscriptions are never cancelled via this endpoint: the
+// strict Stripe backend fails on any unexpected call, so a cancel attempt
+// against sub-paid would surface as a 500 and fail the assertion below.
+func TestAdminRevokeTrial_NeverCancelsPaidSubscription(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	org := &types.Organization{ID: "org-paid", Owner: "target"}
+	wallet := &types.Wallet{ID: "wallet-paid", OrgID: "org-paid", StripeSubscriptionID: "sub-paid", SubscriptionStatus: stripeapi.SubscriptionStatusActive}
 
 	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(&types.User{ID: "target"}, nil)
-	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{oldOrg, laterOrg}, nil)
-	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-a").Return(nil, fmt.Errorf("read failed"))
-	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(&types.Wallet{StripeSubscriptionID: "sub-b", SubscriptionStatus: stripeapi.SubscriptionStatusTrialing}, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{org}, nil)
+	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-paid").Return(wallet, nil)
 
 	originalBackend := stripeapi.GetBackend(stripeapi.APIBackend)
 	stripeapi.SetBackend(stripeapi.APIBackend, &adminTrialStripeBackend{t: t})
@@ -298,13 +375,124 @@ func TestAdminRevokeTrial_ContinuesAfterWalletReadError(t *testing.T) {
 	cfg := cloudBillingCfg()
 	cfg.Stripe.SecretKey = "sk_test"
 	cfg.Stripe.WebhookSigningSecret = "whsec_test"
-	s := &HelixAPIServer{Store: db, Cfg: cfg, Stripe: helixstripe.NewStripe(cfg.Stripe, db)}
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/users/target/trial-activate", nil)
-	req = mux.SetURLVars(req, map[string]string{"id": "target"})
-	req = req.WithContext(setTestRequestUser(req.Context(), &types.User{ID: "admin", Admin: true}))
+	s := &HelixAPIServer{
+		Store:  db,
+		Cfg:    cfg,
+		Stripe: helixstripe.NewStripe(cfg.Stripe, db),
+	}
 
-	resp, err := s.adminRevokeTrial(httptest.NewRecorder(), req)
+	_, err := s.adminRevokeTrial(httptest.NewRecorder(), revokeTrialRequest(t, "org-paid"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no active trial subscription")
+}
+
+// An invalid org selection must fail BEFORE the stash is cleared: no
+// UpdateUser expectation is set, so a stash clear on this path fails the
+// test via the strict mock.
+func TestAdminRevokeTrial_InvalidOrgLeavesStashIntact(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	days := 30
+	user := &types.User{ID: "target", TrialDaysOnFirstOrg: &days}
+
+	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(user, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{{ID: "org-owned"}}, nil)
+
+	cfg := cloudBillingCfg()
+	cfg.Stripe.SecretKey = "sk_test"
+	cfg.Stripe.WebhookSigningSecret = "whsec_test"
+	s := &HelixAPIServer{
+		Store:  db,
+		Cfg:    cfg,
+		Stripe: helixstripe.NewStripe(cfg.Stripe, db),
+	}
+
+	_, err := s.adminRevokeTrial(httptest.NewRecorder(), revokeTrialRequest(t, "org-other"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "user does not own organisation")
+}
+
+// A credits- or plan-only stash is invisible to the trial enrichment but
+// must still be clearable: revoke drops all pending first-org intents.
+func TestAdminRevokeTrial_ClearsPlanAndCreditStashes(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	plan := types.PlanOverridePro
+	credits := 50.0
+	user := &types.User{ID: "target", PlanOnFirstOrg: &plan, PendingAdminCreditsOnFirstOrg: &credits}
+
+	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(user, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return(nil, nil)
+	db.EXPECT().UpdateUser(gomock.Any(), user).DoAndReturn(func(_ context.Context, got *types.User) (*types.User, error) {
+		require.Nil(t, got.PlanOnFirstOrg)
+		require.Nil(t, got.PendingAdminCreditsOnFirstOrg)
+		return got, nil
+	})
+
+	cfg := cloudBillingCfg()
+	cfg.Stripe.SecretKey = "sk_test"
+	cfg.Stripe.WebhookSigningSecret = "whsec_test"
+	s := &HelixAPIServer{
+		Store:  db,
+		Cfg:    cfg,
+		Stripe: helixstripe.NewStripe(cfg.Stripe, db),
+	}
+
+	resp, err := s.adminRevokeTrial(httptest.NewRecorder(), revokeTrialRequest(t, ""))
 	require.NoError(t, err)
-	require.Equal(t, "cancelled", resp.Status)
-	require.Equal(t, "org-b", resp.OrgID)
+	require.Equal(t, "cleared", resp.Status)
+}
+
+// Activating replaces the whole pending intent: stashing a trial drops a
+// prior plan override so the first wallet never gets both.
+func TestAdminActivateTrial_TrialStashReplacesPlanStash(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	plan := types.PlanOverridePro
+	user := &types.User{ID: "target", PlanOnFirstOrg: &plan}
+
+	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(user, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return(nil, nil)
+	db.EXPECT().UpdateUser(gomock.Any(), user).DoAndReturn(func(_ context.Context, got *types.User) (*types.User, error) {
+		require.NotNil(t, got.TrialDaysOnFirstOrg)
+		require.Nil(t, got.PlanOnFirstOrg)
+		require.Nil(t, got.PendingAdminCreditsOnFirstOrg)
+		return got, nil
+	})
+
+	s := &HelixAPIServer{Store: db, Cfg: cloudBillingCfg()}
+	resp, err := s.adminActivateTrial(httptest.NewRecorder(), activateTrialRequest(t, ActivateTrialRequest{Days: 30}))
+	require.NoError(t, err)
+	require.Equal(t, "stashed", resp.Status)
+}
+
+// A failed consumeUserTrialIntent can leave a stash on a user who already
+// owns an org. DELETE without org_id must still clear it instead of 400ing
+// on the org-selection guard.
+func TestAdminRevokeTrial_ClearsStuckStashOnOrgOwner(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	days := 30
+	user := &types.User{ID: "target", TrialDaysOnFirstOrg: &days}
+
+	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(user, nil)
+	db.EXPECT().UpdateUser(gomock.Any(), user).DoAndReturn(func(_ context.Context, got *types.User) (*types.User, error) {
+		require.Nil(t, got.TrialDaysOnFirstOrg)
+		return got, nil
+	})
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{{ID: "org-owned"}}, nil)
+
+	cfg := cloudBillingCfg()
+	cfg.Stripe.SecretKey = "sk_test"
+	cfg.Stripe.WebhookSigningSecret = "whsec_test"
+	s := &HelixAPIServer{
+		Store:  db,
+		Cfg:    cfg,
+		Stripe: helixstripe.NewStripe(cfg.Stripe, db),
+	}
+
+	resp, err := s.adminRevokeTrial(httptest.NewRecorder(), revokeTrialRequest(t, ""))
+	require.NoError(t, err)
+	require.Equal(t, "cleared", resp.Status)
+	require.Empty(t, resp.OrgID)
 }

@@ -725,7 +725,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List organizations with server-side pagination and name search",
+                "description": "List organizations with server-side pagination and name or owner email search",
                 "tags": [
                     "organizations"
                 ],
@@ -745,7 +745,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Search organization display name or name",
+                        "description": "Search organization display name, name, or owner email",
                         "name": "query",
                         "in": "query"
                     }
@@ -1142,7 +1142,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the oldest owned org whose readable wallet is trialing. At most one subscription is cancelled per call. Paid (active) subscriptions are never cancelled.",
+                "description": "Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the specified owned org (org_id required when the user owns organisations; the cancelled wallet state is mirrored immediately). Paid (active) subscriptions are never cancelled.",
                 "produces": [
                     "application/json"
                 ],
@@ -1157,6 +1157,12 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Owned organisation whose trialing subscription to cancel (required iff the user owns an organisation)",
+                        "name": "org_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -5245,7 +5251,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field",
+                "description": "Upload one or more files to the filestore. The path may be a directory, in which case multipart filenames are appended, or the exact full path when its basename matches the multipart filename.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -5259,7 +5265,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')",
+                        "description": "Destination directory or exact full file path (e.g., 'documents' or 'documents/report.json')",
                         "name": "path",
                         "in": "query",
                         "required": true
@@ -9491,6 +9497,277 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/organizations/{id}/webhook-endpoints": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List organization webhook endpoints",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.WebhookEndpoint"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a Standard Webhooks endpoint. The signing secret is returned once.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Create an organization webhook endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Webhook endpoint",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.webhookEndpointRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.webhookEndpointSecretResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update an organization webhook endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Webhook endpoint",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.webhookEndpointRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WebhookEndpoint"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Disable an organization webhook endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List recent webhook deliveries",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.webhookDeliveryView"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries/{delivery_id}/replay": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Replay a webhook delivery",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook delivery ID",
+                        "name": "delivery_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/types.WebhookDelivery"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/rotate-secret": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the new secret once. Helix signs with both keys for a 24-hour overlap.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Rotate a webhook signing secret",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.webhookEndpointSecretResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{org_id}/code-agent-harnesses": {
             "get": {
                 "security": [
@@ -10882,6 +11159,51 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/bots/{id}/apply-config": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: apply Bot config to its running sandbox",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots/{id}/attachments": {
             "get": {
                 "produces": [
@@ -11057,6 +11379,140 @@ const docTemplate = `{
                     },
                     "501": {
                         "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/instances": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list a bot's instances",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.BotInstanceDTO"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create a bot instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Instance",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateBotInstanceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotInstanceDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/instances/{session_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a bot instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Instance session ID",
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -14089,6 +14545,259 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/secret-intakes": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a short-lived, one-time link for collecting requested fields outside chat. The response never contains submitted values.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Create a secret intake",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Field schema and branding",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SecretIntakeCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeCreateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/secret-intakes/{intake_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns metadata and status only; submitted values remain inaccessible through this endpoint.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Get secret intake status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeView"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Invalidates its link and clears any submitted ciphertext.",
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Revoke a secret intake",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/secret-intakes/{intake_id}/consume": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "One-time read for trusted integrations: returns the submitted values and clears the stored ciphertext atomically. A failed or repeated call cannot read them again.",
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Consume secret intake values",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeConsumption"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/secret-intakes/{intake_id}/submissions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Write-only project API for trusted integrations. Values are encrypted and cannot be read through the API.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Submit secret intake values",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Submitted field values",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeSubmissionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -18982,6 +19691,37 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Spend, tokens, latency and prompt-cache hit ratio of one session, overall, per turn and per LLM call.",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get a session's LLM usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionUsage"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/workspace-status": {
             "get": {
                 "security": [
@@ -19547,6 +20287,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -23119,6 +23865,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/connect/intake/redeem": {
+            "post": {
+                "description": "Exchanges a one-time invitation token for a short-lived browser flow cookie.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Redeem a secret intake invitation",
+                "parameters": [
+                    {
+                        "description": "Invitation token",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeRedeemRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/chat/completions": {
             "post": {
                 "security": [
@@ -23438,6 +24218,14 @@ const docTemplate = `{
                 "agent_runtime": {
                     "type": "string"
                 },
+                "agent_work_state": {
+                    "description": "AgentWorkState is \"working\" only while the running Bot's latest\ninteraction is still waiting for its external agent.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentWorkState"
+                        }
+                    ]
+                },
                 "code_agent_credential_type": {
                     "$ref": "#/definitions/types.CodeAgentCredentialType"
                 },
@@ -23462,6 +24250,14 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "instance_profile": {
+                    "description": "InstanceProfile is the effective profile of this Bot's instances (the\ndefault when the Bot never configured one).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BotInstanceProfile"
+                        }
+                    ]
                 },
                 "legacy_app_id": {
                     "type": "string"
@@ -23559,6 +24355,49 @@ const docTemplate = `{
                 }
             }
         },
+        "api.BotInstanceDTO": {
+            "type": "object",
+            "properties": {
+                "bot_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "disk_size_gb": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "sandbox_runtime": {
+                    "$ref": "#/definitions/types.SandboxRuntime"
+                },
+                "sandbox_status": {
+                    "description": "SandboxStatus is the sandbox's external agent status: \"\" (stopped),\n\"starting\", \"running\", \"restarting\", \"terminated_idle\" …",
+                    "type": "string"
+                },
+                "secrets": {
+                    "description": "Secrets are the names granted when the instance was created. Values are\nnever returned.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "sudo": {
+                    "type": "boolean"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "api.ChartPositionDTO": {
             "type": "object",
             "properties": {
@@ -23605,6 +24444,41 @@ const docTemplate = `{
                 },
                 "server": {
                     "$ref": "#/definitions/api.ServerAssetWriteRequest"
+                }
+            }
+        },
+        "api.CreateBotInstanceRequest": {
+            "type": "object",
+            "properties": {
+                "disk_size_gb": {
+                    "description": "DiskSizeGB is the persistent home filesystem capacity. Omitted defaults\nto 10 GB; accepted values are 1-1000.",
+                    "type": "integer"
+                },
+                "message": {
+                    "description": "Message is queued as the instance's first turn.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime overrides the Bot's instance profile runtime:\n\"headless-ubuntu\" or \"ubuntu-desktop\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
+                "secrets": {
+                    "description": "Secrets names project development secrets to grant to this instance.\nOmitted or empty means no project secrets.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sudo": {
+                    "description": "AllowSudo opts a headless instance out of no-new-privileges. It is\nfalse by default. ubuntu-desktop instances always allow sudo.",
+                    "type": "boolean"
                 }
             }
         },
@@ -24221,6 +25095,14 @@ const docTemplate = `{
                 },
                 "content": {
                     "type": "string"
+                },
+                "instance_profile": {
+                    "description": "InstanceProfile replaces the profile of the Bot's instances. It applies\nto new instances and to existing ones on their next sandbox start.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BotInstanceProfile"
+                        }
+                    ]
                 },
                 "model": {
                     "type": "string"
@@ -27497,6 +28379,86 @@ const docTemplate = `{
                 }
             }
         },
+        "server.SecretIntakeConsumption": {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.SecretIntakeCreateResponse": {
+            "type": "object",
+            "properties": {
+                "intake": {
+                    "$ref": "#/definitions/server.SecretIntakeView"
+                },
+                "invite_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SecretIntakeRedeemRequest": {
+            "type": "object",
+            "required": [
+                "intake_id",
+                "token"
+            ],
+            "properties": {
+                "intake_id": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SecretIntakeSubmissionRequest": {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.SecretIntakeView": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string"
+                },
+                "customer_id": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SecretIntakeField"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "values_expires_at": {
+                    "type": "string"
+                }
+            }
+        },
         "server.SessionClaudeCredentialsResponse": {
             "type": "object",
             "properties": {
@@ -27992,6 +28954,84 @@ const docTemplate = `{
                 }
             }
         },
+        "server.webhookDeliveryView": {
+            "type": "object",
+            "properties": {
+                "attempt_count": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "delivered_at": {
+                    "type": "string"
+                },
+                "endpoint_id": {
+                    "type": "string"
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_attempt_at": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_status_code": {
+                    "type": "integer"
+                },
+                "next_attempt_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.WebhookDeliveryStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.webhookEndpointRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.webhookEndpointSecretResponse": {
+            "type": "object",
+            "properties": {
+                "endpoint": {
+                    "$ref": "#/definitions/types.WebhookEndpoint"
+                },
+                "secret": {
+                    "type": "string"
+                }
+            }
+        },
         "services.StartupScriptVersion": {
             "type": "object",
             "properties": {
@@ -28188,23 +29228,23 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "local",
-                "slack",
+                "email",
                 "cron",
-                "webhook",
-                "github",
-                "gitlab",
                 "helix_events",
-                "email"
+                "webhook",
+                "slack",
+                "github",
+                "gitlab"
             ],
             "x-enum-varnames": [
                 "KindLocal",
-                "KindSlack",
+                "KindEmail",
                 "KindCron",
-                "KindWebhook",
-                "KindGitHub",
-                "KindGitLab",
                 "KindHelixEvents",
-                "KindEmail"
+                "KindWebhook",
+                "KindSlack",
+                "KindGitHub",
+                "KindGitLab"
             ]
         },
         "transport.ResolvedActivation": {
@@ -28265,13 +29305,15 @@ const docTemplate = `{
                 "",
                 "api",
                 "app",
-                "embed"
+                "embed",
+                "bot_instance"
             ],
             "x-enum-varnames": [
                 "APIkeytypeNone",
                 "APIkeytypeAPI",
                 "APIkeytypeApp",
-                "APIkeytypeEmbed"
+                "APIkeytypeEmbed",
+                "APIkeytypeBotInstance"
             ]
         },
         "types.AccessGrant": {
@@ -29098,7 +30140,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
                 "claude_subscription_model": {
-                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\n\"claude-opus-5\" (the current 1M-context Opus model).",
+                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\n\"claude-opus-5-5\" (the current 1M-context Opus model).",
                     "type": "string"
                 },
                 "code_agent_credential_type": {
@@ -29808,6 +30850,37 @@ const docTemplate = `{
             "properties": {
                 "wip_limits": {
                     "$ref": "#/definitions/types.WIPLimits"
+                }
+            }
+        },
+        "types.BotInstanceProfile": {
+            "type": "object",
+            "properties": {
+                "helix_skills": {
+                    "description": "HelixSkills links the helix-* agent skills. The project repo's own\nskills are always linked.",
+                    "type": "boolean"
+                },
+                "mcp_servers": {
+                    "description": "MCPServers lists the context servers kept in an instance's agent\nconfig: built-in names above or the bot project's own MCP servers.\nEvery other server is removed.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime is the default runtime for new instances. Empty means the\nbot's own runtime.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
+                "tools": {
+                    "description": "Tools lists the helix-org tools an instance may call. The served set is\nTools ∩ the bot's own tools. Empty removes the org tools server.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -31092,6 +32165,13 @@ const docTemplate = `{
                     "description": "Optional: team member assigned to the task",
                     "type": "string"
                 },
+                "attachments": {
+                    "description": "Attachments are validated and stored before the task is exposed to dispatchers.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskInlineAttachment"
+                    }
+                },
                 "auto_start": {
                     "description": "Optional: Skip backlog and start immediately, regardless of project auto-start setting",
                     "type": "boolean"
@@ -32047,6 +33127,13 @@ const docTemplate = `{
                 "private_key": {
                     "description": "PEM-encoded private key for JWT signing",
                     "type": "string"
+                },
+                "review_bot_user_id": {
+                    "type": "integer"
+                },
+                "webhook_secret": {
+                    "description": "WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review\ndeliveries with (spec task PR review feedback). Auto-generated at first\nwebhook install; one repo's secret never validates another repo's\ndeliveries, keeping orgs isolated on shared deployments.",
+                    "type": "string"
                 }
             }
         },
@@ -32464,6 +33551,9 @@ const docTemplate = `{
                 },
                 "password": {
                     "type": "string"
+                },
+                "review_bot_user_id": {
+                    "type": "integer"
                 },
                 "username": {
                     "type": "string"
@@ -33204,6 +34294,9 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                },
+                "request_id": {
+                    "type": "string"
                 },
                 "response": {
                     "type": "array",
@@ -34141,7 +35234,7 @@ const docTemplate = `{
                 "members": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/types.User"
+                        "$ref": "#/definitions/types.OrganizationMembership"
                     }
                 },
                 "organization": {
@@ -36176,6 +37269,13 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "responses_only": {
+                    "description": "ResponsesOnly lists values accepted on /v1/responses but rejected on\n/v1/chat/completions. They are not in Supported: only a harness that\nspeaks the Responses API may offer them.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "source": {
                     "description": "Source is how this entry was established.",
                     "allOf": [
@@ -37085,6 +38185,61 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SecretIntakeCreateRequest": {
+            "type": "object",
+            "properties": {
+                "accent_color": {
+                    "type": "string"
+                },
+                "artifact_id": {
+                    "type": "string"
+                },
+                "brand_name": {
+                    "type": "string"
+                },
+                "conversation_id": {
+                    "type": "string"
+                },
+                "customer_id": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SecretIntakeField"
+                    }
+                },
+                "logo_url": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SecretIntakeField": {
+            "type": "object",
+            "properties": {
+                "autocomplete": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "types.SecretScope": {
             "type": "string",
             "enum": [
@@ -37153,6 +38308,10 @@ const docTemplate = `{
                 "max_concurrent_desktops": {
                     "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited. Note: /config is unauthenticated, so this is the\nFree-tier floor; real enforcement uses the resolved per-user/per-org cap.",
                     "type": "integer"
+                },
+                "minimum_inference_balance": {
+                    "description": "Minimum wallet balance required for inference",
+                    "type": "number"
                 },
                 "onboarding_helix_model": {
                     "type": "string"
@@ -37752,6 +38911,13 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "agent_config_applied_at": {
+                    "description": "AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop\nsettings-sync daemon's /agent-config-applied callback for the most recent\nin-place switch. They are the explicit \"the fast hot-reload path worked\"\nsignal that agentSwitchRestartFallback consults instead of deciding purely\non a timer — without them a confirmed-applied config was still restarted\n5s later, killing Zed mid-new_session().\n\nAgentHandoffDeliveredAt is only set when the handoff actually reached a\nlive connection; a callback with nothing delivered is not evidence the\nturn is moving. Persisted (not an in-memory map) so it is correct when the\ncallback lands on a different API replica than the fallback goroutine.",
+                    "type": "string"
+                },
+                "agent_handoff_delivered_at": {
+                    "type": "string"
+                },
                 "agent_switched_at": {
                     "description": "AgentSwitchedAt is set when the agent framework is switched IN PLACE on\nthis same session (no fork / new container) — see\ndesign/tasks/002111_so-we-recently-added-a/design.md. It marks that a\nfork_seed interaction carrying the prior thread's transcript exists on\nTHIS session, so maybePrependTranscript seeds the new Zed thread even\nthough ParentSessionID is empty (the session continues from itself).",
                     "type": "string"
@@ -37792,6 +38958,28 @@ const docTemplate = `{
                 },
                 "avatar": {
                     "type": "string"
+                },
+                "bot_instance": {
+                    "description": "BotInstance is set on org bot instance sessions (SessionRole\nSessionRoleOrgBotInstance): the bot's instance profile as of the last\nsync, which shapes the instance's MCP servers, org tools and skills.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BotInstanceProfile"
+                        }
+                    ]
+                },
+                "bot_instance_allow_sudo": {
+                    "type": "boolean"
+                },
+                "bot_instance_disk_size_gb": {
+                    "description": "BotInstanceDiskSizeGB is the hard capacity of the instance's persistent\nhome filesystem. BotInstanceAllowSudo is the requested opt-out from the\ndefault no-new-privileges policy. Read both through BotInstanceDiskSize\nand BotInstanceSudo, which apply defaults and runtime rules.",
+                    "type": "integer"
+                },
+                "bot_instance_secrets": {
+                    "description": "BotInstanceSecrets names the project development secrets explicitly\ngranted when this instance was created. Empty means no project secrets.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "callback_url": {
                     "description": "Webhook URL to POST on session completion",
@@ -38195,6 +39383,158 @@ const docTemplate = `{
                 "SessionTypeText",
                 "SessionTypeImage"
             ]
+        },
+        "types.SessionUsage": {
+            "type": "object",
+            "properties": {
+                "calls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionUsageCall"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "summary": {
+                    "$ref": "#/definitions/types.SessionUsageSummary"
+                },
+                "truncated": {
+                    "description": "Truncated is set when the session has more calls than the endpoint returns;\nthe summary then covers only the returned calls.",
+                    "type": "boolean"
+                },
+                "turns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionUsageTurn"
+                    }
+                }
+            }
+        },
+        "types.SessionUsageCall": {
+            "type": "object",
+            "properties": {
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "time_to_first_token_ms": {
+                    "type": "integer"
+                },
+                "total_cost": {
+                    "type": "number"
+                }
+            }
+        },
+        "types.SessionUsageSummary": {
+            "type": "object",
+            "properties": {
+                "cache_hit_ratio": {
+                    "description": "CacheHitRatio is cache-read / prompt tokens; nil when there were no prompt tokens.",
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
+                "calls": {
+                    "type": "integer"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "duration_p50_ms": {
+                    "type": "integer"
+                },
+                "duration_p90_ms": {
+                    "type": "integer"
+                },
+                "llm_ms": {
+                    "description": "LLMMs is the summed duration of the calls (calls can overlap, so this can exceed wall time).",
+                    "type": "integer"
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "total_cost": {
+                    "type": "number"
+                },
+                "ttft_p50_ms": {
+                    "type": "integer"
+                },
+                "ttft_p90_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SessionUsageTurn": {
+            "type": "object",
+            "properties": {
+                "cache_hit_ratio": {
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "calls": {
+                    "type": "integer"
+                },
+                "completed": {
+                    "type": "string"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "llm_ms": {
+                    "type": "integer"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "started": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "total_cost": {
+                    "type": "number"
+                }
+            }
         },
         "types.SkillDefinition": {
             "type": "object",
@@ -39182,6 +40522,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SpecTaskInlineAttachment": {
+            "type": "object",
+            "required": [
+                "content_base64",
+                "name"
+            ],
+            "properties": {
+                "caption": {
+                    "type": "string"
+                },
+                "content_base64": {
+                    "description": "Standard base64-encoded file bytes.",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Filename visible in the task workspace.",
+                    "type": "string"
+                }
+            }
+        },
         "types.SpecTaskPhase": {
             "type": "string",
             "enum": [
@@ -39213,6 +40573,7 @@ const docTemplate = `{
         "types.SpecTaskStatus": {
             "type": "string",
             "enum": [
+                "preparing",
                 "backlog",
                 "queued_implementation",
                 "queued_spec_generation",
@@ -39235,6 +40596,7 @@ const docTemplate = `{
                 "TaskStatusImplementationFailed": "Implementation failed",
                 "TaskStatusImplementationQueued": "Waiting for Zed agent pickup",
                 "TaskStatusImplementationReview": "Code review (PR created)",
+                "TaskStatusPreparing": "Internal intake state; never dispatched",
                 "TaskStatusPullRequest": "External repo: PR opened, awaiting merge",
                 "TaskStatusQueuedImplementation": "Transitional state, waiting for the orchestrator to pick it up",
                 "TaskStatusQueuedSpecGeneration": "Transitional state, waiting for the orchestrator to pick it up",
@@ -39245,6 +40607,7 @@ const docTemplate = `{
                 "TaskStatusSpecRevision": "Human requested spec changes"
             },
             "x-enum-varnames": [
+                "TaskStatusPreparing",
                 "TaskStatusBacklog",
                 "TaskStatusQueuedImplementation",
                 "TaskStatusQueuedSpecGeneration",
@@ -42013,6 +43376,124 @@ const docTemplate = `{
                 "WebServiceDeployStatusLive",
                 "WebServiceDeployStatusFailed",
                 "WebServiceDeployStatusSuperseded"
+            ]
+        },
+        "types.WebhookDelivery": {
+            "type": "object",
+            "properties": {
+                "attempt_count": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "delivered_at": {
+                    "type": "string"
+                },
+                "endpoint_id": {
+                    "type": "string"
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_attempt_at": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_status_code": {
+                    "type": "integer"
+                },
+                "next_attempt_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.WebhookDeliveryStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WebhookDeliveryStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "processing",
+                "retrying",
+                "delivered",
+                "failed",
+                "disabled"
+            ],
+            "x-enum-varnames": [
+                "WebhookDeliveryStatusPending",
+                "WebhookDeliveryStatusProcessing",
+                "WebhookDeliveryStatusRetrying",
+                "WebhookDeliveryStatusDelivered",
+                "WebhookDeliveryStatusFailed",
+                "WebhookDeliveryStatusDisabled"
+            ]
+        },
+        "types.WebhookEndpoint": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "disabled_reason": {
+                    "type": "string"
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "secret_preview": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.WebhookEndpointStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WebhookEndpointStatus": {
+            "type": "string",
+            "enum": [
+                "active",
+                "disabled"
+            ],
+            "x-enum-varnames": [
+                "WebhookEndpointStatusActive",
+                "WebhookEndpointStatusDisabled"
             ]
         },
         "types.WebsiteCrawler": {

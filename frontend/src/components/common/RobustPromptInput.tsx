@@ -22,6 +22,7 @@ import {
   Collapse,
   LinearProgress,
   Chip,
+  Popover,
 } from '@mui/material'
 import {
   SendHorizontal,
@@ -39,6 +40,7 @@ import {
   Camera,
   Square,
   MessageCircle,
+  SlidersHorizontal,
 } from 'lucide-react'
 import {
   DndContext,
@@ -89,6 +91,7 @@ import {
   type WorkspaceReviewComment,
 } from '../workspace-inspector/workspaceReviewComments'
 import { SessionContextUsageIndicator } from './ContextUsageIndicator'
+import useElementWidth from '../../hooks/useElementWidth'
 
 // Threshold for converting large text paste to file attachment (10KB)
 const LARGE_TEXT_THRESHOLD = 10 * 1024
@@ -583,6 +586,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const pendingComposerCursorRef = useRef<number | null>(null)
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [composerRef, composerWidth] = useElementWidth<HTMLDivElement>()
+  const [actionsAnchor, setActionsAnchor] = useState<HTMLElement | null>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [isDirectSending, setIsDirectSending] = useState(false)
   const [isRestartingAgent, setIsRestartingAgent] = useState(false)
@@ -1373,9 +1378,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       : sendMode === 'direct'
         ? 'Offline'
         : 'Offline - messages will queue'
+  const collapseLeadingActions = !!leadingActions && composerWidth > 0 && composerWidth < 400
 
   const input = (
     <Box
+      ref={composerRef}
       className="prompt-input-container"
       data-prompt-input="true"
       sx={{
@@ -1664,10 +1671,37 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             ...(fill && { flexShrink: 0 }),
           }}
         >
-          {/* On a phone the model/sandbox controls are wider than the screen.
-              Only they scroll — attach and send stay pinned, because a send
-              button you have to scroll to find is worse than a cramped one. */}
-          {fill ? (
+          {/* Keep execution settings compact in narrow split panes. Fill-mode
+              composers still scroll their controls when they have room. */}
+          {collapseLeadingActions ? (
+            <>
+              <Tooltip title="Execution settings">
+                <IconButton
+                  size="small"
+                  aria-label="Execution settings"
+                  onClick={(event) => setActionsAnchor(event.currentTarget)}
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    color: (theme) => getChatColors(theme).subtle,
+                    flexShrink: 0,
+                  }}
+                >
+                  <SlidersHorizontal size={17} />
+                </IconButton>
+              </Tooltip>
+              <Popover
+                open={!!actionsAnchor}
+                anchorEl={actionsAnchor}
+                onClose={() => setActionsAnchor(null)}
+                anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                slotProps={{ paper: { sx: { p: 1 } } }}
+              >
+                {leadingActions}
+              </Popover>
+            </>
+          ) : fill ? (
             <Box
               sx={{
                 display: 'flex',

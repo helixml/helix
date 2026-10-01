@@ -220,10 +220,23 @@ func (s *GitHTTPServer) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		user, err := s.validateAPIKeyAndGetUser(r.Context(), apiKey)
+		user, keyRecord, err := s.validateAPIKeyAndGetUser(r.Context(), apiKey)
 		if err != nil {
 			log.Warn().Err(err).Msg("Invalid API key")
 			http.Error(w, "Invalid API key", http.StatusUnauthorized)
+			return
+		}
+		if user.Waitlisted {
+			http.Error(w, "Account is waiting for approval", http.StatusForbidden)
+			return
+		}
+		if !s.keyTypeAllowsGit(r, keyRecord) {
+			log.Warn().
+				Str("path", r.URL.Path).
+				Str("key_type", string(keyRecord.Type)).
+				Str("session_id", keyRecord.SessionID).
+				Msg("Git request denied for restricted API key")
+			http.Error(w, "this API key may not access this repository", http.StatusForbidden)
 			return
 		}
 
@@ -259,22 +272,64 @@ func (s *GitHTTPServer) extractAPIKey(r *http.Request) string {
 	return ""
 }
 
-func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey string) (*types.User, error) {
+func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey string) (*types.User, *types.ApiKey, error) {
 	rawKey := s.extractRawAPIKey(apiKey)
 
 	// Use the correct query type for GetAPIKey
 	apiKeyRecord, err := s.store.GetAPIKey(ctx, &types.ApiKey{Key: rawKey})
 	if err != nil {
-		return nil, fmt.Errorf("invalid API key: %w", err)
+		return nil, nil, fmt.Errorf("invalid API key: %w", err)
 	}
 
 	// Use the correct query type for GetUser
 	user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: apiKeyRecord.Owner})
 	if err != nil {
-		return nil, fmt.Errorf("user not found: %w", err)
+		return nil, nil, fmt.Errorf("user not found: %w", err)
 	}
 
-	return user, nil
+	return user, apiKeyRecord, nil
+}
+
+// keyTypeAllowsGit applies the restricted key types to git, which does its
+// own authentication and would otherwise treat every key as its owner.
+//   - Embed keys live in a browser on an untrusted page and never need git.
+//   - A bot instance key may only clone and fetch its own project's
+//     repositories: its sandbox reads untrusted input, and the repository is
+//     operator-authored, so pushing and every other repository are denied.
+func (s *GitHTTPServer) keyTypeAllowsGit(r *http.Request, key *types.ApiKey) bool {
+	switch key.Type {
+	case types.APIkeytypeEmbed:
+		return false
+	case types.APIkeytypeBotInstance:
+		return s.botInstanceGitAllows(r, key)
+	default:
+		return true
+	}
+}
+
+func (s *GitHTTPServer) botInstanceGitAllows(r *http.Request, key *types.ApiKey) bool {
+	repoID := mux.Vars(r)["repo_id"]
+	if repoID == "" || key.ProjectID == "" {
+		return false
+	}
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	readOnly := (r.Method == http.MethodGet && strings.HasSuffix(path, "/info/refs") &&
+		r.URL.Query().Get("service") == "git-upload-pack") ||
+		(r.Method == http.MethodPost && strings.HasSuffix(path, "/git-upload-pack"))
+	if !readOnly {
+		return false
+	}
+	repos, err := s.store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{ProjectID: key.ProjectID})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", key.ProjectID).Msg("List project repositories for bot instance git access")
+		return false
+	}
+	for _, repo := range repos {
+		if repo.ID == repoID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *GitHTTPServer) extractRawAPIKey(apiKey string) string {
@@ -1221,11 +1276,12 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: get repo failed")
 		return
 	}
-	if repo.DefaultBranch == "" {
+	targetBranch := TaskTargetBranch(repo, task, project.DefaultRepoID)
+	if targetBranch == "" {
 		return
 	}
 
-	var oldDefaultBranchRef string
+	var oldTargetRef string
 	if repo.IsExternal && repo.ExternalURL != "" {
 		lock := s.gitRepoService.GetRepoLock(repo.ID)
 		lock.Lock()
@@ -1234,25 +1290,25 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 		if err := s.gitRepoService.SyncAllBranches(ctx, repo.ID, true); err != nil {
 			log.Warn().Err(err).Str("task_id", task.ID).Str("repo_id", repo.ID).Msg("auto-merge: sync failed, continuing with local state")
 		}
-		oldDefaultBranchRef, _ = GetBranchCommitID(ctx, repo.LocalPath, repo.DefaultBranch)
+		oldTargetRef, _ = GetBranchCommitID(ctx, repo.LocalPath, targetBranch)
 	}
 
-	if _, mergeErr := MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, repo.DefaultBranch); mergeErr != nil {
+	if _, mergeErr := MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, targetBranch); mergeErr != nil {
 		log.Info().
 			Err(mergeErr).
 			Str("task_id", task.ID).
 			Str("source_branch", task.BranchName).
-			Str("target_branch", repo.DefaultBranch).
+			Str("target_branch", targetBranch).
 			Msg("auto-merge: FF still not possible after agent push — leaving task in implementation_review")
 		return
 	}
 
 	if repo.IsExternal && repo.ExternalURL != "" {
-		if pushErr := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, repo.DefaultBranch, false); pushErr != nil {
-			log.Error().Err(pushErr).Str("task_id", task.ID).Str("branch", repo.DefaultBranch).Msg("auto-merge: push to upstream failed - rolling back")
-			if oldDefaultBranchRef != "" {
-				if rollbackErr := UpdateBranchRef(ctx, repo.LocalPath, repo.DefaultBranch, oldDefaultBranchRef); rollbackErr != nil {
-					log.Error().Err(rollbackErr).Str("task_id", task.ID).Str("branch", repo.DefaultBranch).Msg("auto-merge: rollback failed")
+		if pushErr := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, targetBranch, false); pushErr != nil {
+			log.Error().Err(pushErr).Str("task_id", task.ID).Str("branch", targetBranch).Msg("auto-merge: push to upstream failed - rolling back")
+			if oldTargetRef != "" {
+				if rollbackErr := UpdateBranchRef(ctx, repo.LocalPath, targetBranch, oldTargetRef); rollbackErr != nil {
+					log.Error().Err(rollbackErr).Str("task_id", task.ID).Str("branch", targetBranch).Msg("auto-merge: rollback failed")
 				}
 			}
 			return
@@ -1276,7 +1332,7 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 	log.Info().
 		Str("task_id", task.ID).
 		Str("source_branch", task.BranchName).
-		Str("target_branch", repo.DefaultBranch).
+		Str("target_branch", targetBranch).
 		Msg("auto-merge: server-side merge completed after agent rebase push")
 }
 
@@ -1649,6 +1705,12 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		return nil
 	}
 
+	return s.gitRepoService.WithRepoLock(repo.ID, func() error {
+		return s.ensurePullRequestLocked(ctx, repo, task, branch)
+	})
+}
+
+func (s *GitHTTPServer) ensurePullRequestLocked(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, branch string) error {
 	log.Info().Str("repo_id", repo.ID).Str("branch", branch).Msg("Ensuring pull request")
 
 	// If we already track a PR for this repo, return without pushing or
@@ -1670,11 +1732,8 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		}
 	}
 
-	// Acquire repo lock for push operation to prevent race conditions.
 	// Use the approver's OAuth token when available.
-	if err := s.gitRepoService.WithRepoLock(repo.ID, func() error {
-		return s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false, task.ImplementationApprovedBy)
-	}); err != nil {
+	if err := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false, task.ImplementationApprovedBy); err != nil {
 		return fmt.Errorf("failed to push branch: %w", err)
 	}
 
@@ -1685,7 +1744,7 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 
 	project, err := s.store.GetProject(ctx, task.ProjectID)
 	if err != nil {
-		project = nil
+		return fmt.Errorf("failed to get project: %w", err)
 	}
 
 	// Read PR content from helix-specs (pull_request_<repo-name>.md or pull_request.md)
@@ -1696,6 +1755,7 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 			primaryRepoPath = primaryRepo.LocalPath
 		}
 	}
+	targetBranch := TaskTargetBranch(repo, task, project.DefaultRepoID)
 	title, description, found := s.getPullRequestContent(primaryRepoPath, task, repo.Name)
 	if !found {
 		title = task.Name
@@ -1748,7 +1808,7 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	}
 
 	// No existing PR — create one
-	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch, task.ImplementationApprovedBy)
+	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, targetBranch, task.ImplementationApprovedBy)
 	if err != nil {
 		// If PR already exists (422), try to find it and use it
 		if strings.Contains(err.Error(), "already exists") {
@@ -1784,6 +1844,16 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		Str("branch", branch).
 		Msg("Created pull request")
 	return nil
+}
+
+// TaskTargetBranch is the branch a task's work lands on in repo: the task's
+// selected base for the primary repo, the repo default otherwise. Every prompt,
+// merge and PR that names a task's target branch must resolve it here.
+func TaskTargetBranch(repo *types.GitRepository, task *types.SpecTask, primaryRepoID string) string {
+	if primaryRepoID == repo.ID && task.BaseBranch != "" {
+		return task.BaseBranch
+	}
+	return repo.DefaultBranch
 }
 
 // updateRepoPullRequests updates the RepoPullRequests array with PR info for a repo

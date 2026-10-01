@@ -229,7 +229,11 @@ func (m *VHostMiddleware) dispatchProjectWebService(w http.ResponseWriter, r *ht
 		return
 	}
 	if state.ActiveSandboxID == "" {
-		http.Error(w, "project web service has no active deployment", http.StatusServiceUnavailable)
+		// Customer-facing hostname: show the branded holding page rather than
+		// an internal string. Nothing is deployed yet (or a deploy is in
+		// flight); serveHoldingPage picks "starting up" vs "temporarily
+		// unavailable" from the deploy state.
+		m.apiServer.serveHoldingPage(r.Context(), w, route.TargetID)
 		return
 	}
 	// Web service sandboxes are registered with hydra under their
@@ -239,7 +243,19 @@ func (m *VHostMiddleware) dispatchProjectWebService(w http.ResponseWriter, r *ht
 	// itself.
 	sb, err := m.apiServer.Store.GetSandbox(r.Context(), state.ActiveSandboxID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("active sandbox not found: %s", err), http.StatusBadGateway)
+		// active_sandbox_id points at a row that is gone (soft-deleted).
+		// Recovery deletes the old sandbox BEFORE provisioning its replacement,
+		// and only repoints active_sandbox_id at the very end of a successful
+		// deploy — so this window is entirely normal, and on 2026-09-27 it
+		// lasted ~28h. It used to emit a raw 502 carrying
+		// "active sandbox not found: not found", leaking internals to the
+		// customer and bypassing every holding page. Serve the branded page.
+		log.Warn().Err(err).
+			Str("project_id", route.TargetID).
+			Str("active_sandbox_id", state.ActiveSandboxID).
+			Str("hostname", route.Hostname).
+			Msg("vhost: web-service active sandbox row is missing; serving holding page")
+		m.apiServer.serveHoldingPage(r.Context(), w, route.TargetID)
 		return
 	}
 	// route.TargetID is the projectID for a web-service route → lets the holding

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -15,11 +16,10 @@ import (
 
 //go:generate mockgen -source $GOFILE -destination spec_task_orchestrator_mocks.go -package $GOPACKAGE
 
-// isDeletedProjectError returns true for GORM "record not found" errors that
-// indicate a task references a deleted project. Used to suppress expected noise
-// in orchestrator loops. Must NOT match domain errors like "spec approval not found".
+// isDeletedProjectError returns true when a task references a deleted project.
+// It must not match unrelated domain errors whose text happens to say "not found".
 func isDeletedProjectError(err error) bool {
-	return strings.Contains(err.Error(), "record not found")
+	return errors.Is(err, store.ErrNotFound)
 }
 
 // SpecTaskOrchestrator orchestrates SpecTasks through the complete workflow
@@ -30,10 +30,16 @@ func isDeletedProjectError(err error) bool {
 // PR creation for repos whose branches weren't ready at initial "Open PR" time.
 type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string, userID string) error
 
+type specTaskWorkflowService interface {
+	StartSpecGeneration(ctx context.Context, task *types.SpecTask)
+	StartJustDoItMode(ctx context.Context, task *types.SpecTask)
+	ApproveSpecs(ctx context.Context, task *types.SpecTask) error
+}
+
 type SpecTaskOrchestrator struct {
 	store                 store.Store
 	gitService            GitService
-	specTaskService       *SpecDrivenTaskService
+	specTaskService       specTaskWorkflowService
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
 	attentionService      *AttentionService
@@ -63,6 +69,7 @@ const (
 	// defaultArchiveStaleTasksDays is used when a project enabled stale
 	// archiving without a configured day count.
 	defaultArchiveStaleTasksDays = 6
+	attachmentPreparationTimeout = types.SpecTaskInlineAttachmentIngestionTimeout + time.Minute
 )
 
 // ContainerExecutor defines the interface for container lifecycle management
@@ -80,9 +87,6 @@ type GitService interface {
 	GetPullRequest(ctx context.Context, repoID, prID string) (*types.PullRequest, error)
 	GetCIStatus(ctx context.Context, repoID, prID, headSHA string) (*types.CIStatus, error)
 	ListPullRequests(ctx context.Context, repoID string) ([]*types.PullRequest, error)
-	GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error)
-	IsBranchMerged(ctx context.Context, repoID, branchName, targetBranch string) (bool, error)
-	IsCommitInBranch(ctx context.Context, repoID, commitSHA, targetBranch string) (bool, error)
 }
 
 // NewSpecTaskOrchestrator creates a new orchestrator
@@ -172,6 +176,7 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 
 	subscription, err := o.store.SubscribeForTasks(ctx, &store.SpecTaskSubscriptionFilter{
 		Statuses: []types.SpecTaskStatus{
+			types.TaskStatusPreparing,
 			types.TaskStatusBacklog,
 			types.TaskStatusQueuedSpecGeneration,
 			types.TaskStatusQueuedImplementation,
@@ -280,6 +285,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 
 	// Filter to only active tasks (PR polling is handled by a separate scheduler)
 	activeStatuses := map[types.SpecTaskStatus]bool{
+		types.TaskStatusPreparing:            true,
 		types.TaskStatusBacklog:              true,
 		types.TaskStatusQueuedSpecGeneration: true,
 		types.TaskStatusQueuedImplementation: true,
@@ -323,6 +329,8 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.SpecTask) error {
 	// State machine for task workflow
 	switch task.Status {
+	case types.TaskStatusPreparing:
+		return o.handlePreparingTask(ctx, task)
 	case types.TaskStatusBacklog:
 		return o.handleBacklog(ctx, task)
 	case types.TaskStatusQueuedSpecGeneration:
@@ -350,6 +358,42 @@ func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.Spec
 	}
 }
 
+// handlePreparingTask reconciles a request that died while ingesting inline
+// attachments. The task row owns any partial blobs/metadata, and the conditional
+// transition cannot overwrite a request that successfully published meanwhile.
+func (o *SpecTaskOrchestrator) handlePreparingTask(ctx context.Context, task *types.SpecTask) error {
+	lastUpdated := task.UpdatedAt
+	if lastUpdated.IsZero() {
+		lastUpdated = task.CreatedAt
+	}
+	if time.Since(lastUpdated) < attachmentPreparationTimeout {
+		return nil
+	}
+
+	failureStatus := types.TaskStatusSpecFailed
+	if task.JustDoItMode {
+		failureStatus = types.TaskStatusImplementationFailed
+	}
+	metadata := make(map[string]interface{}, len(task.Metadata)+2)
+	for key, value := range task.Metadata {
+		metadata[key] = value
+	}
+	metadata["error"] = "inline attachment ingestion was interrupted before the task was published"
+	metadata["error_timestamp"] = time.Now().Format(time.RFC3339)
+
+	_, err := o.store.TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusPreparing},
+		failureStatus,
+		map[string]any{"metadata": metadata},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to reconcile interrupted attachment ingestion: %w", err)
+	}
+	return nil
+}
+
 // handleBacklog handles tasks in backlog state - creates external agent and starts planning
 func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.SpecTask) error {
 	projectLock, err := o.getBacklogProjectLock(task.ProjectID)
@@ -364,7 +408,8 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 		return fmt.Errorf("failed to get latest task: %w", err)
 	}
 
-	if latestTask.Status != types.TaskStatusBacklog {
+	// An archived task must never be started, however it is queued.
+	if latestTask.Status != types.TaskStatusBacklog || latestTask.Archived {
 		return nil
 	}
 
@@ -667,7 +712,7 @@ func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, t
 	if err != nil {
 		return fmt.Errorf("failed to get latest queued task: %w", err)
 	}
-	if latestTask.Status != types.TaskStatusQueuedSpecGeneration {
+	if latestTask.Status != types.TaskStatusQueuedSpecGeneration || latestTask.Archived {
 		return nil
 	}
 
@@ -742,7 +787,7 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 	if err != nil {
 		return fmt.Errorf("failed to get latest queued task: %w", err)
 	}
-	if latestTask.Status != types.TaskStatusQueuedImplementation {
+	if latestTask.Status != types.TaskStatusQueuedImplementation || latestTask.Archived {
 		return nil
 	}
 
@@ -773,16 +818,26 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 		return nil
 	}
 
-	// Claim capacity before launching the goroutine. This closes the gap between
-	// an explicit start entering queued_implementation and StartJustDoItMode
-	// eventually persisting implementation.
+	// Claim capacity before launching the goroutine. The claim must be durable:
+	// projectLock only serializes one API process, while multiple replicas can
+	// observe the same queued task concurrently.
 	now := time.Now()
+	claimed, err := o.store.TransitionSpecTaskStatus(
+		ctx,
+		latestTask.ID,
+		[]types.SpecTaskStatus{types.TaskStatusQueuedImplementation},
+		types.TaskStatusImplementation,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to reserve implementation WIP slot: %w", err)
+	}
+	if !claimed {
+		return nil
+	}
 	latestTask.Status = types.TaskStatusImplementation
 	latestTask.StatusUpdatedAt = &now
 	latestTask.UpdatedAt = now
-	if err := o.store.UpdateSpecTask(ctx, latestTask); err != nil {
-		return fmt.Errorf("failed to reserve implementation WIP slot: %w", err)
-	}
 
 	o.wg.Add(1)
 	go func() {
@@ -1094,9 +1149,8 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 		}
 	}
 
-	// Always call processExternalPullRequestStatus even with no tracked PRs —
-	// it has a fallback that checks if the branch was merged to main directly
-	// (e.g. PR was created and merged on GitHub before we could link it).
+	// Process tracked PRs. With none tracked, this leaves the task pending so
+	// an unchanged branch cannot be mistaken for merged work.
 	return o.processExternalPullRequestStatus(ctx, task)
 }
 
@@ -1215,55 +1269,6 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 	if updated {
 		task.UpdatedAt = time.Now()
 		return o.store.UpdateSpecTask(ctx, task)
-	}
-
-	// If no PRs are tracked (or all PRs are closed), check if the branch has
-	// been merged to main directly. This handles cases where the PR was created
-	// and merged on GitHub before we could link it, or where the branch was
-	// identical to main (no commits between them).
-	if !anyOpen && task.BranchName != "" {
-		project, err := o.store.GetProject(ctx, task.ProjectID)
-		if err != nil {
-			log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to get project for branch-merge check")
-			return nil
-		}
-		if project.DefaultRepoID == "" {
-			return nil
-		}
-		repo, err := o.store.GetGitRepository(ctx, project.DefaultRepoID)
-		if err != nil {
-			log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to get repo for branch-merge check")
-			return nil
-		}
-
-		merged, mergeErr := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
-		if mergeErr != nil {
-			if task.LastPushCommitHash != "" {
-				merged, mergeErr = o.gitService.IsCommitInBranch(ctx, project.DefaultRepoID, task.LastPushCommitHash, repo.DefaultBranch)
-				if mergeErr != nil {
-					log.Debug().Err(mergeErr).Str("task_id", task.ID).Msg("Failed to check if commit is in main")
-					return nil
-				}
-			} else {
-				log.Debug().Err(mergeErr).Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Failed to check if branch is merged")
-				return nil
-			}
-		}
-
-		if merged {
-			log.Info().Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Detected merged branch, moving task to done")
-			now := time.Now()
-			task.Status = types.TaskStatusDone
-			task.MergedToMain = true
-			task.MergedAt = &now
-			task.CompletedAt = &now
-			task.UpdatedAt = now
-			if err := o.store.UpdateSpecTask(ctx, task); err != nil {
-				return err
-			}
-			DismissTaskAttentionEvents(ctx, o.store, task.ID)
-			return nil
-		}
 	}
 
 	return nil

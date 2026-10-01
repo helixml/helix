@@ -15,6 +15,9 @@ type Executor interface {
 	// Desktop session methods
 	StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error)
 	StopDesktop(ctx context.Context, sessionID string) error
+	// DestroyDesktop stops the desktop and deletes every on-host resource the
+	// session owns. specTaskID, when set, also deletes that task's workspace.
+	DestroyDesktop(ctx context.Context, sessionID, specTaskID string) error
 	GetSession(sessionID string) (*ZedSession, error)
 	CleanupExpiredSessions(ctx context.Context, timeout time.Duration)
 	ListSessions() []*ZedSession

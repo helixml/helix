@@ -12,6 +12,7 @@ import {
   AgentSettingsRow,
   AgentSettingsSection,
 } from './AgentSettingsLayout'
+import BotInstanceProfileSettings from '../helix-org/BotInstanceProfileSettings'
 
 interface FocusedAgentDetailsProps {
   agentID: string
@@ -167,6 +168,15 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
                 detail={orgAgentDetail}
                 embedded
               />
+            </AgentSettingsRow>
+          </AgentSettingsSection>
+
+          <AgentSettingsSection
+            title="Instances"
+            description="What each instance of this bot gets: separate chats, each with its own sandbox. Instances start with only a browser; enable more here. Changes apply on each instance's next start."
+          >
+            <AgentSettingsRow>
+              <BotInstanceProfileSettings detail={orgAgentDetail} readOnly={readOnly} />
             </AgentSettingsRow>
           </AgentSettingsSection>
 

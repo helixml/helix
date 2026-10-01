@@ -73,6 +73,9 @@ type Node struct {
 	SandboxRuntime  string
 	SandboxVCPUs    int
 	SandboxMemoryMB int
+	// InstanceProfile configures the Node's instances (extra sessions with
+	// their own sandboxes). nil means types.DefaultBotInstanceProfile.
+	InstanceProfile *types.BotInstanceProfile
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -170,4 +173,19 @@ func (n Node) WithSandboxResources(vcpus, memoryMB int) Node {
 	n.SandboxVCPUs = vcpus
 	n.SandboxMemoryMB = memoryMB
 	return n
+}
+
+// WithInstanceProfile returns a copy of the Node with its instance profile
+// replaced.
+func (n Node) WithInstanceProfile(profile *types.BotInstanceProfile) Node {
+	n.InstanceProfile = profile
+	return n
+}
+
+// EffectiveInstanceProfile is the profile the Node's instances run with.
+func (n Node) EffectiveInstanceProfile() types.BotInstanceProfile {
+	if n.InstanceProfile == nil {
+		return types.DefaultBotInstanceProfile()
+	}
+	return *n.InstanceProfile
 }

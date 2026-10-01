@@ -59,7 +59,7 @@ describe('UserSearchModal — invite-by-email CTA states', () => {
     mockSearchUsers.mockResolvedValue({ users: [] })
   })
 
-  it('shows "Send invitation" (enabled) when the email has no Helix account', async () => {
+  it('shows "Create invitation" (enabled) when the email has no Helix account', async () => {
     mockV1OrgsUsersLookup.mockResolvedValue({
       data: { email: 'new@example.com', exists: false, is_member: false, is_invited: false },
     })
@@ -67,12 +67,11 @@ describe('UserSearchModal — invite-by-email CTA states', () => {
     typeEmail('new@example.com')
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Send invitation' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Create invitation' })).toBeInTheDocument()
     })
-    expect(screen.getByRole('button', { name: 'Send invitation' })).not.toBeDisabled()
-    // Helper text explains the consequence — they'll get an email.
+    expect(screen.getByRole('button', { name: 'Create invitation' })).not.toBeDisabled()
     expect(
-      screen.getByText(/We'll email them an invitation/i),
+      screen.getByText(/They will join the organization automatically/i),
     ).toBeInTheDocument()
   })
 
@@ -104,7 +103,7 @@ describe('UserSearchModal — invite-by-email CTA states', () => {
     expect(screen.getByRole('button', { name: 'Already a member' })).toBeDisabled()
   })
 
-  it('shows "Invitation sent" (disabled) when a pending invitation already exists', async () => {
+  it('shows "Invitation created" (disabled) when a pending invitation already exists', async () => {
     // is_invited takes precedence over not-exists — we don't want to spam
     // a second invitation to the same address.
     mockV1OrgsUsersLookup.mockResolvedValue({
@@ -114,9 +113,9 @@ describe('UserSearchModal — invite-by-email CTA states', () => {
     typeEmail('pending@example.com')
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Invitation sent' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Invitation created' })).toBeInTheDocument()
     })
-    expect(screen.getByRole('button', { name: 'Invitation sent' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Invitation created' })).toBeDisabled()
   })
 
   it('does not surface a CTA for partial / non-email input', async () => {
@@ -128,13 +127,13 @@ describe('UserSearchModal — invite-by-email CTA states', () => {
     await waitFor(() => {
       expect(mockSearchUsers).toHaveBeenCalled()
     })
-    expect(screen.queryByRole('button', { name: 'Send invitation' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Create invitation' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Add to organization' })).not.toBeInTheDocument()
     // Email lookup should NOT have been called for a non-email.
     expect(mockV1OrgsUsersLookup).not.toHaveBeenCalled()
   })
 
-  it('falls back to "Send invitation" semantics when the lookup endpoint errors', async () => {
+  it('falls back to "Create invitation" semantics when the lookup endpoint errors', async () => {
     // Network failure on lookup — we soft-fail to {exists: false} so the
     // admin can still invite; the backend re-validates on submit.
     mockV1OrgsUsersLookup.mockRejectedValue(new Error('network'))
@@ -142,11 +141,11 @@ describe('UserSearchModal — invite-by-email CTA states', () => {
     typeEmail('flaky@example.com')
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Send invitation' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Create invitation' })).toBeInTheDocument()
     })
   })
 
-  it('passes the typed email through to onAddMember when "Send invitation" is clicked', async () => {
+  it('passes the typed email through to onAddMember when "Create invitation" is clicked', async () => {
     mockV1OrgsUsersLookup.mockResolvedValue({
       data: { email: 'invite-me@example.com', exists: false, is_member: false, is_invited: false },
     })
@@ -154,9 +153,9 @@ describe('UserSearchModal — invite-by-email CTA states', () => {
     typeEmail('invite-me@example.com')
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Send invitation' })).not.toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Create invitation' })).not.toBeDisabled()
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send invitation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create invitation' }))
 
     // The handler treats the email itself as the user reference — the
     // backend resolves it to either a user-id (existing account) or

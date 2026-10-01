@@ -14,15 +14,14 @@ describe('AgentRestartRequiredBanner', () => {
     expect(screen.getByTestId('agent-restart-required-banner')).toBeInTheDocument()
   })
 
-  // The restart discards the conversation, so it must never fire straight
-  // off the banner button.
+  // Restarting still interrupts live work, so require confirmation.
   it('does not restart until the cost is confirmed', () => {
     const onRestart = vi.fn()
     render(<AgentRestartRequiredBanner visible onRestart={onRestart} />)
 
     fireEvent.click(screen.getByRole('button', { name: /^restart$/i }))
     expect(onRestart).not.toHaveBeenCalled()
-    expect(screen.getByText(/current chat history is discarded/i)).toBeInTheDocument()
+    expect(screen.getByText(/current conversation are kept/i)).toBeInTheDocument()
   })
 
   it('restarts once the dialog is confirmed', () => {

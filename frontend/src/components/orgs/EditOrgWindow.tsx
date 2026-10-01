@@ -165,6 +165,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
         router.navigate('org_bot_session', {
           org_id: created.name,
           bot_id: 'chief-of-staff',
+          intro: '1',
         })
       }
 

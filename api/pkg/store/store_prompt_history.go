@@ -314,23 +314,14 @@ func (s *PostgresStore) ClaimPromptForSending(ctx context.Context, promptID stri
 	return result.RowsAffected > 0, nil
 }
 
-// RequeueBouncedPrompt finds the most recent in-flight prompt for a session
-// (status 'sent' or 'sending') and marks it as "failed" so the retry mechanism
-// picks it up.
-//
-// Both statuses are considered: under the deferred-mark-sent flow, dispatched
-// prompts stay in 'sending' until Zed actually starts streaming. A bounce
-// before Zed's first message_added arrives leaves the prompt 'sending'. Older
-// flows marked sent on dispatch, leaving bounced prompts 'sent'. Either way,
-// the most recent in-flight prompt for the session is the one to requeue.
-func (s *PostgresStore) RequeueBouncedPrompt(ctx context.Context, sessionID string) error {
+// RequeueBouncedPrompt marks an exact in-flight prompt as failed so the retry
+// mechanism picks it up.
+func (s *PostgresStore) RequeueBouncedPrompt(ctx context.Context, promptID string) error {
 	var prompt types.PromptHistoryEntry
-	err := s.gdb.WithContext(ctx).
-		Where("session_id = ? AND status IN ('sent', 'sending')", sessionID).
-		Order("created_at DESC").
-		First(&prompt).Error
-	if err != nil {
-		return err // no matching prompt found (e.g. Zed user message, not from queue)
+	if err := s.gdb.WithContext(ctx).
+		Where("id = ? AND status IN ('sent', 'sending')", promptID).
+		First(&prompt).Error; err != nil {
+		return err
 	}
 	return s.MarkPromptAsFailed(ctx, prompt.ID, "agent returned an empty response (bounce); requeueing for retry")
 }

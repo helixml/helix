@@ -37,6 +37,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/triggers"
 	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/briefing"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -171,6 +172,7 @@ type orgWorkerRuntime struct {
 		GetSession(ctx context.Context, id string) (*types.Session, error)
 		GetApp(ctx context.Context, id string) (*types.App, error)
 		GetSandboxBySession(ctx context.Context, sessionID string) (*types.Sandbox, error)
+		GetLatestInteractionsForSessions(ctx context.Context, sessionIDs []string) (map[string]*types.Interaction, error)
 	}
 	// configs resolves the org's default sandbox config so the DTO can show
 	// what a Bot with no config of its own will actually launch with.
@@ -235,6 +237,10 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 			}
 			if sess.Metadata.ExternalAgentStatus == "running" {
 				info.Status = "running"
+				if latest, err := o.sessions.GetLatestInteractionsForSessions(ctx, []string{s.SessionID}); err == nil &&
+					latest[s.SessionID] != nil && latest[s.SessionID].State == types.InteractionStateWaiting {
+					info.AgentWorkState = types.AgentWorkStateWorking
+				}
 				// RestartRequiredContainer is the container that was live
 				// when a restart-sensitive config change was saved. Docker
 				// never reuses an id, so a match means this very container
@@ -347,6 +353,64 @@ func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID 
 type botSessionResetter struct {
 	client *inProcHelixClient
 	st     *helixorgstore.Store
+}
+
+type botConfigApplier struct {
+	client interface {
+		GetAppConfig(ctx context.Context, id string) (types.AppConfig, error)
+		SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string, launch runtimehelix.SessionLaunchConfig) error
+	}
+	store   *helixorgstore.Store
+	configs *configregistry.Registry
+	restart func(ctx context.Context, sessionID string) error
+}
+
+func (a botConfigApplier) ApplyConfig(ctx context.Context, orgID string, botID orgchart.NodeID) error {
+	bot, err := a.store.Nodes.Get(ctx, orgID, botID)
+	if err != nil {
+		return fmt.Errorf("get bot: %w", err)
+	}
+	state, err := runtimehelix.LoadState(ctx, a.store, orgID, botID)
+	if err != nil {
+		return err
+	}
+	if state.SessionID == "" {
+		return errors.New("bot has no session to restart")
+	}
+
+	mandate, err := botMandate(ctx, a.client.GetAppConfig, bot)
+	if err != nil {
+		return err
+	}
+	orgRuntime, orgResources := a.configs.GetDefaultSandboxConfig(ctx, orgID)
+	launch := runtimehelix.EffectiveLaunchConfig(bot, orgRuntime, orgResources)
+	sessionName := bot.Name
+	if sessionName == "" {
+		sessionName = string(botID)
+	}
+	if err := a.client.SyncAgentProfile(ctx, state.SessionID, sessionName, string(botID), briefing.BuildInstructions(botID, mandate), launch); err != nil {
+		return err
+	}
+
+	return a.restart(ctx, state.SessionID)
+}
+
+func (s *HelixAPIServer) restartOrgBotSessionWithPreservedThread(ctx context.Context, sessionID string) error {
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("reload session: %w", err)
+	}
+	user, err := s.Store.GetUser(ctx, &helixstore.GetUserQuery{ID: session.Owner})
+	if err != nil {
+		return fmt.Errorf("get session owner: %w", err)
+	}
+	if user == nil {
+		return errors.New("session owner not found")
+	}
+	if _, herr := s.restartSessionContainer(ctx, user, session, false); herr != nil {
+		return errors.New(herr.Error())
+	}
+	return nil
 }
 
 // StopDesktop stops the external-agent container for a session without
@@ -1010,8 +1074,13 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// project, preserves repositories, and performs full org-store cleanup. The Helix
 	// runtime port is satisfied by the same in-process adapter every
 	// other Helix call goes through.
+	instances := botInstances{
+		server: cfg.APIServer, store: st, projects: projectApplier, configs: configReg, getApp: inProcClient.GetAppConfig,
+	}
+	cfg.APIServer.botInstances = &instances
 	lifecycleSvc := &lifecycle.Service{
 		Store:         st,
+		Instances:     instances,
 		Helix:         inProcClient,
 		Agents:        inProcClient,
 		AgentConfigs:  inProcClient,
@@ -1183,6 +1252,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Canceller:  activationCanceller,
 	})
 	deps.Activations = svc.Activations
+	deps.Instances = instances
 	// Share the processors service with MCP tools so create_processor uses
 	// the same auto-provision + cycle-check path as REST /processors.
 	deps.Processors = svc.Processors
@@ -1238,6 +1308,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	}
 	assetSSH.WithAudit(orgAudit, auditProjects)
 	assetSSHProxy.WithAudit(orgAudit, auditProjects)
+	deps.SecretIntakes = &secretIntakeMCPService{api: cfg.APIServer, orgStore: st}
 	deps.Assets = assetsSvc
 	deps.AssetSSH = assetSSH
 	deps.AssetSSHIssuer = assetSSHIssuer
@@ -1270,6 +1341,10 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		// work; REST stop/restart now go through Activations.
 		BotSessionResetter: sessionResetter,
 		BotDesktopStopper:  sessionResetter,
+		BotConfigApplier: botConfigApplier{
+			client: inProcClient, store: st, configs: configReg, restart: cfg.APIServer.restartOrgBotSessionWithPreservedThread,
+		},
+		BotInstances: instances,
 		// GitHubInbound builds the inbound github transport per org — it
 		// reads matching topics + appends events, so it holds the store
 		// here in the composition root rather than in the api adapter.

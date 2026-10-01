@@ -77,6 +77,7 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 - QEMU builds must include `--enable-spice`; NEVER modify UTM source
 - Build QEMU: **ALWAYS use `cd for-mac && make rebuild-qemu`** (stop VM first). This builds, installs to app bundle, fixes dylib rpaths, copies to dev-qemu, and signs. **NEVER** use raw `ninja install` + manual `cp` + `codesign` — this breaks rpaths (`@rpath/pixman-1.0.framework` etc. won't resolve).
 - QEMU source: `~/pm/qemu-utm` (default branch)
+- **Release CI builds QEMU** from the helixml/qemu-utm commit pinned in `for-mac/qemu-helix/QEMU_UTM_COMMIT` (`for-mac/qemu-helix/build-qemu-ci.sh`, cached per commit on the Mac runner). After changing qemu-utm, bump the pin — same ordering as `ZED_COMMIT`. libslirp is vendored in qemu-utm (`subprojects/slirp/`), not taken from the UTM sysroot.
 - If signing fails with `errSecInternalComponent`, use `codesign --force --sign - --timestamp=none --options runtime --entitlements build/darwin/entitlements.plist build/dev-qemu/*`
 - QEMU version string is in `hw/display/helix/helix-frame-export.m` `helix_frame_export_init()` — update it when making QEMU changes
 - Dev-mode uses `build/dev-qemu/qemu-system-aarch64` (separate from app bundle)
@@ -181,6 +182,8 @@ generic "agent turn aborted" in the UI.
 | Model | Accepts | **Rejects** | Default |
 |---|---|---|---|
 | `qwen3.8-27b` | `none`, `low`, `medium`, `xhigh` | **`high`**, `max`, `minimal` | `xhigh` |
+| `qwen3.8-flash-next` | `low`, `medium`, `xhigh` | **`high`**, `max`, `minimal` | `xhigh` |
+| `glm-5.3-flash` | *(none — every value accepted and ignored)* | — | — |
 | `deepseek-v4-flash` / `-pro` | `high`, `xhigh` | — | `high` |
 | Claude Opus 5 / 4.8 / 4.7, Sonnet 5, Fable 5 | `low`…`max` incl. `xhigh` | — | `high` |
 | Claude Opus 4.6 / Sonnet 4.6 | `low`, `medium`, `high`, `max` | **`xhigh`** | `high` |
@@ -202,7 +205,7 @@ suffixed builds (`deepseek-v4-flash-0731`, `qwen3.8-27b-instruct`, `provider/mod
 resolve without their own row. Adding a model is a data edit — append a profile, no code
 change. It reaches the frontend two ways:
 
-- `types.OpenAIModel.ReasoningEfforts` on `/v1/provider-endpoints?load_models=true` —
+- `types.OpenAIModel.ReasoningEfforts` on `/v1/provider-endpoints?with_models=true` —
   deliberately **separate from `ModelInfo`**, because a non-nil `ModelInfo` is what the
   Anthropic proxy and usage handlers read as "this model is priceable". Self-hosted models
   have effort profiles but no pricing entry, so the two must not be conflated.
@@ -364,6 +367,26 @@ Anything under `api/pkg/org/` is the org-graph runtime (Workers, Positions, Role
 - **Social enforcement first.** A Worker reads scope from its prompt and complies. Reach for hard enforcement only when the cost of a violation is high.
 - **Keep the core generic.** Tool definitions and scope shapes live with the tool, not in the registry, server, or domain layer. New tools must be addable without editing the core.
 
+## Worktrees
+
+Clear merged worktrees before creating a new one and after your PR merges:
+
+```bash
+scripts/prune-merged-worktrees.sh           # dry run: what would go, and why the rest stays
+scripts/prune-merged-worktrees.sh --apply
+```
+
+It removes a worktree only when its branch is merged into `origin/main` (or GitHub has a
+merged PR for it — squash merges leave no ancestor link), it has no uncommitted or untracked
+changes, and none of its commits are missing from the remote. Detached HEADs and T3 Code
+worktrees (`~/.t3/worktrees`) are never touched; root-owned build output (`api/tmp/` from
+air in containers) is removed through a throwaway container. Create worktrees as
+`~/worktrees/helix-<topic>` — not under `/tmp` (tmpfs; entries go stale) or `~/.cache`.
+
+A full host disk breaks the dev stack in a non-obvious way: Hydra refuses to start sandboxes
+below 2% free (`hydra API error (status 507) … disk space critically low` in the API log), and
+chats only report "external agent not ready" after 5 minutes.
+
 ## Dev Environment (Helix-in-Helix)
 
 **`helix-4` is a symlink to `helix`** — they are the same directory. Always use `/home/retro/work/helix/`.
@@ -417,6 +440,34 @@ CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 - For any reset/clear/delete/cancel/switch feature, always exercise the IMMEDIATELY
   FOLLOWING normal operation: clear → send a message; delete → recreate; cancel →
   resume; reset thread → next turn. Bugs live in that seam, not in the mutation itself.
+
+### Test the full object lifecycle — nothing may leak
+Any change that creates or deletes a resource-owning object (sandbox, session, bot,
+bot instance, spec task, project, …) is not done until you have run create → use →
+delete end-to-end and proved every underlying resource is gone. Leaked containers,
+volumes, and directories accumulate until a sandbox host runs out of disk.
+- **Inventory first.** Before deleting, list everything the create *and its use*
+  produced: DB rows (including side tables and runtime state), containers, Docker
+  volumes, zvols, host directories (`/data/workspaces/…`, `/data/sessions/…`,
+  `/container-docker/sessions/…`), filestore files (`/filestore/…`), API keys, NATS
+  consumers, running goroutines/activations, external webhooks.
+- **Verify each one after delete** — the row is gone (or soft-deleted by design), the
+  container is gone, the disk path is removed. Example for a sandbox:
+  ```bash
+  docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT id, deleted_at FROM sandboxes WHERE id='sbx_…';"
+  docker exec helix-sandbox-nvidia-1 docker ps -a --filter label=helix.session_id=<id>
+  docker exec helix-sandbox-nvidia-1 docker volume ls | grep <id>
+  docker exec helix-sandbox-nvidia-1 find /data/workspaces /data/sessions /container-docker/sessions -maxdepth 3 -name '*<id>*'
+  ```
+- **Stop is not delete.** Hydra's plain stop keeps workspace and Docker data for a warm
+  restart. Deletion paths must use destroy (`Executor.DestroyDesktop`), not stop.
+- **Test the untracked case too.** Teardown must not depend on in-memory state: restart
+  hydra (or the API) between create and delete and verify delete still removes
+  everything.
+- **Best-effort teardown needs a backstop.** If a delete continues when a host is
+  unreachable, the orphan reaper must treat the leftovers as dead — check its live set.
+- Anything deliberately kept (audit rows, repositories) must be named as kept in the
+  PR, not silently left behind. Report every resource checked, with the command output.
 
 ### Live external-agent (Zed) testing is mandatory for lifecycle changes
 - Features touching session/thread lifecycle (clear, fork, cancel, resume, switch-agent)

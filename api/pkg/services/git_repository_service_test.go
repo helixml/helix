@@ -2,21 +2,48 @@ package services
 
 import (
 	"context"
+	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
+	giteagit "code.gitea.io/gitea/modules/git"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/kodit/domain/enrichment"
 	"github.com/helixml/kodit/domain/repository"
 	"github.com/helixml/kodit/domain/tracking"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+type cloneTestStore struct {
+	store.Store
+	mu   sync.Mutex
+	repo *types.GitRepository
+}
+
+func (s *cloneTestStore) GetGitRepository(_ context.Context, _ string) (*types.GitRepository, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	copy := *s.repo
+	return &copy, nil
+}
+
+func (s *cloneTestStore) UpdateGitRepository(_ context.Context, repo *types.GitRepository) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	copy := *repo
+	s.repo = &copy
+	return nil
+}
 
 // fakeStore embeds store.Store and overrides only the methods we need.
 type fakeStore struct {
 	store.Store
-	repo               *types.GitRepository
-	deleted            bool
-	koditRepoRefCount  int64
+	repo              *types.GitRepository
+	deleted           bool
+	koditRepoRefCount int64
 }
 
 func (f *fakeStore) GetGitRepository(_ context.Context, _ string) (*types.GitRepository, error) {
@@ -28,6 +55,11 @@ func (f *fakeStore) GetGitRepository(_ context.Context, _ string) (*types.GitRep
 
 func (f *fakeStore) DeleteGitRepository(_ context.Context, _ string) error {
 	f.deleted = true
+	return nil
+}
+
+func (f *fakeStore) UpdateGitRepository(_ context.Context, repo *types.GitRepository) error {
+	f.repo = repo
 	return nil
 }
 
@@ -69,7 +101,7 @@ func (f *fakeKodit) GetRepositoryStatus(_ context.Context, _ int64) (tracking.Re
 	return tracking.RepositoryStatusSummary{}, f.err
 }
 func (f *fakeKodit) RescanCommit(_ context.Context, _ int64, _ string) error { return f.err }
-func (f *fakeKodit) RescanAllRepositories(_ context.Context) error            { return f.err }
+func (f *fakeKodit) RescanAllRepositories(_ context.Context) error           { return f.err }
 func (f *fakeKodit) ListRepositories(_ context.Context, _, _ int) ([]repository.Repository, int64, error) {
 	return nil, 0, f.err
 }
@@ -92,7 +124,7 @@ func (f *fakeKodit) ListAllTasks(_ context.Context, _, _ int) ([]KoditPendingTas
 func (f *fakeKodit) ActiveTasks(_ context.Context) ([]KoditActiveTask, error) {
 	return nil, f.err
 }
-func (f *fakeKodit) DeleteTask(_ context.Context, _ int64) error { return f.err }
+func (f *fakeKodit) DeleteTask(_ context.Context, _ int64) error                { return f.err }
 func (f *fakeKodit) UpdateTaskPriority(_ context.Context, _ int64, _ int) error { return f.err }
 func (f *fakeKodit) GetWikiTree(_ context.Context, _ int64) ([]KoditWikiTreeNode, error) {
 	return nil, f.err
@@ -124,6 +156,159 @@ func (f *fakeKodit) UpdateChunkingConfig(_ context.Context, _ int64, _, _, _ int
 }
 func (f *fakeKodit) RenderPageImage(_ context.Context, _ int64, _ string, _ int) ([]byte, error) {
 	return nil, nil
+}
+
+func TestUpdateRepository_ReviewBotUserID(t *testing.T) {
+	originalGitHub := types.GitHub{
+		PersonalAccessToken: "token",
+		BaseURL:             "https://github.example.com",
+		WebhookSecret:       "secret",
+		AppID:               1,
+		InstallationID:      2,
+		PrivateKey:          "key",
+		ReviewBotUserID:     123,
+	}
+	storedGitHub := originalGitHub
+	st := &fakeStore{repo: &types.GitRepository{ID: "repo-1", GitHub: &storedGitHub}}
+	svc := NewGitRepositoryService(st, t.TempDir(), "http://localhost:8080", "test", "test@test.com")
+
+	updated, err := svc.UpdateRepository(t.Context(), "repo-1", &types.GitRepositoryUpdateRequest{}, "")
+	if err != nil {
+		t.Fatalf("UpdateRepository() error: %v", err)
+	}
+	if *updated.GitHub != originalGitHub {
+		t.Fatalf("omitted review bot ID changed GitHub settings: %#v", *updated.GitHub)
+	}
+
+	reviewBotUserID := int64(291906607)
+	updated, err = svc.UpdateRepository(t.Context(), "repo-1", &types.GitRepositoryUpdateRequest{
+		ReviewBotUserID: &reviewBotUserID,
+	}, "")
+	if err != nil {
+		t.Fatalf("UpdateRepository() set error: %v", err)
+	}
+	want := originalGitHub
+	want.ReviewBotUserID = reviewBotUserID
+	if *updated.GitHub != want {
+		t.Fatalf("GitHub settings = %#v, want %#v", *updated.GitHub, want)
+	}
+
+	zero := int64(0)
+	updated, err = svc.UpdateRepository(t.Context(), "repo-1", &types.GitRepositoryUpdateRequest{
+		ReviewBotUserID: &zero,
+	}, "")
+	if err != nil {
+		t.Fatalf("UpdateRepository() clear error: %v", err)
+	}
+	want.ReviewBotUserID = 0
+	if *updated.GitHub != want {
+		t.Fatalf("GitHub settings after clear = %#v, want %#v", *updated.GitHub, want)
+	}
+
+	st.repo.GitHub = nil
+	updated, err = svc.UpdateRepository(t.Context(), "repo-1", &types.GitRepositoryUpdateRequest{
+		ReviewBotUserID: &reviewBotUserID,
+	}, "")
+	if err != nil {
+		t.Fatalf("UpdateRepository() initialize error: %v", err)
+	}
+	if updated.GitHub == nil || updated.GitHub.ReviewBotUserID != 291906607 {
+		t.Fatalf("GitHub settings were not initialized: %#v", updated.GitHub)
+	}
+}
+
+func TestGetRepositoryRepairsIncompleteExternalMetadata(t *testing.T) {
+	filestoreBase := t.TempDir()
+	repoID := "repo-incomplete"
+	repoPath := filepath.Join(filestoreBase, "git-repositories", repoID)
+	require.NoError(t, giteagit.InitRepository(t.Context(), repoPath, true, "sha1"))
+
+	st := &fakeStore{repo: &types.GitRepository{
+		ID:            repoID,
+		ExternalURL:   "https://github.com/org/repo",
+		CloneURL:      "https://github.com/org/repo",
+		IsExternal:    true,
+		DefaultBranch: "main",
+	}}
+	svc := NewGitRepositoryService(st, filestoreBase, "http://localhost:8080", "test", "test@test.com")
+
+	repo, err := svc.GetRepository(t.Context(), repoID)
+	require.NoError(t, err)
+	require.NotNil(t, repo)
+	assert.Equal(t, repoPath, repo.LocalPath)
+	assert.Equal(t, "http://localhost:8080/git/"+repoID, repo.CloneURL)
+	assert.Equal(t, repo.LocalPath, st.repo.LocalPath)
+	assert.Equal(t, repo.CloneURL, st.repo.CloneURL)
+}
+
+func TestCloneRepositoryAsyncSerializesDuplicateRequests(t *testing.T) {
+	filestoreBase := t.TempDir()
+	upstreamPath := filepath.Join(t.TempDir(), "upstream.git")
+	require.NoError(t, giteagit.InitRepository(t.Context(), upstreamPath, true, "sha1"))
+
+	st := &cloneTestStore{repo: &types.GitRepository{
+		ID:          "repo-clone-race",
+		ExternalURL: upstreamPath,
+		IsExternal:  true,
+		Status:      types.GitRepositoryStatusCloning,
+	}}
+	svc := NewGitRepositoryService(st, filestoreBase, "http://localhost:8080", "test", "test@test.com")
+	repoID := st.repo.ID
+	cloneRequest := st.repo
+
+	completed := make(chan string, 2)
+	svc.CloneRepositoryAsync(cloneRequest, func(path string) { completed <- path })
+	svc.CloneRepositoryAsync(cloneRequest, func(path string) { completed <- path })
+
+	wantPath := filepath.Join(filestoreBase, "git-repositories", repoID)
+	for range 2 {
+		select {
+		case path := <-completed:
+			assert.Equal(t, wantPath, path)
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for serialized clone")
+		}
+	}
+
+	repo, err := st.GetGitRepository(t.Context(), repoID)
+	require.NoError(t, err)
+	assert.Equal(t, types.GitRepositoryStatusActive, repo.Status)
+	assert.Equal(t, wantPath, repo.LocalPath)
+	assert.Equal(t, "http://localhost:8080/git/"+repo.ID, repo.CloneURL)
+}
+
+func TestCloneRepositoryAsyncFinalizesExistingClone(t *testing.T) {
+	filestoreBase := t.TempDir()
+	repoID := "repo-repair-won"
+	repoPath := filepath.Join(filestoreBase, "git-repositories", repoID)
+	require.NoError(t, giteagit.InitRepository(t.Context(), repoPath, true, "sha1"))
+
+	st := &cloneTestStore{repo: &types.GitRepository{
+		ID:            repoID,
+		ExternalURL:   "https://github.com/org/repo",
+		IsExternal:    true,
+		Status:        types.GitRepositoryStatusCloning,
+		LocalPath:     repoPath,
+		CloneProgress: &types.CloneProgress{Phase: "starting", StartedAt: time.Now()},
+		CloneError:    "stale error",
+	}}
+	svc := NewGitRepositoryService(st, filestoreBase, "http://localhost:8080", "test", "test@test.com")
+
+	completed := make(chan string, 1)
+	svc.CloneRepositoryAsync(st.repo, func(path string) { completed <- path })
+	select {
+	case path := <-completed:
+		assert.Equal(t, repoPath, path)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for existing clone finalization")
+	}
+
+	repo, err := st.GetGitRepository(t.Context(), repoID)
+	require.NoError(t, err)
+	assert.Equal(t, types.GitRepositoryStatusActive, repo.Status)
+	assert.Equal(t, "http://localhost:8080/git/"+repo.ID, repo.CloneURL)
+	assert.Nil(t, repo.CloneProgress)
+	assert.Empty(t, repo.CloneError)
 }
 
 func TestDeleteRepository_DeletesFromKodit(t *testing.T) {

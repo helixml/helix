@@ -46,6 +46,7 @@ import (
 
 // githubWebhookUser is the minimal actor shape of a webhook payload.
 type githubWebhookUser struct {
+	ID    int64  `json:"id"`
 	Login string `json:"login"`
 	Type  string `json:"type"` // "User" or "Bot"
 }
@@ -250,23 +251,29 @@ func (s *HelixAPIServer) specTaskGitHubReviewWebhook(w http.ResponseWriter, r *h
 		return
 	}
 
-	// Trust gate: only reviews from people with a stake in the repo are
-	// relayed to the task agent. GitHub signs deliveries from ANY user who
+	// Trust gate: only reviews from users with a stake in the repo or the
+	// repository's explicitly configured review bot are relayed to the task
+	// agent. GitHub signs deliveries from ANY user who
 	// can review a public repo, so without this gate any passer-by could
 	// steer a running agent with reviewer-written text (the per-repo secret
-	// only stops forged deliveries, not legitimate ones). Bot reviews from
-	// apps without repo membership are dropped too — add an allowlist if a
-	// trusted bot ever needs to steer tasks.
-	switch payload.Review.AuthorAssociation {
-	case "OWNER", "MEMBER", "COLLABORATOR":
-		// trusted
-	default:
+	// only stops forged deliveries, not legitimate ones).
+	trusted := payload.Review.User.Type == "Bot" &&
+		repo.GitHub.ReviewBotUserID != 0 &&
+		payload.Review.User.ID == repo.GitHub.ReviewBotUserID
+	if payload.Review.User.Type == "User" {
+		switch payload.Review.AuthorAssociation {
+		case "OWNER", "MEMBER", "COLLABORATOR":
+			trusted = true
+		}
+	}
+	if !trusted {
 		log.Info().
 			Str("repo_id", repoID).
 			Int64("review_id", payload.Review.ID).
+			Int64("reviewer_id", payload.Review.User.ID).
 			Str("association", payload.Review.AuthorAssociation).
 			Str("reviewer", payload.Review.User.Login).
-			Msg("dropping PR review: author is not OWNER/MEMBER/COLLABORATOR")
+			Msg("dropping PR review: author is not trusted")
 		writeResponse(w, nil, http.StatusOK)
 		return
 	}

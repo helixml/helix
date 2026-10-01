@@ -77,6 +77,8 @@ func OwnerBotTools() []tool.Name {
 		DetachToolName,
 		DeleteBotName,
 		CreateTriggerName,
+		RequestSecretIntakeName,
+		GetSecretIntakeStatusName,
 		TriggerMembersName,
 		AttachWorkerName,
 		DetachWorkerName,
@@ -95,6 +97,10 @@ func OwnerBotTools() []tool.Name {
 		StartBotName,
 		StopBotName,
 		RestartBotName,
+		// Bot instances: extra sessions with a bot's identity.
+		CreateBotInstanceName,
+		ListBotInstancesName,
+		DeleteBotInstanceName,
 		// Standalone Sandboxes API lifecycle for the organization.
 		ListSandboxRuntimesName,
 		ListSandboxesName,

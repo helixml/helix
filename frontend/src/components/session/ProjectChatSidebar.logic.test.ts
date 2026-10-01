@@ -307,6 +307,12 @@ describe('ProjectChatSidebar logic', () => {
     expect(getSidebarTaskStatus({
       status: TypesSpecTaskStatus.TaskStatusImplementation,
       sandbox_state: 'running',
+      agent_work_state: TypesAgentWorkState.AgentWorkStateWorking,
+    })).toEqual({ label: 'Working', color: '#34d399' })
+
+    expect(getSidebarTaskStatus({
+      status: TypesSpecTaskStatus.TaskStatusImplementation,
+      sandbox_state: 'running',
       agent_work_state: TypesAgentWorkState.AgentWorkStateIdle,
     })).toEqual({ label: 'Idle', color: '#fbbf24' })
 
@@ -324,6 +330,12 @@ describe('ProjectChatSidebar logic', () => {
   })
 
   it('greys offline tasks and explains their state', () => {
+    expect(getSidebarTaskStatus({
+      status: TypesSpecTaskStatus.TaskStatusImplementation,
+      sandbox_state: 'absent',
+      agent_work_state: TypesAgentWorkState.AgentWorkStateWorking,
+    })?.label).toBe('Implementation')
+
     expect(getSidebarTaskStatus({
       status: TypesSpecTaskStatus.TaskStatusDone,
       sandbox_state: 'absent',
@@ -597,10 +609,11 @@ describe('ProjectChatSidebar bots and people', () => {
     const { botHomeProjectIds, toSidebarBots, withoutBotProjects } = await import('./ProjectChatSidebar.logic')
     const bots = toSidebarBots([
       { id: 'b-mira', name: 'Mira', status: 'stopped', project_id: 'prj_mira', session_id: 'ses_mira', legacy_app_id: 'app_mira' },
-      { id: 'chief', name: 'Chief of Staff', status: 'running', project_id: 'prj_chief' },
+      { id: 'chief', name: 'Chief of Staff', status: 'running', agent_work_state: TypesAgentWorkState.AgentWorkStateWorking, project_id: 'prj_chief' },
       { id: '', name: 'Broken' },
     ])
     expect(bots.map((bot) => bot.id)).toEqual(['chief', 'b-mira'])
+    expect(bots[0]).toMatchObject({ running: true, working: true })
     expect(bots[1]).toMatchObject({ running: false, agentAppId: 'app_mira', projectId: 'prj_mira', sessionId: 'ses_mira' })
     expect([...botHomeProjectIds(bots)]).toEqual(['prj_chief', 'prj_mira'])
     expect(withoutBotProjects([

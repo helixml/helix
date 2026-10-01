@@ -256,6 +256,10 @@ type ReasoningEffortProfile struct {
 	// it is silently coerced rather than because it errors, and only the erroring
 	// ones abort a turn.
 	Rejected []string `json:"rejected,omitempty"`
+	// ResponsesOnly lists values accepted on /v1/responses but rejected on
+	// /v1/chat/completions. They are not in Supported: only a harness that
+	// speaks the Responses API may offer them.
+	ResponsesOnly []string `json:"responses_only,omitempty"`
 	// SupportsEffort is false for models that accept no effort value at all.
 	SupportsEffort bool `json:"supports_effort"`
 	// Source is how this entry was established.

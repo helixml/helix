@@ -55,6 +55,20 @@ func (mr *MockExecutorMockRecorder) CleanupExpiredSessions(ctx, timeout any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupExpiredSessions", reflect.TypeOf((*MockExecutor)(nil).CleanupExpiredSessions), ctx, timeout)
 }
 
+// DestroyDesktop mocks base method.
+func (m *MockExecutor) DestroyDesktop(ctx context.Context, sessionID, specTaskID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyDesktop", ctx, sessionID, specTaskID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyDesktop indicates an expected call of DestroyDesktop.
+func (mr *MockExecutorMockRecorder) DestroyDesktop(ctx, sessionID, specTaskID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyDesktop", reflect.TypeOf((*MockExecutor)(nil).DestroyDesktop), ctx, sessionID, specTaskID)
+}
+
 // DiscoverContainersFromSandbox mocks base method.
 func (m *MockExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandboxID string) error {
 	m.ctrl.T.Helper()

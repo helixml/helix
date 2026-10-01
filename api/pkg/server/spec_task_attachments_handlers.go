@@ -3,13 +3,16 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
@@ -23,6 +26,7 @@ import (
 // just-do-it tasks impossible to correct. Once delivery has reached a PR the
 // task input is terminal and uploads are locked again.
 var specTaskAttachmentUploadReadOnlyStatuses = map[types.SpecTaskStatus]bool{
+	types.TaskStatusPreparing:   true,
 	types.TaskStatusPullRequest: true,
 	types.TaskStatusDone:        true,
 }
@@ -31,6 +35,7 @@ var specTaskAttachmentUploadReadOnlyStatuses = map[types.SpecTaskStatus]bool{
 // also requires removing it from helix-specs. A corrected file can still be
 // uploaded and the running agent is notified.
 var specTaskAttachmentDeleteReadOnlyStatuses = map[types.SpecTaskStatus]bool{
+	types.TaskStatusPreparing:            true,
 	types.TaskStatusSpecApproved:         true,
 	types.TaskStatusImplementationQueued: true,
 	types.TaskStatusImplementation:       true,
@@ -40,12 +45,261 @@ var specTaskAttachmentDeleteReadOnlyStatuses = map[types.SpecTaskStatus]bool{
 	types.TaskStatusImplementationFailed: true,
 }
 
+func specTaskFromPromptMaxRequestBytes() int64 {
+	const jsonOverheadBytes = 4 * 1024 * 1024
+	return int64(base64.StdEncoding.EncodedLen(types.SpecTaskInlineAttachmentsMaxBytes) + jsonOverheadBytes)
+}
+
 func specTaskAttachmentUploadsLocked(status types.SpecTaskStatus) bool {
 	return specTaskAttachmentUploadReadOnlyStatuses[status]
 }
 
 func specTaskAttachmentDeletesLocked(status types.SpecTaskStatus) bool {
 	return specTaskAttachmentDeleteReadOnlyStatuses[status]
+}
+
+type preparedSpecTaskAttachment struct {
+	filename string
+	mimeType string
+	caption  string
+	body     []byte
+}
+
+type specTaskAttachmentInputError struct {
+	status  int
+	message string
+}
+
+func (e *specTaskAttachmentInputError) Error() string {
+	return e.message
+}
+
+func prepareSpecTaskAttachment(name string, body []byte, caption string) (*preparedSpecTaskAttachment, error) {
+	if int64(len(body)) > types.SpecTaskAttachmentMaxBytes {
+		return nil, &specTaskAttachmentInputError{
+			status:  http.StatusRequestEntityTooLarge,
+			message: fmt.Sprintf("%s exceeds max size", name),
+		}
+	}
+	filename := sanitiseAttachmentFilename(name)
+	if filename == "" {
+		return nil, &specTaskAttachmentInputError{
+			status:  http.StatusBadRequest,
+			message: fmt.Sprintf("invalid filename: %s", name),
+		}
+	}
+	if len(filename) > types.SpecTaskAttachmentFilenameMaxBytes {
+		return nil, &specTaskAttachmentInputError{
+			status: http.StatusBadRequest,
+			message: fmt.Sprintf(
+				"filename %s exceeds %d bytes",
+				filename,
+				types.SpecTaskAttachmentFilenameMaxBytes,
+			),
+		}
+	}
+	mimeType := detectAttachmentMime(filename, body)
+	if !types.SpecTaskAttachmentAllowedMimeTypes[mimeType] {
+		return nil, &specTaskAttachmentInputError{
+			status:  http.StatusBadRequest,
+			message: fmt.Sprintf("unsupported mime type for %s: %s", name, mimeType),
+		}
+	}
+	if mimeType == "image/svg+xml" && svgContainsScript(body) {
+		return nil, &specTaskAttachmentInputError{
+			status:  http.StatusBadRequest,
+			message: fmt.Sprintf("%s contains a <script> tag — SVG with scripts is not allowed", name),
+		}
+	}
+	if strings.ContainsRune(caption, '\x00') {
+		return nil, &specTaskAttachmentInputError{
+			status:  http.StatusBadRequest,
+			message: fmt.Sprintf("caption for %s contains a NUL byte", name),
+		}
+	}
+	if utf8.RuneCountInString(caption) > types.SpecTaskAttachmentCaptionMaxRunes {
+		return nil, &specTaskAttachmentInputError{
+			status: http.StatusBadRequest,
+			message: fmt.Sprintf(
+				"caption for %s exceeds %d characters",
+				name,
+				types.SpecTaskAttachmentCaptionMaxRunes,
+			),
+		}
+	}
+	return &preparedSpecTaskAttachment{
+		filename: filename,
+		mimeType: mimeType,
+		caption:  caption,
+		body:     body,
+	}, nil
+}
+
+func validateInlineSpecTaskAttachments(inputs []types.SpecTaskInlineAttachment) error {
+	return validateInlineSpecTaskAttachmentsWithLimits(
+		inputs,
+		types.SpecTaskAttachmentMaxPerTask,
+		types.SpecTaskAttachmentMaxBytes,
+		types.SpecTaskInlineAttachmentsMaxBytes,
+	)
+}
+
+func validateInlineSpecTaskAttachmentsWithLimits(
+	inputs []types.SpecTaskInlineAttachment,
+	maxCount int,
+	maxFileBytes int,
+	maxTotalBytes int,
+) error {
+	if len(inputs) > maxCount {
+		return &specTaskAttachmentInputError{
+			status:  http.StatusBadRequest,
+			message: fmt.Sprintf("too many attachments — limit is %d per task", maxCount),
+		}
+	}
+
+	seen := make(map[string]struct{}, len(inputs))
+	totalBytes := 0
+	for _, input := range inputs {
+		if strings.TrimSpace(input.Name) == "" {
+			return &specTaskAttachmentInputError{
+				status:  http.StatusBadRequest,
+				message: "attachment name is required",
+			}
+		}
+		if input.ContentBase64 == "" {
+			return &specTaskAttachmentInputError{
+				status:  http.StatusBadRequest,
+				message: fmt.Sprintf("content_base64 is required for %s", input.Name),
+			}
+		}
+		if len(input.ContentBase64) > base64.StdEncoding.EncodedLen(maxFileBytes) {
+			return &specTaskAttachmentInputError{
+				status:  http.StatusRequestEntityTooLarge,
+				message: fmt.Sprintf("%s exceeds max size", input.Name),
+			}
+		}
+		body, err := base64.StdEncoding.DecodeString(input.ContentBase64)
+		if err != nil {
+			return &specTaskAttachmentInputError{
+				status:  http.StatusBadRequest,
+				message: fmt.Sprintf("invalid base64 content for %s", input.Name),
+			}
+		}
+		if len(body) > maxFileBytes {
+			return &specTaskAttachmentInputError{
+				status:  http.StatusRequestEntityTooLarge,
+				message: fmt.Sprintf("%s exceeds max size", input.Name),
+			}
+		}
+		attachment, err := prepareSpecTaskAttachment(input.Name, body, input.Caption)
+		if err != nil {
+			return err
+		}
+		totalBytes += len(body)
+		if totalBytes > maxTotalBytes {
+			return &specTaskAttachmentInputError{
+				status: http.StatusRequestEntityTooLarge,
+				message: fmt.Sprintf(
+					"inline attachments exceed total size limit of %d bytes",
+					maxTotalBytes,
+				),
+			}
+		}
+		if _, exists := seen[attachment.filename]; exists {
+			return &specTaskAttachmentInputError{
+				status:  http.StatusBadRequest,
+				message: fmt.Sprintf("duplicate attachment filename: %s", attachment.filename),
+			}
+		}
+		seen[attachment.filename] = struct{}{}
+		attachment.body = nil
+	}
+	return nil
+}
+
+func prepareInlineSpecTaskAttachment(input types.SpecTaskInlineAttachment) (*preparedSpecTaskAttachment, error) {
+	body, err := base64.StdEncoding.DecodeString(input.ContentBase64)
+	if err != nil {
+		return nil, &specTaskAttachmentInputError{
+			status:  http.StatusBadRequest,
+			message: fmt.Sprintf("invalid base64 content for %s", input.Name),
+		}
+	}
+	return prepareSpecTaskAttachment(input.Name, body, input.Caption)
+}
+
+func writeSpecTaskAttachmentInputError(w http.ResponseWriter, err error) {
+	var inputErr *specTaskAttachmentInputError
+	if errors.As(err, &inputErr) {
+		http.Error(w, inputErr.message, inputErr.status)
+		return
+	}
+	http.Error(w, err.Error(), http.StatusBadRequest)
+}
+
+func (s *HelixAPIServer) persistSpecTaskAttachment(
+	ctx context.Context,
+	taskID string,
+	projectID string,
+	userID string,
+	attachment *preparedSpecTaskAttachment,
+) (*types.SpecTaskAttachment, error) {
+	attID := system.GenerateSpecTaskAttachmentID()
+	storageName := fmt.Sprintf("%s__%s", attID, attachment.filename)
+	item, err := s.Controller.FilestoreSpecTaskAttachmentUpload(ctx, taskID, storageName, bytes.NewReader(attachment.body))
+	if err != nil {
+		s.cleanupFailedSpecTaskAttachmentBlob(ctx, item.Path)
+		return nil, fmt.Errorf("write attachment to filestore: %w", err)
+	}
+
+	row := &types.SpecTaskAttachment{
+		ID:            attID,
+		SpecTaskID:    taskID,
+		ProjectID:     projectID,
+		UserID:        userID,
+		Filename:      attachment.filename,
+		MimeType:      attachment.mimeType,
+		SizeBytes:     int64(len(attachment.body)),
+		Caption:       attachment.caption,
+		FilestorePath: item.Path,
+	}
+	if err := s.Store.CreateSpecTaskAttachment(ctx, row); err != nil {
+		s.cleanupFailedSpecTaskAttachmentBlob(ctx, item.Path)
+		return nil, fmt.Errorf("create attachment row: %w", err)
+	}
+	return row, nil
+}
+
+func (s *HelixAPIServer) cleanupFailedSpecTaskAttachmentBlob(ctx context.Context, path string) {
+	if path == "" {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if err := s.Controller.FilestoreSpecTaskAttachmentDelete(cleanupCtx, path); err != nil {
+		log.Warn().Err(err).Str("path", path).Msg("Failed to delete attachment blob after persistence failed")
+	}
+}
+
+func (s *HelixAPIServer) cleanupInlineSpecTaskAttachments(ctx context.Context, taskID string) {
+	if taskID == "" {
+		return
+	}
+	if err := s.Store.DeleteSpecTaskAttachmentsByTaskID(ctx, taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete inline attachment rows")
+	}
+	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(ctx, taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete inline attachment blobs")
+	}
+}
+
+func (s *HelixAPIServer) cleanupFailedInlineSpecTask(ctx context.Context, taskID string) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	s.cleanupInlineSpecTaskAttachments(cleanupCtx, taskID)
+	if err := s.Store.DeleteSpecTask(cleanupCtx, taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete task after inline attachment ingestion failed")
+	}
 }
 
 // uploadSpecTaskAttachments godoc
@@ -86,6 +340,9 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
 	if specTaskAttachmentUploadsLocked(task.Status) {
 		http.Error(w, "task has reached pull request delivery — attachments are read-only", http.StatusConflict)
 		return
@@ -123,12 +380,6 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 			http.Error(w, fmt.Sprintf("%s is too large (%d > %d bytes)", fh.Filename, fh.Size, types.SpecTaskAttachmentMaxBytes), http.StatusRequestEntityTooLarge)
 			return
 		}
-		filename := sanitiseAttachmentFilename(fh.Filename)
-		if filename == "" {
-			http.Error(w, fmt.Sprintf("invalid filename: %s", fh.Filename), http.StatusBadRequest)
-			return
-		}
-
 		src, err := fh.Open()
 		if err != nil {
 			http.Error(w, "failed to open uploaded file", http.StatusInternalServerError)
@@ -148,38 +399,14 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 			return
 		}
 
-		mimeType := detectAttachmentMime(filename, body)
-		if !types.SpecTaskAttachmentAllowedMimeTypes[mimeType] {
-			http.Error(w, fmt.Sprintf("unsupported mime type for %s: %s", fh.Filename, mimeType), http.StatusBadRequest)
-			return
-		}
-		if mimeType == "image/svg+xml" && svgContainsScript(body) {
-			http.Error(w, fmt.Sprintf("%s contains a <script> tag — SVG with scripts is not allowed", fh.Filename), http.StatusBadRequest)
-			return
-		}
-
-		attID := system.GenerateSpecTaskAttachmentID()
-		storageName := fmt.Sprintf("%s__%s", attID, filename)
-		item, err := s.Controller.FilestoreSpecTaskAttachmentUpload(taskID, storageName, bytes.NewReader(body))
+		attachment, err := prepareSpecTaskAttachment(fh.Filename, body, caption)
 		if err != nil {
-			log.Error().Err(err).Str("task_id", taskID).Str("filename", filename).Msg("Failed to write attachment to filestore")
-			http.Error(w, "failed to save file", http.StatusInternalServerError)
+			writeSpecTaskAttachmentInputError(w, err)
 			return
 		}
-
-		row := &types.SpecTaskAttachment{
-			ID:            attID,
-			SpecTaskID:    taskID,
-			ProjectID:     task.ProjectID,
-			UserID:        user.ID,
-			Filename:      filename,
-			MimeType:      mimeType,
-			SizeBytes:     int64(len(body)),
-			Caption:       caption,
-			FilestorePath: item.Path,
-		}
-		if err := s.Store.CreateSpecTaskAttachment(ctx, row); err != nil {
-			log.Error().Err(err).Str("task_id", taskID).Msg("Failed to create attachment row — orphan blob will remain")
+		row, err := s.persistSpecTaskAttachment(ctx, taskID, task.ProjectID, user.ID, attachment)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", taskID).Str("filename", attachment.filename).Msg("Failed to persist attachment")
 			http.Error(w, "failed to record attachment", http.StatusInternalServerError)
 			return
 		}
@@ -347,6 +574,9 @@ func (s *HelixAPIServer) deleteSpecTaskAttachment(w http.ResponseWriter, r *http
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
 	if specTaskAttachmentDeletesLocked(task.Status) {
 		http.Error(w, "task is past spec_review — attachments are read-only", http.StatusConflict)
 		return
@@ -361,7 +591,7 @@ func (s *HelixAPIServer) deleteSpecTaskAttachment(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err := s.Controller.FilestoreSpecTaskAttachmentDelete(att.FilestorePath); err != nil {
+	if err := s.Controller.FilestoreSpecTaskAttachmentDelete(ctx, att.FilestorePath); err != nil {
 		log.Warn().Err(err).Str("path", att.FilestorePath).Msg("Failed to delete attachment blob — continuing to delete row")
 	}
 	if err := s.Store.DeleteSpecTaskAttachment(ctx, attID); err != nil {

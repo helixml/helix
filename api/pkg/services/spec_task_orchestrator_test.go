@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -54,6 +56,44 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
 	s.executor.EXPECT().StopDesktop(ctx, "session-456").Return(nil)
 
 	err := s.orchestrator.handleDone(ctx, task)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestPreparingTaskWaitsForAttachmentIngestion() {
+	task := &types.SpecTask{
+		ID:        "task-preparing",
+		Status:    types.TaskStatusPreparing,
+		UpdatedAt: time.Now(),
+	}
+
+	err := s.orchestrator.processTask(context.Background(), task)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestStalePreparingTaskIsReconciledWithOwnedInputs() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:           "task-interrupted",
+		Status:       types.TaskStatusPreparing,
+		JustDoItMode: true,
+		UpdatedAt:    time.Now().Add(-attachmentPreparationTimeout - time.Minute),
+		Metadata:     map[string]interface{}{"source": "from-prompt"},
+	}
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusPreparing},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, fields map[string]any) (bool, error) {
+		metadata, ok := fields["metadata"].(map[string]interface{})
+		s.Require().True(ok)
+		s.Equal("from-prompt", metadata["source"])
+		s.Contains(metadata["error"], "attachment ingestion was interrupted")
+		return true, nil
+	})
+
+	err := s.orchestrator.processTask(ctx, task)
 	s.Require().NoError(err)
 }
 
@@ -594,6 +634,104 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_RespectsI
 	s.Equal(types.TaskStatusQueuedImplementation, task.Status)
 }
 
+// An archived task that is still queued must not be started when a WIP slot
+// frees up: archiving a queued task has no sandbox to stop, so starting it
+// later leaks a running desktop nobody is looking at.
+func (s *SpecTaskOrchestratorTestSuite) TestQueuedHandlers_SkipArchivedTasks() {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		status types.SpecTaskStatus
+		handle func(context.Context, *types.SpecTask) error
+	}{
+		{types.TaskStatusQueuedImplementation, s.orchestrator.handleQueuedImplementation},
+		{types.TaskStatusQueuedSpecGeneration, s.orchestrator.handleQueuedSpecGeneration},
+		{types.TaskStatusBacklog, s.orchestrator.handleBacklog},
+	} {
+		task := &types.SpecTask{ID: "task-archived-" + string(tc.status), ProjectID: "project-123", Status: tc.status, Archived: true}
+		s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+
+		err := tc.handle(ctx, task)
+		s.Require().NoError(err)
+		s.Equal(tc.status, task.Status)
+	}
+}
+
+type countingSpecTaskWorkflowService struct {
+	justDoItStarts atomic.Int32
+}
+
+func (s *countingSpecTaskWorkflowService) StartSpecGeneration(context.Context, *types.SpecTask) {}
+
+func (s *countingSpecTaskWorkflowService) StartJustDoItMode(context.Context, *types.SpecTask) {
+	s.justDoItStarts.Add(1)
+}
+
+func (s *countingSpecTaskWorkflowService) ApproveSpecs(context.Context, *types.SpecTask) error {
+	return nil
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_ClaimsAcrossOrchestrators() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-jdi-race",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusQueuedImplementation,
+	}
+	project := &types.Project{ID: task.ProjectID}
+	workflow := &countingSpecTaskWorkflowService{}
+
+	newTaskSnapshot := func() *types.SpecTask {
+		copy := *task
+		return &copy
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).
+		DoAndReturn(func(context.Context, string) (*types.SpecTask, error) {
+			return newTaskSnapshot(), nil
+		}).Times(2)
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(project, nil).Times(2)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     task.ProjectID,
+		WithDependsOn: true,
+	}).DoAndReturn(func(context.Context, *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+		return []*types.SpecTask{newTaskSnapshot()}, nil
+	}).Times(2)
+
+	var claimAttempts atomic.Int32
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusQueuedImplementation},
+		types.TaskStatusImplementation,
+		nil,
+	).DoAndReturn(func(context.Context, string, []types.SpecTaskStatus, types.SpecTaskStatus, map[string]any) (bool, error) {
+		return claimAttempts.Add(1) == 1, nil
+	}).Times(2)
+
+	first := &SpecTaskOrchestrator{store: s.store, specTaskService: workflow}
+	second := &SpecTaskOrchestrator{store: s.store, specTaskService: workflow}
+
+	var callers sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, orchestrator := range []*SpecTaskOrchestrator{first, second} {
+		callers.Add(1)
+		go func(orchestrator *SpecTaskOrchestrator) {
+			defer callers.Done()
+			errs <- orchestrator.handleQueuedImplementation(ctx, newTaskSnapshot())
+		}(orchestrator)
+	}
+	callers.Wait()
+	close(errs)
+	for err := range errs {
+		s.Require().NoError(err)
+	}
+	first.wg.Wait()
+	second.wg.Wait()
+
+	s.Equal(int32(2), claimAttempts.Load())
+	s.Equal(int32(1), workflow.justDoItStarts.Load())
+}
+
 // handleQueuedImplementation claims the WIP slot before launching the agent, so
 // an API restart in that window leaves a task holding a slot it never used.
 func (s *SpecTaskOrchestratorTestSuite) TestHandleImplementation_RequeuesStrandedReservation() {
@@ -953,11 +1091,11 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleSpecApproved_SelfHealsNilSpecA
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestIsDeletedProjectError() {
-	// GORM "record not found" errors should match
-	assert.True(s.T(), isDeletedProjectError(fmt.Errorf("failed to get project: record not found")))
-	assert.True(s.T(), isDeletedProjectError(fmt.Errorf("record not found")))
+	assert.True(s.T(), isDeletedProjectError(store.ErrNotFound))
+	assert.True(s.T(), isDeletedProjectError(fmt.Errorf("failed to get project: %w", store.ErrNotFound)))
 
-	// Domain errors containing "not found" but NOT "record not found" should NOT match
+	// Text alone must not classify an unrelated error as a deleted project.
+	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("record not found")))
 	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("spec approval not found")))
 	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("failed to approve specs: spec approval not found")))
 	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("default repository not set for project")))
@@ -999,9 +1137,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishes
 }
 
 // makePullRequestTask returns a task in pull_request status with the given
-// number of tracked PRs and no branch (so the branch-merge fallback path
-// inside processExternalPullRequestStatus early-exits without needing
-// store/repo mocks).
+// number of tracked PRs.
 func makePullRequestTask(prCount int) *types.SpecTask {
 	prs := make([]types.RepoPR, prCount)
 	for i := 0; i < prCount; i++ {
@@ -1015,7 +1151,6 @@ func makePullRequestTask(prCount int) *types.SpecTask {
 	return &types.SpecTask{
 		ID:               "task-pr-1",
 		Status:           types.TaskStatusPullRequest,
-		BranchName:       "", // skips IsBranchMerged fallback
 		RepoPullRequests: prs,
 	}
 }
@@ -1274,34 +1409,15 @@ func (s *SpecTaskOrchestratorTestSuite) TestCheckTaskForExternalPRActivity_NoPRD
 	s.False(task.MergedToMain)
 }
 
-// Production-realistic case: task has a BranchName set, all PRs error, so
-// the IsBranchMerged fallback runs. With active PR branches (commits not
-// in default), IsBranchMerged returns false and the task correctly stays
-// in pull_request. Important regression test because my primary fix only
-// addresses the allMerged-true path; the fallback path is a separate
-// transition site that could in principle wrongly transition on stale
-// repo state. This test pins the safe production-typical scenario.
-func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllErrorsWithBranch_FallbackDoesNotTransition() {
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_NoTrackedPR_StaysInPullRequest() {
 	ctx := context.Background()
-	task := makePullRequestTask(1)
-	task.BranchName = "feature/active-work"
-	task.ProjectID = "proj-1"
+	task := &types.SpecTask{
+		ID:         "task-no-pr",
+		ProjectID:  "proj-1",
+		BranchName: "feature/empty",
+		Status:     types.TaskStatusPullRequest,
+	}
 
-	s.gitService.EXPECT().
-		GetPullRequest(ctx, "repo-1", "1").
-		Return(nil, fmt.Errorf("simulated gitlab 502"))
-	s.store.EXPECT().
-		GetProject(ctx, "proj-1").
-		Return(&types.Project{ID: "proj-1", DefaultRepoID: "repo-default"}, nil)
-	s.store.EXPECT().
-		GetGitRepository(ctx, "repo-default").
-		Return(&types.GitRepository{ID: "repo-default", DefaultBranch: "main"}, nil)
-	// Active PR branch: HEAD has commits not in default → not an ancestor.
-	s.gitService.EXPECT().
-		IsBranchMerged(ctx, "repo-default", "feature/active-work", "main").
-		Return(false, nil)
-
-	// No UpdateSpecTask — fallback found nothing, no state changed.
 	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
 	s.Require().NoError(err)
 

@@ -3,11 +3,13 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type chatSurfaceBotRuntime struct {
@@ -15,8 +17,17 @@ type chatSurfaceBotRuntime struct {
 	sessionID string
 }
 
+type failingChatSurfaceBotRuntime struct{}
+
+func (failingChatSurfaceBotRuntime) State(context.Context, string, orgchart.NodeID) (orgapi.BotRuntimeInfo, error) {
+	return orgapi.BotRuntimeInfo{}, errors.New("runtime state unavailable")
+}
+
 func (f chatSurfaceBotRuntime) State(_ context.Context, _ string, _ orgchart.NodeID) (orgapi.BotRuntimeInfo, error) {
-	return orgapi.BotRuntimeInfo{ProjectID: f.projectID, SessionID: f.sessionID, Status: "running"}, nil
+	return orgapi.BotRuntimeInfo{
+		ProjectID: f.projectID, SessionID: f.sessionID, Status: "running",
+		AgentWorkState: types.AgentWorkStateWorking,
+	}, nil
 }
 
 // The chat sidebar lists bots as top-level entries and opens their session
@@ -45,7 +56,22 @@ func TestRESTBotListCarriesProjectAndSession(t *testing.T) {
 	if alice == nil {
 		t.Fatalf("b-alice missing from list: %#v", got)
 	}
-	if alice["project_id"] != "prj_alice" || alice["session_id"] != "ses_alice" || alice["status"] != "running" {
+	if alice["project_id"] != "prj_alice" || alice["session_id"] != "ses_alice" ||
+		alice["status"] != "running" || alice["agent_work_state"] != "working" {
 		t.Fatalf("list row = %#v", alice)
+	}
+}
+
+func TestRESTBotReadsFailWhenRuntimeStateIsUnavailable(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	seedBot(t, st, context.Background(), "b-alice", "# Alice")
+	deps.BotRuntime = failingChatSurfaceBotRuntime{}
+	h := orgapi.Handler(deps)
+
+	for _, path := range []string{"/bots", "/bots/b-alice"} {
+		rec := do(t, h, http.MethodGet, path, nil)
+		if rec.Code != http.StatusInternalServerError {
+			t.Errorf("GET %s: status = %d, want 500; body=%s", path, rec.Code, rec.Body)
+		}
 	}
 }

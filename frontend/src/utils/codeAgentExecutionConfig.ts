@@ -27,7 +27,7 @@ export function codeAgentExecutionConfigFromApp(
 
   if (runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode) {
     if (subscription) {
-      model = assistant.claude_subscription_model || 'claude-opus-5'
+      model = assistant.claude_subscription_model || 'claude-opus-5-5'
     } else {
       providerRef = assistant.generation_model_provider || assistant.provider || ''
       model = assistant.generation_model || assistant.model || ''

@@ -2,10 +2,12 @@ package external_agent
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateZedMCPConfigAllowsUnsandboxedCommands(t *testing.T) {
@@ -22,10 +24,41 @@ func TestGenerateZedMCPConfigAllowsUnsandboxedCommands(t *testing.T) {
 		nil,
 		"",
 		nil,
+		true,
 	)
 	assert.NoError(t, err)
 	if assert.NotNil(t, config.Agent) {
 		assert.True(t, config.Agent.AllowUnsandboxedCommands)
+	}
+}
+
+func TestGenerateZedMCPConfigUsesPersistentChromeProfile(t *testing.T) {
+	config, err := GenerateZedMCPConfig(
+		context.Background(),
+		&types.App{ID: "test-app"},
+		"user-1",
+		"session-1",
+		"http://api:8080",
+		"test-token",
+		false,
+		nil,
+		nil,
+		nil,
+		"",
+		nil,
+		true,
+	)
+	assert.NoError(t, err)
+
+	chrome, ok := config.ContextServers["chrome-devtools"]
+	if assert.True(t, ok) {
+		assert.Equal(t, "/usr/local/bin/helix-chrome-devtools-mcp", chrome.Command)
+		if assert.NotEmpty(t, chrome.Args) {
+			assert.Equal(t, "--user-data-dir=/home/retro/work/.chrome-state", chrome.Args[0])
+			assert.Contains(t, chrome.Args, "--chrome-arg=--ozone-platform=wayland")
+			assert.Contains(t, chrome.Args, "--no-usage-statistics")
+			assert.Contains(t, chrome.Args, "--no-performance-crux")
+		}
 	}
 }
 
@@ -249,6 +282,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				tc.snapshot,
 				"",
 				nil,
+				true,
 			)
 			assert.NoError(t, err)
 			if !assert.NotNil(t, cfg) || !assert.NotNil(t, cfg.Agent) {
@@ -292,6 +326,7 @@ func TestGenerateZedMCPConfigAddsDirectHelixOrgMCP(t *testing.T) {
 		nil,
 		"b-worker",
 		nil,
+		true,
 	)
 	assert.NoError(t, err)
 	assert.Equal(t, ContextServerConfig{
@@ -759,6 +794,7 @@ func TestGenerateZedMCPConfigAddsSpecTaskMCP(t *testing.T) {
 		nil,
 		"",
 		tools,
+		true,
 	)
 	assert.NoError(t, err)
 	assert.Equal(t, ContextServerConfig{
@@ -781,6 +817,7 @@ func TestGenerateZedMCPConfigOmitsSpecTaskMCPWithoutTools(t *testing.T) {
 		nil,
 		"",
 		nil,
+		true,
 	)
 	assert.NoError(t, err)
 	_, present := config.ContextServers["helix-tasks"]
@@ -790,4 +827,70 @@ func TestGenerateZedMCPConfigOmitsSpecTaskMCPWithoutTools(t *testing.T) {
 func TestAgentToolsRevIsOrderIndependentAndSensitive(t *testing.T) {
 	assert.Equal(t, AgentToolsRev([]string{"a", "b"}), AgentToolsRev([]string{"b", "a"}))
 	assert.NotEqual(t, AgentToolsRev([]string{"a", "b"}), AgentToolsRev([]string{"a", "b", "c"}))
+}
+
+// A headless sandbox's bridge serves no /mcp, so helix-desktop would only
+// 404; DeepSeek Harness fails session creation on any dead MCP server.
+func TestGenerateZedMCPConfig_HeadlessHasNoDesktopServer(t *testing.T) {
+	generate := func(hasDesktop bool) *ZedMCPConfig {
+		config, err := GenerateZedMCPConfig(
+			context.Background(),
+			&types.App{ID: "test-app"},
+			"user-1",
+			"session-1",
+			"http://api:8080",
+			"test-token",
+			false,
+			nil,
+			nil,
+			nil,
+			"",
+			nil,
+			hasDesktop,
+		)
+		assert.NoError(t, err)
+		return config
+	}
+
+	assert.NotContains(t, generate(false).ContextServers, "helix-desktop")
+	assert.Contains(t, generate(false).ContextServers, "chrome-devtools")
+	assert.Contains(t, generate(true).ContextServers, "helix-desktop")
+}
+
+func TestApplyBotInstanceProfile(t *testing.T) {
+	servers := func() map[string]ContextServerConfig {
+		return map[string]ContextServerConfig{
+			"chrome-devtools": {Command: "chrome"},
+			"helix-session":   {URL: "http://api/mcp/session"},
+			"helix":           {URL: "http://api/mcp/helix-org"},
+			"kodit":           {URL: "http://api/mcp/kodit"},
+			"my-crm":          {URL: "http://api/mcp/external/my-crm"},
+		}
+	}
+	keys := func(c ZedMCPConfig) []string {
+		out := make([]string, 0, len(c.ContextServers))
+		for name := range c.ContextServers {
+			out = append(out, name)
+		}
+		sort.Strings(out)
+		return out
+	}
+
+	t.Run("not an instance keeps everything", func(t *testing.T) {
+		c := ZedMCPConfig{ContextServers: servers()}
+		c.ApplyBotInstanceProfile(nil)
+		require.Len(t, c.ContextServers, 5)
+	})
+	t.Run("default profile keeps only the browser", func(t *testing.T) {
+		c := ZedMCPConfig{ContextServers: servers()}
+		profile := types.DefaultBotInstanceProfile()
+		c.ApplyBotInstanceProfile(&profile)
+		require.Equal(t, []string{"chrome-devtools"}, keys(c))
+	})
+	t.Run("tools bring the org server, project MCPs by name", func(t *testing.T) {
+		c := ZedMCPConfig{ContextServers: servers()}
+		profile := types.BotInstanceProfile{MCPServers: []string{"chrome-devtools", "My CRM"}, Tools: []string{"chat"}}
+		c.ApplyBotInstanceProfile(&profile)
+		require.Equal(t, []string{"chrome-devtools", "helix", "my-crm"}, keys(c))
+	})
 }

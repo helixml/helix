@@ -283,7 +283,15 @@ func (s *FileSystemStorage) CopyFile(_ context.Context, fromPath string, toPath 
 
 func (s *FileSystemStorage) getSafePath(path string) (string, error) {
 	absPath, err := filepath.Abs(path)
-	if err != nil || !strings.HasPrefix(absPath, s.basePath) {
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %s", path)
+	}
+	absBasePath, err := filepath.Abs(s.basePath)
+	if err != nil {
+		return "", fmt.Errorf("invalid base path: %s", s.basePath)
+	}
+	relativePath, err := filepath.Rel(absBasePath, absPath)
+	if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("invalid path: %s", path)
 	}
 	return absPath, nil

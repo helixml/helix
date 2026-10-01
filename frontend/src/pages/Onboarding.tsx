@@ -698,6 +698,7 @@ export default function Onboarding() {
           router.navigateReplace("org_bot_session", {
             org_id: createdOrg.name,
             bot_id: "chief-of-staff",
+            intro: "1",
           });
         } else {
           router.navigateReplace("org_projects", {
@@ -755,6 +756,35 @@ export default function Onboarding() {
   }, [account.user?.id, selectedOrgId, existingOrgs, markStepCompleteByType, snackbar]);
 
   const handleCreateOrg = useCallback(async () => {
+    // The checkout round trip can re-enter this step (redirect, refresh, or a
+    // lost draft) after the canonical organization already exists. Resolve to
+    // it instead of creating a duplicate organization.
+    if (createdOrg?.id) {
+      markStepCompleteByType("organization");
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const urlOrgId = params.get("org_id");
+    const isOwnedByViewer = (org: (typeof existingOrgs)[number]) =>
+      org.owner === account.user?.id
+      || !!org.memberships?.some((membership) =>
+        membership.user_id === account.user?.id && membership.role === "owner");
+    const canonicalOrg = existingOrgs.find((org) => org.id === urlOrgId && isOwnedByViewer(org))
+      || existingOrgs.find(isOwnedByViewer);
+    if (canonicalOrg?.id) {
+      setCreatedOrg({
+        id: canonicalOrg.id,
+        name: canonicalOrg.name,
+        display_name: canonicalOrg.display_name,
+        viewer_is_owner: true,
+      });
+      setCreatedOrgDuringOnboarding(
+        urlOrgId === canonicalOrg.id && params.get("created_org") === "true",
+      );
+      markStepCompleteByType("organization");
+      return;
+    }
+
     if (!orgDisplayName.trim()) {
       snackbar.error("Please enter an organization name");
       return;
@@ -771,6 +801,13 @@ export default function Onboarding() {
           viewer_is_owner: true,
         });
         setCreatedOrgDuringOnboarding(true);
+        // Pin the canonical organization id into the continuation state so it
+        // survives redirect and refresh even without the localStorage draft.
+        window.history.replaceState(
+          {},
+          "",
+          `/onboarding?org_id=${newOrg.id}&created_org=true`,
+        );
         await account.organizationTools.loadOrganizations();
         markStepCompleteByType("organization");
       }
@@ -779,10 +816,13 @@ export default function Onboarding() {
       snackbar.error("Failed to create organization");
     }
   }, [
-    orgDisplayName,
-    createOrgMutation,
     account.organizationTools,
+    account.user?.id,
+    createOrgMutation,
+    createdOrg?.id,
+    existingOrgs,
     markStepCompleteByType,
+    orgDisplayName,
     snackbar,
   ]);
 
@@ -1106,8 +1146,8 @@ export default function Onboarding() {
                 </Typography>
                 <Typography
                   sx={{
-                    color: palette.TEXT_MUTED,
-                    fontSize: "0.8rem",
+                    color: palette.TEXT_SECONDARY,
+                    fontSize: "0.76rem",
                     mb: 1.5,
                   }}
                 >
@@ -1127,8 +1167,8 @@ export default function Onboarding() {
                   <Box sx={{ mb: 2 }}>
                     <Typography
                       sx={{
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        color: palette.TEXT_SECONDARY,
+                        fontSize: "0.76rem",
                         mb: 0.5,
                       }}
                     >
@@ -1136,8 +1176,8 @@ export default function Onboarding() {
                     </Typography>
                     <Typography
                       sx={{
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        color: palette.TEXT_SECONDARY,
+                        fontSize: "0.76rem",
                         mb: 0.5,
                       }}
                     >
@@ -1146,8 +1186,8 @@ export default function Onboarding() {
                     </Typography>
                     <Typography
                       sx={{
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        color: palette.TEXT_SECONDARY,
+                        fontSize: "0.76rem",
                         mb: 0.5,
                       }}
                     >
@@ -1158,8 +1198,8 @@ export default function Onboarding() {
                     </Typography>
                     <Typography
                       sx={{
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        color: palette.TEXT_SECONDARY,
+                        fontSize: "0.76rem",
                         mb: 0.5,
                       }}
                     >
@@ -1170,8 +1210,8 @@ export default function Onboarding() {
                     </Typography>
                     <Typography
                       sx={{
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        color: palette.TEXT_SECONDARY,
+                        fontSize: "0.76rem",
                       }}
                     >
                       Current balance: ${wallet.balance?.toFixed(2) || "0.00"}{" "}

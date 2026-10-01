@@ -71,6 +71,7 @@ func TestCheckoutFlowsRejectUnsafeReturnURL(t *testing.T) {
 	client := NewStripe(config.Stripe{
 		SecretKey:            "sk_test",
 		WebhookSigningSecret: "whsec_test",
+		PromoCreditPriceID:   "price_promo_credits",
 	}, nil)
 
 	if _, err := client.GetTopUpSessionURL(TopUpSessionParams{ReturnURL: "//evil.example"}); err == nil {

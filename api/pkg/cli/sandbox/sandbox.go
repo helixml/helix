@@ -413,6 +413,17 @@ the new command id is printed; fetch its output later with:
 			if err != nil {
 				return err
 			}
+			if !detached {
+				// A synchronous command holds the request open for up to its
+				// timeout (the server defaults 0 to 60s).
+				wait := ttl
+				if wait <= 0 {
+					wait = 60
+				}
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, time.Duration(wait+30)*time.Second)
+				defer cancel()
+			}
 			resp, err := c.RunSandboxCommand(ctx, orgID, sbID, &types.RunSandboxCommandRequest{
 				Cmd:            cmdArgs[0],
 				Args:           cmdArgs[1:],

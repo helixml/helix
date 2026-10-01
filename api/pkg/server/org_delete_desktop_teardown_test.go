@@ -58,12 +58,10 @@ func (s *OrgDeleteDesktopTeardownSuite) TestStopsOnlyDesktopSessions() {
 	s.executor.EXPECT().StopDesktop(ctx, "ses_desktop").Return(nil)
 	s.store.EXPECT().DeleteSession(ctx, "ses_desktop").Return(withDesktop, nil)
 
-	s.server.stopOrgDesktops(ctx, orgID)
+	s.Require().NoError(s.server.stopOrgDesktops(ctx, orgID))
 }
 
-// A StopDesktop failure must not abort the sweep: the session is still
-// soft-deleted and remaining sessions are still processed.
-func (s *OrgDeleteDesktopTeardownSuite) TestStopFailureDoesNotAbortSweep() {
+func (s *OrgDeleteDesktopTeardownSuite) TestStopFailurePreservesSessionTracking() {
 	ctx := context.Background()
 	orgID := "org_teardown"
 
@@ -77,9 +75,6 @@ func (s *OrgDeleteDesktopTeardownSuite) TestStopFailureDoesNotAbortSweep() {
 		Return([]*types.Session{first, second}, int64(2), nil)
 
 	s.executor.EXPECT().StopDesktop(ctx, "ses_1").Return(context.DeadlineExceeded)
-	s.store.EXPECT().DeleteSession(ctx, "ses_1").Return(first, nil)
-	s.executor.EXPECT().StopDesktop(ctx, "ses_2").Return(nil)
-	s.store.EXPECT().DeleteSession(ctx, "ses_2").Return(second, nil)
 
-	s.server.stopOrgDesktops(ctx, orgID)
+	s.Require().ErrorContains(s.server.stopOrgDesktops(ctx, orgID), "stop desktop ses_1")
 }

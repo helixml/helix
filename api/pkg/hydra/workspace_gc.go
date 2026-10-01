@@ -16,16 +16,22 @@ import (
 var workspacesBaseDir = "/data/workspaces"
 
 // reconcileWorkspaceSubdir reaps orphaned directories under
-// workspacesBaseDir/<subdir>. A dir is reaped iff its name has the required
-// prefix, its name is NOT in liveSet, and its mtime is older than the grace
-// period. dryRun records candidates without removing them.
-//
-// Safety: only ever os.RemoveAll a path of the exact form
-// workspacesBaseDir/<subdir>/<validated-name>. The name must be a single path
-// element (no separators, no "..") and carry the expected prefix, so we can
-// never escape the subtree.
+// workspacesBaseDir/<subdir>.
 func reconcileWorkspaceSubdir(subdir, requiredPrefix string, liveSet map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip) {
-	base := filepath.Join(workspacesBaseDir, subdir)
+	return reconcileIDDirs(filepath.Join(workspacesBaseDir, subdir), subdir, requiredPrefix, liveSet, grace, dryRun, os.RemoveAll)
+}
+
+// reconcileIDDirs reaps orphaned directories under base whose names are
+// resource ids. A dir is reaped iff its name has the required prefix, its name
+// is NOT in liveSet, and its mtime is older than the grace period. dryRun
+// records candidates without removing them. label prefixes skip names in the
+// report. remove deletes one candidate directory.
+//
+// Safety: only ever remove a path of the exact form
+// base/<validated-name>. The name must be a single path element (no
+// separators, no "..") and carry the expected prefix, so we can never escape
+// the subtree.
+func reconcileIDDirs(base, label, requiredPrefix string, liveSet map[string]bool, grace time.Duration, dryRun bool, remove func(dir string) error) (reaped []string, skipped []GCSkip) {
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -47,23 +53,23 @@ func reconcileWorkspaceSubdir(subdir, requiredPrefix string, liveSet map[string]
 		if !strings.HasPrefix(name, requiredPrefix) ||
 			strings.ContainsAny(name, "/\\") ||
 			name == "." || name == ".." {
-			skipped = append(skipped, GCSkip{Name: filepath.Join(subdir, name), Reason: "name not eligible"})
+			skipped = append(skipped, GCSkip{Name: filepath.Join(label, name), Reason: "name not eligible"})
 			continue
 		}
 
 		// id == directory name (full ses_… / spt_… string).
 		if liveSet[name] {
-			skipped = append(skipped, GCSkip{Name: filepath.Join(subdir, name), Reason: "live"})
+			skipped = append(skipped, GCSkip{Name: filepath.Join(label, name), Reason: "live"})
 			continue
 		}
 
 		info, err := entry.Info()
 		if err != nil {
-			skipped = append(skipped, GCSkip{Name: filepath.Join(subdir, name), Reason: "stat error: " + err.Error()})
+			skipped = append(skipped, GCSkip{Name: filepath.Join(label, name), Reason: "stat error: " + err.Error()})
 			continue
 		}
 		if info.ModTime().After(cutoff) {
-			skipped = append(skipped, GCSkip{Name: filepath.Join(subdir, name), Reason: "grace"})
+			skipped = append(skipped, GCSkip{Name: filepath.Join(label, name), Reason: "grace"})
 			continue
 		}
 
@@ -74,9 +80,9 @@ func reconcileWorkspaceSubdir(subdir, requiredPrefix string, liveSet map[string]
 			continue
 		}
 
-		if err := os.RemoveAll(dir); err != nil {
+		if err := remove(dir); err != nil {
 			log.Warn().Err(err).Str("dir", dir).Msg("ReconcileOrphanWorkspaces: failed to remove workspace dir")
-			skipped = append(skipped, GCSkip{Name: filepath.Join(subdir, name), Reason: "error: " + err.Error()})
+			skipped = append(skipped, GCSkip{Name: filepath.Join(label, name), Reason: "error: " + err.Error()})
 			continue
 		}
 		reaped = append(reaped, dir)
@@ -99,6 +105,9 @@ func reconcileWorkspaceSubdir(subdir, requiredPrefix string, liveSet map[string]
 //	sessions/<ses_id>     ← per-session checkouts (reaped against liveSessionIDs)
 //	sandboxes/            ← NEVER descended into or removed (separate lifecycle)
 //
+// It also reaps sessionRuntimeBaseDir/<ses_id> (/data/sessions) against
+// liveSessionIDs.
+//
 // All entries are plain directories on the helix-workspaces filesystem dataset,
 // so reaping is os.RemoveAll — never a zfs command.
 func ReconcileOrphanWorkspaces(liveSessionIDs, liveSpecTaskIDs map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip) {
@@ -113,6 +122,12 @@ func ReconcileOrphanWorkspaces(liveSessionIDs, liveSpecTaskIDs map[string]bool, 
 	skipped = append(skipped, s...)
 
 	// NOTE: the "sandboxes/" subtree is intentionally never touched here.
+
+	// Per-session runtime dirs (PipeWire, crash dumps) outside the workspaces
+	// tree, keyed by the same session ids.
+	r, s = reconcileIDDirs(sessionRuntimeBaseDir, "session-runtime", "ses_", liveSessionIDs, grace, dryRun, os.RemoveAll)
+	reaped = append(reaped, r...)
+	skipped = append(skipped, s...)
 
 	return reaped, skipped
 }

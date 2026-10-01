@@ -427,6 +427,10 @@ export const useAccountContext = (): IAccountContext => {
   useEffect(() => {
     if (!initialized) return
     if (user) return
+    // Embed routes authenticate with a task/session-scoped API key rather than
+    // an account cookie. The embed UI can load its bound resource even though
+    // account initialization intentionally produces no normal signed-in user.
+    if (isEmbedRoute(router.name)) return
     const publicRoutes = ['login', 'password-reset', 'password-reset-complete', 'artifact_viewer']
     if (publicRoutes.includes(router.name)) return
 

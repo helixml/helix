@@ -74,6 +74,7 @@ import {
   BotDTO,
   ToolDTO,
   useActivateBot,
+  useApplyBotConfig,
   useDeleteBot,
   useHelixOrgBot,
   useListHelixOrgProcessors,
@@ -115,6 +116,7 @@ const HelixOrgBotDetail: FC = () => {
   const activateAgent = useActivateBot()
   const stopAgent = useStopBotAgent()
   const restartAgent = useRestartBotAgent()
+  const applyBotConfig = useApplyBotConfig()
   const { data: toolCatalogue } = useListHelixOrgTools()
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [confirmingResetInstructions, setConfirmingResetInstructions] = useState(false)
@@ -495,9 +497,9 @@ const HelixOrgBotDetail: FC = () => {
                 <AgentRestartRequiredBanner
                   visible={!!bot.restart_required}
                   working={!!chatSessionId && streaming.currentResponses.has(chatSessionId)}
-                  busy={activateAgent.isPending || stopAgent.isPending || restartAgent.isPending}
+                  busy={activateAgent.isPending || stopAgent.isPending || restartAgent.isPending || applyBotConfig.isPending}
                   sticky
-                  onRestart={() => { void handleRestartSession() }}
+                  onRestart={() => { if (bot.id) void applyBotConfig.mutateAsync(bot.id) }}
                 />
 
                 <Box>

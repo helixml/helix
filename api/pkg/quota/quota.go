@@ -36,66 +36,39 @@ func (m *DefaultQuotaManager) GetQuotas(ctx context.Context, req *types.QuotaReq
 }
 
 func (m *DefaultQuotaManager) getOrgQuotas(ctx context.Context, orgID string) (*types.QuotaResponse, error) {
-	// Check if we have active subscription for this org
-	wallet, err := m.store.GetWalletByOrg(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-
-	var quotas *types.QuotaResponse
-
-	// If quota enforcement is disabled, return -1 for all quotas
 	systemSettings, err := m.store.GetSystemSettings(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	switch {
-	// Quotas disabled
-	case !systemSettings.EnforceQuotas:
-		quotas = &types.QuotaResponse{
-			MaxConcurrentDesktops: -1,
-			MaxProjects:           -1,
-			MaxRepositories:       -1,
-			MaxSpecTasks:          -1,
-		}
-	// Active subscription
-	// Admin plan override (paid out-of-band; independent of Stripe, so it's
-	// never reverted by a webhook). Takes precedence over the subscription.
-	case wallet.PlanOverride == types.PlanOverridePro:
-		quotas = m.getProQuotas()
-	case wallet.PlanOverride == types.PlanOverrideFree:
-		quotas = m.getFreeQuotas()
-	case wallet.StripeSubscriptionID != "" && wallet.IsSubscriptionActive():
-		// Paid plan limits
-		quotas = m.getProQuotas()
-	default:
-		// Free plan limits
-		quotas = m.getFreeQuotas()
+	quotas, err := m.planQuotas(systemSettings, func() (*types.Wallet, error) {
+		return m.store.GetWalletByOrg(ctx, orgID)
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	quotas.ActiveConcurrentDesktops = m.getActiveConcurrentDesktopsByOrg(ctx, wallet.OrgID)
+	quotas.ActiveConcurrentDesktops = m.getActiveConcurrentDesktopsByOrg(ctx, orgID)
 
-	projectsCount, err := m.store.GetProjectsCount(ctx, &store.GetProjectsCountQuery{OrganizationID: wallet.OrgID})
+	projectsCount, err := m.store.GetProjectsCount(ctx, &store.GetProjectsCountQuery{OrganizationID: orgID})
 	if err != nil {
 		return nil, err
 	}
 	quotas.Projects = int(projectsCount)
 
-	repositoriesCount, err := m.store.GetRepositoriesCount(ctx, &store.GetRepositoriesCountQuery{OrganizationID: wallet.OrgID})
+	repositoriesCount, err := m.store.GetRepositoriesCount(ctx, &store.GetRepositoriesCountQuery{OrganizationID: orgID})
 	if err != nil {
 		return nil, err
 	}
 	quotas.Repositories = int(repositoriesCount)
 
-	specTasksCount, err := m.store.GetSpecTasksCount(ctx, &store.GetSpecTasksCountQuery{OrganizationID: wallet.OrgID})
+	specTasksCount, err := m.store.GetSpecTasksCount(ctx, &store.GetSpecTasksCountQuery{OrganizationID: orgID})
 	if err != nil {
 		return nil, err
 	}
 	quotas.SpecTasks = int(specTasksCount)
 
-	quotas.UserID = wallet.UserID
-	quotas.OrganizationID = wallet.OrgID
+	quotas.OrganizationID = orgID
 
 	// Sandbox concurrency limits come from system settings, not from the
 	// per-tier subscription quotas — they're a global operator setting.
@@ -107,73 +80,78 @@ func (m *DefaultQuotaManager) getOrgQuotas(ctx context.Context, orgID string) (*
 	}
 	quotas.MaxDesktopSandboxes = desktopMax
 	quotas.MaxHeadlessSandboxes = headlessMax
-	quotas.ActiveDesktopSandboxes, quotas.ActiveHeadlessSandboxes = m.getActiveSandboxesByOrg(ctx, wallet.OrgID)
+	quotas.ActiveDesktopSandboxes, quotas.ActiveHeadlessSandboxes = m.getActiveSandboxesByOrg(ctx, orgID)
 
 	return quotas, nil
 }
 
 func (m *DefaultQuotaManager) getUserQuotas(ctx context.Context, userID string) (*types.QuotaResponse, error) {
-	// Check if we have active subscription for this user
-	wallet, err := m.store.GetWalletByUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	var quotas *types.QuotaResponse
-
-	// If quota enforcement is disabled, return -1 for all quotas
 	systemSettings, err := m.store.GetSystemSettings(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	switch {
-	// Quotas disabled
-	case !systemSettings.EnforceQuotas:
-		quotas = &types.QuotaResponse{
-			MaxConcurrentDesktops: -1,
-			MaxProjects:           -1,
-			MaxRepositories:       -1,
-			MaxSpecTasks:          -1,
-		}
-	// Admin plan override (paid out-of-band; independent of Stripe, so it's
-	// never reverted by a webhook). Takes precedence over the subscription.
-	case wallet.PlanOverride == types.PlanOverridePro:
-		quotas = m.getProQuotas()
-	case wallet.PlanOverride == types.PlanOverrideFree:
-		quotas = m.getFreeQuotas()
-	case wallet.StripeSubscriptionID != "" && wallet.IsSubscriptionActive():
-		// Paid plan limits
-		quotas = m.getProQuotas()
-	default:
-		// Free plan limits
-		quotas = m.getFreeQuotas()
+	quotas, err := m.planQuotas(systemSettings, func() (*types.Wallet, error) {
+		return m.store.GetWalletByUser(ctx, userID)
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	quotas.UserID = wallet.UserID
+	quotas.UserID = userID
 
-	quotas.ActiveConcurrentDesktops = m.getActiveConcurrentDesktopsByUser(ctx, wallet.UserID)
+	quotas.ActiveConcurrentDesktops = m.getActiveConcurrentDesktopsByUser(ctx, userID)
 
-	projectsCount, err := m.store.GetProjectsCount(ctx, &store.GetProjectsCountQuery{UserID: wallet.UserID})
+	projectsCount, err := m.store.GetProjectsCount(ctx, &store.GetProjectsCountQuery{UserID: userID})
 	if err != nil {
 		return nil, err
 	}
 	quotas.Projects = int(projectsCount)
 
-	repositoriesCount, err := m.store.GetRepositoriesCount(ctx, &store.GetRepositoriesCountQuery{UserID: wallet.UserID})
+	repositoriesCount, err := m.store.GetRepositoriesCount(ctx, &store.GetRepositoriesCountQuery{UserID: userID})
 	if err != nil {
 		return nil, err
 	}
-
 	quotas.Repositories = int(repositoriesCount)
 
-	specTasksCount, err := m.store.GetSpecTasksCount(ctx, &store.GetSpecTasksCountQuery{UserID: wallet.UserID})
+	specTasksCount, err := m.store.GetSpecTasksCount(ctx, &store.GetSpecTasksCountQuery{UserID: userID})
 	if err != nil {
 		return nil, err
 	}
 	quotas.SpecTasks = int(specTasksCount)
 
 	return quotas, nil
+}
+
+// planQuotas returns the plan limits. The wallet is only read when quotas are
+// enforced: deployments without billing never create one.
+func (m *DefaultQuotaManager) planQuotas(systemSettings *types.SystemSettings, getWallet func() (*types.Wallet, error)) (*types.QuotaResponse, error) {
+	if !systemSettings.EnforceQuotas {
+		return &types.QuotaResponse{
+			MaxConcurrentDesktops: -1,
+			MaxProjects:           -1,
+			MaxRepositories:       -1,
+			MaxSpecTasks:          -1,
+		}, nil
+	}
+
+	wallet, err := getWallet()
+	if err != nil {
+		return nil, err
+	}
+
+	switch {
+	// Admin plan override (paid out-of-band; independent of Stripe, so it's
+	// never reverted by a webhook). Takes precedence over the subscription.
+	case wallet.PlanOverride == types.PlanOverridePro:
+		return m.getProQuotas(), nil
+	case wallet.PlanOverride == types.PlanOverrideFree:
+		return m.getFreeQuotas(), nil
+	case wallet.StripeSubscriptionID != "" && wallet.IsSubscriptionActive():
+		return m.getProQuotas(), nil
+	default:
+		return m.getFreeQuotas(), nil
+	}
 }
 
 func (m *DefaultQuotaManager) getFreeQuotas() *types.QuotaResponse {

@@ -183,7 +183,7 @@ describe('CodeAgentConfigPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
-    expect(screen.getByText('Claude Opus 5 (1M context, recommended)')).toBeInTheDocument()
+    expect(screen.getByText('Claude Opus 5.5 (1M context, recommended)')).toBeInTheDocument()
     expect(screen.getAllByText('Claude subscription').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/Claude Fable 5/).length).toBeGreaterThan(0)
     expect(screen.queryByText('api-model')).not.toBeInTheDocument()
@@ -191,7 +191,7 @@ describe('CodeAgentConfigPicker', () => {
     expect(screen.queryByText('Credentials')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
-    expect(screen.queryByText('GPT-5.6 Sol')).not.toBeInTheDocument()
+    expect(screen.queryByText('GPT-6 Sol')).not.toBeInTheDocument()
     expect(screen.getByText('gpt-5.6-terra')).toBeInTheDocument()
     expect(screen.queryByText('claude-fable-5')).not.toBeInTheDocument()
   })
@@ -205,7 +205,7 @@ describe('CodeAgentConfigPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
     fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
 
-    expect(screen.queryByText('Claude Opus 5 (1M context, recommended)')).not.toBeInTheDocument()
+    expect(screen.queryByText('Claude Opus 5.5 (1M context, recommended)')).not.toBeInTheDocument()
     expect(screen.getByText('claude-fable-5')).toBeInTheDocument()
   })
 
@@ -214,13 +214,13 @@ describe('CodeAgentConfigPicker', () => {
     renderPicker(<CodeAgentConfigPicker onChange={onChange} />)
     fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
     fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
-    fireEvent.click(screen.getByText('Claude Opus 5 (1M context, recommended)'))
+    fireEvent.click(screen.getByText('Claude Opus 5.5 (1M context, recommended)'))
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
       provider_ref: undefined,
-      model: 'claude-opus-5',
+      model: 'claude-opus-5-5',
     }), 'user')
   })
 
@@ -231,12 +231,12 @@ describe('CodeAgentConfigPicker', () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith({
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
-      model: 'claude-opus-5',
+      model: 'claude-opus-5-5',
     }, 'auto'))
-    expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('Claude Opus 5')
+    expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('Claude Opus 5.5')
   })
 
-  it('defaults a new task to GPT-5.6 Sol when only Codex subscription is available', async () => {
+  it('defaults a new task to GPT-6 Sol when only Codex subscription is available', async () => {
     harnessState.harnesses = harnessState.harnesses.map((harness) => ({
       ...harness,
       viewer_has_subscription: harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
@@ -248,7 +248,7 @@ describe('CodeAgentConfigPicker', () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith({
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
-      model: 'gpt-5.6-sol',
+      model: 'gpt-6-sol',
     }, 'auto'))
   })
 
@@ -387,7 +387,7 @@ describe('CodeAgentConfigPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
     fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
 
-    expect(screen.getByText('Claude Opus 5 (1M context, recommended)')).toBeInTheDocument()
+    expect(screen.getByText('Claude Opus 5.5 (1M context, recommended)')).toBeInTheDocument()
     expect(screen.getAllByText(/Claude Fable 5/).length).toBeGreaterThan(0)
     expect(screen.queryByText('Claude Opus 4.8 (1M context)')).not.toBeInTheDocument()
 
@@ -494,7 +494,7 @@ describe('CodeAgentConfigPicker', () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith({
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
-      model: 'claude-opus-5',
+      model: 'claude-opus-5-5',
     }, 'auto'))
   })
 

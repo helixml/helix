@@ -8,6 +8,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -44,4 +45,48 @@ func TestUpdateSecretRejectsOrphanedProjectScope(t *testing.T) {
 	_, httpErr := server.updateSecret(httptest.NewRecorder(), req)
 	require.NotNil(t, httpErr)
 	require.Equal(t, http.StatusNotFound, httpErr.StatusCode)
+}
+
+func TestProjectSecretRoutesNameMissingProject(t *testing.T) {
+	const projectKey = "cpt-02-post-remediation-verification"
+	wantMessage := "project not found: " + projectKey + " (did you mean the prj_... ID?)"
+
+	tests := []struct {
+		name string
+		call func(*HelixAPIServer, *http.Request) *system.HTTPError
+	}{
+		{
+			name: "list",
+			call: func(server *HelixAPIServer, req *http.Request) *system.HTTPError {
+				_, httpErr := server.listProjectSecrets(httptest.NewRecorder(), req)
+				return httpErr
+			},
+		},
+		{
+			name: "create",
+			call: func(server *HelixAPIServer, req *http.Request) *system.HTTPError {
+				_, httpErr := server.createProjectSecret(httptest.NewRecorder(), req)
+				return httpErr
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			server := &HelixAPIServer{Store: mockStore}
+			mockStore.EXPECT().GetProject(gomock.Any(), projectKey).Return(nil, store.ErrNotFound)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectKey+"/secrets", nil)
+			req = mux.SetURLVars(req, map[string]string{"id": projectKey})
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_test"}))
+
+			httpErr := test.call(server, req)
+			require.NotNil(t, httpErr)
+			require.Equal(t, http.StatusNotFound, httpErr.StatusCode)
+			require.Equal(t, wantMessage, httpErr.Message)
+			require.NotContains(t, httpErr.Message, "Access denied")
+		})
+	}
 }

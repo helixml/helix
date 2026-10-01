@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
   restartRequired: false,
   restartMutateAsync: vi.fn(),
   restartIsPending: false,
+  pageProps: undefined as Record<string, unknown> | undefined,
 }))
 
 const sessionData = {
@@ -48,6 +49,7 @@ const sessionData = {
   name: 'Org bot session',
   owner: 'user-1',
   organization_id: 'acme',
+  project_id: '',
   type: 'text',
   mode: 'inference',
   interactions: [] as unknown[],
@@ -94,7 +96,9 @@ vi.mock('../services/userService', () => ({
   useGetConfig: () => ({ data: { edition: 'self-hosted' } }),
 }))
 vi.mock('../services/projectService', () => ({
-  useGetProject: () => ({ data: undefined }),
+  useGetProject: (projectId: string) => ({
+    data: projectId ? { id: projectId, name: 'Test project' } : undefined,
+  }),
 }))
 vi.mock('../services/helixOrgService', () => ({
   useHelixOrgBot: (botId?: string) => ({
@@ -104,11 +108,15 @@ vi.mock('../services/helixOrgService', () => ({
     mutateAsync: mocks.restartMutateAsync,
     isPending: mocks.restartIsPending,
   }),
+  useApplyBotConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useActivateBot: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useStopBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 vi.mock('../components/system/Page', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  default: ({ children, ...props }: { children: React.ReactNode }) => {
+    mocks.pageProps = props
+    return <div>{children}</div>
+  },
 }))
 vi.mock('../components/helix-org/OrgAgentSessionWorkspace', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -128,6 +136,9 @@ describe('Session org chat restart banner', () => {
     mocks.restartRequired = false
     mocks.restartMutateAsync.mockReset()
     mocks.restartIsPending = false
+    mocks.pageProps = undefined
+    sessionData.project_id = ''
+    sessionData.config.org_worker_id = 'bot-one'
   })
 
   it('shows the restart banner when the session bot reports stale config', async () => {
@@ -181,5 +192,29 @@ describe('Session org chat restart banner', () => {
       org_id: 'acme',
       bot_id: 'bot-one',
     })
+  })
+
+  it('uses the non-clickable org context crumb for an org bot session', async () => {
+    render(<Session orgChatView />)
+    await screen.findByText('Prompt input')
+
+    expect(mocks.pageProps?.breadcrumbs).toEqual([])
+    expect(mocks.pageProps?.orgBreadcrumbs).toBe(true)
+  })
+
+  it('keeps project breadcrumbs for an org chat without a bot', async () => {
+    sessionData.project_id = 'project-one'
+    sessionData.config.org_worker_id = ''
+    render(<Session orgChatView />)
+    await screen.findByText('Prompt input')
+
+    expect(mocks.pageProps?.breadcrumbs).toEqual([
+      { title: 'Projects', routeName: 'projects' },
+      {
+        title: 'Test project',
+        routeName: 'project-specs',
+        params: { id: 'project-one' },
+      },
+    ])
   })
 })

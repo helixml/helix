@@ -3,8 +3,8 @@ import { TypesCodeAgentRuntime, TypesProviderEndpoint } from '../api/api'
 type NativeProvider = 'anthropic' | 'openai'
 
 const CURRENT_NATIVE_MODELS: Record<NativeProvider, string[]> = {
-  anthropic: ['claude-opus-5', 'claude-fable-5'],
-  openai: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
+  anthropic: ['claude-opus-5-5', 'claude-opus-5', 'claude-fable-5'],
+  openai: ['gpt-6-sol', 'gpt-6-astra', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
 }
 
 export function nativeProviderForRuntime(runtime: TypesCodeAgentRuntime): NativeProvider | undefined {

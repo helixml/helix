@@ -91,7 +91,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
 
   const runtime = value?.runtime || TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent
   const effort = value?.reasoning_effort || 'default'
-  const supportedEfforts = useModelReasoningEfforts(value?.model || '')
+  const supportedEfforts = useModelReasoningEfforts(value?.model || '', runtime)
   const effortOptions = getCodeAgentEffortOptions(runtime, supportedEfforts)
   const effortLabel = effortOptions.find((option) => option.value === effort)?.label || effort
   const settingsLabel = runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI

@@ -19,6 +19,10 @@ vi.mock('../helix-org/WorkerSecretsPanel', () => ({
   default: () => <div data-testid="worker-secrets" />,
 }))
 
+vi.mock('../helix-org/BotInstanceProfileSettings', () => ({
+  default: () => <div data-testid="bot-instance-profile" />,
+}))
+
 const renderDetails = (kind: 'coding' | 'org', accessManagement?: ReactNode) => render(
   <FocusedAgentDetails
     agentID="app_test"
@@ -61,7 +65,7 @@ describe('FocusedAgentDetails', () => {
       />,
     )
 
-    for (const title of ['General', 'Desktop', 'Instructions', 'Available tools', 'Triggers', 'Secrets', 'Permissions']) {
+    for (const title of ['General', 'Desktop', 'Instructions', 'Available tools', 'Instances', 'Triggers', 'Secrets', 'Permissions']) {
       expect(screen.getByRole('heading', { name: title })).toBeInTheDocument()
     }
     for (const section of ['basics', 'runtime', 'instructions', 'tools', 'subscriptions', 'access']) {
@@ -69,6 +73,7 @@ describe('FocusedAgentDetails', () => {
     }
     expect(screen.getByTestId('agent-access')).toBeInTheDocument()
     expect(screen.getByTestId('worker-secrets')).toBeInTheDocument()
+    expect(screen.getByTestId('bot-instance-profile')).toBeInTheDocument()
   })
 
   it('explains when a legacy App is no longer linked to an Org Bot', () => {

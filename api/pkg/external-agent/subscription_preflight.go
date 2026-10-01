@@ -57,6 +57,9 @@ func (h *HydraExecutor) verifySubscriptionCredentials(ctx context.Context, agent
 	if !credentialType.IsSubscription() {
 		return nil
 	}
+	if session.Metadata.SessionRole == types.SessionRoleOrgBotInstance {
+		return types.ErrBotInstanceSubscriptionCredentials
+	}
 
 	switch runtime {
 	case types.CodeAgentRuntimeClaudeCode:

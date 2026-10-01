@@ -7,13 +7,19 @@ import TableCell from '@mui/material/TableCell'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import TableContainer from '@mui/material/TableContainer'
+import TableSortLabel from '@mui/material/TableSortLabel'
 import Paper from '@mui/material/Paper'
 import CircularProgress from '@mui/material/CircularProgress'
+
+export type TableSortDirection = 'asc' | 'desc'
 
 export interface ITableField {
   name: string,
   title: string,
   numeric?: boolean,
+  // Opt-in: renders a clickable sort label in the header. The parent owns the
+  // sort state and does the actual sorting.
+  sortable?: boolean,
   style?: React.CSSProperties,
   className?: string,
 }
@@ -29,6 +35,11 @@ const SimpleTable: FC<{
   actionsTitle?: string,
   actionsFieldClassname?: string,
   loading?: boolean,
+  sortField?: string,
+  sortDirection?: TableSortDirection,
+  onSortChange?: {
+    (field: string): void,
+  },
   onRowClick?: {
     (row: Record<string, any>): void,
   },
@@ -55,6 +66,9 @@ const SimpleTable: FC<{
   actionsTitle = 'Actions',
   actionsFieldClassname,
   loading = false,
+  sortField,
+  sortDirection = 'asc',
+  onSortChange,
   onRowClick,
   onRowContextMenu,
   getActions,
@@ -69,9 +83,25 @@ const SimpleTable: FC<{
             <TableRow>
               {
                 fields.map((field, i) => {
+                  const sortable = field.sortable && !!onSortChange
+                  const active = sortable && sortField === field.name
                   return (
-                    <TableCell key={ i } align={ field.numeric ? 'right' : 'left' }>
-                      { field.title }
+                    <TableCell
+                      key={ i }
+                      align={ field.numeric ? 'right' : 'left' }
+                      sortDirection={ active ? sortDirection : false }
+                    >
+                      {
+                        sortable ? (
+                          <TableSortLabel
+                            active={ active }
+                            direction={ active ? sortDirection : 'asc' }
+                            onClick={ () => onSortChange(field.name) }
+                          >
+                            { field.title }
+                          </TableSortLabel>
+                        ) : field.title
+                      }
                     </TableCell>
                   )
                 })

@@ -3,21 +3,87 @@ package server
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/dgraph-io/ristretto/v2"
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestGetZedConfigHarnessPolicyUsesGenerationModelProvider(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		provider   string
+		wantStatus int
+		wantError  string
+	}{
+		{name: "allowed", provider: "pe_allowed", wantStatus: http.StatusInternalServerError, wantError: "failed to get API key"},
+		{name: "disallowed", provider: "pe_disallowed", wantStatus: http.StatusUnprocessableEntity, wantError: `provider "pe_disallowed" is not enabled`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			providerManager := manager.NewMockProviderManager(ctrl)
+			session := &types.Session{ID: "ses_1", Owner: "user_1", ParentApp: "app_1", OrganizationID: "org_1"}
+			app := &types.App{
+				ID:             session.ParentApp,
+				Owner:          session.Owner,
+				OrganizationID: session.OrganizationID,
+				Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+					AgentType:               types.AgentTypeZedExternal,
+					CodeAgentRuntime:        types.CodeAgentRuntimeZedAgent,
+					GenerationModelProvider: tt.provider,
+					GenerationModel:         "model-1",
+				}}}},
+			}
+
+			getSessionCalls := 1
+			if tt.provider == "pe_allowed" {
+				getSessionCalls = 2
+			}
+			mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).Times(getSessionCalls)
+			mockStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+			mockStore.EXPECT().GetOrgCodeAgentHarness(gomock.Any(), app.OrganizationID, types.CodeAgentRuntimeZedAgent).Return(&types.OrgCodeAgentHarness{
+				Enabled: true, ProviderRefs: []string{"pe_allowed"},
+			}, nil)
+			providerManager.EXPECT().ListProviderEndpointsForOwner(gomock.Any(), app.OrganizationID, types.OwnerTypeOrg).Return([]*types.ProviderEndpoint{{
+				ID: "pe_allowed", Name: "allowed", EndpointType: types.ProviderEndpointTypeOrg,
+			}}, nil)
+			if tt.provider == "pe_allowed" {
+				mockStore.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, errors.New("stop after policy fence"))
+			}
+
+			server := &HelixAPIServer{
+				Store:                 mockStore,
+				providerManager:       providerManager,
+				specDrivenTaskService: services.NewSpecDrivenTaskService(mockStore, nil, "", nil, nil, nil, nil, nil, services.NewDisabledKoditService()),
+			}
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/"+session.ID+"/zed-config", nil)
+			req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: session.Owner}))
+
+			response, httpErr := server.getZedConfig(httptest.NewRecorder(), req)
+
+			require.Nil(t, response)
+			require.NotNil(t, httpErr)
+			assert.Equal(t, tt.wantStatus, httpErr.StatusCode)
+			assert.Contains(t, httpErr.Message, tt.wantError)
+		})
+	}
+}
 
 func TestGetProviderSnapshotMissingHarnessPolicyIncludesGlobalProviders(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -235,7 +301,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			want: &types.CodeAgentConfig{
 				AgentName:        "claude",
-				Model:            "claude-opus-5",
+				Model:            "claude-opus-5-5",
 				Runtime:          types.CodeAgentRuntimeClaudeCode,
 				UsesSubscription: true,
 			},
@@ -264,7 +330,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			want: &types.CodeAgentConfig{
 				AgentName:        "claude",
-				Model:            "claude-opus-5",
+				Model:            "claude-opus-5-5",
 				Runtime:          types.CodeAgentRuntimeClaudeCode,
 				UsesSubscription: true,
 			},
@@ -391,6 +457,21 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			want: &types.CodeAgentConfig{
 				Provider: "deepseek", Model: "deepseek/deepseek-v4-pro", AgentName: "dsh",
 				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeDeepSeekHarness,
+			},
+		},
+		{
+			// Without its own case goose fell through to the zed-agent
+			// default, so chats ran Zed's native agent while the daemon
+			// configured an unused "goose" agent_server.
+			name: "goose_code routes to the goose agent_server",
+			assistant: &types.AssistantConfig{
+				Provider:         "openai",
+				Model:            "gpt-5.2",
+				CodeAgentRuntime: types.CodeAgentRuntimeGooseCode,
+			},
+			want: &types.CodeAgentConfig{
+				Provider: "openai", Model: "openai/gpt-5.2", AgentName: "goose",
+				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeGooseCode,
 			},
 		},
 		{

@@ -29,6 +29,7 @@ import (
 
 type PostgresStore struct {
 	cfg config.Store
+	*SecretIntakePersistence
 
 	gdb    *gorm.DB
 	pubsub pubsub.PubSub
@@ -75,10 +76,11 @@ func NewPostgresStore(
 	}
 
 	store := &PostgresStore{
-		cfg:    cfg,
-		gdb:    gormDB,
-		pubsub: pubsub,
-		Store:  orgstore.New(gormDB),
+		cfg:                     cfg,
+		gdb:                     gormDB,
+		pubsub:                  pubsub,
+		Store:                   orgstore.New(gormDB),
+		SecretIntakePersistence: NewSecretIntakePersistence(gormDB),
 	}
 
 	if cfg.AutoMigrate {
@@ -215,6 +217,10 @@ func (s *PostgresStore) runMigrations() error {
 		&types.Project{},
 		&types.Artifact{},
 		&types.ArtifactVersion{},
+		&types.SecretIntake{},
+		&types.WebhookEndpoint{},
+		&types.WebhookEvent{},
+		&types.WebhookDelivery{},
 		&types.ProjectAuditLog{}, // Audit trail for project activity
 		&types.OrgAuditLog{},     // Audit trail for Helix org activity
 		&types.SampleProject{},
@@ -252,6 +258,11 @@ func (s *PostgresStore) runMigrations() error {
 	)
 	if err != nil {
 		return err
+	}
+	if err := s.gdb.WithContext(context.Background()).Exec(
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_llm_calls_request_id ON llm_calls (request_id)",
+	).Error; err != nil {
+		return fmt.Errorf("failed to create llm_calls request ID index: %w", err)
 	}
 	if err := s.backfillAgentKinds(context.Background()); err != nil {
 		return err

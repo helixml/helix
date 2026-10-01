@@ -139,6 +139,20 @@ func (m *MemoryStore) TouchSession(_ context.Context, sessionID string) error {
 	return nil
 }
 
+func (m *MemoryStore) ClaimSessionAutoRestart(_ context.Context, sessionID string, restartedAt, before time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return false, store.ErrNotFound
+	}
+	if !session.Metadata.LastAutoRestartAt.IsZero() && !session.Metadata.LastAutoRestartAt.Before(before) {
+		return false, nil
+	}
+	session.Metadata.LastAutoRestartAt = restartedAt
+	return true, nil
+}
+
 func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQuery) ([]*types.Session, int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -729,6 +743,9 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 	defer m.mu.RUnlock()
 	out := make([]*types.SpecTask, 0, len(m.specTasks))
 	for _, t := range m.specTasks {
+		if filters != nil && containsSpecTaskStatus(filters.ExcludeStatuses, t.Status) {
+			continue
+		}
 		if filters != nil && filters.PlanningSessionID != "" && t.PlanningSessionID != filters.PlanningSessionID {
 			continue
 		}
@@ -737,6 +754,11 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 		}
 		if filters != nil && filters.FilterProjectIDs && !containsString(filters.ProjectIDs, t.ProjectID) {
 			continue
+		}
+		if filters != nil && filters.ExcludeDeletedProjects {
+			if project := m.projects[t.ProjectID]; project != nil && project.DeletedAt.Valid {
+				continue
+			}
 		}
 		if filters != nil && filters.FilterParticipants {
 			matchesParticipant := false
@@ -802,6 +824,15 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 		out = out[:filters.Limit]
 	}
 	return out, nil
+}
+
+func containsSpecTaskStatus(statuses []types.SpecTaskStatus, status types.SpecTaskStatus) bool {
+	for _, candidate := range statuses {
+		if candidate == status {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *MemoryStore) UpdateSpecTask(_ context.Context, task *types.SpecTask) error {

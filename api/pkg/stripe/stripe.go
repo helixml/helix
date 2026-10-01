@@ -183,15 +183,21 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 		}
 		return
 	case stripe.EventTypeCheckoutSessionCompleted:
+		// Top-up handlers must return a non-2xx status on failure so Stripe
+		// retries the delivery. The wallet store deduplicates retries by
+		// checkout session and payment intent IDs, so a retried event credits
+		// the wallet exactly once.
 		err := s.handleTopUpCheckoutSessionCompletedEvent(event)
 		if err != nil {
 			log.Error().Msgf("Error handling checkout session completed event: %s", err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 		return
 	case stripe.EventTypePaymentIntentSucceeded:
 		err := s.handleTopUpEvent(event)
 		if err != nil {
 			log.Error().Msgf("Error handling top up event: %s", err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 		return
 	default:

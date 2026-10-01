@@ -537,7 +537,7 @@ func (s *HelixAPIServer) archiveSession(_ http.ResponseWriter, req *http.Request
 		}
 		if !orgAgentSession {
 			if err := s.externalAgentExecutor.StopDesktop(ctx, sessionID); err != nil {
-				log.Warn().Err(err).Str("session_id", sessionID).Msg("failed to stop external agent while archiving session")
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to stop external agent while archiving session: %s", err))
 			}
 		}
 	}
@@ -625,6 +625,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	// configured by the app
 	var messageContextLimit int
 	var agentType string
+	// orgBotApp is set when the chat is with an Org Bot's app.
+	var orgBotApp *types.App
 
 	if startReq.AppID == "" {
 		// If organization ID is set, check if user is a member of the organization
@@ -653,6 +655,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			log.Error().Err(err).Str("app_id", startReq.AppID).Str("user_id", user.ID).Msg("User doesn't have access to app")
 			http.Error(rw, "You do not have access to the app with the id: "+startReq.AppID, http.StatusForbidden)
 			return
+		}
+
+		if app.AgentKind == types.AgentKindOrg {
+			orgBotApp = app
 		}
 
 		// Set organization ID if not set yet
@@ -789,6 +795,22 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		newSession bool
 	)
 
+	// A new chat with an Org Bot's app is a new instance of that Bot: its own
+	// sandbox with the Bot's identity. The message is then an ordinary turn in
+	// that instance. Validate client input before launching its sandbox.
+	if orgBotApp != nil && startReq.SessionID == "" {
+		if err := validateNewBotChatRequest(&startReq); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		instance, httpErr := s.createBotInstanceForChat(ctx, user, orgBotApp)
+		if httpErr != nil {
+			http.Error(rw, httpErr.Message, httpErr.StatusCode)
+			return
+		}
+		startReq.SessionID = instance.ID
+	}
+
 	if startReq.SessionID != "" {
 		session, err = s.Store.GetSession(ctx, startReq.SessionID)
 		if err != nil {
@@ -806,6 +828,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// read-only members from driving the agent.
 		if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
 			http.Error(rw, err.Error(), http.StatusForbidden)
+			return
+		}
+		// An app key speaks for its app alone, not for every session its
+		// owner can reach.
+		if user.AppID != "" && session.ParentApp != user.AppID {
+			http.Error(rw, "this app API key may only chat in sessions of its own app", http.StatusForbidden)
 			return
 		}
 
@@ -923,6 +951,13 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Str("session_id", session.ID).
 			Str("app_id", startReq.AppID).
 			Msg("new session: set session ID in context for document tracking")
+	}
+
+	if !newSession && session.Metadata.AgentType == "zed_external" {
+		if httpErr := s.moveChatAttachmentsToWorkspace(ctx, user, session, &startReq); httpErr != nil {
+			http.Error(rw, httpErr.Message, httpErr.StatusCode)
+			return
+		}
 	}
 
 	session, err = appendOrOverwrite(session, &startReq)
@@ -2879,7 +2914,7 @@ func (s *HelixAPIServer) threadIsWedged(ctx context.Context, session *types.Sess
 // Code thread jsonl) persists across the recreate either way; resetThread only
 // governs the Helix→Zed thread POINTER.
 //
-// Steps: validate it's an external Zed agent → StopDesktop (best-effort) →
+// Steps: validate it's an external Zed agent → StopDesktop →
 // [optionally] clear ZedThreadID → resumeSessionInternal (StartDesktop) → reset
 // crashed prompts → kick the queue. Returns the count of prompts that were
 // reset. Callers must have already authorized the user against the session.
@@ -2895,36 +2930,25 @@ func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *type
 
 	previousThreadID := session.Metadata.ZedThreadID
 
-	// Persist "a boot is in flight" BEFORE the teardown. A restart is a stop
-	// followed by a start, and without this marker the session spends the whole
-	// teardown with an empty status but a still-set ContainerName — which the
-	// live executor probe in getSession reads as "stopped", so the UI shows the
-	// paused placeholder and a "Start sandbox" button mid-restart. StopDesktop
-	// deliberately preserves "restarting" (it still clears "running"/"starting",
-	// so stopping a booting desktop is unaffected), and StartDesktop overwrites
-	// it with "starting" → "running" as the new container comes up.
-	if err := s.Store.MarkSessionRestarting(ctx, sessionID); err != nil {
-		// Non-fatal: the restart itself still works, the user just sees a
-		// stale status until StartDesktop writes "starting".
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to mark session restarting (continuing — UI may briefly show stopped)")
+	// Tear down the half-dead container so the resume path below brings up a clean
+	// one — the in-container agent process has crashed but the surrounding Zed
+	// wrapper / container may still be running with stale state. If teardown
+	// fails, abort rather than reusing a live container whose session
+	// key or state may no longer match the control plane.
+	if err := s.externalAgentExecutor.StopDesktop(ctx, sessionID); err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("StopDesktop during crash-restart failed")
+		return 0, system.NewHTTPError500(fmt.Sprintf("failed to stop agent for restart: %s", err.Error()))
 	}
 
-	// clearRestarting drops the in-flight marker so a failed restart lands on
-	// the paused placeholder instead of a spinner that never resolves.
+	// Mark the boot only after teardown succeeds. A failed stop leaves the old
+	// container alive, so its previous running state must remain visible.
+	if err := s.Store.MarkSessionRestarting(ctx, sessionID); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to mark session restarting (continuing — UI may briefly show stopped)")
+	}
 	clearRestarting := func() {
 		if _, err := s.Store.ClearSessionStartingStatus(ctx, sessionID); err != nil {
 			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to clear restarting status after failed restart")
 		}
-	}
-
-	// Tear down the half-dead container so the resume path below brings up a clean
-	// one — the in-container agent process has crashed but the surrounding Zed
-	// wrapper / container may still be running with stale state. StopDesktop is
-	// best-effort: if the container is already gone, that's fine; the workspace
-	// volume (which holds threads.db and the agent's session state) is preserved
-	// either way and will be remounted into the new container.
-	if err := s.externalAgentExecutor.StopDesktop(ctx, sessionID); err != nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("StopDesktop during crash-restart failed (continuing — container may already be gone)")
 	}
 
 	// Clear the Zed thread ONLY when the caller asked for a reset (poisoned-thread

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -105,6 +107,39 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	assert.NotEmpty(t, task.DesignDocPath)
 
 	// Note: Goroutine will fail gracefully, we only test the synchronous part
+}
+
+func TestSpecDrivenTaskService_PreparingAttachmentTaskDefersCreationAudit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(
+		mockStore, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	var auditWG sync.WaitGroup
+	service.SetAuditLogWaitGroup(&auditWG)
+	ctx := context.Background()
+	config := testSpecTaskCodeAgentConfig()
+	mockStore.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID: "project-1", CodeAgentConfig: config,
+	}, nil)
+	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
+	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			require.Equal(t, types.TaskStatusPreparing, task.Status)
+			return nil
+		},
+	)
+	mockStore.EXPECT().CreateProjectAuditLog(gomock.Any(), gomock.Any()).Times(0)
+
+	task, err := service.CreateTaskFromPromptPreparingAttachments(ctx, &types.CreateTaskRequest{
+		ProjectID: "project-1",
+		Prompt:    "Use the attached brief",
+		UserID:    "user-1",
+		UserEmail: "user@example.com",
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.TaskStatusPreparing, task.Status)
+	auditWG.Wait()
 }
 
 func TestSpecDrivenTaskService_SnapshotsProjectPhaseAgents(t *testing.T) {
@@ -658,6 +693,7 @@ func TestSpecDrivenTaskService_ApproveSpecsUsesCustomBaseForNewBranch(t *testing
 	assert.Contains(t, checkoutCommand[2], "git fetch origin 'release/2.0'")
 	assert.Contains(t, checkoutCommand[2], "origin/'release/2.0'")
 	assert.NotContains(t, checkoutCommand[2], "origin/'main'")
+	assert.NotContains(t, checkoutCommand[2], "git push")
 	assert.Contains(t, approvalPrompt, "git fetch origin release/2.0 && git merge origin/release/2.0")
 	assert.NotContains(t, approvalPrompt, "git fetch origin main && git merge origin/main")
 }
@@ -839,6 +875,53 @@ func TestSpecDrivenTaskService_ApproveSpecsRedrivesPendingHandoff(t *testing.T) 
 	mockStore.EXPECT().TransitionSpecTaskStatus(gomock.Any(), task.ID, []types.SpecTaskStatus{types.TaskStatusImplementationQueued}, types.TaskStatusImplementation, gomock.Any()).Return(true, nil)
 
 	require.NoError(t, service.ApproveSpecs(context.Background(), task))
+	assert.Equal(t, 1, handoffCalls)
+	assert.Equal(t, types.TaskStatusImplementation, task.Status)
+}
+
+func TestSpecDrivenTaskService_ApproveSpecsWakesStoppedDesktop(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(mockStore, nil, "agent", nil, nil, nil, nil, nil, NewDisabledKoditService())
+	execErrors := []error{connman.ErrNoConnection, connman.ErrReconnectTimeout, nil}
+	execCalls := 0
+	service.ExecInDesktop = func(context.Context, string, []string) error {
+		err := execErrors[execCalls]
+		execCalls++
+		if err == nil {
+			return nil
+		}
+		return fmt.Errorf("failed to connect to desktop via RevDial: %w", err)
+	}
+	handoffCalls := 0
+	service.TransitionToImplementation = func(context.Context, *types.SpecTask, string) error {
+		handoffCalls++
+		return nil
+	}
+	wokenSession := ""
+	wakeCalls := 0
+	service.WakeDesktop = func(sessionID string) {
+		wokenSession = sessionID
+		wakeCalls++
+	}
+	task := &types.SpecTask{
+		ID: "task-retry", ProjectID: "project-1", CreatedBy: "user-1",
+		Status: types.TaskStatusImplementationQueued, PlanningSessionID: "session-1",
+		SpecApproval: &types.SpecApprovalResponse{Approved: true},
+		BranchMode:   types.BranchModeNew, BranchName: "feature/retry", BaseBranch: "main",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+	}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil).Times(3)
+	mockStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{ID: task.ProjectID, DefaultRepoID: "repo-1"}, nil).Times(4)
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-1").Return(&types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}, nil).Times(3)
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{}, nil).Times(2)
+	mockStore.EXPECT().TransitionSpecTaskStatus(gomock.Any(), task.ID, []types.SpecTaskStatus{types.TaskStatusImplementationQueued}, types.TaskStatusImplementation, gomock.Any()).Return(true, nil)
+
+	require.NoError(t, service.ApproveSpecs(context.Background(), task))
+	require.NoError(t, service.ApproveSpecs(context.Background(), task))
+	require.NoError(t, service.ApproveSpecs(context.Background(), task))
+	assert.Equal(t, task.PlanningSessionID, wokenSession)
+	assert.Equal(t, 2, wakeCalls)
 	assert.Equal(t, 1, handoffCalls)
 	assert.Equal(t, types.TaskStatusImplementation, task.Status)
 }

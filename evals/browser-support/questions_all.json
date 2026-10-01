@@ -1,0 +1,205 @@
+[
+ {
+  "id": "q1_crm_owner",
+  "difficulty": "easy",
+  "systems": [
+   "crm"
+  ],
+  "question": "In Acme CRM, who is the account manager for the customer Lunar Industries?",
+  "must": [
+   [
+    "marcus webb"
+   ]
+  ]
+ },
+ {
+  "id": "q2_crm_pagination",
+  "difficulty": "easy",
+  "systems": [
+   "crm"
+  ],
+  "question": "In Acme CRM, when does Tidewater Traders' contract end?",
+  "must": [
+   [
+    "2027-02-14",
+    "14 feb",
+    "feb 14",
+    "february 14",
+    "14 february",
+    "14/02/2027",
+    "02/14/2027",
+    "2/14/2027"
+   ]
+  ]
+ },
+ {
+  "id": "q3_billing_balance",
+  "difficulty": "medium",
+  "systems": [
+   "billing"
+  ],
+  "question": "In BillPro, what is the outstanding balance on billing account BA-10694?",
+  "must": [
+   [
+    "4,329.51",
+    "4329.51"
+   ]
+  ]
+ },
+ {
+  "id": "q4_billing_overdue",
+  "difficulty": "medium",
+  "systems": [
+   "billing"
+  ],
+  "question": "In BillPro, how many invoices on billing account BA-10743 are overdue, and what is their combined amount?",
+  "must": [
+   [
+    "re:\\b(2|two)\\b"
+   ],
+   [
+    "8,790.22",
+    "8790.22"
+   ]
+  ]
+ },
+ {
+  "id": "q5_helpdesk_history",
+  "difficulty": "medium",
+  "systems": [
+   "helpdesk"
+  ],
+  "question": "In HelpDesk Classic, ticket #5090 is closed. Who closed it, and what status was it in immediately before it was closed?",
+  "must": [
+   [
+    "silva"
+   ],
+   [
+    "pending customer"
+   ]
+  ]
+ },
+ {
+  "id": "q6_cross_crm_billing",
+  "difficulty": "hard",
+  "systems": [
+   "crm",
+   "billing"
+  ],
+  "question": "Globex Corporation is asking how much they currently owe us in total. What is their outstanding balance?",
+  "must": [
+   [
+    "15,983.03",
+    "15983.03"
+   ]
+  ]
+ },
+ {
+  "id": "q7_cross_three",
+  "difficulty": "hard",
+  "systems": [
+   "helpdesk",
+   "crm"
+  ],
+  "question": "A customer is calling about helpdesk ticket #5063. What is the ticket's priority, which service tier is the customer on in the CRM, and who is their account manager?",
+  "must": [
+   [
+    "p1",
+    "critical"
+   ],
+   [
+    "platinum"
+   ],
+   [
+    "lukas petrauskas"
+   ]
+  ]
+ },
+ {
+  "id": "q8_public_saucedemo",
+  "difficulty": "easy",
+  "systems": [
+   "saucedemo"
+  ],
+  "question": "In the Swag Labs store, what is the name and price of the cheapest product?",
+  "must": [
+   [
+    "onesie"
+   ],
+   [
+    "7.99"
+   ]
+  ]
+ },
+ {
+  "id": "h1_aggregate_platinum",
+  "difficulty": "hard",
+  "systems": [
+   "crm"
+  ],
+  "question": "Which Platinum-tier customers is Ines Duarte the account manager for?",
+  "must": [
+   [
+    "cyberdyne"
+   ],
+   [
+    "yoyodyne"
+   ],
+   [
+    "ingen"
+   ]
+  ]
+ },
+ {
+  "id": "h2_fanout_traders",
+  "difficulty": "hard",
+  "systems": [
+   "crm",
+   "billing"
+  ],
+  "question": "Of all our customers whose name ends in \"Traders\", which one currently owes us the most, and how much is it?",
+  "must": [
+   [
+    "octan"
+   ],
+   [
+    "37,637.53",
+    "37637.53"
+   ]
+  ]
+ },
+ {
+  "id": "h3_not_found",
+  "difficulty": "medium",
+  "systems": [
+   "crm"
+  ],
+  "question": "What is the outstanding balance for our customer Stark Industries?",
+  "must": [
+   [
+    "re:(not found|no (customer|account|record|match|such)|could ?n.t find|does ?n.t exist|doesn't exist|not exist|unable to (find|locate)|did ?n.t find|no results|not (in|listed))"
+   ]
+  ]
+ },
+ {
+  "id": "h4_ticket_compare",
+  "difficulty": "medium",
+  "systems": [
+   "helpdesk"
+  ],
+  "question": "Kerbal Labs has several open tickets. Which open ticket has the highest priority, and when was it opened?",
+  "must": [
+   [
+    "5063"
+   ],
+   [
+    "2026-08-09",
+    "aug 9",
+    "august 9",
+    "9 aug",
+    "9 august",
+    "08/09/2026"
+   ]
+  ]
+ }
+]

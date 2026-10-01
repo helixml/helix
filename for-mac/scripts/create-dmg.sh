@@ -393,7 +393,7 @@ if [ "$UPLOAD" = true ]; then
     cat > "$LATEST_JSON" << EOF
 {
   "version": "${VERSION}",
-  "url": "${R2_PUBLIC_URL}/desktop/${VERSION}/${DMG_NAME}.dmg",
+  "dmg_url": "${R2_PUBLIC_URL}/desktop/${VERSION}/${DMG_NAME}.dmg",
   "vm_manifest": "${R2_PUBLIC_URL}/vm/${VERSION}/manifest.json"
 }
 EOF

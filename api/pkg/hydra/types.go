@@ -114,6 +114,19 @@ type CreateDevContainerRequest struct {
 	// using Privileged instead.
 	RootlessContainerEngine bool `json:"rootless_container_engine,omitempty"`
 
+	// BrowserSandbox lets an unprivileged container without a container
+	// engine create the user namespaces Chrome's renderer sandbox needs
+	// (Docker's default seccomp profile plus namespace creation). Used by org
+	// bot instances, which browse untrusted pages.
+	BrowserSandbox bool `json:"browser_sandbox,omitempty"`
+
+	// Untrusted instance controls. DiskSizeGB provisions a capacity-limited,
+	// persistent /home/retro filesystem. PidsLimit is enforced by the pids
+	// cgroup. NoNewPrivileges blocks setuid/setgid privilege escalation.
+	DiskSizeGB      int   `json:"disk_size_gb,omitempty"`
+	PidsLimit       int64 `json:"pids_limit,omitempty"`
+	NoNewPrivileges bool  `json:"no_new_privileges,omitempty"`
+
 	// ProjectID for golden Docker cache lookup (per-project overlayfs)
 	ProjectID string `json:"project_id,omitempty"`
 
@@ -121,6 +134,11 @@ type CreateDevContainerRequest struct {
 	// Golden build sessions use a plain directory (not overlay) for Docker data,
 	// and the data is promoted to golden when the container exits with code 0.
 	GoldenBuild bool `json:"golden_build,omitempty"`
+
+	// GoldenBuildTimeoutSeconds is how long monitorGoldenBuild waits for the
+	// result file before killing the build. Sent by the API so both sides use
+	// the same deadline; 0 (older API) = types.GoldenBuildTimeout.
+	GoldenBuildTimeoutSeconds int `json:"golden_build_timeout_seconds,omitempty"`
 
 	// VCPUs caps the number of CPUs the container can use. 0 = no cap.
 	VCPUs int `json:"vcpus,omitempty"`
@@ -196,6 +214,9 @@ type DevContainer struct {
 	// Golden build fields
 	IsGoldenBuild bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
 	ProjectID     string `json:"project_id,omitempty"`      // Project ID for golden promotion
+
+	// GoldenBuildTimeout is the deadline monitorGoldenBuild waits for the result file.
+	GoldenBuildTimeout time.Duration `json:"-"`
 }
 
 // ListDevContainersResponse is the response listing all dev containers
@@ -261,12 +282,16 @@ type GCSkip struct {
 // GCReconcileResponse is hydra's report of what it reaped (or would reap, in
 // dry-run mode) and what it deliberately skipped.
 type GCReconcileResponse struct {
-	ZvolsReaped         []string `json:"zvols_reaped"`
-	ZvolsSkipped        []GCSkip `json:"zvols_skipped"`
-	WorkspacesReaped    []string `json:"workspaces_reaped"`
-	WorkspacesSkipped   []GCSkip `json:"workspaces_skipped"`
-	FileCopyDirsReaped  []string `json:"file_copy_dirs_reaped"`
-	FileCopyDirsSkipped []GCSkip `json:"file_copy_dirs_skipped"`
-	GoldensFlattened    []string `json:"goldens_flattened"`
-	BytesFreed          int64    `json:"bytes_freed"`
+	ZvolsReaped          []string `json:"zvols_reaped"`
+	ZvolsSkipped         []GCSkip `json:"zvols_skipped"`
+	WorkspacesReaped     []string `json:"workspaces_reaped"`
+	WorkspacesSkipped    []GCSkip `json:"workspaces_skipped"`
+	FileCopyDirsReaped   []string `json:"file_copy_dirs_reaped"`
+	FileCopyDirsSkipped  []GCSkip `json:"file_copy_dirs_skipped"`
+	InstanceDisksReaped  []string `json:"instance_disks_reaped"`
+	InstanceDisksSkipped []GCSkip `json:"instance_disks_skipped"`
+	ContainersReaped     []string `json:"containers_reaped"`
+	VolumesReaped        []string `json:"volumes_reaped"`
+	GoldensFlattened     []string `json:"goldens_flattened"`
+	BytesFreed           int64    `json:"bytes_freed"`
 }

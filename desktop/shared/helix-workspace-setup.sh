@@ -37,6 +37,11 @@ export GIT_MERGE_AUTOEDIT=no
 # bytes to both, so the user still sees live output in the ghostty window.
 SETUP_LOG="$HOME/.helix-setup.log"
 : > "$SETUP_LOG" || true
+# Keep the real terminal on fd 3/4. Everything below writes to a pipe instead of
+# the tty, and bash only treats itself as interactive when stdin AND stderr are
+# ttys — so the debug shell in cleanup_and_prompt must restore these first or it
+# starts non-interactive (no prompt, no readline, no job control).
+exec 3>&1 4>&2
 exec > >(tee -a "$SETUP_LOG") 2>&1
 
 # Trap any exit (success or failure) to show interactive menu
@@ -74,6 +79,11 @@ JSON
         fi
     fi
 
+    # Hand the terminal back before prompting: closing the pipe lets tee flush
+    # and exit, the menu stops being block-buffered, and the debug shell below
+    # gets tty stdout/stderr.
+    exec 1>&3 2>&4 3>&- 4>&-
+
     echo ""
     echo "What would you like to do?"
     echo "  1) Close this window"
@@ -99,7 +109,14 @@ JSON
             else
                 cd "$HOME/work"
             fi
-            exec bash
+            # No -i needed: with fds restored bash sees ttys on stdin+stderr and
+            # goes interactive on its own. Headless runs have no tty, so there is
+            # nobody to give a shell to.
+            if [ -t 0 ]; then
+                exec bash
+            fi
+            trap - EXIT
+            exit $exit_code
             ;;
     esac
 }
@@ -219,6 +236,35 @@ else
     exit 1
 fi
 echo ""
+
+# =========================================
+# Start the Helix skills refresh (see "Helix agent skills" below)
+# =========================================
+# The fetch from upstream takes 1.5-2s and depends on nothing but the network,
+# so it runs alongside the repository clones; setup_helix_skills joins it.
+SKILLS_SEED=/opt/helix/skills
+SKILLS_DIR="$WORK_DIR/.helix-skills"
+SKILLS_DEFAULT="helix-cli helix-artifacts helix-spec-tasks helix-board helix-files"
+SKILLS_REPO="${HELIX_SKILLS_REPO:-https://github.com/helixml/skills.git}"
+SKILLS_REF="${HELIX_SKILLS_REF-main}"
+# HELIX_SKILLS=none links no skill, so a refresh would only delay setup on a
+# network fetch nothing reads.
+if [ "${HELIX_SKILLS:-}" = "none" ]; then
+    SKILLS_REF=""
+fi
+SKILLS_FETCH_PID=""
+SKILLS_FETCH_ERR=/dev/null
+if [ -d "$SKILLS_SEED/skills" ]; then
+    if [ ! -d "$SKILLS_DIR/.git" ]; then
+        rm -rf "$SKILLS_DIR"
+        cp -r "$SKILLS_SEED" "$SKILLS_DIR" || echo "  Skills: cannot copy seed $SKILLS_SEED -> $SKILLS_DIR"
+    fi
+    if [ -n "$SKILLS_REF" ] && [ -d "$SKILLS_DIR/.git" ]; then
+        SKILLS_FETCH_ERR=$(mktemp) || SKILLS_FETCH_ERR=/dev/null
+        GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$SKILLS_DIR" fetch -q --depth 1 "$SKILLS_REPO" "$SKILLS_REF" 2>"$SKILLS_FETCH_ERR" &
+        SKILLS_FETCH_PID=$!
+    fi
+fi
 
 # =========================================
 # Clone Repositories
@@ -665,35 +711,27 @@ echo "  Claude: ~/.claude.json -> $CLAUDE_STATE_DIR/.claude.json"
 #
 #   HELIX_SKILLS_REPO  upstream to refresh from (default github.com/helixml/skills)
 #   HELIX_SKILLS_REF   branch/tag/sha to track (default main; empty = never refresh)
-#   HELIX_SKILLS       space-separated skill names to link, or "all"
+#   HELIX_SKILLS       space-separated skill names to link, "all", or "none"
+#                      (links nothing and skips the refresh)
 #                      (default: helix-cli helix-artifacts helix-spec-tasks helix-board helix-files)
 #
 # Nothing in here may abort workspace setup (the script runs under set -e):
 # a broken or restructured skills checkout must cost the agent its skills, not
 # its desktop. Hence the function + explicit guards.
-SKILLS_SEED=/opt/helix/skills
-SKILLS_DIR="$WORK_DIR/.helix-skills"
-SKILLS_DEFAULT="helix-cli helix-artifacts helix-spec-tasks helix-board helix-files"
 setup_helix_skills() {
-    if [ ! -d "$SKILLS_DIR/.git" ]; then
-        rm -rf "$SKILLS_DIR"
-        cp -r "$SKILLS_SEED" "$SKILLS_DIR" || { echo "  Skills: cannot copy seed $SKILLS_SEED -> $SKILLS_DIR"; return 1; }
-    fi
-    local repo="${HELIX_SKILLS_REPO:-https://github.com/helixml/skills.git}"
-    local ref="${HELIX_SKILLS_REF-main}"
-    if [ -n "$ref" ]; then
-        local fetch_err
-        fetch_err=$(mktemp) || fetch_err=/dev/null
-        if GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$SKILLS_DIR" fetch -q --depth 1 "$repo" "$ref" 2>"$fetch_err" \
-            && git -C "$SKILLS_DIR" checkout -q --detach FETCH_HEAD; then
-            echo "  Skills: refreshed from $repo@$ref ($(git -C "$SKILLS_DIR" rev-parse --short HEAD 2>/dev/null))"
+    [ -d "$SKILLS_DIR/.git" ] || { echo "  Skills: no checkout at $SKILLS_DIR"; return 1; }
+    if [ -n "$SKILLS_FETCH_PID" ]; then
+        if wait "$SKILLS_FETCH_PID" && git -C "$SKILLS_DIR" checkout -q --detach FETCH_HEAD; then
+            echo "  Skills: refreshed from $SKILLS_REPO@$SKILLS_REF ($(git -C "$SKILLS_DIR" rev-parse --short HEAD 2>/dev/null))"
         else
-            echo "  Skills: refresh from $repo@$ref failed ($(tail -n1 "$fetch_err" 2>/dev/null)); keeping $(git -C "$SKILLS_DIR" rev-parse --short HEAD 2>/dev/null)"
+            echo "  Skills: refresh from $SKILLS_REPO@$SKILLS_REF failed ($(tail -n1 "$SKILLS_FETCH_ERR" 2>/dev/null)); keeping $(git -C "$SKILLS_DIR" rev-parse --short HEAD 2>/dev/null)"
         fi
-        [ "$fetch_err" != /dev/null ] && rm -f "$fetch_err"
+        [ "$SKILLS_FETCH_ERR" != /dev/null ] && rm -f "$SKILLS_FETCH_ERR"
     fi
     local selected="${HELIX_SKILLS:-$SKILLS_DEFAULT}"
-    if [ "$selected" = "all" ]; then
+    if [ "$selected" = "none" ]; then
+        selected=""
+    elif [ "$selected" = "all" ]; then
         selected=$(cd "$SKILLS_DIR/skills" 2>/dev/null && ls -d */ 2>/dev/null | tr -d / | tr '\n' ' ') || true
     fi
     local linked="" skill
@@ -728,9 +766,33 @@ if [ -d "$SKILLS_SEED/skills" ]; then
     fi
 fi
 
-# Browser profile (Chrome / Chromium): symlink ~/.config/google-chrome and
-# ~/.config/chromium to persistent storage so tabs, history, bookmarks and
-# extensions survive container restarts. Same pattern as ~/.claude above.
+# Project skills (<primary repo>/.agents/skills/<name>/SKILL.md). Harnesses only
+# scan .agents/skills relative to their cwd, and org-bot sessions run with cwd
+# $WORK_DIR rather than inside the repo, so link them into the global skill
+# dirs every harness reads. A project skill replaces a Helix skill of the same
+# name. Links from a previous repo or a removed skill are cleared first.
+link_project_skills() {
+    local repo_skills="$WORK_DIR/$HELIX_PRIMARY_REPO_NAME/.agents/skills"
+    local skills_home skill_dir
+    for skills_home in ~/.agents/skills ~/.claude/skills; do
+        mkdir -p "$skills_home" 2>/dev/null || continue
+        find "$skills_home" -maxdepth 1 -type l -lname "$WORK_DIR/*/.agents/skills/*" -delete 2>/dev/null || true
+        for skill_dir in "$repo_skills"/*/; do
+            [ -f "${skill_dir}SKILL.md" ] || continue
+            ln -sfn "${skill_dir%/}" "$skills_home/$(basename "$skill_dir")" \
+                || echo "  Project skills: cannot link $(basename "$skill_dir") into $skills_home"
+        done
+    done
+    echo "  Project skills: $(ls -d "$repo_skills"/*/ 2>/dev/null | xargs -r -n1 basename | tr '\n' ' ' || true)"
+}
+if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
+    link_project_skills
+fi
+
+# Browser profile (Chrome / Chromium): chrome-devtools-mcp uses this persistent
+# directory explicitly via --user-data-dir. Symlink the normal Chrome and
+# Chromium config paths to the same profile so a browser opened from the desktop
+# hands off to the MCP-controlled instance instead of creating a second profile.
 # Only $WORK_DIR is bind-mounted persistent — see api/pkg/sandbox/controller_provision.go.
 #
 # Note: arm64 uses Chromium (apt) and amd64 uses Google Chrome (deb). Both write

@@ -25,11 +25,27 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
+	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
 type MockStoreMockRecorder struct {
 	mock *MockStore
+}
+
+// ClaimSessionAutoRestart mocks base method.
+func (m *MockStore) ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimSessionAutoRestart", ctx, sessionID, restartedAt, before)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimSessionAutoRestart indicates an expected call of ClaimSessionAutoRestart.
+func (mr *MockStoreMockRecorder) ClaimSessionAutoRestart(ctx, sessionID, restartedAt, before any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimSessionAutoRestart", reflect.TypeOf((*MockStore)(nil).ClaimSessionAutoRestart), ctx, sessionID, restartedAt, before)
 }
 
 // NewMockStore creates a new mock instance.
@@ -132,6 +148,21 @@ func (mr *MockStoreMockRecorder) ClaimPromptForSending(ctx, promptID any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimPromptForSending", reflect.TypeOf((*MockStore)(nil).ClaimPromptForSending), ctx, promptID)
 }
 
+// ClaimWebhookDeliveries mocks base method.
+func (m *MockStore) ClaimWebhookDeliveries(ctx context.Context, now, lockedUntil time.Time, limit int) ([]*types.WebhookDelivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimWebhookDeliveries", ctx, now, lockedUntil, limit)
+	ret0, _ := ret[0].([]*types.WebhookDelivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimWebhookDeliveries indicates an expected call of ClaimWebhookDeliveries.
+func (mr *MockStoreMockRecorder) ClaimWebhookDeliveries(ctx, now, lockedUntil, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimWebhookDeliveries", reflect.TypeOf((*MockStore)(nil).ClaimWebhookDeliveries), ctx, now, lockedUntil, limit)
+}
+
 // CleanupExpiredAttentionEvents mocks base method.
 func (m *MockStore) CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error) {
 	m.ctrl.T.Helper()
@@ -218,6 +249,20 @@ func (m *MockStore) ClearStaleStartingSessions(ctx context.Context) (int64, erro
 func (mr *MockStoreMockRecorder) ClearStaleStartingSessions(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearStaleStartingSessions", reflect.TypeOf((*MockStore)(nil).ClearStaleStartingSessions), ctx)
+}
+
+// CompleteWebhookDelivery mocks base method.
+func (m *MockStore) CompleteWebhookDelivery(ctx context.Context, update *WebhookDeliveryUpdate) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CompleteWebhookDelivery", ctx, update)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CompleteWebhookDelivery indicates an expected call of CompleteWebhookDelivery.
+func (mr *MockStoreMockRecorder) CompleteWebhookDelivery(ctx, update any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteWebhookDelivery", reflect.TypeOf((*MockStore)(nil).CompleteWebhookDelivery), ctx, update)
 }
 
 // ConsumePendingInvitations mocks base method.
@@ -935,6 +980,20 @@ func (mr *MockStoreMockRecorder) CreateSecret(ctx, secret any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSecret", reflect.TypeOf((*MockStore)(nil).CreateSecret), ctx, secret)
 }
 
+// CreateSecretIntake mocks base method.
+func (m *MockStore) CreateSecretIntake(arg0 context.Context, arg1 *types.SecretIntake) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSecretIntake", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateSecretIntake indicates an expected call of CreateSecretIntake.
+func (mr *MockStoreMockRecorder) CreateSecretIntake(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSecretIntake", reflect.TypeOf((*MockStore)(nil).CreateSecretIntake), arg0, arg1)
+}
+
 // CreateServiceConnection mocks base method.
 func (m *MockStore) CreateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error {
 	m.ctrl.T.Helper()
@@ -1326,6 +1385,20 @@ func (m *MockStore) CreateWebServiceDeploy(ctx context.Context, d *types.WebServ
 func (mr *MockStoreMockRecorder) CreateWebServiceDeploy(ctx, d any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWebServiceDeploy", reflect.TypeOf((*MockStore)(nil).CreateWebServiceDeploy), ctx, d)
+}
+
+// CreateWebhookEndpoint mocks base method.
+func (m *MockStore) CreateWebhookEndpoint(ctx context.Context, endpoint *types.WebhookEndpoint) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateWebhookEndpoint", ctx, endpoint)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateWebhookEndpoint indicates an expected call of CreateWebhookEndpoint.
+func (mr *MockStoreMockRecorder) CreateWebhookEndpoint(ctx, endpoint any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWebhookEndpoint", reflect.TypeOf((*MockStore)(nil).CreateWebhookEndpoint), ctx, endpoint)
 }
 
 // DecrementSandboxContainerCount mocks base method.
@@ -2282,6 +2355,20 @@ func (mr *MockStoreMockRecorder) DetachRepositoryFromProject(ctx, projectID, rep
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DetachRepositoryFromProject", reflect.TypeOf((*MockStore)(nil).DetachRepositoryFromProject), ctx, projectID, repoID)
 }
 
+// DisableWebhookEndpoint mocks base method.
+func (m *MockStore) DisableWebhookEndpoint(ctx context.Context, organizationID, endpointID, reason, updatedBy string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DisableWebhookEndpoint", ctx, organizationID, endpointID, reason, updatedBy)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DisableWebhookEndpoint indicates an expected call of DisableWebhookEndpoint.
+func (mr *MockStoreMockRecorder) DisableWebhookEndpoint(ctx, organizationID, endpointID, reason, updatedBy any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisableWebhookEndpoint", reflect.TypeOf((*MockStore)(nil).DisableWebhookEndpoint), ctx, organizationID, endpointID, reason, updatedBy)
+}
+
 // DismissAttentionEventsForTask mocks base method.
 func (m *MockStore) DismissAttentionEventsForTask(ctx context.Context, specTaskID string) (int64, error) {
 	m.ctrl.T.Helper()
@@ -2295,6 +2382,20 @@ func (m *MockStore) DismissAttentionEventsForTask(ctx context.Context, specTaskI
 func (mr *MockStoreMockRecorder) DismissAttentionEventsForTask(ctx, specTaskID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DismissAttentionEventsForTask", reflect.TypeOf((*MockStore)(nil).DismissAttentionEventsForTask), ctx, specTaskID)
+}
+
+// EnqueueWebhookEvent mocks base method.
+func (m *MockStore) EnqueueWebhookEvent(ctx context.Context, eventType, organizationID, projectID string, data any) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnqueueWebhookEvent", ctx, eventType, organizationID, projectID, data)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// EnqueueWebhookEvent indicates an expected call of EnqueueWebhookEvent.
+func (mr *MockStoreMockRecorder) EnqueueWebhookEvent(ctx, eventType, organizationID, projectID, data any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueWebhookEvent", reflect.TypeOf((*MockStore)(nil).EnqueueWebhookEvent), ctx, eventType, organizationID, projectID, data)
 }
 
 // EnsureUserMeta mocks base method.
@@ -3618,6 +3719,36 @@ func (mr *MockStoreMockRecorder) GetSecret(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecret", reflect.TypeOf((*MockStore)(nil).GetSecret), ctx, id)
 }
 
+// GetSecretIntake mocks base method.
+func (m *MockStore) GetSecretIntake(arg0 context.Context, arg1, arg2 string) (*types.SecretIntake, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSecretIntake", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.SecretIntake)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSecretIntake indicates an expected call of GetSecretIntake.
+func (mr *MockStoreMockRecorder) GetSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretIntake", reflect.TypeOf((*MockStore)(nil).GetSecretIntake), arg0, arg1, arg2)
+}
+
+// GetSecretIntakeByFlow mocks base method.
+func (m *MockStore) GetSecretIntakeByFlow(arg0 context.Context, arg1 string, arg2 time.Time) (*types.SecretIntake, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSecretIntakeByFlow", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.SecretIntake)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSecretIntakeByFlow indicates an expected call of GetSecretIntakeByFlow.
+func (mr *MockStoreMockRecorder) GetSecretIntakeByFlow(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretIntakeByFlow", reflect.TypeOf((*MockStore)(nil).GetSecretIntakeByFlow), arg0, arg1, arg2)
+}
+
 // GetServiceConnection mocks base method.
 func (m *MockStore) GetServiceConnection(ctx context.Context, id string) (*types.ServiceConnection, error) {
 	m.ctrl.T.Helper()
@@ -4321,6 +4452,51 @@ func (m *MockStore) GetWalletByUser(ctx context.Context, userID string) (*types.
 func (mr *MockStoreMockRecorder) GetWalletByUser(ctx, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWalletByUser", reflect.TypeOf((*MockStore)(nil).GetWalletByUser), ctx, userID)
+}
+
+// GetWebhookDelivery mocks base method.
+func (m *MockStore) GetWebhookDelivery(ctx context.Context, endpointID, deliveryID string) (*types.WebhookDelivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWebhookDelivery", ctx, endpointID, deliveryID)
+	ret0, _ := ret[0].(*types.WebhookDelivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWebhookDelivery indicates an expected call of GetWebhookDelivery.
+func (mr *MockStoreMockRecorder) GetWebhookDelivery(ctx, endpointID, deliveryID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebhookDelivery", reflect.TypeOf((*MockStore)(nil).GetWebhookDelivery), ctx, endpointID, deliveryID)
+}
+
+// GetWebhookEndpoint mocks base method.
+func (m *MockStore) GetWebhookEndpoint(ctx context.Context, organizationID, endpointID string) (*types.WebhookEndpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWebhookEndpoint", ctx, organizationID, endpointID)
+	ret0, _ := ret[0].(*types.WebhookEndpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWebhookEndpoint indicates an expected call of GetWebhookEndpoint.
+func (mr *MockStoreMockRecorder) GetWebhookEndpoint(ctx, organizationID, endpointID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebhookEndpoint", reflect.TypeOf((*MockStore)(nil).GetWebhookEndpoint), ctx, organizationID, endpointID)
+}
+
+// GetWebhookEvent mocks base method.
+func (m *MockStore) GetWebhookEvent(ctx context.Context, eventID string) (*types.WebhookEvent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWebhookEvent", ctx, eventID)
+	ret0, _ := ret[0].(*types.WebhookEvent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWebhookEvent indicates an expected call of GetWebhookEvent.
+func (mr *MockStoreMockRecorder) GetWebhookEvent(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebhookEvent", reflect.TypeOf((*MockStore)(nil).GetWebhookEvent), ctx, eventID)
 }
 
 // GetZedSettingsOverride mocks base method.
@@ -5722,6 +5898,36 @@ func (mr *MockStoreMockRecorder) ListWebServiceDeploys(ctx, projectID, limit any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWebServiceDeploys", reflect.TypeOf((*MockStore)(nil).ListWebServiceDeploys), ctx, projectID, limit)
 }
 
+// ListWebhookDeliveries mocks base method.
+func (m *MockStore) ListWebhookDeliveries(ctx context.Context, endpointID string, limit int) ([]*types.WebhookDelivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWebhookDeliveries", ctx, endpointID, limit)
+	ret0, _ := ret[0].([]*types.WebhookDelivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWebhookDeliveries indicates an expected call of ListWebhookDeliveries.
+func (mr *MockStoreMockRecorder) ListWebhookDeliveries(ctx, endpointID, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWebhookDeliveries", reflect.TypeOf((*MockStore)(nil).ListWebhookDeliveries), ctx, endpointID, limit)
+}
+
+// ListWebhookEndpoints mocks base method.
+func (m *MockStore) ListWebhookEndpoints(ctx context.Context, organizationID string) ([]*types.WebhookEndpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWebhookEndpoints", ctx, organizationID)
+	ret0, _ := ret[0].([]*types.WebhookEndpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWebhookEndpoints indicates an expected call of ListWebhookEndpoints.
+func (mr *MockStoreMockRecorder) ListWebhookEndpoints(ctx, organizationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWebhookEndpoints", reflect.TypeOf((*MockStore)(nil).ListWebhookEndpoints), ctx, organizationID)
+}
+
 // ListWorkSessionsBySpecTask mocks base method.
 func (m *MockStore) ListWorkSessionsBySpecTask(ctx context.Context, specTaskID string, phase *types.SpecTaskPhase) ([]*types.SpecTaskWorkSession, error) {
 	m.ctrl.T.Helper()
@@ -5941,6 +6147,20 @@ func (mr *MockStoreMockRecorder) ParseAndCreateImplementationTasks(ctx, specTask
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ParseAndCreateImplementationTasks", reflect.TypeOf((*MockStore)(nil).ParseAndCreateImplementationTasks), ctx, specTaskID, implementationPlan)
 }
 
+// ReapExpiredSecretIntakes mocks base method.
+func (m *MockStore) ReapExpiredSecretIntakes(arg0 context.Context, arg1 time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReapExpiredSecretIntakes", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReapExpiredSecretIntakes indicates an expected call of ReapExpiredSecretIntakes.
+func (mr *MockStoreMockRecorder) ReapExpiredSecretIntakes(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapExpiredSecretIntakes", reflect.TypeOf((*MockStore)(nil).ReapExpiredSecretIntakes), arg0, arg1)
+}
+
 // ReapWaitingInteractions mocks base method.
 func (m *MockStore) ReapWaitingInteractions(ctx context.Context, sessionID string, newState types.InteractionState, reason string) ([]*types.Interaction, error) {
 	m.ctrl.T.Helper()
@@ -5971,6 +6191,21 @@ func (mr *MockStoreMockRecorder) ReconcileStuckSendingPrompts(ctx any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileStuckSendingPrompts", reflect.TypeOf((*MockStore)(nil).ReconcileStuckSendingPrompts), ctx)
 }
 
+// RedeemSecretIntakeInvitation mocks base method.
+func (m *MockStore) RedeemSecretIntakeInvitation(arg0 context.Context, arg1, arg2, arg3, arg4 string, arg5, arg6 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RedeemSecretIntakeInvitation", arg0, arg1, arg2, arg3, arg4, arg5, arg6)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RedeemSecretIntakeInvitation indicates an expected call of RedeemSecretIntakeInvitation.
+func (mr *MockStoreMockRecorder) RedeemSecretIntakeInvitation(arg0, arg1, arg2, arg3, arg4, arg5, arg6 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemSecretIntakeInvitation", reflect.TypeOf((*MockStore)(nil).RedeemSecretIntakeInvitation), arg0, arg1, arg2, arg3, arg4, arg5, arg6)
+}
+
 // RegisterSandboxInstance mocks base method.
 func (m *MockStore) RegisterSandboxInstance(ctx context.Context, instance *types.SandboxInstance) error {
 	m.ctrl.T.Helper()
@@ -5999,6 +6234,20 @@ func (mr *MockStoreMockRecorder) RemoveSpecTaskLabel(ctx, taskID, label any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveSpecTaskLabel", reflect.TypeOf((*MockStore)(nil).RemoveSpecTaskLabel), ctx, taskID, label)
 }
 
+// ReplayWebhookDelivery mocks base method.
+func (m *MockStore) ReplayWebhookDelivery(ctx context.Context, endpointID, deliveryID string, now time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplayWebhookDelivery", ctx, endpointID, deliveryID, now)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReplayWebhookDelivery indicates an expected call of ReplayWebhookDelivery.
+func (mr *MockStoreMockRecorder) ReplayWebhookDelivery(ctx, endpointID, deliveryID, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplayWebhookDelivery", reflect.TypeOf((*MockStore)(nil).ReplayWebhookDelivery), ctx, endpointID, deliveryID, now)
+}
+
 // RequestInteractionCancellationIfWaiting mocks base method.
 func (m *MockStore) RequestInteractionCancellationIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error) {
 	m.ctrl.T.Helper()
@@ -6015,17 +6264,17 @@ func (mr *MockStoreMockRecorder) RequestInteractionCancellationIfWaiting(ctx, in
 }
 
 // RequeueBouncedPrompt mocks base method.
-func (m *MockStore) RequeueBouncedPrompt(ctx context.Context, sessionID string) error {
+func (m *MockStore) RequeueBouncedPrompt(ctx context.Context, promptID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RequeueBouncedPrompt", ctx, sessionID)
+	ret := m.ctrl.Call(m, "RequeueBouncedPrompt", ctx, promptID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RequeueBouncedPrompt indicates an expected call of RequeueBouncedPrompt.
-func (mr *MockStoreMockRecorder) RequeueBouncedPrompt(ctx, sessionID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) RequeueBouncedPrompt(ctx, promptID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequeueBouncedPrompt", reflect.TypeOf((*MockStore)(nil).RequeueBouncedPrompt), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequeueBouncedPrompt", reflect.TypeOf((*MockStore)(nil).RequeueBouncedPrompt), ctx, promptID)
 }
 
 // ResetCrashedPromptsForSession mocks base method.
@@ -6117,6 +6366,20 @@ func (mr *MockStoreMockRecorder) ResourceSearch(ctx, req any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceSearch", reflect.TypeOf((*MockStore)(nil).ResourceSearch), ctx, req)
 }
 
+// RevokeSecretIntake mocks base method.
+func (m *MockStore) RevokeSecretIntake(arg0 context.Context, arg1, arg2 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeSecretIntake", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokeSecretIntake indicates an expected call of RevokeSecretIntake.
+func (mr *MockStoreMockRecorder) RevokeSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeSecretIntake", reflect.TypeOf((*MockStore)(nil).RevokeSecretIntake), arg0, arg1, arg2)
+}
+
 // RotateVHostRouteHostname mocks base method.
 func (m *MockStore) RotateVHostRouteHostname(ctx context.Context, id, newHostname string) error {
 	m.ctrl.T.Helper()
@@ -6129,6 +6392,20 @@ func (m *MockStore) RotateVHostRouteHostname(ctx context.Context, id, newHostnam
 func (mr *MockStoreMockRecorder) RotateVHostRouteHostname(ctx, id, newHostname any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateVHostRouteHostname", reflect.TypeOf((*MockStore)(nil).RotateVHostRouteHostname), ctx, id, newHostname)
+}
+
+// RotateWebhookEndpointSecret mocks base method.
+func (m *MockStore) RotateWebhookEndpointSecret(ctx context.Context, endpoint *types.WebhookEndpoint) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RotateWebhookEndpointSecret", ctx, endpoint)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RotateWebhookEndpointSecret indicates an expected call of RotateWebhookEndpointSecret.
+func (mr *MockStoreMockRecorder) RotateWebhookEndpointSecret(ctx, endpoint any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateWebhookEndpointSecret", reflect.TypeOf((*MockStore)(nil).RotateWebhookEndpointSecret), ctx, endpoint)
 }
 
 // SearchUsers mocks base method.
@@ -6333,6 +6610,20 @@ func (mr *MockStoreMockRecorder) SetSandboxStatus(ctx, id, status, message any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxStatus", reflect.TypeOf((*MockStore)(nil).SetSandboxStatus), ctx, id, status, message)
 }
 
+// SetSessionBotInstanceProfile mocks base method.
+func (m *MockStore) SetSessionBotInstanceProfile(ctx context.Context, sessionID string, profile types.BotInstanceProfile) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSessionBotInstanceProfile", ctx, sessionID, profile)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSessionBotInstanceProfile indicates an expected call of SetSessionBotInstanceProfile.
+func (mr *MockStoreMockRecorder) SetSessionBotInstanceProfile(ctx, sessionID, profile any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionBotInstanceProfile", reflect.TypeOf((*MockStore)(nil).SetSessionBotInstanceProfile), ctx, sessionID, profile)
+}
+
 // SetWebServiceHostDeviceID mocks base method.
 func (m *MockStore) SetWebServiceHostDeviceID(ctx context.Context, projectID, hostDeviceID string) error {
 	m.ctrl.T.Helper()
@@ -6360,6 +6651,21 @@ func (m *MockStore) SpawnWorkSession(ctx context.Context, parentSessionID string
 func (mr *MockStoreMockRecorder) SpawnWorkSession(ctx, parentSessionID, config any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpawnWorkSession", reflect.TypeOf((*MockStore)(nil).SpawnWorkSession), ctx, parentSessionID, config)
+}
+
+// SubmitSecretIntake mocks base method.
+func (m *MockStore) SubmitSecretIntake(arg0 context.Context, arg1, arg2, arg3 string, arg4, arg5 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubmitSecretIntake", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SubmitSecretIntake indicates an expected call of SubmitSecretIntake.
+func (mr *MockStoreMockRecorder) SubmitSecretIntake(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubmitSecretIntake", reflect.TypeOf((*MockStore)(nil).SubmitSecretIntake), arg0, arg1, arg2, arg3, arg4, arg5)
 }
 
 // SubscribeForTasks mocks base method.
@@ -6405,6 +6711,21 @@ func (m *MockStore) SyncPromptHistory(ctx context.Context, userID string, req *t
 func (mr *MockStoreMockRecorder) SyncPromptHistory(ctx, userID, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncPromptHistory", reflect.TypeOf((*MockStore)(nil).SyncPromptHistory), ctx, userID, req)
+}
+
+// TakeSecretIntake mocks base method.
+func (m *MockStore) TakeSecretIntake(arg0 context.Context, arg1, arg2 string, arg3 time.Time) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TakeSecretIntake", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TakeSecretIntake indicates an expected call of TakeSecretIntake.
+func (mr *MockStoreMockRecorder) TakeSecretIntake(arg0, arg1, arg2, arg3 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TakeSecretIntake", reflect.TypeOf((*MockStore)(nil).TakeSecretIntake), arg0, arg1, arg2, arg3)
 }
 
 // TouchSession mocks base method.
@@ -7479,6 +7800,20 @@ func (mr *MockStoreMockRecorder) UpdateWebServiceDeploy(ctx, id, updates any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWebServiceDeploy", reflect.TypeOf((*MockStore)(nil).UpdateWebServiceDeploy), ctx, id, updates)
 }
 
+// UpdateWebhookEndpointConfig mocks base method.
+func (m *MockStore) UpdateWebhookEndpointConfig(ctx context.Context, endpoint *types.WebhookEndpoint) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWebhookEndpointConfig", ctx, endpoint)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateWebhookEndpointConfig indicates an expected call of UpdateWebhookEndpointConfig.
+func (mr *MockStoreMockRecorder) UpdateWebhookEndpointConfig(ctx, endpoint any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWebhookEndpointConfig", reflect.TypeOf((*MockStore)(nil).UpdateWebhookEndpointConfig), ctx, endpoint)
+}
+
 // UpsertOrgCodeAgentHarnesses mocks base method.
 func (m *MockStore) UpsertOrgCodeAgentHarnesses(ctx context.Context, orgID, actingUserID string, updates []types.OrgCodeAgentHarnessUpdate) ([]*types.OrgCodeAgentHarness, error) {
 	m.ctrl.T.Helper()
@@ -7520,4 +7855,145 @@ func (m *MockStore) UpsertZedSettingsOverride(ctx context.Context, override *typ
 func (mr *MockStoreMockRecorder) UpsertZedSettingsOverride(ctx, override any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).UpsertZedSettingsOverride), ctx, override)
+}
+
+// MockSecretIntakeStore is a mock of SecretIntakeStore interface.
+type MockSecretIntakeStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockSecretIntakeStoreMockRecorder
+	isgomock struct{}
+}
+
+// MockSecretIntakeStoreMockRecorder is the mock recorder for MockSecretIntakeStore.
+type MockSecretIntakeStoreMockRecorder struct {
+	mock *MockSecretIntakeStore
+}
+
+// NewMockSecretIntakeStore creates a new mock instance.
+func NewMockSecretIntakeStore(ctrl *gomock.Controller) *MockSecretIntakeStore {
+	mock := &MockSecretIntakeStore{ctrl: ctrl}
+	mock.recorder = &MockSecretIntakeStoreMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockSecretIntakeStore) EXPECT() *MockSecretIntakeStoreMockRecorder {
+	return m.recorder
+}
+
+// CreateSecretIntake mocks base method.
+func (m *MockSecretIntakeStore) CreateSecretIntake(arg0 context.Context, arg1 *types.SecretIntake) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSecretIntake", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateSecretIntake indicates an expected call of CreateSecretIntake.
+func (mr *MockSecretIntakeStoreMockRecorder) CreateSecretIntake(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSecretIntake", reflect.TypeOf((*MockSecretIntakeStore)(nil).CreateSecretIntake), arg0, arg1)
+}
+
+// GetSecretIntake mocks base method.
+func (m *MockSecretIntakeStore) GetSecretIntake(arg0 context.Context, arg1, arg2 string) (*types.SecretIntake, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSecretIntake", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.SecretIntake)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSecretIntake indicates an expected call of GetSecretIntake.
+func (mr *MockSecretIntakeStoreMockRecorder) GetSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretIntake", reflect.TypeOf((*MockSecretIntakeStore)(nil).GetSecretIntake), arg0, arg1, arg2)
+}
+
+// GetSecretIntakeByFlow mocks base method.
+func (m *MockSecretIntakeStore) GetSecretIntakeByFlow(arg0 context.Context, arg1 string, arg2 time.Time) (*types.SecretIntake, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSecretIntakeByFlow", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.SecretIntake)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSecretIntakeByFlow indicates an expected call of GetSecretIntakeByFlow.
+func (mr *MockSecretIntakeStoreMockRecorder) GetSecretIntakeByFlow(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretIntakeByFlow", reflect.TypeOf((*MockSecretIntakeStore)(nil).GetSecretIntakeByFlow), arg0, arg1, arg2)
+}
+
+// ReapExpiredSecretIntakes mocks base method.
+func (m *MockSecretIntakeStore) ReapExpiredSecretIntakes(arg0 context.Context, arg1 time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReapExpiredSecretIntakes", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReapExpiredSecretIntakes indicates an expected call of ReapExpiredSecretIntakes.
+func (mr *MockSecretIntakeStoreMockRecorder) ReapExpiredSecretIntakes(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapExpiredSecretIntakes", reflect.TypeOf((*MockSecretIntakeStore)(nil).ReapExpiredSecretIntakes), arg0, arg1)
+}
+
+// RedeemSecretIntakeInvitation mocks base method.
+func (m *MockSecretIntakeStore) RedeemSecretIntakeInvitation(arg0 context.Context, arg1, arg2, arg3, arg4 string, arg5, arg6 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RedeemSecretIntakeInvitation", arg0, arg1, arg2, arg3, arg4, arg5, arg6)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RedeemSecretIntakeInvitation indicates an expected call of RedeemSecretIntakeInvitation.
+func (mr *MockSecretIntakeStoreMockRecorder) RedeemSecretIntakeInvitation(arg0, arg1, arg2, arg3, arg4, arg5, arg6 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemSecretIntakeInvitation", reflect.TypeOf((*MockSecretIntakeStore)(nil).RedeemSecretIntakeInvitation), arg0, arg1, arg2, arg3, arg4, arg5, arg6)
+}
+
+// RevokeSecretIntake mocks base method.
+func (m *MockSecretIntakeStore) RevokeSecretIntake(arg0 context.Context, arg1, arg2 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeSecretIntake", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokeSecretIntake indicates an expected call of RevokeSecretIntake.
+func (mr *MockSecretIntakeStoreMockRecorder) RevokeSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeSecretIntake", reflect.TypeOf((*MockSecretIntakeStore)(nil).RevokeSecretIntake), arg0, arg1, arg2)
+}
+
+// SubmitSecretIntake mocks base method.
+func (m *MockSecretIntakeStore) SubmitSecretIntake(arg0 context.Context, arg1, arg2, arg3 string, arg4, arg5 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubmitSecretIntake", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SubmitSecretIntake indicates an expected call of SubmitSecretIntake.
+func (mr *MockSecretIntakeStoreMockRecorder) SubmitSecretIntake(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubmitSecretIntake", reflect.TypeOf((*MockSecretIntakeStore)(nil).SubmitSecretIntake), arg0, arg1, arg2, arg3, arg4, arg5)
+}
+
+// TakeSecretIntake mocks base method.
+func (m *MockSecretIntakeStore) TakeSecretIntake(arg0 context.Context, arg1, arg2 string, arg3 time.Time) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TakeSecretIntake", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TakeSecretIntake indicates an expected call of TakeSecretIntake.
+func (mr *MockSecretIntakeStoreMockRecorder) TakeSecretIntake(arg0, arg1, arg2, arg3 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TakeSecretIntake", reflect.TypeOf((*MockSecretIntakeStore)(nil).TakeSecretIntake), arg0, arg1, arg2, arg3)
 }

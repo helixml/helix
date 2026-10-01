@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/assets"
 	"github.com/helixml/helix/api/pkg/org/application/attachments"
+	"github.com/helixml/helix/api/pkg/org/application/instances"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
@@ -29,6 +30,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/infrastructure/assetssh"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // Clock returns the current time. Tests override it.
@@ -36,6 +38,11 @@ type Clock func() time.Time
 
 // IDGen generates new unique string IDs. Tests override it.
 type IDGen func() string
+
+type SecretIntakeService interface {
+	Create(context.Context, string, string, types.SecretIntakeCreateRequest) (types.SecretIntakeCreateResult, error)
+	Status(context.Context, string, string, string) (types.SecretIntakeStatusResult, error)
+}
 
 type AgentContentUpdater interface {
 	UpdateAgentContent(ctx context.Context, appID, content string) error
@@ -66,6 +73,7 @@ type EventDispatcher interface {
 // Queries, writes through the aggregate services. Built once by
 // Config.Build() at the composition root and handed to RegisterBuiltins.
 type Deps struct {
+	SecretIntakes SecretIntakeService
 	// Queries is the read facade every read tool projects from — the same
 	// one the REST read handlers use, so the two surfaces can't drift on
 	// read semantics.
@@ -89,6 +97,10 @@ type Deps struct {
 	// (start_bot / stop_bot / restart_bot). Same service as the REST
 	// activate / stop-agent / restart-agent endpoints.
 	Activations *activations.Activations
+	// Instances manages Bot instances (create/list/delete_bot_instance).
+	// Same port as the REST /bots/{id}/instances handlers. nil → those
+	// tools report "not wired".
+	Instances instances.Manager
 	// Processors owns create/update/delete/list of Processors
 	// (template, truncate, filter, js). Same service as the REST
 	// /processors handlers. nil → processor tools report "not wired".
@@ -141,6 +153,7 @@ type Deps struct {
 //
 // Hub/Dispatcher are optional (nil → publish skips notify/dispatch).
 type Config struct {
+	SecretIntakes           SecretIntakeService
 	Store                   *store.Store
 	Queries                 *queries.Queries
 	Now                     Clock
@@ -185,6 +198,8 @@ type Config struct {
 	// Built at the composition root (needs project ensurer + stop/reset
 	// ports). nil → those tools report "not wired".
 	Activations *activations.Activations
+	// Instances, when set, is used by the bot instance tools.
+	Instances instances.Manager
 	// Processors, when set, is used by create/list/get/update/delete
 	// processor tools. nil → Build() constructs one from Store when
 	// possible.
@@ -207,6 +222,7 @@ type Config struct {
 // the lean tool Deps. Reads from the store happen only here.
 func (c Config) Build() Deps {
 	return Deps{
+		SecretIntakes:        c.SecretIntakes,
 		Queries:              c.Queries,
 		Nodes:                c.botsService(),
 		Triggers:             c.triggersService(),
@@ -214,6 +230,7 @@ func (c Config) Build() Deps {
 		Publishing:           c.Publishing,
 		Lifecycle:            c.lifecycleService(),
 		Activations:          c.Activations,
+		Instances:            c.Instances,
 		Processors:           c.processorsService(),
 		Assets:               c.Assets,
 		AssetSSH:             c.AssetSSH,
@@ -446,6 +463,8 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&DeleteBot{deps: deps},
 		&CreateTrigger{deps: deps},
 		&GetSecret{deps: deps},
+		&RequestSecretIntake{deps: deps},
+		&GetSecretIntakeStatus{deps: deps},
 		&TriggerMembers{deps: deps},
 		&AttachWorker{deps: deps},
 		&DetachWorker{deps: deps},
@@ -462,6 +481,9 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		NewStartBot(deps),
 		NewStopBot(deps),
 		NewRestartBot(deps),
+		NewCreateBotInstance(deps),
+		NewListBotInstances(deps),
+		NewDeleteBotInstance(deps),
 		// Spec-task management — a Bot managing tasks in its permitted Helix
 		// projects. Granted per-Role (not in BaseReadTools).
 		NewCreateSpecTask(deps),

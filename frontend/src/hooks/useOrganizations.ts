@@ -8,6 +8,7 @@ import { clearSelectedOrg, setSelectedOrg } from '../utils/localStorage'
 import {
   firstAccessibleOrgSlug,
   isOrgAccessDeniedError,
+  orgLandingParams,
   orgLandingRoute,
   resolveOrgAccess,
 } from '../utils/organizations'
@@ -131,7 +132,7 @@ export default function useOrganizations(): IOrganizationTools {
       : firstAccessibleOrgSlug(organizations, excluded)
     if (target) {
       setSelectedOrg(target)
-      router.navigate(orgLandingRoute(), { org_id: target })
+      router.navigate(orgLandingRoute(), orgLandingParams(target))
       return
     }
     // No usable org at all — don't bounce off the picker we're already on.
@@ -360,7 +361,7 @@ export default function useOrganizations(): IOrganizationTools {
 
       const response = await api.getApiClient().v1OrganizationsMembersCreate(organizationId, request)
       if (response.data?.invited) {
-        snackbar.success(`Invitation sent to ${userReference}`)
+        snackbar.success(`Invitation created for ${userReference}`)
       } else {
         snackbar.success('Member added')
       }
@@ -766,4 +767,4 @@ export default function useOrganizations(): IOrganizationTools {
     updateAppAccessGrant,
     deleteAppAccessGrant,
   }
-} 
+}

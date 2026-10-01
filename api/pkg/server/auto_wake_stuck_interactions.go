@@ -139,13 +139,9 @@ const (
 	// WebSocket back to the API (typically T+90–120s). The gate has to
 	// cover both substates or it engages too early to matter.
 	//
-	// Witnessed:
-	//   - spt_01kreb7sevt5ecyagxhctv3ejh: container created T+18s,
-	//     retries exhausted T+93s, WS connected T+123s.
-	//   - spt_01ktnvz9y1grjqaaa1rq72z5tx: container + bridge ready T+25s
-	//     (status→"running"), retries exhausted T+89s, WS connected
-	//     T+98s. The original "starting"-only gate never engaged because
-	//     status flipped to "running" 64s before the budget was burned.
+	// Observed boots reached the container at T+18-25s, exhausted retries at
+	// T+89-93s, and connected the WS at T+98-123s. The original
+	// "starting"-only gate never engaged after status flipped to "running".
 	//
 	// 5 min covers the realistic boot envelope (ZFS clone of large
 	// snapshots, golden cache unpack, GNOME + Zed init, claude-agent-acp
@@ -216,6 +212,16 @@ func (apiServer *HelixAPIServer) scanAndAutoWakeStuckInteractions(ctx context.Co
 		log.Warn().Err(err).Msg("[AUTO_WAKE] Failed to query stuck interactions")
 		return
 	}
+	stuckIDs := make(map[string]struct{}, len(stuck))
+	for _, interaction := range stuck {
+		stuckIDs[interaction.ID] = struct{}{}
+	}
+	apiServer.autoWakeWSAbsentSince.Range(func(key, _ any) bool {
+		if _, ok := stuckIDs[key.(string)]; !ok {
+			apiServer.autoWakeWSAbsentSince.Delete(key)
+		}
+		return true
+	})
 
 	for _, interaction := range stuck {
 		apiServer.maybeAutoWake(ctx, interaction)
@@ -260,6 +266,7 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 		apiServer.maybeKickColdStart(ctx, stuck)
 		return
 	}
+	apiServer.autoWakeWSAbsentSince.Delete(stuck.ID)
 
 	// A connected agent owns the live question and must not receive the generic
 	// continue wake while it waits for the user. A disconnected agent still
@@ -377,13 +384,10 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 // from its in-memory copy). A Save here would race-clobber AutoWakeCount
 // back to a stale value, and the cap would never engage.
 //
-// Container-state-aware retry budget: before bumping AutoWakeCount we look
-// at `session.Metadata.ExternalAgentStatus`. If the container is in any
-// active boot substate ("starting" or "running") and the interaction is
-// younger than the cold-start grace period, we skip without touching the
-// budget — the existing boot will either finish (Zed dials home and
-// the reconnect resume path delivers) or trip the StartDesktop hard
-// timeout (20 min) and clear the status.
+// Container-state-aware retry budget: before bumping AutoWakeCount we defer
+// initial boots within their grace period and restarts within the grace period
+// anchored at LastAutoRestartAt. A running container is restarted only after
+// the WebSocket remains absent across two scans.
 //
 // Why "running" counts as "still booting" here: StartDesktop sets status
 // to "running" the moment the container exists and desktop-bridge is
@@ -392,7 +396,7 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 // and claude-agent-acp has launched (typically T+90–120s). The 60–90s
 // gap between "running" and a live WS is the dominant cold-start
 // failure mode the grace period exists to cover — gating on "starting"
-// alone never engaged for it (see spt_01ktnvz9y1grjqaaa1rq72z5tx).
+// alone never engaged for it.
 //
 // Re-kicking during this window only races against StartDesktop's
 // per-session lock (which short-circuits with "Dev container already
@@ -443,7 +447,15 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		}
 	}
 
-	// Skip if a container boot is genuinely in progress and we're still
+	// A restart launched by this worker or crash recovery may not have updated
+	// ExternalAgentStatus yet. Anchor its grace period on the persisted restart
+	// time so another API replica cannot tear down the replacement container.
+	if session != nil && !session.Metadata.LastAutoRestartAt.IsZero() &&
+		time.Since(session.Metadata.LastAutoRestartAt) < coldStartGracePeriod() {
+		return
+	}
+
+	// Skip if an initial container boot is genuinely in progress and we're still
 	// inside the grace period. "starting", "restarting" and "running" all
 	// count as in-progress here: see the function header for why the
 	// post-bridge, pre-WS substate ("running" with no live WS) is the case the
@@ -461,6 +473,19 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 			Dur("grace_period", coldStartGracePeriod()).
 			Msg("[AUTO_WAKE] Container boot in progress (no WS yet) — deferring cold-start kick (no budget burn)")
 		return
+	}
+
+	running := session != nil && session.Metadata.AgentType == "zed_external" &&
+		apiServer.externalAgentExecutor != nil &&
+		apiServer.externalAgentExecutor.HasRunningContainer(ctx, stuck.SessionID)
+	if running {
+		firstAbsentAt, loaded := apiServer.autoWakeWSAbsentSince.LoadOrStore(stuck.ID, time.Now())
+		if !loaded || time.Since(firstAbsentAt.(time.Time)) < autoWakeScanInterval {
+			return
+		}
+		if _, inflight := apiServer.autoRestartInflight.Load(stuck.SessionID); inflight {
+			return
+		}
 	}
 
 	if stuck.AutoWakeCount >= autoWakeMaxRetries {
@@ -501,6 +526,7 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 			log.Debug().Str("interaction_id", stuck.ID).Msg("[AUTO_WAKE] Interaction already transitioned before cold-start exhaustion")
 			return
 		}
+		apiServer.autoWakeWSAbsentSince.Delete(stuck.ID)
 		// Revert any sync-time "starting" mark left behind by
 		// syncPromptHistory's markCanonicalSessionStartingForSync. Without
 		// this, the spec-task detail page sits on a perpetual
@@ -525,6 +551,44 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		return
 	}
 
+	if running {
+		if _, inflight := apiServer.autoRestartInflight.LoadOrStore(stuck.SessionID, struct{}{}); inflight {
+			return
+		}
+
+		restartedAt := time.Now()
+		claimed, err := apiServer.Store.ClaimSessionAutoRestart(ctx, session.ID, restartedAt, restartedAt.Add(-coldStartGracePeriod()))
+		if err != nil {
+			apiServer.autoRestartInflight.Delete(stuck.SessionID)
+			log.Warn().Err(err).
+				Str("session_id", stuck.SessionID).
+				Msg("[AUTO_WAKE] Failed to persist restart time; skipping restart")
+			return
+		}
+		if !claimed {
+			apiServer.autoRestartInflight.Delete(stuck.SessionID)
+			return
+		}
+		session.Metadata.LastAutoRestartAt = restartedAt
+
+		newCount, err := apiServer.Store.IncrementInteractionAutoWakeCount(ctx, stuck.ID)
+		if err != nil {
+			apiServer.autoRestartInflight.Delete(stuck.SessionID)
+			log.Warn().Err(err).
+				Str("interaction_id", stuck.ID).
+				Msg("[AUTO_WAKE] Failed to increment auto_wake_count for cold-start; skipping restart")
+			return
+		}
+		log.Info().
+			Str("stuck_interaction_id", stuck.ID).
+			Str("session_id", stuck.SessionID).
+			Int("attempt", newCount).
+			Msg("[AUTO_WAKE] Container running without WebSocket; restarting agent")
+		go apiServer.restartAgentForStuckSession(session)
+		return
+	}
+	apiServer.autoWakeWSAbsentSince.Delete(stuck.ID)
+
 	// Bump first via a targeted column UPDATE so the cap engages even
 	// if the auto-start fails.
 	newCount, err := apiServer.Store.IncrementInteractionAutoWakeCount(ctx, stuck.ID)
@@ -532,32 +596,6 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		log.Warn().Err(err).
 			Str("interaction_id", stuck.ID).
 			Msg("[AUTO_WAKE] Failed to increment auto_wake_count for cold-start; skipping kick")
-		return
-	}
-
-	// A RUNNING container needs a restart, not a start.
-	//
-	// This is the bug that made the whole retry budget pointless.
-	// autoStartDevContainerForSession → StartDesktop short-circuits on
-	// HasRunningContainer and returns "running" without touching the container
-	// (hydra_executor.go, "Dev container already running"). So for the one state
-	// this function exists to repair — container up, Zed never dialled home
-	// (helixml/helix#2397) — every kick was a no-op. We waited out the grace
-	// period, burned both retries on nothing, and marked the interaction
-	// "Agent never connected after auto-wake cold-start retries". The customer
-	// read that as "The system has encountered an error".
-	//
-	// Restarting is what actually gets Zed to re-dial. Reuse the same path the
-	// operator-facing restart-agent button uses, including its wedged-thread
-	// check, rather than inventing a second recovery with different behaviour.
-	if apiServer.externalAgentExecutor != nil &&
-		apiServer.externalAgentExecutor.HasRunningContainer(ctx, stuck.SessionID) {
-		log.Info().
-			Str("stuck_interaction_id", stuck.ID).
-			Str("session_id", stuck.SessionID).
-			Int("attempt", newCount).
-			Msg("🔌 [AUTO_WAKE] Container is up but no WS — restarting the agent (helixml/helix#2397)")
-		go apiServer.restartAgentForStuckSession(stuck.SessionID)
 		return
 	}
 
@@ -571,39 +609,18 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 	go apiServer.autoStartDevContainerForSession(stuck.SessionID)
 }
 
-// restartAgentForStuckSession restarts a session's container so a dead Zed
-// re-dials the sync WebSocket.
-//
-// Detached from the scan tick and defensive throughout: this runs unattended
-// against a session whose owner is not watching, so every failure is logged and
-// swallowed rather than allowed to take down the worker.
-func (apiServer *HelixAPIServer) restartAgentForStuckSession(sessionID string) {
+func (apiServer *HelixAPIServer) restartAgentForStuckSession(session *types.Session) {
+	defer apiServer.autoRestartInflight.Delete(session.ID)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	session, err := apiServer.Store.GetSession(ctx, sessionID)
-	if err != nil || session == nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("[AUTO_WAKE] Cannot load session to restart agent")
-		return
-	}
 	user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: session.Owner})
 	if err != nil || user == nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("[AUTO_WAKE] Cannot load session owner to restart agent")
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("[AUTO_WAKE] Failed to load session owner for restart")
 		return
 	}
-
-	// A Zed that never connected often has a wedged thread behind it; the
-	// operator button makes the same call before restarting.
-	resetThread := apiServer.threadIsWedged(ctx, session)
-	if _, httpErr := apiServer.restartSessionContainer(ctx, user, session, resetThread); httpErr != nil {
-		log.Warn().
-			Str("session_id", sessionID).
-			Str("error", httpErr.Error()).
-			Msg("[AUTO_WAKE] Agent restart failed; the retry budget will surface an error to the user")
-		return
+	if _, httpErr := apiServer.restartSessionContainer(ctx, user, session, apiServer.threadIsWedged(ctx, session)); httpErr != nil {
+		log.Warn().Str("session_id", session.ID).Str("error", httpErr.Error()).Msg("[AUTO_WAKE] Failed to restart agent")
 	}
-	log.Info().
-		Str("session_id", sessionID).
-		Bool("thread_reset", resetThread).
-		Msg("♻️ [AUTO_WAKE] Restarted agent container after no-WS detection")
 }

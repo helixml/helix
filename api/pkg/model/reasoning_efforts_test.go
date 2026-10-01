@@ -15,16 +15,21 @@ import (
 // offer by default — while accepting "xhigh". Getting this backwards 400s every
 // request of the turn and aborts it with no work done.
 func TestQwen38RejectsHighAcceptsXHigh(t *testing.T) {
-	profile, ok := LookupReasoningEfforts("qwen3.8-27b")
-	require.True(t, ok, "qwen3.8-27b must be in the curated table")
+	for _, modelID := range []string{"qwen3.8-27b", "qwen3.8-flash-next"} {
+		t.Run(modelID, func(t *testing.T) {
+			profile, ok := LookupReasoningEfforts(modelID)
+			require.True(t, ok, "%s must be in the curated table", modelID)
 
-	assert.Contains(t, profile.Supported, "xhigh")
-	assert.Contains(t, profile.Supported, "medium")
-	assert.Contains(t, profile.Supported, "low")
-	assert.NotContains(t, profile.Supported, "high")
-	assert.Contains(t, profile.Rejected, "high")
-	assert.Equal(t, "xhigh", profile.Default)
-	assert.Equal(t, types.EffortSourceProbed, profile.Source)
+			assert.Equal(t, modelID, profile.Family)
+			assert.Contains(t, profile.Supported, "xhigh")
+			assert.Contains(t, profile.Supported, "medium")
+			assert.Contains(t, profile.Supported, "low")
+			assert.NotContains(t, profile.Supported, "high")
+			assert.Contains(t, profile.Rejected, "high")
+			assert.Equal(t, "xhigh", profile.Default)
+			assert.Equal(t, types.EffortSourceProbed, profile.Source)
+		})
+	}
 }
 
 // TestClaudeUsesOutputConfigEffort guards the parameter name. Claude reads
@@ -59,7 +64,7 @@ func TestClaude46GenerationRejectsXHigh(t *testing.T) {
 // TestModelsWithoutEffortSupport covers the models that take no effort value at
 // all — the UI must render no selector rather than a default one.
 func TestModelsWithoutEffortSupport(t *testing.T) {
-	for _, modelID := range []string{"claude-sonnet-4-5", "claude-haiku-4-5"} {
+	for _, modelID := range []string{"claude-sonnet-4-5", "claude-haiku-4-5", "glm-5.3-flash"} {
 		t.Run(modelID, func(t *testing.T) {
 			profile, ok := LookupReasoningEfforts(modelID)
 			require.True(t, ok)
@@ -84,6 +89,12 @@ func TestLookupMatchesLongestFamilyPrefix(t *testing.T) {
 		{"ds4-flash-node06/qwen3.8-27b", "qwen3.8-27b"},
 		{"claude-opus-4-8", "claude-opus-4-8"},
 		{"CLAUDE-OPUS-5", "claude-opus-5"},
+		{"claude-opus-5-5", "claude-opus-5-5"},
+		{"anthropic/claude-opus-5-5-20260921", "claude-opus-5-5"},
+		{"gpt-6-sol", "gpt-6-sol"},
+		{"openai/gpt-6-luna", "gpt-6-luna"},
+		{"gpt-6-astra", "gpt-6-astra"},
+		{"gpt-5.6-terra", "gpt-5.6"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.modelID, func(t *testing.T) {
@@ -118,6 +129,12 @@ func TestProfileTableIsWellFormed(t *testing.T) {
 			for _, rejected := range profile.Rejected {
 				assert.NotContains(t, profile.Supported, rejected,
 					"%q cannot be both supported and rejected", rejected)
+				assert.NotContains(t, profile.ResponsesOnly, rejected,
+					"%q cannot be both responses-only and rejected", rejected)
+			}
+			for _, responsesOnly := range profile.ResponsesOnly {
+				assert.NotContains(t, profile.Supported, responsesOnly,
+					"%q is rejected by chat completions, so it cannot be in Supported", responsesOnly)
 			}
 			if profile.SupportsEffort {
 				assert.NotEmpty(t, profile.Supported)
@@ -192,4 +209,31 @@ func TestGetModelInfoAppliesOverlay(t *testing.T) {
 		assert.Equal(t, []string{"high", "xhigh"}, info.SupportedReasoningEfforts)
 		assert.Equal(t, "high", info.DefaultReasoningEffort)
 	})
+}
+
+// TestOpenAIMaxIsResponsesOnly pins the API split: /v1/chat/completions
+// rejects max on GPT-5.6 and GPT-6, so it must never appear in Supported, which
+// is what chat-completions harnesses are offered.
+func TestOpenAIMaxIsResponsesOnly(t *testing.T) {
+	for _, modelID := range []string{"gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"} {
+		profile, ok := LookupReasoningEfforts(modelID)
+		require.True(t, ok, modelID)
+		assert.NotContains(t, profile.Supported, "max", modelID)
+		assert.Equal(t, []string{"max"}, profile.ResponsesOnly, modelID)
+	}
+}
+
+// TestGPT6AstraRejectsNone pins the one GPT-6 model with mandatory reasoning:
+// offering "none" for it would be a hard 400 on both OpenAI APIs.
+func TestGPT6AstraRejectsNone(t *testing.T) {
+	astra, ok := LookupReasoningEfforts("gpt-6-astra")
+	require.True(t, ok)
+	assert.NotContains(t, astra.Supported, "none")
+	assert.Contains(t, astra.Rejected, "none")
+
+	for _, modelID := range []string{"gpt-6-sol", "gpt-6-luna"} {
+		profile, ok := LookupReasoningEfforts(modelID)
+		require.True(t, ok)
+		assert.Contains(t, profile.Supported, "none", modelID)
+	}
 }

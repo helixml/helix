@@ -72,6 +72,7 @@ func TestSpecTaskAttachmentUploadsStayOpenWhileAgentIsWorking(t *testing.T) {
 		assert.False(t, specTaskAttachmentUploadsLocked(status), "expected uploads unlocked for %s", status)
 	}
 	for _, status := range []types.SpecTaskStatus{
+		types.TaskStatusPreparing,
 		types.TaskStatusPullRequest,
 		types.TaskStatusDone,
 	} {
@@ -85,6 +86,7 @@ func TestSpecTaskAttachmentLimits(t *testing.T) {
 	// frontend both derive their enforcement/copy from this constant, so this
 	// catches an accidental regression to the old 10 MB.
 	assert.Equal(t, 100*1024*1024, types.SpecTaskAttachmentMaxBytes)
+	assert.Equal(t, 100*1024*1024, types.SpecTaskInlineAttachmentsMaxBytes)
 }
 
 func TestAllowedMimeTypes(t *testing.T) {

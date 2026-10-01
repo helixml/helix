@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/connman"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -32,6 +33,9 @@ type RequestMappingRegistrar func(requestID, sessionID string)
 
 // DesktopExecFunc executes a command inside a running desktop container via RevDial.
 type DesktopExecFunc func(ctx context.Context, sessionID string, command []string) error
+
+// DesktopWakeFunc requests startup of a stopped desktop.
+type DesktopWakeFunc func(sessionID string)
 
 // AttachmentBlobReader reads the bytes of a SpecTask attachment from the filestore.
 // Injected by the server so this service doesn't need to import the controller package.
@@ -61,6 +65,7 @@ type SpecDrivenTaskService struct {
 	auditLogService            *AuditLogService          // Service for audit logging
 	koditService               KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
 	ExecInDesktop              DesktopExecFunc           // Callback to exec commands in running desktop containers
+	WakeDesktop                DesktopWakeFunc           // Callback to start a stopped desktop after a failed exec
 	ReadAttachmentBlob         AttachmentBlobReader      // Callback to load attachment bytes from filestore
 	TransitionToImplementation SpecTaskPhaseTransitioner // Callback owned by the API server's live agent-switching machinery
 	wg                         sync.WaitGroup
@@ -140,6 +145,23 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+	return s.createTaskFromPrompt(ctx, req, false)
+}
+
+// CreateTaskFromPromptPreparingAttachments creates a durable, non-dispatchable task
+// that owns attachment blobs and rows while the request is ingesting them.
+func (s *SpecDrivenTaskService) CreateTaskFromPromptPreparingAttachments(
+	ctx context.Context,
+	req *types.CreateTaskRequest,
+) (*types.SpecTask, error) {
+	return s.createTaskFromPrompt(ctx, req, true)
+}
+
+func (s *SpecDrivenTaskService) createTaskFromPrompt(
+	ctx context.Context,
+	req *types.CreateTaskRequest,
+	preparingAttachments bool,
+) (*types.SpecTask, error) {
 	if req.AppID != "" {
 		return nil, fmt.Errorf("app_id is no longer supported; provide code_agent_config")
 	}
@@ -245,6 +267,9 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		assigneeID = req.UserID
 		planningStartedBy = req.UserID
 	}
+	if preparingAttachments {
+		initialStatus = types.TaskStatusPreparing
+	}
 
 	task := &types.SpecTask{
 		ID:                       generateTaskID(),
@@ -319,7 +344,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 
 	// PR DETECTION: Check if the existing branch has an open PR
 	// If so, update the task to start in pull_request status
-	if branchMode == types.BranchModeExisting && req.WorkingBranch != "" && s.gitRepositoryService != nil {
+	if !preparingAttachments && branchMode == types.BranchModeExisting && req.WorkingBranch != "" && s.gitRepositoryService != nil {
 		prDetected := s.detectAndLinkExistingPR(ctx, task, req.ProjectID, req.WorkingBranch)
 		if prDetected {
 			log.Info().
@@ -331,7 +356,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	}
 
 	// Log audit event for task creation
-	if s.auditLogService != nil {
+	if !preparingAttachments && s.auditLogService != nil {
 		s.auditLogService.LogTaskCreated(ctx, task, req.UserID, req.UserEmail)
 	}
 
@@ -340,6 +365,60 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	// This allows WIP limits to be enforced on the planning column
 
 	return task, nil
+}
+
+// PublishTaskFromPromptAttachments atomically makes a prepared task visible to
+// dispatchers after its attachment rows and blobs are durable.
+func (s *SpecDrivenTaskService) PublishTaskFromPromptAttachments(
+	ctx context.Context,
+	task *types.SpecTask,
+	req *types.CreateTaskRequest,
+) error {
+	if task == nil || task.ID == "" {
+		return fmt.Errorf("prepared task is required")
+	}
+
+	targetStatus := types.TaskStatusBacklog
+	var extraFields map[string]any
+	// Existing-branch tasks with an open PR still publish through the same CAS;
+	// no code path may write a preparing task unconditionally.
+	if task.BranchMode == types.BranchModeExisting && task.BranchName != "" && s.gitRepositoryService != nil {
+		if repoPR, found := s.findExistingPullRequest(ctx, task.ProjectID, task.BranchName); found {
+			task.RepoPullRequests = append(task.RepoPullRequests, *repoPR)
+			repoPullRequestsJSON, err := json.Marshal(task.RepoPullRequests)
+			if err != nil {
+				return fmt.Errorf("encode existing pull request linkage: %w", err)
+			}
+			targetStatus = types.TaskStatusPullRequest
+			extraFields = map[string]any{"repo_pull_requests": string(repoPullRequestsJSON)}
+		}
+	}
+
+	if targetStatus != types.TaskStatusPullRequest && req.AutoStart {
+		if req.JustDoItMode {
+			targetStatus = types.TaskStatusQueuedImplementation
+		} else {
+			targetStatus = types.TaskStatusQueuedSpecGeneration
+		}
+	}
+	transitioned, err := s.store.TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusPreparing},
+		targetStatus,
+		extraFields,
+	)
+	if err != nil {
+		return fmt.Errorf("publish prepared task: %w", err)
+	}
+	if !transitioned {
+		return fmt.Errorf("prepared task %s is no longer in preparing status", task.ID)
+	}
+	now := time.Now()
+	task.Status = targetStatus
+	task.StatusUpdatedAt = &now
+	task.UpdatedAt = now
+	return nil
 }
 
 // StartSpecGeneration kicks off spec generation with a Helix agent
@@ -1279,17 +1358,19 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			return fmt.Errorf("default branch not set for repository, please set it")
 		}
 
+		effectiveBaseBranch := TaskTargetBranch(repo, task, project.DefaultRepoID)
+
 		if repo.ExternalURL != "" {
-			log.Info().Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Msg("ApproveSpecs: syncing base branch from remote")
+			log.Info().Str("repo_id", repo.ID).Str("branch", effectiveBaseBranch).Msg("ApproveSpecs: syncing base branch from remote")
 
 			// Use SyncBaseBranch which handles divergence detection
-			err = s.gitRepositoryService.SyncBaseBranch(ctx, repo.ID, repo.DefaultBranch)
+			err = s.gitRepositoryService.SyncBaseBranch(ctx, repo.ID, effectiveBaseBranch)
 			if err != nil {
 				// Check for divergence error and format a user-friendly message
 				if divergeErr := GetBranchDivergenceError(err); divergeErr != nil {
 					return fmt.Errorf("%s", FormatDivergenceErrorForUser(divergeErr, repo.Name))
 				}
-				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Msg("Failed to sync from remote")
+				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", effectiveBaseBranch).Msg("Failed to sync from remote")
 				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", repo.ExternalURL, err)
 			}
 		}
@@ -1297,14 +1378,10 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// implementation_queued is a durable pending-handoff marker. Retries
 		// reuse the branch claimed by the first approver.
 		var branchName string
-		effectiveBaseBranch := repo.DefaultBranch
 		if task.Status == types.TaskStatusImplementationQueued {
 			branchName = task.BranchName
 			if branchName == "" {
 				return fmt.Errorf("implementation handoff is missing its branch name")
-			}
-			if task.BaseBranch != "" {
-				effectiveBaseBranch = task.BaseBranch
 			}
 		} else if task.BranchMode == types.BranchModeExisting && task.BranchName != "" {
 			// Existing mode: use the branch name that was set during task creation
@@ -1325,9 +1402,6 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			// Set base branch if not already set
 			if task.BaseBranch == "" {
 				task.BaseBranch = repo.DefaultBranch
-			}
-			if task.BranchMode == types.BranchModeNew {
-				effectiveBaseBranch = task.BaseBranch
 			}
 		}
 
@@ -1399,6 +1473,14 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// failure leaves implementation_queued so the orchestrator can retry.
 		if task.BranchMode == types.BranchModeNew {
 			if err := s.ensureFeatureBranchInContainer(ctx, sessionID, repo.Name, branchName, effectiveBaseBranch); err != nil {
+				desktopDisconnected := errors.Is(err, connman.ErrNoConnection) || errors.Is(err, connman.ErrReconnectTimeout)
+				if desktopDisconnected && s.WakeDesktop != nil {
+					s.WakeDesktop(sessionID)
+					log.Info().
+						Str("task_id", task.ID).Str("session_id", sessionID).
+						Msg("Implementation handoff queued while stopped desktop restarts")
+					return nil
+				}
 				log.Error().Err(err).
 					Str("task_id", task.ID).Str("session_id", sessionID).
 					Str("repo", repo.Name).Str("branch", branchName).Str("base", effectiveBaseBranch).
@@ -1617,8 +1699,9 @@ func (s *SpecDrivenTaskService) syncGitIdentityToUser(ctx context.Context, task 
 // The fix runs the same git plumbing the workspace-setup script would
 // have run, but at the point we actually know the branch name. Safe to
 // re-run: `checkout -B` works whether the branch exists locally,
-// remotely, or not at all; `push -u` is a no-op if the remote already
-// has it.
+// remotely, or not at all. The implementation agent creates the remote
+// branch with its first code push; pushing it here would falsely count
+// branch setup as implementation output.
 //
 // Failures are non-fatal: this is best-effort and the existing
 // pre-receive hook still stops genuinely-bad pushes to base. We log
@@ -1633,22 +1716,20 @@ func (s *SpecDrivenTaskService) ensureFeatureBranchInContainer(ctx context.Conte
 	}
 
 	// Single bash command so we get atomic chained semantics and one
-	// docker-exec round-trip. -B is idempotent. -u sets upstream once;
-	// subsequent runs are no-ops.
+	// docker-exec round-trip. -B is idempotent.
 	script := fmt.Sprintf(
-		"cd /home/retro/work/%s && git fetch origin %s && git checkout -B %s origin/%s && git push -u origin %s",
+		"cd /home/retro/work/%s && git fetch origin %s && git checkout -B %s origin/%s",
 		shellQuoteArg(repoName), shellQuoteArg(baseBranch),
 		shellQuoteArg(branchName), shellQuoteArg(baseBranch),
-		shellQuoteArg(branchName),
 	)
 	if err := s.ExecInDesktop(ctx, sessionID, []string{"bash", "-c", script}); err != nil {
-		return fmt.Errorf("git checkout/push feature branch: %w", err)
+		return fmt.Errorf("git checkout feature branch: %w", err)
 	}
 
 	log.Info().
 		Str("session_id", sessionID).Str("repo", repoName).
 		Str("branch", branchName).Str("base", baseBranch).
-		Msg("Feature branch checked out and pushed in container")
+		Msg("Feature branch checked out in container")
 	return nil
 }
 
@@ -1871,23 +1952,40 @@ func isTaskInactive(task *types.SpecTask) bool {
 // Returns true if a PR was found and linked, false otherwise
 // The task is updated in-place and saved to the database
 func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, task *types.SpecTask, projectID, branchName string) bool {
+	repoPR, found := s.findExistingPullRequest(ctx, projectID, branchName)
+	if !found {
+		return false
+	}
+
+	now := time.Now()
+	task.RepoPullRequests = append(task.RepoPullRequests, *repoPR)
+	task.Status = types.TaskStatusPullRequest
+	task.StatusUpdatedAt = &now
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with PR info")
+		return false
+	}
+	return true
+}
+
+func (s *SpecDrivenTaskService) findExistingPullRequest(ctx context.Context, projectID, branchName string) (*types.RepoPR, bool) {
 	// Get project to find the default repository
 	project, err := s.store.GetProject(ctx, projectID)
 	if err != nil || project == nil {
 		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project for PR detection")
-		return false
+		return nil, false
 	}
 
 	if project.DefaultRepoID == "" {
 		log.Debug().Str("project_id", projectID).Msg("Project has no default repo, skipping PR detection")
-		return false
+		return nil, false
 	}
 
 	// List PRs from the repository
 	prs, err := s.gitRepositoryService.ListPullRequests(ctx, project.DefaultRepoID)
 	if err != nil {
 		log.Warn().Err(err).Str("repo_id", project.DefaultRepoID).Msg("Failed to list PRs for detection")
-		return false
+		return nil, false
 	}
 
 	// Find an open PR with matching source branch
@@ -1915,31 +2013,18 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 				repoName = repo.Name
 			}
 
-			// Update task with PR info via RepoPullRequests
-			now := time.Now()
-			task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
+			return &types.RepoPR{
 				RepositoryID:   project.DefaultRepoID,
 				RepositoryName: repoName,
 				PRID:           pr.ID,
 				PRNumber:       pr.Number,
 				PRURL:          pr.URL,
 				PRState:        string(pr.State),
-			})
-			task.Status = types.TaskStatusPullRequest
-			task.StatusUpdatedAt = &now
-
-			// Save updated task
-			err = s.store.UpdateSpecTask(ctx, task)
-			if err != nil {
-				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with PR info")
-				return false
-			}
-
-			return true
+			}, true
 		}
 	}
 
-	return false
+	return nil, false
 }
 
 // SessionAPIKeyRequest specifies the scope for a session-scoped ephemeral API key.
@@ -1961,12 +2046,28 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		return "", fmt.Errorf("session ID is required for session-scoped API key")
 	}
 
-	// Check for existing session-scoped key
+	// Look up session to derive the key type and scope
+	session, err := s.store.GetSession(ctx, req.SessionID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get session '%s': %w", req.SessionID, err)
+	}
+
+	// A bot instance serves untrusted end users, so its sandbox gets the
+	// restricted key type instead of a full user key.
+	keyType := types.APIkeytypeAPI
+	if session.Metadata.SessionRole == types.SessionRoleOrgBotInstance {
+		keyType = types.APIkeytypeBotInstance
+	}
+
+	// Check for existing session-scoped key of that type. The type is part of
+	// the lookup so a full key minted before an instance existed is never
+	// reused for it.
 	existing, err := s.store.GetAPIKey(ctx, &types.ApiKey{
 		OrganizationID: req.OrganizationID,
 		Owner:          req.UserID,
 		OwnerType:      types.OwnerTypeUser,
 		SessionID:      req.SessionID,
+		Type:           keyType,
 	})
 	if err != nil && err != store.ErrNotFound {
 		return "", fmt.Errorf("failed to get existing API key: %w", err)
@@ -1976,14 +2077,12 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		return existing.Key, nil
 	}
 
-	// Look up session to derive scope for attribution
-	session, err := s.store.GetSession(ctx, req.SessionID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get session '%s': %w", req.SessionID, err)
-	}
-
-	// Derive project ID and spec task ID from session metadata
+	// Derive project ID and spec task ID from session metadata. A bot
+	// instance's key is bound to its project: git access is limited to it.
 	var projectID, specTaskID string
+	if keyType == types.APIkeytypeBotInstance {
+		projectID = session.ProjectID
+	}
 	if session.Metadata.SpecTaskID != "" {
 		specTaskID = session.Metadata.SpecTaskID
 		specTask, err := s.store.GetSpecTask(ctx, specTaskID)
@@ -2011,7 +2110,7 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		OwnerType:      types.OwnerTypeUser,
 		Key:            newKey,
 		Name:           keyName,
-		Type:           types.APIkeytypeAPI,
+		Type:           keyType,
 		SessionID:      req.SessionID,
 		ProjectID:      projectID,  // For metrics/attribution
 		SpecTaskID:     specTaskID, // For metrics/attribution

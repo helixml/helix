@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,12 +12,21 @@ import (
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+type failCreateInteractionStore struct {
+	store.Store
+}
+
+func (s *failCreateInteractionStore) CreateInteraction(context.Context, *types.Interaction) (*types.Interaction, error) {
+	return nil, errors.New("write failed")
+}
 
 func seedCodingAgent(mem *memorystore.MemoryStore, id, provider, model string) {
 	mem.SeedApp(&types.App{
@@ -149,6 +159,33 @@ func TestUpdateSessionExecutionConfigPersistsCompleteConfigAndKeepsAgent(t *test
 	assert.Equal(t, config, updated.Metadata.CodeAgentConfig)
 	assert.Nil(t, updated.Metadata.CodeAgentOverrides)
 	assert.Equal(t, types.CodeAgentRuntimeOpenCode, updated.Metadata.CodeAgentRuntime)
+}
+
+func TestUpdateSessionExecutionConfigRestoresWorkingSessionWhenSwitchFails(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+	session := newOrgChatSession("user_a")
+	session.Metadata.ZedThreadID = "ctx_working_thread"
+	seedParentWithInteractions(t, mem, session, 1)
+	srv.Store = &failCreateInteractionStore{Store: mem}
+
+	config := &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeOpenCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "anthropic",
+		Model:          "claude-sonnet-4-7",
+	}
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
+	require.Equal(t, http.StatusInternalServerError, rr.Code, rr.Body.String())
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Nil(t, updated.Metadata.CodeAgentConfig)
+	assert.Equal(t, types.CodeAgentRuntimeZedAgent, updated.Metadata.CodeAgentRuntime)
+	assert.Equal(t, types.CodeAgentRuntimeZedAgent.ZedAgentName(), updated.Metadata.ZedAgentName)
+	assert.Equal(t, "ctx_working_thread", updated.Metadata.ZedThreadID)
 }
 
 // A SpecTask session reports its TASK's configuration, not the session row's:

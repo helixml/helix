@@ -671,7 +671,9 @@ func (apiServer *HelixAPIServer) cancelWaitingInteraction(ctx context.Context, s
 		current.ExternalAgentDispatchedAt = &now
 	}
 	if requestID != "" {
-		apiServer.requestToSessionMapping[requestID] = session.ID
+		if session.Metadata.ZedThreadID == "" {
+			apiServer.requestToSessionMapping[requestID] = session.ID
+		}
 		apiServer.requestToInteractionMapping[requestID] = current.ID
 	}
 

@@ -24,7 +24,7 @@ type GetSecret struct{ deps Deps }
 func (t *GetSecret) Name() tool.Name                 { return GetSecretName }
 func (t *GetSecret) InputSchema() *jsonschema.Schema { return getSecretSchema }
 func (t *GetSecret) Description() string {
-	return "Return the current value of one credential explicitly granted to this Worker. Call immediately before an authenticated operation and again after a 401/403. The value is sensitive: do not print it or place it in command-line arguments. Args: name. Backend source and resource IDs are intentionally not accepted."
+	return "Return the current value of one credential explicitly granted to this Worker. Call immediately before an authenticated operation and again after a 401/403. The value is sensitive: do not print it or place it in command-line arguments. Args: name. Backend source and resource IDs are intentionally not accepted. An error for an unknown name means the credential is not bound to this Worker — it does not mean the value is unreachable: a project-scoped secret of that name may also be injected into the container environment, so check whether it is set there (without printing it) before reporting a credential as unavailable."
 }
 func (t *GetSecret) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args getSecretArgs

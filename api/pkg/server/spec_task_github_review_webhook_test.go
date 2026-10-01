@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,8 +24,9 @@ import (
 )
 
 const (
-	testWebhookSecret = "repo-secret-abc123"
-	testWebhookRepoID = "repo-e2e"
+	testWebhookSecret   = "repo-secret-abc123"
+	testWebhookRepoID   = "repo-e2e"
+	testReviewBotUserID = int64(291906607)
 )
 
 func signBody(t *testing.T, secret string, body []byte) string {
@@ -205,7 +207,10 @@ func (s *SpecTaskGitHubReviewWebhookSuite) webhookRepo() *types.GitRepository {
 		OrganizationID: "org_e2e",
 		ExternalURL:    "https://github.com/owner/repo",
 		ExternalType:   types.ExternalRepositoryTypeGitHub,
-		GitHub:         &types.GitHub{WebhookSecret: testWebhookSecret},
+		GitHub: &types.GitHub{
+			WebhookSecret:   testWebhookSecret,
+			ReviewBotUserID: testReviewBotUserID,
+		},
 	}
 }
 
@@ -282,7 +287,13 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TestEndToEndEnqueuesNormalizedFeedbac
 	// poller bails immediately and the test stays deterministic.
 	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), "ses_spt_1").Return(nil, nil).AnyTimes()
 
-	body := newReviewPayload(s.T())
+	var payload githubReviewWebhookPayload
+	s.Require().NoError(json.Unmarshal(newReviewPayload(s.T()), &payload))
+	payload.Review.State = "commented"
+	payload.Review.AuthorAssociation = "NONE"
+	payload.Review.User = githubWebhookUser{ID: testReviewBotUserID, Login: "helixml-bot[bot]", Type: "Bot"}
+	body, err := json.Marshal(payload)
+	s.Require().NoError(err)
 	rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
 	s.Require().Equal(http.StatusOK, rr.Code, "body=%s", rr.Body.String())
 
@@ -300,8 +311,8 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TestEndToEndEnqueuesNormalizedFeedbac
 	s.Equal("pending", captured.Status)
 	for _, want := range []string{
 		"PR #42 on owner/repo",
-		"reviewer @alice",
-		"verdict: CHANGES REQUESTED",
+		"reviewer @helixml-bot[bot]",
+		"verdict: COMMENTED",
 		"--- BEGIN UNTRUSTED GITHUB REVIEW CONTENT ---",
 		"api/pkg/foo.go:42 @alice: this can nil-deref",
 		"--- END UNTRUSTED GITHUB REVIEW CONTENT ---",
@@ -458,6 +469,44 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TestTrustGateDropsOutsiders() {
 
 		rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
 		s.Require().Equal(http.StatusOK, rr.Code, "association=%q must ack-drop", association)
+	}
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestTrustGateDropsUntrustedBots() {
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Times(0)
+	s.gitRepo.listReviewCommentsFunc = func(_ context.Context, _, _ string, _ int64) ([]*types.PRReviewComment, error) {
+		s.Fail("comment fetch must not run for untrusted bot reviews")
+		return nil, nil
+	}
+
+	for i, tc := range []struct {
+		name              string
+		configuredID      int64
+		reviewerID        int64
+		reviewerType      string
+		authorAssociation string
+	}{
+		{name: "wrong ID", configuredID: testReviewBotUserID, reviewerID: testReviewBotUserID + 1, reviewerType: "Bot", authorAssociation: "COLLABORATOR"},
+		{name: "right ID user", configuredID: testReviewBotUserID, reviewerID: testReviewBotUserID, reviewerType: "User", authorAssociation: "NONE"},
+		{name: "wrong type", configuredID: testReviewBotUserID, reviewerID: testReviewBotUserID, reviewerType: "Robot", authorAssociation: "COLLABORATOR"},
+		{name: "empty type", configuredID: testReviewBotUserID, reviewerID: testReviewBotUserID, authorAssociation: "COLLABORATOR"},
+		{name: "unconfigured", reviewerID: testReviewBotUserID, reviewerType: "Bot", authorAssociation: "COLLABORATOR"},
+	} {
+		repoID := fmt.Sprintf("%s-%d", testWebhookRepoID, i)
+		repo := s.webhookRepo()
+		repo.ID = repoID
+		repo.GitHub.ReviewBotUserID = tc.configuredID
+		s.expectRepoLoad(repoID, repo, nil)
+
+		var payload githubReviewWebhookPayload
+		s.Require().NoError(json.Unmarshal(newReviewPayload(s.T()), &payload))
+		payload.Review.AuthorAssociation = tc.authorAssociation
+		payload.Review.User = githubWebhookUser{ID: tc.reviewerID, Login: "helixml-bot[bot]", Type: tc.reviewerType}
+		body, err := json.Marshal(payload)
+		s.Require().NoError(err)
+
+		rr := s.post(repoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
+		s.Require().Equal(http.StatusOK, rr.Code, tc.name)
 	}
 }
 

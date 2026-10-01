@@ -108,6 +108,12 @@ func TestOpenCodeConfigAutoApprovesToolCalls(t *testing.T) {
 		"opencode must never swap its own binary mid-session; the version is pinned by the image or the admin override")
 }
 
+func TestOpenCodeConfigLoadsMediaBudgetPlugin(t *testing.T) {
+	decoded := decodeOpenCodeConfig(t, openCodeDaemon().generateAgentServerConfig())
+
+	assert.Equal(t, []interface{}{openCodeMediaBudgetPlugin}, decoded["plugin"])
+}
+
 func TestOpenCodeConfigBoundsDeepSeekV4FlashTurns(t *testing.T) {
 	d := openCodeDaemon()
 	d.codeAgentConfig.Model = "ds4-flash-node06/deepseek-v4-flash"

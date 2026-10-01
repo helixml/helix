@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -41,6 +43,17 @@ type FindProviderWithModelSuite struct {
 
 func TestFindProviderWithModelSuite(t *testing.T) {
 	suite.Run(t, new(FindProviderWithModelSuite))
+}
+
+func TestCreateChatCompletionRejectsOversizedBody(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(strings.Repeat("x", maxChatCompletionRequestBodyBytes+1)))
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_test"}))
+	rw := httptest.NewRecorder()
+
+	new(HelixAPIServer).createChatCompletion(rw, req)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, rw.Code)
+	require.Equal(t, "request body too large\n", rw.Body.String())
 }
 
 func (s *FindProviderWithModelSuite) SetupTest() {

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../services/dashboardService', () => ({
     useAdminActivateTrial: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
+    useAdminRevokeTrial: () => ({ mutateAsync: vi.fn(), isPending: false }),
     useAdminUserOwnedOrgs: () => ({ data: mocks.ownedOrgs, isLoading: false }),
 }));
 
@@ -22,36 +23,27 @@ const user = { id: 'user-1', email: 'user@example.com' };
 describe('ActivateTrialDialog', () => {
     beforeEach(() => {
         mocks.ownedOrgs = [];
-        mocks.mutateAsync.mockReset().mockResolvedValue({ status: 'applied' });
+        mocks.mutateAsync.mockReset().mockResolvedValue({ status: 'stashed' });
     });
 
-    it('keeps a manual org selection when owned org data refetches', async () => {
-        mocks.ownedOrgs = [
-            { id: 'org-a', name: 'Alpha' },
-            { id: 'org-b', name: 'Beta' },
-        ];
-        const { rerender } = render(<ActivateTrialDialog open onClose={vi.fn()} user={user} />);
-
-        fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Organisation' }));
-        fireEvent.click(screen.getByRole('option', { name: 'Beta (org-b)' }));
-
-        mocks.ownedOrgs = [
-            { id: 'org-c', name: 'Gamma' },
-            { id: 'org-b', name: 'Beta' },
-            { id: 'org-a', name: 'Alpha' },
-        ];
-        rerender(<ActivateTrialDialog open onClose={vi.fn()} user={user} />);
-        fireEvent.click(screen.getByRole('button', { name: 'Activate trial' }));
-
-        await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-b' })));
-    });
-
-    it('submits the sole owned org by default', async () => {
-        mocks.ownedOrgs = [{ id: 'org-a', name: 'Alpha' }];
+    it('stashes the trial intent for a user who owns no organisations', async () => {
         render(<ActivateTrialDialog open onClose={vi.fn()} user={user} />);
 
         fireEvent.click(screen.getByRole('button', { name: 'Activate trial' }));
 
-        await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-a' })));
+        await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ orgId: undefined })));
+        expect(screen.queryByText(/already owns/)).toBeNull();
+    });
+
+    it('points to the org screen and disables submit when the user owns organisations', () => {
+        mocks.ownedOrgs = [
+            { id: 'org-a', name: 'Alpha' },
+            { id: 'org-b', name: 'Beta' },
+        ];
+        render(<ActivateTrialDialog open onClose={vi.fn()} user={user} />);
+
+        expect(screen.getByText(/already owns 2 organisations/)).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Activate trial' })).toBeDisabled();
+        expect(mocks.mutateAsync).not.toHaveBeenCalled();
     });
 });

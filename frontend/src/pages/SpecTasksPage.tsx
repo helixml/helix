@@ -24,6 +24,7 @@ import {
   Tab as TabIcon,
   Archive as ArchiveIcon,
   BarChart as MetricsIcon,
+  SmartToy as BotIcon,
   Visibility as ViewIcon,
   PushPin as PushPinIcon,
   PushPinOutlined as PushPinOutlinedIcon,
@@ -220,6 +221,7 @@ const SpecTasksPage: FC = () => {
   // Kanban view options state (controlled from topbar)
   const METRICS_STORAGE_KEY = "helix-kanban-show-metrics";
   const MERGED_STORAGE_KEY = "helix-kanban-show-merged";
+  const BOT_TASKS_STORAGE_KEY = "helix-kanban-show-bot-tasks";
   const [showArchived, setShowArchived] = useState(false);
   const [showMetrics, setShowMetrics] = useState(() => {
     const stored = localStorage.getItem(METRICS_STORAGE_KEY);
@@ -229,6 +231,9 @@ const SpecTasksPage: FC = () => {
     const stored = localStorage.getItem(MERGED_STORAGE_KEY);
     return stored !== null ? stored === "true" : true;
   });
+  const [showBotTasks, setShowBotTasks] = useState(
+    () => localStorage.getItem(BOT_TASKS_STORAGE_KEY) === "true",
+  );
   const [viewMenuAnchorEl, setViewMenuAnchorEl] = useState<null | HTMLElement>(
     null,
   );
@@ -245,6 +250,14 @@ const SpecTasksPage: FC = () => {
     setShowMerged((prev) => {
       const newValue = !prev;
       localStorage.setItem(MERGED_STORAGE_KEY, String(newValue));
+      return newValue;
+    });
+  }, []);
+
+  const handleToggleBotTasks = useCallback(() => {
+    setShowBotTasks((prev) => {
+      const newValue = !prev;
+      localStorage.setItem(BOT_TASKS_STORAGE_KEY, String(newValue));
       return newValue;
     });
   }, []);
@@ -1047,6 +1060,15 @@ const SpecTasksPage: FC = () => {
             </MenuItem>
             <MenuItem
               onClick={() => {
+                handleToggleBotTasks();
+                setViewMenuAnchorEl(null);
+              }}
+            >
+              <BotIcon sx={{ mr: 1.5, fontSize: 20 }} />
+              {showBotTasks ? "Hide Bot Tasks" : "Show Bot Tasks"}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
                 handleToggleMetrics();
                 setViewMenuAnchorEl(null);
               }}
@@ -1175,6 +1197,7 @@ const SpecTasksPage: FC = () => {
                 showArchived={showArchived}
                 showMetrics={showMetrics}
                 showMerged={showMerged}
+                showBotTasks={showBotTasks}
               />
             )}
             {viewMode === "workspace" && (

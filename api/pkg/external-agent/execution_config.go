@@ -30,7 +30,7 @@ func MaterializeCodeAgentConfig(app *types.App, overrides *types.CodeAgentOverri
 		if runtime == types.CodeAgentRuntimeClaudeCode {
 			model = assistant.ClaudeSubscriptionModel
 			if model == "" {
-				model = "claude-opus-5"
+				model = "claude-opus-5-5"
 			}
 		}
 	}

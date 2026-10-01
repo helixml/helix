@@ -111,6 +111,9 @@ func (t *StartSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args m
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get spec task for start")
 		return "", fmt.Errorf("failed to get spec task: %w", err)
 	}
+	if err := requirePublishedSpecTask(task); err != nil {
+		return "", err
+	}
 
 	if task.ProjectID != projectID {
 		return "", fmt.Errorf("task does not belong to this project")

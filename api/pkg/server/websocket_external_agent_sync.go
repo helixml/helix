@@ -445,7 +445,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			// This ensures message routing works after API server restarts
 			if helixSession.Metadata.ZedThreadID != "" {
 				apiServer.contextMappingsMutex.Lock()
-				apiServer.contextMappings[helixSession.Metadata.ZedThreadID] = helixSessionID
+				apiServer.contextMappings[routeKey(agentID, helixSession.Metadata.ZedThreadID)] = helixSessionID
 				apiServer.contextMappingsMutex.Unlock()
 				log.Trace().
 					Str("helix_session_id", helixSessionID).
@@ -550,6 +550,22 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 						Str("session_id", helixSessionID).
 						Str("zed_thread_id", targetThreadID).
 						Msg("[CONNECT] ✅ open_thread written directly to WebSocket")
+				}
+			} else {
+				// No thread to reopen: tell Zed so it reports agent_ready now
+				// instead of waiting out its 5-second open_thread timer, which
+				// every fresh session otherwise pays before its first turn.
+				wsConn.mu.Lock()
+				writeErr := wsConn.Conn.WriteJSON(types.ExternalAgentCommand{
+					Type: "no_open_thread",
+					Data: map[string]interface{}{"session_id": helixSessionID},
+				})
+				wsConn.mu.Unlock()
+				if writeErr != nil {
+					log.Error().
+						Str("session_id", helixSessionID).
+						Err(writeErr).
+						Msg("[CONNECT] Failed to write no_open_thread to WebSocket")
 				}
 			}
 		}
@@ -863,6 +879,9 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		if err != nil {
 			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
 		}
+		if err := apiServer.sameOwnerAsConnection(context.Background(), sessionID, helixSession); err != nil {
+			return fmt.Errorf("thread_created: %w", err)
+		}
 
 		// Store the zed_context_id and agent name on the session metadata.
 		// The agent name is persisted so we use the correct agent for this thread
@@ -881,7 +900,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 
 		// CRITICAL: Store the mapping so message_added can find the session
 		apiServer.contextMappingsMutex.Lock()
-		apiServer.contextMappings[contextID] = helixSessionID
+		apiServer.contextMappings[routeKey(sessionID, contextID)] = helixSessionID
 		apiServer.contextMappingsMutex.Unlock()
 
 		log.Info().
@@ -900,7 +919,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 	// PRIORITY 3: Check if a session already exists with this ZedThreadID.
 	// This prevents creating duplicate sessions when the same thread is reported again
 	// (e.g., after Zed reconnects and re-reports an existing thread).
-	existingSession, err := apiServer.findSessionByZedThreadID(context.Background(), contextID)
+	existingSession, err := apiServer.findSessionByZedThreadID(context.Background(), sessionID, contextID)
 	if err == nil && existingSession != nil {
 		log.Info().
 			Str("agent_session_id", sessionID).
@@ -909,7 +928,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			Msg("✅ [HELIX] Found existing session by ZedThreadID, reusing instead of creating duplicate")
 
 		apiServer.contextMappingsMutex.Lock()
-		apiServer.contextMappings[contextID] = existingSession.ID
+		apiServer.contextMappings[routeKey(sessionID, contextID)] = existingSession.ID
 		apiServer.contextMappingsMutex.Unlock()
 
 		if existingSession.Metadata.SpecTaskID != "" {
@@ -949,10 +968,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 				}
 
 				apiServer.contextMappingsMutex.Lock()
-				if apiServer.contextMappings == nil {
-					apiServer.contextMappings = make(map[string]string)
-				}
-				apiServer.contextMappings[contextID] = boundSession.ID
+				apiServer.contextMappings[routeKey(sessionID, contextID)] = boundSession.ID
 				apiServer.contextMappingsMutex.Unlock()
 
 				if boundSession.Metadata.SpecTaskID != "" {
@@ -997,9 +1013,10 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Created:   time.Now(),
 		Updated:   time.Now(),
 		Metadata: types.SessionMetadata{
-			SystemPrompt: "You are a helpful AI assistant integrated with Zed editor.",
-			AgentType:    "zed_external",
-			ZedThreadID:  contextID,
+			SystemPrompt:    "You are a helpful AI assistant integrated with Zed editor.",
+			AgentType:       "zed_external",
+			ZedThreadID:     contextID,
+			ExternalAgentID: sessionID,
 		},
 	}
 
@@ -1018,10 +1035,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 
 	// Store the context mapping for future message routing
 	apiServer.contextMappingsMutex.Lock()
-	if apiServer.contextMappings == nil {
-		apiServer.contextMappings = make(map[string]string)
-	}
-	apiServer.contextMappings[contextID] = createdSession.ID
+	apiServer.contextMappings[routeKey(sessionID, contextID)] = createdSession.ID
 	apiServer.contextMappingsMutex.Unlock()
 
 	// Register the WebSocket connection for the child session ID so
@@ -1260,7 +1274,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 	// Find the Helix session that corresponds to this Zed context
 	apiServer.contextMappingsMutex.RLock()
-	helixSessionID, exists := apiServer.contextMappings[contextID]
+	helixSessionID, exists := apiServer.contextMappings[routeKey(sessionID, contextID)]
 	apiServer.contextMappingsMutex.RUnlock()
 	if !exists {
 		// FALLBACK: contextMappings may be empty after API restart
@@ -1269,7 +1283,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			Str("context_id", contextID).
 			Msg("🔍 [HELIX] contextMappings miss, attempting database fallback lookup by ZedThreadID")
 
-		foundSession, err := apiServer.findSessionByZedThreadID(context.Background(), contextID)
+		foundSession, err := apiServer.findSessionByZedThreadID(context.Background(), sessionID, contextID)
 		if err != nil || foundSession == nil {
 			// No session found for this thread. For user messages, create a session on-the-fly.
 			// This handles the race condition where MessageAdded(role=user) arrives before UserCreatedThread.
@@ -1302,6 +1316,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 					OwnerType:      existingSession.OwnerType,
 					Metadata: types.SessionMetadata{
 						ZedThreadID:         contextID,
+						ExternalAgentID:     sessionID,
 						AgentType:           existingSession.Metadata.AgentType,
 						ExternalAgentConfig: existingSession.Metadata.ExternalAgentConfig,
 					},
@@ -1315,7 +1330,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 				helixSessionID = newSession.ID
 				apiServer.contextMappingsMutex.Lock()
-				apiServer.contextMappings[contextID] = helixSessionID
+				apiServer.contextMappings[routeKey(sessionID, contextID)] = helixSessionID
 				apiServer.contextMappingsMutex.Unlock()
 
 				log.Info().
@@ -1330,7 +1345,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			helixSessionID = foundSession.ID
 			// Restore the mapping for future messages
 			apiServer.contextMappingsMutex.Lock()
-			apiServer.contextMappings[contextID] = helixSessionID
+			apiServer.contextMappings[routeKey(sessionID, contextID)] = helixSessionID
 			apiServer.contextMappingsMutex.Unlock()
 			log.Info().
 				Str("context_id", contextID).
@@ -1590,18 +1605,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		// Zed echoes the sent user message back as message_added(role=user), which would
 		// otherwise create a duplicate interaction and overwrite the mapping, causing the
 		// assistant response to land in the wrong interaction (Bug 1 fix).
-		// Check requestToInteractionMapping: if any request maps to this session via
-		// requestToSessionMapping, a pre-created interaction already exists.
+		// Match only the request_id carried by this message. Session-wide scans can
+		// select an unrelated or already-completed turn.
 		apiServer.contextMappingsMutex.RLock()
-		var existingInteractionID string
-		for reqID, sessID := range apiServer.requestToSessionMapping {
-			if sessID == helixSessionID {
-				if intID, ok := apiServer.requestToInteractionMapping[reqID]; ok {
-					existingInteractionID = intID
-					break
-				}
-			}
-		}
+		existingInteractionID := apiServer.requestToInteractionMapping[messageRequestID]
 		apiServer.contextMappingsMutex.RUnlock()
 
 		if existingInteractionID != "" {
@@ -2000,10 +2007,6 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				Msg("🛡️ [HELIX] Ignoring stale request_id rebind (mapping previously consumed by completion)")
 		case existing != newInteractionID:
 			apiServer.requestToInteractionMapping[requestID] = newInteractionID
-			if apiServer.requestToSessionMapping == nil {
-				apiServer.requestToSessionMapping = make(map[string]string)
-			}
-			apiServer.requestToSessionMapping[requestID] = helixSessionID
 			apiServer.contextMappingsMutex.Unlock()
 			log.Info().
 				Str("session_id", helixSessionID).
@@ -2011,10 +2014,6 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				Str("interaction_id", newInteractionID).
 				Msg("🗺️ [HELIX] Populated requestToInteractionMapping from streaming context (Zed-initiated message)")
 		default:
-			if apiServer.requestToSessionMapping == nil {
-				apiServer.requestToSessionMapping = make(map[string]string)
-			}
-			apiServer.requestToSessionMapping[requestID] = helixSessionID
 			apiServer.contextMappingsMutex.Unlock()
 		}
 
@@ -3052,7 +3051,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 
 	// Look up helix_session_id from context mapping
 	apiServer.contextMappingsMutex.RLock()
-	helixSessionID, ok := apiServer.contextMappings[acpThreadID]
+	helixSessionID, ok := apiServer.contextMappings[routeKey(sessionID, acpThreadID)]
 	apiServer.contextMappingsMutex.RUnlock()
 	if !ok {
 		// FALLBACK: contextMappings may be empty after API restart
@@ -3061,7 +3060,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			Str("acp_thread_id", acpThreadID).
 			Msg("🔍 [HELIX] contextMappings miss in message_completed, attempting database fallback")
 
-		foundSession, err := apiServer.findSessionByZedThreadID(context.Background(), acpThreadID)
+		foundSession, err := apiServer.findSessionByZedThreadID(context.Background(), sessionID, acpThreadID)
 		if err != nil || foundSession == nil {
 			log.Warn().
 				Str("acp_thread_id", acpThreadID).
@@ -3071,7 +3070,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		helixSessionID = foundSession.ID
 		// Restore the mapping for future messages
 		apiServer.contextMappingsMutex.Lock()
-		apiServer.contextMappings[acpThreadID] = helixSessionID
+		apiServer.contextMappings[routeKey(sessionID, acpThreadID)] = helixSessionID
 		apiServer.contextMappingsMutex.Unlock()
 		log.Info().
 			Str("acp_thread_id", acpThreadID).
@@ -3207,6 +3206,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	if err != nil {
 		return fmt.Errorf("failed to reload interaction %s: %w", targetInteractionID, err)
 	}
+	apiServer.autoWakeWSAbsentSince.Delete(targetInteraction.ID)
 
 	log.Info().
 		Str("helix_session_id", helixSessionID).
@@ -3259,20 +3259,26 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		log.Warn().
 			Str("helix_session_id", helixSessionID).
 			Str("interaction_id", targetInteraction.ID).
-			Msg("⚠️ [HELIX] message_completed with EMPTY response — marking as error and re-queuing")
+			Msg("⚠️ [HELIX] message_completed with EMPTY response — marking as error")
 
 		targetInteraction.State = types.InteractionStateError
-		targetInteraction.Error = "Agent unresponsive: it returned an empty response. Retrying automatically."
+		targetInteraction.Error = "Agent unresponsive: it returned an empty response."
 		targetInteraction.Updated = time.Now()
 		if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction); err != nil {
 			return fmt.Errorf("failed to update bounced interaction %s: %w", targetInteraction.ID, err)
 		}
+		if targetInteraction.PromptID == "" {
+			apiServer.enqueueBotInstanceTurnWebhook(context.Background(), helixSession, targetInteraction)
+		}
 
-		// Re-queue the bounced prompt so it will be retried (non-fatal if no matching prompt)
-		if err := apiServer.Controller.Options.Store.RequeueBouncedPrompt(context.Background(), helixSessionID); err != nil {
-			log.Debug().Err(err).
-				Str("session_id", helixSessionID).
-				Msg("No prompt_history_entry to re-queue (Zed user message or already retried)")
+		// Re-queue the exact bounced prompt so a concurrent prompt is not failed instead.
+		if targetInteraction.PromptID != "" {
+			if err := apiServer.Controller.Options.Store.RequeueBouncedPrompt(context.Background(), targetInteraction.PromptID); err != nil {
+				log.Warn().Err(err).
+					Str("session_id", helixSessionID).
+					Str("prompt_id", targetInteraction.PromptID).
+					Msg("Failed to re-queue bounced prompt")
+			}
 		}
 
 		// Publish the error state to frontend
@@ -3348,6 +3354,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	if err != nil {
 		return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
 	}
+	apiServer.enqueueBotInstanceTurnWebhook(context.Background(), helixSession, targetInteraction)
 
 	// Reaching message_completed means the agent is alive and produced a turn,
 	// so any consumed auto-restart budget is refunded: a recovered autonomous
@@ -3906,26 +3913,29 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	}
 	apiServer.backfillCommentLinkageForPrompt(ctx, prompt.ID, requestID, createdInteraction.ID)
 
-	// Store request_id->session mapping so thread_created can find the right session
-	// (needed for the FIRST message when ZedThreadID is empty and Zed will create a
-	// new thread). The interaction → prompt link no longer lives in an in-memory map;
+	// Store request_id->session mapping only when thread_created will consume it.
+	// The interaction → prompt link no longer lives in an in-memory map;
 	// it's persisted on the Interaction.PromptID column at create time, so it
 	// survives API restart and reconnect-driven re-delivery.
 	apiServer.contextMappingsMutex.Lock()
-	if apiServer.requestToSessionMapping == nil {
-		apiServer.requestToSessionMapping = make(map[string]string)
+	if threadNotEstablished {
+		if apiServer.requestToSessionMapping == nil {
+			apiServer.requestToSessionMapping = make(map[string]string)
+		}
+		apiServer.requestToSessionMapping[requestID] = sessionID
 	}
-	apiServer.requestToSessionMapping[requestID] = sessionID
 	// Map request_id → interaction_id for FIFO queue matching
 	if apiServer.requestToInteractionMapping == nil {
 		apiServer.requestToInteractionMapping = make(map[string]string)
 	}
 	apiServer.requestToInteractionMapping[requestID] = createdInteraction.ID
 	apiServer.contextMappingsMutex.Unlock()
-	log.Info().
-		Str("request_id", requestID).
-		Str("session_id", sessionID).
-		Msg("🔗 [QUEUE] Stored request_id->session mapping for thread creation")
+	if threadNotEstablished {
+		log.Info().
+			Str("request_id", requestID).
+			Str("session_id", sessionID).
+			Msg("🔗 [QUEUE] Stored request_id->session mapping for thread creation")
+	}
 
 	// Forked sessions: prepend parent transcript on the first outgoing message
 	// (when ZedThreadID is empty so Zed will create a new thread). No-op on
@@ -4133,8 +4143,9 @@ func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessi
 		return false, fmt.Errorf("clear stale ACP thread: %w", err)
 	}
 
+	key := routeKey(apiServer.connectionForSession(sessionID), acpThreadID)
 	apiServer.contextMappingsMutex.Lock()
-	delete(apiServer.contextMappings, acpThreadID)
+	delete(apiServer.contextMappings, key)
 	apiServer.contextMappingsMutex.Unlock()
 	if interaction == nil {
 		return true, nil
@@ -4215,7 +4226,7 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 	var helixSessionID string
 	if acpThreadID != "" {
 		apiServer.contextMappingsMutex.RLock()
-		helixSessionID = apiServer.contextMappings[acpThreadID]
+		helixSessionID = apiServer.contextMappings[routeKey(sessionID, acpThreadID)]
 		apiServer.contextMappingsMutex.RUnlock()
 	}
 	// Both conditions mean the same thing for delivery: this thread can never be
@@ -4589,7 +4600,11 @@ func (apiServer *HelixAPIServer) commitThreadLoadFailure(ctx context.Context, he
 		target.Updated = time.Now()
 		target.Completed = time.Now()
 	}
-	apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), target)
+	if _, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, target); err != nil {
+		log.Error().Err(err).Str("interaction_id", target.ID).Msg("Failed to persist thread load failure")
+	} else if target.PromptID == "" {
+		apiServer.enqueueBotInstanceTurnWebhook(ctx, helixSession, target)
+	}
 
 	// If this interaction came from a queue prompt that's still
 	// in 'sending' state (deferred MarkPromptAsSent flow), mark
@@ -4768,32 +4783,6 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 	go apiServer.processAnyPendingPrompt(context.Background(), sessionID)
 
 	return nil
-}
-
-// findSessionByZedThreadID finds a session by its ZedThreadID metadata
-// This is a database fallback when contextMappings is empty (e.g., after API restart)
-func (apiServer *HelixAPIServer) findSessionByZedThreadID(ctx context.Context, zedThreadID string) (*types.Session, error) {
-	// Query sessions with matching ZedThreadID in metadata
-	// The ZedThreadID is stored in session.Metadata.ZedThreadID
-	// For now, we iterate through recent sessions (this could be optimized with a DB index on metadata)
-	sessions, _, err := apiServer.Controller.Options.Store.ListSessions(ctx, store.ListSessionsQuery{
-		PerPage: 100,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list sessions: %w", err)
-	}
-
-	for _, session := range sessions {
-		if session.Metadata.ZedThreadID == zedThreadID {
-			log.Info().
-				Str("session_id", session.ID).
-				Str("zed_thread_id", zedThreadID).
-				Msg("🔍 [HELIX] Found session by ZedThreadID in database")
-			return session, nil
-		}
-	}
-
-	return nil, fmt.Errorf("no session found with ZedThreadID: %s", zedThreadID)
 }
 
 // validateExternalAgentToken validates the auth token for external agent
@@ -5183,7 +5172,7 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 	// This can happen if MessageAdded(role=user) arrived before UserCreatedThread
 	// and created the session on-the-fly
 	apiServer.contextMappingsMutex.RLock()
-	existingMappedSession, alreadyExists := apiServer.contextMappings[acpThreadID]
+	existingMappedSession, alreadyExists := apiServer.contextMappings[routeKey(agentSessionID, acpThreadID)]
 	apiServer.contextMappingsMutex.RUnlock()
 
 	if alreadyExists {
@@ -5264,6 +5253,7 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 		OwnerType:      existingSession.OwnerType,
 		Metadata: types.SessionMetadata{
 			ZedThreadID:         acpThreadID,
+			ExternalAgentID:     agentSessionID,
 			AgentType:           existingSession.Metadata.AgentType,
 			ExternalAgentConfig: existingSession.Metadata.ExternalAgentConfig,
 			SpecTaskID:          existingSession.Metadata.SpecTaskID,
@@ -5316,7 +5306,7 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 
 	// Map Zed thread to Helix session (same as handleThreadCreated)
 	apiServer.contextMappingsMutex.Lock()
-	apiServer.contextMappings[acpThreadID] = session.ID
+	apiServer.contextMappings[routeKey(agentSessionID, acpThreadID)] = session.ID
 	apiServer.contextMappingsMutex.Unlock()
 
 	// Register the WebSocket connection for the child session so
@@ -5356,7 +5346,7 @@ func (apiServer *HelixAPIServer) handleThreadTitleChanged(agentSessionID string,
 
 	// Find corresponding Helix session (same as handleThreadCreated uses)
 	apiServer.contextMappingsMutex.RLock()
-	helixSessionID, exists := apiServer.contextMappings[acpThreadID]
+	helixSessionID, exists := apiServer.contextMappings[routeKey(agentSessionID, acpThreadID)]
 	apiServer.contextMappingsMutex.RUnlock()
 
 	if !exists {

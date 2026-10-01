@@ -36,6 +36,14 @@ const (
 	// DRM_IOCTL_MODE_REVOKE_LEASE = _IOW('d', 0xc9, struct drm_mode_revoke_lease)
 	// struct drm_mode_revoke_lease is 4 bytes
 	ioctlModeRevokeLease = 0x400464c9
+
+	// DRM_IOCTL_MODE_GETPLANERESOURCES = _IOWR('d', 0xb5, struct drm_mode_get_plane_res)
+	// struct drm_mode_get_plane_res is 16 bytes
+	ioctlModeGetPlaneResources = 0xc01064b5
+
+	// DRM_IOCTL_MODE_GETPLANE = _IOWR('d', 0xb6, struct drm_mode_get_plane)
+	// struct drm_mode_get_plane is 32 bytes
+	ioctlModeGetPlane = 0xc02064b6
 )
 
 // Connector status values
@@ -88,6 +96,24 @@ type drmModeCreateLease struct {
 	Flags      uint32
 	LesseeID   uint32
 	FD         int32
+}
+
+// drmModeGetPlaneRes corresponds to struct drm_mode_get_plane_res.
+type drmModeGetPlaneRes struct {
+	PlaneIDPtr  uint64
+	CountPlanes uint32
+	Pad         uint32
+}
+
+// drmModeGetPlane corresponds to struct drm_mode_get_plane.
+type drmModeGetPlane struct {
+	PlaneID          uint32
+	CrtcID           uint32
+	FbID             uint32
+	PossibleCrtcs    uint32
+	GammaSize        uint32
+	CountFormatTypes uint32
+	FormatTypePtr    uint64
 }
 
 // drmModeRevokeLease corresponds to struct drm_mode_revoke_lease.
@@ -197,6 +223,48 @@ func getResources(f *os.File) (crtcIDs, connectorIDs []uint32, err error) {
 	}
 
 	return crtcIDs, connectorIDs, nil
+}
+
+// getPlanes enumerates all planes and the CRTCs each can be used with.
+// Requires DRM_CLIENT_CAP_UNIVERSAL_PLANES (set in openDRM) so that primary
+// and cursor planes are listed, not just overlays.
+func getPlanes(f *os.File) ([]planeInfo, error) {
+	// First call: get count
+	var res drmModeGetPlaneRes
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), ioctlModeGetPlaneResources,
+		uintptr(unsafe.Pointer(&res)))
+	if errno != 0 {
+		return nil, fmt.Errorf("MODE_GETPLANERESOURCES (count): %w", errno)
+	}
+	if res.CountPlanes == 0 {
+		return nil, fmt.Errorf("no planes found")
+	}
+
+	// Second call: fill array
+	ids := make([]uint32, res.CountPlanes)
+	res2 := drmModeGetPlaneRes{
+		PlaneIDPtr:  uint64(uintptr(unsafe.Pointer(&ids[0]))),
+		CountPlanes: res.CountPlanes,
+	}
+	_, _, errno = unix.Syscall(unix.SYS_IOCTL, f.Fd(), ioctlModeGetPlaneResources,
+		uintptr(unsafe.Pointer(&res2)))
+	if errno != 0 {
+		return nil, fmt.Errorf("MODE_GETPLANERESOURCES (fill): %w", errno)
+	}
+	ids = ids[:res2.CountPlanes]
+
+	planes := make([]planeInfo, 0, len(ids))
+	for _, id := range ids {
+		// count_format_types = 0: we don't need the format list
+		p := drmModeGetPlane{PlaneID: id}
+		_, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), ioctlModeGetPlane,
+			uintptr(unsafe.Pointer(&p)))
+		if errno != 0 {
+			return nil, fmt.Errorf("MODE_GETPLANE %d: %w", id, errno)
+		}
+		planes = append(planes, planeInfo{ID: id, PossibleCrtcs: p.PossibleCrtcs})
+	}
+	return planes, nil
 }
 
 // getConnectorStatus checks if a connector is connected.

@@ -730,13 +730,15 @@ RUN mkdir -p /etc/skel/.config/google-chrome && \
       > /etc/skel/.config/google-chrome/Default/Preferences
 
 # Install chrome-devtools-mcp globally and pre-build fontconfig cache
-RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
+# Throwaway cache: HOME is /home/retro, so root-run npm would leave a
+# root-owned ~/.npm that breaks every later `npm install` by the agent.
+RUN npm_config_cache=/tmp/npm-build-cache npm install -g chrome-devtools-mcp@latest && rm -rf /tmp/npm-build-cache && fc-cache -f -v
 
 # Install drone-ci-mcp (Helix's Drone CI MCP server for build log navigation)
 # Build and pack the package, then install globally from the tarball
 COPY mcp-servers/drone-ci/package.json mcp-servers/drone-ci/package-lock.json mcp-servers/drone-ci/tsconfig.json /tmp/drone-ci-mcp/
 COPY mcp-servers/drone-ci/src /tmp/drone-ci-mcp/src/
-RUN cd /tmp/drone-ci-mcp && npm install && npm run build && npm pack && npm install -g helix-drone-ci-mcp-*.tgz && rm -rf /tmp/drone-ci-mcp
+RUN export npm_config_cache=/tmp/npm-build-cache && cd /tmp/drone-ci-mcp && npm install && npm run build && npm pack && npm install -g helix-drone-ci-mcp-*.tgz && rm -rf /tmp/drone-ci-mcp /tmp/npm-build-cache
 
 # Chrome MCP server configuration for headless mode
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
@@ -745,6 +747,12 @@ ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
 # GPU device permissions init script (fixes root:root ownership in DinD)
 ADD desktop/sway-config/15-setup-gpu-permissions.sh /etc/cont-init.d/15-setup-gpu-permissions.sh
 RUN chmod 755 /etc/cont-init.d/15-setup-gpu-permissions.sh
+
+# CPU tiers: agent work (Zed's shell children, inner dockerd) runs in an
+# idle-class cgroup so the display path keeps the CPU during builds.
+ADD desktop/shared/16-cpu-tiers.sh /etc/cont-init.d/16-cpu-tiers.sh
+ADD desktop/shared/agent-tier-bash.sh /usr/local/libexec/helix/agent-tier/bash
+RUN chmod 755 /etc/cont-init.d/16-cpu-tiers.sh /usr/local/libexec/helix/agent-tier/bash
 
 # Start dockerd inside desktop container if /var/lib/docker is volume-mounted
 ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
@@ -836,6 +844,27 @@ _INSTALL_ZEROCOPY
 
 # Grim with JPEG support (from build stage)
 COPY --from=grim-build /grim-bin /usr/bin/grim
+
+# ====================================================================
+# Headless document extraction - read a document without opening it
+# ====================================================================
+# Mirrors Dockerfile.ubuntu-helix; see the long note there for why.
+#
+# Short version: the office editors below are GUI apps for OPENING and EDITING
+# documents. Extracting text from an uploaded file is a different job, and
+# there was no headless path for it — arch-dependently, since the arm64 branch
+# gets LibreOffice (which has `soffice --headless --convert-to`) and the amd64
+# branch gets OnlyOffice (which does not ship a supported conversion CLI).
+#
+# ~238MB, mostly pandoc. See the size note in Dockerfile.ubuntu-helix.
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    pandoc \
+    antiword \
+    poppler-utils \
+    unzip \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # ====================================================================
 # OnlyOffice Desktop Editors - Office document support
@@ -996,6 +1025,7 @@ ADD desktop/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+ADD desktop/shared/helix-chrome-devtools-mcp.sh /usr/local/bin/helix-chrome-devtools-mcp
 ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
@@ -1003,7 +1033,8 @@ ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
 ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
 RUN chmod +x /usr/local/bin/start-zed-helix.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
-    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-chrome-devtools-mcp \
+    /usr/local/bin/helix-run-startup-script.sh \
     /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
     /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
 

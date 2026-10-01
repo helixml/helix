@@ -18,8 +18,15 @@
  * the oldest page. A thread that starts mid-conversation has a real customer
  * message at index 0, and blanking that would be worse than the problem.
  */
-export function seedPromptIndex(minimal: boolean, hasOlderInteractions: boolean): number {
+export function seedPromptIndex(
+  minimal: boolean,
+  hasOlderInteractions: boolean,
+  hasBriefingTurn = true,
+): number {
   if (!minimal) return -1
+  // An org bot instance starts with NO briefing: its first interaction is the
+  // customer's own first message, and hiding it deletes their question.
+  if (!hasBriefingTurn) return -1
   if (hasOlderInteractions) return -1
   return 0
 }
@@ -34,13 +41,38 @@ export function seedPromptIndex(minimal: boolean, hasOlderInteractions: boolean)
  * `hasSent` covers the gap between the customer clicking send and the server
  * count catching up on the next poll. Without it the welcome screen flashes
  * back for a beat after they have already spoken.
+ *
+ * `isLoading` covers the first load and session switches, before the interaction
+ * count is known. Until then, zero is only a fallback value, not an empty chat.
  */
 export function shouldShowWelcome(
   minimal: boolean,
   hasSent: boolean,
   totalInteractions: number,
+  isLoading = false,
+  hasBriefingTurn = true,
 ): boolean {
   if (!minimal) return false
+  if (isLoading) return false
   if (hasSent) return false
-  return totalInteractions <= 1
+  // Without a briefing turn, one interaction IS a conversation. Treating it as
+  // empty would put the welcome screen over a real exchange on every reload.
+  return totalInteractions <= (hasBriefingTurn ? 1 : 0)
+}
+
+/**
+ * How the composer delivers a message.
+ *
+ * The welcome screen and the thread render the composer in different parents,
+ * so the first send REMOUNTS it. In queued mode that replays the message: the
+ * new instance reloads the localStorage queue before the old one has marked
+ * the entry sent, and sends it again. Observed on the Find AI embed — one
+ * click, two identical turns 22ms apart, running concurrently in one agent.
+ *
+ * Spec-task embeds never hit this because the backend owns their queue and the
+ * client pump is off. A minimal embed without a spec task has no use for an
+ * offline queue anyway, so it sends directly.
+ */
+export function composerSendMode(minimal: boolean, hasBackendQueue: boolean): 'queued' | 'direct' {
+  return minimal && !hasBackendQueue ? 'direct' : 'queued'
 }

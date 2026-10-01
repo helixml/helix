@@ -1,13 +1,17 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+
+	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -99,4 +103,51 @@ func (c *HelixClient) ChatSession(ctx context.Context, req *types.SessionChatReq
 	}
 
 	return buf.String(), nil
+}
+
+// ChatSessionCompletion sends one blocking (non-streaming) chat turn and
+// returns the OpenAI-style completion; its ID is the session id, which is new
+// when req.SessionID was empty. The call lasts as long as the turn: give ctx a
+// deadline that covers it.
+func (c *HelixClient) ChatSessionCompletion(ctx context.Context, req *types.SessionChatRequest) (*openai.ChatCompletionResponse, error) {
+	if req.Stream {
+		return nil, fmt.Errorf("ChatSessionCompletion needs a non-streaming request")
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	var resp openai.ChatCompletionResponse
+	if err := c.makeRequest(ctx, http.MethodPost, "/sessions/chat", bytes.NewReader(body), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// InteractionFilter pages a session's interactions. Page is 0-based: page 1
+// is the SECOND page. Order is "asc" (default, oldest first) or "desc".
+type InteractionFilter struct {
+	Page    int
+	PerPage int
+	Order   string
+}
+
+// ListInteractions returns one page of a session's interactions (turns).
+func (c *HelixClient) ListInteractions(ctx context.Context, sessionID string, f *InteractionFilter) (*types.PaginatedInteractions, error) {
+	path := "/sessions/" + url.PathEscape(sessionID) + "/interactions"
+	if f != nil {
+		q := url.Values{"page": {strconv.Itoa(f.Page)}}
+		if f.PerPage > 0 {
+			q.Set("per_page", strconv.Itoa(f.PerPage))
+		}
+		if f.Order != "" {
+			q.Set("order", f.Order)
+		}
+		path += "?" + q.Encode()
+	}
+	var page types.PaginatedInteractions
+	if err := c.makeRequest(ctx, http.MethodGet, path, nil, &page); err != nil {
+		return nil, err
+	}
+	return &page, nil
 }

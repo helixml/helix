@@ -44,7 +44,7 @@ func TestSwitchAgentInPlace_MutatesSessionAndSeeds(t *testing.T) {
 	session := newTestParentSession("user_a")
 	session.Metadata.ZedThreadID = "ctx_old_thread" // pretend a thread is open
 	seedParentWithInteractions(t, mem, session, 2)
-	srv.contextMappings[session.Metadata.ZedThreadID] = session.ID
+	srv.contextMappings[routeKey(session.ID, session.Metadata.ZedThreadID)] = session.ID
 	srv.requestToSessionMapping["req_old"] = session.ID
 	srv.requestToInteractionMapping["req_old"] = "int_old"
 	srv.interactionDispatchClaims["int_old"] = dispatchClaim{requestID: "req_old", sessionID: session.ID}
@@ -63,7 +63,7 @@ func TestSwitchAgentInPlace_MutatesSessionAndSeeds(t *testing.T) {
 	assert.Equal(t, types.CodeAgentRuntimeQwenCode.ZedAgentName(), updated.Metadata.ZedAgentName)
 	// Thread binding cleared so the next message opens a new thread.
 	assert.Equal(t, "", updated.Metadata.ZedThreadID, "ZedThreadID must be cleared")
-	_, oldThreadStillRoutable := srv.contextMappings["ctx_old_thread"]
+	_, oldThreadStillRoutable := srv.contextMappings[routeKey(session.ID, "ctx_old_thread")]
 	assert.False(t, oldThreadStillRoutable, "the superseded ACP thread must no longer route events to this session")
 	_, oldRequestStillRoutable := srv.requestToSessionMapping["req_old"]
 	assert.False(t, oldRequestStillRoutable, "the superseded request must not be reused by the handoff")
@@ -98,7 +98,10 @@ func TestSwitchAgentInPlace_MutatesSessionAndSeeds(t *testing.T) {
 	assert.Equal(t, types.InteractionStateWaiting, handoff.State, "handoff must be Waiting so the reconnect resume path delivers it on reconnect")
 }
 
-func TestSwitchAgentInPlace_CleanHandoffOmitsPlannerTranscript(t *testing.T) {
+// The phase handoff used to omit the planner transcript, which left the
+// implementation agent starting blind. A genuine harness switch cannot keep the
+// ACP thread, so the transcript is now carried into the new one.
+func TestSwitchAgentInPlace_PhaseHandoffCarriesPlannerTranscript(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
 	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
@@ -111,10 +114,10 @@ func TestSwitchAgentInPlace_CleanHandoffOmitsPlannerTranscript(t *testing.T) {
 	seedParentWithInteractions(t, mem, session, 2)
 
 	httpErr := srv.switchAgentInPlaceForNextTurn(ctx, session, types.CodeAgentRuntimeCodexCLI, "app_target", agentSwitchOptions{
-		createHandoff:   true,
-		handoffPrompt:   "Implement the approved plan.",
-		transitionLabel: "Switching to implementation harness configuration",
-		omitTranscript:  true,
+		createHandoff:      true,
+		handoffPrompt:      "Implement the approved plan.",
+		transitionLabel:    "Switching to implementation harness configuration",
+		keepTranscriptEnds: true,
 	})
 	require.Nil(t, httpErr)
 
@@ -132,7 +135,8 @@ func TestSwitchAgentInPlace_CleanHandoffOmitsPlannerTranscript(t *testing.T) {
 		}
 	}
 	require.NotNil(t, seed)
-	assert.Empty(t, seed.ResponseMessage)
+	assert.NotEmpty(t, seed.ResponseMessage, "the implementation agent must not start blind")
+	assert.Contains(t, seed.ResponseMessage, "**User:**")
 	assert.Equal(t, "Switching to implementation harness configuration", seed.PromptMessage)
 	require.NotNil(t, handoff)
 	assert.Equal(t, "Implement the approved plan.", handoff.PromptMessage)
@@ -146,10 +150,10 @@ func TestSwitchAgentInPlace_ImplementationHandoffRunsWithSameRuntime(t *testing.
 	seedParentWithInteractions(t, mem, session, 1)
 
 	httpErr := srv.switchAgentInPlaceForNextTurn(ctx, session, types.CodeAgentRuntimeClaudeCode, "app_parent", agentSwitchOptions{
-		createHandoff:   true,
-		handoffPrompt:   "Implement the approved plan.",
-		transitionLabel: "Switching to implementation harness configuration",
-		omitTranscript:  true,
+		createHandoff:      true,
+		handoffPrompt:      "Implement the approved plan.",
+		transitionLabel:    "Switching to implementation harness configuration",
+		keepTranscriptEnds: true,
 	})
 	require.Nil(t, httpErr)
 

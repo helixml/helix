@@ -2,6 +2,7 @@ package webservice
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -197,17 +198,7 @@ func (m *HealthMonitor) onFailure(projectID string) {
 	// broken service every cooldown (bad commit, image-pull failure, dead
 	// runner). Grows cooldown by 2^recovFails, capped at maxRecoveryBackoff so
 	// it's still retried periodically rather than abandoned.
-	backoff := m.cooldown
-	if rf := m.recovFails[projectID]; rf > 0 {
-		shift := rf
-		if shift > 5 {
-			shift = 5
-		}
-		backoff = m.cooldown << uint(shift)
-		if backoff > maxRecoveryBackoff {
-			backoff = maxRecoveryBackoff
-		}
-	}
+	backoff := m.backoffFor(projectID)
 	inCooldown := time.Since(m.lastRecov[projectID]) < backoff
 	if n < m.failThreshold || inCooldown {
 		m.mu.Unlock()
@@ -222,10 +213,39 @@ func (m *HealthMonitor) onFailure(projectID string) {
 	go m.doRecover(projectID)
 }
 
+// backoffFor returns the minimum gap before this project may be recovered
+// again: the base cooldown, doubled per consecutive failed recovery and capped
+// at maxRecoveryBackoff so a persistently broken service is still retried
+// periodically rather than abandoned. Caller must hold m.mu.
+func (m *HealthMonitor) backoffFor(projectID string) time.Duration {
+	rf := m.recovFails[projectID]
+	if rf <= 0 {
+		return m.cooldown
+	}
+	shift := rf
+	if shift > 5 {
+		shift = 5
+	}
+	backoff := m.cooldown << uint(shift)
+	if backoff > maxRecoveryBackoff {
+		return maxRecoveryBackoff
+	}
+	return backoff
+}
+
 // doRecover runs a recovery attempt detached from the tick, records the result
 // (metrics + backoff counter), and — critically — recovers from any panic so a
 // bug in the recovery path degrades one service instead of crashing the whole
 // API (and with it every hosted service and the control plane).
+//
+// The result recorded is the DEPLOY's outcome, not merely whether we managed to
+// start one. RecoverWebService kicks the deploy off in a goroutine and returns
+// immediately, so treating its nil error as success reported every failure as a
+// success: backoff never grew and
+// helix_webservice_consecutive_recovery_failures stayed pinned at 0 — which is
+// why HelixWebServiceRecoveryLooping did not fire through ~28h of continuously
+// failing recoveries on 2026-09-27. So we wait for the deploy to reach a
+// terminal state and record that.
 func (m *HealthMonitor) doRecover(projectID string) {
 	defer recoverGoroutine("healthMonitor.doRecover project="+projectID, func(any) {
 		m.recordRecoveryResult(projectID, false)
@@ -234,7 +254,10 @@ func (m *HealthMonitor) doRecover(projectID string) {
 	rctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	timer := prometheus.NewTimer(metricRecoveryDuration.WithLabelValues(projectID))
-	err := m.controller.RecoverWebService(rctx, projectID)
+	deploy, err := m.controller.RecoverWebService(rctx, projectID)
+	if err == nil && deploy != nil {
+		err = m.awaitDeploy(rctx, projectID, deploy.ID)
+	}
 	timer.ObserveDuration()
 	if err != nil {
 		log.Error().Err(err).Str("project_id", projectID).Msg("health-monitor: auto-recovery failed")
@@ -242,6 +265,43 @@ func (m *HealthMonitor) doRecover(projectID string) {
 		return
 	}
 	m.recordRecoveryResult(projectID, true)
+}
+
+// awaitDeploy blocks until the named deploy reaches a terminal status,
+// returning nil only if it went live. A deploy that was superseded — or that is
+// no longer the project's newest — is not a failure of this recovery: whichever
+// deploy replaced it reports its own outcome, and counting both would
+// double-penalise the backoff.
+//
+// Bounded by the caller's context (15m), which exceeds the deploy's own budget
+// (provision + bootstrap + readiness), so a wedged deploy surfaces as a failed
+// recovery instead of leaking this goroutine.
+func (m *HealthMonitor) awaitDeploy(ctx context.Context, projectID, deployID string) error {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		deploys, err := m.store.ListWebServiceDeploys(ctx, projectID, 1)
+		if err != nil {
+			return fmt.Errorf("watch deploy %s: %w", deployID, err)
+		}
+		if len(deploys) == 0 || deploys[0].ID != deployID {
+			return nil // a newer deploy took over; it accounts for itself
+		}
+		switch deploys[0].Status {
+		case types.WebServiceDeployStatusLive, types.WebServiceDeployStatusSuperseded:
+			return nil
+		case types.WebServiceDeployStatusFailed:
+			if msg := deploys[0].Error; msg != "" {
+				return fmt.Errorf("deploy %s failed: %s", deployID, msg)
+			}
+			return fmt.Errorf("deploy %s failed", deployID)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("deploy %s did not finish in time: %w", deployID, ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 // recordRecoveryResult updates recovery metrics + the consecutive-failure

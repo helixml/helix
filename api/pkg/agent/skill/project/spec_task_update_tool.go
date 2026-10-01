@@ -148,6 +148,9 @@ func (t *UpdateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get spec task for update")
 		return "", fmt.Errorf("failed to get spec task: %w", err)
 	}
+	if err := requirePublishedSpecTask(task); err != nil {
+		return "", err
+	}
 
 	if task.ProjectID != projectID {
 		return "", fmt.Errorf("task does not belong to this project")
@@ -166,6 +169,9 @@ func (t *UpdateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 	}
 
 	if status, ok := args["status"].(string); ok && status != "" {
+		if types.SpecTaskStatus(status) == types.TaskStatusPreparing {
+			return "", fmt.Errorf("preparing is an internal task status")
+		}
 		task.Status = types.SpecTaskStatus(status)
 		updatedFields = append(updatedFields, "status")
 	}

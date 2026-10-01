@@ -269,3 +269,43 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsRes
 		suite.NotEqual(session.ID, s.ID, "just-restarted desktop must not be returned as idle")
 	}
 }
+
+// TestPostgresStore_ListIdleDesktops_SkipsGoldenBuild verifies that a golden
+// build session is never returned as idle. It never has interactions, so
+// without the exclusion the idle checker killed every golden build that ran
+// longer than HELIX_DESKTOP_IDLE_TIMEOUT. An otherwise identical non-golden
+// desktop is returned, proving the exclusion is what skips it.
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsGoldenBuild() {
+	ctx := context.Background()
+	oldTime := time.Now().Add(-2 * time.Hour)
+
+	newDesktop := func(goldenBuild bool) types.Session {
+		session := types.Session{
+			ID:      system.GenerateSessionID(),
+			Owner:   "user_id",
+			Created: oldTime,
+			Updated: oldTime,
+			Metadata: types.SessionMetadata{
+				ExternalAgentStatus: "running",
+				DevContainerID:      "container-golden-" + system.GenerateUUID(),
+				GoldenBuild:         goldenBuild,
+			},
+		}
+		_, err := suite.db.CreateSession(ctx, session)
+		suite.NoError(err)
+		suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+		return session
+	}
+	golden := newDesktop(true)
+	plain := newDesktop(false)
+
+	results, err := suite.db.ListIdleDesktops(ctx, time.Now().Add(-1*time.Hour))
+	suite.NoError(err)
+
+	returned := map[string]bool{}
+	for _, s := range results {
+		returned[s.ID] = true
+	}
+	suite.False(returned[golden.ID], "golden build session must never be returned as idle")
+	suite.True(returned[plain.ID], "non-golden desktop with the same activity should be idle")
+}

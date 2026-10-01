@@ -96,6 +96,11 @@ export interface ApiBotChatDTO {
 export interface ApiBotDTO {
   agent_model?: string;
   agent_runtime?: string;
+  /**
+   * AgentWorkState is "working" only while the running Bot's latest
+   * interaction is still waiting for its external agent.
+   */
+  agent_work_state?: TypesAgentWorkState;
   code_agent_credential_type?: TypesCodeAgentCredentialType;
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
@@ -112,6 +117,11 @@ export interface ApiBotDTO {
   effective_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   effective_sandbox_runtime?: TypesSandboxRuntime;
   id?: string;
+  /**
+   * InstanceProfile is the effective profile of this Bot's instances (the
+   * default when the Bot never configured one).
+   */
+  instance_profile?: TypesBotInstanceProfile;
   legacy_app_id?: string;
   model?: string;
   /**
@@ -175,6 +185,28 @@ export interface ApiBotDetailDTO {
   project_id?: string;
 }
 
+export interface ApiBotInstanceDTO {
+  bot_id?: string;
+  created_at?: string;
+  disk_size_gb?: number;
+  name?: string;
+  owner?: string;
+  sandbox_runtime?: TypesSandboxRuntime;
+  /**
+   * SandboxStatus is the sandbox's external agent status: "" (stopped),
+   * "starting", "running", "restarting", "terminated_idle" …
+   */
+  sandbox_status?: string;
+  /**
+   * Secrets are the names granted when the instance was created. Values are
+   * never returned.
+   */
+  secrets?: string[];
+  session_id?: string;
+  sudo?: boolean;
+  updated_at?: string;
+}
+
 export interface ApiChartPositionDTO {
   id?: string;
   /** Kind is bot | topic | processor | asset (matches the ReactFlow node id prefix). */
@@ -193,6 +225,32 @@ export interface ApiCreateAssetRequest {
   name?: string;
   notes_for_bots?: string;
   server?: ApiServerAssetWriteRequest;
+}
+
+export interface ApiCreateBotInstanceRequest {
+  /**
+   * DiskSizeGB is the persistent home filesystem capacity. Omitted defaults
+   * to 10 GB; accepted values are 1-1000.
+   */
+  disk_size_gb?: number;
+  /** Message is queued as the instance's first turn. */
+  message?: string;
+  name?: string;
+  /**
+   * SandboxRuntime overrides the Bot's instance profile runtime:
+   * "headless-ubuntu" or "ubuntu-desktop".
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
+  /**
+   * Secrets names project development secrets to grant to this instance.
+   * Omitted or empty means no project secrets.
+   */
+  secrets?: string[];
+  /**
+   * AllowSudo opts a headless instance out of no-new-privileges. It is
+   * false by default. ubuntu-desktop instances always allow sudo.
+   */
+  sudo?: boolean;
 }
 
 export interface ApiCreateBotRequest {
@@ -493,6 +551,11 @@ export interface ApiUpdateBotRequest {
   code_agent_credential_type?: TypesCodeAgentCredentialType;
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
+  /**
+   * InstanceProfile replaces the profile of the Bot's instances. It applies
+   * to new instances and to existing ones on their next sandbox start.
+   */
+  instance_profile?: TypesBotInstanceProfile;
   model?: string;
   name?: string;
   preserve_context?: boolean;
@@ -1953,6 +2016,31 @@ export interface ServerSandboxTerminalSessionsResponse {
   sessions?: ServerSandboxTerminalSession[];
 }
 
+export interface ServerSecretIntakeCreateResponse {
+  intake?: ServerSecretIntakeView;
+  invite_url?: string;
+}
+
+export interface ServerSecretIntakeRedeemRequest {
+  intake_id: string;
+  token: string;
+}
+
+export interface ServerSecretIntakeSubmissionRequest {
+  values?: Record<string, string>;
+}
+
+export interface ServerSecretIntakeView {
+  conversation_id?: string;
+  customer_id?: string;
+  expires_at?: string;
+  fields?: TypesSecretIntakeField[];
+  id?: string;
+  project_id?: string;
+  status?: string;
+  values_expires_at?: string;
+}
+
 export interface ServerSessionClaudeCredentialsResponse {
   /** "oauth" or "setup_token" */
   credential_type?: string;
@@ -2203,6 +2291,35 @@ export interface ServerRunnerProfileSaveRequest {
   vendor?: TypesGPUVendor;
 }
 
+export interface ServerWebhookDeliveryView {
+  attempt_count?: number;
+  created_at?: string;
+  delivered_at?: string;
+  endpoint_id?: string;
+  event_id?: string;
+  event_type?: string;
+  id?: string;
+  last_attempt_at?: string;
+  last_error?: string;
+  last_status_code?: number;
+  next_attempt_at?: string;
+  status?: TypesWebhookDeliveryStatus;
+  updated_at?: string;
+}
+
+export interface ServerWebhookEndpointRequest {
+  description?: string;
+  enabled?: boolean;
+  events?: string[];
+  project_id?: string;
+  url?: string;
+}
+
+export interface ServerWebhookEndpointSecretResponse {
+  endpoint?: TypesWebhookEndpoint;
+  secret?: string;
+}
+
 export interface ServicesStartupScriptVersion {
   author?: string;
   commit_hash?: string;
@@ -2287,14 +2404,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindLocal = "local",
-  KindSlack = "slack",
-  KindCron = "cron",
   KindWebhook = "webhook",
+  KindEmail = "email",
   KindGitHub = "github",
   KindGitLab = "gitlab",
+  KindLocal = "local",
+  KindCron = "cron",
   KindHelixEvents = "helix_events",
-  KindEmail = "email",
+  KindSlack = "slack",
 }
 
 export interface TransportResolvedActivation {
@@ -2324,6 +2441,7 @@ export enum TypesAPIKeyType {
   APIkeytypeAPI = "api",
   APIkeytypeApp = "app",
   APIkeytypeEmbed = "embed",
+  APIkeytypeBotInstance = "bot_instance",
 }
 
 export interface TypesAccessGrant {
@@ -2663,7 +2781,7 @@ export interface TypesAssistantConfig {
    * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
    * which the claude-agent-acp package reads (resolveModelPreference) to pick the
    * model — otherwise Claude Code defaults to Sonnet. Empty means
-   * "claude-opus-5" (the current 1M-context Opus model).
+   * "claude-opus-5-5" (the current 1M-context Opus model).
    */
   claude_subscription_model?: string;
   /**
@@ -3016,6 +3134,30 @@ export interface TypesBitbucket {
 
 export interface TypesBoardSettings {
   wip_limits?: TypesWIPLimits;
+}
+
+export interface TypesBotInstanceProfile {
+  /**
+   * HelixSkills links the helix-* agent skills. The project repo's own
+   * skills are always linked.
+   */
+  helix_skills?: boolean;
+  /**
+   * MCPServers lists the context servers kept in an instance's agent
+   * config: built-in names above or the bot project's own MCP servers.
+   * Every other server is removed.
+   */
+  mcp_servers?: string[];
+  /**
+   * SandboxRuntime is the default runtime for new instances. Empty means the
+   * bot's own runtime.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
+  /**
+   * Tools lists the helix-org tools an instance may call. The served set is
+   * Tools ∩ the bot's own tools. Empty removes the org tools server.
+   */
+  tools?: string[];
 }
 
 export enum TypesBranchMode {
@@ -3656,6 +3798,8 @@ export interface TypesCreateSecretRequest {
 export interface TypesCreateTaskRequest {
   /** Optional: team member assigned to the task */
   assignee_id?: string;
+  /** Attachments are validated and stored before the task is exposed to dispatchers. */
+  attachments?: TypesSpecTaskInlineAttachment[];
   /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
   auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
@@ -4103,6 +4247,14 @@ export interface TypesGitHub {
   personal_access_token?: string;
   /** PEM-encoded private key for JWT signing */
   private_key?: string;
+  review_bot_user_id?: number;
+  /**
+   * WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review
+   * deliveries with (spec task PR review feedback). Auto-generated at first
+   * webhook install; one repo's secret never validates another repo's
+   * deliveries, keeping orgs isolated on shared deployments.
+   */
+  webhook_secret?: string;
 }
 
 export interface TypesGitLab {
@@ -4271,6 +4423,7 @@ export interface TypesGitRepositoryUpdateRequest {
   /** OAuth connection for authentication */
   oauth_connection_id?: string;
   password?: string;
+  review_bot_user_id?: number;
   username?: string;
 }
 
@@ -4622,6 +4775,7 @@ export interface TypesLLMCall {
   prompt_tokens?: number;
   provider?: string;
   request?: number[];
+  request_id?: string;
   response?: number[];
   session_id?: string;
   spec_task_id?: string;
@@ -5035,7 +5189,7 @@ export interface TypesOrgComputeUsage {
 }
 
 export interface TypesOrgDetails {
-  members?: TypesUser[];
+  members?: TypesOrganizationMembership[];
   organization?: TypesOrganization;
   projects?: TypesProject[];
   wallet?: TypesWallet;
@@ -5929,6 +6083,12 @@ export interface TypesReasoningEffortProfile {
    * ones abort a turn.
    */
   rejected?: string[];
+  /**
+   * ResponsesOnly lists values accepted on /v1/responses but rejected on
+   * /v1/chat/completions. They are not in Supported: only a harness that
+   * speaks the Responses API may offer them.
+   */
+  responses_only?: string[];
   /** Source is how this entry was established. */
   source?: TypesEffortSource;
   /** Supported lists the values the model accepts and acts on. */
@@ -6423,6 +6583,26 @@ export interface TypesSecret {
   value?: number[];
 }
 
+export interface TypesSecretIntakeCreateRequest {
+  accent_color?: string;
+  artifact_id?: string;
+  brand_name?: string;
+  conversation_id?: string;
+  customer_id?: string;
+  description?: string;
+  fields?: TypesSecretIntakeField[];
+  logo_url?: string;
+  title?: string;
+}
+
+export interface TypesSecretIntakeField {
+  autocomplete?: string;
+  label?: string;
+  name?: string;
+  required?: boolean;
+  type?: string;
+}
+
 export enum TypesSecretScope {
   SecretScopeDev = "dev",
   SecretScopeProd = "prod",
@@ -6470,6 +6650,8 @@ export interface TypesServerConfigForFrontend {
    * Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
    */
   max_concurrent_desktops?: number;
+  /** Minimum wallet balance required for inference */
+  minimum_inference_balance?: number;
   onboarding_helix_model?: string;
   onboarding_helix_model_effort?: string;
   /**
@@ -6761,6 +6943,21 @@ export interface TypesSessionInfo {
 export interface TypesSessionMetadata {
   active_tools?: string[];
   /**
+   * AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop
+   * settings-sync daemon's /agent-config-applied callback for the most recent
+   * in-place switch. They are the explicit "the fast hot-reload path worked"
+   * signal that agentSwitchRestartFallback consults instead of deciding purely
+   * on a timer — without them a confirmed-applied config was still restarted
+   * 5s later, killing Zed mid-new_session().
+   *
+   * AgentHandoffDeliveredAt is only set when the handoff actually reached a
+   * live connection; a callback with nothing delivered is not evidence the
+   * turn is moving. Persisted (not an in-memory map) so it is correct when the
+   * callback lands on a different API replica than the fallback goroutine.
+   */
+  agent_config_applied_at?: string;
+  agent_handoff_delivered_at?: string;
+  /**
    * AgentSwitchedAt is set when the agent framework is switched IN PLACE on
    * this same session (no fork / new container) — see
    * design/tasks/002111_so-we-recently-added-a/design.md. It marks that a
@@ -6795,6 +6992,25 @@ export interface TypesSessionMetadata {
    */
   auto_restart_on_crash?: boolean;
   avatar?: string;
+  /**
+   * BotInstance is set on org bot instance sessions (SessionRole
+   * SessionRoleOrgBotInstance): the bot's instance profile as of the last
+   * sync, which shapes the instance's MCP servers, org tools and skills.
+   */
+  bot_instance?: TypesBotInstanceProfile;
+  bot_instance_allow_sudo?: boolean;
+  /**
+   * BotInstanceDiskSizeGB is the hard capacity of the instance's persistent
+   * home filesystem. BotInstanceAllowSudo is the requested opt-out from the
+   * default no-new-privileges policy. Read both through BotInstanceDiskSize
+   * and BotInstanceSudo, which apply defaults and runtime rules.
+   */
+  bot_instance_disk_size_gb?: number;
+  /**
+   * BotInstanceSecrets names the project development secrets explicitly
+   * granted when this instance was created. Empty means no project secrets.
+   */
+  bot_instance_secrets?: string[];
   /** Webhook URL to POST on session completion */
   callback_url?: string;
   /**
@@ -6998,6 +7214,64 @@ export enum TypesSessionType {
   SessionTypeNone = "",
   SessionTypeText = "text",
   SessionTypeImage = "image",
+}
+
+export interface TypesSessionUsage {
+  calls?: TypesSessionUsageCall[];
+  session_id?: string;
+  summary?: TypesSessionUsageSummary;
+  /**
+   * Truncated is set when the session has more calls than the endpoint returns;
+   * the summary then covers only the returned calls.
+   */
+  truncated?: boolean;
+  turns?: TypesSessionUsageTurn[];
+}
+
+export interface TypesSessionUsageCall {
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  completion_tokens?: number;
+  created?: string;
+  duration_ms?: number;
+  interaction_id?: string;
+  model?: string;
+  prompt_tokens?: number;
+  time_to_first_token_ms?: number;
+  total_cost?: number;
+}
+
+export interface TypesSessionUsageSummary {
+  /** CacheHitRatio is cache-read / prompt tokens; nil when there were no prompt tokens. */
+  cache_hit_ratio?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  calls?: number;
+  completion_tokens?: number;
+  duration_p50_ms?: number;
+  duration_p90_ms?: number;
+  /** LLMMs is the summed duration of the calls (calls can overlap, so this can exceed wall time). */
+  llm_ms?: number;
+  models?: string[];
+  prompt_tokens?: number;
+  total_cost?: number;
+  ttft_p50_ms?: number;
+  ttft_p90_ms?: number;
+}
+
+export interface TypesSessionUsageTurn {
+  cache_hit_ratio?: number;
+  cache_read_tokens?: number;
+  calls?: number;
+  completed?: string;
+  completion_tokens?: number;
+  interaction_id?: string;
+  llm_ms?: number;
+  prompt?: string;
+  prompt_tokens?: number;
+  started?: string;
+  state?: string;
+  total_cost?: number;
 }
 
 export interface TypesSkillDefinition {
@@ -7444,6 +7718,14 @@ export interface TypesSpecTaskExecutionConfigUpdateResponse {
   task?: TypesSpecTask;
 }
 
+export interface TypesSpecTaskInlineAttachment {
+  caption?: string;
+  /** Standard base64-encoded file bytes. */
+  content_base64: string;
+  /** Filename visible in the task workspace. */
+  name: string;
+}
+
 export enum TypesSpecTaskPhase {
   SpecTaskPhasePlanning = "planning",
   SpecTaskPhaseImplementation = "implementation",
@@ -7458,6 +7740,7 @@ export enum TypesSpecTaskPriority {
 }
 
 export enum TypesSpecTaskStatus {
+  TaskStatusPreparing = "preparing",
   TaskStatusBacklog = "backlog",
   TaskStatusQueuedImplementation = "queued_implementation",
   TaskStatusQueuedSpecGeneration = "queued_spec_generation",
@@ -8713,6 +8996,51 @@ export enum TypesWebServiceDeployStatus {
   WebServiceDeployStatusSuperseded = "superseded",
 }
 
+export interface TypesWebhookDelivery {
+  attempt_count?: number;
+  created_at?: string;
+  delivered_at?: string;
+  endpoint_id?: string;
+  event_id?: string;
+  id?: string;
+  last_attempt_at?: string;
+  last_error?: string;
+  last_status_code?: number;
+  next_attempt_at?: string;
+  status?: TypesWebhookDeliveryStatus;
+  updated_at?: string;
+}
+
+export enum TypesWebhookDeliveryStatus {
+  WebhookDeliveryStatusPending = "pending",
+  WebhookDeliveryStatusProcessing = "processing",
+  WebhookDeliveryStatusRetrying = "retrying",
+  WebhookDeliveryStatusDelivered = "delivered",
+  WebhookDeliveryStatusFailed = "failed",
+  WebhookDeliveryStatusDisabled = "disabled",
+}
+
+export interface TypesWebhookEndpoint {
+  created_at?: string;
+  created_by?: string;
+  description?: string;
+  disabled_reason?: string;
+  events?: string[];
+  id?: string;
+  organization_id?: string;
+  project_id?: string;
+  secret_preview?: string;
+  status?: TypesWebhookEndpointStatus;
+  updated_at?: string;
+  updated_by?: string;
+  url?: string;
+}
+
+export enum TypesWebhookEndpointStatus {
+  WebhookEndpointStatusActive = "active",
+  WebhookEndpointStatusDisabled = "disabled",
+}
+
 export interface TypesWebsiteCrawler {
   enabled?: boolean;
   firecrawl?: TypesFirecrawl;
@@ -9318,7 +9646,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List organizations with server-side pagination and name search
+     * @description List organizations with server-side pagination and name or owner email search
      *
      * @tags organizations
      * @name V1AdminOrgsList
@@ -9332,7 +9660,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         page?: number;
         /** Organizations per page (default: 25, max: 100) */
         per_page?: number;
-        /** Search organization display name or name */
+        /** Search organization display name, name, or owner email */
         query?: string;
       },
       params: RequestParams = {},
@@ -9484,7 +9812,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the oldest owned org whose readable wallet is trialing. At most one subscription is cancelled per call. Paid (active) subscriptions are never cancelled.
+     * @description Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the specified owned org (org_id required when the user owns organisations; the cancelled wallet state is mirrored immediately). Paid (active) subscriptions are never cancelled.
      *
      * @tags users
      * @name V1AdminUsersTrialActivateDelete
@@ -9492,10 +9820,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/admin/users/{id}/trial-activate
      * @secure
      */
-    v1AdminUsersTrialActivateDelete: (id: string, params: RequestParams = {}) =>
+    v1AdminUsersTrialActivateDelete: (
+      id: string,
+      query?: {
+        /** Owned organisation whose trialing subscription to cancel (required iff the user owns an organisation) */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<ServerActivateTrialResponse, any>({
         path: `/api/v1/admin/users/${id}/trial-activate`,
         method: "DELETE",
+        query: query,
         secure: true,
         format: "json",
         ...params,
@@ -11534,7 +11870,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field
+     * @description Upload one or more files to the filestore. The path may be a directory, in which case multipart filenames are appended, or the exact full path when its basename matches the multipart filename.
      *
      * @tags filestore
      * @name V1FilestoreUploadCreate
@@ -11544,7 +11880,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      */
     v1FilestoreUploadCreate: (
       query: {
-        /** Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder') */
+        /** Destination directory or exact full file path (e.g., 'documents' or 'documents/report.json') */
         path: string;
       },
       data: {
@@ -13627,6 +13963,141 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsDetail
+     * @summary List organization webhook endpoints
+     * @request GET:/api/v1/organizations/{id}/webhook-endpoints
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesWebhookEndpoint[], any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Creates a Standard Webhooks endpoint. The signing secret is returned once.
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsCreate
+     * @summary Create an organization webhook endpoint
+     * @request POST:/api/v1/organizations/{id}/webhook-endpoints
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsCreate: (
+      id: string,
+      request: ServerWebhookEndpointRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerWebhookEndpointSecretResponse, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints`,
+        method: "POST",
+        body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsDelete
+     * @summary Disable an organization webhook endpoint
+     * @request DELETE:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsDelete: (id: string, endpointId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsUpdate
+     * @summary Update an organization webhook endpoint
+     * @request PUT:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsUpdate: (
+      id: string,
+      endpointId: string,
+      request: ServerWebhookEndpointRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWebhookEndpoint, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsDeliveriesDetail
+     * @summary List recent webhook deliveries
+     * @request GET:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsDeliveriesDetail: (id: string, endpointId: string, params: RequestParams = {}) =>
+      this.request<ServerWebhookDeliveryView[], any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}/deliveries`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsDeliveriesReplayCreate
+     * @summary Replay a webhook delivery
+     * @request POST:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries/{delivery_id}/replay
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsDeliveriesReplayCreate: (
+      id: string,
+      endpointId: string,
+      deliveryId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWebhookDelivery, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}/deliveries/${deliveryId}/replay`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns the new secret once. Helix signs with both keys for a 24-hour overlap.
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsRotateSecretCreate
+     * @summary Rotate a webhook signing secret
+     * @request POST:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/rotate-secret
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsRotateSecretCreate: (id: string, endpointId: string, params: RequestParams = {}) =>
+      this.request<ServerWebhookEndpointSecretResponse, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}/rotate-secret`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Returns every selectable coding-agent runtime, whether the organization enabled it, and whether the requesting user can use its subscription mode.
      *
      * @tags organizations
@@ -14365,6 +14836,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsBotsApplyConfigCreate
+     * @summary Helix-org: apply Bot config to its running sandbox
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/apply-config
+     * @secure
+     */
+    v1OrgsBotsApplyConfigCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/apply-config`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsBotsAttachmentsDetail
      * @summary Helix-org: list bot attachments
      * @request GET:/api/v1/orgs/{org}/bots/{id}/attachments
@@ -14445,6 +14933,64 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ApiBotChatDTO, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/bots/${id}/chat`,
         method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsInstancesDetail
+     * @summary Helix-org: list a bot's instances
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/instances
+     * @secure
+     */
+    v1OrgsBotsInstancesDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotInstanceDTO[], ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/instances`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsInstancesCreate
+     * @summary Helix-org: create a bot instance
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/instances
+     * @secure
+     */
+    v1OrgsBotsInstancesCreate: (
+      id: string,
+      org: string,
+      request: ApiCreateBotInstanceRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiBotInstanceDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/instances`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsInstancesDelete
+     * @summary Helix-org: delete a bot instance
+     * @request DELETE:/api/v1/orgs/{org}/bots/{id}/instances/{session_id}
+     * @secure
+     */
+    v1OrgsBotsInstancesDelete: (id: string, sessionId: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/instances/${sessionId}`,
+        method: "DELETE",
         secure: true,
         ...params,
       }),
@@ -15734,6 +16280,85 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Creates a short-lived, one-time link for collecting requested fields outside chat. The response never contains submitted values.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesCreate
+     * @summary Create a secret intake
+     * @request POST:/api/v1/projects/{id}/secret-intakes
+     * @secure
+     */
+    v1ProjectsSecretIntakesCreate: (id: string, request: TypesSecretIntakeCreateRequest, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeCreateResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Invalidates its link and clears any submitted ciphertext.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesDelete
+     * @summary Revoke a secret intake
+     * @request DELETE:/api/v1/projects/{id}/secret-intakes/{intake_id}
+     * @secure
+     */
+    v1ProjectsSecretIntakesDelete: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns metadata and status only; submitted values remain inaccessible through this endpoint.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesDetail
+     * @summary Get secret intake status
+     * @request GET:/api/v1/projects/{id}/secret-intakes/{intake_id}
+     * @secure
+     */
+    v1ProjectsSecretIntakesDetail: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeView, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Write-only project API for trusted integrations. Values are encrypted and cannot be read through the API.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesSubmissionsCreate
+     * @summary Submit secret intake values
+     * @request POST:/api/v1/projects/{id}/secret-intakes/{intake_id}/submissions
+     * @secure
+     */
+    v1ProjectsSecretIntakesSubmissionsCreate: (
+      id: string,
+      intakeId: string,
+      request: ServerSecretIntakeSubmissionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}/submissions`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -17924,6 +18549,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Spend, tokens, latency and prompt-cache hit ratio of one session, overall, per turn and per LLM call.
+     *
+     * @tags sessions
+     * @name V1SessionsUsageDetail
+     * @summary Get a session's LLM usage
+     * @request GET:/api/v1/sessions/{id}/usage
+     * @secure
+     */
+    v1SessionsUsageDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSessionUsage, any>({
+        path: `/api/v1/sessions/${id}/usage`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Used by the fork-confirm modal so we can show "N files will be committed & pushed" or just proceed silently when the workspace is clean. Aborts gracefully on unreachable containers — the frontend treats that as "unknown".
      *
      * @tags sessions
@@ -19742,6 +20384,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+  };
+  connect = {
+    /**
+     * @description Exchanges a one-time invitation token for a short-lived browser flow cookie.
+     *
+     * @tags Secret Intakes
+     * @name IntakeRedeemCreate
+     * @summary Redeem a secret intake invitation
+     * @request POST:/connect/intake/redeem
+     */
+    intakeRedeemCreate: (request: ServerSecretIntakeRedeemRequest, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/connect/intake/redeem`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
         ...params,
       }),
   };

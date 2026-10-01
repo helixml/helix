@@ -94,7 +94,7 @@ describe('useOrganizations stale org recovery', () => {
     await renderInitialized()
 
     await waitFor(() =>
-      expect(mockNavigate).toHaveBeenCalledWith('org_chat', { org_id: 'mr-tester-org1' })
+      expect(mockNavigate).toHaveBeenCalledWith('org_bot_session', { org_id: 'mr-tester-org1', bot_id: 'chief-of-staff' })
     )
     expect(localStorage.getItem(SELECTED_ORG_STORAGE_KEY)).toBe('mr-tester-org1')
     // We must never request details for an org we were told we can't see.
@@ -159,7 +159,7 @@ describe('useOrganizations stale org recovery', () => {
     // Retry succeeds; only now do we know the org isn't ours.
     await rendered.result.current.loadOrganizations()
     await waitFor(() =>
-      expect(mockNavigate).toHaveBeenCalledWith('org_chat', { org_id: 'mr-tester-org1' })
+      expect(mockNavigate).toHaveBeenCalledWith('org_bot_session', { org_id: 'mr-tester-org1', bot_id: 'chief-of-staff' })
     )
   })
 

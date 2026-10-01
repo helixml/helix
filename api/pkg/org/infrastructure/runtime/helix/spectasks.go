@@ -161,6 +161,9 @@ func (s *SpecTasks) ownedTask(ctx context.Context, projectID, taskID string) (*t
 	if task.ProjectID != projectID {
 		return nil, fmt.Errorf("task %s does not belong to this worker's project", taskID)
 	}
+	if task.Status == types.TaskStatusPreparing {
+		return nil, fmt.Errorf("get spec task: not found")
+	}
 	return task, nil
 }
 
@@ -276,10 +279,11 @@ func (s *SpecTasks) List(ctx context.Context, orgID string, workerID orgchart.No
 		return nil, err
 	}
 	tasks, err := s.tasks.ListSpecTasks(ctx, &types.SpecTaskFilters{
-		ProjectID: projectID,
-		Status:    types.SpecTaskStatus(filter.Status),
-		Type:      filter.Type,
-		Priority:  filter.Priority,
+		ProjectID:       projectID,
+		Status:          types.SpecTaskStatus(filter.Status),
+		Type:            filter.Type,
+		Priority:        filter.Priority,
+		ExcludeStatuses: []types.SpecTaskStatus{types.TaskStatusPreparing},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list spec tasks: %w", err)

@@ -147,11 +147,12 @@ func (s *SpecTaskKeepAliveSuite) TestKeepAliveOff_OnRunningTask_DoesNotStopDeskt
 
 func (s *SpecTaskKeepAliveSuite) TestResetDoneExistingTaskToBacklogUsesNewBranchMode() {
 	existingTask := &types.SpecTask{
-		ID:         s.taskID,
-		ProjectID:  "project_keepalive",
-		Status:     types.TaskStatusDone,
-		BranchMode: types.BranchModeExisting,
-		BranchName: "merged-branch",
+		ID:                s.taskID,
+		ProjectID:         "project_keepalive",
+		Status:            types.TaskStatusDone,
+		PlanningSessionID: "session_keepalive",
+		BranchMode:        types.BranchModeExisting,
+		BranchName:        "merged-branch",
 	}
 	project := &types.Project{
 		ID:     "project_keepalive",
@@ -160,7 +161,10 @@ func (s *SpecTaskKeepAliveSuite) TestResetDoneExistingTaskToBacklogUsesNewBranch
 
 	s.store.EXPECT().GetSpecTask(gomock.Any(), s.taskID).Return(existingTask, nil)
 	s.store.EXPECT().GetProject(gomock.Any(), "project_keepalive").Return(project, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "session_keepalive").Return(nil)
+	s.store.EXPECT().ReapWaitingInteractions(gomock.Any(), "session_keepalive", types.InteractionStateInterrupted, "spec task reset to backlog").Return(nil, nil)
 	s.store.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ interface{}, task *types.SpecTask) error {
+		s.Empty(task.PlanningSessionID)
 		s.Empty(task.BranchName)
 		s.Equal(types.BranchModeNew, task.BranchMode)
 		return nil
@@ -236,6 +240,10 @@ func (s *SpecTaskKeepAliveSuite) TestArchiveTask_ReturnsBeforeDesktopStopComplet
 			return nil
 		},
 	)
+	// The turn in flight when the task is archived is ended, so auto-wake
+	// does not read it as a stuck cold start and boot the desktop again.
+	s.store.EXPECT().ReapWaitingInteractions(gomock.Any(), "session_keepalive", types.InteractionStateInterrupted, "spec task archived").
+		Return(nil, nil)
 	s.store.EXPECT().GetSpecTaskExternalAgent(gomock.Any(), s.taskID).DoAndReturn(
 		func(_ context.Context, _ string) (*types.SpecTaskExternalAgent, error) {
 			defer close(stopFinished)

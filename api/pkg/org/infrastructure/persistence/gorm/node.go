@@ -43,6 +43,7 @@ type OrgBot struct {
 	SandboxRuntime  string                          `json:"sandbox_runtime,omitempty" gorm:"column:sandbox_runtime;not null;default:''"`
 	SandboxVCPUs    int                             `json:"sandbox_vcpus,omitempty" gorm:"column:sandbox_vcpus;not null;default:0"`
 	SandboxMemoryMB int                             `json:"sandbox_memory_mb,omitempty" gorm:"column:sandbox_memory_mb;not null;default:0"`
+	InstanceProfile *types.BotInstanceProfile       `json:"instance_profile,omitempty" gorm:"column:instance_profile;type:jsonb;serializer:json"`
 	CreatedAt       time.Time                       `json:"created_at" gorm:"column:created_at"`
 	UpdatedAt       time.Time                       `json:"updated_at" gorm:"column:updated_at"`
 }
@@ -77,6 +78,7 @@ func (nodeMapper) ToRow(node orgchart.Node) (OrgBot, error) {
 		SandboxRuntime:  node.SandboxRuntime,
 		SandboxVCPUs:    node.SandboxVCPUs,
 		SandboxMemoryMB: node.SandboxMemoryMB,
+		InstanceProfile: node.InstanceProfile,
 		CreatedAt:       node.CreatedAt,
 		UpdatedAt:       node.UpdatedAt,
 	}, nil
@@ -107,6 +109,7 @@ func (nodeMapper) ToDomain(row OrgBot) (orgchart.Node, error) {
 		SandboxRuntime:  row.SandboxRuntime,
 		SandboxVCPUs:    row.SandboxVCPUs,
 		SandboxMemoryMB: row.SandboxMemoryMB,
+		InstanceProfile: row.InstanceProfile,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	}, nil
@@ -160,6 +163,10 @@ func (r *nodesRepo) Update(ctx context.Context, node orgchart.Node) error {
 	if err != nil {
 		return fmt.Errorf("marshal code agent config: %w", err)
 	}
+	instanceProfileJSON, err := json.Marshal(row.InstanceProfile)
+	if err != nil {
+		return fmt.Errorf("marshal instance profile: %w", err)
+	}
 	return r.Repository.Update(ctx,
 		store.WithOrg(row.OrganizationID),
 		store.WithID(row.ID),
@@ -177,6 +184,7 @@ func (r *nodesRepo) Update(ctx context.Context, node orgchart.Node) error {
 			"sandbox_runtime":   row.SandboxRuntime,
 			"sandbox_vcpus":     row.SandboxVCPUs,
 			"sandbox_memory_mb": row.SandboxMemoryMB,
+			"instance_profile":  string(instanceProfileJSON),
 			"updated_at":        row.UpdatedAt,
 		}),
 	)
