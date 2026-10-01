@@ -294,6 +294,10 @@ RUN chmod +x /etc/cont-init.d/85-start-inference-proxy.sh
 COPY sandbox/startup-app.sh /opt/gow/startup-app.sh
 RUN chmod +x /opt/gow/startup-app.sh
 
+# Graceful shutdown, run by /entrypoint.sh (PID 1) on SIGTERM
+COPY sandbox/shutdown.sh /usr/local/bin/helix-sandbox-shutdown
+RUN chmod +x /usr/local/bin/helix-sandbox-shutdown
+
 # ====================================================================
 # Environment variables
 # ====================================================================
