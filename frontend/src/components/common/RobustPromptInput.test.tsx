@@ -534,6 +534,19 @@ describe('RobustPromptInput rich attachments', () => {
     expect(notPrevented).toBe(true)
     expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
     expect(onFileUpload).not.toHaveBeenCalled()
+
+    // A real image pasted alongside text still attaches (and swallows the
+    // paste) — this also proves the assertion above is not vacuous.
+    const screenshot = new File([new Uint8Array(4096)], 'screenshot.png', { type: 'image/png' })
+    const prevented = fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [screenshot],
+        items: [],
+        getData: (type: string) => (type === 'text/plain' ? 'caption' : ''),
+      },
+    })
+    expect(prevented).toBe(false)
+    expect(await screen.findByRole('button', { name: 'Preview screenshot.png' })).toBeInTheDocument()
   })
 
   it('still converts a large desktop text paste into a text attachment', async () => {
