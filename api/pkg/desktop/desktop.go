@@ -244,10 +244,11 @@ func (s *Server) Run(ctx context.Context) error {
 		s.canary.Start(ctx)
 	}
 
-	// Pre-initialize GStreamer to avoid 4-second delay on first video stream connection.
-	// GStreamer initialization includes scanning for plugins which is slow on first call.
-	InitGStreamer()
-	s.logger.Info("GStreamer initialized")
+	// Warm GStreamer up in the background: the registry scan and NVENC plugin
+	// load take tens of seconds under CPU load and must not hold back the HTTP
+	// listener (which serves helix-desktop MCP). Video code waits on the same
+	// InitGStreamer once.
+	go WarmUpGStreamer(s.logger)
 
 	// Watch our own GPU file-descriptor usage. A desktop-bridge that leaks GPU
 	// resources starves every other tenant on the card, and until now nothing

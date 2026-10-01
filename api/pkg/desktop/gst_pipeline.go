@@ -112,6 +112,36 @@ func InitGStreamer() {
 	})
 }
 
+// WarmUpGStreamer initializes GStreamer and loads the plugins the video
+// pipeline will need, so the first stream does not pay for them.
+//
+// Measured on a CPU-saturated host (load ~265 on 16 cores): a cold registry
+// scan took 61s and the first in-process load of nvcodec (CUDA init + NVENC
+// capability probing per GPU, run again in-process even with a cached
+// registry because the scan happens in gst-plugin-scanner) took 3.5-6s per
+// GPU. Both used to land on someone's critical path: the scan blocked the
+// desktop-bridge HTTP listener (and with it helix-desktop MCP), the plugin
+// load blocked the first viewer's pipeline construction.
+//
+// Run it in the background. Callers that need GStreamer go through
+// InitGStreamer and simply wait for the same once.
+func WarmUpGStreamer(logger interface{ Info(string, ...any) }) {
+	start := time.Now()
+	InitGStreamer()
+	logger.Info("GStreamer initialized", "took", time.Since(start).Round(time.Millisecond))
+
+	if detectGPUVendor() != GPUVendorNVIDIA {
+		return
+	}
+	// Held like a pipeline creation: nvcodec's plugin init creates CUDA
+	// contexts, which is what pipelineCreateMu keeps from running concurrently.
+	pipelineCreateMu.Lock()
+	defer pipelineCreateMu.Unlock()
+	start = time.Now()
+	loaded := gst.LoadPluginByName("nvcodec") != nil
+	logger.Info("GStreamer nvcodec plugin preloaded", "ok", loaded, "took", time.Since(start).Round(time.Millisecond))
+}
+
 // VideoFrame represents a video frame from the GStreamer pipeline
 type VideoFrame struct {
 	Data       []byte    // H.264 NAL units (Annex B format with start codes)
