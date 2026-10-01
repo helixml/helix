@@ -2144,6 +2144,13 @@ definitions:
       video_stats:
         $ref: '#/definitions/server.VideoStreamingStats'
     type: object
+  server.EnsureAgentResponse:
+    properties:
+      connected:
+        type: boolean
+      starting:
+        type: boolean
+    type: object
   server.ForkSessionRequest:
     properties:
       auto_commit_uncommitted:
@@ -3120,6 +3127,13 @@ definitions:
           $ref: '#/definitions/server.SandboxTerminalSession'
         type: array
     type: object
+  server.SecretIntakeConsumption:
+    properties:
+      values:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
   server.SecretIntakeCreateResponse:
     properties:
       intake:
@@ -3725,23 +3739,23 @@ definitions:
   transport.Kind:
     enum:
     - webhook
+    - slack
+    - local
     - email
+    - helix_events
+    - cron
     - github
     - gitlab
-    - local
-    - cron
-    - helix_events
-    - slack
     type: string
     x-enum-varnames:
     - KindWebhook
+    - KindSlack
+    - KindLocal
     - KindEmail
+    - KindHelixEvents
+    - KindCron
     - KindGitHub
     - KindGitLab
-    - KindLocal
-    - KindCron
-    - KindHelixEvents
-    - KindSlack
   transport.ResolvedActivation:
     properties:
       address:
@@ -8958,6 +8972,15 @@ definitions:
       org_members_access:
         type: boolean
     type: object
+  types.ProjectMetadataUpdate:
+    properties:
+      auto_warm_docker_cache:
+        type: boolean
+      board_settings:
+        $ref: '#/definitions/types.BoardSettings'
+      org_members_access:
+        type: boolean
+    type: object
   types.ProjectRepositorySpec:
     properties:
       default_branch:
@@ -9095,7 +9118,7 @@ definitions:
         description: Whether Kodit code intelligence is enabled
         type: boolean
       metadata:
-        $ref: '#/definitions/types.ProjectMetadata'
+        $ref: '#/definitions/types.ProjectMetadataUpdate'
       name:
         type: string
       planning_code_agent_config:
@@ -11089,6 +11112,18 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.ExternalAgentConfig'
         description: Configuration for external agents
+      external_agent_connected:
+        description: |-
+          ExternalAgentConnected reports whether the agent currently holds a live
+          sync WebSocket — i.e. whether a message sent now would actually reach it.
+
+          SEPARATE FROM ExternalAgentStatus ON PURPOSE. That field is "running" as
+          soon as the CONTAINER is up, which is not the same thing: a container can
+          be running for hours with Zed never having dialled home (helixml/helix#2397).
+          Anything embedding a session — Find AI presented a chat box to candidates
+          on this basis — needs to know it can send, not merely that a machine
+          exists. Computed per request, never stored.
+        type: boolean
       external_agent_id:
         description: 'NEW: External agent ID for this session'
         type: string
@@ -11099,6 +11134,10 @@ definitions:
         type: string
       forked_at_interaction_id:
         type: string
+      golden_build:
+        description: 'Golden Docker cache build session: bounded by the golden build
+          timeout, never idle-stopped'
+        type: boolean
       gpu_vendor:
         description: GPU vendor of sandbox running this session (nvidia, amd, intel,
           none)
@@ -23978,6 +24017,40 @@ paths:
       summary: Get secret intake status
       tags:
       - Secret Intakes
+  /api/v1/projects/{id}/secret-intakes/{intake_id}/consume:
+    post:
+      description: 'One-time read for trusted integrations: returns the submitted
+        values and clears the stored ciphertext atomically. A failed or repeated call
+        cannot read them again.'
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SecretIntakeConsumption'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Consume secret intake values
+      tags:
+      - Secret Intakes
   /api/v1/projects/{id}/secret-intakes/{intake_id}/submissions:
     post:
       consumes:
@@ -26424,6 +26497,54 @@ paths:
       summary: Update Codex credentials for a session
       tags:
       - Codex
+  /api/v1/sessions/{id}/ensure-agent:
+    post:
+      description: |-
+        Reports whether the agent currently holds a live sync WebSocket — whether
+        a message sent now would actually reach it — and kicks the canonical
+        dev-container auto-start when it does not.
+
+        For EMBEDDERS. GET /sessions/{id} reports external_agent_status "running"
+        as soon as the container is up, which is not the same as reachable: a
+        container can run for hours with Zed never having dialled home
+        (helixml/helix#2397). Find AI presented a chat box to candidates on the
+        strength of "running"; messages died in stuck interactions and the customer
+        was shown "The system has encountered an error". An embedder needs to ask
+        "can I send?" and to be able to do something about "no".
+
+        Idempotent and cheap: connected sessions return immediately without
+        touching the container. Returns promptly rather than waiting for boot —
+        poll until connected is true.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.EnsureAgentResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Ensure this session's agent is connected, starting it if not
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/execution-config:
     get:
       description: Returns the session's current coding identity without exposing

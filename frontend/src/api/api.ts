@@ -1419,6 +1419,11 @@ export interface ServerDevContainerWithClients {
   video_stats?: ServerVideoStreamingStats;
 }
 
+export interface ServerEnsureAgentResponse {
+  connected?: boolean;
+  starting?: boolean;
+}
+
 export interface ServerForkSessionRequest {
   /**
    * AutoCommitUncommitted, when true, runs `git add -A && git commit
@@ -2016,6 +2021,10 @@ export interface ServerSandboxTerminalSessionsResponse {
   sessions?: ServerSandboxTerminalSession[];
 }
 
+export interface ServerSecretIntakeConsumption {
+  values?: Record<string, string>;
+}
+
 export interface ServerSecretIntakeCreateResponse {
   intake?: ServerSecretIntakeView;
   invite_url?: string;
@@ -2405,13 +2414,13 @@ export enum TransportFieldType {
 
 export enum TransportKind {
   KindWebhook = "webhook",
+  KindSlack = "slack",
+  KindLocal = "local",
   KindEmail = "email",
+  KindHelixEvents = "helix_events",
+  KindCron = "cron",
   KindGitHub = "github",
   KindGitLab = "gitlab",
-  KindLocal = "local",
-  KindCron = "cron",
-  KindHelixEvents = "helix_events",
-  KindSlack = "slack",
 }
 
 export interface TransportResolvedActivation {
@@ -5655,6 +5664,12 @@ export interface TypesProjectMetadata {
   org_members_access?: boolean;
 }
 
+export interface TypesProjectMetadataUpdate {
+  auto_warm_docker_cache?: boolean;
+  board_settings?: TypesBoardSettings;
+  org_members_access?: boolean;
+}
+
 export interface TypesProjectRepositorySpec {
   default_branch?: string;
   primary?: boolean;
@@ -5735,7 +5750,7 @@ export interface TypesProjectUpdateRequest {
   guidelines?: string;
   /** Whether Kodit code intelligence is enabled */
   kodit_enabled?: boolean;
-  metadata?: TypesProjectMetadata;
+  metadata?: TypesProjectMetadataUpdate;
   name?: string;
   planning_code_agent_config?: TypesCodeAgentExecutionConfig;
   /** Project manager agent */
@@ -7064,12 +7079,26 @@ export interface TypesSessionMetadata {
   executor_mode?: string;
   /** Configuration for external agents */
   external_agent_config?: TypesExternalAgentConfig;
+  /**
+   * ExternalAgentConnected reports whether the agent currently holds a live
+   * sync WebSocket — i.e. whether a message sent now would actually reach it.
+   *
+   * SEPARATE FROM ExternalAgentStatus ON PURPOSE. That field is "running" as
+   * soon as the CONTAINER is up, which is not the same thing: a container can
+   * be running for hours with Zed never having dialled home (helixml/helix#2397).
+   * Anything embedding a session — Find AI presented a chat box to candidates
+   * on this basis — needs to know it can send, not merely that a machine
+   * exists. Computed per request, never stored.
+   */
+  external_agent_connected?: boolean;
   /** NEW: External agent ID for this session */
   external_agent_id?: string;
   /** NEW: External agent status (running, stopped, terminated_idle) */
   external_agent_status?: string;
   forked_at?: string;
   forked_at_interaction_id?: string;
+  /** Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped */
+  golden_build?: boolean;
   /** GPU vendor of sandbox running this session (nvidia, amd, intel, none) */
   gpu_vendor?: string;
   helix_version?: string;
@@ -16341,6 +16370,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description One-time read for trusted integrations: returns the submitted values and clears the stored ciphertext atomically. A failed or repeated call cannot read them again.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesConsumeCreate
+     * @summary Consume secret intake values
+     * @request POST:/api/v1/projects/{id}/secret-intakes/{intake_id}/consume
+     * @secure
+     */
+    v1ProjectsSecretIntakesConsumeCreate: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeConsumption, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}/consume`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Write-only project API for trusted integrations. Values are encrypted and cannot be read through the API.
      *
      * @tags Secret Intakes
@@ -18036,6 +18082,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: body,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Reports whether the agent currently holds a live sync WebSocket — whether a message sent now would actually reach it — and kicks the canonical dev-container auto-start when it does not. For EMBEDDERS. GET /sessions/{id} reports external_agent_status "running" as soon as the container is up, which is not the same as reachable: a container can run for hours with Zed never having dialled home (helixml/helix#2397). Find AI presented a chat box to candidates on the strength of "running"; messages died in stuck interactions and the customer was shown "The system has encountered an error". An embedder needs to ask "can I send?" and to be able to do something about "no". Idempotent and cheap: connected sessions return immediately without touching the container. Returns promptly rather than waiting for boot — poll until connected is true.
+     *
+     * @tags Sessions
+     * @name V1SessionsEnsureAgentCreate
+     * @summary Ensure this session's agent is connected, starting it if not
+     * @request POST:/api/v1/sessions/{id}/ensure-agent
+     * @secure
+     */
+    v1SessionsEnsureAgentCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerEnsureAgentResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/ensure-agent`,
+        method: "POST",
+        secure: true,
         format: "json",
         ...params,
       }),

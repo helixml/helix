@@ -18440,6 +18440,58 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/ensure-agent": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reports whether the agent currently holds a live sync WebSocket — whether\na message sent now would actually reach it — and kicks the canonical\ndev-container auto-start when it does not.\n\nFor EMBEDDERS. GET /sessions/{id} reports external_agent_status \"running\"\nas soon as the container is up, which is not the same as reachable: a\ncontainer can run for hours with Zed never having dialled home\n(helixml/helix#2397). Find AI presented a chat box to candidates on the\nstrength of \"running\"; messages died in stuck interactions and the customer\nwas shown \"The system has encountered an error\". An embedder needs to ask\n\"can I send?\" and to be able to do something about \"no\".\n\nIdempotent and cheap: connected sessions return immediately without\ntouching the container. Returns promptly rather than waiting for boot —\npoll until connected is true.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Ensure this session's agent is connected, starting it if not",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.EnsureAgentResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/execution-config": {
             "get": {
                 "security": [
@@ -26935,6 +26987,17 @@
                 }
             }
         },
+        "server.EnsureAgentResponse": {
+            "type": "object",
+            "properties": {
+                "connected": {
+                    "type": "boolean"
+                },
+                "starting": {
+                    "type": "boolean"
+                }
+            }
+        },
         "server.ForkSessionRequest": {
             "type": "object",
             "properties": {
@@ -29223,22 +29286,22 @@
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "local",
-                "email",
-                "cron",
-                "helix_events",
                 "webhook",
                 "slack",
+                "local",
+                "email",
+                "helix_events",
+                "cron",
                 "github",
                 "gitlab"
             ],
             "x-enum-varnames": [
-                "KindLocal",
-                "KindEmail",
-                "KindCron",
-                "KindHelixEvents",
                 "KindWebhook",
                 "KindSlack",
+                "KindLocal",
+                "KindEmail",
+                "KindHelixEvents",
+                "KindCron",
                 "KindGitHub",
                 "KindGitLab"
             ]
@@ -36350,6 +36413,20 @@
                 }
             }
         },
+        "types.ProjectMetadataUpdate": {
+            "type": "object",
+            "properties": {
+                "auto_warm_docker_cache": {
+                    "type": "boolean"
+                },
+                "board_settings": {
+                    "$ref": "#/definitions/types.BoardSettings"
+                },
+                "org_members_access": {
+                    "type": "boolean"
+                }
+            }
+        },
         "types.ProjectRepositorySpec": {
             "type": "object",
             "properties": {
@@ -36556,7 +36633,7 @@
                     "type": "boolean"
                 },
                 "metadata": {
-                    "$ref": "#/definitions/types.ProjectMetadata"
+                    "$ref": "#/definitions/types.ProjectMetadataUpdate"
                 },
                 "name": {
                     "type": "string"
@@ -39074,6 +39151,10 @@
                         }
                     ]
                 },
+                "external_agent_connected": {
+                    "description": "ExternalAgentConnected reports whether the agent currently holds a live\nsync WebSocket — i.e. whether a message sent now would actually reach it.\n\nSEPARATE FROM ExternalAgentStatus ON PURPOSE. That field is \"running\" as\nsoon as the CONTAINER is up, which is not the same thing: a container can\nbe running for hours with Zed never having dialled home (helixml/helix#2397).\nAnything embedding a session — Find AI presented a chat box to candidates\non this basis — needs to know it can send, not merely that a machine\nexists. Computed per request, never stored.",
+                    "type": "boolean"
+                },
                 "external_agent_id": {
                     "description": "NEW: External agent ID for this session",
                     "type": "string"
@@ -39087,6 +39168,10 @@
                 },
                 "forked_at_interaction_id": {
                     "type": "string"
+                },
+                "golden_build": {
+                    "description": "Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped",
+                    "type": "boolean"
                 },
                 "gpu_vendor": {
                     "description": "GPU vendor of sandbox running this session (nvidia, amd, intel, none)",
