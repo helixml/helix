@@ -2324,48 +2324,6 @@ steps:
         fi
 
 ---
-# TEMPORARY (task 003513): exercise the release QEMU + app build path on this
-# branch (pinned qemu-utm with vendored libslirp). Remove before merging.
-kind: pipeline
-type: exec
-name: qemu-slirp-check
-
-platform:
-  os: darwin
-  arch: arm64
-
-trigger:
-  branch:
-    - feature/003513-fix-helix-for-mac-agent
-  event:
-    - push
-
-steps:
-  - name: build-qemu-and-app
-    environment:
-      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
-    commands:
-      - export HOME=/Users/luke
-      - export COMMIT="$(cat for-mac/qemu-helix/QEMU_UTM_COMMIT)"
-      # 1. Unit-test the libslirp scope helper at the pinned commit
-      - mkdir -p "$HOME/.cache/helix-ci/slirptest"
-      - curl -fsSL "https://raw.githubusercontent.com/helixml/qemu-utm/$COMMIT/subprojects/slirp/src/slirp.c" | awk '/^static uint32_t resolv_conf_scope_id/{p=1} p{print} p&&/^}/{exit}' > "$HOME/.cache/helix-ci/slirptest/helper.c"
-      - cp for-mac/qemu-helix/ci/test-slirp-dns-scope.c "$HOME/.cache/helix-ci/slirptest/"
-      - (cd "$HOME/.cache/helix-ci/slirptest" && clang -Wall -Wextra -Werror -o t test-slirp-dns-scope.c && ./t)
-      # 2. Same QEMU build as the release pipeline (cached per commit)
-      - ./for-mac/qemu-helix/build-qemu-ci.sh
-      # 3. Same app build as the release pipeline (ad-hoc signed, not uploaded)
-      - cd for-mac
-      - export QEMU_PREFIX="$(./qemu-helix/build-qemu-ci.sh --prefix)"
-      - ./scripts/build-helix-app.sh
-      # 4. The bundled QEMU has the fix and runs
-      - otool -L build/bin/Helix.app/Contents/MacOS/libqemu-aarch64-softmmu.dylib | tail -n +2
-      - strings build/bin/Helix.app/Contents/MacOS/libqemu-aarch64-softmmu.dylib | grep -x /etc/resolv.conf
-      - strings build/bin/Helix.app/Contents/MacOS/libqemu-aarch64-softmmu.dylib | grep -F "2026-10-01-v12-vendored-slirp"
-      - ls build/bin/Helix.app/Contents/Frameworks | grep -i slirp && exit 1 || true
-      - build/bin/Helix.app/Contents/MacOS/qemu-system-aarch64 --version
-
----
 # ====================================================================
 # Publish Helm charts only after every release image manifest exists.
 # ====================================================================
