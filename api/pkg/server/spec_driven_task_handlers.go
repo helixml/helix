@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -1572,7 +1573,10 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 
 	// It must be archived to be deleted
 	if !task.Archived {
-		http.Error(w, "task is not archived, please archive it before deleting", http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf(
+			"task is not archived — archive it first with PATCH /api/v1/spec-tasks/%s/archive, then retry the DELETE",
+			taskID,
+		), http.StatusBadRequest)
 		return
 	}
 
@@ -1620,10 +1624,12 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req types.SpecTaskArchiveRequest
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); errors.Is(err, io.EOF) {
+		// No body means archive. An explicit {} still decodes to archived=false.
+		req.Archived = true
+	} else if err != nil {
 		log.Error().Err(err).Msg("Failed to decode archive request")
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		http.Error(w, `invalid request body: expected {"archived": true} or {"archived": false}`, http.StatusBadRequest)
 		return
 	}
 
