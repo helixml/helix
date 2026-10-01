@@ -165,9 +165,12 @@ wait_for_mcp_endpoints() {
     # because a session that cannot reach its own API is not going to fix
     # itself quickly and the user needs the error rather than a silent hang.
     local MCP_MAX_WAIT=180
-    # How long the desktop-bridge may take to start listening. Generous: on a
-    # CPU-saturated host GNOME alone has taken 2+ minutes to come up.
-    local DEP_MAX_WAIT=600
+    # How long the desktop-bridge may take to start listening. On a
+    # CPU-saturated host GNOME alone has taken 2+ minutes to come up. Matches
+    # the API's cold-start envelope (coldStartGracePeriod in
+    # api/pkg/server/auto_wake_stuck_interactions.go, 5 min), after which the
+    # API recreates a container whose agent never connected anyway.
+    local DEP_MAX_WAIT=300
     # Wall-clock accounting, not attempt counts: each iteration can spend up to
     # the curl timeout plus the sleep.
     local MCP_WAITED=0

@@ -45,7 +45,8 @@ never retried).
   `/mcp-readiness` answers **425** ("dependency still starting") instead of
   503. A pending bridge never masks a real failure on another server.
 - **Two clocks in the gate**: 425 (and daemon-not-listening) accrue against
-  `DEP_MAX_WAIT=600s`; anything else against `MCP_MAX_WAIT=180s`, which
+  `DEP_MAX_WAIT=300s` (the API's own cold-start grace, after which auto-wake
+  recreates a container whose agent never connected); anything else against `MCP_MAX_WAIT=180s`, which
   therefore only runs once the desktop is up.
 - **Distinct API answer**: `mcp_backend_desktop.go` returns 503 +
   `X-Helix-Desktop-Unavailable: not-connected|not-listening` when it cannot
