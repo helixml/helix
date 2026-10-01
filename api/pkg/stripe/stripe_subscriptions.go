@@ -194,6 +194,7 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 		}
 		return err
 	}
+	previousStatus := wallet.SubscriptionStatus
 
 	wallet.StripeSubscriptionID = subscription.ID
 	wallet.SubscriptionCurrentPeriodStart = subscription.CurrentPeriodStart
@@ -212,5 +213,28 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 		return fmt.Errorf("failed to update wallet: %w", err)
 	}
 
+	s.notifySubscriptionChange(ctx, wallet, subscription.Metadata["user_id"], eventType, previousStatus)
+
 	return nil
+}
+
+func (s *Stripe) notifySubscriptionChange(ctx context.Context, wallet *types.Wallet, userID string, eventType types.SubscriptionEventType, previousStatus stripe.SubscriptionStatus) {
+	if s.slack == nil {
+		return
+	}
+
+	var message string
+	switch {
+	case eventType == types.SubscriptionEventTypeCreated && wallet.SubscriptionStatus == stripe.SubscriptionStatusTrialing:
+		message = "🆓 Free trial started"
+	case eventType == types.SubscriptionEventTypeUpdated && previousStatus == stripe.SubscriptionStatusTrialing && wallet.SubscriptionStatus == stripe.SubscriptionStatusActive:
+		message = "💰 Free trial converted to a paid subscription"
+	default:
+		return
+	}
+
+	email, account := s.billingAccount(ctx, wallet, userID)
+	if err := s.slack.SendMessage(email, fmt.Sprintf("%s: %s", message, account)); err != nil {
+		log.Error().Err(err).Str("account", account).Msg("failed to send Stripe subscription Slack notification")
+	}
 }

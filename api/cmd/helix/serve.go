@@ -440,6 +440,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		cfg.Stripe,
 		postgresStore,
 	)
+	stripe.SetSlackSender(janitor)
 
 	// Initialize ping service if not disabled
 	var pingService *version.PingService

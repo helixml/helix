@@ -21,9 +21,40 @@ type EventHandler func(eventType types.SubscriptionEventType, user types.StripeU
 
 type TopUpEventHandler func(paymentIntentID, orgID, userID string, amount float64) error
 
+type SlackSender interface {
+	SendMessage(userEmail string, message string) error
+}
+
 type Stripe struct {
 	cfg   config.Stripe
 	store store.Store
+	slack SlackSender
+}
+
+func (s *Stripe) SetSlackSender(slack SlackSender) {
+	s.slack = slack
+}
+
+func (s *Stripe) billingAccount(ctx context.Context, wallet *types.Wallet, userID string) (string, string) {
+	if userID == "" {
+		userID = wallet.UserID
+	}
+	if userID != "" {
+		user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+		if err == nil {
+			return user.Email, user.Email
+		}
+		log.Warn().Err(err).Str("user_id", userID).Msg("failed to resolve Stripe billing user for Slack notification")
+	}
+	if wallet.OrgID != "" {
+		org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: wallet.OrgID})
+		if err == nil {
+			return "", org.Name
+		}
+		log.Warn().Err(err).Str("org_id", wallet.OrgID).Msg("failed to resolve Stripe billing organization for Slack notification")
+		return "", wallet.OrgID
+	}
+	return "", wallet.ID
 }
 
 func NewStripe(
