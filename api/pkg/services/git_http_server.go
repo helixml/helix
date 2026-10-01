@@ -1233,6 +1233,16 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 	}
 }
 
+func BranchHasChanges(ctx context.Context, repoPath, targetBranch, featureBranch string) (bool, error) {
+	stdout, _, err := gitcmd.NewCommand("diff", "--name-only").
+		AddDynamicArguments(targetBranch+"..."+featureBranch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return false, fmt.Errorf("failed to compare %s with %s: %w", featureBranch, targetBranch, err)
+	}
+	return strings.TrimSpace(stdout) != "", nil
+}
+
 // tryAutoMergeAfterRebase re-attempts the server-side fast-forward merge after the
 // agent has pushed a (presumably rebased) feature branch. Mirrors the merge half
 // of approveImplementation in spec_task_workflow_handlers.go. If the FF still

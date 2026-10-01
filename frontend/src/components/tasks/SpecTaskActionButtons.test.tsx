@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SpecTaskActionButtons, {
   SANDBOX_STOPPED_TOOLTIP,
@@ -44,6 +44,10 @@ const implementationTask = (
 });
 
 const openPRButton = () => screen.getByRole("button", { name: /Open PR/i });
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe.each(["inline", "stacked"] as const)(
   "SpecTaskActionButtons (%s) Open PR gating",
@@ -116,6 +120,91 @@ describe.each(["inline", "stacked"] as const)(
       expect(
         await screen.findByLabelText(SANDBOX_STOPPED_TOOLTIP, { exact: false }),
       ).toBeInTheDocument();
+    });
+  },
+);
+
+describe.each(["inline", "stacked"] as const)(
+  "SpecTaskActionButtons (%s) completed follow-up",
+  (variant) => {
+    const doneTask = (): SpecTaskForActions => ({
+      id: "spt_1",
+      status: "done",
+      base_branch: "main",
+      branch_name: "feature/follow-up",
+      sandbox_state: "absent",
+      repo_pull_requests: [
+        {
+          repository_id: "repo-1",
+          pr_id: "67",
+          pr_number: 67,
+          pr_url: "https://github.com/helixml/helix/pull/67",
+          pr_state: "merged",
+        },
+      ],
+      repo_pull_request_history: [
+        {
+          repository_id: "repo-1",
+          pr_id: "66",
+          pr_number: 66,
+          pr_url: "https://github.com/helixml/helix/pull/66",
+          pr_state: "merged",
+        },
+      ],
+    });
+
+    it("shows New PR and enforces OAuth", () => {
+      render(
+        <SpecTaskActionButtons
+          task={doneTask()}
+          variant={variant}
+          hasExternalRepo
+          externalRepoType="github"
+        />,
+      );
+
+      const createButton = screen.getByRole("button", { name: /New PR/i });
+      fireEvent.click(createButton);
+      expect(
+        screen.getByText(/GitHub OAuth is not configured/i),
+      ).toBeInTheDocument();
+    });
+
+    it("keeps all pull requests in the adjacent menu", () => {
+      render(<SpecTaskActionButtons task={doneTask()} variant={variant} />);
+
+      expect(screen.getByRole("button", { name: /New PR/i })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "PRs (2)" }));
+      expect(
+        screen
+          .getAllByRole("menuitem")
+          .map((item) => item.getAttribute("href")),
+      ).toEqual([
+        "https://github.com/helixml/helix/pull/67",
+        "https://github.com/helixml/helix/pull/66",
+      ]);
+    });
+
+    it("does not offer a new PR when the tracked PR is not merged", () => {
+      const task = doneTask();
+      task.repo_pull_requests![0].pr_state = "open";
+      render(<SpecTaskActionButtons task={task} variant={variant} />);
+
+      expect(
+        screen.queryByRole("button", { name: /New PR/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("shows pull request history while the current PR is open", () => {
+      const task = doneTask();
+      task.status = "pull_request";
+      task.repo_pull_requests![0].pr_state = "open";
+      render(<SpecTaskActionButtons task={task} variant={variant} />);
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /2 (PRs|Pull Requests)/i }),
+      );
+      expect(screen.getAllByRole("menuitem")).toHaveLength(2);
     });
   },
 );

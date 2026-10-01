@@ -120,7 +120,7 @@ const PRMenuItem: React.FC<PRMenuItemProps> = ({ pr, idx, onSelect }) => {
   const isClosed = normalizePRState(pr.pr_state) === "closed";
   return (
     <MenuItem
-      key={pr.repository_id || idx}
+      key={pr.pr_id || pr.pr_url || idx}
       component="a"
       href={pr.pr_url}
       target="_blank"
@@ -152,6 +152,7 @@ export interface SpecTaskForActions {
   planning_session_id?: string;
   metadata?: { error?: string };
   repo_pull_requests?: RepoPR[];
+  repo_pull_request_history?: RepoPR[];
   last_push_at?: string;
   rebase_requested_at?: string;
   /** "running" | "starting" | "absent" — derived server-side from the session's live container state.
@@ -508,6 +509,59 @@ export default function SpecTaskActionButtons({
     );
   }
 
+  if (
+    showOAuthPrompt &&
+    (task.status === "implementation" || task.status === "done")
+  ) {
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 1,
+          width: "100%",
+        }}
+      >
+        <Alert severity="warning" sx={{ py: 0.5 }}>
+          {oauthProvider?.id
+            ? `Connect your ${oauthProviderName} account to open PRs under your name.`
+            : `${oauthProviderName} OAuth is not configured. Ask your administrator to set it up so PRs can be opened under your name.`}
+        </Alert>
+        <Box sx={{ display: "flex", gap: 1 }}>
+          {oauthProvider?.id && (
+            <Button
+              variant="contained"
+              size="small"
+              disabled={isOAuthLoading}
+              onClick={() => {
+                startOAuthFlow({
+                  providerId: oauthProvider.id!,
+                  scopes: oauthScopes,
+                  onSuccess: () => {
+                    setShowOAuthPrompt(false);
+                    approveImplementationMutation.mutate();
+                  },
+                  onError: () => {
+                    // Keep showing the prompt
+                  },
+                });
+              }}
+            >
+              {isOAuthLoading ? "Connecting..." : `Connect ${oauthProviderName}`}
+            </Button>
+          )}
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => setShowOAuthPrompt(false)}
+          >
+            Cancel
+          </Button>
+        </Box>
+      </Box>
+    );
+  }
+
   // Backlog phase: Start Planning button
   if (task.status === "backlog") {
     const isStartDisabled =
@@ -746,49 +800,6 @@ export default function SpecTaskActionButtons({
   if (task.status === "implementation") {
     const hasDesignDocs = !!task.design_docs_pushed_at;
 
-    if (showOAuthPrompt) {
-      return (
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, width: "100%" }}>
-          <Alert severity="warning" sx={{ py: 0.5 }}>
-            {oauthProvider?.id
-              ? `Connect your ${oauthProviderName} account to open PRs under your name.`
-              : `${oauthProviderName} OAuth is not configured. Ask your administrator to set it up so PRs can be opened under your name.`}
-          </Alert>
-          <Box sx={{ display: "flex", gap: 1 }}>
-            {oauthProvider?.id && (
-              <Button
-                variant="contained"
-                size="small"
-                disabled={isOAuthLoading}
-                onClick={() => {
-                  startOAuthFlow({
-                    providerId: oauthProvider.id!,
-                    scopes: oauthScopes,
-                    onSuccess: () => {
-                      setShowOAuthPrompt(false);
-                      approveImplementationMutation.mutate();
-                    },
-                    onError: () => {
-                      // Keep showing the prompt
-                    },
-                  });
-                }}
-              >
-                {isOAuthLoading ? "Connecting..." : `Connect ${oauthProviderName}`}
-              </Button>
-            )}
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => setShowOAuthPrompt(false)}
-            >
-              Cancel
-            </Button>
-          </Box>
-        </Box>
-      );
-    }
-
     if (isInline) {
       return (
         <Box sx={inlineRowSx}>
@@ -933,11 +944,31 @@ export default function SpecTaskActionButtons({
   }
 
   // Pull Request phase: View Pull Request button(s)
-  const pullRequests = task.repo_pull_requests?.filter(pr => pr.pr_url) || [];
+  const currentPullRequests =
+    task.repo_pull_requests?.filter((pr) => pr.pr_url) || [];
+  const pullRequests = [
+    ...currentPullRequests,
+    ...(task.repo_pull_request_history?.filter((pr) => pr.pr_url) || []),
+  ];
   const hasMultiplePRs = pullRequests.length > 1;
   const hasAnyPR = pullRequests.length > 0;
+  const mergedPullRequests = currentPullRequests.filter(
+    (pullRequest) => normalizePRState(pullRequest.pr_state) === "merged",
+  );
+  const allPRsMerged =
+    hasAnyPR &&
+    pullRequests.every(
+      (pullRequest) => normalizePRState(pullRequest.pr_state) === "merged",
+    );
+  const followUpReady =
+    task.status === "done" && mergedPullRequests.length > 0;
+  const isCreatingFollowUp = approveImplementationMutation.isPending;
 
-  if (task.status === "pull_request" && !hasAnyPR && task.metadata?.error) {
+  if (
+    task.status === "pull_request" &&
+    currentPullRequests.length === 0 &&
+    task.metadata?.error
+  ) {
     return (
       <Box sx={{ display: "flex", flexDirection: "column", gap: 1, width: "100%" }}>
         <Alert severity="error" sx={{ py: 0.5 }}>
@@ -948,13 +979,113 @@ export default function SpecTaskActionButtons({
   }
 
   if ((task.status === "pull_request" || task.status === "done") && hasAnyPR) {
+    if (followUpReady) {
+      return (
+        <Box
+          sx={
+            isInline
+              ? inlineRowSx
+              : { display: "flex", alignItems: "center", gap: 0.75, mt: 1.5 }
+          }
+        >
+          {isInline ? (
+            <CompactActionButton
+              density={density}
+              tooltip={
+                isArchived
+                  ? "Task is archived"
+                  : "Create a pull request for the new changes"
+              }
+              variant="contained"
+              color="secondary"
+              disabled={isArchived || isCreatingFollowUp}
+              icon={
+                isCreatingFollowUp ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <GitPullRequest size={18} />
+                )
+              }
+              label={isCreatingFollowUp ? "Creating..." : "New PR"}
+              onClick={handleOpenPR}
+            />
+          ) : (
+            <Button
+              size={buttonSize}
+              variant="contained"
+              color="secondary"
+              startIcon={
+                isCreatingFollowUp ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <GitPullRequest size={18} />
+                )
+              }
+              onClick={handleOpenPR}
+              disabled={isArchived || isCreatingFollowUp}
+              fullWidth
+              sx={buttonSx}
+            >
+              {isCreatingFollowUp ? "Creating..." : "New PR"}
+            </Button>
+          )}
+          {isInline ? (
+            <CompactActionButton
+              density={density}
+              tooltip="View all pull requests"
+              variant="outlined"
+              disabled={isArchived}
+              icon={<GitPullRequest size={18} />}
+              label={`PRs (${pullRequests.length})`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPrMenuAnchor(e.currentTarget);
+              }}
+            />
+          ) : (
+            <Button
+              size={buttonSize}
+              variant="outlined"
+              startIcon={<GitPullRequest size={18} />}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPrMenuAnchor(e.currentTarget);
+              }}
+              disabled={isArchived}
+              sx={buttonSx}
+            >
+              {`PRs (${pullRequests.length})`}
+            </Button>
+          )}
+          <Menu
+            anchorEl={prMenuAnchor}
+            open={Boolean(prMenuAnchor)}
+            onClose={() => setPrMenuAnchor(null)}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {pullRequests.map((pr, idx) => (
+              <PRMenuItem
+                key={pr.pr_id || pr.pr_url || idx}
+                pr={pr}
+                idx={idx}
+                onSelect={() => setPrMenuAnchor(null)}
+              />
+            ))}
+          </Menu>
+        </Box>
+      );
+    }
+
     // Single PR case
     if (pullRequests.length === 1) {
       const onlyPR = pullRequests[0];
       const prUrl = onlyPR.pr_url;
-      const prLabel = onlyPR.pr_number
-        ? `PR: #${onlyPR.pr_number}`
-        : "Pull Request";
+      const prLabel =
+        normalizePRState(onlyPR.pr_state) === "merged"
+          ? "Merged"
+          : onlyPR.pr_number
+            ? `PR: #${onlyPR.pr_number}`
+            : "Pull Request";
 
       if (isInline) {
         return (
@@ -980,7 +1111,7 @@ export default function SpecTaskActionButtons({
       }
 
       return (
-        <Box sx={isInline ? { display: "flex", gap: 1 } : { mt: 1.5 }}>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, mt: 1.5 }}>
           <Tooltip title={isArchived ? "Task is archived" : ""} placement="top">
             <span style={{ width: isInline ? "auto" : "100%", display: "block" }}>
               <Button
@@ -996,7 +1127,9 @@ export default function SpecTaskActionButtons({
                 fullWidth={!isInline}
                 sx={buttonSx}
               >
-                View Pull Request
+                {normalizePRState(onlyPR.pr_state) === "merged"
+                  ? "Merged"
+                  : "View Pull Request"}
               </Button>
             </span>
           </Tooltip>
@@ -1016,7 +1149,11 @@ export default function SpecTaskActionButtons({
               color="secondary"
               disabled={isArchived}
               icon={<LaunchIcon size={18} />}
-              label={`${pullRequests.length} PRs`}
+              label={
+                allPRsMerged
+                  ? `${pullRequests.length} Merged`
+                  : `${pullRequests.length} PRs`
+              }
               onClick={(e) => {
                 e.stopPropagation();
                 setPrMenuAnchor(e.currentTarget);
@@ -1030,7 +1167,7 @@ export default function SpecTaskActionButtons({
             >
               {pullRequests.map((pr, idx) => (
                 <PRMenuItem
-                  key={pr.repository_id || idx}
+                  key={pr.pr_id || pr.pr_url || idx}
                   pr={pr}
                   idx={idx}
                   onSelect={() => setPrMenuAnchor(null)}
@@ -1042,7 +1179,7 @@ export default function SpecTaskActionButtons({
       }
 
       return (
-        <Box sx={isInline ? { display: "flex", gap: 1 } : { mt: 1.5 }}>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, mt: 1.5 }}>
           <Tooltip title={isArchived ? "Task is archived" : ""} placement="top">
             <span style={{ width: isInline ? "auto" : "100%", display: "block" }}>
               <Button
@@ -1058,7 +1195,9 @@ export default function SpecTaskActionButtons({
                 fullWidth={!isInline}
                 sx={buttonSx}
               >
-                {pullRequests.length} Pull Requests
+                {allPRsMerged
+                  ? `${pullRequests.length} Merged`
+                  : `${pullRequests.length} Pull Requests`}
               </Button>
             </span>
           </Tooltip>
@@ -1070,7 +1209,7 @@ export default function SpecTaskActionButtons({
           >
             {pullRequests.map((pr, idx) => (
               <PRMenuItem
-                key={pr.repository_id || idx}
+                key={pr.pr_id || pr.pr_url || idx}
                 pr={pr}
                 idx={idx}
                 onSelect={() => setPrMenuAnchor(null)}

@@ -127,7 +127,10 @@ export interface SpecTaskWithExtras {
     | "queued";
   planning_session_id?: string;
   archived?: boolean;
-  metadata?: { error?: string; error_timestamp?: string };
+  metadata?: {
+    error?: string;
+    error_timestamp?: string;
+  };
   merged_to_main?: boolean;
   just_do_it_mode?: boolean;
   started_at?: string;
@@ -135,6 +138,18 @@ export interface SpecTaskWithExtras {
   clone_group_id?: string;
   cloned_from_id?: string;
   repo_pull_requests?: Array<{
+    repository_id?: string;
+    repository_name?: string;
+    pr_id?: string;
+    pr_number?: number;
+    pr_url?: string;
+    pr_state?: string;
+    ci_status?: string;
+    ci_url?: string;
+    ci_updated_at?: string;
+    ci_head_sha?: string;
+  }>;
+  repo_pull_request_history?: Array<{
     repository_id?: string;
     repository_name?: string;
     pr_id?: string;
@@ -1521,6 +1536,7 @@ function TaskCardInner({
                       id: task.id,
                       status: "pull_request",
                       repo_pull_requests: task.repo_pull_requests,
+                      repo_pull_request_history: task.repo_pull_request_history,
                       archived: task.archived,
                       sandbox_state: task.sandbox_state,
                     }}
@@ -1624,6 +1640,22 @@ function TaskCardInner({
                   Merged to default branch
                 </Typography>
               </Alert>
+              <SpecTaskActionButtons
+                task={{
+                  id: task.id,
+                  status: "done",
+                  repo_pull_requests: task.repo_pull_requests,
+                  repo_pull_request_history: task.repo_pull_request_history,
+                  metadata: task.metadata,
+                  base_branch: task.base_branch,
+                  branch_name: task.branch_name,
+                  archived: task.archived,
+                  sandbox_state: task.sandbox_state,
+                }}
+                variant="stacked"
+                hasExternalRepo={hasExternalRepo}
+                externalRepoType={externalRepoType}
+              />
             </Box>
           )}
       </CardContent>

@@ -1061,7 +1061,9 @@ func (o *SpecTaskOrchestrator) taskHasPRsForAllRepos(ctx context.Context, task *
 	// Build set of repo IDs that already have PRs
 	hasPR := make(map[string]bool, len(task.RepoPullRequests))
 	for _, rp := range task.RepoPullRequests {
-		hasPR[rp.RepositoryID] = true
+		if rp.PRID != "" {
+			hasPR[rp.RepositoryID] = true
+		}
 	}
 
 	// Check every external repo has a PR tracked
@@ -1165,6 +1167,11 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 	updated := false
 
 	for i, repoPR := range task.RepoPullRequests {
+		if repoPR.PRID == "" {
+			allMerged = false
+			allClosed = false
+			continue
+		}
 		pr, err := o.gitService.GetPullRequest(ctx, repoPR.RepositoryID, repoPR.PRID)
 		if err != nil {
 			log.Warn().
