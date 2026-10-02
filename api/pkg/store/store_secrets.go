@@ -49,7 +49,7 @@ func (s *PostgresStore) CreateSecret(ctx context.Context, secret *types.Secret) 
 				case secret.AppID != "":
 					scope = "this app"
 				}
-				return fmt.Errorf("a secret with the name '%s' already exists for %s in the %s environment", secret.Name, scope, secret.Scope)
+				return fmt.Errorf("%w: a secret with the name '%s' already exists for %s in the %s environment", ErrConflict, secret.Name, scope, secret.Scope)
 			}
 		}
 

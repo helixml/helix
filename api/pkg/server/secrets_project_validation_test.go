@@ -29,6 +29,26 @@ func TestCreateSecretRejectsUnknownProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, httpErr.StatusCode)
 }
 
+func TestCreateProjectSecretReturnsConflictForDuplicate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	mockStore.EXPECT().GetProject(gomock.Any(), "prj_test").Return(&types.Project{
+		ID: "prj_test", UserID: "user_test",
+	}, nil)
+	mockStore.EXPECT().CreateSecret(gomock.Any(), gomock.Any()).Return(nil, store.ErrConflict)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/prj_test/secrets", bytes.NewBufferString(
+		`{"name":"TOKEN","value":"secret"}`,
+	))
+	req = mux.SetURLVars(req, map[string]string{"id": "prj_test"})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_test"}))
+	_, httpErr := server.createProjectSecret(httptest.NewRecorder(), req)
+	require.NotNil(t, httpErr)
+	require.Equal(t, http.StatusConflict, httpErr.StatusCode)
+	require.Equal(t, "A secret with this name already exists in the selected environment", httpErr.Message)
+}
+
 func TestUpdateSecretRejectsOrphanedProjectScope(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)

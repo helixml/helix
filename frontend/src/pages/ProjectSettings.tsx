@@ -446,7 +446,14 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       refetchSecrets();
     },
     onError: (err: any) => {
-      const message = err?.response?.data?.error || "Failed to create secret";
+      const data = err?.response?.data;
+      const message =
+        (typeof data === "string"
+          ? data.trim()
+          : typeof data?.error === "string"
+            ? data.error
+            : "") ||
+        "Failed to create secret";
       snackbar.error(message);
     },
   });
