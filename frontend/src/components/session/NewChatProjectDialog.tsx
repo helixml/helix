@@ -6,7 +6,7 @@ import Typography from '@mui/material/Typography'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { useTheme } from '@mui/material/styles'
 
-import { ArrowDown, ArrowLeft, ArrowUp, Folder, FolderPlus } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Folder, Plus } from 'lucide-react'
 
 import type { TypesProject } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -221,48 +221,43 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
           py: 1,
         }}
       >
-        <Typography
+        <Box
           sx={{
             px: 2,
             py: 0.75,
-            fontSize: '11px',
-            fontWeight: 600,
-            letterSpacing: '0.4px',
-            color: mutedColor,
-          }}
-        >
-          Projects
-        </Typography>
-        <Box
-          component="button"
-          type="button"
-          onClick={() => {
-            onClose()
-            onCreateProject()
-          }}
-          sx={{
-            width: 'calc(100% - 16px)',
-            minHeight: 44,
-            mx: 1,
-            mb: 0.5,
-            px: 1.5,
             display: 'flex',
             alignItems: 'center',
-            gap: 1.5,
-            border: 0,
-            borderRadius: '8px',
-            backgroundColor: 'transparent',
-            color: 'primary.main',
-            cursor: 'pointer',
-            font: 'inherit',
-            textAlign: 'left',
-            '&:hover': { backgroundColor: 'action.hover' },
+            justifyContent: 'space-between',
           }}
         >
-          <FolderPlus size={16} />
-          <Typography sx={{ fontSize: '14px', fontWeight: 500 }}>
-            New project
+          <Typography sx={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.4px', color: mutedColor }}>
+            Projects
           </Typography>
+          <Box
+            component="button"
+            type="button"
+            onClick={() => {
+              onClose()
+              onCreateProject()
+            }}
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.5,
+              p: 0,
+              border: 0,
+              backgroundColor: 'transparent',
+              color: 'primary.main',
+              cursor: 'pointer',
+              font: 'inherit',
+              fontSize: '12px',
+              fontWeight: 500,
+              '&:hover': { color: 'primary.light' },
+            }}
+          >
+            <Plus size={13} />
+            New project
+          </Box>
         </Box>
         {rows.length === 0 && (
           <Typography sx={{ px: 2, py: 1.5, fontSize: '13px', color: mutedColor }}>
