@@ -123,6 +123,9 @@ func (s *HelixAPIServer) createSecret(_ http.ResponseWriter, r *http.Request) (*
 
 	createdSecret, err := s.Store.CreateSecret(ctx, secret)
 	if err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			return nil, system.NewHTTPError409("A secret with this name already exists in the selected environment")
+		}
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
@@ -428,6 +431,9 @@ func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Requ
 
 	createdSecret, err := s.Store.CreateSecret(ctx, secret)
 	if err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			return nil, system.NewHTTPError409("A secret with this name already exists in the selected environment")
+		}
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
