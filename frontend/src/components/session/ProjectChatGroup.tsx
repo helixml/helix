@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography'
 import {
   ChevronDown,
   ChevronRight,
+  EllipsisVertical,
   Folder,
   Plus,
   Settings,
@@ -335,6 +336,37 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
         >
           {groupName}
         </Typography>
+        {isPhone && project && onOpenProjectContextMenu && (
+          <Tooltip title="More actions">
+            <Box
+              component="button"
+              type="button"
+              aria-label={`More actions for ${groupName}`}
+              aria-haspopup="menu"
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpenProjectContextMenu(event, project)
+              }}
+              sx={{
+                appearance: 'none',
+                width: 28,
+                height: 28,
+                flexShrink: 0,
+                border: 0,
+                p: 0,
+                backgroundColor: 'transparent',
+                color: sidebarColors.mutedForeground,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '4px',
+              }}
+            >
+              <EllipsisVertical size={15} />
+            </Box>
+          </Tooltip>
+        )}
         {/* No item count here: each group only ever holds the page it fetched
             (visibleCount + 1), so any number rendered would be the page size
             rather than the project's real total. */}
