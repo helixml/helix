@@ -37,7 +37,7 @@ func (s *Store) CreateOrganizationMembership(ctx context.Context, membership *ty
 	err := s.gdb.WithContext(ctx).Create(membership).Error
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
-			return nil, fmt.Errorf("user %s already a member of organization %s", membership.UserID, membership.OrganizationID)
+			return nil, fmt.Errorf("%w: user %s already a member of organization %s", ErrConflict, membership.UserID, membership.OrganizationID)
 		}
 		return nil, err
 	}
