@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ChevronRight,
   Folder,
-  MessagesSquare,
   Plus,
   Settings,
 } from 'lucide-react'
@@ -107,7 +106,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const [visibility, setVisibility] = useState<GroupVisibility>('unknown')
   const projectId = project?.id
   const groupId = projectId || 'default'
-  const groupName = project?.name || 'Chats'
+  const groupName = project?.name || 'No project'
   const pagination = useSidebarItemPagination(visibleThreadCount)
   const requestCount = pagination.requestCount
   // A collapsed group probes once to determine whether the current participant
@@ -229,7 +228,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   }
 
   return (
-    <Box sx={{ mt: project ? 0 : 1, mb: 0.5 }}>
+    <Box sx={{ mb: 0.5 }}>
       <Box
         role="button"
         tabIndex={0}
@@ -319,9 +318,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
         >
           {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
         </Box>
-        {project
-          ? <Folder size={14} style={{ opacity: 0.72 }} />
-          : <MessagesSquare size={14} style={{ opacity: 0.72 }} />}
+        <Folder size={14} style={{ opacity: 0.72 }} />
         <Typography
           component="span"
           sx={{
@@ -334,8 +331,6 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
             lineHeight: TYPOGRAPHY.sidebar.primaryLineHeight,
             fontWeight: 500,
-            letterSpacing: project ? undefined : '0.08em',
-            textTransform: project ? undefined : 'uppercase',
           }}
         >
           {groupName}

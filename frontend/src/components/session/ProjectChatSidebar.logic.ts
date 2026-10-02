@@ -309,11 +309,7 @@ export const collapsedGroupsStorageKey = (orgId: string): string => (
   `helix:project-chat-sidebar:collapsed:${orgId}`
 )
 
-export const parseCollapsedGroupIds = (
-  storedValue: string | null,
-  defaults: string[] = [],
-): Set<string> => {
-  if (storedValue === null) return new Set(defaults)
+export const parseCollapsedGroupIds = (storedValue: string | null): Set<string> => {
   if (!storedValue) return new Set()
   try {
     const value = JSON.parse(storedValue)

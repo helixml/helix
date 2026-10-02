@@ -84,7 +84,7 @@ const RELATIVE_TIME_REFRESH_MS = 15000
 
 const readCollapsedGroups = (storageKey: string): Set<string> => {
   try {
-    return parseCollapsedGroupIds(window.localStorage.getItem(storageKey), ['default'])
+    return parseCollapsedGroupIds(window.localStorage.getItem(storageKey))
   } catch {
     return new Set()
   }
@@ -721,6 +721,57 @@ const ProjectChatSidebar: FC<{
             </IconButton>
           </Tooltip>
         </Box>
+        <Box sx={{ pl: 0.75, pr: 0.75, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center' }}>
+          <ProjectChatSidebarProjectFilter
+            projects={sidebarProjects}
+            selectedProjectId={projectFilter}
+            archived={showArchived}
+            onChange={selectProjectFilter}
+          />
+          {!focusMode && (
+            <ProjectChatSidebarOptions
+              projectSortOrder={preferences.projectSortOrder}
+              threadSortOrder={preferences.threadSortOrder}
+              visibleThreadCount={preferences.visibleThreadCount}
+              onProjectSortOrderChange={setProjectSortOrder}
+              onThreadSortOrderChange={setThreadSortOrder}
+              onVisibleThreadCountChange={setVisibleThreadCount}
+            />
+          )}
+          <ProjectChatGroupByControl value={groupBy} onChange={selectGroupBy} />
+          <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
+            <IconButton
+              size="small"
+              onClick={() => setShowArchived((current) => !current)}
+              aria-label={showArchived ? 'Back to active chats' : 'Show archived'}
+              aria-pressed={showArchived}
+              sx={{
+                color: showArchived
+                  ? sidebarColors.foreground
+                  : sidebarColors.subtleForeground,
+              }}
+            >
+              <Archive size={15} strokeWidth={1.7} />
+            </IconButton>
+          </Tooltip>
+          {!showArchived && (
+            <Tooltip title="New project">
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={() => setCreateProjectOpen(true)}
+                  disabled={!account.user?.id || !orgId}
+                  aria-label="New project"
+                  sx={{
+                    color: sidebarColors.subtleForeground,
+                  }}
+                >
+                  <FolderPlus size={15} strokeWidth={1.7} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
+        </Box>
         </>
       )}
 
@@ -745,59 +796,6 @@ const ProjectChatSidebar: FC<{
           </Box>
         ) : (
           <>
-            {!isPhone && (
-              <Box sx={{ pl: 0.75, pr: 0.75, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center' }}>
-                <ProjectChatSidebarProjectFilter
-                  projects={sidebarProjects}
-                  selectedProjectId={projectFilter}
-                  archived={showArchived}
-                  onChange={selectProjectFilter}
-                />
-                {!focusMode && (
-                  <ProjectChatSidebarOptions
-                    projectSortOrder={preferences.projectSortOrder}
-                    threadSortOrder={preferences.threadSortOrder}
-                    visibleThreadCount={preferences.visibleThreadCount}
-                    onProjectSortOrderChange={setProjectSortOrder}
-                    onThreadSortOrderChange={setThreadSortOrder}
-                    onVisibleThreadCountChange={setVisibleThreadCount}
-                  />
-                )}
-                <ProjectChatGroupByControl value={groupBy} onChange={selectGroupBy} />
-                <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
-                  <IconButton
-                    size="small"
-                    onClick={() => setShowArchived((current) => !current)}
-                    aria-label={showArchived ? 'Back to active chats' : 'Show archived'}
-                    aria-pressed={showArchived}
-                    sx={{
-                      color: showArchived
-                        ? sidebarColors.foreground
-                        : sidebarColors.subtleForeground,
-                    }}
-                  >
-                    <Archive size={15} strokeWidth={1.7} />
-                  </IconButton>
-                </Tooltip>
-                {!showArchived && (
-                  <Tooltip title="New project">
-                    <span>
-                      <IconButton
-                        size="small"
-                        onClick={() => setCreateProjectOpen(true)}
-                        disabled={!account.user?.id || !orgId}
-                        aria-label="New project"
-                        sx={{
-                          color: sidebarColors.subtleForeground,
-                        }}
-                      >
-                        <FolderPlus size={15} strokeWidth={1.7} />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                )}
-              </Box>
-            )}
             {showBotsSection && (
               <>
                 <ProjectChatSectionHeader
@@ -867,6 +865,27 @@ const ProjectChatSidebar: FC<{
             )}
             {!groupByPerson && !(showSectionHeaders && collapsedGroups.has('projects')) && (
             <>
+            {!focusMode && <ProjectChatGroup
+              orgId={orgId}
+              collapsed={effectiveCollapsedGroups.has('default')}
+              query={query}
+              activeItemId={activeItemId}
+              relativeTimeNow={relativeTimeNow}
+              enabled={groupsEnabled}
+              threadSortOrder={preferences.threadSortOrder}
+              visibleThreadCount={preferences.visibleThreadCount}
+              participantIds={currentUserId ? [currentUserId] : []}
+              organizationMembers={selectableMembers}
+              currentUser={account.user}
+              archived={showArchived}
+              pinnedChats={pinnedChats}
+              archivingItemId={archivingItemId}
+              onToggle={() => toggleGroup('default')}
+              onNewTask={groupsOfferNewTask ? () => account.orgNavigate('chat') : undefined}
+              onOpenItem={openItem}
+              onOpenItemContextMenu={openItemContextMenu}
+              onArchiveItem={requestArchive}
+            />}
             <DndContext
               sensors={projectDragSensors}
               collisionDetection={closestCenter}
@@ -921,29 +940,6 @@ const ProjectChatSidebar: FC<{
               </SortableContext>
             </DndContext>
             </>
-            )}
-            {!groupByPerson && !focusMode && (
-              <ProjectChatGroup
-                orgId={orgId}
-                collapsed={effectiveCollapsedGroups.has('default')}
-                query={query}
-                activeItemId={activeItemId}
-                relativeTimeNow={relativeTimeNow}
-                enabled={groupsEnabled}
-                threadSortOrder={preferences.threadSortOrder}
-                visibleThreadCount={preferences.visibleThreadCount}
-                participantIds={currentUserId ? [currentUserId] : []}
-                organizationMembers={selectableMembers}
-                currentUser={account.user}
-                archived={showArchived}
-                pinnedChats={pinnedChats}
-                archivingItemId={archivingItemId}
-                onToggle={() => toggleGroup('default')}
-                onNewTask={groupsOfferNewTask ? () => account.orgNavigate('chat') : undefined}
-                onOpenItem={openItem}
-                onOpenItemContextMenu={openItemContextMenu}
-                onArchiveItem={requestArchive}
-              />
             )}
             {groupByPerson && (
               <>

@@ -259,30 +259,6 @@ describe('ProjectChatGroup', () => {
     expect(screen.getByText('New')).toHaveStyle({ opacity: '1' })
   })
 
-  it('labels unassigned chats as Chats', () => {
-    render(
-      <ProjectChatGroup
-        orgId="org-test"
-        collapsed={false}
-        query=""
-        activeItemId=""
-        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
-        enabled
-        participantIds={[]}
-        organizationMembers={[]}
-        archivingItemId={null}
-        onToggle={vi.fn()}
-        onNewTask={vi.fn()}
-        onOpenItem={vi.fn()}
-        onOpenItemContextMenu={vi.fn()}
-        onArchiveItem={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByText('Chats')).toBeInTheDocument()
-    expect(screen.queryByText('No project')).not.toBeInTheDocument()
-  })
-
   it('opens project settings without starting a chat or collapsing', () => {
     const onToggle = vi.fn()
     const onNewTask = vi.fn()
