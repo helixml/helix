@@ -2,12 +2,14 @@ import { FC, MouseEvent, MutableRefObject, useEffect, useState } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import {
   ChevronDown,
   ChevronRight,
   Folder,
   Plus,
+  Settings,
 } from 'lucide-react'
 
 import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary, TypesUser } from '../../api/api'
@@ -56,6 +58,7 @@ type ProjectChatGroupProps = {
   archivingItemId: string | null
   onToggle: () => void
   onNewTask?: () => void
+  onOpenProjectSettings?: () => void
   onOpenItem: (item: SidebarItem) => void
   onOpenItemContextMenu: (event: MouseEvent<HTMLElement>, item: SidebarItem) => void
   onOpenProjectContextMenu?: (event: MouseEvent<HTMLElement>, project: TypesProject) => void
@@ -86,6 +89,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   archivingItemId,
   onToggle,
   onNewTask,
+  onOpenProjectSettings,
   onOpenItem,
   onOpenItemContextMenu,
   onOpenProjectContextMenu,
@@ -334,6 +338,40 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
         {/* No item count here: each group only ever holds the page it fetched
             (visibleCount + 1), so any number rendered would be the page size
             rather than the project's real total. */}
+        {onOpenProjectSettings && onNewTask && !isLoading && (
+          <Tooltip title="Project settings">
+            <Box
+              component="button"
+              type="button"
+              aria-label={`Project settings for ${groupName}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpenProjectSettings()
+              }}
+              sx={{
+                appearance: 'none',
+                width: 24,
+                height: 26,
+                flexShrink: 0,
+                border: 0,
+                p: 0,
+                backgroundColor: 'transparent',
+                color: sidebarColors.mutedForeground,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '4px',
+                '&:hover': {
+                  color: lightTheme.isLight ? '#18181b' : '#ffffff',
+                  backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(241,243,247,0.12)',
+                },
+              }}
+            >
+              <Settings size={13} strokeWidth={1.7} />
+            </Box>
+          </Tooltip>
+        )}
         {isLoading ? (
           <CircularProgress size={11} color="inherit" />
         ) : onNewTask ? (

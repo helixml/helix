@@ -259,6 +259,38 @@ describe('ProjectChatGroup', () => {
     expect(screen.getByText('New')).toHaveStyle({ opacity: '1' })
   })
 
+  it('opens project settings without starting a chat or collapsing', () => {
+    const onToggle = vi.fn()
+    const onNewTask = vi.fn()
+    const onOpenProjectSettings = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={onToggle}
+        onNewTask={onNewTask}
+        onOpenProjectSettings={onOpenProjectSettings}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project settings for Project Test' }))
+
+    expect(onOpenProjectSettings).toHaveBeenCalledOnce()
+    expect(onNewTask).not.toHaveBeenCalled()
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
   it('collapses from the chevron, and only from the chevron', () => {
     const onToggle = vi.fn()
     const onNewTask = vi.fn()

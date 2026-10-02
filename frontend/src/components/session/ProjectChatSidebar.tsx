@@ -924,6 +924,7 @@ const ProjectChatSidebar: FC<{
                         onNewTask={groupsOfferNewTask
                           ? () => account.orgNavigate('chat', {}, { project_id: project.id })
                           : undefined}
+                        onOpenProjectSettings={() => openDialog('project-settings', { projectId: project.id })}
                         onOpenItem={openItem}
                         onOpenItemContextMenu={openItemContextMenu}
                         onOpenProjectContextMenu={openProjectContextMenu}
