@@ -35,6 +35,13 @@ fi
 git -C "$UTM_DIR" fetch -q origin "$UTM_COMMIT"
 git -C "$UTM_DIR" checkout -q --detach "$UTM_COMMIT"
 
+# Build requirements, as UTM's .github/workflows/build.yml installs them.
+# (UTM's check_env tests `brew --prefix`, which succeeds even when a formula
+# is not installed, so a missing llvm only fails an hour in, in mesa.)
+brew install --quiet bison pkg-config gettext glib-utils libgpg-error nasm make meson cmake \
+    llvm spirv-llvm-translator libxcb libxrandr
+pip3 install --quiet --break-system-packages --user six pyparsing pyyaml setuptools distlib mako
+
 echo "Building UTM sysroot from $UTM_COMMIT ($UTM_RELEASE) into $SYSROOT"
 (cd "$UTM_DIR" && PATH="$(brew --prefix bison)/bin:$PATH" \
     scripts/build_dependencies.sh -p macos -a arm64)
