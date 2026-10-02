@@ -221,6 +221,14 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 	if interaction.ID == "" {
 		return nil, errors.New("id is required")
 	}
+	if interaction.State == types.InteractionStateComplete ||
+		interaction.State == types.InteractionStateError ||
+		interaction.State == types.InteractionStateInterrupted {
+		// Cancellation intent only applies while the interaction is waiting.
+		// Generic terminal writers must clear it too, otherwise a late
+		// completion/error snapshot can persist stale intent after cancellation.
+		interaction.ExternalAgentCancelRequestedAt = nil
+	}
 
 	// Sanitize string fields that may contain LLM or agent output with characters
 	// that PostgreSQL rejects in text/jsonb columns (null bytes, surrogates, etc.)
@@ -443,6 +451,10 @@ func (s *PostgresStore) MarkInteractionInterruptedIfWaiting(ctx context.Context,
 			"state":     types.InteractionStateInterrupted,
 			"completed": now,
 			"updated":   now,
+			// Cancellation intent only applies while the interaction is waiting.
+			// Clear it in the same guarded update that settles the turn so a
+			// cancelled interaction cannot keep blocking later config changes.
+			"external_agent_cancel_requested_at": nil,
 		})
 	return result.RowsAffected > 0, result.Error
 }
@@ -475,9 +487,10 @@ func (s *PostgresStore) MarkInteractionCompleteIfWaiting(ctx context.Context, in
 		Model(&types.Interaction{}).
 		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
 		Updates(map[string]interface{}{
-			"state":     types.InteractionStateComplete,
-			"completed": now,
-			"updated":   now,
+			"state":                              types.InteractionStateComplete,
+			"completed":                          now,
+			"updated":                            now,
+			"external_agent_cancel_requested_at": nil,
 		})
 	if result.Error != nil {
 		return false, result.Error
@@ -496,10 +509,11 @@ func (s *PostgresStore) MarkInteractionErrorIfWaiting(ctx context.Context, inter
 		Model(&types.Interaction{}).
 		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
 		Updates(map[string]interface{}{
-			"state":     types.InteractionStateError,
-			"error":     sanitize.ForPostgres(reason),
-			"completed": now,
-			"updated":   now,
+			"state":                              types.InteractionStateError,
+			"error":                              sanitize.ForPostgres(reason),
+			"completed":                          now,
+			"updated":                            now,
+			"external_agent_cancel_requested_at": nil,
 		})
 	if result.Error != nil {
 		return false, result.Error
@@ -545,9 +559,10 @@ func (s *PostgresStore) ReapWaitingInteractions(ctx context.Context, sessionID s
 		for _, interaction := range candidates {
 			settledHistory := interaction.QuestionHistory
 			updates := map[string]interface{}{
-				"state":     newState,
-				"completed": now,
-				"updated":   now,
+				"state":                              newState,
+				"completed":                          now,
+				"updated":                            now,
+				"external_agent_cancel_requested_at": nil,
 			}
 			if interaction.PendingQuestion != nil {
 				settledHistory = append(settledHistory, types.ResolvedQuestion{
@@ -580,6 +595,7 @@ func (s *PostgresStore) ReapWaitingInteractions(ctx context.Context, sessionID s
 			interaction.State = newState
 			interaction.Completed = now
 			interaction.Updated = now
+			interaction.ExternalAgentCancelRequestedAt = nil
 			interaction.PendingQuestion = nil
 			interaction.QuestionHistory = settledHistory
 			reaped = append(reaped, interaction)

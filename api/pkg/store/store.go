@@ -348,8 +348,9 @@ type Store interface {
 	// RequestInteractionCancellationIfWaiting durably records user intent before
 	// attempting the WebSocket cancellation protocol.
 	RequestInteractionCancellationIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
-	// MarkInteractionInterruptedIfWaiting atomically completes cancellation
-	// without racing streaming or message-completion writes.
+	// MarkInteractionInterruptedIfWaiting atomically completes cancellation,
+	// clearing any durable cancellation intent without racing streaming or
+	// message-completion writes.
 	MarkInteractionInterruptedIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
 	GetInteractionByExternalAgentRequestID(ctx context.Context, requestID string) (*types.Interaction, error)
 	// MarkInteractionCompleteIfWaiting atomically transitions an interaction
