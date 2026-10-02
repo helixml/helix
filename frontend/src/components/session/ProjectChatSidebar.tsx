@@ -273,7 +273,7 @@ const ProjectChatSidebar: FC<{
 
   const startNewChat = useCallback(({ projectId }: NewChatTarget) => {
     setShowArchived(false)
-    account.orgNavigate('chat', {}, projectId ? { project_id: projectId } : {})
+    account.orgNavigate('project-new', { id: projectId })
     onOpenSession()
   }, [account, onOpenSession])
 
@@ -419,8 +419,10 @@ const ProjectChatSidebar: FC<{
   const openItem = (item: SidebarItem) => {
     if (item.kind === 'spec-task' && item.projectId) {
       account.orgNavigate('chat-task', { id: item.projectId, taskId: item.id })
+    } else if (item.projectId) {
+      account.orgNavigate('project-session', { id: item.projectId, session_id: item.id })
     } else {
-      account.orgNavigate('session', { session_id: item.id })
+      account.orgNavigate('projects')
     }
     onOpenSession()
   }
@@ -481,7 +483,7 @@ const ProjectChatSidebar: FC<{
         await archiveSession.mutateAsync({ sessionId: item.id, archived })
       }
       setArchiveConfirmation(null)
-      if (archived && item.id === activeItemId) account.orgNavigate('chat')
+      if (archived && item.id === activeItemId) account.orgNavigate('projects')
     } catch (error: any) {
       const message = typeof error?.response?.data === 'string'
         ? error.response.data
@@ -500,7 +502,7 @@ const ProjectChatSidebar: FC<{
     try {
       await deleteBotInstance.mutateAsync({ botId: item.botInstanceOf, sessionId: item.id })
       setDeleteInstanceConfirmation(null)
-      if (item.id === activeItemId) account.orgNavigate('chat')
+      if (item.id === activeItemId) account.orgNavigate('projects')
     } catch (error: any) {
       snackbar.error(error?.response?.data?.error || error?.message || 'Failed to delete instance')
     } finally {
@@ -870,27 +872,6 @@ const ProjectChatSidebar: FC<{
             )}
             {!groupByPerson && !(showSectionHeaders && collapsedGroups.has('projects')) && (
             <>
-            {!focusMode && <ProjectChatGroup
-              orgId={orgId}
-              collapsed={effectiveCollapsedGroups.has('default')}
-              query={query}
-              activeItemId={activeItemId}
-              relativeTimeNow={relativeTimeNow}
-              enabled={groupsEnabled}
-              threadSortOrder={preferences.threadSortOrder}
-              visibleThreadCount={preferences.visibleThreadCount}
-              participantIds={currentUserId ? [currentUserId] : []}
-              organizationMembers={selectableMembers}
-              currentUser={account.user}
-              archived={showArchived}
-              pinnedChats={pinnedChats}
-              archivingItemId={archivingItemId}
-              onToggle={() => toggleGroup('default')}
-              onNewTask={groupsOfferNewTask ? () => account.orgNavigate('chat') : undefined}
-              onOpenItem={openItem}
-              onOpenItemContextMenu={openItemContextMenu}
-              onArchiveItem={requestArchive}
-            />}
             <DndContext
               sensors={projectDragSensors}
               collisionDetection={closestCenter}
@@ -927,7 +908,7 @@ const ProjectChatSidebar: FC<{
                         archivingItemId={archivingItemId}
                         onToggle={() => toggleGroup(project.id!)}
                         onNewTask={groupsOfferNewTask
-                          ? () => account.orgNavigate('chat', {}, { project_id: project.id })
+                          ? () => account.orgNavigate('project-new', { id: project.id })
                           : undefined}
                         onOpenItem={openItem}
                         onOpenItemContextMenu={openItemContextMenu}
@@ -995,6 +976,7 @@ const ProjectChatSidebar: FC<{
         open={newChatPickerOpen}
         projects={allProjects}
         onClose={() => setNewChatPickerOpen(false)}
+        onCreateProject={() => setCreateProjectOpen(true)}
         onSelect={startNewChat}
       />
 
@@ -1066,7 +1048,7 @@ const ProjectChatSidebar: FC<{
           open
           onClose={() => setCreateProjectOpen(false)}
           onSuccess={(projectId) => {
-            account.orgNavigate('chat', {}, { project_id: projectId })
+            account.orgNavigate('project-new', { id: projectId })
             onOpenSession()
           }}
           repositories={repositories}
