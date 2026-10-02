@@ -25,9 +25,10 @@ const ForkBadge: FC<ForkBadgeProps> = ({ session }) => {
   if (!parentID) return null;
 
   const orgId = (router.params?.org_id as string | undefined) || undefined;
+  const projectId = (router.params?.id as string | undefined) || undefined;
   const goToParent = () => {
-    if (orgId) {
-      router.navigate("org_session", { org_id: orgId, session_id: parentID });
+    if (orgId && projectId) {
+      router.navigate("org_project-session", { org_id: orgId, id: projectId, session_id: parentID });
     } else {
       router.navigate("session", { session_id: parentID });
     }

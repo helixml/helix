@@ -419,8 +419,10 @@ const ProjectChatSidebar: FC<{
   const openItem = (item: SidebarItem) => {
     if (item.kind === 'spec-task' && item.projectId) {
       account.orgNavigate('chat-task', { id: item.projectId, taskId: item.id })
+    } else if (item.projectId) {
+      account.orgNavigate('project-session', { id: item.projectId, session_id: item.id })
     } else {
-      account.orgNavigate('session', { session_id: item.id })
+      account.orgNavigate('projects')
     }
     onOpenSession()
   }

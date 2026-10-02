@@ -130,8 +130,12 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
         request: { sandbox_runtime: runtime as TypesSandboxRuntime },
       })
       snackbar.success(`Starting a new ${bot.name} instance…`)
-      if (instance.session_id) {
-        router.navigate('org_session', { org_id: orgSlug || orgId, session_id: instance.session_id })
+      if (instance.session_id && bot.projectId) {
+        router.navigate('org_project-session', {
+          org_id: orgSlug || orgId,
+          id: bot.projectId,
+          session_id: instance.session_id,
+        })
         onOpenSession()
       }
     } catch (error: any) {

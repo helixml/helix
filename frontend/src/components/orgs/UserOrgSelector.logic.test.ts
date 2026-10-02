@@ -7,11 +7,10 @@ import {
 
 describe('UserOrgSelector navigation state', () => {
   it('keeps Chat active for project and bot conversations', () => {
-    const chatRoutes = ['project-new', 'chat-task', 'session', 'bot_session']
+    const chatRoutes = ['project-new', 'chat-task', 'bot_session']
 
     expect(isNavigationRouteActive('org_project-new', chatRoutes)).toBe(true)
     expect(isNavigationRouteActive('org_chat-task', chatRoutes)).toBe(true)
-    expect(isNavigationRouteActive('org_session', chatRoutes)).toBe(true)
     expect(isNavigationRouteActive('org_bot_session', chatRoutes)).toBe(true)
     expect(isNavigationRouteActive('org_chat', chatRoutes)).toBe(false)
   })

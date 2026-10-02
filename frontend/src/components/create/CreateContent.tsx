@@ -184,7 +184,7 @@ const CreateContent: FC<CreateContentProps> = ({
 
       setFilterMap({})
       setLoading(false)
-      account.orgNavigate('session', { session_id: session.id })
+      account.orgNavigate('projects')
     } catch (error: any) {
       console.error('Error in onInference:', error);
       const errorMsg = error?.message || error?.toString() || ''

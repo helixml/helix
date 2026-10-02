@@ -87,7 +87,6 @@ const Page: React.FC<{
   const showChatSidebarButton = chatSidebar.collapsed && [
     'org_project-new',
     'org_chat-task',
-    'org_session',
     'org_bot_session',
     'org_new',
   ].includes(router.name)

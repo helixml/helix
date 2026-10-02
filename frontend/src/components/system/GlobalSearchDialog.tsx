@@ -150,7 +150,9 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
         account.orgNavigate('agent', { app_id: result.id })
         break
       case TypesResource.ResourceSession:
-        account.orgNavigate('session', { session_id: result.id })
+        if (result.parent_id) {
+          account.orgNavigate('project-session', { id: result.parent_id, session_id: result.id })
+        }
         break
       case TypesResource.ResourceKnowledge:
         account.orgNavigate('agents')
