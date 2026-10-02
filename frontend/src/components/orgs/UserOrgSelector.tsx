@@ -21,6 +21,7 @@ import {
   LogIn,
   FileText,
   HelpCircle,
+  MessageCircle,
   Kanban,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
@@ -40,7 +41,7 @@ import { styled, keyframes } from '@mui/material/styles'
 import LoginRegisterDialog from './LoginRegisterDialog'
 import { TypesAuthProvider } from '../../api/api'
 import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
-import { orgLandingParams, orgLandingRoute } from '../../utils/organizations'
+import { CHIEF_OF_STAFF_BOT_ID, orgLandingParams, orgLandingRoute } from '../../utils/organizations'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
 import {
@@ -333,6 +334,16 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     account.setMobileMenuOpen(false)
   }
 
+  const chatRoutes = ['project-new', 'chat-task', 'session', 'bot_session']
+
+  const handleChatClick = () => {
+    if (isPhone && isActive(chatRoutes)) {
+      account.setMobileMenuOpen(true)
+      return
+    }
+    account.orgNavigate('bot_session', { bot_id: CHIEF_OF_STAFF_BOT_ID, intro: '1' })
+  }
+
   const orgNavigateTo = (path: string, params: Record<string, any> = {}) => {
     // Check if this is navigation to an org page
     if (path.startsWith('org_') || (params && params.org_id)) {
@@ -381,6 +392,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   // Navigation buttons configuration
   const navigationButtons = useMemo(() => {
     const baseButtons = [
+      {
+        icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
+        tooltip: "AI chat assistant",
+        isActive: isActive(chatRoutes),
+        onClick: handleChatClick,
+        label: "Chat",
+      },
       {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
         tooltip: "View projects",
