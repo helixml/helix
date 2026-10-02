@@ -826,7 +826,7 @@ const ProjectChatSidebar: FC<{
                     >
                       <Plus size={12} strokeWidth={1.8} aria-hidden="true" />
                       <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center' }}>
-                        New bot
+                        New
                       </Box>
                     </Button>
                   )}
