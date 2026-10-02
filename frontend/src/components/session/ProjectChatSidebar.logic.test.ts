@@ -496,6 +496,8 @@ describe('ProjectChatSidebar logic', () => {
       'project-two',
     ])
     expect(parseCollapsedGroupIds('invalid json')).toEqual(new Set())
+    expect(parseCollapsedGroupIds(null, ['default'])).toEqual(new Set(['default']))
+    expect(parseCollapsedGroupIds('[]', ['default'])).toEqual(new Set())
   })
 
   it('recognizes the new-thread shortcut on macOS and other platforms', () => {

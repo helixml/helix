@@ -84,7 +84,7 @@ const RELATIVE_TIME_REFRESH_MS = 15000
 
 const readCollapsedGroups = (storageKey: string): Set<string> => {
   try {
-    return parseCollapsedGroupIds(window.localStorage.getItem(storageKey))
+    return parseCollapsedGroupIds(window.localStorage.getItem(storageKey), ['default'])
   } catch {
     return new Set()
   }
