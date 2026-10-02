@@ -974,6 +974,7 @@ const ProjectChatSidebar: FC<{
         open={newChatPickerOpen}
         projects={allProjects}
         onClose={() => setNewChatPickerOpen(false)}
+        onCreateProject={() => setCreateProjectOpen(true)}
         onSelect={startNewChat}
       />
 

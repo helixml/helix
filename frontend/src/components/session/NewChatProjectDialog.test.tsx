@@ -36,12 +36,27 @@ describe('buildNewChatRows', () => {
 })
 
 describe('NewChatProjectDialog', () => {
-  const renderDialog = (onSelect = vi.fn(), onClose = vi.fn()) => {
+  const renderDialog = (onSelect = vi.fn(), onClose = vi.fn(), onCreateProject = vi.fn()) => {
     render(
-      <NewChatProjectDialog open projects={projects} onClose={onClose} onSelect={onSelect} />,
+      <NewChatProjectDialog
+        open
+        projects={projects}
+        onClose={onClose}
+        onCreateProject={onCreateProject}
+        onSelect={onSelect}
+      />,
     )
-    return { onSelect, onClose }
+    return { onSelect, onClose, onCreateProject }
   }
+
+  it('opens project creation from the picker', () => {
+    const { onClose, onCreateProject } = renderDialog()
+
+    fireEvent.click(screen.getByRole('button', { name: 'New project' }))
+
+    expect(onClose).toHaveBeenCalled()
+    expect(onCreateProject).toHaveBeenCalled()
+  })
 
   it('starts the chat in the project that was clicked', () => {
     const { onSelect, onClose } = renderDialog()

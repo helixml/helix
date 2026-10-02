@@ -6,7 +6,7 @@ import Typography from '@mui/material/Typography'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { useTheme } from '@mui/material/styles'
 
-import { ArrowDown, ArrowLeft, ArrowUp, Folder } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Folder, FolderPlus } from 'lucide-react'
 
 import type { TypesProject } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -18,6 +18,7 @@ type NewChatProjectDialogProps = {
   open: boolean
   projects: TypesProject[]
   onClose: () => void
+  onCreateProject: () => void
   onSelect: (target: NewChatTarget) => void
 }
 
@@ -61,6 +62,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
   open,
   projects,
   onClose,
+  onCreateProject,
   onSelect,
 }) => {
   const theme = useTheme()
@@ -231,6 +233,37 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
         >
           Projects
         </Typography>
+        <Box
+          component="button"
+          type="button"
+          onClick={() => {
+            onClose()
+            onCreateProject()
+          }}
+          sx={{
+            width: 'calc(100% - 16px)',
+            minHeight: 44,
+            mx: 1,
+            mb: 0.5,
+            px: 1.5,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            border: 0,
+            borderRadius: '8px',
+            backgroundColor: 'transparent',
+            color: 'primary.main',
+            cursor: 'pointer',
+            font: 'inherit',
+            textAlign: 'left',
+            '&:hover': { backgroundColor: 'action.hover' },
+          }}
+        >
+          <FolderPlus size={16} />
+          <Typography sx={{ fontSize: '14px', fontWeight: 500 }}>
+            New project
+          </Typography>
+        </Box>
         {rows.length === 0 && (
           <Typography sx={{ px: 2, py: 1.5, fontSize: '13px', color: mutedColor }}>
             No projects match “{query}”.
