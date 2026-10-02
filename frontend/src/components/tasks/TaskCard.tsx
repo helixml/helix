@@ -186,6 +186,8 @@ export interface SpecTaskWithExtras {
   created_at?: string;
   updated_at?: string;
   last_push_at?: string;
+  merged_at?: string;
+  completed_at?: string;
 }
 
 export interface TaskDependency {
@@ -1650,6 +1652,9 @@ function TaskCardInner({
                   base_branch: task.base_branch,
                   branch_name: task.branch_name,
                   archived: task.archived,
+                  last_push_at: task.last_push_at,
+                  merged_at: task.merged_at,
+                  completed_at: task.completed_at,
                   sandbox_state: task.sandbox_state,
                 }}
                 variant="stacked"
