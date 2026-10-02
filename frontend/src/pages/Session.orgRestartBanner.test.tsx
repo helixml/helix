@@ -184,6 +184,16 @@ describe('Session org chat restart banner', () => {
     expect(mocks.getSession).toHaveBeenCalledWith('ses-current')
   })
 
+  it('replaces a legacy org-bot session URL with the stable bot URL', async () => {
+    mocks.router.name = 'org_session'
+    render(<Session orgChatView />)
+
+    expect(mocks.router.navigateReplace).toHaveBeenCalledWith('org_bot_session', {
+      org_id: 'acme',
+      bot_id: 'bot-one',
+    })
+  })
+
   it('uses the non-clickable org context crumb for an org bot session', async () => {
     render(<Session orgChatView />)
     await screen.findByText('Prompt input')

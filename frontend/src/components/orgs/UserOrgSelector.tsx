@@ -334,7 +334,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     account.setMobileMenuOpen(false)
   }
 
-  const chatRoutes = ['project-new', 'chat-task', 'bot_session']
+  const chatRoutes = ['project-new', 'chat-task', 'session', 'bot_session']
 
   const handleChatClick = () => {
     if (isPhone && isActive(chatRoutes)) {

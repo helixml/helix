@@ -42,6 +42,7 @@ const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
   taskId,
   taskName,
   status,
+  specSessionId,
   publicDesignDocs = false,
   onApprove,
   onRequestChanges,
@@ -84,7 +85,7 @@ const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
   };
 
   const openPlanningSession = () => {
-    account.orgNavigate('projects');
+    account.orgNavigate('session', { session_id: specSessionId });
   };
 
   const isInDesignPhase = status === 'spec_generation' || status === 'spec_review';

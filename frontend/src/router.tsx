@@ -135,10 +135,16 @@ const routes: IApplicationRoute[] = [
   meta: { drawer: false },
   render: () => <RouteRedirect route="org_bot_session" />,
 }, {
-  name: 'org_session_removed',
+  name: 'org_session',
   path: '/orgs/:org_id/chat/session/:session_id',
-  meta: { drawer: false },
-  render: () => <RouteRedirect route="org_projects" />,
+  meta: {
+    drawer: true,
+    topbar: false,
+    title: 'Session',
+  },
+  render: () => (
+    <Session orgChatView />
+  ),
 }, {
   name: 'org_chat-task',
   path: '/orgs/:org_id/chat/projects/:id/tasks/:taskId',
@@ -400,7 +406,7 @@ const routes: IApplicationRoute[] = [
     drawer: true,
     topbar: false,
   },
-  render: () => <RouteRedirect route="org_projects" />,
+  render: () => <RouteRedirect route="org_session" />,
 }, {
   name: 'import-agent',
   path: '/import-agent',
