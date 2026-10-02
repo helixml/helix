@@ -265,10 +265,10 @@ describe('ProjectChatGroup', () => {
     expect(screen.getByText('New')).toHaveStyle({ opacity: '1' })
   })
 
-  it('opens project settings without starting a chat or collapsing', () => {
+  it('opens project actions without starting a chat or collapsing', () => {
     const onToggle = vi.fn()
     const onNewTask = vi.fn()
-    const onOpenProjectSettings = vi.fn()
+    const onOpenProjectContextMenu = vi.fn()
     render(
       <ProjectChatGroup
         orgId="org-test"
@@ -283,16 +283,16 @@ describe('ProjectChatGroup', () => {
         archivingItemId={null}
         onToggle={onToggle}
         onNewTask={onNewTask}
-        onOpenProjectSettings={onOpenProjectSettings}
         onOpenItem={vi.fn()}
         onOpenItemContextMenu={vi.fn()}
+        onOpenProjectContextMenu={onOpenProjectContextMenu}
         onArchiveItem={vi.fn()}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Project settings for Project Test' }))
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Project Test' }))
 
-    expect(onOpenProjectSettings).toHaveBeenCalledOnce()
+    expect(onOpenProjectContextMenu).toHaveBeenCalledOnce()
     expect(onNewTask).not.toHaveBeenCalled()
     expect(onToggle).not.toHaveBeenCalled()
   })

@@ -10,7 +10,6 @@ import {
   EllipsisVertical,
   Folder,
   Plus,
-  Settings,
 } from 'lucide-react'
 
 import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary, TypesUser } from '../../api/api'
@@ -59,7 +58,6 @@ type ProjectChatGroupProps = {
   archivingItemId: string | null
   onToggle: () => void
   onNewTask?: () => void
-  onOpenProjectSettings?: () => void
   onOpenItem: (item: SidebarItem) => void
   onOpenItemContextMenu: (event: MouseEvent<HTMLElement>, item: SidebarItem) => void
   onOpenProjectContextMenu?: (event: MouseEvent<HTMLElement>, project: TypesProject) => void
@@ -90,7 +88,6 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   archivingItemId,
   onToggle,
   onNewTask,
-  onOpenProjectSettings,
   onOpenItem,
   onOpenItemContextMenu,
   onOpenProjectContextMenu,
@@ -283,6 +280,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
           '&:hover': {
             backgroundColor: sidebarColors.rowHover,
           },
+          '&:hover .sidebar-project-actions, &:focus-within .sidebar-project-actions': { opacity: 1 },
         }}
       >
         <Box
@@ -336,9 +334,10 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
         >
           {groupName}
         </Typography>
-        {isPhone && project && onOpenProjectContextMenu && (
+        {project && onOpenProjectContextMenu && (
           <Tooltip title="More actions">
             <Box
+              className="sidebar-project-actions"
               component="button"
               type="button"
               aria-label={`More actions for ${groupName}`}
@@ -361,6 +360,12 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                 alignItems: 'center',
                 justifyContent: 'center',
                 borderRadius: '4px',
+                opacity: isPhone ? 1 : 0,
+                transition: 'opacity 100ms ease',
+                '&:hover': {
+                  color: lightTheme.isLight ? '#18181b' : '#ffffff',
+                  backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(241,243,247,0.12)',
+                },
               }}
             >
               <EllipsisVertical size={15} />
@@ -370,40 +375,6 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
         {/* No item count here: each group only ever holds the page it fetched
             (visibleCount + 1), so any number rendered would be the page size
             rather than the project's real total. */}
-        {onOpenProjectSettings && onNewTask && !isLoading && (
-          <Tooltip title="Project settings">
-            <Box
-              component="button"
-              type="button"
-              aria-label={`Project settings for ${groupName}`}
-              onClick={(event) => {
-                event.stopPropagation()
-                onOpenProjectSettings()
-              }}
-              sx={{
-                appearance: 'none',
-                width: 24,
-                height: 26,
-                flexShrink: 0,
-                border: 0,
-                p: 0,
-                backgroundColor: 'transparent',
-                color: sidebarColors.mutedForeground,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: '4px',
-                '&:hover': {
-                  color: lightTheme.isLight ? '#18181b' : '#ffffff',
-                  backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(241,243,247,0.12)',
-                },
-              }}
-            >
-              <Settings size={13} strokeWidth={1.7} />
-            </Box>
-          </Tooltip>
-        )}
         {isLoading ? (
           <CircularProgress size={11} color="inherit" />
         ) : onNewTask ? (
