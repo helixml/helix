@@ -605,16 +605,17 @@ describe('ProjectChatSidebar logic', () => {
 })
 
 describe('ProjectChatSidebar bots and people', () => {
-  it('lists Org Bots running first and hides their home projects', async () => {
+  it('lists the Chief of Staff first, then running Org Bots, and hides their home projects', async () => {
     const { botHomeProjectIds, toSidebarBots, withoutBotProjects } = await import('./ProjectChatSidebar.logic')
     const bots = toSidebarBots([
-      { id: 'b-mira', name: 'Mira', status: 'stopped', project_id: 'prj_mira', session_id: 'ses_mira', legacy_app_id: 'app_mira' },
-      { id: 'chief', name: 'Chief of Staff', status: 'running', agent_work_state: TypesAgentWorkState.AgentWorkStateWorking, project_id: 'prj_chief' },
+      { id: 'b-mira', name: 'Mira', status: 'running', agent_work_state: TypesAgentWorkState.AgentWorkStateWorking, project_id: 'prj_mira', session_id: 'ses_mira', legacy_app_id: 'app_mira' },
+      { id: 'chief-of-staff', name: 'Chief of Staff', status: 'stopped', project_id: 'prj_chief' },
+      { id: 'b-zoe', name: 'Zoe', status: 'stopped' },
       { id: '', name: 'Broken' },
     ])
-    expect(bots.map((bot) => bot.id)).toEqual(['chief', 'b-mira'])
-    expect(bots[0]).toMatchObject({ running: true, working: true })
-    expect(bots[1]).toMatchObject({ running: false, agentAppId: 'app_mira', projectId: 'prj_mira', sessionId: 'ses_mira' })
+    expect(bots.map((bot) => bot.id)).toEqual(['chief-of-staff', 'b-mira', 'b-zoe'])
+    expect(bots[0]).toMatchObject({ running: false, projectId: 'prj_chief' })
+    expect(bots[1]).toMatchObject({ running: true, working: true, agentAppId: 'app_mira', projectId: 'prj_mira', sessionId: 'ses_mira' })
     expect([...botHomeProjectIds(bots)]).toEqual(['prj_chief', 'prj_mira'])
     expect(withoutBotProjects([
       { id: 'prj_chief', name: 'chief-of-staff @ org' },
