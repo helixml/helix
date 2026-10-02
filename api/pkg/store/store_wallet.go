@@ -337,13 +337,7 @@ func (s *PostgresStore) ListTransactions(ctx context.Context, q *ListTransaction
 		query = query.Where("type = ?", q.TransactionType)
 	}
 
-	if q.Limit > 0 {
-		query = query.Limit(q.Limit)
-	}
-
-	if q.Offset > 0 {
-		query = query.Offset(q.Offset)
-	}
+	query = limitOffset(query, q.Limit, q.Offset)
 
 	err := query.Order("created_at DESC").Find(&transactions).Error
 	if err != nil {
@@ -368,13 +362,7 @@ func (s *PostgresStore) ListTopUps(ctx context.Context, q *ListTopUpsQuery) ([]*
 		query = query.Where("wallet_id = ?", q.WalletID)
 	}
 
-	if q.Limit > 0 {
-		query = query.Limit(q.Limit)
-	}
-
-	if q.Offset > 0 {
-		query = query.Offset(q.Offset)
-	}
+	query = limitOffset(query, q.Limit, q.Offset)
 
 	err := query.Order("created_at DESC").Find(&topUps).Error
 	if err != nil {

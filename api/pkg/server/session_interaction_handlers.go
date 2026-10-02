@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
@@ -28,14 +27,8 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 	user := getRequestUser(req)
 	id := mux.Vars(req)["id"]
 
-	page, err := strconv.Atoi(req.URL.Query().Get("page"))
-	if err != nil || page < 0 {
-		page = 0
-	}
-	perPage, err := strconv.Atoi(req.URL.Query().Get("per_page"))
-	if err != nil || perPage < 1 {
-		perPage = 100
-	}
+	page := queryIntAtLeast(req.URL.Query(), "page", 0, 0)
+	perPage := queryIntAtLeast(req.URL.Query(), "per_page", 1, 100)
 
 	// Support descending order (newest first) for pagination
 	order := "id ASC"

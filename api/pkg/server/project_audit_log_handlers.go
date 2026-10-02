@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -80,16 +79,8 @@ func (s *HelixAPIServer) listProjectAuditLogs(_ http.ResponseWriter, r *http.Req
 	if search := r.URL.Query().Get("search"); search != "" {
 		filters.Search = search
 	}
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if limit, err := strconv.Atoi(limitStr); err == nil && limit > 0 {
-			filters.Limit = limit
-		}
-	}
-	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
-		if offset, err := strconv.Atoi(offsetStr); err == nil && offset >= 0 {
-			filters.Offset = offset
-		}
-	}
+	filters.Limit = queryIntAtLeast(r.URL.Query(), "limit", 1, 0)
+	filters.Offset = queryIntAtLeast(r.URL.Query(), "offset", 0, 0)
 
 	// Get audit logs
 	response, err := s.Store.ListProjectAuditLogs(ctx, filters)
