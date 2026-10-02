@@ -2,10 +2,12 @@ import { FC, MouseEvent, MutableRefObject, useEffect, useState } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import {
   ChevronDown,
   ChevronRight,
+  EllipsisVertical,
   Folder,
   Plus,
 } from 'lucide-react'
@@ -278,6 +280,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
           '&:hover': {
             backgroundColor: sidebarColors.rowHover,
           },
+          '&:hover .sidebar-project-actions, &:focus-within .sidebar-project-actions': { opacity: 1 },
         }}
       >
         <Box
@@ -331,6 +334,44 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
         >
           {groupName}
         </Typography>
+        {project && onOpenProjectContextMenu && (
+          <Tooltip title="More actions">
+            <Box
+              className="sidebar-project-actions"
+              component="button"
+              type="button"
+              aria-label={`More actions for ${groupName}`}
+              aria-haspopup="menu"
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpenProjectContextMenu(event, project)
+              }}
+              sx={{
+                appearance: 'none',
+                width: 28,
+                height: 28,
+                flexShrink: 0,
+                border: 0,
+                p: 0,
+                backgroundColor: 'transparent',
+                color: sidebarColors.mutedForeground,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '4px',
+                opacity: isPhone ? 1 : 0,
+                transition: 'opacity 100ms ease',
+                '&:hover': {
+                  color: lightTheme.isLight ? '#18181b' : '#ffffff',
+                  backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(241,243,247,0.12)',
+                },
+              }}
+            >
+              <EllipsisVertical size={15} />
+            </Box>
+          </Tooltip>
+        )}
         {/* No item count here: each group only ever holds the page it fetched
             (visibleCount + 1), so any number rendered would be the page size
             rather than the project's real total. */}

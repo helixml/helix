@@ -441,7 +441,12 @@ const ProjectChatSidebar: FC<{
     event.preventDefault()
     event.stopPropagation()
     setProjectContextMenuProject(project)
-    setProjectContextMenuPosition({ mouseX: event.clientX, mouseY: event.clientY })
+    if (event.type === 'contextmenu') {
+      setProjectContextMenuPosition({ mouseX: event.clientX, mouseY: event.clientY })
+      return
+    }
+    const rect = event.currentTarget.getBoundingClientRect()
+    setProjectContextMenuPosition({ mouseX: rect.left, mouseY: rect.bottom })
   }
 
   const closeProjectContextMenu = () => {
@@ -826,7 +831,7 @@ const ProjectChatSidebar: FC<{
                     >
                       <Plus size={12} strokeWidth={1.8} aria-hidden="true" />
                       <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center' }}>
-                        New bot
+                        New
                       </Box>
                     </Button>
                   )}

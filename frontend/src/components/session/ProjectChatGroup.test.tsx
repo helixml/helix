@@ -7,6 +7,7 @@ import ProjectChatGroup from './ProjectChatGroup'
 
 const mocks = vi.hoisted(() => ({
   emptySessions: false,
+  isPhone: false,
   tasks: [] as SpecTask[],
   sessionOptions: [] as any[],
   taskOptions: [] as any[],
@@ -19,6 +20,10 @@ vi.mock('@tanstack/react-query', async (importOriginal) => ({
 
 vi.mock('../../hooks/useLightTheme', () => ({
   default: () => ({ isLight: false }),
+}))
+
+vi.mock('../../hooks/useIsPhone', () => ({
+  default: () => mocks.isPhone,
 }))
 
 vi.mock('../../services/sessionService', () => ({
@@ -59,6 +64,7 @@ vi.mock('../../services/projectService', () => ({
 
 afterEach(() => {
   mocks.emptySessions = false
+  mocks.isPhone = false
   mocks.tasks = []
   mocks.sessionOptions = []
   mocks.taskOptions = []
@@ -257,6 +263,69 @@ describe('ProjectChatGroup', () => {
     renderEmptyProject()
 
     expect(screen.getByText('New')).toHaveStyle({ opacity: '1' })
+  })
+
+  it('opens project actions without starting a chat or collapsing', () => {
+    const onToggle = vi.fn()
+    const onNewTask = vi.fn()
+    const onOpenProjectContextMenu = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={onToggle}
+        onNewTask={onNewTask}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onOpenProjectContextMenu={onOpenProjectContextMenu}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Project Test' }))
+
+    expect(onOpenProjectContextMenu).toHaveBeenCalledOnce()
+    expect(onNewTask).not.toHaveBeenCalled()
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  it('opens project actions from the mobile three-dots button', () => {
+    mocks.isPhone = true
+    const onOpenProjectContextMenu = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
+        collapsed
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={vi.fn()}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onOpenProjectContextMenu={onOpenProjectContextMenu}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Project Test' }))
+
+    expect(onOpenProjectContextMenu).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'project-test' }),
+    )
   })
 
   it('collapses from the chevron, and only from the chevron', () => {
