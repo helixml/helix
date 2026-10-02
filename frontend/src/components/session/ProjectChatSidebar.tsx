@@ -856,6 +856,29 @@ const ProjectChatSidebar: FC<{
                 )}
               </>
             )}
+            {!groupByPerson && !focusMode && (
+              <ProjectChatGroup
+                orgId={orgId}
+                collapsed={effectiveCollapsedGroups.has('default')}
+                query={query}
+                activeItemId={activeItemId}
+                relativeTimeNow={relativeTimeNow}
+                enabled={groupsEnabled}
+                threadSortOrder={preferences.threadSortOrder}
+                visibleThreadCount={preferences.visibleThreadCount}
+                participantIds={currentUserId ? [currentUserId] : []}
+                organizationMembers={selectableMembers}
+                currentUser={account.user}
+                archived={showArchived}
+                pinnedChats={pinnedChats}
+                archivingItemId={archivingItemId}
+                onToggle={() => toggleGroup('default')}
+                onNewTask={groupsOfferNewTask ? () => account.orgNavigate('chat') : undefined}
+                onOpenItem={openItem}
+                onOpenItemContextMenu={openItemContextMenu}
+                onArchiveItem={requestArchive}
+              />
+            )}
             {showSectionHeaders && !groupByPerson && (
               <ProjectChatSectionHeader
                 label={showArchived ? 'Archived' : 'Projects'}
@@ -865,27 +888,6 @@ const ProjectChatSidebar: FC<{
             )}
             {!groupByPerson && !(showSectionHeaders && collapsedGroups.has('projects')) && (
             <>
-            {!focusMode && <ProjectChatGroup
-              orgId={orgId}
-              collapsed={effectiveCollapsedGroups.has('default')}
-              query={query}
-              activeItemId={activeItemId}
-              relativeTimeNow={relativeTimeNow}
-              enabled={groupsEnabled}
-              threadSortOrder={preferences.threadSortOrder}
-              visibleThreadCount={preferences.visibleThreadCount}
-              participantIds={currentUserId ? [currentUserId] : []}
-              organizationMembers={selectableMembers}
-              currentUser={account.user}
-              archived={showArchived}
-              pinnedChats={pinnedChats}
-              archivingItemId={archivingItemId}
-              onToggle={() => toggleGroup('default')}
-              onNewTask={groupsOfferNewTask ? () => account.orgNavigate('chat') : undefined}
-              onOpenItem={openItem}
-              onOpenItemContextMenu={openItemContextMenu}
-              onArchiveItem={requestArchive}
-            />}
             <DndContext
               sensors={projectDragSensors}
               collisionDetection={closestCenter}
