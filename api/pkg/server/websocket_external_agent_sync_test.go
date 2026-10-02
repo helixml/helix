@@ -10,6 +10,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server/wsprotocol"
 	"github.com/helixml/helix/api/pkg/services"
@@ -3936,6 +3937,130 @@ func (s *WebSocketSyncSuite) TestLateJoinerCatchUp_ActiveStreamingContext() {
 // ──────────────────────────────────────────────────────────────────────────────
 // reconnect resume tests (resolveWaitingInteraction + applyResumeDecision)
 // ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestRetryPendingCancellationStopsContainerBeforeSettling() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_cancel_retry", Owner: "usr_test", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_cancel_retry", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_cancel_retry",
+		ExternalAgentCancelRequestedAt: &now,
+	}
+	interrupted := *waiting
+	interrupted.State = types.InteractionStateInterrupted
+	interrupted.ExternalAgentCancelRequestedAt = nil
+
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+	executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(true)
+	executor.EXPECT().StopDesktop(gomock.Any(), session.ID).Return(nil)
+	s.server.externalAgentWSManager.registerConnection(session.ID, &ExternalAgentWSConnection{
+		SessionID: session.ID, SendChan: make(chan types.ExternalAgentCommand),
+	})
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil).Times(3)
+	s.store.EXPECT().MarkInteractionInterruptedIfWaiting(
+		gomock.Any(), waiting.ID, waiting.GenerationID,
+	).Return(true, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(&interrupted, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).Times(2)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{&interrupted}, int64(1), nil,
+	)
+
+	// An unbuffered channel without a reader makes the send fail immediately,
+	// avoiding the production backoff while exercising retry exhaustion.
+	s.server.retryPendingExternalAgentCancellationWithAttempts(
+		session.ID, waiting.ID, waiting.ExternalAgentRequestID, 1,
+	)
+	s.NoError(s.server.cancelTurnsForSwitch(context.Background(), session.ID))
+}
+
+func (s *WebSocketSyncSuite) TestRetryPendingCancellationLeavesInteractionWaitingWhenStopFails() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_cancel_stop_failed", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_cancel_stop_failed", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_cancel_stop_failed",
+		ExternalAgentCancelRequestedAt: &now,
+	}
+
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+	executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(true)
+	executor.EXPECT().StopDesktop(gomock.Any(), session.ID).Return(fmt.Errorf("stop failed"))
+	s.server.externalAgentWSManager.registerConnection(session.ID, &ExternalAgentWSConnection{
+		SessionID: session.ID, SendChan: make(chan types.ExternalAgentCommand),
+	})
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil).Times(3)
+
+	s.server.retryPendingExternalAgentCancellationWithAttempts(
+		session.ID, waiting.ID, waiting.ExternalAgentRequestID, 1,
+	)
+}
+
+func (s *WebSocketSyncSuite) TestRetryPendingCancellationDoesNotStopContainerAfterLateTerminalTransition() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_cancel_late_ack", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_cancel_late_ack", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_cancel_late_ack",
+		ExternalAgentCancelRequestedAt: &now,
+	}
+	interrupted := *waiting
+	interrupted.State = types.InteractionStateInterrupted
+	interrupted.ExternalAgentCancelRequestedAt = nil
+	s.server.externalAgentWSManager.registerConnection(session.ID, &ExternalAgentWSConnection{
+		SessionID: session.ID, SendChan: make(chan types.ExternalAgentCommand),
+	})
+
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(&interrupted, nil)
+
+	s.server.retryPendingExternalAgentCancellationWithAttempts(
+		session.ID, waiting.ID, waiting.ExternalAgentRequestID, 1,
+	)
+}
+
+func (s *WebSocketSyncSuite) TestRetryPendingCancellationRevalidatesBeforeStoppingContainer() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_cancel_late_completion", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_cancel_late_completion", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_cancel_late_completion",
+		ExternalAgentCancelRequestedAt: &now,
+	}
+	completed := *waiting
+	completed.State = types.InteractionStateComplete
+	completed.ExternalAgentCancelRequestedAt = nil
+
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+	executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(true)
+	s.server.externalAgentWSManager.registerConnection(session.ID, &ExternalAgentWSConnection{
+		SessionID: session.ID, SendChan: make(chan types.ExternalAgentCommand),
+	})
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil).Times(2)
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(&completed, nil)
+
+	s.server.retryPendingExternalAgentCancellationWithAttempts(
+		session.ID, waiting.ID, waiting.ExternalAgentRequestID, 1,
+	)
+}
+
+func (s *WebSocketSyncSuite) TestRetryPendingCancellationIgnoresReboundRequestID() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_cancel_rebound", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_cancel_rebound", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_current",
+		ExternalAgentCancelRequestedAt: &now,
+	}
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil)
+
+	s.server.retryPendingExternalAgentCancellationWithAttempts(
+		session.ID, waiting.ID, "req_stale", 1,
+	)
+}
 
 func (s *WebSocketSyncSuite) TestCancelActiveTurn_InterruptsQueuedTurnBeforeDispatch() {
 	session := &types.Session{ID: "ses_queued", Owner: "usr_test", GenerationID: 1}

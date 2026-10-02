@@ -104,6 +104,12 @@ func isAuthoritativeMissingThreadError(errMsg string) bool {
 // See design/2026-06-15-wedged-acp-thread-autowake-flood.md.
 const acpWedgeCrashThreshold = 2
 
+// A cancellation that never receives an acknowledgement must not leave a
+// waiting interaction and its execution-config switch blocked forever. Seven
+// attempts plus the 1+2+4+8+16+32 second backoff give a reconnect about 84
+// seconds to acknowledge before the server stops the agent container.
+const externalAgentCancelRetryMaxAttempts = 7
+
 // streamingContext caches DB query results during token streaming to avoid
 // redundant queries. Created on first message_added, cleared on message_completed.
 // Also buffers interaction updates: DB writes are throttled to at most once per
@@ -2577,7 +2583,18 @@ func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *
 }
 
 func (apiServer *HelixAPIServer) retryPendingExternalAgentCancellation(sessionID, interactionID, requestID string) {
+	apiServer.retryPendingExternalAgentCancellationWithAttempts(
+		sessionID, interactionID, requestID, externalAgentCancelRetryMaxAttempts,
+	)
+}
+
+func (apiServer *HelixAPIServer) retryPendingExternalAgentCancellationWithAttempts(
+	sessionID, interactionID, requestID string, maxAttempts int,
+) {
 	if interactionID == "" || requestID == "" {
+		return
+	}
+	if maxAttempts < 1 {
 		return
 	}
 	if _, loaded := apiServer.pendingCancelRetries.LoadOrStore(interactionID, struct{}{}); loaded {
@@ -2585,14 +2602,16 @@ func (apiServer *HelixAPIServer) retryPendingExternalAgentCancellation(sessionID
 	}
 	defer apiServer.pendingCancelRetries.Delete(interactionID)
 
-	for attempt := 0; ; attempt++ {
-		interaction, err := apiServer.Store.GetInteraction(context.Background(), interactionID)
-		if err != nil || interaction.State != types.InteractionStateWaiting || interaction.ExternalAgentCancelRequestedAt == nil {
-			return
-		}
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			delay := time.Duration(1<<uint(min(attempt-1, 5))) * time.Second
 			time.Sleep(delay)
+		}
+		interaction, err := apiServer.Store.GetInteraction(context.Background(), interactionID)
+		if err != nil || interaction.SessionID != sessionID ||
+			interaction.ExternalAgentRequestID != requestID ||
+			interaction.State != types.InteractionStateWaiting || interaction.ExternalAgentCancelRequestedAt == nil {
+			return
 		}
 		unlock := apiServer.lockCancelTurn(sessionID)
 		_, err = apiServer.sendCancelToExternalAgent(sessionID, requestID, 3*time.Second)
@@ -2607,6 +2626,94 @@ func (apiServer *HelixAPIServer) retryPendingExternalAgentCancellation(sessionID
 				Str("request_id", requestID).
 				Int("attempt", attempt+1).
 				Msg("Durable external-agent cancellation retry was not acknowledged")
+		}
+	}
+
+	apiServer.settleUnacknowledgedExternalAgentCancellation(sessionID, interactionID, requestID, maxAttempts)
+}
+
+func (apiServer *HelixAPIServer) settleUnacknowledgedExternalAgentCancellation(sessionID, interactionID, requestID string, attempts int) {
+	unlock := apiServer.lockCancelTurn(sessionID)
+	defer unlock()
+
+	ctx := context.Background()
+	interaction, err := apiServer.Store.GetInteraction(ctx, interactionID)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Str("request_id", requestID).
+			Msg("Failed to reload unacknowledged external-agent cancellation")
+		return
+	}
+	if interaction.SessionID != sessionID || interaction.ExternalAgentRequestID != requestID ||
+		interaction.State != types.InteractionStateWaiting || interaction.ExternalAgentCancelRequestedAt == nil {
+		return
+	}
+	if apiServer.externalAgentExecutor == nil {
+		log.Error().
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Str("request_id", requestID).
+			Msg("Cannot safely settle unacknowledged cancellation without an external-agent executor")
+		return
+	}
+	if apiServer.externalAgentExecutor.HasRunningContainer(ctx, interaction.SessionID) {
+		latest, err := apiServer.Store.GetInteraction(ctx, interactionID)
+		if err != nil {
+			log.Error().Err(err).
+				Str("session_id", sessionID).
+				Str("interaction_id", interactionID).
+				Msg("Failed to revalidate unacknowledged external-agent cancellation before stopping its container")
+			return
+		}
+		if latest.SessionID != sessionID || latest.ExternalAgentRequestID != requestID ||
+			latest.GenerationID != interaction.GenerationID ||
+			latest.State != types.InteractionStateWaiting || latest.ExternalAgentCancelRequestedAt == nil {
+			return
+		}
+		interaction = latest
+		if err := apiServer.externalAgentExecutor.StopDesktop(ctx, interaction.SessionID); err != nil {
+			log.Error().Err(err).
+				Str("session_id", interaction.SessionID).
+				Str("interaction_id", interactionID).
+				Str("request_id", requestID).
+				Msg("Could not stop external agent after cancellation retries; leaving interaction waiting")
+			return
+		}
+	}
+
+	// This request was never acknowledged, so only settle it after confirming the
+	// executor has no live container. Never release queued prompts while an agent
+	// may still run.
+	transitioned, err := apiServer.Store.MarkInteractionInterruptedIfWaiting(ctx, interaction.ID, interaction.GenerationID)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", interaction.SessionID).
+			Str("interaction_id", interactionID).
+			Str("request_id", requestID).
+			Msg("Failed to settle unacknowledged external-agent cancellation")
+		return
+	}
+	if transitioned {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Str("request_id", requestID).
+			Int("attempts", attempts).
+			Msg("Settled unacknowledged external-agent cancellation")
+		updated, err := apiServer.Store.GetInteraction(ctx, interactionID)
+		if err != nil {
+			log.Warn().Err(err).Str("interaction_id", interactionID).Msg("Could not reload settled cancellation")
+			return
+		}
+		session, err := apiServer.Store.GetSession(ctx, interaction.SessionID)
+		if err != nil {
+			log.Warn().Err(err).Str("interaction_id", interactionID).Msg("Could not load session for settled cancellation")
+			return
+		}
+		if err := apiServer.publishInteractionUpdateToFrontend(interaction.SessionID, session.Owner, updated); err != nil {
+			log.Warn().Err(err).Str("interaction_id", interactionID).Msg("Failed to publish settled cancellation")
 		}
 	}
 }

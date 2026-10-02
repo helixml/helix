@@ -81,11 +81,15 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ReapSettlesPendingQuestio
 	})
 	suite.Require().NoError(err)
 	suite.True(changed)
+	requested, err := suite.db.RequestInteractionCancellationIfWaiting(ctx, interaction.ID, interaction.GenerationID)
+	suite.Require().NoError(err)
+	suite.True(requested)
 
 	reaped, err := suite.db.ReapWaitingInteractions(ctx, session.ID, types.InteractionStateInterrupted, "test reap")
 	suite.Require().NoError(err)
 	suite.Require().Len(reaped, 1)
 	suite.Nil(reaped[0].PendingQuestion)
+	suite.Nil(reaped[0].ExternalAgentCancelRequestedAt)
 	suite.Require().Len(reaped[0].QuestionHistory, 1)
 	suite.Equal("cancelled", reaped[0].QuestionHistory[0].Outcome)
 
@@ -93,6 +97,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ReapSettlesPendingQuestio
 	suite.Require().NoError(err)
 	suite.Equal(types.InteractionStateInterrupted, updated.State)
 	suite.Nil(updated.PendingQuestion)
+	suite.Nil(updated.ExternalAgentCancelRequestedAt)
 	suite.Require().Len(updated.QuestionHistory, 1)
 	suite.Equal("question-reap", updated.QuestionHistory[0].RequestID)
 }
@@ -466,5 +471,93 @@ func (suite *PostgresStoreTestSuite) TestExternalAgentInteractionLifecycleSurviv
 	final, err := suite.db.GetInteraction(ctx, external.ID)
 	suite.NoError(err)
 	suite.Equal(types.InteractionStateInterrupted, final.State)
-	suite.NotNil(final.ExternalAgentCancelRequestedAt)
+	suite.Nil(final.ExternalAgentCancelRequestedAt)
+}
+
+func (suite *PostgresStoreTestSuite) TestTerminalInteractionTransitionsClearCancellationIntent() {
+	ctx := context.Background()
+	owner := "terminal-cancel-intent-test"
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: owner, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	tests := []struct {
+		state      types.InteractionState
+		transition func(*PostgresStore, context.Context, string, int) (bool, error)
+	}{
+		{
+			state: types.InteractionStateInterrupted,
+			transition: func(store *PostgresStore, ctx context.Context, id string, generationID int) (bool, error) {
+				return store.MarkInteractionInterruptedIfWaiting(ctx, id, generationID)
+			},
+		},
+		{
+			state: types.InteractionStateComplete,
+			transition: func(store *PostgresStore, ctx context.Context, id string, generationID int) (bool, error) {
+				return store.MarkInteractionCompleteIfWaiting(ctx, id, generationID)
+			},
+		},
+		{
+			state: types.InteractionStateError,
+			transition: func(store *PostgresStore, ctx context.Context, id string, generationID int) (bool, error) {
+				return store.MarkInteractionErrorIfWaiting(ctx, id, generationID, "test error")
+			},
+		},
+	}
+
+	for _, test := range tests {
+		interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+			ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: owner,
+			GenerationID: 1, State: types.InteractionStateWaiting,
+		})
+		suite.Require().NoError(err)
+		requested, err := suite.db.RequestInteractionCancellationIfWaiting(ctx, interaction.ID, interaction.GenerationID)
+		suite.Require().NoError(err)
+		suite.True(requested)
+
+		transitioned, err := test.transition(suite.db, ctx, interaction.ID, interaction.GenerationID)
+		suite.Require().NoError(err)
+		suite.True(transitioned)
+
+		final, err := suite.db.GetInteraction(ctx, interaction.ID)
+		suite.Require().NoError(err)
+		suite.Equal(test.state, final.State)
+		suite.Nil(final.ExternalAgentCancelRequestedAt)
+	}
+}
+
+func (suite *PostgresStoreTestSuite) TestUpdateInteractionTerminalStateClearsCancellationIntent() {
+	ctx := context.Background()
+	owner := "generic-terminal-cancel-intent-test"
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: owner, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	for _, state := range []types.InteractionState{
+		types.InteractionStateComplete,
+		types.InteractionStateError,
+		types.InteractionStateInterrupted,
+	} {
+		interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+			ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: owner,
+			GenerationID: 1, State: types.InteractionStateWaiting,
+		})
+		suite.Require().NoError(err)
+		requested, err := suite.db.RequestInteractionCancellationIfWaiting(ctx, interaction.ID, interaction.GenerationID)
+		suite.Require().NoError(err)
+		suite.True(requested)
+
+		interaction.State = state
+		_, err = suite.db.UpdateInteraction(ctx, interaction)
+		suite.Require().NoError(err)
+
+		final, err := suite.db.GetInteraction(ctx, interaction.ID)
+		suite.Require().NoError(err)
+		suite.Equal(state, final.State)
+		suite.Nil(final.ExternalAgentCancelRequestedAt)
+	}
 }
