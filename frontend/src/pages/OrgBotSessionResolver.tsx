@@ -62,7 +62,7 @@ export default function OrgBotSessionResolver() {
 
   useEffect(() => {
     if (!botNotFound || botID !== CHIEF_OF_STAFF_BOT_ID || !orgID) return
-    router.navigateReplace('org_chat', { org_id: orgID })
+    router.navigateReplace('org_projects', { org_id: orgID })
   }, [botNotFound, botID, orgID]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

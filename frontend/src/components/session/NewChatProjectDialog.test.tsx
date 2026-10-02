@@ -12,15 +12,14 @@ const projects = [
 ]
 
 describe('buildNewChatRows', () => {
-  it('offers a standalone chat ahead of the projects', () => {
+  it('offers projects only', () => {
     const rows = buildNewChatRows(projects, '')
-    expect(rows.map((row) => row.key)).toEqual(['none', 'prj_a', 'prj_b', 'prj_c'])
-    expect(rows[0].target).toEqual({})
-    expect(rows[1].target).toEqual({ projectId: 'prj_a' })
+    expect(rows.map((row) => row.key)).toEqual(['prj_a', 'prj_b', 'prj_c'])
+    expect(rows[0].target).toEqual({ projectId: 'prj_a' })
   })
 
   it('names a project that has none', () => {
-    expect(buildNewChatRows(projects, '')[3].name).toBe('Untitled project')
+    expect(buildNewChatRows(projects, '')[2].name).toBe('Untitled project')
   })
 
   it('matches every token, not the raw string — "hook relay" finds webhookrelay', () => {
@@ -60,7 +59,7 @@ describe('NewChatProjectDialog', () => {
     fireEvent.keyDown(search, { key: 'ArrowDown' })
     fireEvent.keyDown(search, { key: 'Enter' })
 
-    expect(onSelect).toHaveBeenCalledWith({ projectId: 'prj_a' })
+    expect(onSelect).toHaveBeenCalledWith({ projectId: 'prj_b' })
   })
 
   it('wraps around the ends rather than sticking', () => {

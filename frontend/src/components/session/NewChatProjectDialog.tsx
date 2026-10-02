@@ -6,13 +6,13 @@ import Typography from '@mui/material/Typography'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { useTheme } from '@mui/material/styles'
 
-import { ArrowDown, ArrowLeft, ArrowUp, Folder, MessagesSquare } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Folder } from 'lucide-react'
 
 import type { TypesProject } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
 import { matchesAllTokens } from '../../utils/searchUtils'
 
-export type NewChatTarget = { projectId?: string }
+export type NewChatTarget = { projectId: string }
 
 type NewChatProjectDialogProps = {
   open: boolean
@@ -26,7 +26,6 @@ type Row = {
   name: string
   detail: string
   target: NewChatTarget
-  standalone?: boolean
 }
 
 const isMacPlatform = (): boolean =>
@@ -39,23 +38,14 @@ const projectDetail = (project: TypesProject): string =>
   project.github_repo_url || project.description || ''
 
 export const buildNewChatRows = (projects: TypesProject[], query: string): Row[] => {
-  const rows: Row[] = [
-    {
-      key: 'none',
-      name: 'No project',
-      detail: 'A standalone chat, not attached to a repository',
-      target: {},
-      standalone: true,
-    },
-    ...projects.flatMap((project) => (project.id
+  const rows: Row[] = projects.flatMap((project) => (project.id
       ? [{
           key: project.id,
           name: project.name || 'Untitled project',
           detail: projectDetail(project),
           target: { projectId: project.id },
         }]
-      : [])),
-  ]
+      : []))
 
   return rows.filter((row) => matchesAllTokens(query, row.name, row.detail))
 }
@@ -252,7 +242,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
             role="button"
             tabIndex={-1}
             data-new-chat-row={row.key}
-            aria-label={row.standalone ? 'New chat without a project' : `New task in ${row.name}`}
+            aria-label={`New task in ${row.name}`}
             onMouseEnter={() => setSelectedIndex(index)}
             onClick={() => choose(row)}
             sx={{
@@ -271,7 +261,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
             }}
           >
             <Box sx={{ display: 'inline-flex', flexShrink: 0, color: mutedColor }}>
-              {row.standalone ? <MessagesSquare size={16} /> : <Folder size={16} />}
+              <Folder size={16} />
             </Box>
             <Box sx={{ minWidth: 0, flex: 1 }}>
               <Typography

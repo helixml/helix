@@ -518,7 +518,6 @@ export const buildProjectChatGroups = (
   sortOrder: SidebarThreadSortOrder = 'updated_at',
   pinnedAtByItemKey: ReadonlyMap<string, string> = new Map(),
 ): SidebarGroup[] => {
-  const defaultGroup: SidebarGroup = { id: 'default', name: 'No project', items: [] }
   const groupsByProjectId = new Map<string, SidebarGroup>()
   projects.forEach((project) => {
     if (!project.id) return
@@ -575,7 +574,8 @@ export const buildProjectChatGroups = (
     const projectGroup = metadata?.project_id
       ? groupsByProjectId.get(metadata.project_id)
       : undefined
-    const group = projectGroup || defaultGroup
+    if (!projectGroup) return
+    const group = projectGroup
     group.items.push({
       id: session.session_id,
       kind: 'session',
@@ -596,8 +596,7 @@ export const buildProjectChatGroups = (
       return rightActivity - leftActivity || left.name.localeCompare(right.name)
     })
 
-  return [defaultGroup, ...projectGroups]
-    .filter((group) => group.items.length > 0)
+  return projectGroups
     .map((group) => ({
       ...group,
       items: [...group.items].sort((left, right) => (

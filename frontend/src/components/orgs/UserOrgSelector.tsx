@@ -21,7 +21,6 @@ import {
   LogIn,
   FileText,
   HelpCircle,
-  MessageCircle,
   Kanban,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
@@ -45,7 +44,6 @@ import { orgLandingParams, orgLandingRoute } from '../../utils/organizations'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
 import {
-  chatRailAction,
   isNavigationRouteActive,
   isOrgProjectSettingsRoute,
 } from './UserOrgSelector.logic'
@@ -335,16 +333,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     account.setMobileMenuOpen(false)
   }
 
-  const handleChatClick = () => {
-    const action = chatRailAction(isPhone, isActive(['chat', 'session', 'bot_session']))
-    if (!action.keepDrawerOpen) {
-      orgNavigateTo('chat')
-      return
-    }
-    if (action.navigate) account.orgNavigate('chat')
-    account.setMobileMenuOpen(true)
-  }
-
   const orgNavigateTo = (path: string, params: Record<string, any> = {}) => {
     // Check if this is navigation to an org page
     if (path.startsWith('org_') || (params && params.org_id)) {
@@ -393,13 +381,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   // Navigation buttons configuration
   const navigationButtons = useMemo(() => {
     const baseButtons = [
-      {
-        icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
-        tooltip: "AI chat assistant",
-        isActive: isActive(['chat', 'session', 'bot_session']),
-        onClick: handleChatClick,
-        label: "Chat",
-      },
       {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
         tooltip: "View projects",
@@ -467,7 +448,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-    // isPhone changes what tapping Chat does, so it belongs in here.
   }, [isActive, isOrgProjectSettings, currentOrgSlug, router.name, isPhone])
 
   const isAccountSettingsActive = settingsDialog.activeDialog === 'account'
