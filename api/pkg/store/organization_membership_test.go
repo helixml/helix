@@ -82,6 +82,13 @@ func (suite *OrganizationMembershipTestSuite) TestCreateOrganizationMembership()
 	suite.False(created.CreatedAt.IsZero())
 	suite.False(created.UpdatedAt.IsZero())
 
+	_, err = suite.db.CreateOrganizationMembership(suite.ctx, &types.OrganizationMembership{
+		UserID:         membership.UserID,
+		OrganizationID: membership.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	})
+	suite.ErrorIs(err, ErrConflict)
+
 	// Test validation
 	invalidMembership := &types.OrganizationMembership{}
 	_, err = suite.db.CreateOrganizationMembership(suite.ctx, invalidMembership)
