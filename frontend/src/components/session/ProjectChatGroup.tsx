@@ -409,7 +409,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             }}
           >
             <Plus size={11} strokeWidth={1.8} />
-            New
+            New task
           </Box>
         ) : null}
       </Box>

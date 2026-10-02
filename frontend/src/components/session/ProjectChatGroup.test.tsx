@@ -256,7 +256,7 @@ describe('ProjectChatGroup', () => {
   it('always shows the new chat affordance', () => {
     renderEmptyProject()
 
-    expect(screen.getByText('New')).toHaveStyle({ opacity: '1' })
+    expect(screen.getByText('New task')).toHaveStyle({ opacity: '1' })
   })
 
   it('opens project settings without starting a chat or collapsing', () => {
