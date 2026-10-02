@@ -801,9 +801,13 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		vm.setError(fmt.Errorf("QEMU not found. Install via 'brew install qemu' or use the bundled app"))
 		return
 	}
+	if _, err := os.Stat(renderServerPath(qemuPath)); err != nil {
+		vm.setError(fmt.Errorf("virgl_render_server missing next to %s (needed for GPU): %w", qemuPath, err))
+		return
+	}
 
 	vm.cmd = exec.CommandContext(ctx, qemuPath, args...)
-	vm.cmd.Env = vm.buildQEMUEnv()
+	vm.cmd.Env = vm.buildQEMUEnv(qemuPath)
 	// Place QEMU in its own process group so ForceStop can kill the whole group.
 	vm.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
@@ -1855,11 +1859,16 @@ func (vm *VMManager) findVulkanICD() string {
 	return ""
 }
 
+// renderServerPath is the virgl_render_server shipped next to the QEMU binary.
+func renderServerPath(qemuPath string) string {
+	return filepath.Join(filepath.Dir(qemuPath), "virgl_render_server")
+}
+
 // buildQEMUEnv returns the environment variables for the QEMU process.
 // Sets VK_DRIVER_FILES to use KosmicKrisp (Mesa Vulkan) instead of MoltenVK.
 // KosmicKrisp produces dramatically better rendering quality under concurrent
 // GNOME sessions with virglrenderer's Venus Vulkan path.
-func (vm *VMManager) buildQEMUEnv() []string {
+func (vm *VMManager) buildQEMUEnv(qemuPath string) []string {
 	// Start with inherited environment but override HOME to the Helix data dir.
 	// Glib's g_get_home_dir() stat()s $HOME on init, which triggers the macOS
 	// TCC "access data from other apps" dialog when $HOME is the real home dir.
@@ -1883,6 +1892,11 @@ func (vm *VMManager) buildQEMUEnv() []string {
 	if icdPath != "" {
 		env = append(env, "VK_DRIVER_FILES="+icdPath)
 	}
+
+	// virglrenderer spawns a render server for Venus/Neptune contexts. Its
+	// compiled-in path points at UTM's build machine, so point it at the copy
+	// shipped next to QEMU, as UTM's QEMUHelper does.
+	env = append(env, "RENDER_SERVER_EXEC_PATH="+renderServerPath(qemuPath))
 
 	return env
 }

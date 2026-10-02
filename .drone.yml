@@ -2237,7 +2237,16 @@ steps:
       # Clean up VM disk (no longer needed after upload to R2)
       - rm -rf /Volumes/Big/helix-vm/ci-provision
 
-  # Step 2: Build QEMU from the qemu-utm commit pinned in for-mac/qemu-helix/QEMU_UTM_COMMIT
+  # Step 2a: Build the UTM sysroot from the release pinned in for-mac/qemu-helix/UTM_VERSION
+  # (no-op unless the pin changed; ~1-1.5h when it did)
+  - name: build-utm-sysroot
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+    commands:
+      - export HOME=/Users/luke
+      - ./for-mac/qemu-helix/build-utm-sysroot.sh
+
+  # Step 2b: Build QEMU from the qemu-utm commit pinned in for-mac/qemu-helix/QEMU_UTM_COMMIT
   # (cached per commit on the runner; never installs into the shared UTM sysroot)
   - name: build-qemu
     environment:

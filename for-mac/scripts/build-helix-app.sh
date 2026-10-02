@@ -32,7 +32,11 @@ REPO_ROOT="$(cd "$FOR_MAC_DIR/.." && pwd)"
 SYSROOT="${SYSROOT:-$HOME/pm/UTM/sysroot-macOS-arm64}"
 # Where the QEMU build was installed (release CI: qemu-helix/build-qemu-ci.sh)
 QEMU_PREFIX="${QEMU_PREFIX:-$SYSROOT}"
-UTM_FRAMEWORKS="${UTM_APP_FRAMEWORKS:-/Applications/UTM.app/Contents/Frameworks}"
+# Frameworks and the render server come from the UTM release pinned in
+# qemu-helix/UTM_VERSION, matching the utm-edition QEMU we build.
+UTM_APP="${UTM_APP:-$("$FOR_MAC_DIR/qemu-helix/fetch-utm-app.sh")}"
+UTM_FRAMEWORKS="$UTM_APP/Contents/Frameworks"
+UTM_RENDER_SERVER="$UTM_APP/Contents/XPCServices/QEMUHelper.xpc/Contents/MacOS/QEMURenderServer.app/Contents/MacOS/QEMURenderServer"
 EFI_CODE="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
 EFI_VARS_TEMPLATE="/opt/homebrew/share/qemu/edk2-arm-vars.fd"
 
@@ -160,11 +164,17 @@ fi
 
 log "  Copied QEMU dylib ($(du -h "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" | awk '{print $1}')) + wrapper ($(du -h "$MACOS_DIR/qemu-system-aarch64" | awk '{print $1}'))"
 
+# virglrenderer spawns this for Venus/Neptune contexts; vm.go points
+# RENDER_SERVER_EXEC_PATH at it, as UTM's QEMUHelper does.
+cp -f "$UTM_RENDER_SERVER" "$MACOS_DIR/virgl_render_server"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/virgl_render_server"
+log "  Copied virgl_render_server from UTM"
+
 # =============================================================================
 # Step 3: Copy required frameworks
 # =============================================================================
 
-log "Step 3: Copying frameworks from UTM sysroot..."
+log "Step 3: Copying frameworks from $UTM_APP..."
 mkdir -p "$FRAMEWORKS_DIR"
 
 # These are the frameworks QEMU directly links against (@rpath dependencies)
@@ -371,6 +381,7 @@ log "Step 7: Signing app bundle (ad-hoc)..."
 
 APP_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements-app.plist"
 QEMU_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements.plist"
+RENDER_SERVER_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements-render-server.plist"
 
 # Sign inside-out: frameworks → main app → QEMU binaries last.
 #
@@ -404,6 +415,9 @@ if [ -f "$MACOS_DIR/qemu-img" ]; then
         --entitlements "$APP_ENTITLEMENTS" \
         "$MACOS_DIR/qemu-img" 2>/dev/null || true
 fi
+codesign --force --sign - --timestamp=none --options runtime \
+    --entitlements "$RENDER_SERVER_ENTITLEMENTS" \
+    "$MACOS_DIR/virgl_render_server"
 
 log "  Ad-hoc signing complete"
 
