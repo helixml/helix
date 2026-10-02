@@ -229,7 +229,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   }
 
   return (
-    <Box sx={{ mb: 0.5 }}>
+    <Box sx={{ mt: project ? 0 : 1, mb: 0.5 }}>
       <Box
         role="button"
         tabIndex={0}
@@ -334,6 +334,8 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
             lineHeight: TYPOGRAPHY.sidebar.primaryLineHeight,
             fontWeight: 500,
+            letterSpacing: project ? undefined : '0.08em',
+            textTransform: project ? undefined : 'uppercase',
           }}
         >
           {groupName}
