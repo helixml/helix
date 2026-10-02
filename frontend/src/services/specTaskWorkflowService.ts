@@ -28,21 +28,14 @@ export function useApproveImplementation(specTaskId: string) {
         snackbar.info(
           "Branch has diverged from main. Agent is rebasing — the merge will complete automatically once it finishes.",
         );
-      } else if (response.repo_pull_requests && response.repo_pull_requests.length > 0) {
-        // External repo - show link to first PR
-        const firstPR = response.repo_pull_requests[0];
-        if (firstPR.pr_url) {
-          snackbar.success(
-            `Pull request opened! View PR: ${firstPR.pr_url}`,
-          );
-        } else {
-          snackbar.success(
-            `Pull request #${firstPR.pr_id} opened - awaiting merge`,
-          );
-        }
-      } else if (response.status === "pull_request") {
-        // External repo - task moved to pull_request status, waiting for agent to push
-        snackbar.success("Agent will push changes to open a pull request...");
+      } else if (response.repo_pull_requests?.some((pr) => pr.pr_url)) {
+        const firstPR = response.repo_pull_requests.find((pr) => pr.pr_url)!;
+        snackbar.success(`Pull request opened! View PR: ${firstPR.pr_url}`);
+      } else if (
+        response.repo_pull_requests?.length ||
+        response.status === "pull_request"
+      ) {
+        snackbar.info("Creating pull request. Waiting for its URL...");
       } else {
         // Fallback
         snackbar.success("Implementation approved!");

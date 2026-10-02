@@ -1485,6 +1485,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           planning_session_id: task.planning_session_id,
           metadata: task.metadata as { error?: string },
           last_push_at: task.last_push_at,
+          merged_at: task.merged_at,
+          completed_at: task.completed_at,
           rebase_requested_at: task.rebase_requested_at,
           sandbox_state: task.sandbox_state,
         }}
