@@ -88,8 +88,8 @@ export const useCreateProject = () => {
       const response = await apiClient.v1ProjectsCreate(request);
       return response.data;
     },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: projectsListQueryKey(variables.organization_id) });
+    onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({ queryKey: projectsListQueryKey(variables.organization_id) });
     },
   });
 };
