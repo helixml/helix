@@ -610,12 +610,20 @@ describe('ProjectChatSidebar bots and people', () => {
     const bots = toSidebarBots([
       { id: 'b-mira', name: 'Mira', status: 'running', agent_work_state: TypesAgentWorkState.AgentWorkStateWorking, project_id: 'prj_mira', session_id: 'ses_mira', legacy_app_id: 'app_mira' },
       { id: 'chief-of-staff', name: 'Chief of Staff', status: 'stopped', project_id: 'prj_chief' },
+      { id: 'b-aaron', name: 'Aaron', status: 'running' },
+      { id: 'b-alice', name: 'Alice', status: 'stopped' },
       { id: 'b-zoe', name: 'Zoe', status: 'stopped' },
       { id: '', name: 'Broken' },
     ])
-    expect(bots.map((bot) => bot.id)).toEqual(['chief-of-staff', 'b-mira', 'b-zoe'])
+    expect(bots.map((bot) => bot.id)).toEqual([
+      'chief-of-staff',
+      'b-aaron',
+      'b-mira',
+      'b-alice',
+      'b-zoe',
+    ])
     expect(bots[0]).toMatchObject({ running: false, projectId: 'prj_chief' })
-    expect(bots[1]).toMatchObject({ running: true, working: true, agentAppId: 'app_mira', projectId: 'prj_mira', sessionId: 'ses_mira' })
+    expect(bots[2]).toMatchObject({ running: true, working: true, agentAppId: 'app_mira', projectId: 'prj_mira', sessionId: 'ses_mira' })
     expect([...botHomeProjectIds(bots)]).toEqual(['prj_chief', 'prj_mira'])
     expect(withoutBotProjects([
       { id: 'prj_chief', name: 'chief-of-staff @ org' },
