@@ -1102,7 +1102,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestIsDeletedProjectError() {
 	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("branch not found")))
 }
 
-func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishesNotFoundTypes() {
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_PermanentApprovalConfigErrorFailsTask() {
 	ctx := context.Background()
 
 	// Verify processTask dispatches to handleSpecApproved
@@ -1129,11 +1129,162 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishes
 		DefaultRepoID: "",
 	}, nil)
 
+	// A permanent handoff misconfiguration now fails the task instead of
+	// returning an error the orchestrator would re-drive every 10s tick.
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-test",
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, extra map[string]any) (bool, error) {
+		meta, ok := extra["metadata"].(map[string]interface{})
+		s.Require().True(ok, "metadata field must be set on the failed task")
+		assert.Contains(s.T(), fmt.Sprint(meta["error"]), "default repository not set")
+		assert.NotEmpty(s.T(), fmt.Sprint(meta["error_timestamp"]))
+		return true, nil
+	})
+
+	err := s.orchestrator.processTask(ctx, task)
+	s.Require().NoError(err, "permanent misconfiguration fails the task, not the tick")
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_TransientApprovalErrorStillSurfaces() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:              "task-transient",
+		ProjectID:       "project-1",
+		Status:          types.TaskStatusSpecApproved,
+		TaskNumber:      7,
+		Name:            "transient-task",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+	}
+
+	service := NewSpecDrivenTaskService(
+		s.store, nil, "test-helix-agent", []string{},
+		nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+	s.orchestrator.specTaskService = service
+
+	s.store.EXPECT().GetSpecTask(ctx, "task-transient").Return(task, nil)
+	// A non-not-found store error is transient: the handoff must keep
+	// retrying (error surfaces) and the task must NOT be failed.
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(nil, fmt.Errorf("connection refused"))
+
 	err := s.orchestrator.processTask(ctx, task)
 	s.Require().Error(err)
-	// The error should contain "not found" in a domain-specific way, not "record not found"
-	assert.Contains(s.T(), err.Error(), "default repository not set")
-	assert.False(s.T(), isDeletedProjectError(err))
+	assert.Contains(s.T(), err.Error(), "connection refused")
+	assert.False(s.T(), IsPermanentApprovalConfigError(err))
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestFailApprovalHandoff_NoOpWhenAlreadyMovedOn() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-raced",
+		ProjectID: "project-1",
+		Status:    types.TaskStatusSpecApproved,
+	}
+
+	// A concurrent transition already claimed the task.
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-raced",
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).Return(false, nil)
+
+	err := s.orchestrator.failApprovalHandoff(ctx, task, ErrApprovalDefaultRepoNotFound)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestIsPermanentApprovalConfigError_MatchesWrapped() {
+	assert.True(s.T(), IsPermanentApprovalConfigError(ErrApprovalNoCodeAgentConfig))
+	assert.True(s.T(), IsPermanentApprovalConfigError(ErrApprovalNoPlanningSession))
+	// The deleted-repo case wraps the sentinel with the repo id.
+	assert.True(s.T(), IsPermanentApprovalConfigError(
+		fmt.Errorf("%w: code-kodit-1771951977", ErrApprovalDefaultRepoNotFound),
+	))
+	assert.True(s.T(), IsPermanentApprovalConfigError(
+		fmt.Errorf("failed to approve specs: %w", ErrApprovalNoDefaultBranch),
+	))
+
+	assert.False(s.T(), IsPermanentApprovalConfigError(store.ErrNotFound))
+	assert.False(s.T(), IsPermanentApprovalConfigError(fmt.Errorf("some transient failure")))
+	assert.False(s.T(), IsPermanentApprovalConfigError(nil))
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProjectMissing_CachesPerSweep() {
+	ctx := context.Background()
+	cache := make(map[string]bool)
+
+	// One miss — the store is consulted exactly once for a repeated project.
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(nil, store.ErrNotFound).Times(1)
+
+	assert.True(s.T(), s.orchestrator.projectMissing(ctx, "project-1", cache))
+	assert.True(s.T(), s.orchestrator.projectMissing(ctx, "project-1", cache), "cached answer")
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTasks_NotFoundOnLiveProjectIsNotSilenced() {
+	ctx := context.Background()
+
+	// Reproduces the prod incident shape: ApproveSpecs fails with a wrapped
+	// ErrNotFound (default repo deleted) while the project itself is alive.
+	// The sweep must consult the project and treat the error as a real
+	// failure (Error log) rather than a deleted-project skip.
+	task := &types.SpecTask{
+		ID:        "task-kodit",
+		ProjectID: "project-1",
+		Status:    types.TaskStatusSpecApproved,
+		Name:      "kodit-task",
+	}
+
+	s.orchestrator.specTaskService = &stubApprovalWorkflowService{
+		err: fmt.Errorf("failed to get default repository: %w", store.ErrNotFound),
+	}
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{WithDependsOn: true}).
+		Return([]*types.SpecTask{task}, nil)
+	// Once for the error verification — the project exists, so this is a real
+	// failure on a live project, not an orphan.
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{ID: "project-1"}, nil).Times(1)
+
+	s.orchestrator.processTasks(ctx)
+	// No transition expectations: a non-permanent error must not fail the task.
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTasks_TrueOrphanStaysSilent() {
+	ctx := context.Background()
+
+	task := &types.SpecTask{
+		ID:        "task-orphan",
+		ProjectID: "project-gone",
+		Status:    types.TaskStatusSpecApproved,
+		Name:      "orphan-task",
+	}
+
+	s.orchestrator.specTaskService = &stubApprovalWorkflowService{
+		err: fmt.Errorf("failed to get project: %w", store.ErrNotFound),
+	}
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{WithDependsOn: true}).
+		Return([]*types.SpecTask{task}, nil)
+	s.store.EXPECT().GetProject(ctx, "project-gone").Return(nil, store.ErrNotFound).Times(1)
+
+	s.orchestrator.processTasks(ctx)
+}
+
+// stubApprovalWorkflowService injects an ApproveSpecs result without the real
+// service's store round-trips.
+type stubApprovalWorkflowService struct {
+	err error
+}
+
+func (s *stubApprovalWorkflowService) StartSpecGeneration(context.Context, *types.SpecTask) {}
+func (s *stubApprovalWorkflowService) StartJustDoItMode(context.Context, *types.SpecTask)   {}
+func (s *stubApprovalWorkflowService) ApproveSpecs(context.Context, *types.SpecTask) error {
+	return s.err
 }
 
 // makePullRequestTask returns a task in pull_request status with the given
