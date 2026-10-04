@@ -39,7 +39,7 @@ func (s *PostgresStore) ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) 
 	var calls []*types.LLMCall
 	var totalCount int64
 
-	offset := (q.Page - 1) * q.PerPage
+	offset := pageOffset(q.Page, q.PerPage)
 
 	query := s.gdb.WithContext(ctx).Model(&types.LLMCall{})
 

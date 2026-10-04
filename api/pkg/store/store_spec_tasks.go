@@ -613,12 +613,7 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		db = db.Where("repo_pull_requests @> ?::jsonb", string(matchJSON))
 	}
 
-	if filters.Limit > 0 {
-		db = db.Limit(filters.Limit)
-	}
-	if filters.Offset > 0 {
-		db = db.Offset(filters.Offset)
-	}
+	db = limitOffset(db, filters.Limit, filters.Offset)
 
 	if filters.SortBy == "created" {
 		db = db.Order("created_at DESC")

@@ -157,13 +157,7 @@ func (s *PostgresStore) ListTriggerExecutions(ctx context.Context, q *ListTrigge
 		query = query.Where("trigger_configuration_id = ?", q.TriggerID)
 	}
 
-	if q.Offset > 0 {
-		query = query.Offset(q.Offset)
-	}
-
-	if q.Limit > 0 {
-		query = query.Limit(q.Limit)
-	}
+	query = limitOffset(query, q.Limit, q.Offset)
 
 	err := query.Order("created DESC").Find(&executions).Error
 	if err != nil {
