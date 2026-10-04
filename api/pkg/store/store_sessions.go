@@ -390,6 +390,12 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*t
 
 // GetProjectExploratorySession gets the active exploratory session for a project
 // Returns the session if found and active, nil if not found or inactive
+//
+// Hot path: the org-bot transcript Mirror calls this every 5s per tracked
+// worker. The config->>'project_id' / config->>'session_role' expressions are
+// backed by idx_sessions_config_project_id_session_role (created in
+// runMigrations — GORM tags cannot express this index, and dropping it turns
+// every call into a full parallel seq scan of sessions).
 func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error) {
 	var session types.Session
 
