@@ -1005,25 +1005,41 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		}
 	}
 
-	// 2. Stop all SpecTask planning sessions for this project
+	// 2. Stop all SpecTask planning sessions for this project, then delete the
+	// tasks themselves — including archived ones. Tasks that outlive their
+	// project stay in whatever status they had forever: the orchestrator
+	// re-drives the active ones every tick and nothing else reconciles them
+	// (102 such orphans had accumulated in prod by 2026-10). A failure to list
+	// or delete a task aborts the project deletion so no orphan can be created;
+	// the caller can simply retry.
 	tasks, err := s.Store.ListSpecTasks(r.Context(), &types.SpecTaskFilters{
-		ProjectID: projectID,
+		ProjectID:       projectID,
+		IncludeArchived: true,
 	})
-	if err == nil {
-		for _, task := range tasks {
-			if task.PlanningSessionID != "" {
-				log.Info().
-					Str("project_id", projectID).
-					Str("task_id", task.ID).
-					Str("session_id", task.PlanningSessionID).
-					Msg("Stopping SpecTask session before project deletion")
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("list project tasks before deletion: %s", err))
+	}
+	for _, task := range tasks {
+		if task.PlanningSessionID != "" {
+			log.Info().
+				Str("project_id", projectID).
+				Str("task_id", task.ID).
+				Str("session_id", task.PlanningSessionID).
+				Msg("Stopping SpecTask session before project deletion")
 
-				stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
-				if stopErr != nil {
-					return nil, system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
-				}
+			stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
+			if stopErr != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
 			}
 		}
+
+		if delErr := s.deleteSpecTaskCascade(r.Context(), task.ID); delErr != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("delete task %s before project deletion: %s", task.ID, delErr))
+		}
+		log.Info().
+			Str("project_id", projectID).
+			Str("task_id", task.ID).
+			Msg("Deleted SpecTask before project deletion")
 	}
 
 	// Static artifacts inherit project ownership, so project deletion must
