@@ -953,7 +953,18 @@ func (o *SpecTaskOrchestrator) handleImplementationQueued(ctx context.Context, t
 	log.Info().
 		Str("task_id", task.ID).
 		Msg("Retrying pending implementation handoff")
-	return o.specTaskService.ApproveSpecs(ctx, task)
+	err := o.specTaskService.ApproveSpecs(ctx, task)
+	if err != nil {
+		// The claim already moved this task to implementation_queued, so a
+		// permanent misconfiguration discovered on retry (e.g. the default
+		// repository was deleted between the claim and now) can never succeed
+		// here either. Fail the task instead of re-driving it every tick.
+		if IsPermanentApprovalConfigError(err) {
+			return o.failApprovalHandoff(ctx, task, err)
+		}
+		return err
+	}
+	return nil
 }
 
 // NOTE: Implementation prompts are now handled by agent_instruction_service.go:SendApprovalInstruction
@@ -1058,13 +1069,14 @@ func (o *SpecTaskOrchestrator) handleSpecApproved(ctx context.Context, task *typ
 	err := o.specTaskService.ApproveSpecs(ctx, task)
 	if err != nil {
 		// Permanent misconfiguration (no code-agent config, dangling default
-		// repository, missing default branch) can never be fixed by retrying
-		// every tick. Before this, such tasks retried forever — invisibly,
-		// because the deleted-repo case wraps store.ErrNotFound and
+		// repository, missing default branch, no planning session) can never be
+		// fixed by retrying every tick. Before this, such tasks retried forever —
+		// invisibly, because the deleted-repo case wraps store.ErrNotFound and
 		// isDeletedProjectError swallowed it as a deleted-project skip (one
-		// prod task retried every 10s for seven months). Fail the task with
-		// the reason so it leaves the active set, the owner gets the failure
-		// event, and the project can be fixed + the task resumed.
+		// prod task retried every 10s for seven months). Fail the task with the
+		// reason so it leaves the active set and the owner gets the failure
+		// event; implementation_failed is terminal, so the task is recreated
+		// after the project configuration is fixed.
 		if IsPermanentApprovalConfigError(err) {
 			return o.failApprovalHandoff(ctx, task, err)
 		}
@@ -1073,9 +1085,11 @@ func (o *SpecTaskOrchestrator) handleSpecApproved(ctx context.Context, task *typ
 	return nil
 }
 
-// failApprovalHandoff moves a spec_approved task to implementation_failed with
-// the handoff cause in metadata, so the orchestrator stops re-driving it every
-// tick and the failure is visible to the owner (status + attention event).
+// failApprovalHandoff moves a spec_approved or implementation_queued task to
+// implementation_failed with the handoff cause in metadata, so the orchestrator
+// stops re-driving it every tick and the failure is visible to the owner
+// (status + attention event). implementation_failed is terminal — after fixing
+// the project configuration the task must be recreated.
 func (o *SpecTaskOrchestrator) failApprovalHandoff(ctx context.Context, task *types.SpecTask, cause error) error {
 	metadata := make(map[string]interface{}, len(task.Metadata)+2)
 	for key, value := range task.Metadata {
@@ -1087,7 +1101,10 @@ func (o *SpecTaskOrchestrator) failApprovalHandoff(ctx context.Context, task *ty
 	transitioned, err := o.store.TransitionSpecTaskStatus(
 		ctx,
 		task.ID,
-		[]types.SpecTaskStatus{types.TaskStatusSpecApproved},
+		// implementation_queued is included because permanent conditions can
+		// also be discovered on handoff retries, after the claim already moved
+		// the task out of spec_approved.
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
 		types.TaskStatusImplementationFailed,
 		map[string]any{"metadata": metadata},
 	)
@@ -1104,7 +1121,7 @@ func (o *SpecTaskOrchestrator) failApprovalHandoff(ctx context.Context, task *ty
 		Err(cause).
 		Str("task_id", task.ID).
 		Str("project_id", task.ProjectID).
-		Msg("Failed spec-approved task: implementation handoff can never succeed (fix project config, then resume the task)")
+		Msg("Failed spec-approved task: implementation handoff can never succeed (fix the project configuration, then recreate the task)")
 	return nil
 }
 

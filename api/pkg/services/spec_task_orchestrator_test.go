@@ -1134,7 +1134,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_PermanentApprovalConfigE
 	s.store.EXPECT().TransitionSpecTaskStatus(
 		ctx,
 		"task-test",
-		[]types.SpecTaskStatus{types.TaskStatusSpecApproved},
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
 		types.TaskStatusImplementationFailed,
 		gomock.Any(),
 	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, extra map[string]any) (bool, error) {
@@ -1190,7 +1190,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestFailApprovalHandoff_NoOpWhenAlreadyM
 	s.store.EXPECT().TransitionSpecTaskStatus(
 		ctx,
 		"task-raced",
-		[]types.SpecTaskStatus{types.TaskStatusSpecApproved},
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
 		types.TaskStatusImplementationFailed,
 		gomock.Any(),
 	).Return(false, nil)
@@ -1273,6 +1273,77 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessTasks_TrueOrphanStaysSilent()
 	s.store.EXPECT().GetProject(ctx, "project-gone").Return(nil, store.ErrNotFound).Times(1)
 
 	s.orchestrator.processTasks(ctx)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleImplementationQueued_PermanentErrorFailsTask() {
+	ctx := context.Background()
+
+	// The claim already moved this task to implementation_queued; a permanent
+	// error on retry must fail it from there, not re-drive it every tick.
+	task := &types.SpecTask{
+		ID:        "task-iq",
+		ProjectID: "project-1",
+		Status:    types.TaskStatusImplementationQueued,
+	}
+
+	s.orchestrator.specTaskService = &stubApprovalWorkflowService{
+		err: fmt.Errorf("%w: repo-1", ErrApprovalDefaultRepoNotFound),
+	}
+
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-iq",
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).Return(true, nil)
+
+	s.Require().NoError(s.orchestrator.handleImplementationQueued(ctx, task))
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestApproveSpecs_MissingPlanningSessionFailsBeforeClaim() {
+	ctx := context.Background()
+
+	// A task with no planning session must fail BEFORE the claim moves it to
+	// implementation_queued: after the claim the failure transition can never
+	// match (from implementation_queued it would retry forever instead).
+	task := &types.SpecTask{
+		ID:                "task-noplanning",
+		ProjectID:         "project-1",
+		Status:            types.TaskStatusSpecApproved,
+		TaskNumber:        11,
+		Name:              "noplanning-task",
+		CodeAgentConfig:   testSpecTaskCodeAgentConfig(),
+		PlanningSessionID: "", // the permanent condition
+	}
+
+	service := NewSpecDrivenTaskService(
+		s.store, nil, "test-helix-agent", []string{},
+		nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	// NOT test mode: the planning-session validation must run.
+	s.orchestrator.specTaskService = service
+
+	s.store.EXPECT().GetSpecTask(ctx, "task-noplanning").Return(task, nil)
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	s.store.EXPECT().GetGitRepository(ctx, "repo-1").Return(&types.GitRepository{
+		ID:            "repo-1",
+		DefaultBranch: "main",
+	}, nil)
+	// The only transition: the terminal failure, from spec_approved.
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-noplanning",
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).Return(true, nil)
+
+	err := s.orchestrator.handleSpecApproved(ctx, task)
+	s.Require().NoError(err, "missing planning session fails the task before the claim")
 }
 
 // stubApprovalWorkflowService injects an ApproveSpecs result without the real
