@@ -1860,7 +1860,7 @@ export default function DesignReviewContent({
               }}
               sx={{
                 maxWidth: "800px",
-                minWidth: "400px",
+                minWidth: 0,
                 mx: "auto",
                 position: "relative",
                 "& .markdown-body": {
