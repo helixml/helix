@@ -33,6 +33,8 @@ func TestBuildApprovalInstructionPromptRecoversSharedSpecsPush(t *testing.T) {
 		"git push origin helix-specs",
 		"Do not stop and do not force-push",
 		"continue with the code",
+		"Before each follow-up pull request, replace the relevant `pull_request*.md` title and body",
+		"Describe only the changes that are not already merged",
 		"Upgrade the database driver without changing behavior.",
 	} {
 		if !strings.Contains(prompt, want) {

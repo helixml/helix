@@ -129,7 +129,10 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 				return
 			}
 			if errors.Is(err, errNoFollowUpChanges) {
-				http.Error(w, err.Error(), http.StatusConflict)
+				writeResponse(w, map[string]interface{}{
+					"error":   "no_follow_up_changes",
+					"message": err.Error(),
+				}, http.StatusConflict)
 				return
 			}
 			writeErrResponse(w, err, http.StatusInternalServerError)
