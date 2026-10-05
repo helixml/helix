@@ -43,21 +43,21 @@ const implementationTask = (
   ...overrides,
 });
 
-const openPRButton = () => screen.getByRole("button", { name: /Open PR/i });
+const openPRButton = () => screen.getByRole("button", { name: /Request PR/i });
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe.each(["inline", "stacked"] as const)(
-  "SpecTaskActionButtons (%s) Open PR gating",
+  "SpecTaskActionButtons (%s) Request PR gating",
   (variant) => {
     const renderButtons = (task: SpecTaskForActions) =>
       render(
         <SpecTaskActionButtons task={task} variant={variant} hasExternalRepo />,
       );
 
-    it("enables Open PR while the sandbox is running", () => {
+    it("enables Request PR while the sandbox is running", () => {
       renderButtons(implementationTask());
 
       expect(openPRButton()).toBeEnabled();
@@ -66,7 +66,7 @@ describe.each(["inline", "stacked"] as const)(
     // The commits already reached the control plane's copy of the repo, so it
     // can push them to the remote and open the PR without the sandbox. This is
     // the common "agent finished, container was reaped" case.
-    it("enables Open PR once the sandbox has stopped, if the agent pushed", () => {
+    it("enables Request PR once the sandbox has stopped, if the agent pushed", () => {
       renderButtons(implementationTask({ sandbox_state: "absent" }));
 
       expect(openPRButton()).toBeEnabled();
@@ -74,7 +74,7 @@ describe.each(["inline", "stacked"] as const)(
 
     // Nothing has reached the server, but a live agent can still be told to
     // commit and push before the PR opens.
-    it("enables Open PR before the first push while the sandbox is live", () => {
+    it("enables Request PR before the first push while the sandbox is live", () => {
       renderButtons(
         implementationTask({ last_push_at: undefined, sandbox_state: "running" }),
       );
@@ -83,7 +83,7 @@ describe.each(["inline", "stacked"] as const)(
     });
 
     // Neither source of commits exists: nothing pushed, and no agent to push.
-    it("disables Open PR when nothing was pushed and the sandbox is gone", () => {
+    it("disables Request PR when nothing was pushed and the sandbox is gone", () => {
       renderButtons(
         implementationTask({ last_push_at: undefined, sandbox_state: "absent" }),
       );
@@ -93,7 +93,7 @@ describe.each(["inline", "stacked"] as const)(
 
     // "starting" means the container exists but the agent has not connected
     // yet, so it cannot receive the commit-and-push instruction.
-    it("disables Open PR before the first push while the sandbox is starting", () => {
+    it("disables Request PR before the first push while the sandbox is starting", () => {
       renderButtons(
         implementationTask({ last_push_at: undefined, sandbox_state: "starting" }),
       );
@@ -101,7 +101,7 @@ describe.each(["inline", "stacked"] as const)(
       expect(openPRButton()).toBeDisabled();
     });
 
-    it("disables Open PR when the task never had a sandbox or a push", () => {
+    it("disables Request PR when the task never had a sandbox or a push", () => {
       renderButtons(
         implementationTask({ last_push_at: undefined, sandbox_state: undefined }),
       );
@@ -109,7 +109,7 @@ describe.each(["inline", "stacked"] as const)(
       expect(openPRButton()).toBeDisabled();
     });
 
-    it("explains why Open PR is unavailable", async () => {
+    it("explains why Request PR is unavailable", async () => {
       renderButtons(
         implementationTask({ last_push_at: undefined, sandbox_state: "absent" }),
       );
@@ -156,7 +156,7 @@ describe.each(["inline", "stacked"] as const)(
       ],
     });
 
-    it("shows New PR and enforces OAuth", () => {
+    it("shows Request PR and enforces OAuth", () => {
       render(
         <SpecTaskActionButtons
           task={doneTask()}
@@ -166,7 +166,7 @@ describe.each(["inline", "stacked"] as const)(
         />,
       );
 
-      const createButton = screen.getByRole("button", { name: /New PR/i });
+      const createButton = screen.getByRole("button", { name: /Request PR/i });
       fireEvent.click(createButton);
       expect(
         screen.getByText(/GitHub OAuth is not configured/i),
@@ -176,7 +176,7 @@ describe.each(["inline", "stacked"] as const)(
     it("keeps all pull requests in the adjacent menu", () => {
       render(<SpecTaskActionButtons task={doneTask()} variant={variant} />);
 
-      expect(screen.getByRole("button", { name: /New PR/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Request PR/i })).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "PRs (2)" }));
       expect(
         screen
@@ -194,7 +194,7 @@ describe.each(["inline", "stacked"] as const)(
       render(<SpecTaskActionButtons task={task} variant={variant} />);
 
       expect(
-        screen.queryByRole("button", { name: /New PR/i }),
+        screen.queryByRole("button", { name: /Request PR/i }),
       ).not.toBeInTheDocument();
     });
 
@@ -267,7 +267,7 @@ describe("SpecTaskForActions", () => {
 
   // The production case from 2026-08-19: the agent had pushed and the sandbox
   // was live, but the call site never forwarded sandbox_state.
-  it("enables Open PR when the sandbox is running and the agent has pushed", () => {
+  it("enables Request PR when the sandbox is running and the agent has pushed", () => {
     render(
       <SpecTaskActionButtons
         task={implementationTask({ sandbox_state: "running" })}
@@ -275,7 +275,7 @@ describe("SpecTaskForActions", () => {
         externalRepoType="github"
       />,
     );
-    expect(screen.getByRole("button", { name: /Open PR/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Request PR/i })).toBeEnabled();
   });
 });
 

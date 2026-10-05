@@ -34,6 +34,8 @@ interface AgentChatProps {
   appendText?: string
   leadingActions?: ReactNode
   footerContent?: ReactNode
+  /** Requests attached above the composer (e.g. PR proposals awaiting approval). */
+  composerHeader?: ReactNode
   reviewComments?: readonly WorkspaceReviewComment[]
   onRemoveReviewComment?: (commentId: string) => void
   onReviewCommentsSent?: () => void
@@ -67,6 +69,7 @@ const AgentChat: FC<AgentChatProps> = ({
   appendText,
   leadingActions,
   footerContent,
+  composerHeader,
   reviewComments,
   onRemoveReviewComment,
   onReviewCommentsSent,
@@ -211,7 +214,7 @@ const AgentChat: FC<AgentChatProps> = ({
       onRemoveReviewComment={onRemoveReviewComment}
       onReviewCommentsSent={onReviewCommentsSent}
       hasAttachedHeader={
-        !!pendingQuestion || (showComposerPlan && composerPlanExpanded) || hasSessionQueue
+        !!pendingQuestion || (showComposerPlan && composerPlanExpanded) || hasSessionQueue || !!composerHeader
       }
     />
   )
@@ -299,11 +302,12 @@ const AgentChat: FC<AgentChatProps> = ({
                 onRestartAgent={sessionQueue.restartAgent}
               />
             )}
+            {composerHeader}
             {pendingQuestion && latestInteractionId && (
               <PendingQuestionCard
                 interactionId={latestInteractionId}
                 pendingQuestion={pendingQuestion}
-                attachedAbove={hasSessionQueue || (showComposerPlan && composerPlanExpanded)}
+                attachedAbove={hasSessionQueue || (showComposerPlan && composerPlanExpanded) || !!composerHeader}
               />
             )}
             {composer}

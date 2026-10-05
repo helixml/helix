@@ -44,6 +44,7 @@ export interface RepoPR {
   pr_state?: string;
   ci_status?: string;
   ci_url?: string;
+  head_branch?: string;
 }
 
 type PRStateKind = "open" | "merged" | "closed";
@@ -131,7 +132,11 @@ const PRMenuItem: React.FC<PRMenuItemProps> = ({ pr, idx, onSelect }) => {
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
         <ListItemText
           primary={pr.repository_name || `Repository ${idx + 1}`}
-          secondary={pr.pr_number ? `#${pr.pr_number}` : undefined}
+          secondary={
+            [pr.pr_number ? `#${pr.pr_number}` : "", pr.head_branch || ""]
+              .filter(Boolean)
+              .join(" · ") || undefined
+          }
           sx={{ mr: 1 }}
         />
         <PRStateBadge state={pr.pr_state} />
@@ -451,9 +456,11 @@ export default function SpecTaskActionButtons({
         ? hasPushed
           ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
           : "Agent is committing and pushing — this will complete automatically."
-        : !hasPushed
-          ? "The agent will commit and push its changes before the PR is opened."
-          : "";
+        : isDirectPush
+          ? !hasPushed
+            ? "The agent will commit and push its changes before the merge."
+            : ""
+          : "Ask the agent to push its work and propose pull request(s). Nothing opens until you approve each proposal.";
 
   const openPRDisabled =
     isArchived ||
@@ -822,12 +829,12 @@ export default function SpecTaskActionButtons({
               approveImplementationMutation.isPending
                 ? isDirectPush
                   ? "Merging..."
-                  : "Opening PR..."
+                  : "Requesting..."
                 : rebasePending
                   ? pendingPushLabel
                   : isDirectPush
                     ? "Accept"
-                    : "Open PR"
+                    : "Request PR"
             }
             onClick={handleOpenPR}
           />
@@ -907,12 +914,12 @@ export default function SpecTaskActionButtons({
                 {approveImplementationMutation.isPending
                   ? isDirectPush
                     ? "Merging..."
-                    : "Opening PR..."
+                    : "Requesting..."
                   : rebasePending
                     ? pendingPushLabel
                     : isDirectPush
                       ? "Accept"
-                      : "Open PR"}
+                      : "Request PR"}
               </Button>
             </span>
           </Tooltip>
@@ -1028,7 +1035,7 @@ export default function SpecTaskActionButtons({
               tooltip={
                 isArchived
                   ? "Task is archived"
-                  : "Create a pull request for the new changes"
+                  : "Ask the agent to propose a pull request for its new changes"
               }
               variant="contained"
               color="secondary"
@@ -1040,7 +1047,7 @@ export default function SpecTaskActionButtons({
                   <GitPullRequest size={18} />
                 )
               }
-              label={isCreatingFollowUp ? "Creating..." : "New PR"}
+              label={isCreatingFollowUp ? "Requesting..." : "Request PR"}
               onClick={handleOpenPR}
             />
           ) : (
@@ -1060,7 +1067,7 @@ export default function SpecTaskActionButtons({
               fullWidth
               sx={buttonSx}
             >
-              {isCreatingFollowUp ? "Creating..." : "New PR"}
+              {isCreatingFollowUp ? "Requesting..." : "Request PR"}
             </Button>
           )}
           {isInline ? (

@@ -13,10 +13,16 @@ export function useApproveImplementation(specTaskId: string) {
     mutationFn: async () => {
       const response =
         await apiClient.v1SpecTasksApproveImplementationCreate(specTaskId);
-      return response.data;
+      // 202: external repo — nothing merged or opened; the agent was asked to
+      // push and propose its pull request(s) for approval.
+      return { task: response.data, prsRequested: response.status === 202 };
     },
-    onSuccess: (response: TypesSpecTask) => {
-      if (response.status === "done") {
+    onSuccess: ({ task: response, prsRequested }: { task: TypesSpecTask; prsRequested: boolean }) => {
+      if (prsRequested) {
+        snackbar.success(
+          "Asked the agent to push and propose its pull request(s). Approve each proposal here when it arrives.",
+        );
+      } else if (response.status === "done") {
         // Internal repo - merge succeeded
         snackbar.success("Implementation approved and merged!");
       } else if (response.status === "implementation_review") {
@@ -28,16 +34,7 @@ export function useApproveImplementation(specTaskId: string) {
         snackbar.info(
           "Branch has diverged from main. Agent is rebasing — the merge will complete automatically once it finishes.",
         );
-      } else if (response.repo_pull_requests?.some((pr) => pr.pr_url)) {
-        const firstPR = response.repo_pull_requests.find((pr) => pr.pr_url)!;
-        snackbar.success(`Pull request opened! View PR: ${firstPR.pr_url}`);
-      } else if (
-        response.repo_pull_requests?.length ||
-        response.status === "pull_request"
-      ) {
-        snackbar.info("Creating pull request. Waiting for its URL...");
       } else {
-        // Fallback
         snackbar.success("Implementation approved!");
       }
       // Invalidate queries to refetch task

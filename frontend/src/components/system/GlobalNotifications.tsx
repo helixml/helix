@@ -10,7 +10,7 @@ import Tooltip from '@mui/material/Tooltip'
 import Stack from '@mui/material/Stack'
 import ReactMarkdown from 'react-markdown'
 import { useRouter as useRouter5 } from 'react-router5'
-import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink, MessageSquare, ArrowRight } from 'lucide-react'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, GitPullRequestArrow, ExternalLink, MessageSquare, ArrowRight } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -34,6 +34,7 @@ function eventIcon(eventType: AttentionEventType, color: string): React.ReactEle
     case 'spec_failed':
     case 'implementation_failed': return <AlertCircle {...props} />
     case 'pr_ready': return <GitMerge {...props} />
+    case 'pr_proposal': return <GitPullRequestArrow {...props} />
     case 'org_message': return <MessageSquare {...props} />
     default: return <Bell {...props} />
   }
@@ -50,6 +51,7 @@ function eventAccentColor(eventType: AttentionEventType): string {
     case 'agent_interaction_completed': return '#f59e0b'
     case 'specs_pushed': return '#3b82f6'
     case 'pr_ready': return '#8b5cf6'
+    case 'pr_proposal': return '#f59e0b'
     case 'org_message': return '#14b8a6'
     default: return '#6b7280'
   }

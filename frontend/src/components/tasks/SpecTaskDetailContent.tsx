@@ -167,6 +167,11 @@ import {
 } from "./specTaskTerminalDrawerState";
 import { useDesignReviews } from "../../services/designReviewService";
 import {
+  ACTIONABLE_PR_PROPOSAL_STATUSES,
+  useSpecTaskPRProposals,
+} from "../../services/specTaskPRProposalService";
+import PRProposalCard from "./PRProposalCard";
+import {
   isSpecTaskPlanningWorkspace,
   shouldLoadSpecTaskDesignReviews,
 } from "./specTaskPlanningWorkspace";
@@ -2454,6 +2459,26 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     </Box>
   );
 
+  // Pull requests open only from agent proposals the user approves; the ones
+  // still awaiting a decision (or a retry) sit above the composer.
+  const { data: prProposals } = useSpecTaskPRProposals(task?.id);
+  const actionablePRProposals = (prProposals ?? []).filter((p) =>
+    ACTIONABLE_PR_PROPOSAL_STATUSES.has(p.status ?? ""),
+  );
+  const prProposalHeader =
+    task?.id && actionablePRProposals.length > 0 ? (
+      <>
+        {actionablePRProposals.map((proposal, idx) => (
+          <PRProposalCard
+            key={proposal.id}
+            specTaskId={task.id!}
+            proposal={proposal}
+            attachedAbove={idx > 0}
+          />
+        ))}
+      </>
+    ) : undefined;
+
   // Project, repo and branch are reference, not controls, and on a phone they
   // cost a whole row directly under the composer — where the space is worth
   // more to the message being written. They stay one tap away in Details.
@@ -2730,6 +2755,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     />
                   )}
                   footerContent={taskChatMetadata}
+                  composerHeader={prProposalHeader}
                   placeholder={
                     sessionData?.config?.paused
                       ? "This session is paused — open the forked child to keep chatting"
@@ -3070,6 +3096,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     />
                   )}
                   footerContent={taskChatMetadata}
+                  composerHeader={prProposalHeader}
                   placeholder={
                     sessionData?.config?.paused
                       ? "This session is paused — open the forked child to keep chatting"
