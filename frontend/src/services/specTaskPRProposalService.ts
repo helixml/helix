@@ -23,7 +23,7 @@ export const ACTIONABLE_PR_PROPOSAL_STATUSES: ReadonlySet<string> = new Set([
 export function projectHasPullRequests(
   repositories: { is_external?: boolean; external_url?: string }[],
 ): boolean {
-  return repositories.some((repo) => !!(repo.is_external || repo.external_url));;
+  return repositories.some((repo) => !!(repo.is_external || repo.external_url));
 }
 
 // Agents propose pull requests asynchronously, so poll while the task is open.
