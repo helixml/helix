@@ -1825,12 +1825,19 @@ func (vm *VMManager) findFirmware(name string) string {
 	return ""
 }
 
-// findVulkanICD locates the KosmicKrisp Vulkan ICD JSON. Search order:
-//  1. Bundled in app: Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json
-//  2. Build output: build/bin/Helix.app/Contents/Resources/vulkan/icd.d/... (dev mode)
-//  3. UTM.app: /Applications/UTM.app/Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json
+// findVulkanICD locates the ICD JSON of the host Vulkan driver behind Venus.
+// As in UTM (UTMQemuSystem.m setVulkanDriver), MoltenVK is the default and
+// KosmicKrisp is opt-in (HELIX_VULKAN_DRIVER=kosmickrisp). KosmicKrisp is not
+// usable with UTM's render server: it imports all host-visible memory from
+// host pointers, which KosmicKrisp only supports for buffers, so every Venus
+// image has no Metal texture and the render server crashes using it.
+// Search order: app bundle, build output (dev mode), /Applications/UTM.app.
 func (vm *VMManager) findVulkanICD() string {
-	icdRel := filepath.Join("vulkan", "icd.d", "kosmickrisp_mesa_icd.json")
+	icdName := "MoltenVK_icd.json"
+	if os.Getenv("HELIX_VULKAN_DRIVER") == "kosmickrisp" {
+		icdName = "kosmickrisp_mesa_icd.json"
+	}
+	icdRel := filepath.Join("vulkan", "icd.d", icdName)
 
 	// Check app bundle first
 	appPath := vm.getAppBundlePath()
@@ -1865,9 +1872,6 @@ func renderServerPath(qemuPath string) string {
 }
 
 // buildQEMUEnv returns the environment variables for the QEMU process.
-// Sets VK_DRIVER_FILES to use KosmicKrisp (Mesa Vulkan) instead of MoltenVK.
-// KosmicKrisp produces dramatically better rendering quality under concurrent
-// GNOME sessions with virglrenderer's Venus Vulkan path.
 func (vm *VMManager) buildQEMUEnv(qemuPath string) []string {
 	// Start with inherited environment but override HOME to the Helix data dir.
 	// Glib's g_get_home_dir() stat()s $HOME on init, which triggers the macOS
@@ -1887,7 +1891,6 @@ func (vm *VMManager) buildQEMUEnv(qemuPath string) []string {
 	// UTMQemuSystem.m's setRendererBackend().
 	env = append(env, "ANGLE_DEFAULT_PLATFORM=metal")
 
-	// Use KosmicKrisp Vulkan driver — check bundled location first, then UTM.app
 	icdPath := vm.findVulkanICD()
 	if icdPath != "" {
 		env = append(env, "VK_DRIVER_FILES="+icdPath)

@@ -10,7 +10,7 @@ set -euo pipefail
 #   2. Copies our custom QEMU binary into the app bundle
 #   3. Copies all required open-source frameworks from UTM's sysroot
 #   4. Copies EFI firmware for VM booting
-#   5. Copies Vulkan ICD (KosmicKrisp) for GPU rendering
+#   5. Copies the Vulkan ICDs (MoltenVK, KosmicKrisp) from UTM.app
 #   6. Fixes dylib paths with install_name_tool
 #   7. Ad-hoc signs everything
 #
@@ -219,6 +219,7 @@ REQUIRED_FRAMEWORKS=(
     "gstbase-1.0.0"
     "vulkan.1"
     "vulkan_kosmickrisp"
+    "MoltenVK"
     # GStreamer deps needed by spice-server at runtime
     "gthread-2.0.0"
     "gpg-error.0"
@@ -264,17 +265,9 @@ log "Step 5: Copying Vulkan ICD configuration..."
 VULKAN_DIR="${RESOURCES_DIR}/vulkan/icd.d"
 mkdir -p "$VULKAN_DIR"
 
-# Create ICD JSON that points to bundled KosmicKrisp framework
-# The path is relative to the JSON file location
-cat > "$VULKAN_DIR/kosmickrisp_mesa_icd.json" << 'EOF'
-{
-    "ICD": {
-        "api_version": "1.3.335",
-        "library_path": "../../../Frameworks/vulkan_kosmickrisp.framework/Versions/Current/vulkan_kosmickrisp"
-    },
-    "file_format_version": "1.0.1"
-}
-EOF
+# Use UTM's own ICD files: they point at the frameworks copied above, with
+# the same relative layout. vm.go picks MoltenVK by default, as UTM does.
+cp "$UTM_APP/Contents/Resources/vulkan/icd.d/"*.json "$VULKAN_DIR/"
 log "  Created Vulkan ICD config"
 
 # Copy open-source notices (required by GPL/LGPL for bundled QEMU + frameworks)
@@ -371,6 +364,31 @@ for fw_dir in "$FRAMEWORKS_DIR"/*.framework; do
         done
     fi
 done
+# QEMU links the sysroot's lib/*.dylib by absolute path; point each at the
+# matching bundled framework, named as UTM's fixup.sh names them
+# (libfoo.N.dylib -> @rpath/foo.N.framework/Versions/A/foo.N).
+QEMU_DYLIB_BUNDLED="$MACOS_DIR/libqemu-aarch64-softmmu.dylib"
+for bin in "$QEMU_DYLIB_BUNDLED" "$MACOS_DIR/qemu-system-aarch64" "$MACOS_DIR/qemu-img"; do
+    [ -f "$bin" ] || continue
+    otool -L "$bin" | tail -n +2 | awk '{print $1}' | (grep "^$SYSROOT/lib/" || true) | while read -r old_path; do
+        name="$(basename "$old_path" .dylib)"
+        name="${name#lib}"
+        install_name_tool -change "$old_path" "@rpath/$name.framework/Versions/A/$name" "$bin"
+    done
+done
+
+# Every bundled binary must resolve its libraries inside the app or the OS.
+for bin in "$QEMU_DYLIB_BUNDLED" "$MACOS_DIR/qemu-system-aarch64" "$MACOS_DIR/qemu-img" "$MACOS_DIR/virgl_render_server"; do
+    [ -f "$bin" ] || continue
+    for dep in $(otool -L "$bin" | grep -v ':$' | awk '{print $1}'); do
+        case "$dep" in
+            /System/*|/usr/lib/*|@executable_path/*|@rpath/libqemu-aarch64-softmmu.dylib) ;;
+            @rpath/*)
+                [ -e "$FRAMEWORKS_DIR/${dep#@rpath/}" ] || { echo "ERROR: $(basename "$bin") needs $dep, not in Frameworks/"; exit 1; } ;;
+            *) echo "ERROR: $(basename "$bin") links $dep outside the app bundle"; exit 1 ;;
+        esac
+    done
+done
 log "  Fixed dylib paths"
 
 # =============================================================================
@@ -455,7 +473,7 @@ log "  MacOS/qemu-img              - QEMU disk image tool"
 log "  MacOS/libqemu-*.dylib       - Custom QEMU core with helix-frame-export"
 log "  Frameworks/                  - ${FW_COUNT} open-source frameworks"
 log "  Resources/firmware/          - EFI firmware (edk2)"
-log "  Resources/vulkan/            - KosmicKrisp Vulkan ICD"
+log "  Resources/vulkan/            - Vulkan ICDs (MoltenVK default, KosmicKrisp)"
 log "  Resources/vm/                - VM manifest + EFI vars (disk images downloaded on first launch)"
 log ""
 log "Verification:"

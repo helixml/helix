@@ -36,6 +36,13 @@ General-purpose utility libraries.
 - License: GNU Lesser General Public License v2.1
 - Source: https://gitlab.gnome.org/GNOME/glib
 
+## MoltenVK (Apache 2.0)
+
+Vulkan on Metal; the default host Vulkan driver behind virtio-gpu Venus.
+
+- License: Apache License 2.0
+- Source: https://github.com/KhronosGroup/MoltenVK
+
 ## Mesa Vulkan Driver — KosmicKrisp (MIT)
 
 Mesa-based Vulkan driver for virtio-gpu Venus protocol.

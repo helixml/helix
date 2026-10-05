@@ -17,6 +17,13 @@ Everything is pinned to one UTM release, in [`UTM_VERSION`](UTM_VERSION):
 | Frameworks + `virgl_render_server` bundled in Helix.app | `UTM.dmg` of `UTM_RELEASE` (`fetch-utm-app.sh`) | `UTM_VERSION` |
 | Launch environment (`RENDER_SERVER_EXEC_PATH`, `ANGLE_DEFAULT_PLATFORM`, `VK_DRIVER_FILES`) | UTM's `QEMUHelper/QEMUHelper.m` | `for-mac/vm.go` `buildQEMUEnv` |
 
+Host Vulkan driver behind Venus: **MoltenVK**, UTM's default
+(`UTMQemuSystem.m` `setVulkanDriver`). KosmicKrisp is bundled but opt-in
+(`HELIX_VULKAN_DRIVER=kosmickrisp`): since UTM 5.0.6 the render server imports
+all host-visible memory through `VK_EXT_external_memory_host`, which
+KosmicKrisp only supports for buffers, so Venus images get no Metal texture and
+the render server crashes (Zed's adapter test hits it immediately).
+
 All three must come from the same UTM release. A QEMU from one release with
 frameworks from another fails in confusing ways (for example: blob resources
 fail with `ERR_UNSPEC` and the video stream never starts).
