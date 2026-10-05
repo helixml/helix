@@ -2,6 +2,7 @@ import type { TypesOrganizationMembership, TypesProject, TypesSessionMetadata, T
 import type { BotDTO, BotInstanceDTO } from '../../services/helixOrgService'
 import type { SpecTask } from '../../services/specTaskService'
 import { deriveSandboxState } from '../external-agent/sandboxState'
+import { CHIEF_OF_STAFF_BOT_ID } from '../../utils/organizations'
 import { matchesAllTokens } from '../../utils/searchUtils'
 
 export type SidebarStatus = {
@@ -654,7 +655,9 @@ export const toSidebarBots = (bots: BotDTO[]): SidebarBot[] => (
       sessionId: bot.session_id || undefined,
     }))
     .sort((left, right) => (
-      Number(right.running) - Number(left.running) || left.name.localeCompare(right.name)
+      Number(right.id === CHIEF_OF_STAFF_BOT_ID) - Number(left.id === CHIEF_OF_STAFF_BOT_ID)
+      || Number(right.running) - Number(left.running)
+      || left.name.localeCompare(right.name)
     ))
 )
 
