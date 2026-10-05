@@ -34,6 +34,7 @@ vi.mock('../../services/sessionService', () => ({
       ? []
       : Array.from({ length: pageSize }, (_, index) => ({
         session_id: `session-${index + 1}`,
+        metadata: { project_id: args[2] },
         name: `Session ${index + 1}`,
         updated: new Date(Date.UTC(2026, 7, 6, 12, 0, -index)).toISOString(),
       }))
@@ -172,6 +173,7 @@ describe('ProjectChatGroup', () => {
     render(
       <ProjectChatGroup
         orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
         collapsed={false}
         query=""
         activeItemId=""
@@ -388,6 +390,7 @@ describe('ProjectChatGroup', () => {
     render(
       <ProjectChatGroup
         orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
         collapsed={false}
         query=""
         activeItemId=""
@@ -398,6 +401,7 @@ describe('ProjectChatGroup', () => {
         pinnedChats={[{
           id: 'session-1',
           kind: 'session',
+          project_id: 'project-test',
           pinned_at: '2026-08-06T11:00:00Z',
         }]}
         archivingItemId={null}
@@ -459,6 +463,7 @@ describe('ProjectChatGroup pagination', () => {
     render(
       <ProjectChatGroup
         orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
         collapsed={false}
         query=""
         activeItemId=""

@@ -521,7 +521,7 @@ const Layout: FC<{
   const isProjectsIndex =
     router.name === "org_projects" &&
     (!router.params.tab || router.params.tab === "projects");
-  const isConversationRoute = ["org_chat", "org_chat-task", "org_session", "org_bot_session", "org_new"].includes(
+  const isConversationRoute = ["org_project-new", "org_chat-task", "org_session", "org_bot_session", "org_new"].includes(
     router.name,
   );
   const routedAgent = router.params.app_id

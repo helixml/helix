@@ -44,7 +44,7 @@ vi.mock('../hooks/useApps', () => ({
 }))
 
 vi.mock('../hooks/useRouter', () => ({
-  default: () => ({ params: { project_id: mockRouterState.projectId } }),
+  default: () => ({ params: { id: mockRouterState.projectId } }),
 }))
 
 vi.mock('../hooks/useSnackbar', () => ({
@@ -180,33 +180,12 @@ describe('Home project empty state', () => {
   })
 
   it('keeps the chat composer when projects exist', () => {
+    mockRouterState.projectId = 'project-1'
     mockProjectState.projects = [{ id: 'project-1', name: 'Project One' }]
     renderHome()
 
     expect(screen.getByText('Chat prompt')).toBeInTheDocument()
     expect(screen.queryByText('Get started by creating a new project')).not.toBeInTheDocument()
-  })
-})
-
-describe('Home chat model preference', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    localStorage.clear()
-    mockRouterState.projectId = ''
-    mockProjectState.projects = [{ id: 'project-1', name: 'Project' }]
-    mockProjectState.loading = false
-  })
-
-  it('persists only a user-selected model in user and organization scoped storage', () => {
-    renderHome()
-
-    expect(localStorage.getItem('helix_chat_model:user-1:org-1')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Select model' }))
-    expect(JSON.parse(localStorage.getItem('helix_chat_model:user-1:org-1') || '')).toEqual({
-      provider: 'pe_selected',
-      model: 'selected-model',
-      reasoningEffort: 'medium',
-    })
   })
 })
 

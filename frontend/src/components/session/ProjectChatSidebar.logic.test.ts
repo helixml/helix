@@ -67,7 +67,7 @@ describe('ProjectChatSidebar logic', () => {
     }, true, true)).toBe(4)
   })
 
-  it('groups tasks and project-linked chats by project, and puts direct chats in No project', () => {
+  it('groups project-linked chats by project and omits direct chats', () => {
     const tasks: SpecTask[] = [{
       id: 'task-one',
       project_id: 'project-one',
@@ -108,14 +108,13 @@ describe('ProjectChatSidebar logic', () => {
 
     const groups = buildProjectChatGroups(projects, tasks, sessions)
 
-    expect(groups.map((group) => group.name)).toEqual(['No project', 'Project One', 'Project Two'])
-    expect(groups[0]?.items.map((item) => item.id)).toEqual(['direct-session'])
-    expect(groups[1]?.items.map((item) => item.id)).toEqual(['task-one', 'worker-session'])
-    expect(groups[1]?.items[0]?.session).toEqual(expect.objectContaining({
+    expect(groups.map((group) => group.name)).toEqual(['Project One', 'Project Two'])
+    expect(groups[0]?.items.map((item) => item.id)).toEqual(['task-one', 'worker-session'])
+    expect(groups[0]?.items[0]?.session).toEqual(expect.objectContaining({
       session_id: 'task-session',
       model_name: 'claude-opus-4-6',
     }))
-    expect(groups[2]?.items.map((item) => item.id)).toEqual(['project-session'])
+    expect(groups[1]?.items.map((item) => item.id)).toEqual(['project-session'])
   })
 
   // A group merges two independently limited server lists, so the client sort
@@ -171,34 +170,36 @@ describe('ProjectChatSidebar logic', () => {
     const sessions: TypesSessionSummary[] = [
       {
         session_id: 'recent-metadata',
+        metadata: { project_id: 'project-one' },
         created: '2026-08-01T00:00:00Z',
         updated: '2026-08-09T00:00:00Z',
         last_message_at: '2026-08-05T00:00:00Z',
       },
       {
         session_id: 'recent-message',
+        metadata: { project_id: 'project-one' },
         created: '2026-08-02T00:00:00Z',
         updated: '2026-08-06T00:00:00Z',
         last_message_at: '2026-08-08T00:00:00Z',
       },
     ]
 
-    expect(buildProjectChatGroups([], [], sessions)[0]?.items.map((item) => item.id))
+    expect(buildProjectChatGroups(projects, [], sessions)[0]?.items.map((item) => item.id))
       .toEqual(['recent-message', 'recent-metadata'])
   })
 
   it('orders pinned chats before unpinned chats with newest pins first', () => {
     const sessions: TypesSessionSummary[] = [
-      { session_id: 'newest-chat', created: '2026-08-08T00:00:00Z' },
-      { session_id: 'older-pin', created: '2026-08-01T00:00:00Z' },
-      { session_id: 'newer-pin', created: '2026-08-02T00:00:00Z' },
+      { session_id: 'newest-chat', created: '2026-08-08T00:00:00Z', metadata: { project_id: 'project-one' } },
+      { session_id: 'older-pin', created: '2026-08-01T00:00:00Z', metadata: { project_id: 'project-one' } },
+      { session_id: 'newer-pin', created: '2026-08-02T00:00:00Z', metadata: { project_id: 'project-one' } },
     ]
     const pins = new Map([
       ['session:older-pin', '2026-08-06T00:00:00Z'],
       ['session:newer-pin', '2026-08-07T00:00:00Z'],
     ])
 
-    expect(buildProjectChatGroups([], [], sessions, 'updated_at', pins)[0]?.items.map((item) => item.id))
+    expect(buildProjectChatGroups(projects, [], sessions, 'updated_at', pins)[0]?.items.map((item) => item.id))
       .toEqual(['newer-pin', 'older-pin', 'newest-chat'])
   })
 
@@ -681,9 +682,8 @@ describe('ProjectChatSidebar bots and people', () => {
     )
     expect(items.map((item) => [item.id, item.projectName])).toEqual([
       ['task_new', 'Beta'],
-      ['ses_chat', undefined],
       ['task_old', 'Alpha'],
     ])
-    expect(items[2].session?.session_id).toBe('ses_task')
+    expect(items[1].session?.session_id).toBe('ses_task')
   })
 })

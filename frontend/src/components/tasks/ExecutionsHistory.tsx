@@ -92,14 +92,9 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
     }
   };
 
-  // Helper function to get the session URL for an execution
-  const getSessionUrl = (execution: TypesTriggerExecution): string | undefined => {
-    if (!execution.session_id) return undefined;
-    const org = account.organizationTools.organization;
-    if (org) {
-      return `/orgs/${org.name}/chat/session/${execution.session_id}`;
-    }
-    return `/session/${execution.session_id}`;
+  // Trigger executions are not project-backed, so they no longer have a chat URL.
+  const getSessionUrl = (_execution: TypesTriggerExecution): string | undefined => {
+    return undefined;
   };
 
   if (!taskId) {
