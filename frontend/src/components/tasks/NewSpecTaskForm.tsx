@@ -45,6 +45,7 @@ import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
 import useSnackbar from "../../hooks/useSnackbar";
 import { useGetProject, useGetProjectRepositories } from "../../services";
+import { projectHasPullRequests } from "../../services/specTaskPRProposalService";
 import { useSpecTasks, useProjectLabels, useAddLabel } from "../../services/specTaskService";
 import {
   SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
@@ -108,6 +109,14 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     projectId,
     !!projectId,
   );
+  // PR auto-approval only applies when the project has an external repo; it
+  // starts from the project's default and resets if the project changes.
+  const showAutoApprovePRs = projectHasPullRequests(projectRepositories);
+  const projectAutoApprovesPRs = !!project?.auto_approve_pull_requests;
+  const [autoApprovePRs, setAutoApprovePRs] = useState(projectAutoApprovesPRs);
+  useEffect(() => {
+    setAutoApprovePRs(projectAutoApprovesPRs);
+  }, [projectId, projectAutoApprovesPRs]);
   const { data: projectTasks = [] } = useSpecTasks({
     projectId,
     withDependsOn: true,
@@ -513,6 +522,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         assignee_id: assigneeId || undefined,
         just_do_it_mode: justDoItMode,
         auto_start: autoStart,
+        ...(showAutoApprovePRs
+          ? { auto_approve_pull_requests: autoApprovePRs }
+          : {}),
         depends_on: selectedDependencyTasks
           .map((task) => task.id || "")
           .filter((taskId) => !!taskId),
@@ -1282,6 +1294,31 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               />
             </Tooltip>
           </FormControl>
+
+          {showAutoApprovePRs && (
+            <FormControl fullWidth>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={autoApprovePRs}
+                    onChange={(e) => setAutoApprovePRs(e.target.checked)}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      Auto-approve PRs
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Open this task&apos;s pull requests without asking you
+                      first. You can change it later in the task&apos;s
+                      details.
+                    </Typography>
+                  </Box>
+                }
+              />
+            </FormControl>
+          )}
 
           {/* Start Immediately Checkbox */}
           <FormControl fullWidth>

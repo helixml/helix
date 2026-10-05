@@ -168,6 +168,7 @@ import {
 import { useDesignReviews } from "../../services/designReviewService";
 import {
   ACTIONABLE_PR_PROPOSAL_STATUSES,
+  projectHasPullRequests,
   useSpecTaskPRProposals,
 } from "../../services/specTaskPRProposalService";
 import PRProposalCard from "./PRProposalCard";
@@ -395,6 +396,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [assigneeAnchorEl, setAssigneeAnchorEl] = useState<HTMLElement | null>(null);
   const orgMembers = account.organizationTools.organization?.memberships || [];
   const assignedUser = resolveOrganizationUser(task?.assignee_id, orgMembers, account.user);
+  const autoApprover = resolveOrganizationUser(
+    task?.auto_approve_pull_requests_by,
+    orgMembers,
+    account.user,
+  );
 
   // Start planning state - prevents double-click
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
@@ -2017,6 +2023,49 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           onClose={() => setAssigneeAnchorEl(null)}
         />
       </Box>
+
+      {/* Pull request auto-approval (external repositories only) */}
+      {projectHasPullRequests(projectRepositories) && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            Pull requests
+          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="body2">Auto-approve pull requests</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {task?.auto_approve_pull_requests
+                  ? `The agent's proposals open without asking, using ${
+                      autoApprover?.full_name || autoApprover?.email || "the approver"
+                    }'s credentials.`
+                  : "You're asked to approve each pull request the agent proposes."}
+              </Typography>
+            </Box>
+            <Switch
+              checked={!!task?.auto_approve_pull_requests}
+              disabled={updateSpecTask.isPending || !isTaskDetailsEditable}
+              inputProps={{ "aria-label": "Auto-approve pull requests" }}
+              onChange={async (e) => {
+                if (!task?.id) return;
+                const enabled = e.target.checked;
+                try {
+                  await updateSpecTask.mutateAsync({
+                    taskId: task.id,
+                    updates: { auto_approve_pull_requests: enabled },
+                  });
+                  snackbar.success(
+                    enabled
+                      ? "Pull requests will be approved without asking"
+                      : "You'll be asked to approve each pull request",
+                  );
+                } catch {
+                  snackbar.error("Failed to update pull request approval");
+                }
+              }}
+            />
+          </Box>
+        </Box>
+      )}
 
       {/* Phase agent selection */}
       <Box sx={{ mb: 2 }}>

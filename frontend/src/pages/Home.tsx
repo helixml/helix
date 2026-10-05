@@ -2,7 +2,9 @@ import React, { FC, useEffect, useState } from 'react'
 import {
   Box,
   Button,
+  Checkbox,
   CircularProgress,
+  FormControlLabel,
   ListItemIcon,
   ListItemText,
   Menu,
@@ -30,7 +32,8 @@ import useIsPhone from '../hooks/useIsPhone'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
-import { useListProjects } from '../services'
+import { useGetProjectRepositories, useListProjects } from '../services'
+import { projectHasPullRequests } from '../services/specTaskPRProposalService'
 import {
   SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
   SPEC_TASK_ATTACHMENT_MAX_BYTES,
@@ -128,6 +131,18 @@ const Home: FC = () => {
     preferredSpecTaskSandboxRuntime(requestedProjectId),
   )
   const [taskMode, setTaskMode] = useState<NewChatTaskMode>('build')
+  // PR auto-approval only applies to projects with an external repository,
+  // and starts from the project's default every time the project changes.
+  const { data: projectRepositories = [] } = useGetProjectRepositories(
+    selectedProjectId,
+    !!selectedProjectId,
+  )
+  const showAutoApprovePRs = projectHasPullRequests(projectRepositories)
+  const projectAutoApprovesPRs = !!selectedProject?.auto_approve_pull_requests
+  const [autoApprovePRs, setAutoApprovePRs] = useState(projectAutoApprovesPRs)
+  useEffect(() => {
+    setAutoApprovePRs(projectAutoApprovesPRs)
+  }, [selectedProjectId, projectAutoApprovesPRs])
   const [modeMenuAnchor, setModeMenuAnchor] = useState<HTMLElement | null>(null)
   const [projectMenuAnchor, setProjectMenuAnchor] = useState<HTMLElement | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -242,6 +257,7 @@ const Home: FC = () => {
         codeAgentConfig: taskCodeAgentConfig,
         sandboxResourceOverrides: taskSandboxResources,
         sandboxRuntime: taskSandboxRuntime,
+        autoApprovePullRequests: showAutoApprovePRs ? autoApprovePRs : undefined,
       }))
       taskId = task?.id || ''
       if (!taskId) throw new Error('Task creation returned no task ID')
@@ -336,6 +352,23 @@ const Home: FC = () => {
         }}
       />
       {modeSelector}
+      {showAutoApprovePRs && (
+        <Tooltip describeChild title="Approve this task's pull requests without asking. You can change it later in the task's details.">
+          <FormControlLabel
+            disabled={submitting}
+            control={
+              <Checkbox
+                size="small"
+                checked={autoApprovePRs}
+                onChange={(event) => setAutoApprovePRs(event.target.checked)}
+                sx={{ p: 0.5 }}
+              />
+            }
+            label={<Typography variant="caption" color="text.secondary" noWrap>Auto-approve PRs</Typography>}
+            sx={{ ml: 0.5, mr: 0, flexShrink: 0 }}
+          />
+        </Tooltip>
+      )}
     </Box>
   )
 

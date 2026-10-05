@@ -4,6 +4,8 @@ import Button from "@mui/material/Button";
 import Collapse from "@mui/material/Collapse";
 import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
@@ -55,6 +57,7 @@ export default function PRProposalCard({
   const [title, setTitle] = useState(proposal.title ?? "");
   const [body, setBody] = useState(proposal.body ?? "");
   const [comment, setComment] = useState("");
+  const [autoApproveFuture, setAutoApproveFuture] = useState(false);
   const [error, setError] = useState("");
 
   // The agent may refine a pending proposal; reset local edits when it does.
@@ -77,6 +80,7 @@ export default function PRProposalCard({
         request: {
           decision,
           comment: comment.trim() || undefined,
+          auto_approve_future: decision === "approve" && autoApproveFuture ? true : undefined,
           head_branch: decision === "approve" ? changed(headBranch, proposal.head_branch) : undefined,
           base_branch: decision === "approve" ? changed(baseBranch, proposal.base_branch) : undefined,
           title: decision === "approve" ? changed(title, proposal.title) : undefined,
@@ -113,7 +117,9 @@ export default function PRProposalCard({
   const busy = decide.isPending;
   const headerLabel =
     status === PRProposalStatusApproved
-      ? "Approved — waiting for the agent to push"
+      ? proposal.auto_approved
+        ? "Auto-approved — waiting for the agent to push"
+        : "Approved — waiting for the agent to push"
       : status === PRProposalStatusFailed
         ? "Pull request could not be opened"
         : "Agent wants to open a pull request";
@@ -315,12 +321,31 @@ export default function PRProposalCard({
           )}
 
           {(isPending || status === PRProposalStatusFailed) && (
-            <Stack direction="row" justifyContent="flex-end" spacing={0.75} sx={{ mt: 1 }}>
+            <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 1 }}>
+              <Tooltip describeChild title="Later proposals from this task's agent are approved without asking, using your credentials. Turn it off in the task's details.">
+                <FormControlLabel
+                  disabled={busy}
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={autoApproveFuture}
+                      onChange={(e) => setAutoApproveFuture(e.target.checked)}
+                      sx={{ p: 0.5 }}
+                    />
+                  }
+                  label={
+                    <Typography variant="caption" sx={{ color: colors.subtle }}>
+                      Auto-approve future pull requests for this task
+                    </Typography>
+                  }
+                  sx={{ mr: "auto", ml: 0 }}
+                />
+              </Tooltip>
               <Button
                 size="small"
                 disabled={busy}
                 onClick={() => submit("reject")}
-                sx={{ minHeight: 30, borderRadius: 999, px: 1.5, textTransform: "none", color: colors.subtle }}
+                sx={{ minHeight: 30, borderRadius: 999, px: 1.5, textTransform: "none", color: colors.subtle, whiteSpace: "nowrap", flexShrink: 0 }}
               >
                 {isPending ? "Reject" : "Cancel"}
               </Button>
@@ -330,7 +355,7 @@ export default function PRProposalCard({
                 color="success"
                 disabled={busy || (isPending && (!headBranch.trim() || !baseBranch.trim()))}
                 onClick={() => submit("approve")}
-                sx={{ minHeight: 30, borderRadius: 999, px: 1.5, textTransform: "none" }}
+                sx={{ minHeight: 30, borderRadius: 999, px: 1.5, textTransform: "none", whiteSpace: "nowrap", flexShrink: 0 }}
               >
                 {busy ? "Working…" : isPending ? "Approve & open PR" : "Retry"}
               </Button>

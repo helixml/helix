@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   TypesCodeAgentCredentialType,
@@ -15,6 +15,7 @@ import Home from './Home'
 
 const mockProjectState = vi.hoisted(() => ({
   projects: [] as TypesProject[],
+  repositories: [] as { is_external?: boolean; external_url?: string }[],
   loading: false,
 }))
 const mockRouterState = vi.hoisted(() => ({ projectId: '' }))
@@ -57,6 +58,7 @@ vi.mock('../services', () => ({
     isLoading: mockProjectState.loading,
   }),
   useListProjectSpecTaskAgents: () => ({ data: [] }),
+  useGetProjectRepositories: () => ({ data: mockProjectState.repositories }),
 }))
 
 vi.mock('../services/providersService', () => ({
@@ -284,5 +286,55 @@ describe('Home project compute preference', () => {
       sandbox_resource_overrides: { vcpus: 4, memory_mb: 8192 },
       sandbox_runtime: TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop,
     })
+  })
+})
+
+describe('Home PR auto-approval', () => {
+  const project = (autoApprove: boolean): TypesProject => ({
+    id: 'project-1',
+    name: 'Project One',
+    auto_approve_pull_requests: autoApprove,
+    code_agent_config: {
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+      model: 'implementation-model',
+    },
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockRouterState.projectId = 'project-1'
+    mockProjectState.loading = false
+    mockProjectState.repositories = [{ is_external: true, external_url: 'https://github.com/a/b' }]
+  })
+
+  afterEach(() => {
+    mockProjectState.repositories = []
+  })
+
+  it('is ticked when the project auto-approves pull requests', async () => {
+    mockProjectState.projects = [project(true)]
+    renderHome()
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: 'Auto-approve PRs' })).toBeChecked()
+    })
+  })
+
+  it('is unticked when the project asks for approval', async () => {
+    mockProjectState.projects = [project(false)]
+    renderHome()
+    const box = await screen.findByRole('checkbox', { name: 'Auto-approve PRs' })
+    expect(box).not.toBeChecked()
+    fireEvent.click(box)
+    expect(box).toBeChecked()
+  })
+
+  it('is hidden for projects without an external repository', async () => {
+    mockProjectState.projects = [project(true)]
+    mockProjectState.repositories = [{}]
+    renderHome()
+    await screen.findByRole('button', { name: 'Start implementation immediately' })
+    expect(screen.queryByRole('checkbox', { name: 'Auto-approve PRs' })).not.toBeInTheDocument()
   })
 })
