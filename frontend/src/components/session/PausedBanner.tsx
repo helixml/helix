@@ -49,6 +49,8 @@ const PausedBanner: FC<PausedBannerProps> = ({ session }) => {
         id: projectId,
         session_id: forkedChildID,
       });
+    } else if (orgId) {
+      router.navigate("org_session", { org_id: orgId, session_id: forkedChildID });
     } else {
       router.navigate("session", { session_id: forkedChildID });
     }

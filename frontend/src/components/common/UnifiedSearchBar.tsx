@@ -131,6 +131,8 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
         const projectId = result.metadata?.projectId
         if (projectId) {
           account.orgNavigate('project-session', { id: projectId, session_id: result.id })
+        } else {
+          account.orgNavigate('session', { session_id: result.id })
         }
       } else if (result.type === 'code') {
         // For code results, navigate to the repository with file selected

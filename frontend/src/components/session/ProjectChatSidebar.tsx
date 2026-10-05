@@ -422,7 +422,7 @@ const ProjectChatSidebar: FC<{
     } else if (item.projectId) {
       account.orgNavigate('project-session', { id: item.projectId, session_id: item.id })
     } else {
-      account.orgNavigate('projects')
+      account.orgNavigate('session', { session_id: item.id })
     }
     onOpenSession()
   }
