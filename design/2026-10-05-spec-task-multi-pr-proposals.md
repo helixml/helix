@@ -49,6 +49,30 @@ pending ─approve─▶ approved ─(branch has commits beyond base)─▶ open
 - `create_spectask_prs` is blocked on spec-task surfaces (it would bypass
   approval); org Bots keep it.
 
+## Auto-approval
+
+Three controls, one rule: **each task's own flag decides**
+(`spec_tasks.auto_approve_pull_requests`, approving as
+`auto_approve_pull_requests_by`, whose provider credentials push and open PRs).
+
+- **Project setting** `projects.auto_approve_pull_requests` (Board Automation →
+  Automations) is the *default for new tasks*: it pre-ticks the box in both
+  creation forms and is applied server-side to tasks created by API, bots,
+  agents, cron and clone (`SpecTask.InitAutoApprovePullRequests`). Changing it
+  does not touch existing tasks.
+- **Creation forms** (new-task composer and Kanban form) show "Auto-approve PRs"
+  for projects with an external repo; an explicit choice overrides the default.
+- **Approval card** "Auto-approve future pull requests for this task" turns it on
+  as the approving user (ignored on reject).
+- **Task Details → Pull requests** shows the setting and whose credentials it
+  uses, and turns it on/off.
+
+An auto-approved proposal runs the same validation, OAuth check and
+compare-and-set as a click, is marked `auto_approved`, raises no approval
+request, and its outcome (PR link / push now / failed) is the
+`propose_pull_request` result. If the approver has no provider connection the
+proposal stays pending for a human.
+
 ## Verified end to end (2026-10-05)
 
 Inner Helix + real GitHub repo (`lukemarsden/helix-pr-proposals-e2e`), agent side
@@ -60,6 +84,12 @@ pushed → PR #2 auto-opened; third proposal rejected → push refused; merge #1
 task stays open; merge #2 → done; Request PR on done → 202 + instruction;
 follow-up proposal → push → PR #3 reopens task; pending proposal blocks
 completion after #3 merged; rejecting it → done.
+
+Auto-approval, live: project switch on → composer pre-ticked → task created with
+auto-approve as its creator → agent proposal opened PR #4 immediately with no
+approval request; Details switch off → next proposal pending; approving it with
+"auto-approve future" ticked → flag back on → next proposal auto-approved;
+Kanban form pre-ticked, unticking created a task with auto-approve off.
 
 Not exercised live: an LLM agent choosing to call the tool (blocked by the model
 access issue above).
