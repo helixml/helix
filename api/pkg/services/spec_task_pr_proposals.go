@@ -168,6 +168,11 @@ func (s *PRProposalService) Propose(ctx context.Context, task *types.SpecTask, i
 	if err := s.store.CreateSpecTaskPRProposal(ctx, p); err != nil {
 		return nil, err
 	}
+	if task.AutoApprovePullRequests {
+		if decided := s.autoApprove(ctx, task, p); decided != nil {
+			return decided, nil
+		}
+	}
 	s.emitAttention(task, types.AttentionEventPRProposal, p.ID, map[string]interface{}{
 		"proposal_id": p.ID,
 		"head_branch": p.HeadBranch,
@@ -192,6 +197,35 @@ func (s *PRProposalService) Decide(ctx context.Context, user *types.User, propos
 	if err != nil {
 		return nil, fmt.Errorf("get spec task: %w", err)
 	}
+	return s.decide(ctx, user, task, p, req, false)
+}
+
+// autoApprove approves a new proposal of a task that auto-approves PRs, as
+// the user who enabled it. It returns nil, leaving the proposal pending for a
+// human, when that user cannot approve (e.g. no provider connection).
+func (s *PRProposalService) autoApprove(ctx context.Context, task *types.SpecTask, p *types.SpecTaskPRProposal) *types.SpecTaskPRProposal {
+	actorID := task.AutoApprovePullRequestsBy
+	if actorID == "" {
+		actorID = task.CreatedBy
+	}
+	user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: actorID})
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver not found; waiting for a human")
+		return nil
+	}
+	decided, err := s.decide(ctx, user, task, p, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove}, true)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Str("proposal_id", p.ID).Msg("pr proposal: auto-approval failed; waiting for a human")
+		return nil
+	}
+	return decided
+}
+
+// decide applies a decision by user. auto marks an approval made on the
+// user's behalf by the task's auto-approve setting: nobody was asked, so no
+// approval request is dismissed and the agent learns the outcome from the
+// propose_pull_request result rather than a separate message.
+func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *types.SpecTask, p *types.SpecTaskPRProposal, req *types.PRProposalDecisionRequest, auto bool) (*types.SpecTaskPRProposal, error) {
 	now := time.Now()
 	from := p.Status
 
@@ -254,6 +288,7 @@ func (s *PRProposalService) Decide(ctx context.Context, user *types.User, propos
 		}
 		p.Status = types.PRProposalStatusApproved
 		p.DecidedBy, p.DecidedAt, p.Error = user.ID, &now, ""
+		p.AutoApproved = auto
 		if req.Comment != "" || from == types.PRProposalStatusPending {
 			p.DecisionComment = req.Comment
 		}
@@ -264,6 +299,14 @@ func (s *PRProposalService) Decide(ctx context.Context, user *types.User, propos
 		if !ok {
 			return nil, conflictingProposal("proposal changed while deciding; reload and try again")
 		}
+		if req.AutoApproveFuture {
+			if err := s.SetAutoApprove(ctx, task.ID, true, user.ID); err != nil {
+				return nil, err
+			}
+		}
+		if auto {
+			return s.tryOpen(ctx, p.ID)
+		}
 		s.dismissApprovalRequest(ctx, p)
 		opened, err := s.tryOpen(ctx, p.ID)
 		if err != nil {
@@ -273,6 +316,23 @@ func (s *PRProposalService) Decide(ctx context.Context, user *types.User, propos
 		return opened, nil
 	}
 	return nil, invalidProposal("decision must be %q or %q", types.PRProposalDecisionApprove, types.PRProposalDecisionReject)
+}
+
+// SetAutoApprove turns auto-approval of a task's PR proposals on or off.
+// Turning it on records userID as the approver whose credentials are used.
+func (s *PRProposalService) SetAutoApprove(ctx context.Context, taskID string, enabled bool, userID string) error {
+	return s.git.WithRepoLock("task:"+taskID, func() error {
+		task, err := s.store.GetSpecTask(ctx, taskID)
+		if err != nil {
+			return err
+		}
+		task.AutoApprovePullRequests = enabled
+		if enabled {
+			task.AutoApprovePullRequestsBy = userID
+		}
+		task.UpdatedAt = time.Now()
+		return s.store.UpdateSpecTask(ctx, task)
+	})
 }
 
 // OnBranchPushed opens the PRs of approved proposals waiting on this branch.
@@ -682,7 +742,7 @@ func (s *PRProposalService) notifyAgent(ctx context.Context, task *types.SpecTas
 // that do not carry the full implementation handoff (Just Do It tasks).
 func PullRequestProposalGuidance(branchName string) string {
 	return "**Pull requests:** Helix never opens a pull request on its own, and you must not create one with `gh`, the GitHub API or GitHub MCP tools. " +
-		"When work is ready for review, push it and call `propose_pull_request` (title, body, reason); the user approves each proposal and the outcome arrives as a message in this session. " +
+		"When work is ready for review, push it and call `propose_pull_request` (title, body, reason); the user approves each proposal (unless the task auto-approves them) and the tool result or a later message in this session tells you the outcome. " +
 		"`head_branch` defaults to `" + branchName + "`. A task may ship as several pull requests: propose each further slice with its own new `head_branch` before pushing to it — " +
 		"you can only push to your task branch and to branches the user has approved. Pushing more commits to the branch of an open pull request updates it."
 }
@@ -730,7 +790,9 @@ func BuildPRProposalOutcomePrompt(p *types.SpecTaskPRProposal, decidedBy *types.
 	switch p.Status {
 	case types.PRProposalStatusOpened:
 		fmt.Fprintf(&b, "# Pull request opened\n\nSpeak English.\n\n")
-		if decidedBy != nil {
+		if p.AutoApproved {
+			b.WriteString("Your pull request proposal was auto-approved (this task approves pull requests without asking).\n")
+		} else if decidedBy != nil {
 			fmt.Fprintf(&b, "%s approved your pull request proposal.\n", who)
 		}
 		fmt.Fprintf(&b, "Pull request #%d is open in %s from `%s` into `%s`: %s\n", p.PRNumber, p.RepositoryName, p.HeadBranch, p.BaseBranch, p.PRURL)

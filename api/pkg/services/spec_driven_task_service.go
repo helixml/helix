@@ -336,6 +336,7 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
+	task.InitAutoApprovePullRequests(req.AutoApprovePullRequests, project, req.UserID)
 	if req.DependsOn != nil {
 		task.DependsOn = make([]types.SpecTask, 0, len(req.DependsOn))
 		for _, dependsOnID := range req.DependsOn {

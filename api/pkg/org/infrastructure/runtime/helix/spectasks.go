@@ -251,6 +251,7 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 		SandboxResourceOverrides: sandboxResources,
 		SandboxRuntime:           sandboxRuntime,
 	}
+	task.InitAutoApprovePullRequests(nil, project, hiringUserID)
 	taskNumber, err := s.tasks.IncrementGlobalTaskNumber(ctx)
 	if err != nil {
 		return runtime.SpecTaskView{}, fmt.Errorf("assign task number: %w", err)

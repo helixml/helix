@@ -484,3 +484,82 @@ func (s *PRProposalSuite) TestConcurrentDecisionsOnlyOneWins() {
 	s.Contains([]types.SpecTaskPRProposalStatus{types.PRProposalStatusApproved, types.PRProposalStatusRejected}, got.Status)
 	s.LessOrEqual(failures, 1)
 }
+
+func (s *PRProposalSuite) enableAutoApprove(by string) {
+	t := s.task("spt_1")
+	t.AutoApprovePullRequests = true
+	t.AutoApprovePullRequestsBy = by
+	s.Require().NoError(s.store.UpdateSpecTask(s.ctx, t))
+}
+
+func (s *PRProposalSuite) TestAutoApproveOpensWithoutAsking() {
+	s.enableAutoApprove("usr_owner")
+	p, err := s.propose(ProposePRInput{Title: "Slice 1"})
+	s.Require().NoError(err)
+	s.Equal(types.PRProposalStatusOpened, p.Status, "the PR opens straight away")
+	s.True(p.AutoApproved)
+	s.Equal("usr_owner", p.DecidedBy, "approved as the user who enabled auto-approval")
+	s.Empty(s.messages, "the agent learns the outcome from the tool result, not a queued message")
+	s.Empty(s.store.dismissed, "no approval request was raised, so none is dismissed")
+	s.Equal(types.TaskStatusPullRequest, s.task("spt_1").Status)
+}
+
+func (s *PRProposalSuite) TestAutoApprovedNewBranchStillNeedsCommits() {
+	s.enableAutoApprove("usr_owner")
+	p, err := s.propose(ProposePRInput{HeadBranch: "feature/000001-auto", Title: "Auto"})
+	s.Require().NoError(err)
+	s.Equal(types.PRProposalStatusApproved, p.Status)
+	allowed, _ := s.svc.AllowedPushBranches(s.ctx, "spt_1", "repo_ext")
+	s.Equal([]string{"feature/000001-auto"}, allowed, "auto-approval grants push rights to exactly that branch")
+
+	s.git("branch", "feature/000001-auto", "feature/000001-task")
+	s.svc.OnBranchPushed(s.ctx, "repo_ext", "feature/000001-auto")
+	got, _ := s.store.GetSpecTaskPRProposal(s.ctx, p.ID)
+	s.Equal(types.PRProposalStatusOpened, got.Status)
+	s.Require().Len(s.messages, 1)
+	s.Contains(s.messages[0], "auto-approved")
+}
+
+func (s *PRProposalSuite) TestAutoApproveStillEnforcesBranchRules() {
+	s.enableAutoApprove("usr_owner")
+	_, err := s.propose(ProposePRInput{HeadBranch: "feature/000002-other"})
+	s.ErrorIs(err, ErrPRProposalConflict, "auto-approval cannot claim another task's branch")
+}
+
+func (s *PRProposalSuite) TestAutoApproveWithoutConnectionWaitsForHuman() {
+	s.enableAutoApprove("usr_owner")
+	s.provider.oauthErr = &OAuthRequiredError{ProviderType: "github"}
+	p, err := s.propose(ProposePRInput{})
+	s.Require().NoError(err)
+	s.Equal(types.PRProposalStatusPending, p.Status)
+	s.False(p.AutoApproved)
+	s.Empty(s.provider.pushed)
+}
+
+func (s *PRProposalSuite) TestApprovingWithAutoApproveFutureEnablesIt() {
+	first, err := s.propose(ProposePRInput{Title: "Slice 1"})
+	s.Require().NoError(err)
+	_, err = s.svc.Decide(s.ctx, s.user, first.ID, &types.PRProposalDecisionRequest{
+		Decision: types.PRProposalDecisionApprove, AutoApproveFuture: true,
+	})
+	s.Require().NoError(err)
+	task := s.task("spt_1")
+	s.True(task.AutoApprovePullRequests)
+	s.Equal("usr_reviewer", task.AutoApprovePullRequestsBy)
+
+	next, err := s.propose(ProposePRInput{HeadBranch: "feature/000001-next", Title: "Next"})
+	s.Require().NoError(err)
+	s.True(next.AutoApproved)
+	s.Equal(types.PRProposalStatusApproved, next.Status)
+	s.Equal("usr_reviewer", next.DecidedBy)
+}
+
+func (s *PRProposalSuite) TestRejectingIgnoresAutoApproveFuture() {
+	p, err := s.propose(ProposePRInput{})
+	s.Require().NoError(err)
+	_, err = s.svc.Decide(s.ctx, s.user, p.ID, &types.PRProposalDecisionRequest{
+		Decision: types.PRProposalDecisionReject, AutoApproveFuture: true,
+	})
+	s.Require().NoError(err)
+	s.False(s.task("spt_1").AutoApprovePullRequests)
+}

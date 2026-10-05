@@ -1440,6 +1440,14 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.KeepAlive != nil {
 		task.KeepAlive = *updateReq.KeepAlive
 	}
+	if updateReq.AutoApprovePullRequests != nil {
+		// Proposals are auto-approved with the provider credentials of
+		// whoever turned this on.
+		task.AutoApprovePullRequests = *updateReq.AutoApprovePullRequests
+		if task.AutoApprovePullRequests {
+			task.AutoApprovePullRequestsBy = user.ID
+		}
+	}
 	// Update assignee (pointer allows clearing with empty string to unassign)
 	if updateReq.AgentTools != nil {
 		task.AgentTools = sanitizeAgentTools(*updateReq.AgentTools)

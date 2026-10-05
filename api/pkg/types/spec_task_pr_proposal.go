@@ -45,6 +45,7 @@ type SpecTaskPRProposal struct {
 	DecidedBy       string     `json:"decided_by,omitempty" gorm:"size:255"`
 	DecidedAt       *time.Time `json:"decided_at,omitempty"`
 	DecisionComment string     `json:"decision_comment,omitempty" gorm:"type:text"`
+	AutoApproved    bool       `json:"auto_approved,omitempty"`
 
 	PRID     string `json:"pr_id,omitempty" gorm:"size:255"`
 	PRNumber int    `json:"pr_number,omitempty"`
@@ -93,9 +94,26 @@ type PRProposalDecisionRequest struct {
 	BaseBranch string `json:"base_branch,omitempty"`
 	Title      string `json:"title,omitempty"`
 	Body       string `json:"body,omitempty"`
+	// AutoApproveFuture, with an approval, approves this task's later
+	// proposals without asking, as the deciding user.
+	AutoApproveFuture bool `json:"auto_approve_future,omitempty"`
 }
 
 const (
 	PRProposalDecisionApprove = "approve"
 	PRProposalDecisionReject  = "reject"
 )
+
+// InitAutoApprovePullRequests sets a new task's auto-approve setting: the
+// explicit request if given, else the project's default. actorID is the user
+// creating the task, whose provider credentials auto-approval will use.
+func (t *SpecTask) InitAutoApprovePullRequests(requested *bool, project *Project, actorID string) {
+	enabled := project != nil && project.AutoApprovePullRequests
+	if requested != nil {
+		enabled = *requested
+	}
+	t.AutoApprovePullRequests = enabled
+	if enabled {
+		t.AutoApprovePullRequestsBy = actorID
+	}
+}

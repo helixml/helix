@@ -20385,6 +20385,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/types.SpecTask"
                         }
+                    },
+                    "202": {
+                        "description": "External repo: the agent was asked to push and propose its pull request(s)",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
                     }
                 }
             }
@@ -29380,24 +29386,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "webhook",
-                "email",
+                "cron",
+                "slack",
+                "github",
                 "local",
                 "helix_events",
-                "slack",
+                "email",
                 "gitlab",
-                "cron",
-                "github"
+                "webhook"
             ],
             "x-enum-varnames": [
-                "KindWebhook",
-                "KindEmail",
+                "KindCron",
+                "KindSlack",
+                "KindGitHub",
                 "KindLocal",
                 "KindHelixEvents",
-                "KindSlack",
+                "KindEmail",
                 "KindGitLab",
-                "KindCron",
-                "KindGitHub"
+                "KindWebhook"
             ]
         },
         "transport.ResolvedActivation": {
@@ -32326,6 +32332,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.SpecTaskInlineAttachment"
                     }
+                },
+                "auto_approve_pull_requests": {
+                    "description": "Optional: approve the agent's pull request proposals without asking.\nUnset takes the project's auto_approve_pull_requests default.",
+                    "type": "boolean"
                 },
                 "auto_start": {
                     "description": "Optional: Skip backlog and start immediately, regardless of project auto-start setting",
@@ -35804,6 +35814,10 @@ const docTemplate = `{
         "types.PRProposalDecisionRequest": {
             "type": "object",
             "properties": {
+                "auto_approve_future": {
+                    "description": "AutoApproveFuture, with an approval, approves this task's later\nproposals without asking, as the deciding user.",
+                    "type": "boolean"
+                },
                 "base_branch": {
                     "type": "string"
                 },
@@ -36089,6 +36103,10 @@ const docTemplate = `{
                 },
                 "archive_stale_tasks_enabled": {
                     "description": "Archive tasks idle for ArchiveStaleTasksDays",
+                    "type": "boolean"
+                },
+                "auto_approve_pull_requests": {
+                    "description": "AutoApprovePullRequests is the default for new spec tasks: their agents'\npull request proposals are approved without asking. Each task keeps its\nown setting, so changing this does not affect existing tasks.",
                     "type": "boolean"
                 },
                 "auto_archive_completed_tasks": {
@@ -36705,6 +36723,10 @@ const docTemplate = `{
                 },
                 "archive_stale_tasks_enabled": {
                     "description": "Archive tasks idle for ArchiveStaleTasksDays",
+                    "type": "boolean"
+                },
+                "auto_approve_pull_requests": {
+                    "description": "Default for new spec tasks: auto-approve agent PR proposals",
                     "type": "boolean"
                 },
                 "auto_archive_completed_tasks": {
@@ -40006,6 +40028,13 @@ const docTemplate = `{
                     "description": "Team member assigned to work on this task",
                     "type": "string"
                 },
+                "auto_approve_pull_requests": {
+                    "description": "AutoApprovePullRequests approves the agent's PR proposals without asking.\nThey are approved as AutoApprovePullRequestsBy, whose provider\ncredentials push and open the PR; it is the user who turned this on.",
+                    "type": "boolean"
+                },
+                "auto_approve_pull_requests_by": {
+                    "type": "string"
+                },
                 "base_branch": {
                     "description": "The base branch this was created from",
                     "type": "string"
@@ -40798,6 +40827,9 @@ const docTemplate = `{
         "types.SpecTaskPRProposal": {
             "type": "object",
             "properties": {
+                "auto_approved": {
+                    "type": "boolean"
+                },
                 "base_branch": {
                     "type": "string"
                 },
@@ -40976,6 +41008,10 @@ const docTemplate = `{
                     "description": "Pointer to allow clearing (set to empty string to unassign)",
                     "type": "string"
                 },
+                "auto_approve_pull_requests": {
+                    "description": "Approve the agent's PR proposals without asking, as the updating user",
+                    "type": "boolean"
+                },
                 "depends_on": {
                     "description": "IDs of tasks this task depends on",
                     "type": "array",
@@ -41037,6 +41073,13 @@ const docTemplate = `{
                 },
                 "assignee_id": {
                     "description": "Team member assigned to work on this task",
+                    "type": "string"
+                },
+                "auto_approve_pull_requests": {
+                    "description": "AutoApprovePullRequests approves the agent's PR proposals without asking.\nThey are approved as AutoApprovePullRequestsBy, whose provider\ncredentials push and open the PR; it is the user who turned this on.",
+                    "type": "boolean"
+                },
+                "auto_approve_pull_requests_by": {
                     "type": "string"
                 },
                 "base_branch": {

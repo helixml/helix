@@ -242,11 +242,14 @@ type CreateTaskRequest struct {
 	// AppID is accepted only so the API can return an explicit migration error
 	// to old clients. New tasks must provide CodeAgentConfig or inherit the
 	// project's materialized configuration.
-	AppID        string   `json:"app_id,omitempty" swaggerignore:"true"`
-	JustDoItMode bool     `json:"just_do_it_mode"`       // Optional: Skip spec planning, go straight to implementation
-	AutoStart    bool     `json:"auto_start"`            // Optional: Skip backlog and start immediately, regardless of project auto-start setting
-	DependsOn    []string `json:"depends_on"`            // Optional: IDs of tasks this task depends on
-	AssigneeID   string   `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
+	AppID        string `json:"app_id,omitempty" swaggerignore:"true"`
+	JustDoItMode bool   `json:"just_do_it_mode"` // Optional: Skip spec planning, go straight to implementation
+	AutoStart    bool   `json:"auto_start"`      // Optional: Skip backlog and start immediately, regardless of project auto-start setting
+	// Optional: approve the agent's pull request proposals without asking.
+	// Unset takes the project's auto_approve_pull_requests default.
+	AutoApprovePullRequests *bool    `json:"auto_approve_pull_requests,omitempty"`
+	DependsOn               []string `json:"depends_on"`            // Optional: IDs of tasks this task depends on
+	AssigneeID              string   `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
 
 	CodeAgentConfig          *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
 	PlanningCodeAgentConfig  *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty"`
@@ -444,6 +447,12 @@ type SpecTask struct {
 	// Keep alive — prevent auto-idle-shutdown of desktop container
 	KeepAlive bool `json:"keep_alive" gorm:"default:false"`
 
+	// AutoApprovePullRequests approves the agent's PR proposals without asking.
+	// They are approved as AutoApprovePullRequestsBy, whose provider
+	// credentials push and open the PR; it is the user who turned this on.
+	AutoApprovePullRequests   bool   `json:"auto_approve_pull_requests" gorm:"default:false"`
+	AutoApprovePullRequestsBy string `json:"auto_approve_pull_requests_by,omitempty" gorm:"size:255"`
+
 	// Goose recipe binding (Phase 2b). When the parent project's agent uses
 	// the goose_code runtime and the user picked a recipe at task-creation
 	// time, GooseRecipeName names the AssistantGooseRecipe to invoke and
@@ -598,18 +607,19 @@ type SpecTaskPRMatch struct {
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
 type SpecTaskUpdateRequest struct {
-	Status           SpecTaskStatus   `json:"status,omitempty"`
-	Priority         SpecTaskPriority `json:"priority,omitempty"`
-	Name             string           `json:"name,omitempty"`
-	Description      string           `json:"description,omitempty"`
-	JustDoItMode     *bool            `json:"just_do_it_mode,omitempty"`                   // Pointer to allow explicit false
-	HelixAppID       string           `json:"helix_app_id,omitempty" swaggerignore:"true"` // Rejected legacy field
-	UserShortTitle   *string          `json:"user_short_title,omitempty"`                  // User override for tab title (pointer to allow clearing with empty string)
-	PublicDesignDocs *bool            `json:"public_design_docs,omitempty"`                // Pointer to allow explicit false
-	KeepAlive        *bool            `json:"keep_alive,omitempty"`                        // Pointer to allow explicit false — prevent auto-idle-shutdown
-	DependsOn        []string         `json:"depends_on"`                                  // IDs of tasks this task depends on
-	AssigneeID       *string          `json:"assignee_id,omitempty"`                       // Pointer to allow clearing (set to empty string to unassign)
-	AgentTools       *[]string        `json:"agent_tools,omitempty"`                       // Extra Helix MCP tools for this task, on top of the project's
+	Status                  SpecTaskStatus   `json:"status,omitempty"`
+	Priority                SpecTaskPriority `json:"priority,omitempty"`
+	Name                    string           `json:"name,omitempty"`
+	Description             string           `json:"description,omitempty"`
+	JustDoItMode            *bool            `json:"just_do_it_mode,omitempty"`                   // Pointer to allow explicit false
+	HelixAppID              string           `json:"helix_app_id,omitempty" swaggerignore:"true"` // Rejected legacy field
+	UserShortTitle          *string          `json:"user_short_title,omitempty"`                  // User override for tab title (pointer to allow clearing with empty string)
+	PublicDesignDocs        *bool            `json:"public_design_docs,omitempty"`                // Pointer to allow explicit false
+	KeepAlive               *bool            `json:"keep_alive,omitempty"`                        // Pointer to allow explicit false — prevent auto-idle-shutdown
+	AutoApprovePullRequests *bool            `json:"auto_approve_pull_requests,omitempty"`        // Approve the agent's PR proposals without asking, as the updating user
+	DependsOn               []string         `json:"depends_on"`                                  // IDs of tasks this task depends on
+	AssigneeID              *string          `json:"assignee_id,omitempty"`                       // Pointer to allow clearing (set to empty string to unassign)
+	AgentTools              *[]string        `json:"agent_tools,omitempty"`                       // Extra Helix MCP tools for this task, on top of the project's
 }
 
 // SpecTaskExecutionConfigUpdateRequest replaces either the task's complete

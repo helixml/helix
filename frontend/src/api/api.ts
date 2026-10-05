@@ -2413,14 +2413,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindWebhook = "webhook",
-  KindEmail = "email",
+  KindCron = "cron",
+  KindSlack = "slack",
+  KindGitHub = "github",
   KindLocal = "local",
   KindHelixEvents = "helix_events",
-  KindSlack = "slack",
+  KindEmail = "email",
   KindGitLab = "gitlab",
-  KindCron = "cron",
-  KindGitHub = "github",
+  KindWebhook = "webhook",
 }
 
 export interface TransportResolvedActivation {
@@ -3810,6 +3810,11 @@ export interface TypesCreateTaskRequest {
   assignee_id?: string;
   /** Attachments are validated and stored before the task is exposed to dispatchers. */
   attachments?: TypesSpecTaskInlineAttachment[];
+  /**
+   * Optional: approve the agent's pull request proposals without asking.
+   * Unset takes the project's auto_approve_pull_requests default.
+   */
+  auto_approve_pull_requests?: boolean;
   /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
   auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
@@ -5353,6 +5358,11 @@ export enum TypesOwnerType {
 }
 
 export interface TypesPRProposalDecisionRequest {
+  /**
+   * AutoApproveFuture, with an approval, approves this task's later
+   * proposals without asking, as the deciding user.
+   */
+  auto_approve_future?: boolean;
   base_branch?: string;
   body?: string;
   comment?: string;
@@ -5470,6 +5480,12 @@ export interface TypesProject {
   archive_stale_tasks_days?: number;
   /** Archive tasks idle for ArchiveStaleTasksDays */
   archive_stale_tasks_enabled?: boolean;
+  /**
+   * AutoApprovePullRequests is the default for new spec tasks: their agents'
+   * pull request proposals are approved without asking. Each task keeps its
+   * own setting, so changing this does not affect existing tasks.
+   */
+  auto_approve_pull_requests?: boolean;
   /** Archive automation, reconciled by the spec task orchestrator */
   auto_archive_completed_tasks?: boolean;
   /** Automation settings */
@@ -5744,6 +5760,8 @@ export interface TypesProjectUpdateRequest {
   archive_stale_tasks_days?: number;
   /** Archive tasks idle for ArchiveStaleTasksDays */
   archive_stale_tasks_enabled?: boolean;
+  /** Default for new spec tasks: auto-approve agent PR proposals */
+  auto_approve_pull_requests?: boolean;
   /** Archive tasks immediately when they enter Done */
   auto_archive_completed_tasks?: boolean;
   auto_start_backlog_tasks?: boolean;
@@ -7439,6 +7457,13 @@ export interface TypesSpecTask {
   archived?: boolean;
   /** Team member assigned to work on this task */
   assignee_id?: string;
+  /**
+   * AutoApprovePullRequests approves the agent's PR proposals without asking.
+   * They are approved as AutoApprovePullRequestsBy, whose provider
+   * credentials push and open the PR; it is the user who turned this on.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -7798,6 +7823,7 @@ export interface TypesSpecTaskInlineAttachment {
 }
 
 export interface TypesSpecTaskPRProposal {
+  auto_approved?: boolean;
   base_branch?: string;
   body?: string;
   created_at?: string;
@@ -7865,6 +7891,8 @@ export interface TypesSpecTaskUpdateRequest {
   agent_tools?: string[];
   /** Pointer to allow clearing (set to empty string to unassign) */
   assignee_id?: string;
+  /** Approve the agent's PR proposals without asking, as the updating user */
+  auto_approve_pull_requests?: boolean;
   /** IDs of tasks this task depends on */
   depends_on?: string[];
   description?: string;
@@ -7893,6 +7921,13 @@ export interface TypesSpecTaskWithProject {
   archived?: boolean;
   /** Team member assigned to work on this task */
   assignee_id?: string;
+  /**
+   * AutoApprovePullRequests approves the agent's PR proposals without asking.
+   * They are approved as AutoApprovePullRequestsBy, whose provider
+   * credentials push and open the PR; it is the user who turned this on.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */

@@ -314,7 +314,7 @@ Don't treat the original plan as fixed - update it based on what you learn.
 
 {{if .HasPullRequests}}## Pull Requests (IMPORTANT)
 
-Every pull request for this task is one you propose with ` + "`propose_pull_request`" + ` and the user approves. The title and description you put in the proposal become the pull request's title and description.
+Every pull request for this task is one you propose with ` + "`propose_pull_request`" + ` and the user approves (or that is approved automatically, if the task auto-approves pull requests — the tool result says so). The title and description you put in the proposal become the pull request's title and description.
 
 - **First pull request:** when the work is ready, merge the base branch, push ` + "`{{.BranchName}}`" + `, then call ` + "`propose_pull_request`" + ` with ` + "`title`" + `, ` + "`body`" + ` and a ` + "`reason`" + ` for the user. ` + "`head_branch`" + ` defaults to ` + "`{{.BranchName}}`" + `.{{if .NonPrimaryRepoNames}} Propose one pull request per repository you changed (pass ` + "`repository`" + `).{{end}}
 - **More than one pull request:** a task can ship as several pull requests. Propose each further slice with its own new ` + "`head_branch`" + ` BEFORE pushing to it: you can only push to your task branch and to branches the user has approved. Once approved, push the branch and Helix opens the pull request as soon as it has commits that are not on the base.

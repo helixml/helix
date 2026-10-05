@@ -208,6 +208,21 @@ func (b *SessionMCPBackend) handleProposePullRequest(ctx context.Context, reques
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	if p.AutoApproved {
+		switch p.Status {
+		case types.PRProposalStatusOpened:
+			return mcp.NewToolResultText(fmt.Sprintf(
+				"Auto-approved (this task approves pull requests without asking). Pull request #%d is open in %s from %s into %s: %s. "+
+					"Pushing more commits to %s updates it.", p.PRNumber, p.RepositoryName, p.HeadBranch, p.BaseBranch, p.PRURL, p.HeadBranch)), nil
+		case types.PRProposalStatusApproved:
+			return mcp.NewToolResultText(fmt.Sprintf(
+				"Auto-approved (this task approves pull requests without asking). You may now push to %s; "+
+					"Helix opens the pull request into %s as soon as the branch has commits that are not on %s.", p.HeadBranch, p.BaseBranch, p.BaseBranch)), nil
+		case types.PRProposalStatusFailed:
+			return mcp.NewToolResultText(fmt.Sprintf(
+				"Auto-approved, but opening the pull request failed: %s. You still have push rights to %s; the user can retry from Helix.", p.Error, p.HeadBranch)), nil
+		}
+	}
 	pushNote := ""
 	if p.HeadBranch != task.BranchName {
 		pushNote = fmt.Sprintf("You cannot push to %s until it is approved. ", p.HeadBranch)
