@@ -142,6 +142,9 @@ func DefaultBotTools() []tool.Name {
 		GetAssetName,
 	}
 	standard = append(standard, SpecTaskAgentTools...)
+	// Bots may open PRs for the tasks they manage; spec-task agents may not
+	// (see SpecTaskBlockedTools), so this sits outside SpecTaskAgentTools.
+	standard = append(standard, CreateSpecTaskPRsName)
 	return MergeBaseReadTools(standard)
 }
 
@@ -191,7 +194,6 @@ var SpecTaskAgentTools = []tool.Name{
 	ReviewSpecTaskSpecName,
 	ApproveSpecTaskSpecName,
 	RequestSpecTaskChangesName,
-	CreateSpecTaskPRsName,
 }
 
 // IsSpecTaskAgentTool reports whether name is in SpecTaskAgentTools.
@@ -218,6 +220,9 @@ var SpecTaskBlockedTools = []tool.Name{
 	LinkAssetName, UnlinkAssetName,
 	CreateSandboxName, UpdateSandboxName, DeleteSandboxName,
 	SandboxSSHAccessName,
+	// A spec task's PRs open only from proposals its user approved
+	// (propose_pull_request); this tool would open them without approval.
+	CreateSpecTaskPRsName,
 }
 
 func IsSpecTaskBlockedTool(name tool.Name) bool {

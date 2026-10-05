@@ -3738,24 +3738,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - cron
+    - webhook
     - email
     - local
-    - gitlab
-    - webhook
-    - github
-    - slack
     - helix_events
+    - slack
+    - gitlab
+    - cron
+    - github
     type: string
     x-enum-varnames:
-    - KindCron
+    - KindWebhook
     - KindEmail
     - KindLocal
-    - KindGitLab
-    - KindWebhook
-    - KindGitHub
-    - KindSlack
     - KindHelixEvents
+    - KindSlack
+    - KindGitLab
+    - KindCron
+    - KindGitHub
   transport.ResolvedActivation:
     properties:
       address:
@@ -4744,6 +4744,7 @@ definitions:
     - spec_failed
     - implementation_failed
     - pr_ready
+    - pr_proposal
     - org_message
     - ci_passed
     - ci_failed
@@ -4754,6 +4755,7 @@ definitions:
     - AttentionEventSpecFailed
     - AttentionEventImplementationFailed
     - AttentionEventPRReady
+    - AttentionEventPRProposal
     - AttentionEventOrgMessage
     - AttentionEventCIPassed
     - AttentionEventCIFailed
@@ -8483,6 +8485,22 @@ definitions:
     - OwnerTypeSystem
     - OwnerTypeSocket
     - OwnerTypeOrg
+  types.PRProposalDecisionRequest:
+    properties:
+      base_branch:
+        type: string
+      body:
+        type: string
+      comment:
+        type: string
+      decision:
+        description: '"approve" or "reject"'
+        type: string
+      head_branch:
+        type: string
+      title:
+        type: string
+    type: object
   types.PaginatedInteractions:
     properties:
       interactions:
@@ -9715,6 +9733,12 @@ definitions:
         type: string
       ci_url:
         type: string
+      head_branch:
+        description: |-
+          HeadBranch is the branch the PR was opened from. ProposalID links PRs
+          opened from an approved SpecTaskPRProposal; their title and body come from
+          the approved proposal rather than the helix-specs pull_request*.md files.
+        type: string
       pr_id:
         type: string
       pr_number:
@@ -9723,6 +9747,8 @@ definitions:
         description: '"open", "closed", "merged"'
         type: string
       pr_url:
+        type: string
+      proposal_id:
         type: string
       repository_id:
         type: string
@@ -12258,6 +12284,65 @@ definitions:
     - content_base64
     - name
     type: object
+  types.SpecTaskPRProposal:
+    properties:
+      base_branch:
+        type: string
+      body:
+        type: string
+      created_at:
+        type: string
+      decided_at:
+        type: string
+      decided_by:
+        type: string
+      decision_comment:
+        type: string
+      error:
+        type: string
+      head_branch:
+        type: string
+      id:
+        type: string
+      pr_id:
+        type: string
+      pr_number:
+        type: integer
+      pr_url:
+        type: string
+      project_id:
+        type: string
+      proposed_by_session:
+        type: string
+      reason:
+        type: string
+      repository_id:
+        type: string
+      repository_name:
+        type: string
+      spec_task_id:
+        type: string
+      status:
+        $ref: '#/definitions/types.SpecTaskPRProposalStatus'
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  types.SpecTaskPRProposalStatus:
+    enum:
+    - pending
+    - approved
+    - opened
+    - rejected
+    - failed
+    type: string
+    x-enum-varnames:
+    - PRProposalStatusPending
+    - PRProposalStatusApproved
+    - PRProposalStatusOpened
+    - PRProposalStatusRejected
+    - PRProposalStatusFailed
   types.SpecTaskPhase:
     enum:
     - planning
@@ -28085,6 +28170,66 @@ paths:
       summary: Submit design review decision
       tags:
       - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/pr-proposals:
+    get:
+      description: Every pull request a spec task opens starts as an agent proposal
+        awaiting user approval.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskPRProposal'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List a spec task's pull request proposals
+      tags:
+      - spec-tasks
+  /api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide:
+    post:
+      consumes:
+      - application/json
+      description: Approving grants the agent push rights to the proposal's head branch
+        and opens the pull request as soon as the branch has commits beyond the base.
+        Edited fields override the agent's proposal. Rejecting withdraws push rights.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Proposal ID
+        in: path
+        name: proposal_id
+        required: true
+        type: string
+      - description: Decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.PRProposalDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskPRProposal'
+      security:
+      - BearerAuth: []
+      summary: Approve or reject a pull request proposal
+      tags:
+      - spec-tasks
   /api/v1/spec-tasks/{spec_task_id}/stop-agent:
     post:
       description: Stop the running agent session for a spec task

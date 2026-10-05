@@ -1515,22 +1515,6 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 	assert.Nil(s.T(), task.MergedAt, "MergedAt must not be set on error")
 }
 
-func (s *SpecTaskOrchestratorTestSuite) TestTaskHasPRsForAllRepos_PendingFollowUpRetries() {
-	ctx := context.Background()
-	task := &types.SpecTask{
-		ProjectID: "project-1",
-		RepoPullRequests: []types.RepoPR{
-			{RepositoryID: "repo-1", PRState: "unknown"},
-		},
-	}
-	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(&types.Project{ID: task.ProjectID}, nil)
-	s.store.EXPECT().ListGitRepositories(ctx, gomock.Any()).Return([]*types.GitRepository{
-		{ID: "repo-1", IsExternal: true, ExternalURL: "https://github.com/org/one"},
-	}, nil)
-
-	s.False(s.orchestrator.taskHasPRsForAllRepos(ctx, task))
-}
-
 func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_PendingFollowUpStaysInPullRequest() {
 	ctx := context.Background()
 	task := makePullRequestTask(2)

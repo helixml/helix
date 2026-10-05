@@ -24,6 +24,7 @@ import (
 // @Tags spec-tasks
 // @Param spec_task_id path string true "SpecTask ID"
 // @Success 200 {object} types.SpecTask
+// @Success 202 {object} types.SpecTask "External repo: the agent was asked to push and propose its pull request(s)"
 // @Router /api/v1/spec-tasks/{spec_task_id}/approve-implementation [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Request) {
@@ -113,55 +114,19 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	}
 
 	if specTask.Status == types.TaskStatusDone {
-		if project.DefaultRepoID == "" {
-			http.Error(w, "Default repository not set for project", http.StatusBadRequest)
-			return
-		}
-		updatedTask, err := s.prepareFollowUpPullRequest(ctx, specTask.ID, project, user.ID)
+		// A completed task can ship more work: ask the agent to propose it.
+		repo, err := s.defaultRepoForPR(ctx, project)
 		if err != nil {
-			var oauthErr *services.OAuthRequiredError
-			if errors.As(err, &oauthErr) {
-				writeResponse(w, map[string]interface{}{
-					"error":         "oauth_required",
-					"message":       oauthErr.Error(),
-					"provider_type": oauthErr.ProviderType,
-				}, http.StatusUnprocessableEntity)
-				return
-			}
-			if errors.Is(err, errNoFollowUpChanges) {
-				writeResponse(w, map[string]interface{}{
-					"error":   "no_follow_up_changes",
-					"message": err.Error(),
-				}, http.StatusConflict)
-				return
-			}
-			writeErrResponse(w, err, http.StatusInternalServerError)
+			writeErrResponse(w, err, http.StatusBadRequest)
 			return
 		}
-
-		repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
-		if err != nil {
-			writeErrResponse(w, fmt.Errorf("failed to get default repository: %w", err), http.StatusInternalServerError)
+		if !s.shouldOpenPullRequest(repo) {
+			http.Error(w, "Task is done and its repository has no pull requests", http.StatusConflict)
 			return
 		}
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			if err := s.ensurePullRequestsForAllRepos(context.Background(), updatedTask, project.DefaultRepoID, user.ID); err != nil {
-				log.Error().Err(err).Str("task_id", updatedTask.ID).Msg("Failed to create follow-up PRs")
-			}
-			if s.gitHTTPServer != nil {
-				s.gitHTTPServer.SyncOpenPRDescriptions(context.Background(), updatedTask, repo.LocalPath)
-			}
-		}()
-
-		responseTask, err := s.Store.GetSpecTask(ctx, specTaskID)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to get updated spec task: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
-
-		writeResponse(w, responseTask, http.StatusOK)
+		s.sendPullRequestRequest(ctx, specTask, repo, project.DefaultRepoID)
+		// 202: nothing was merged or opened; the agent was asked to propose PRs.
+		writeResponse(w, specTask, http.StatusAccepted)
 		return
 	}
 
@@ -201,9 +166,8 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	// If repo is external, move to pull_request status (awaiting merge in external system)
 	// For internal repos, try merge first - only record approval if merge succeeds
 	if s.shouldOpenPullRequest(repo) {
-		// Validate user OAuth before advancing task status.
-		// This is a lightweight sync check (DB lookup only). The actual PR
-		// creation remains async.
+		// The requester will approve the resulting proposals, which push and
+		// open PRs with their credentials: surface a missing connection now.
 		if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
 			var oauthErr *services.OAuthRequiredError
 			if errors.As(err, &oauthErr) {
@@ -217,46 +181,18 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			log.Warn().Err(err).Str("task_id", specTask.ID).Msg("Failed to validate user OAuth, proceeding anyway")
 		}
 
-		// External repo: record approval and move to pull_request status, await merge via polling
+		// External repo: PRs are opened only from agent proposals the user
+		// approves. Record who asked (their identity backs later pushes) and
+		// ask the agent to push and propose its pull request(s).
 		specTask.ImplementationApprovedBy = user.ID
 		specTask.ImplementationApprovedAt = &now
-		specTask.Status = types.TaskStatusPullRequest
-		specTask.StatusUpdatedAt = &now
-
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
 			return
 		}
-
-		// Eagerly create PRs for all repos that have commits on the feature branch.
-		// The push-detection path (handleFeatureBranchPush → ensurePullRequest) is
-		// a backup, but it can fail silently. Eager creation is the primary mechanism.
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			if err := s.ensurePullRequestsForAllRepos(context.Background(), specTask, project.DefaultRepoID, user.ID); err != nil {
-				log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to create PRs on approval (push detection will retry)")
-			}
-			// Re-read agent-authored PR metadata after creation. This closes the
-			// race where pull_request_*.md is pushed while eager PR creation is
-			// still in flight: the specs-push handler may run before the new PR is
-			// tracked, while creation may already have read the old specs commit.
-			if s.gitHTTPServer != nil {
-				s.gitHTTPServer.SyncOpenPRDescriptions(context.Background(), specTask, repo.LocalPath)
-			}
-		}()
-
-		// Send message to agent to commit and push any remaining uncommitted changes
-		s.sendImplementationPushInstruction(ctx, specTask, repo, project.DefaultRepoID)
-
-		// Re-fetch to get the latest RepoPullRequests (may have been set by concurrent push)
-		updatedTask, err := s.Store.GetSpecTask(ctx, specTaskID)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to get updated spec task: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
-
-		writeResponse(w, updatedTask, http.StatusOK)
+		s.sendPullRequestRequest(ctx, specTask, repo, project.DefaultRepoID)
+		// 202: nothing was merged or opened; the agent was asked to propose PRs.
+		writeResponse(w, specTask, http.StatusAccepted)
 		return
 	}
 
@@ -444,136 +380,60 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	writeResponse(w, specTask, http.StatusOK)
 }
 
-var errNoFollowUpChanges = errors.New("no new changes are available to open a pull request")
-
-func (s *HelixAPIServer) prepareFollowUpPullRequest(ctx context.Context, taskID string, project *types.Project, userID string) (*types.SpecTask, error) {
-	var updatedTask *types.SpecTask
-	err := s.gitRepositoryService.WithRepoLock("task:"+taskID, func() error {
-		task, err := s.Store.GetSpecTask(ctx, taskID)
-		if err != nil {
-			return fmt.Errorf("failed to reload task: %w", err)
-		}
-		if task.Status != types.TaskStatusDone {
-			return fmt.Errorf("task in unexpected status: %s", task.Status)
-		}
-
-		repos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{ProjectID: task.ProjectID})
-		if err != nil {
-			return fmt.Errorf("failed to list project repositories: %w", err)
-		}
-		hasMergedPR := false
-		currentPRs := make(map[string]bool, len(task.RepoPullRequests))
-		for _, repoPR := range task.RepoPullRequests {
-			if repoPR.PRState == string(types.PullRequestStateMerged) {
-				hasMergedPR = true
-			}
-			if repoPR.PRState == string(types.PullRequestStateOpen) || repoPR.PRState == string(types.PullRequestStateClosed) {
-				currentPRs[repoPR.RepositoryID] = true
-			}
-		}
-		if !hasMergedPR {
-			return errNoFollowUpChanges
-		}
-
-		changedRepos := make(map[string]bool)
-		for _, repo := range repos {
-			if repo.ExternalURL == "" || currentPRs[repo.ID] || !s.shouldOpenPullRequest(repo) {
-				continue
-			}
-			if err := s.gitRepositoryService.WithRepoLock(repo.ID, func() error {
-				if err := s.gitRepositoryService.SyncAllBranches(ctx, repo.ID, true); err != nil {
-					return fmt.Errorf("failed to refresh repository %s: %w", repo.Name, err)
-				}
-				if _, err := services.GetBranchCommitID(ctx, repo.LocalPath, task.BranchName); err != nil {
-					return nil
-				}
-				targetBranch := services.TaskTargetBranch(repo, task, project.DefaultRepoID)
-				changed, err := services.BranchHasChanges(ctx, repo.LocalPath, targetBranch, task.BranchName)
-				if err != nil {
-					return err
-				}
-				if !changed {
-					return nil
-				}
-				if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, userID); err != nil {
-					var oauthErr *services.OAuthRequiredError
-					if errors.As(err, &oauthErr) {
-						return err
-					}
-					log.Warn().Err(err).Str("task_id", task.ID).Str("repo_id", repo.ID).Msg("Failed to validate user OAuth, proceeding anyway")
-				}
-				changedRepos[repo.ID] = true
-				return nil
-			}); err != nil {
-				return err
-			}
-		}
-
-		if len(changedRepos) == 0 {
-			return errNoFollowUpChanges
-		}
-
-		task.RepoPullRequestHistory = appendRepoPullRequestHistory(task.RepoPullRequestHistory, task.RepoPullRequests, changedRepos)
-		task.RepoPullRequests = resetRepoPullRequests(task.RepoPullRequests, repos, changedRepos)
-		now := time.Now()
-		task.ImplementationApprovedBy = userID
-		task.ImplementationApprovedAt = &now
-		task.Status = types.TaskStatusPullRequest
-		task.StatusUpdatedAt = &now
-		task.CompletedAt = nil
-		task.MergedToMain = false
-		task.MergedAt = nil
-		task.MergeCommitHash = ""
-		task.UpdatedAt = now
-		if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
-			return fmt.Errorf("failed to prepare follow-up pull request: %w", err)
-		}
-		updatedTask = task
-		return nil
-	})
-	return updatedTask, err
+func (s *HelixAPIServer) defaultRepoForPR(ctx context.Context, project *types.Project) (*types.GitRepository, error) {
+	if project.DefaultRepoID == "" {
+		return nil, fmt.Errorf("default repository not set for project")
+	}
+	repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get default repository: %w", err)
+	}
+	return repo, nil
 }
 
-func appendRepoPullRequestHistory(history, current []types.RepoPR, repoIDs map[string]bool) []types.RepoPR {
-	for _, pr := range current {
-		if !repoIDs[pr.RepositoryID] || (pr.PRID == "" && pr.PRURL == "") {
+// sendPullRequestRequest asks the agent, in the background, to push its work
+// and propose the pull request(s) it wants opened.
+func (s *HelixAPIServer) sendPullRequestRequest(ctx context.Context, specTask *types.SpecTask, repo *types.GitRepository, primaryRepoID string) {
+	var nonPrimaryRepoNames []string
+	if repos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{ProjectID: specTask.ProjectID}); err == nil {
+		for _, r := range repos {
+			if r.ID != repo.ID {
+				nonPrimaryRepoNames = append(nonPrimaryRepoNames, r.Name)
+			}
+		}
+	}
+	var existing []string
+	for _, pr := range specTask.RepoPullRequests {
+		if pr.PRID == "" {
 			continue
 		}
-		found := false
-		for _, historical := range history {
-			if historical.RepositoryID == pr.RepositoryID &&
-				((pr.PRID != "" && historical.PRID == pr.PRID) || (pr.PRURL != "" && historical.PRURL == pr.PRURL)) {
-				found = true
-				break
-			}
+		desc := fmt.Sprintf("%s #%d (%s)", pr.RepositoryName, pr.PRNumber, pr.PRState)
+		if pr.HeadBranch != "" {
+			desc += " from " + pr.HeadBranch
 		}
-		if !found {
-			history = append(history, pr)
+		if pr.PRURL != "" {
+			desc += " " + pr.PRURL
 		}
+		existing = append(existing, desc)
 	}
-	return history
-}
-
-func resetRepoPullRequests(repoPRs []types.RepoPR, repos []*types.GitRepository, repoIDs map[string]bool) []types.RepoPR {
-	reset := make([]types.RepoPR, 0, len(repoPRs)+len(repoIDs))
-	pending := make(map[string]bool, len(repoIDs))
-	for repoID := range repoIDs {
-		pending[repoID] = true
+	message, err := prompts.RequestPullRequestsInstruction(
+		specTask.BranchName,
+		repo.Name,
+		services.TaskTargetBranch(repo, specTask, primaryRepoID),
+		nonPrimaryRepoNames,
+		existing,
+	)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to build pull request request for agent")
+		return
 	}
-	for _, repoPR := range repoPRs {
-		if repoIDs[repoPR.RepositoryID] {
-			reset = append(reset, types.RepoPR{RepositoryID: repoPR.RepositoryID, RepositoryName: repoPR.RepositoryName, PRState: string(types.PullRequestStateUnknown)})
-			delete(pending, repoPR.RepositoryID)
-		} else {
-			reset = append(reset, repoPR)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		if err := s.enqueueSpecTaskAgentMessage(context.Background(), specTask, message, false, ""); err != nil {
+			log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to send pull request request to agent")
 		}
-	}
-	for _, repo := range repos {
-		if pending[repo.ID] {
-			reset = append(reset, types.RepoPR{RepositoryID: repo.ID, RepositoryName: repo.Name, PRState: string(types.PullRequestStateUnknown)})
-		}
-	}
-	return reset
+	}()
 }
 
 // sendImplementationPushInstruction asks the agent, in the background, to write

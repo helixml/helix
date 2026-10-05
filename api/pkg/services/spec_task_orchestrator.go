@@ -25,11 +25,6 @@ func isDeletedProjectError(err error) bool {
 // SpecTaskOrchestrator orchestrates SpecTasks through the complete workflow
 // Pushes agents through design → approval → implementation
 // Manages agent lifecycle and reuses sessions across Helix interactions
-// EnsurePRsFunc is a callback that creates PRs for all project repos that have
-// the task's feature branch. Set by the server so the orchestrator can retry
-// PR creation for repos whose branches weren't ready at initial "Open PR" time.
-type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string, userID string) error
-
 type specTaskWorkflowService interface {
 	StartSpecGeneration(ctx context.Context, task *types.SpecTask)
 	StartJustDoItMode(ctx context.Context, task *types.SpecTask)
@@ -43,8 +38,8 @@ type SpecTaskOrchestrator struct {
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
 	attentionService      *AttentionService
-	ciNotifier            CINotifier    // Delivers ci_passed / ci_failed messages to running agents
-	ensurePRs             EnsurePRsFunc // Callback to create missing PRs (set by server)
+	ciNotifier            CINotifier // Delivers ci_passed / ci_failed messages to running agents
+	prProposals           *PRProposalService
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
 	backlogProjectLocks   sync.Map // map[project_id]*sync.Mutex
@@ -112,10 +107,10 @@ func NewSpecTaskOrchestrator(
 	}
 }
 
-// SetEnsurePRsFunc sets the callback used to create PRs for repos that may not
-// have had their feature branch ready when the user first clicked "Open PR".
-func (o *SpecTaskOrchestrator) SetEnsurePRsFunc(fn EnsurePRsFunc) {
-	o.ensurePRs = fn
+// SetPRProposals lets the PR poller retry approved proposals and keeps a task
+// open while any of its proposals still expects a pull request.
+func (o *SpecTaskOrchestrator) SetPRProposals(svc *PRProposalService) {
+	o.prProposals = svc
 }
 
 // SetTestMode enables/disables test mode
@@ -1125,47 +1120,6 @@ func (o *SpecTaskOrchestrator) failApprovalHandoff(ctx context.Context, task *ty
 	return nil
 }
 
-// taskHasPRsForAllRepos returns true if the task already has a PR tracked for
-// every external repo in the project. When true, we can skip the expensive
-// ensurePRs call (which pushes branches + lists PRs from GitHub on every poll).
-func (o *SpecTaskOrchestrator) taskHasPRsForAllRepos(ctx context.Context, task *types.SpecTask) bool {
-	if len(task.RepoPullRequests) == 0 {
-		return false
-	}
-
-	project, err := o.store.GetProject(ctx, task.ProjectID)
-	if err != nil {
-		return false
-	}
-
-	repos, err := o.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: project.ID,
-	})
-	if err != nil {
-		return false
-	}
-
-	// Build set of repo IDs that already have PRs
-	hasPR := make(map[string]bool, len(task.RepoPullRequests))
-	for _, rp := range task.RepoPullRequests {
-		if rp.PRID != "" {
-			hasPR[rp.RepositoryID] = true
-		}
-	}
-
-	// Check every external repo has a PR tracked
-	for _, repo := range repos {
-		if !repo.IsExternal || repo.ExternalURL == "" {
-			continue
-		}
-		if !hasPR[repo.ID] {
-			return false
-		}
-	}
-
-	return true
-}
-
 // projectHasExternalRepo reports whether any repository in the project is external
 // (GitHub/GitLab/ADO). Pull requests are only possible for those; a project whose
 // repos are all internal (Helix-hosted) can never produce one, so a "PR could not
@@ -1191,20 +1145,13 @@ func (o *SpecTaskOrchestrator) projectHasExternalRepo(ctx context.Context, proje
 // handlePullRequest polls external repo for PR merge status
 // Called from the dedicated PR polling scheduler.
 func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
-	// Try to create PRs for repos that didn't have the branch ready when the
-	// user first clicked "Open PR". This covers the case where the agent pushes
-	// to a secondary repo after the initial PR creation.
-	//
-	// Skip if the task already has PRs for all external repos — no need to
-	// push + list PRs from GitHub on every 30s poll cycle. This is the main
-	// source of GitHub API rate limit exhaustion.
-	if o.ensurePRs != nil && !o.taskHasPRsForAllRepos(ctx, task) {
-		project, err := o.store.GetProject(ctx, task.ProjectID)
-		if err == nil && project.DefaultRepoID != "" {
-			// Use the approver's identity so push+PR use their OAuth token
-			if err := o.ensurePRs(ctx, task, project.DefaultRepoID, task.ImplementationApprovedBy); err != nil {
-				log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to ensure PRs for all repos (will retry)")
-			}
+	// PRs are opened only from approved proposals. Retry any that are still
+	// waiting (backstop for a missed push hook) and re-attach opened PRs a
+	// concurrent task write may have dropped, then work on the fresh row.
+	if o.prProposals != nil {
+		o.prProposals.Reconcile(ctx, task.ID)
+		if fresh, err := o.store.GetSpecTask(ctx, task.ID); err == nil {
+			task = fresh
 		}
 	}
 
@@ -1244,18 +1191,20 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 }
 
 func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Context, task *types.SpecTask) error {
-	// Check each tracked PR across all repos.
-	// Only move to done when ALL PRs are merged (stopping the agent prematurely
-	// would prevent remaining PRs from getting review fixes pushed).
-	// If ALL are closed (without merge), archive.
+	// Check each tracked PR across all repos. A task may carry several PRs,
+	// opened one proposal at a time. It is done once every PR is settled
+	// (merged, or closed by a human) with at least one merged, and no proposal
+	// still expects a PR — stopping the agent earlier would strand later slices.
+	// If ALL are closed (without merge), leave it for the user.
 	anyOpen := false
-	allMerged := true
+	allSettled := true
+	anyMerged := false
 	allClosed := true
 	updated := false
 
 	for i, repoPR := range task.RepoPullRequests {
 		if repoPR.PRID == "" {
-			allMerged = false
+			allSettled = false
 			allClosed = false
 			continue
 		}
@@ -1273,7 +1222,7 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			// Pod restarts (cold DNS/TLS/token caches) and transient GitLab
 			// 5xx/429/404s are realistic triggers for "all PRs error in one
 			// cycle". See design/2026-05-26-pr-merge-error-symmetry.md.
-			allMerged = false
+			allSettled = false
 			allClosed = false
 			continue
 		}
@@ -1302,7 +1251,7 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		switch pr.State {
 		case types.PullRequestStateOpen:
 			anyOpen = true
-			allMerged = false
+			allSettled = false
 			allClosed = false
 			log.Trace().
 				Str("task_id", task.ID).
@@ -1310,11 +1259,11 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 				Str("pr_id", repoPR.PRID).
 				Msg("PR still active, awaiting merge")
 		case types.PullRequestStateMerged:
+			anyMerged = true
 			allClosed = false
 		case types.PullRequestStateClosed:
-			allMerged = false
 		case types.PullRequestStateUnknown:
-			allMerged = false
+			allSettled = false
 			allClosed = false
 			log.Warn().
 				Str("task_id", task.ID).
@@ -1324,8 +1273,17 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		}
 	}
 
-	if allMerged && len(task.RepoPullRequests) > 0 {
-		// ALL PRs merged - move to done
+	outstanding := false
+	if o.prProposals != nil && allSettled && anyMerged {
+		var err error
+		if outstanding, err = o.prProposals.HasOutstanding(ctx, task.ID); err != nil {
+			outstanding = true // cannot confirm; never complete on a failed read
+			log.Warn().Err(err).Str("task_id", task.ID).Msg("Could not check PR proposals; not completing task")
+		}
+	}
+
+	if allSettled && anyMerged && !outstanding && len(task.RepoPullRequests) > 0 {
+		// Every PR merged or closed, at least one merged - move to done
 		now := time.Now()
 		task.Status = types.TaskStatusDone
 		task.StatusUpdatedAt = &now

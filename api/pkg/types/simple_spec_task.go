@@ -36,6 +36,11 @@ type RepoPR struct {
 	PRNumber       int    `json:"pr_number"`
 	PRURL          string `json:"pr_url"`
 	PRState        string `json:"pr_state"` // "open", "closed", "merged"
+	// HeadBranch is the branch the PR was opened from. ProposalID links PRs
+	// opened from an approved SpecTaskPRProposal; their title and body come from
+	// the approved proposal rather than the helix-specs pull_request*.md files.
+	HeadBranch string `json:"head_branch,omitempty"`
+	ProposalID string `json:"proposal_id,omitempty"`
 
 	// CI status, populated by the spec task orchestrator's PR poll loop.
 	// CIStatus is one of: "" (not yet evaluated), "running", "passed",

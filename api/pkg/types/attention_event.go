@@ -44,6 +44,9 @@ const (
 	AttentionEventSpecFailed                AttentionEventType = "spec_failed"
 	AttentionEventImplementationFailed      AttentionEventType = "implementation_failed"
 	AttentionEventPRReady                   AttentionEventType = "pr_ready"
+	// AttentionEventPRProposal asks the user to approve or reject an agent's
+	// request to push a branch and open a pull request from it.
+	AttentionEventPRProposal AttentionEventType = "pr_proposal"
 	// AttentionEventOrgMessage is an informational Org Bot message for an org
 	// member. It has no spec task / project — ProjectID and SpecTaskID are empty.
 	AttentionEventOrgMessage AttentionEventType = "org_message"

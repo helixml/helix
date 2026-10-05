@@ -38,6 +38,28 @@ func ImplementationApprovedPushInstruction(branchName, primaryRepoName, baseBran
 	return buf.String(), nil
 }
 
+// RequestPullRequestsInstruction asks a spec task agent to push its work and
+// propose the pull request(s) the user should approve. existingPRs describes
+// pull requests the task already tracks.
+func RequestPullRequestsInstruction(branchName, primaryRepoName, baseBranch string, nonPrimaryRepoNames, existingPRs []string) (string, error) {
+	if branchName == "" {
+		return "", errors.New("branch name is required")
+	}
+	tmplData := struct {
+		BranchName          string
+		PrimaryRepoName     string
+		BaseBranch          string
+		NonPrimaryRepoNames []string
+		ExistingPRs         []string
+	}{branchName, primaryRepoName, baseBranch, nonPrimaryRepoNames, existingPRs}
+	tmpl := template.Must(template.New("RequestPullRequestsPrompt").Parse(templates.RequestPullRequestsPrompt))
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, tmplData); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
 // RebaseRequiredInstruction returns a prompt instructing the agent to rebase/merge
 // their branch with the default branch to resolve conflicts before merge can complete.
 func RebaseRequiredInstruction(branchName, defaultBranch string) (string, error) {

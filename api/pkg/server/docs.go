@@ -20889,6 +20889,96 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{spec_task_id}/pr-proposals": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every pull request a spec task opens starts as an agent proposal awaiting user approval.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "List a spec task's pull request proposals",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.SpecTaskPRProposal"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approving grants the agent push rights to the proposal's head branch and opens the pull request as soon as the branch has commits beyond the base. Edited fields override the agent's proposal. Rejecting withdraws push rights.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "Approve or reject a pull request proposal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Proposal ID",
+                        "name": "proposal_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Decision",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.PRProposalDecisionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskPRProposal"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{spec_task_id}/stop-agent": {
             "post": {
                 "security": [
@@ -29290,24 +29380,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "cron",
+                "webhook",
                 "email",
                 "local",
-                "gitlab",
-                "webhook",
-                "github",
+                "helix_events",
                 "slack",
-                "helix_events"
+                "gitlab",
+                "cron",
+                "github"
             ],
             "x-enum-varnames": [
-                "KindCron",
+                "KindWebhook",
                 "KindEmail",
                 "KindLocal",
-                "KindGitLab",
-                "KindWebhook",
-                "KindGitHub",
+                "KindHelixEvents",
                 "KindSlack",
-                "KindHelixEvents"
+                "KindGitLab",
+                "KindCron",
+                "KindGitHub"
             ]
         },
         "transport.ResolvedActivation": {
@@ -30665,6 +30755,7 @@ const docTemplate = `{
                 "spec_failed",
                 "implementation_failed",
                 "pr_ready",
+                "pr_proposal",
                 "org_message",
                 "ci_passed",
                 "ci_failed"
@@ -30675,6 +30766,7 @@ const docTemplate = `{
                 "AttentionEventSpecFailed",
                 "AttentionEventImplementationFailed",
                 "AttentionEventPRReady",
+                "AttentionEventPRProposal",
                 "AttentionEventOrgMessage",
                 "AttentionEventCIPassed",
                 "AttentionEventCIFailed"
@@ -35709,6 +35801,30 @@ const docTemplate = `{
                 "OwnerTypeOrg"
             ]
         },
+        "types.PRProposalDecisionRequest": {
+            "type": "object",
+            "properties": {
+                "base_branch": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "comment": {
+                    "type": "string"
+                },
+                "decision": {
+                    "description": "\"approve\" or \"reject\"",
+                    "type": "string"
+                },
+                "head_branch": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
         "types.PaginatedInteractions": {
             "type": "object",
             "properties": {
@@ -37422,6 +37538,10 @@ const docTemplate = `{
                 "ci_url": {
                     "type": "string"
                 },
+                "head_branch": {
+                    "description": "HeadBranch is the branch the PR was opened from. ProposalID links PRs\nopened from an approved SpecTaskPRProposal; their title and body come from\nthe approved proposal rather than the helix-specs pull_request*.md files.",
+                    "type": "string"
+                },
                 "pr_id": {
                     "type": "string"
                 },
@@ -37433,6 +37553,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "pr_url": {
+                    "type": "string"
+                },
+                "proposal_id": {
                     "type": "string"
                 },
                 "repository_id": {
@@ -40671,6 +40794,91 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.SpecTaskPRProposal": {
+            "type": "object",
+            "properties": {
+                "base_branch": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "decided_at": {
+                    "type": "string"
+                },
+                "decided_by": {
+                    "type": "string"
+                },
+                "decision_comment": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "head_branch": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "pr_id": {
+                    "type": "string"
+                },
+                "pr_number": {
+                    "type": "integer"
+                },
+                "pr_url": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "proposed_by_session": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "repository_name": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.SpecTaskPRProposalStatus"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskPRProposalStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "approved",
+                "opened",
+                "rejected",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "PRProposalStatusPending",
+                "PRProposalStatusApproved",
+                "PRProposalStatusOpened",
+                "PRProposalStatusRejected",
+                "PRProposalStatusFailed"
+            ]
         },
         "types.SpecTaskPhase": {
             "type": "string",

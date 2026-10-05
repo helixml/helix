@@ -2413,14 +2413,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindCron = "cron",
+  KindWebhook = "webhook",
   KindEmail = "email",
   KindLocal = "local",
-  KindGitLab = "gitlab",
-  KindWebhook = "webhook",
-  KindGitHub = "github",
-  KindSlack = "slack",
   KindHelixEvents = "helix_events",
+  KindSlack = "slack",
+  KindGitLab = "gitlab",
+  KindCron = "cron",
+  KindGitHub = "github",
 }
 
 export interface TransportResolvedActivation {
@@ -3031,6 +3031,7 @@ export enum TypesAttentionEventType {
   AttentionEventSpecFailed = "spec_failed",
   AttentionEventImplementationFailed = "implementation_failed",
   AttentionEventPRReady = "pr_ready",
+  AttentionEventPRProposal = "pr_proposal",
   AttentionEventOrgMessage = "org_message",
   AttentionEventCIPassed = "ci_passed",
   AttentionEventCIFailed = "ci_failed",
@@ -5351,6 +5352,16 @@ export enum TypesOwnerType {
   OwnerTypeOrg = "org",
 }
 
+export interface TypesPRProposalDecisionRequest {
+  base_branch?: string;
+  body?: string;
+  comment?: string;
+  /** "approve" or "reject" */
+  decision?: string;
+  head_branch?: string;
+  title?: string;
+}
+
 export interface TypesPaginatedInteractions {
   interactions?: TypesInteraction[];
   page?: number;
@@ -6137,11 +6148,18 @@ export interface TypesRepoPR {
   ci_status?: string;
   ci_updated_at?: string;
   ci_url?: string;
+  /**
+   * HeadBranch is the branch the PR was opened from. ProposalID links PRs
+   * opened from an approved SpecTaskPRProposal; their title and body come from
+   * the approved proposal rather than the helix-specs pull_request*.md files.
+   */
+  head_branch?: string;
   pr_id?: string;
   pr_number?: number;
   /** "open", "closed", "merged" */
   pr_state?: string;
   pr_url?: string;
+  proposal_id?: string;
   repository_id?: string;
   repository_name?: string;
 }
@@ -7777,6 +7795,38 @@ export interface TypesSpecTaskInlineAttachment {
   content_base64: string;
   /** Filename visible in the task workspace. */
   name: string;
+}
+
+export interface TypesSpecTaskPRProposal {
+  base_branch?: string;
+  body?: string;
+  created_at?: string;
+  decided_at?: string;
+  decided_by?: string;
+  decision_comment?: string;
+  error?: string;
+  head_branch?: string;
+  id?: string;
+  pr_id?: string;
+  pr_number?: number;
+  pr_url?: string;
+  project_id?: string;
+  proposed_by_session?: string;
+  reason?: string;
+  repository_id?: string;
+  repository_name?: string;
+  spec_task_id?: string;
+  status?: TypesSpecTaskPRProposalStatus;
+  title?: string;
+  updated_at?: string;
+}
+
+export enum TypesSpecTaskPRProposalStatus {
+  PRProposalStatusPending = "pending",
+  PRProposalStatusApproved = "approved",
+  PRProposalStatusOpened = "opened",
+  PRProposalStatusRejected = "rejected",
+  PRProposalStatusFailed = "failed",
 }
 
 export enum TypesSpecTaskPhase {
@@ -19075,6 +19125,49 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesSpecTaskDesignReview, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/submit`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Every pull request a spec task opens starts as an agent proposal awaiting user approval.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksPrProposalsDetail
+     * @summary List a spec task's pull request proposals
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/pr-proposals
+     * @secure
+     */
+    v1SpecTasksPrProposalsDetail: (specTaskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskPRProposal[], any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/pr-proposals`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approving grants the agent push rights to the proposal's head branch and opens the pull request as soon as the branch has commits beyond the base. Edited fields override the agent's proposal. Rejecting withdraws push rights.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksPrProposalsDecideCreate
+     * @summary Approve or reject a pull request proposal
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide
+     * @secure
+     */
+    v1SpecTasksPrProposalsDecideCreate: (
+      specTaskId: string,
+      proposalId: string,
+      request: TypesPRProposalDecisionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskPRProposal, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/pr-proposals/${proposalId}/decide`,
         method: "POST",
         body: request,
         secure: true,
