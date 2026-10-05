@@ -133,6 +133,9 @@ describe.each(["inline", "stacked"] as const)(
       base_branch: "main",
       branch_name: "feature/follow-up",
       sandbox_state: "absent",
+      merged_at: "2026-08-20T10:00:00.000Z",
+      completed_at: "2026-08-20T10:00:00.000Z",
+      last_push_at: "2026-08-20T10:01:00.000Z",
       repo_pull_requests: [
         {
           repository_id: "repo-1",
@@ -195,6 +198,16 @@ describe.each(["inline", "stacked"] as const)(
       ).not.toBeInTheDocument();
     });
 
+    it("does not offer a new PR without a push after the merge", () => {
+      const task = doneTask();
+      task.last_push_at = task.merged_at;
+      render(<SpecTaskActionButtons task={task} variant={variant} />);
+
+      expect(
+        screen.queryByRole("button", { name: /New PR/i }),
+      ).not.toBeInTheDocument();
+    });
+
     it("shows pull request history while the current PR is open", () => {
       const task = doneTask();
       task.status = "pull_request";
@@ -206,6 +219,25 @@ describe.each(["inline", "stacked"] as const)(
       );
       expect(screen.getAllByRole("menuitem")).toHaveLength(2);
     });
+
+    it("waits for the new PR URL instead of linking to the merged PR", () => {
+      const task = doneTask();
+      task.status = "pull_request";
+      task.repo_pull_requests = [
+        {
+          repository_id: "repo-1",
+          repository_name: "helix",
+          pr_state: "unknown",
+        },
+      ];
+      render(<SpecTaskActionButtons task={task} variant={variant} />);
+
+      expect(
+        screen.getByRole("button", { name: "Creating PR..." }),
+      ).toBeDisabled();
+      expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    });
+
   },
 );
 

@@ -154,6 +154,8 @@ export interface SpecTaskForActions {
   repo_pull_requests?: RepoPR[];
   repo_pull_request_history?: RepoPR[];
   last_push_at?: string;
+  merged_at?: string;
+  completed_at?: string;
   rebase_requested_at?: string;
   /** "running" | "starting" | "absent" — derived server-side from the session's live container state.
    *
@@ -946,6 +948,10 @@ export default function SpecTaskActionButtons({
   // Pull Request phase: View Pull Request button(s)
   const currentPullRequests =
     task.repo_pull_requests?.filter((pr) => pr.pr_url) || [];
+  const isWaitingForPullRequest =
+    task.status === "pull_request" &&
+    currentPullRequests.length === 0 &&
+    !!task.repo_pull_requests?.some((pr) => !pr.pr_url);
   const pullRequests = [
     ...currentPullRequests,
     ...(task.repo_pull_request_history?.filter((pr) => pr.pr_url) || []),
@@ -960,8 +966,13 @@ export default function SpecTaskActionButtons({
     pullRequests.every(
       (pullRequest) => normalizePRState(pullRequest.pr_state) === "merged",
     );
+  const followUpBoundary = task.merged_at || task.completed_at;
   const followUpReady =
-    task.status === "done" && mergedPullRequests.length > 0;
+    task.status === "done" &&
+    mergedPullRequests.length > 0 &&
+    !!task.last_push_at &&
+    !!followUpBoundary &&
+    new Date(task.last_push_at).getTime() > new Date(followUpBoundary).getTime();
   const isCreatingFollowUp = approveImplementationMutation.isPending;
 
   if (
@@ -974,6 +985,29 @@ export default function SpecTaskActionButtons({
         <Alert severity="error" sx={{ py: 0.5 }}>
           {task.metadata.error}
         </Alert>
+      </Box>
+    );
+  }
+
+  if (isWaitingForPullRequest) {
+    return (
+      <Box
+        sx={
+          isInline
+            ? inlineRowSx
+            : { display: "flex", alignItems: "center", gap: 0.75, mt: 1.5 }
+        }
+      >
+        <CompactActionButton
+          density={density}
+          tooltip="Waiting for the pull request URL"
+          variant="contained"
+          color="secondary"
+          disabled
+          fullWidth={!isInline}
+          icon={<CircularProgress size={18} color="inherit" />}
+          label="Creating PR..."
+        />
       </Box>
     );
   }
