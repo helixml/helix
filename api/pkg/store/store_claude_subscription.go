@@ -4,12 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
+
+type ClaudeSubscriptionDelegationConflictError struct {
+	OrganizationID string
+	OwnerID        string
+}
+
+func (e *ClaudeSubscriptionDelegationConflictError) Error() string {
+	return fmt.Sprintf("organization %s already has a delegated Claude subscription", e.OrganizationID)
+}
 
 func (s *PostgresStore) CreateClaudeSubscription(ctx context.Context, sub *types.ClaudeSubscription) (*types.ClaudeSubscription, error) {
 	if sub.ID == "" {
@@ -79,6 +90,108 @@ func (s *PostgresStore) UpdateClaudeSubscription(ctx context.Context, sub *types
 	return s.GetClaudeSubscription(ctx, sub.ID)
 }
 
+func (s *PostgresStore) UpdateClaudeSubscriptionDelegation(ctx context.Context, id string, orgIDs []string) (*types.ClaudeSubscription, error) {
+	var updated *types.ClaudeSubscription
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var sub types.ClaudeSubscription
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&sub).Error; err != nil {
+			return err
+		}
+		lockIDs := append([]string{}, sub.DelegatedOrgIDs...)
+		lockIDs = append(lockIDs, orgIDs...)
+		sort.Strings(lockIDs)
+		for i, orgID := range lockIDs {
+			if i > 0 && orgID == lockIDs[i-1] {
+				continue
+			}
+			var org types.Organization
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").Where("id = ?", orgID).First(&org).Error; err != nil {
+				return err
+			}
+		}
+		for _, orgID := range orgIDs {
+			var other types.ClaudeSubscription
+			err := tx.Where("id <> ? AND owner_type = ? AND ? = ANY(delegated_org_ids)", id, types.OwnerTypeUser, orgID).
+				Order("created ASC, id ASC").First(&other).Error
+			if err == nil {
+				return &ClaudeSubscriptionDelegationConflictError{OrganizationID: orgID, OwnerID: other.OwnerID}
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		}
+		sub.DelegatedOrgIDs = orgIDs
+		sub.Updated = time.Now()
+		if err := tx.Save(&sub).Error; err != nil {
+			return err
+		}
+		updated = &sub
+		return nil
+	})
+	return updated, err
+}
+
+// UpdateClaudeSubscriptionCredentialsIfNewer writes rotated credentials only when
+// they are newer than what is stored, and touches only the credential columns.
+//
+// Three writers race over one row: this API's background refresher, a container
+// pushing credentials it refreshed itself, and the status/identity writers. A
+// full-row Save from any of them reverts the others — and because Anthropic
+// rotates the refresh token on every use, reverting a credential resurrects a
+// refresh token that is already dead, permanently bricking the subscription.
+// The refreshed_at predicate makes the older write lose instead. This mirrors
+// UpdateCodexSubscriptionCredentialsIfNewer.
+//
+// Status is deliberately not touched: a working refresh proves the refresh
+// endpoint accepts the token, not that /v1/messages will. The liveness probe
+// owns Status.
+func (s *PostgresStore) UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials string, expiresAt, refreshTokenExpiresAt, refreshedAt time.Time) (bool, error) {
+	if id == "" {
+		return false, fmt.Errorf("id not specified")
+	}
+	updates := map[string]interface{}{
+		"encrypted_credentials": encryptedCredentials,
+		"last_refreshed_at":     refreshedAt,
+		"updated":               time.Now(),
+	}
+	// A credential with no stated expiry must not blank a known one.
+	if !expiresAt.IsZero() {
+		updates["access_token_expires_at"] = expiresAt
+	}
+	if !refreshTokenExpiresAt.IsZero() {
+		updates["refresh_token_expires_at"] = refreshTokenExpiresAt
+	}
+	result := s.gdb.WithContext(ctx).Model(&types.ClaudeSubscription{}).
+		Where("id = ? AND (last_refreshed_at IS NULL OR last_refreshed_at < ?)", id, refreshedAt).
+		Updates(updates)
+	return result.RowsAffected == 1, result.Error
+}
+
+// UpdateClaudeSubscriptionStatus persists the outcome of a liveness probe and
+// the identity it discovered, without touching encrypted_credentials.
+//
+// The probe plus profile fetch can take ~18s, during which a container may push
+// refreshed credentials. Writing the whole row back afterwards would revert
+// them; restricting the write to these columns cannot.
+func (s *PostgresStore) UpdateClaudeSubscriptionStatus(ctx context.Context, sub *types.ClaudeSubscription) error {
+	if sub == nil || sub.ID == "" {
+		return fmt.Errorf("id not specified")
+	}
+	return s.gdb.WithContext(ctx).Model(&types.ClaudeSubscription{}).
+		Where("id = ?", sub.ID).
+		Updates(map[string]interface{}{
+			"status":                 sub.Status,
+			"last_error":             sub.LastError,
+			"last_validated_at":      sub.LastValidatedAt,
+			"subscription_type":      sub.SubscriptionType,
+			"rate_limit_tier":        sub.RateLimitTier,
+			"account_email":          sub.AccountEmail,
+			"account_display_name":   sub.AccountDisplayName,
+			"claude_organization_id": sub.ClaudeOrganizationID,
+			"updated":                time.Now(),
+		}).Error
+}
+
 func (s *PostgresStore) DeleteClaudeSubscription(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id not specified")
@@ -99,6 +212,27 @@ func (s *PostgresStore) ListClaudeSubscriptions(ctx context.Context, ownerID str
 	return subs, nil
 }
 
+func (s *PostgresStore) GetDelegatedClaudeSubscriptionForOrg(ctx context.Context, orgID string) (*types.ClaudeSubscription, error) {
+	if orgID == "" {
+		return nil, ErrNotFound
+	}
+	var subs []*types.ClaudeSubscription
+	if err := s.gdb.WithContext(ctx).
+		Where("owner_type = ? AND ? = ANY(delegated_org_ids)", types.OwnerTypeUser, orgID).
+		Order("created ASC, id ASC").
+		Limit(2).
+		Find(&subs).Error; err != nil {
+		return nil, err
+	}
+	if len(subs) == 0 {
+		return nil, ErrNotFound
+	}
+	if len(subs) > 1 {
+		return nil, fmt.Errorf("multiple Claude subscriptions are delegated to organization %s", orgID)
+	}
+	return subs[0], nil
+}
+
 // GetSessionClaudeSubscription resolves the Claude subscription that should
 // authenticate a session's agent.
 //
@@ -108,20 +242,29 @@ func (s *PostgresStore) ListClaudeSubscriptions(ctx context.Context, ownerID str
 // The delegation check is the consent gate: without it, anyone who can create a
 // session could name any user as credential owner and spend their Claude quota.
 //
-// A named-but-undelegated (or missing) credential owner falls back to the
-// session owner's normal resolution rather than failing, so a revoked delegation
-// degrades to previous behaviour instead of bricking the agent.
+// An explicit credential owner fails closed when missing or undelegated. Once a
+// task records who pays for it, resolution must not silently switch billing.
 func (s *PostgresStore) GetSessionClaudeSubscription(ctx context.Context, session *types.Session) (*types.ClaudeSubscription, error) {
 	if session == nil {
 		return nil, ErrNotFound
 	}
-	if owner := session.Metadata.CredentialOwnerID; owner != "" && owner != session.Owner {
+	if owner := session.Metadata.CredentialOwnerID; owner != "" {
 		sub, err := s.GetClaudeSubscriptionForOwner(ctx, owner, types.OwnerTypeUser)
-		if err != nil && !errors.Is(err, ErrNotFound) {
+		if err != nil {
 			return nil, err
 		}
-		if err == nil && subscriptionDelegatedTo(sub, session.OrganizationID) {
+		if owner == session.Owner || subscriptionDelegatedTo(sub, session.OrganizationID) {
 			return sub, nil
+		}
+		return nil, ErrNotFound
+	}
+	if session.Metadata.SpecTaskID != "" {
+		sub, err := s.GetDelegatedClaudeSubscriptionForOrg(ctx, session.OrganizationID)
+		if err == nil {
+			return sub, nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return nil, err
 		}
 	}
 	return s.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)

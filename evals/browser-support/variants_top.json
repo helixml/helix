@@ -1,0 +1,18 @@
+[
+ {
+  "id": "sup-opencode-glm",
+  "name": "Support opencode/glm",
+  "runtime": "opencode",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "glm-5.3-flash",
+  "prompt": "prompt_playbook.md"
+ },
+ {
+  "id": "sup-dsh-glm",
+  "name": "Support dsh/glm",
+  "runtime": "deepseek_harness",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "glm-5.3-flash",
+  "prompt": "prompt_playbook.md"
+ }
+]

@@ -4,9 +4,9 @@
 //
 //   - Trigger / TriggerKind: why a Spawner was invoked (lifted from
 //     helix-org/agent in B3c).
-//   - TopicID(workerID): the canonical derivation of the per-Worker
-//     transcript ID (`s-transcript-<workerID>`), lifted from
-//     helix-org/agent in B5.1.
+//   - TranscriptID(workerID): the canonical derivation of the
+//     per-Worker transcript stream (`s-transcript-<workerID>`), lifted
+//     from helix-org/agent in B5.1.
 //
 // The full Activation aggregate (planned for the remainder of B5)
 // will land here next — at which point the per-Worker queue, the
@@ -17,6 +17,7 @@ package activation
 import (
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
@@ -28,8 +29,8 @@ const (
 	// TriggerHire fires once when a Worker is first created.
 	TriggerHire TriggerKind = "hire"
 
-	// TriggerEvent fires whenever a Worker receives an event on a
-	// Topic they subscribe to.
+	// TriggerEvent fires whenever a Worker receives an event from a
+	// source it is attached to.
 	TriggerEvent TriggerKind = "event"
 
 	// TriggerManual fires when an operator manually wakes a Worker
@@ -38,7 +39,7 @@ const (
 	// pipeline - ensureProject + ensureSession -
 	// just with a different label so the audit row + activation marker
 	// distinguish "operator clicked the button" from "Worker was just
-	// hired" or "Topic event arrived".
+	// hired" or "an event arrived".
 	TriggerManual TriggerKind = "manual"
 )
 
@@ -48,8 +49,8 @@ const (
 //
 // Fields are populated according to Kind:
 //   - TriggerHire: Kind only (plus optional ActivationID below).
-//   - TriggerEvent: Kind, EventID, TopicID, Source, Message, CreatedAt
-//     all populated by the dispatcher at fan-out time.
+//   - TriggerEvent: Kind, EventID, EventSource, Source, Message,
+//     CreatedAt all populated by the dispatcher at fan-out time.
 type Trigger struct {
 	Kind TriggerKind
 
@@ -61,10 +62,12 @@ type Trigger struct {
 	// "Spawner mints its own ID" — the event-driven path today.
 	ActivationID ID
 
-	// Event fields, set when Kind == TriggerEvent.
-	EventID streaming.EventID
-	TopicID streaming.TopicID
-	Source  orgchart.NodeID
+	// Event fields, set when Kind == TriggerEvent. EventSource names
+	// the terminal source the event came from — the Trigger, or the
+	// Processor branch that produced it.
+	EventID     streaming.EventID
+	EventSource eventsource.SourceRef
+	Source      orgchart.NodeID
 
 	// Message is the canonical envelope parsed from the event body.
 	// Every populated field (From, Subject, ThreadID, MessageID,

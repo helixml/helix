@@ -34,6 +34,7 @@ const (
 type ExternalAgentHooks struct {
 	WaitForExternalAgentReady func(ctx context.Context, sessionID string, timeout time.Duration) error
 	GetAgentNameForSession    func(ctx context.Context, session *types.Session) string
+	PrepareMessage            func(ctx context.Context, session *types.Session, message string) string
 	SendCommand               func(sessionID string, command types.ExternalAgentCommand) error
 	StoreResponseChannel      func(sessionID, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error)
 	// CleanupResponseChannel drops the waiter channels registered under
@@ -129,7 +130,7 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	requestID := interaction.ID
 
 	// Claim the interaction BEFORE waiting for readiness. The wait can run for
-	// minutes while a container boots, and pickupWaitingInteraction fires during
+	// minutes while a container boots, and the reconnect resume path fires during
 	// that window on agent reconnect and on the settings-sync daemon's
 	// /agent-config-applied callback after an agent switch. Without the claim
 	// both paths send a chat_message for the same request_id and Zed opens two
@@ -158,15 +159,12 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 		c.markExternalAgentInteractionError(req.Session, interaction, req.Start, fmt.Sprintf("External agent not ready: %s", err.Error()), "")
 		return nil, fmt.Errorf("external agent not ready: %w", err)
 	}
-	agentSession, err := c.Options.ExternalAgentExecutor.GetSession(req.Session.ID)
-	if err != nil {
-		return nil, fmt.Errorf("external agent session not found after readiness: %w", err)
-	}
-
+	// Readiness is the agent's own connection. The executor's session map is
+	// filled when StartDesktop returns, which a fast sandbox's agent can beat,
+	// so it is not consulted here.
 	log.Info().
 		Str("session_id", req.Session.ID).
 		Str("user_message", userMessage).
-		Str("agent_session_status", agentSession.Status).
 		Str("mode", string(req.Mode)).
 		Msg("sending message to external agent")
 
@@ -174,12 +172,16 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	if hooks.GetAgentNameForSession != nil {
 		agentName = hooks.GetAgentNameForSession(ctx, req.Session)
 	}
+	outgoingMessage := userMessage
+	if hooks.PrepareMessage != nil {
+		outgoingMessage = hooks.PrepareMessage(ctx, req.Session, userMessage)
+	}
 
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
 			"acp_thread_id": req.Session.Metadata.ZedThreadID,
-			"message":       userMessage,
+			"message":       outgoingMessage,
 			"request_id":    requestID,
 			"agent_name":    agentName,
 		},
@@ -191,7 +193,9 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 
 	hooks.StoreResponseChannel(req.Session.ID, requestID, responseChan, doneChan, errorChan)
 	hooks.SetRequestInteractionMapping(requestID, interaction.ID)
-	hooks.SetRequestSessionMapping(requestID, req.Session.ID)
+	if req.Session.Metadata.ZedThreadID == "" {
+		hooks.SetRequestSessionMapping(requestID, req.Session.ID)
+	}
 
 	// Only the claim winner sends. A loser has attached its channels to the
 	// in-flight request_id above and just waits for that turn's response.

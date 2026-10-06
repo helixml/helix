@@ -1,0 +1,201 @@
+import { useEffect, useRef, useState } from 'react'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import CircularProgress from '@mui/material/CircularProgress'
+import Typography from '@mui/material/Typography'
+import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
+
+import useRouter from '../hooks/useRouter'
+import { appendPromptDraft } from '../hooks/usePromptHistory'
+import { useActivateBot, useHelixOrgBot } from '../services/helixOrgService'
+import { consumeOrgBotChatDraft } from '../components/helix-org/orgBotChatDraft'
+import { CHIEF_OF_STAFF_BOT_ID } from '../utils/organizations'
+import Session from './Session'
+
+export default function OrgBotSessionResolver() {
+  const router = useRouter()
+  const orgID = router.params.org_id || ''
+  const botID = router.params.bot_id || ''
+  const botKey = `${orgID}:${botID}`
+  const attemptedBot = useRef('')
+  const [activationErrorBotKey, setActivationErrorBotKey] = useState('')
+  const [readySession, setReadySession] = useState<{ botKey: string; sessionID: string } | null>(null)
+  const [introConfirmedBotKey, setIntroConfirmedBotKey] = useState('')
+  const {
+    data: botDetail,
+    isLoading: botLoading,
+    isFetching: botFetching,
+    isError: botError,
+    error: botQueryError,
+    refetch,
+  } = useHelixOrgBot(botID || undefined, {
+    enabled: !!orgID && !!botID,
+    refetchInterval: readySession?.botKey === botKey ? 10000 : 2000,
+  })
+  const bot = botDetail?.bot
+  const agentName = bot?.name || botID
+  const sessionID = bot?.session_id || ''
+  const botNotFound = (botQueryError as { response?: { status?: number } } | null)?.response?.status === 404
+  const activateBot = useActivateBot(orgID)
+  const currentStage = sessionID ? 2 : bot ? 1 : 0
+  const stages = [
+    ['Finding your agent', 'Checking your organization'],
+    ['Starting a secure workspace', `Preparing ${agentName}`],
+    ['Opening your conversation', 'Taking you to the chat'],
+  ]
+
+  useEffect(() => {
+    if (!orgID || !sessionID) return
+    const queuedDraft = consumeOrgBotChatDraft(orgID, botID)
+    if (queuedDraft) appendPromptDraft(sessionID, queuedDraft)
+    attemptedBot.current = botKey
+    setReadySession({ botKey, sessionID })
+  }, [botID, orgID, sessionID])
+
+  useEffect(() => {
+    if (botFetching || botError || !bot?.id || sessionID || attemptedBot.current === botKey
+      || bot.status === 'running' || bot.status === 'starting') return
+    attemptedBot.current = botKey
+    setActivationErrorBotKey('')
+    activateBot.mutateAsync(botID).catch(() => setActivationErrorBotKey(botKey))
+  }, [bot?.id, bot?.status, botFetching, botError, botID, orgID, sessionID]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!botNotFound || botID !== CHIEF_OF_STAFF_BOT_ID || !orgID) return
+    router.navigateReplace('org_projects', { org_id: orgID })
+  }, [botNotFound, botID, orgID]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (router.params.intro !== '1' || botFetching || botError || !bot?.id || sessionID
+      || bot.status === 'running' || bot.status === 'starting') return
+    setIntroConfirmedBotKey(botKey)
+  }, [router.params.intro, botFetching, botError, bot?.id, bot?.status, botID, orgID, sessionID])
+
+  const retryActivation = () => {
+    setActivationErrorBotKey('')
+    activateBot.mutateAsync(botID).catch(() => setActivationErrorBotKey(botKey))
+  }
+
+  if (readySession?.botKey === botKey && readySession.sessionID === sessionID) {
+    return <Session key={sessionID} orgChatView sessionId={sessionID} />
+  }
+
+  const showIntroduction = router.params.intro === '1' && introConfirmedBotKey === botKey && !sessionID
+    && bot?.status !== 'running' && bot?.status !== 'starting'
+
+  return (
+    <Box
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 2,
+      }}
+    >
+      {botError || (!botLoading && !botFetching && !bot) ? (
+        <>
+          <Typography color="error" role="alert">
+            {botError && !botNotFound ? 'Could not load this agent.' : 'Could not find this agent.'}
+          </Typography>
+          <Button
+            variant="contained"
+            onClick={() => void refetch()}
+            aria-label="Retry finding agent"
+          >
+            Retry
+          </Button>
+        </>
+      ) : activationErrorBotKey === botKey ? (
+        <>
+          <Typography color="error" role="alert">
+            Could not start {agentName}.
+          </Typography>
+          <Button
+            variant="contained"
+            onClick={retryActivation}
+            aria-label={`Retry starting ${agentName}`}
+            disabled={activateBot.isPending}
+          >
+            Retry
+          </Button>
+        </>
+      ) : !showIntroduction ? (
+        <Box role="status" sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <CircularProgress size={20} color="secondary" />
+          <Typography color="text.secondary">Opening chat…</Typography>
+        </Box>
+      ) : (
+        <Box
+          sx={{
+            width: 'calc(100% - 32px)',
+            maxWidth: 440,
+            p: { xs: 3, sm: 4 },
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 3,
+            bgcolor: 'background.paper',
+          }}
+        >
+          <Typography variant="h5" sx={{ fontWeight: 650, letterSpacing: '-0.02em' }}>
+            Meet your {agentName}
+          </Typography>
+          <Typography color="text.secondary" sx={{ mt: 1, lineHeight: 1.6 }}>
+            Your new agent is getting ready to work with your organization.
+          </Typography>
+
+          <Box component="ol" sx={{ listStyle: 'none', p: 0, m: 0, mt: 3 }}>
+            {stages.map(([label, detail], index) => {
+              const complete = index < currentStage
+              const active = index === currentStage
+              return (
+                <Box
+                  component="li"
+                  key={label}
+                  aria-current={active ? 'step' : undefined}
+                  sx={{ display: 'flex', gap: 1.5, minHeight: 58 }}
+                >
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <Box
+                      sx={{
+                        width: 26,
+                        height: 26,
+                        borderRadius: '50%',
+                        display: 'grid',
+                        placeItems: 'center',
+                        border: '1px solid',
+                        borderColor: complete || active ? 'secondary.main' : 'divider',
+                        bgcolor: complete ? 'secondary.main' : 'transparent',
+                        color: complete ? 'secondary.contrastText' : 'text.secondary',
+                      }}
+                    >
+                      {complete ? (
+                        <CheckRoundedIcon sx={{ fontSize: 17 }} />
+                      ) : active ? (
+                        <CircularProgress size={16} color="secondary" />
+                      ) : (
+                        <Typography variant="caption">{index + 1}</Typography>
+                      )}
+                    </Box>
+                    {index < stages.length - 1 && (
+                      <Box sx={{ width: '1px', flex: 1, bgcolor: 'divider' }} />
+                    )}
+                  </Box>
+                  <Box sx={{ pt: 0.25 }}>
+                    <Typography sx={{ fontWeight: active ? 600 : 500, color: active ? 'text.primary' : 'text.secondary' }}>
+                      {label}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {detail}
+                    </Typography>
+                  </Box>
+                </Box>
+              )
+            })}
+          </Box>
+        </Box>
+      )}
+    </Box>
+  )
+}

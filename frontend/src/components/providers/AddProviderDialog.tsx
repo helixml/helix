@@ -35,6 +35,7 @@ interface AddProviderDialogProps {
     name: string;
     description: string;
     base_url: string;
+    endpoint_name?: string;
     configurable_base_url?: boolean;
     optional_api_key?: boolean; // If provider doesn't need an API key
     is_custom?: boolean; // If true, the user picks the endpoint name
@@ -161,7 +162,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
 
       // For brand-new custom providers the user picks the endpoint name.
       // Existing custom providers keep their name (edits to the name aren't exposed here).
-      let endpointName = provider.id;
+      let endpointName = provider.endpoint_name || provider.id;
       if (provider.is_custom) {
         if (isEditing && existingProvider?.name) {
           endpointName = existingProvider.name;
@@ -191,7 +192,9 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           body: {
             base_url: baseUrl,
             api_key: apiKeyToUse,
-            endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
+            endpoint_type: orgId
+              ? TypesProviderEndpointType.ProviderEndpointTypeOrg
+              : TypesProviderEndpointType.ProviderEndpointTypeUser,
             description: provider.description,
             ...(provider.is_custom ? { models: presetModels ?? [] } : {}),
           },
@@ -203,7 +206,9 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           name: endpointName,
           base_url: baseUrl,
           api_key: apiKey,
-          endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
+          endpoint_type: orgId
+            ? TypesProviderEndpointType.ProviderEndpointTypeOrg
+            : TypesProviderEndpointType.ProviderEndpointTypeUser,
           description: provider.description,
           // If we are in an org context, set the owner to the org
           owner: orgId || '',

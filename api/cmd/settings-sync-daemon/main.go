@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -23,29 +25,38 @@ import (
 // SettingsPath and KeymapPath are vars (not consts) so unit tests can point
 // them at a tempdir without touching the real Zed config.
 var (
-	SettingsPath    = "/home/retro/.config/zed/settings.json"
-	KeymapPath      = "/home/retro/.config/zed/keymap.json"
-	CodexConfigPath = "/home/retro/.codex/config.toml"
+	SettingsPath     = "/home/retro/.config/zed/settings.json"
+	KeymapPath       = "/home/retro/.config/zed/keymap.json"
+	CodexConfigPath  = "/home/retro/.codex/config.toml"
+	QwenSettingsPath = "/home/retro/work/.qwen-state/settings.json"
 )
 
 const (
 	PollInterval = 30 * time.Second
-	DebounceTime = 500 * time.Millisecond
+
+	DebounceTime              = 500 * time.Millisecond
+	maxAgentStartupErrorBytes = 4096
 )
 
 type SettingsDaemon struct {
-	httpClient   *http.Client
-	apiURL       string
-	apiToken     string
-	sessionID    string
-	watcher      *fsnotify.Watcher
-	lastModified time.Time
+	httpClient *http.Client
+	apiURL     string
+	// desktopBridgeHealthURL is this container's desktop-bridge, which serves
+	// the helix-desktop context server. Empty skips the local check.
+	desktopBridgeHealthURL string
+	apiToken               string
+	sessionID              string
+	watcher                *fsnotify.Watcher
+	lastModified           time.Time
 
 	// User's Helix API token (for authenticating with LLM proxies)
 	userAPIKey string
 
 	// Code agent configuration (from Helix API)
 	codeAgentConfig *CodeAgentConfig
+	// openCodeLastAttempt is when we last tried (and failed) to install an
+	// admin-pinned opencode release. Zero means "no failure pending".
+	openCodeLastAttempt time.Time
 
 	// Whether user has a Claude subscription available for credential sync
 	claudeSubscriptionAvailable bool
@@ -70,21 +81,41 @@ type SettingsDaemon struct {
 
 // CodeAgentConfig mirrors the API response structure for code agent configuration
 type CodeAgentConfig struct {
-	Provider        string `json:"provider"`
-	Model           string `json:"model"`
-	AgentName       string `json:"agent_name"`
-	BaseURL         string `json:"base_url"`
-	APIType         string `json:"api_type"`
-	Runtime         string `json:"runtime"`                    // "zed_agent" or "qwen_code" or "goose_code"
-	ReasoningEffort string `json:"reasoning_effort,omitempty"` // Runtime/model reasoning effort; empty uses the upstream default
-	ServiceTier     string `json:"service_tier,omitempty"`
-	MaxTokens       int    `json:"max_tokens"`        // Model's context window size (0 if unknown)
-	MaxOutputTokens int    `json:"max_output_tokens"` // Model's max completion tokens (0 if unknown)
+	Provider         string   `json:"provider"`
+	Model            string   `json:"model"`
+	AgentName        string   `json:"agent_name"`
+	BaseURL          string   `json:"base_url"`
+	APIType          string   `json:"api_type"`
+	Runtime          string   `json:"runtime"`                    // "zed_agent" or "qwen_code" or "goose_code"
+	ReasoningEffort  string   `json:"reasoning_effort,omitempty"` // Runtime/model reasoning effort; empty uses the upstream default
+	ServiceTier      string   `json:"service_tier,omitempty"`
+	MaxTokens        int      `json:"max_tokens"`        // Model's context window size (0 if unknown)
+	MaxOutputTokens  int      `json:"max_output_tokens"` // Model's max completion tokens (0 if unknown)
+	InputModalities  []string `json:"input_modalities,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
 
 	// Goose-specific fields (only populated when Runtime == "goose_code").
 	GooseRecipes       []GooseRecipe     `json:"goose_recipes,omitempty"`
 	GooseRecipeRootDir string            `json:"goose_recipe_root_dir,omitempty"`
 	GooseBakedRecipe   *GooseBakedRecipe `json:"goose_baked_recipe,omitempty"`
+
+	// OpenCodeBinary, when set, pins an opencode release newer than the one
+	// baked into this image. Only populated when Runtime == "opencode" and an
+	// admin has set the override.
+	OpenCodeBinary *CodeAgentBinary `json:"opencode_binary,omitempty"`
+}
+
+// CodeAgentBinary is a pinned agent release resolved by the API, keyed by
+// GOARCH because the API does not know which architecture this host runs.
+type CodeAgentBinary struct {
+	Version   string                             `json:"version"`
+	Artifacts map[string]CodeAgentBinaryArtifact `json:"artifacts"`
+}
+
+// CodeAgentBinaryArtifact is one platform's archive and its expected digest.
+type CodeAgentBinaryArtifact struct {
+	URL    string `json:"url"`
+	SHA256 string `json:"sha256"`
 }
 
 // GooseRecipe maps a slash-command name to a recipe YAML on disk (container path).
@@ -126,6 +157,43 @@ type helixConfigResponse struct {
 	CodexSubscriptionAvailable  bool                   `json:"codex_subscription_available,omitempty"`
 }
 
+type zedConfigFetchError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *zedConfigFetchError) Error() string {
+	return fmt.Sprintf("failed to fetch config: status %d: %s", e.StatusCode, e.Message)
+}
+
+func readZedConfigFetchError(resp *http.Response) error {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxAgentStartupErrorBytes))
+	if err != nil {
+		return fmt.Errorf("failed to fetch config: status %d (failed to read response: %w)", resp.StatusCode, err)
+	}
+	message := strings.TrimSpace(string(body))
+	if message == "" {
+		message = http.StatusText(resp.StatusCode)
+	}
+	return &zedConfigFetchError{StatusCode: resp.StatusCode, Message: message}
+}
+
+func isFatalZedConfigError(err error) bool {
+	var fetchErr *zedConfigFetchError
+	if !errors.As(err, &fetchErr) {
+		return false
+	}
+	switch fetchErr.StatusCode {
+	case http.StatusBadRequest,
+		http.StatusUnauthorized,
+		http.StatusForbidden,
+		http.StatusUnprocessableEntity:
+		return true
+	default:
+		return false
+	}
+}
+
 // generateAgentServerConfig creates the agent_servers configuration for custom agents (like qwen).
 // Returns nil for runtimes that use Zed's built-in agent.
 //
@@ -143,14 +211,15 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 
 	switch d.codeAgentConfig.Runtime {
 	case "qwen_code":
-		// Qwen Code: Uses the qwen command as a custom agent_server
+		// Qwen Code: Uses the qwen command as a custom agent_server.
 		// Rewrite localhost URLs for container networking (dev mode fix)
-		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+		baseURL := d.codeAgentConfig.BaseURL
 		env := map[string]interface{}{
-			"GEMINI_TELEMETRY_ENABLED": "false",
-			"OPENAI_BASE_URL":          baseURL,
-			// Store sessions in persistent workspace directory (survives container restarts)
-			"QWEN_DATA_DIR": "/home/retro/work/.qwen-state",
+			"OPENAI_BASE_URL":               baseURL,
+			"QWEN_HOME":                     "/home/retro/work/.qwen-state",
+			"QWEN_RUNTIME_DIR":              "/home/retro/work/.qwen-state",
+			"QWEN_TELEMETRY_ENABLED":        "false",
+			"QWEN_USAGE_STATISTICS_ENABLED": "false",
 		}
 
 		if d.userAPIKey != "" {
@@ -159,39 +228,52 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		if d.codeAgentConfig.Model != "" {
 			env["OPENAI_MODEL"] = d.codeAgentConfig.Model
 		}
+		if err := ensureQwenSettings(QwenSettingsPath, d.codeAgentConfig.ReasoningEffort); err != nil {
+			log.Printf("ERROR: qwen agent server cannot be registered: %v", err)
+			return nil
+		}
 
 		log.Printf("Using qwen_code runtime: base_url=%s, model=%s",
 			baseURL, d.codeAgentConfig.Model)
 
-		return map[string]interface{}{
-			"qwen": map[string]interface{}{
-				"name":    "qwen",   // Required: Zed expects a name field for agent_servers
-				"type":    "custom", // Required: Zed deserializes agent_servers using tagged enum
-				"command": "qwen",
-				"args": []string{
-					// --yolo makes qwen start its ACP session in YOLO mode so it
-					// auto-approves every tool call. This is passed on the command
-					// line (not just via the "default_mode" setting below) on
-					// purpose: default_mode only takes effect if the host IDE reads
-					// it and sends an ACP session/set_mode after new_session. The
-					// Zed builds pinned for spec-task sandboxes don't do that for
-					// custom agent servers, so without --yolo qwen stays in
-					// ApprovalMode.DEFAULT and every edit round-trips a
-					// session/request_permission that nobody clicks in a headless
-					// sandbox — the agent stalls on an "Allow all edits?" prompt.
-					"--yolo",
-					"--experimental-acp",
-					"--no-telemetry",
-					"--include-directories", "/home/retro/work",
-				},
-				"env": env,
-				// default_mode is the IDE-mediated equivalent of --yolo: newer Zed
-				// reads it and issues session/set_mode("yolo"), which also keeps the
-				// Zed UI mode indicator in sync. Mirrors claude_code's
-				// "bypassPermissions" entry below. --yolo above is the version-
-				// independent guarantee; this is the nicety for IDEs that honour it.
-				"default_mode": "yolo",
+		qwenConfig := map[string]interface{}{
+			"name":    "qwen",   // Required: Zed expects a name field for agent_servers
+			"type":    "custom", // Required: Zed deserializes agent_servers using tagged enum
+			"command": "qwen",
+			"args": []string{
+				// --yolo makes qwen start its ACP session in YOLO mode so it
+				// auto-approves every tool call. This is passed on the command
+				// line (not just via the "default_mode" setting below) on
+				// purpose: default_mode only takes effect if the host IDE reads
+				// it and sends an ACP session/set_mode after new_session. The
+				// Zed builds pinned for spec-task sandboxes don't do that for
+				// custom agent servers, so without --yolo qwen stays in
+				// ApprovalMode.DEFAULT and every edit round-trips a
+				// session/request_permission that nobody clicks in a headless
+				// sandbox — the agent stalls on an "Allow all edits?" prompt.
+				"--yolo",
+				"--acp",
+				"--no-telemetry",
+				"--include-directories", "/home/retro/work",
 			},
+			"env": env,
+			// default_mode is the IDE-mediated equivalent of --yolo: newer Zed
+			// reads it and issues session/set_mode("yolo"), which also keeps the
+			// Zed UI mode indicator in sync. Mirrors claude_code's
+			// "bypassPermissions" entry below. --yolo above is the version-
+			// independent guarantee; this is the nicety for IDEs that honour it.
+			"default_mode": "yolo",
+		}
+		if d.codeAgentConfig.ReasoningEffort != "" {
+			// Qwen exposes reasoning_effort as an ACP session config option.
+			// Zed applies this default after new_session.
+			qwenConfig["default_config_options"] = map[string]string{
+				"reasoning_effort": d.codeAgentConfig.ReasoningEffort,
+			}
+		}
+
+		return map[string]interface{}{
+			"qwen": qwenConfig,
 		}
 
 	case "claude_code":
@@ -208,7 +290,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 
 		if d.codeAgentConfig.BaseURL != "" {
 			// API key mode: route through Helix API proxy
-			baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+			baseURL := d.codeAgentConfig.BaseURL
 			env["ANTHROPIC_BASE_URL"] = baseURL
 			if d.userAPIKey != "" {
 				env["ANTHROPIC_API_KEY"] = d.userAPIKey
@@ -262,8 +344,12 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		}
 
 	case "codex_cli":
-		if err := ensureCodexNonInteractiveConfig(CodexConfigPath); err != nil {
-			log.Printf("Failed to configure Codex non-interactive permissions: %v", err)
+		codexBaseURL := ""
+		if d.codeAgentConfig.BaseURL != "" {
+			codexBaseURL = d.codeAgentConfig.BaseURL
+		}
+		if err := ensureCodexConfig(CodexConfigPath, codexBaseURL, d.codeAgentConfig.Model); err != nil {
+			log.Printf("Failed to configure Codex: %v", err)
 			return nil
 		}
 		env := map[string]interface{}{
@@ -271,7 +357,6 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			"INITIAL_AGENT_MODE": "agent-full-access",
 		}
 		if d.codeAgentConfig.BaseURL != "" {
-			env["OPENAI_BASE_URL"] = d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
 			if d.userAPIKey != "" {
 				env["OPENAI_API_KEY"] = d.userAPIKey
 			}
@@ -323,7 +408,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// goose's config file at startup.
 		// Phase 2 will add per-recipe agent_servers entries on top of this
 		// plain entry; for now we always emit one "goose" entry.
-		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+		baseURL := d.codeAgentConfig.BaseURL
 		env := map[string]interface{}{}
 
 		// Map Helix APIType → goose provider + env var names. Goose
@@ -398,6 +483,89 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			},
 		}
 
+	case "opencode":
+		// opencode: `opencode acp` as a custom agent_server. Unlike goose and
+		// qwen, the entire LLM configuration travels in one env var
+		// (OPENCODE_CONFIG_CONTENT) instead of a config file — opencode merges
+		// it over its own defaults, so there is nothing to write to disk and
+		// nothing to clean up between agent switches.
+		baseURL := d.codeAgentConfig.BaseURL
+
+		// Resolve the binary first: with an admin-pinned version this may
+		// download and verify a release, and if that fails we must not emit an
+		// agent_servers entry at all. Returning nil leaves the session without
+		// an opencode agent and the daemon retries on the next poll, which is
+		// the same deferral the claude_code branch uses while it waits for
+		// credentials. Falling back to the bundled binary would silently
+		// undo the admin's rollout.
+		command, err := d.resolveOpenCodeCommand()
+		if err != nil {
+			log.Printf("ERROR: opencode agent server cannot be registered: %v", err)
+			return nil
+		}
+
+		configContent, err := marshalOpenCodeConfig(d.buildOpenCodeConfig(baseURL))
+		if err != nil {
+			log.Printf("ERROR: opencode agent server cannot be registered: %v", err)
+			return nil
+		}
+
+		env := map[string]interface{}{
+			"OPENCODE_CONFIG_CONTENT": configContent,
+			// Referenced as {env:HELIX_API_KEY} from the config above.
+			"HELIX_API_KEY": d.userAPIKey,
+			// Per-session config dir so opencode's plugin bootstrap cannot
+			// collide with anything else under ~/.config.
+			"XDG_CONFIG_HOME": OpenCodeConfigHome,
+			// Session state under the workspace so it survives a restart.
+			"XDG_DATA_HOME": OpenCodeDataHome,
+		}
+
+		log.Printf("Using opencode runtime: command=%s, model=%s, base_url=%s",
+			command, d.codeAgentConfig.Model, baseURL)
+
+		return map[string]interface{}{
+			"opencode": map[string]interface{}{
+				"name":    "opencode",
+				"type":    "custom",
+				"command": command,
+				"args":    []string{"acp"},
+				"env":     env,
+			},
+		}
+
+	case "deepseek_harness":
+		// DeepSeek Harness: `dsh-acp` as a custom agent_server. The whole
+		// configuration lives in the profile patch baked into the image
+		// (/opt/helix/dsh/helix.patch.yml); we only supply the values it
+		// resolves from the environment. MCP servers arrive the standard way,
+		// in ACP session/new.
+		baseURL := d.codeAgentConfig.BaseURL
+
+		env, err := buildDeepSeekHarnessEnv(baseURL, d.codeAgentConfig.Model, d.userAPIKey)
+		if err != nil {
+			// No entry rather than a broken one: emitting an agent_server that
+			// cannot authenticate would have Zed launch it and fail the first
+			// turn with a provider error. Returning nil defers to the next
+			// poll, the same deferral the claude_code branch uses while it
+			// waits for credentials.
+			log.Printf("ERROR: dsh agent server cannot be registered: %v", err)
+			return nil
+		}
+
+		log.Printf("Using deepseek_harness runtime: command=%s, model=%s, base_url=%s",
+			DeepSeekHarnessCommand, d.codeAgentConfig.Model, baseURL)
+
+		return map[string]interface{}{
+			"dsh": map[string]interface{}{
+				"name":    "dsh",
+				"type":    "custom",
+				"command": DeepSeekHarnessCommand,
+				"args":    []string{},
+				"env":     env,
+			},
+		}
+
 	default: // "zed_agent" or empty (default)
 		// Zed Agent: Uses Zed's built-in agent panel - no agent_servers needed
 		// The container env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) are set by wolf_executor
@@ -406,7 +574,103 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	}
 }
 
-func ensureCodexNonInteractiveConfig(path string) error {
+// ensureQwenSettings maintains the small part of Qwen's workspace settings
+// owned by Helix while preserving any unrelated user configuration. Qwen's
+// generic OpenAI-compatible provider sends model.reasoningEffort as a nested
+// `reasoning` object. Self-hosted models exposed through Helix may instead
+// require the OpenAI-compatible top-level `reasoning_effort`, for which Qwen's
+// documented escape hatch is model.generationConfig.extra_body.
+func ensureQwenSettings(path, reasoningEffort string) error {
+	settings := map[string]interface{}{}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return fmt.Errorf("parse existing Qwen settings: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read existing Qwen settings: %w", err)
+	}
+
+	privacy, err := ensureJSONObject(settings, "privacy")
+	if err != nil {
+		return err
+	}
+	privacy["usageStatisticsEnabled"] = false
+	telemetry, err := ensureJSONObject(settings, "telemetry")
+	if err != nil {
+		return err
+	}
+	telemetry["enabled"] = false
+	general, err := ensureJSONObject(settings, "general")
+	if err != nil {
+		return err
+	}
+	general["enableAutoUpdate"] = false
+
+	model, err := ensureJSONObject(settings, "model")
+	if err != nil {
+		return err
+	}
+	generationConfig, err := ensureJSONObject(model, "generationConfig")
+	if err != nil {
+		return err
+	}
+	extraBody, err := ensureJSONObject(generationConfig, "extra_body")
+	if err != nil {
+		return err
+	}
+	if reasoningEffort == "" {
+		delete(extraBody, "reasoning_effort")
+	} else {
+		extraBody["reasoning_effort"] = reasoningEffort
+	}
+
+	data, err = json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal Qwen settings: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create Qwen settings directory: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".settings-*.json")
+	if err != nil {
+		return fmt.Errorf("create temporary Qwen settings: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0644); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("set temporary Qwen settings permissions: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temporary Qwen settings: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temporary Qwen settings: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("install Qwen settings: %w", err)
+	}
+	return nil
+}
+
+func ensureJSONObject(parent map[string]interface{}, key string) (map[string]interface{}, error) {
+	value, exists := parent[key]
+	if !exists {
+		child := map[string]interface{}{}
+		parent[key] = child
+		return child, nil
+	}
+	child, ok := value.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("Qwen setting %q must be an object", key)
+	}
+	return child, nil
+}
+
+func ensureCodexConfig(path, openAIBaseURL, model string) error {
 	config := map[string]interface{}{}
 	data, err := os.ReadFile(path)
 	if err == nil {
@@ -419,6 +683,43 @@ func ensureCodexNonInteractiveConfig(path string) error {
 
 	config["approval_policy"] = "never"
 	config["sandbox_mode"] = "danger-full-access"
+	features, ok := config["features"].(map[string]interface{})
+	if config["features"] != nil && !ok {
+		return fmt.Errorf("Codex setting %q must be a table", "features")
+	}
+	if features == nil {
+		features = map[string]interface{}{}
+		config["features"] = features
+	}
+	features["default_mode_request_user_input"] = true
+	if model == "" {
+		delete(config, "model")
+	} else {
+		config["model"] = model
+	}
+	providers, _ := config["model_providers"].(map[string]interface{})
+	if openAIBaseURL == "" {
+		if config["model_provider"] == "helix" {
+			delete(config, "model_provider")
+		}
+		delete(providers, "helix")
+		if len(providers) == 0 {
+			delete(config, "model_providers")
+		}
+	} else {
+		if providers == nil {
+			providers = map[string]interface{}{}
+		}
+		providers["helix"] = map[string]interface{}{
+			"name":                "Helix",
+			"base_url":            openAIBaseURL,
+			"env_key":             "OPENAI_API_KEY",
+			"wire_api":            "responses",
+			"supports_websockets": false,
+		}
+		config["model_provider"] = "helix"
+		config["model_providers"] = providers
+	}
 	data, err = toml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("marshal Codex config: %w", err)
@@ -506,36 +807,10 @@ func (d *SettingsDaemon) writeGooseConfig(xdgConfigHome string) error {
 	return nil
 }
 
-// rewriteLocalhostURL replaces localhost in a URL with our known-working API host.
-// This fixes the issue where the API server returns its SERVER_URL (localhost:8080 in dev),
-// which is unreachable from inside containers. We use HELIX_API_URL's host instead,
-// which we know works because the daemon connected with it.
-// Only rewrites if URL contains "localhost" - production URLs pass through unchanged.
-func (d *SettingsDaemon) rewriteLocalhostURL(originalURL string) string {
-	if !strings.Contains(originalURL, "localhost") {
-		return originalURL // Production URL, leave unchanged
-	}
-
-	// Parse our known-working API URL to get the host
-	apiParsed, err := url.Parse(d.apiURL)
-	if err != nil {
-		log.Printf("Warning: failed to parse API URL")
-		return originalURL
-	}
-
-	// Parse the original URL
-	origParsed, err := url.Parse(originalURL)
-	if err != nil {
-		log.Printf("Warning: failed to parse model endpoint URL")
-		return originalURL
-	}
-
-	// Replace the host with our working API host
-	origParsed.Host = apiParsed.Host
-
-	log.Printf("Rewrote localhost URL for container networking")
-	return origParsed.String()
-}
+// The control plane now emits canonical helix-api.internal:18080 URLs in the
+// zed-config response (see hydra.SandboxAPIProxyURL), so the daemon no longer
+// rewrites Helix API addresses: BaseURL, language-model api_urls, and MCP URLs
+// all arrive already pointing at the reachable sandbox proxy.
 
 // injectAvailableModels adds the configured model to the provider's available_models list.
 // Zed only recognizes models that are either built-in (gpt-4, claude-3, etc.) or listed
@@ -652,12 +927,6 @@ func (d *SettingsDaemon) injectKoditAuth() {
 		koditServer["headers"] = headers
 	}
 	headers["Authorization"] = "Bearer " + d.userAPIKey
-
-	// Also rewrite localhost URLs for container networking
-	// Zed expects "url" field for HTTP context_servers
-	if serverURL, ok := koditServer["url"].(string); ok {
-		koditServer["url"] = d.rewriteLocalhostURL(serverURL)
-	}
 
 	log.Printf("Injected user API key into Kodit context_server Authorization header")
 }
@@ -1097,33 +1366,26 @@ func main() {
 	}
 
 	daemon := &SettingsDaemon{
-		httpClient: httpClient,
-		apiURL:     helixURL,
-		apiToken:   helixToken,
-		sessionID:  sessionID,
-		userAPIKey: userAPIKey,
+		httpClient:             httpClient,
+		apiURL:                 helixURL,
+		apiToken:               helixToken,
+		sessionID:              sessionID,
+		userAPIKey:             userAPIKey,
+		desktopBridgeHealthURL: desktopBridgeHealthURL(),
 	}
 
 	// Write Zed keymap for terminal copy/paste behavior
 	writeZedKeymap()
 
-	// Initial sync from Helix → local with retry
-	// Retry handles race condition where daemon starts before API token is fully available
-	maxRetries := 5
-	for i := 0; i < maxRetries; i++ {
-		if err := daemon.syncFromHelix(); err != nil {
-			if i < maxRetries-1 {
-				log.Printf("Initial sync attempt %d/%d failed: %v (retrying in 2s)", i+1, maxRetries, err)
-				time.Sleep(2 * time.Second)
-				continue
-			}
-			log.Printf("Warning: Initial sync failed after %d attempts: %v", maxRetries, err)
-		} else {
-			if i > 0 {
-				log.Printf("Initial sync succeeded on attempt %d/%d", i+1, maxRetries)
-			}
-			break
+	// Initial sync from Helix → local with retry. Stable client errors are
+	// reported to the API so the current interaction fails visibly instead of
+	// leaving a Zed thread waiting for an agent server that was never written.
+	const maxRetries = 5
+	if err := daemon.syncInitialConfig(maxRetries, 2*time.Second); err != nil {
+		if isFatalZedConfigError(err) {
+			log.Fatalf("Fatal initial sync failure: %v", err)
 		}
+		log.Printf("Warning: Initial sync failed: %v", err)
 	}
 
 	// Start file watcher for Zed changes
@@ -1143,9 +1405,22 @@ func main() {
 	http.HandleFunc("/health", daemon.healthCheck)
 	http.HandleFunc("/settings", daemon.getSettings)
 	http.HandleFunc("/reload", daemon.forceReload)
+	// Per-launch MCP readiness verdict for start-zed-core.sh. Every Zed launch
+	// is another one-shot MCP registration by the agent, so every launch needs
+	// its own freshly measured answer.
+	http.HandleFunc("/mcp-readiness", daemon.mcpReadinessHandler)
+	// The gate reports here when it gives up; that, and only that, fails the
+	// user's turn over MCP readiness.
+	http.HandleFunc("/mcp-readiness/gave-up", daemon.mcpGaveUpHandler)
 
-	log.Printf("Settings sync daemon listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	// SECURITY: bind loopback only. This endpoint exposes GET/PUT /settings and
+	// /reload for the in-container agent + desktop-bridge, which reach it over
+	// localhost. A wildcard bind let any peer on the shared sandbox bridge read
+	// or inject another tenant's model-provider config (infra#70 N1). Same fix
+	// PR 3147 applied to the desktop-bridge on :9876.
+	listenAddr := "127.0.0.1:" + port
+	log.Printf("Settings sync daemon listening on %s", listenAddr)
+	log.Fatal(http.ListenAndServe(listenAddr, nil))
 }
 
 // syncFromHelix fetches Helix-managed settings and merges with user overrides
@@ -1170,7 +1445,7 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to fetch config: status %d", resp.StatusCode)
+		return readZedConfigFetchError(resp)
 	}
 
 	var config helixConfigResponse
@@ -1189,7 +1464,7 @@ func (d *SettingsDaemon) syncFromHelix() error {
 
 	// Start from hardcoded Helix defaults, then layer on API response fields
 	d.helixSettings = helixDefaults()
-	d.helixSettings["context_servers"] = config.ContextServers
+	d.helixSettings["context_servers"] = resolveContextServerCommands(config.ContextServers)
 	if config.LanguageModels != nil {
 		d.helixSettings["language_models"] = config.LanguageModels
 	}
@@ -1363,6 +1638,64 @@ func (d *SettingsDaemon) notifyAgentConfigApplied() {
 		return
 	}
 	log.Printf("notifyAgentConfigApplied: API notified of applied agent config for live thread delivery")
+}
+
+func (d *SettingsDaemon) reportAgentStartupError(startupErr error) error {
+	errorMessage := startupErr.Error()
+	if len(errorMessage) > maxAgentStartupErrorBytes {
+		errorMessage = strings.ToValidUTF8(errorMessage[:maxAgentStartupErrorBytes], "")
+	}
+	payload, err := json.Marshal(struct {
+		Error string `json:"error"`
+	}{Error: errorMessage})
+	if err != nil {
+		return fmt.Errorf("encode agent startup error: %w", err)
+	}
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/agent-startup-error", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("create agent startup error request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("report agent startup error: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("report agent startup error: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (d *SettingsDaemon) syncInitialConfig(maxRetries int, retryDelay time.Duration) error {
+	if maxRetries < 1 {
+		maxRetries = 1
+	}
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		lastErr = d.syncFromHelix()
+		if lastErr == nil {
+			if attempt > 1 {
+				log.Printf("Initial sync succeeded on attempt %d/%d", attempt, maxRetries)
+			}
+			return nil
+		}
+		if isFatalZedConfigError(lastErr) {
+			if reportErr := d.reportAgentStartupError(lastErr); reportErr != nil {
+				log.Printf("Failed to report fatal agent startup error: %v", reportErr)
+			}
+			return lastErr
+		}
+		if attempt < maxRetries {
+			log.Printf("Initial sync attempt %d/%d failed: %v (retrying in %s)", attempt, maxRetries, lastErr, retryDelay)
+			time.Sleep(retryDelay)
+		}
+	}
+	return lastErr
 }
 
 // restartZed kills the running Zed editor process. The desktop's
@@ -1555,6 +1888,9 @@ var HELIX_OWNED_CONTEXT_SERVERS = map[string]bool{
 	"chrome-devtools": true,
 	"helix-session":   true,
 	"helix-desktop":   true,
+	// helix-tasks carries a ?rev= fingerprint of the task's tool list; a stale
+	// on-disk entry winning the merge would pin the agent to an old surface.
+	"helix-tasks": true,
 }
 
 // helixDefaults returns the static Helix-owned settings that must be present
@@ -2055,7 +2391,7 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to fetch config: status %d", resp.StatusCode)
+		return readZedConfigFetchError(resp)
 	}
 
 	var config helixConfigResponse
@@ -2071,7 +2407,7 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 
 	// Build new helix settings from defaults + API response
 	newHelixSettings := helixDefaults()
-	newHelixSettings["context_servers"] = config.ContextServers
+	newHelixSettings["context_servers"] = resolveContextServerCommands(config.ContextServers)
 	if config.LanguageModels != nil {
 		newHelixSettings["language_models"] = config.LanguageModels
 	}

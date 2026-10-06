@@ -58,32 +58,29 @@ func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
 		return fmt.Errorf("error getting wallet from stripe: %s", err.Error())
 	}
 
-	// Skip the auto-credit when the underlying subscription was started by
-	// the admin endpoint (trial_source=admin_granted on subscription
-	// metadata, set by CreateTrialSubscription). The admin already chose
-	// an exact credit amount via the form; the product's standard monthly
-	// allotment shouldn't stack on top of that.
+	// A trial's zero-value subscription-create invoice is paid immediately,
+	// but it must not grant the monthly credits before the first real charge.
+	// Admin-granted trials also skip credits while trialing because the admin
+	// already chose the exact grant amount.
 	//
 	// Gate kept narrow on purpose:
-	//   - admin_granted metadata: only suppress for the admin path; real
-	//     paid subscriptions (no metadata) still credit normally.
-	//   - status == trialing: if the user later voluntarily adds a payment
-	//     method via the Customer Portal and the trial converts to paid,
-	//     subsequent invoices fire while status is "active" and the
-	//     monthly allotment lands as expected.
+	//   - subscription_create + trialing: suppresses every trial's $0 invoice.
+	//   - admin_granted + trialing: preserves the existing admin grant behavior.
+	//   - once active, the first paid invoice grants credits normally.
 	sub, subErr := subscription.Get(invoice.Subscription.ID, nil)
 	if subErr != nil {
 		log.Warn().Err(subErr).
 			Str("invoice_id", invoice.ID).
 			Str("subscription_id", invoice.Subscription.ID).
 			Msg("failed to fetch subscription to check trial_source; proceeding with default credit logic")
-	} else if sub.Metadata["trial_source"] == trialSourceAdminGranted &&
-		sub.Status == stripe.SubscriptionStatusTrialing {
+	} else if sub.Status == stripe.SubscriptionStatusTrialing &&
+		(invoice.BillingReason == stripe.InvoiceBillingReasonSubscriptionCreate ||
+			sub.Metadata["trial_source"] == trialSourceAdminGranted) {
 		log.Info().
 			Str("invoice_id", invoice.ID).
 			Str("subscription_id", sub.ID).
 			Str("subscription_status", string(sub.Status)).
-			Msg("skipping subscription topup for admin-granted trial")
+			Msg("skipping subscription topup for trial invoice")
 		return nil
 	}
 

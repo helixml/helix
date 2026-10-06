@@ -1,32 +1,22 @@
 package desktop
 
-import "testing"
+import (
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
-func TestGitInvocationAllowed(t *testing.T) {
-	cases := []struct {
-		name string
-		cmd  []string
-		want bool
-	}{
-		{"allow user.name", []string{"git", "config", "--global", "user.name", "Alice"}, true},
-		{"allow user.email", []string{"git", "config", "--global", "user.email", "alice@example.com"}, true},
-		{"reject missing subcommand", []string{"git"}, false},
-		{"reject non-config subcommand", []string{"git", "clone", "--global", "user.name", "x"}, false},
-		{"reject non-global scope", []string{"git", "config", "--system", "user.name", "x"}, false},
-		{"reject other key", []string{"git", "config", "--global", "credential.helper", "store"}, false},
-		{"reject extra args", []string{"git", "config", "--global", "user.name", "Alice", "extra"}, false},
-		{"reject flag as value", []string{"git", "config", "--global", "user.name", "--some-flag"}, false},
-		{"reject short flag as value", []string{"git", "config", "--global", "user.email", "-x"}, false},
-		{"reject wrong binary", []string{"not-git", "config", "--global", "user.name", "x"}, false},
-		{"reject empty slice", []string{}, false},
+func TestExecAllowsGeneralSandboxCommands(t *testing.T) {
+	server := NewServer(Config{}, slog.Default())
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/exec", strings.NewReader(`{"command":["sh","-c","printf general-command"]}`))
+	server.handleExec(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("returned %d, want %d: %s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := gitInvocationAllowed(tc.cmd)
-			if got != tc.want {
-				t.Fatalf("gitInvocationAllowed(%v) = %v, want %v", tc.cmd, got, tc.want)
-			}
-		})
+	if !strings.Contains(recorder.Body.String(), `"output":"general-command"`) {
+		t.Fatalf("unexpected response: %s", recorder.Body.String())
 	}
 }

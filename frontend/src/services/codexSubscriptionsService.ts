@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ContentType, TypesCreateCodexSubscriptionRequest } from '../api/api'
+import {
+  ContentType,
+  TypesCreateCodexSubscriptionRequest,
+  TypesStartCodexLoginRequest,
+} from '../api/api'
 import useApi from '../hooks/useApi'
+import { codeAgentHarnessesQueryKey } from './codeAgentHarnessesService'
 
 export const codexSubscriptionsQueryKey = ['codex-subscriptions']
 
@@ -19,7 +24,12 @@ export function useCreateCodexSubscription() {
     mutationFn: async (body: TypesCreateCodexSubscriptionRequest) => (
       await apiClient.v1CodexSubscriptionsCreate(body, { type: ContentType.Json })
     ).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: codexSubscriptionsQueryKey }),
+    onSuccess: (_subscription, request) => {
+      queryClient.invalidateQueries({ queryKey: codexSubscriptionsQueryKey })
+      if (request.organization_id) {
+        queryClient.invalidateQueries({ queryKey: codeAgentHarnessesQueryKey(request.organization_id) })
+      }
+    },
   })
 }
 
@@ -35,7 +45,18 @@ export function useDeleteCodexSubscription() {
 export function useStartCodexLogin() {
   const apiClient = useApi().getApiClient()
   return useMutation({
-    mutationFn: async () => (await apiClient.v1CodexSubscriptionsStartLoginCreate()).data,
+    mutationFn: async (body: TypesStartCodexLoginRequest) => (
+      await apiClient.v1CodexSubscriptionsStartLoginCreate(body, { type: ContentType.Json })
+    ).data,
+  })
+}
+
+export function useCancelCodexLogin() {
+  const apiClient = useApi().getApiClient()
+  return useMutation({
+    mutationFn: async (sessionId: string) => (
+      await apiClient.v1CodexSubscriptionsLoginDelete(sessionId)
+    ).data,
   })
 }
 
@@ -45,6 +66,6 @@ export function usePollCodexLogin(sessionId: string) {
     queryKey: ['codex-subscriptions', 'login', sessionId],
     queryFn: async () => (await apiClient.v1CodexSubscriptionsPollLoginDetail(sessionId)).data,
     enabled: !!sessionId,
-    refetchInterval: sessionId ? 2000 : false,
+    refetchInterval: sessionId ? 1000 : false,
   })
 }

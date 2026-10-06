@@ -39,7 +39,6 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { getCSRFToken } from "../../utils/csrf";
 import {
-  Add as AddIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Source as GitIcon,
@@ -66,6 +65,7 @@ import {
   Search as SearchIcon,
   Clear as ClearIcon,
   Celebration as CelebrationIcon,
+  KeyboardReturn as KeyboardReturnIcon,
 } from "@mui/icons-material";
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from "@mui/material/styles";
@@ -105,6 +105,7 @@ import VCSConnectionLozenges from "./VCSConnectionLozenges";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
 import { useSampleTypes } from "../../hooks/useSampleTypes";
 import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
+import { getNewTaskShortcutLabel } from "./specTaskKeyboardShortcuts";
 
 // SpecTask types and statuses
 type SpecTaskPhase =
@@ -196,6 +197,9 @@ function mapStatusToPhase(status: string): {
   return { phase, planningStatus, hasSpecs };
 }
 
+// HelixOS names its unattended bot-run tasks with this prefix; hidden by default
+const HELIXOS_BOT_TASK_PREFIX = "[helixos:bot=";
+
 // Board-specific extensions of SpecTaskWithExtras (imported from TaskCard)
 // Use type alias to avoid TS2719 "two different types with this name" error
 type BoardTask = SpecTaskWithExtras & {
@@ -205,7 +209,6 @@ type BoardTask = SpecTaskWithExtras & {
   planning_options?: Record<string, unknown>;
   spec_approval?: Record<string, unknown>;
   design_review_id?: string;
-  helix_app_id?: string;
   external_agent_id?: string;
   estimated_hours?: number;
   last_push_at?: string;
@@ -259,6 +262,7 @@ interface SpecTaskKanbanBoardProps {
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
+  showBotTasks?: boolean; // Show HelixOS bot-run tasks (name starts with "[helixos:bot=")
 }
 
 const DroppableColumn: React.FC<{
@@ -676,6 +680,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
+  showBotTasks = false,
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -684,6 +689,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const newTaskShortcutLabel = getNewTaskShortcutLabel();
 
   // Open the matching repository provider when planning requires OAuth.
   const { startOAuthFlow } = useOAuthFlow();
@@ -898,64 +904,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Available sample types for planning
   const [sampleTypes, setSampleTypes] = useState<any[]>([]);
 
-  // Keyboard shortcut for creating new task (Enter key)
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      // Only trigger if not in an interactive element
-      const target = e.target as HTMLElement;
-
-      // Skip if in form elements
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT"
-      ) {
-        return;
-      }
-
-      // Skip if in iframe (video stream)
-      if (target.tagName === "IFRAME") {
-        return;
-      }
-
-      // Skip if element is contentEditable
-      if (target.isContentEditable) {
-        return;
-      }
-
-      // Skip if inside an element with role that expects keyboard input
-      const role = target.getAttribute("role");
-      if (role === "textbox" || role === "searchbox" || role === "combobox") {
-        return;
-      }
-
-      // Skip if inside DesktopStreamViewer or any video container
-      if (
-        target.closest("[data-video-container]") ||
-        target.closest(".desktop-stream-viewer")
-      ) {
-        return;
-      }
-
-      // Skip if inside prompt input area
-      if (
-        target.closest("[data-prompt-input]") ||
-        target.closest(".prompt-input-container")
-      ) {
-        return;
-      }
-
-      if (e.key === "Enter") {
-        if (onCreateTask) {
-          onCreateTask();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [onCreateTask]);
-
   // WIP limits for kanban columns (use prop values or defaults)
   const WIP_LIMITS = {
     backlog: undefined,
@@ -1005,9 +953,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Org members for resolving assignee names/avatars
   const orgMembers = account.organizationTools.organization?.memberships || [];
 
-  // Apply search + label + assignee filters to tasks
+  // Apply bot + search + label + assignee filters to tasks
   const filteredTasks = useMemo(() => {
     let result = filterTasks(tasks, searchFilter);
+    if (!showBotTasks) {
+      result = result.filter(
+        (task) => !task.name?.startsWith(HELIXOS_BOT_TASK_PREFIX),
+      );
+    }
     if (labelFilter.length > 0) {
       result = result.filter((task) =>
         labelFilter.every((l) => (task.labels || []).includes(l)),
@@ -1019,15 +972,15 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       );
     }
     return result;
-  }, [tasks, searchFilter, labelFilter, assigneeFilter]);
+  }, [tasks, searchFilter, labelFilter, assigneeFilter, showBotTasks]);
 
   // Kanban columns configuration - Linear color scheme
   // Pull Request column only shown for external repos (ADO)
   // Sort helper: tasks needing human attention (agent finished) float to top
   const sortWithAttentionFirst = (tasks: SpecTaskWithExtras[]) => {
     return [...tasks].sort((a, b) => {
-      const aNeedsAttention = a.agent_work_state !== undefined && a.agent_work_state !== "working" && !!a.agent_session_id;
-      const bNeedsAttention = b.agent_work_state !== undefined && b.agent_work_state !== "working" && !!b.agent_session_id;
+      const aNeedsAttention = a.agent_work_state !== undefined && a.agent_work_state !== "working" && !!a.planning_session_id;
+      const bNeedsAttention = b.agent_work_state !== undefined && b.agent_work_state !== "working" && !!b.planning_session_id;
       if (aNeedsAttention && !bNeedsAttention) return -1;
       if (!aNeedsAttention && bNeedsAttention) return 1;
       return 0; // preserve existing order for same-attention tasks
@@ -1551,7 +1504,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       // waiting for the next background poll interval (default 10s).
       queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
 
-      // Aggressive polling after starting planning to catch agent_session_id update
+      // Aggressive polling after starting planning to catch planning_session_id update
       // Poll at 1s, 2s, 4s, 6s intervals to catch the async session creation
       const pollForSessionId = async (retryCount = 0, maxRetries = 6) => {
         const response = await api.getApiClient().v1SpecTasksList({
@@ -1580,7 +1533,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
         setTasks(enhancedTasks);
 
-        // Check if the task has agent_session_id now
+        // Check if the task has planning_session_id now
         const updatedTask = specTasks.find((t) => t.id === task.id);
 
         // Check if task failed during async agent launch (error stored in metadata)
@@ -1590,10 +1543,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           return;
         }
 
-        if (updatedTask?.agent_session_id) {
+        if (updatedTask?.planning_session_id) {
           console.log(
             "✅ Planning session ID populated:",
-            updatedTask.agent_session_id,
+            updatedTask.planning_session_id,
           );
           return; // Session ID found, stop polling
         }
@@ -1755,14 +1708,43 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             </Tooltip>
           </Box>
           {onCreateTask && (
-            <Tooltip title="Press Enter">
+            <Tooltip title={`New task (${newTaskShortcutLabel})`}>
               <Button
                 variant="contained"
                 color="secondary"
-                startIcon={<AddIcon />}
                 onClick={onCreateTask}
+                aria-keyshortcuts={
+                  navigator.platform.includes("Mac")
+                    ? "Meta+Enter"
+                    : "Control+Enter"
+                }
               >
                 New Task
+                <Box
+                  component="span"
+                  aria-hidden="true"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 0.5,
+                    ml: 1,
+                    px: 0.75,
+                    height: 20,
+                    borderRadius: 0.75,
+                    border: "1px solid rgba(0, 0, 0, 0.18)",
+                    bgcolor: "rgba(0, 0, 0, 0.1)",
+                    fontSize: "0.7rem",
+                    fontWeight: 600,
+                    lineHeight: 1,
+                    letterSpacing: 0,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <Box component="span">
+                    {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
+                  </Box>
+                  <KeyboardReturnIcon sx={{ fontSize: 14 }} />
+                </Box>
               </Button>
             </Tooltip>
           )}

@@ -109,3 +109,27 @@ func TestConfigsDelete(t *testing.T) {
 		t.Fatalf("Delete again = %v, want ErrNotFound", err)
 	}
 }
+
+func TestConfigsDeleteIfValue(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	cfg, err := config.New("delete.if-value", `"new"`, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Configs.Set(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Configs.DeleteIfValue(ctx, "org-test", cfg.Key, `"old"`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Configs.Get(ctx, "org-test", cfg.Key); err != nil {
+		t.Fatalf("mismatched value deleted config: %v", err)
+	}
+	if err := s.Configs.DeleteIfValue(ctx, "org-test", cfg.Key, cfg.Value); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Configs.Get(ctx, "org-test", cfg.Key); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("matching value was not deleted: %v", err)
+	}
+}

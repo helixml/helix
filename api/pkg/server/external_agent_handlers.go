@@ -23,6 +23,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/proxy"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -368,8 +369,7 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 }
 
 // @Summary Execute command in sandbox
-// @Description Executes a command inside the sandbox container for benchmarking and debugging.
-// @Description Only specific safe commands are allowed (vkcube, glxgears, pkill).
+// @Description Executes a command inside the caller's sandbox container.
 // @Tags ExternalAgents
 // @Accept json
 // @Produce json
@@ -404,7 +404,7 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 	log.Info().Str("session_id", session.ID).Str("owner", session.Owner).Msg("🔧 execInSandbox: session found")
 
 	// Verify ownership
-	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionUpdate)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusForbidden)
 		return
@@ -838,48 +838,64 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 		return
 	}
 
-	// Get container name using executor
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "Executor not available", http.StatusServiceUnavailable)
+	respBody, httpErr := apiServer.uploadToSandbox(req.Context(), user, session, req.Body, req.Header.Get("Content-Type"), req.ContentLength, req.URL.RawQuery)
+	if httpErr != nil {
+		http.Error(res, httpErr.Message, httpErr.StatusCode)
 		return
 	}
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+	res.Write(respBody)
+}
 
-	_, err = apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
-	waitForDesktop := err != nil
+// uploadToSandbox streams a multipart upload to the session's desktop bridge,
+// which writes it under ~/work/incoming/. A stopped external agent session is
+// started first. It returns the bridge's types.SandboxFileUploadResponse JSON.
+func (apiServer *HelixAPIServer) uploadToSandbox(ctx context.Context, user *types.User, session *types.Session, body io.Reader, contentType string, contentLength int64, rawQuery string) ([]byte, *system.HTTPError) {
+	sessionID := session.ID
+	if apiServer.externalAgentExecutor == nil {
+		return nil, &system.HTTPError{StatusCode: http.StatusServiceUnavailable, Message: "Executor not available"}
+	}
+
+	// The session row keeps its container name after the desktop stops, so it
+	// cannot tell a live sandbox from a stopped one. Ask the sandbox, as
+	// StartDesktop does; otherwise a stopped session skips the resume below and
+	// the upload fails with "no connection".
+	waitForDesktop := !apiServer.externalAgentExecutor.HasRunningContainer(ctx, sessionID)
 	if waitForDesktop {
 		if session.Metadata.AgentType != "zed_external" {
-			http.Error(res, "only external agent sessions accept workspace uploads", http.StatusBadRequest)
-			return
+			return nil, system.NewHTTPError400("only external agent sessions accept workspace uploads")
 		}
-		if session.Metadata.ExternalAgentStatus != "starting" {
+		// "restarting" counts as in-flight too — restartSessionContainer is
+		// already bringing a new container up, so starting a second one here
+		// would race it.
+		if session.Metadata.ExternalAgentStatus != "starting" && session.Metadata.ExternalAgentStatus != "restarting" {
 			log.Info().
 				Str("session_id", sessionID).
 				Msg("Starting stopped external agent for chat attachment upload")
-			if _, resumeErr := apiServer.resumeSessionInternal(req.Context(), user, session); resumeErr != nil {
+			if _, resumeErr := apiServer.resumeSessionInternal(ctx, user, session); resumeErr != nil {
 				log.Error().Err(resumeErr).Str("session_id", sessionID).Msg("Failed to start external agent for file upload")
-				http.Error(res, fmt.Sprintf("failed to start agent for upload: %v", resumeErr), http.StatusServiceUnavailable)
-				return
+				return nil, &system.HTTPError{StatusCode: http.StatusServiceUnavailable, Message: fmt.Sprintf("failed to start agent for upload: %v", resumeErr)}
 			}
 		}
 	}
 
 	log.Info().
 		Str("session_id", sessionID).
-		Int64("body_size", req.ContentLength).
-		Str("content_type", req.Header.Get("Content-Type")).
+		Int64("body_size", contentLength).
+		Str("content_type", contentType).
 		Msg("Uploading file to sandbox via RevDial")
 
 	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
-	revDialConn, err := apiServer.dialDesktopForUpload(req.Context(), runnerID, waitForDesktop)
+	revDialConn, err := apiServer.dialDesktopForUpload(ctx, runnerID, waitForDesktop)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("runner_id", runnerID).
 			Str("session_id", sessionID).
 			Msg("Failed to connect to sandbox via RevDial for file upload")
-		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
-		return
+		return nil, &system.HTTPError{StatusCode: http.StatusServiceUnavailable, Message: fmt.Sprintf("Sandbox not connected: %v", err)}
 	}
 	defer revDialConn.Close()
 
@@ -888,56 +904,45 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 	// chat assets. Preserve the query string as well: chat uploads explicitly set
 	// open_file_manager=false and dropping it made every paste open Files in the
 	// agent desktop.
-	httpReq, err := http.NewRequestWithContext(req.Context(), http.MethodPost, desktopUploadURL(req.URL.RawQuery), req.Body)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, desktopUploadURL(rawQuery), body)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create upload request")
-		http.Error(res, "Failed to create upload request", http.StatusInternalServerError)
-		return
+		return nil, system.NewHTTPError500("Failed to create upload request")
 	}
-	httpReq.Header.Set("Content-Type", req.Header.Get("Content-Type"))
-	httpReq.ContentLength = req.ContentLength
+	httpReq.Header.Set("Content-Type", contentType)
+	httpReq.ContentLength = contentLength
 
 	if err := httpReq.Write(revDialConn); err != nil {
 		log.Error().Err(err).Msg("Failed to write upload request to RevDial")
-		http.Error(res, "Failed to send upload request", http.StatusInternalServerError)
-		return
+		return nil, system.NewHTTPError500("Failed to send upload request")
 	}
 
 	uploadResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to read upload response from RevDial")
-		http.Error(res, "Failed to read upload response", http.StatusInternalServerError)
-		return
+		return nil, system.NewHTTPError500("Failed to read upload response")
 	}
 	defer uploadResp.Body.Close()
 
-	// Read response body
 	respBody, err := io.ReadAll(uploadResp.Body)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to read upload response body")
-		http.Error(res, "Failed to read upload response", http.StatusInternalServerError)
-		return
+		return nil, system.NewHTTPError500("Failed to read upload response")
 	}
 
-	// Check upload server response status
 	if uploadResp.StatusCode != http.StatusOK {
 		log.Error().
 			Int("status", uploadResp.StatusCode).
 			Str("response", string(respBody)).
 			Msg("Screenshot server returned error for upload")
-		http.Error(res, string(respBody), uploadResp.StatusCode)
-		return
+		return nil, &system.HTTPError{StatusCode: uploadResp.StatusCode, Message: string(respBody)}
 	}
-
-	// Return the response from screenshot server
-	res.Header().Set("Content-Type", "application/json")
-	res.WriteHeader(http.StatusOK)
-	res.Write(respBody)
 
 	log.Info().
 		Str("session_id", sessionID).
 		Str("response", string(respBody)).
 		Msg("Successfully uploaded file to sandbox")
+	return respBody, nil
 }
 
 func (apiServer *HelixAPIServer) dialDesktopForUpload(ctx context.Context, runnerID string, waitForDesktop bool) (net.Conn, error) {
@@ -1407,6 +1412,22 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	}
 	defer serverConn.Close()
 
+	// The desktop stream is bidirectional: the same socket that carries H.264
+	// frames out carries keyboard (0x10) and mouse/touch (0x11-0x14) events IN.
+	// An embed key belongs to a member of the public watching their own agent
+	// work, so it gets the video and none of the control — otherwise viewing a
+	// conversation would come with a keyboard attached to a container holding a
+	// terminal, a browser and git credentials.
+	//
+	// Enforced by a header WE add to the upgrade we send to the sandbox. The
+	// client's request is never forwarded verbatim, so the browser cannot set or
+	// clear this.
+	readOnlyHeader := ""
+	if desktopStreamIsReadOnly(req) {
+		readOnlyHeader = desktopReadOnlyHeader + ": 1\r\n"
+		log.Info().Str("session_id", sessionID).Msg("desktop stream is read-only for this caller")
+	}
+
 	// Construct WebSocket upgrade request to forward to screenshot-server
 	upgradeReq := fmt.Sprintf("GET /ws/stream HTTP/1.1\r\n"+
 		"Host: localhost:9876\r\n"+
@@ -1414,7 +1435,8 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 		"Connection: Upgrade\r\n"+
 		"Sec-WebSocket-Key: %s\r\n"+
 		"Sec-WebSocket-Version: 13\r\n"+
-		"\r\n", req.Header.Get("Sec-WebSocket-Key"))
+		"%s"+
+		"\r\n", req.Header.Get("Sec-WebSocket-Key"), readOnlyHeader)
 
 	// Forward the WebSocket upgrade request
 	if _, err := serverConn.Write([]byte(upgradeReq)); err != nil {
@@ -1461,7 +1483,22 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 
 	// Create upgrade function for WebSocket
 	wsKey := req.Header.Get("Sec-WebSocket-Key")
-	upgradeFunc := proxy.CreateWebSocketUpgradeFunc("/ws/stream", wsKey)
+	streamUpgradeHeaders := []string{}
+	if desktopStreamIsReadOnly(req) {
+		streamUpgradeHeaders = append(streamUpgradeHeaders, desktopReadOnlyHeader, "1")
+	}
+	upgradeFunc := proxy.CreateWebSocketUpgradeFunc("/ws/stream", wsKey, streamUpgradeHeaders...)
+
+	// The two halves of per-connection state that a reconnect must re-apply: the
+	// headers we know about the caller (above) and the init frame the client sent
+	// (below). desktop-bridge will not start a streamer without init, so a
+	// reconnect that dropped it leaves the backend stuck in a 30s read while the
+	// browser shows a live-but-frozen picture.
+	//
+	// Read-only is enforced entirely by the header, which this replay cannot
+	// touch: StreamConfig carries no privilege field, so a replayed init cannot
+	// re-grant input to an embed-key viewer.
+	streamInitReplay := proxy.NewStreamInitReplay()
 
 	// Create resilient proxy
 	resilientProxy := proxy.NewResilientProxy(proxy.ResilientProxyConfig{
@@ -1470,6 +1507,7 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 		ServerConn:  serverConn,
 		DialFunc:    dialFunc,
 		UpgradeFunc: upgradeFunc,
+		Replay:      streamInitReplay,
 	})
 	defer resilientProxy.Close()
 

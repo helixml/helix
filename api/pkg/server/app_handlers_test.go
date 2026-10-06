@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -14,7 +15,9 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	orgbots "github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	orgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -25,8 +28,118 @@ import (
 
 type failingAgentCreator struct{}
 
-func (failingAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (string, error) {
-	return "", fmt.Errorf("reconcile failed")
+type stateLinkedDeleteRuntime struct {
+	store *orgstore.Store
+}
+
+type missingRuntimeState struct{}
+
+type failingCodeAgentConfigNodes struct {
+	orgstore.Nodes
+	err error
+}
+
+func (n failingCodeAgentConfigNodes) UpdateCodeAgentConfig(context.Context, string, orgchart.NodeID, *types.CodeAgentExecutionConfig, time.Time) error {
+	return n.err
+}
+
+func (missingRuntimeState) Get(context.Context, string, orgchart.NodeID, string) (map[string]string, error) {
+	return nil, orgstore.ErrNotFound
+}
+func (missingRuntimeState) Set(context.Context, string, orgchart.NodeID, string, string, string) error {
+	return nil
+}
+func (missingRuntimeState) SetMany(context.Context, string, orgchart.NodeID, string, map[string]string) error {
+	return nil
+}
+func (missingRuntimeState) Clear(context.Context, string, orgchart.NodeID, string) error { return nil }
+
+func (*stateLinkedDeleteRuntime) DeleteProject(context.Context, string) error { return nil }
+func (*stateLinkedDeleteRuntime) DeleteApp(context.Context, string) error     { return nil }
+func (r *stateLinkedDeleteRuntime) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, _, _ string) error {
+	if err := r.store.NodeRuntimeState.Clear(ctx, orgID, botID, runtimehelix.Backend); err != nil {
+		return err
+	}
+	return r.store.Nodes.Delete(ctx, orgID, botID)
+}
+
+func (failingAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
+	return lifecycle.CreatedAgent{}, fmt.Errorf("reconcile failed")
+}
+
+func TestDeleteAppUsesStateOnlyOrgAgentLifecycle(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+	ctx := context.Background()
+	node, err := orgchart.NewNode("b-linked", "# Linked", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.Empty(t, node.AgentID)
+	require.NoError(t, orgStore.Nodes.Create(ctx, node))
+	require.NoError(t, runtimehelix.SaveProject(ctx, orgStore, "org-test", node.ID, "", "app-linked", ""))
+	existing := &types.App{ID: "app-linked", Owner: "user-test", OrganizationID: "org-test"}
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID:         existing.Owner,
+		OrganizationID: existing.OrganizationID,
+		Role:           types.OrganizationRoleOwner,
+	}, nil)
+	runtime := &stateLinkedDeleteRuntime{store: orgStore}
+	server := &HelixAPIServer{
+		Store: helixStore,
+		helixOrg: &helixOrgHandlers{
+			store:     orgStore,
+			lifecycle: &lifecycle.Service{Store: orgStore, Helix: runtime},
+		},
+	}
+	req, err := http.NewRequest(http.MethodDelete, "/api/v1/agents/"+existing.ID, nil)
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: existing.Owner}))
+
+	deleted, httpErr := server.deleteAgent(nil, req)
+
+	require.Nil(t, httpErr)
+	require.Equal(t, existing, deleted)
+	_, err = orgStore.Nodes.Get(ctx, "org-test", node.ID)
+	require.ErrorIs(t, err, orgstore.ErrNotFound)
+}
+
+func TestDeleteStandaloneAppIgnoresUnlinkedNodeWithoutRuntimeState(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	baseOrgStore := orgmemory.New()
+	ctx := context.Background()
+	node, err := orgchart.NewNode("b-unprovisioned", "# Unprovisioned", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, baseOrgStore.Nodes.Create(ctx, node))
+	orgStore := *baseOrgStore
+	orgStore.NodeRuntimeState = missingRuntimeState{}
+	existing := &types.App{ID: "app-standalone", Owner: "user-test", OrganizationID: "org-test"}
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID: existing.Owner, OrganizationID: existing.OrganizationID, Role: types.OrganizationRoleOwner,
+	}, nil)
+	helixStore.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return(nil, nil)
+	helixStore.EXPECT().DeleteApp(gomock.Any(), existing.ID).Return(nil)
+	server := &HelixAPIServer{
+		Store: helixStore,
+		helixOrg: &helixOrgHandlers{
+			store:     &orgStore,
+			lifecycle: &lifecycle.Service{Store: &orgStore},
+		},
+	}
+	req, err := http.NewRequest(http.MethodDelete, "/api/v1/agents/"+existing.ID, nil)
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: existing.Owner}))
+
+	deleted, httpErr := server.deleteAgent(nil, req)
+
+	require.Nil(t, httpErr)
+	require.Equal(t, existing, deleted)
+	_, err = orgStore.Nodes.Get(ctx, "org-test", node.ID)
+	require.NoError(t, err)
 }
 
 func TestUpdateAppRejectsInvalidLinkedOrgAgentShape(t *testing.T) {
@@ -125,6 +238,7 @@ func TestUpdateAppPreservesAgentKind(t *testing.T) {
 	})
 	helixStore.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return(nil, nil)
 	helixStore.EXPECT().ListTriggerConfigurations(gomock.Any(), gomock.Any()).Return(nil, nil)
+	helixStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{OrganizationID: existing.OrganizationID}).Return(nil, nil)
 
 	server := &HelixAPIServer{
 		Store: helixStore,
@@ -144,6 +258,203 @@ func TestUpdateAppPreservesAgentKind(t *testing.T) {
 	require.Nil(t, httpErr)
 	require.NotNil(t, updated)
 	assert.Equal(t, types.AgentKindOrg, updated.AgentKind)
+}
+
+func TestUpdateAppSyncsLinkedOrgProjectCodeAgentConfig(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	user := types.User{ID: "usr-owner", Type: types.OwnerTypeUser}
+	existing := &types.App{
+		ID: "app-engineer", Owner: user.ID, OwnerType: user.Type,
+		OrganizationID: "org-test", AgentKind: types.AgentKindOrg,
+	}
+	update := *existing
+	update.Config.Helix.Assistants = []types.AssistantConfig{{
+		Name: "Software Engineer", AgentType: types.AgentTypeZedExternal,
+		CodeAgentRuntime: types.CodeAgentRuntimeZedAgent, CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+		Provider: "provider-qwen", Model: "qwen3.8-27b",
+	}}
+	linked := &types.Project{
+		ID: "project-engineer", OrganizationID: existing.OrganizationID, DefaultHelixAppID: existing.ID,
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+			Model: "claude-opus-5", ServiceTier: "priority",
+		},
+	}
+	unrelated := &types.Project{ID: "project-other", OrganizationID: existing.OrganizationID, DefaultHelixAppID: "app-other"}
+	orgStore := orgmemory.New()
+	node, err := orgchart.NewNode("b-engineer", "Build the product", nil, time.Now().UTC(), existing.OrganizationID)
+	require.NoError(t, err)
+	node = node.WithAgentID(existing.ID).WithCodeAgentConfig(&types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+		Model: "claude-opus-5", ServiceTier: "flex",
+	})
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), node))
+
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID: user.ID, OrganizationID: existing.OrganizationID, Role: types.OrganizationRoleMember,
+	}, nil)
+	providerManager.EXPECT().ListProviderEndpointsForOwner(gomock.Any(), existing.OrganizationID, types.OwnerTypeOrg).
+		Return([]*types.ProviderEndpoint{{ID: "provider-qwen", Name: "qwen"}}, nil)
+	helixStore.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, app *types.App) (*types.App, error) {
+		return app, nil
+	})
+	helixStore.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return(nil, nil)
+	helixStore.EXPECT().ListTriggerConfigurations(gomock.Any(), gomock.Any()).Return(nil, nil)
+	helixStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{OrganizationID: existing.OrganizationID}).
+		Return([]*types.Project{linked, unrelated}, nil)
+	helixStore.EXPECT().UpdateProject(gomock.Any(), linked).DoAndReturn(func(_ context.Context, project *types.Project) error {
+		require.Equal(t, types.CodeAgentRuntimeZedAgent, project.CodeAgentConfig.Runtime)
+		require.Equal(t, types.CodeAgentCredentialTypeAPIKey, project.CodeAgentConfig.CredentialType)
+		require.Equal(t, "provider-qwen", project.CodeAgentConfig.ProviderRef)
+		require.Equal(t, "qwen3.8-27b", project.CodeAgentConfig.Model)
+		require.Equal(t, "priority", project.CodeAgentConfig.ServiceTier)
+		return nil
+	})
+
+	body, err := json.Marshal(update)
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPut, "/api/v1/agents/"+existing.ID, bytes.NewReader(body))
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+	req = req.WithContext(setRequestUser(req.Context(), user))
+	server := &HelixAPIServer{
+		Store: helixStore, providerManager: providerManager,
+		helixOrg: &helixOrgHandlers{store: orgStore},
+	}
+
+	updated, httpErr := server.updateAgent(nil, req)
+
+	require.Nil(t, httpErr)
+	require.NotNil(t, updated)
+	require.Nil(t, unrelated.CodeAgentConfig)
+	storedNode, err := orgStore.Nodes.Get(context.Background(), existing.OrganizationID, node.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.CodeAgentRuntimeZedAgent, storedNode.CodeAgentConfig.Runtime)
+	require.Equal(t, types.CodeAgentCredentialTypeAPIKey, storedNode.CodeAgentConfig.CredentialType)
+	require.Equal(t, "provider-qwen", storedNode.CodeAgentConfig.ProviderRef)
+	require.Equal(t, "qwen3.8-27b", storedNode.CodeAgentConfig.Model)
+	require.Equal(t, "flex", storedNode.CodeAgentConfig.ServiceTier)
+}
+
+func TestSyncOrgBotConfigRestoresProjectWhenBotWriteFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+	node, err := orgchart.NewNode("b-engineer", "Build", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	node = node.WithAgentID("app-engineer").WithCodeAgentConfig(&types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeClaudeCode,
+		Model:   "claude-opus-5",
+	})
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), node))
+	copyStore := *orgStore
+	copyStore.Nodes = failingCodeAgentConfigNodes{Nodes: orgStore.Nodes, err: errors.New("bot write failed")}
+
+	app := &types.App{
+		ID: "app-engineer", OrganizationID: "org-test", AgentKind: types.AgentKindOrg,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription, Model: "gpt-5.6",
+		}}}},
+	}
+	previous := &types.CodeAgentExecutionConfig{Runtime: types.CodeAgentRuntimeClaudeCode, Model: "claude-opus-5"}
+	project := &types.Project{ID: "project-engineer", OrganizationID: "org-test", DefaultHelixAppID: app.ID, CodeAgentConfig: previous}
+	helixStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{OrganizationID: "org-test"}).Return([]*types.Project{project}, nil)
+	gomock.InOrder(
+		helixStore.EXPECT().UpdateProject(gomock.Any(), project).DoAndReturn(func(_ context.Context, updated *types.Project) error {
+			require.Equal(t, "gpt-5.6", updated.CodeAgentConfig.Model)
+			return nil
+		}),
+		helixStore.EXPECT().UpdateProject(gomock.Any(), project).DoAndReturn(func(_ context.Context, restored *types.Project) error {
+			require.Same(t, previous, restored.CodeAgentConfig)
+			return nil
+		}),
+	)
+	server := &HelixAPIServer{Store: helixStore, helixOrg: &helixOrgHandlers{store: &copyStore}}
+
+	err = server.syncOrgAgentProjectCodeAgentConfig(context.Background(), app)
+
+	require.ErrorContains(t, err, "bot write failed")
+	require.Same(t, previous, project.CodeAgentConfig)
+}
+
+func TestSyncOrgBotConfigRejectsMultipleLinkedBots(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	orgStore := orgmemory.New()
+	for _, id := range []orgchart.NodeID{"b-one", "b-two"} {
+		node, err := orgchart.NewNode(id, "Build", nil, time.Now().UTC(), "org-test")
+		require.NoError(t, err)
+		require.NoError(t, orgStore.Nodes.Create(context.Background(), node.WithAgentID("app-shared")))
+	}
+	server := &HelixAPIServer{
+		Store:    store.NewMockStore(ctrl),
+		helixOrg: &helixOrgHandlers{store: orgStore},
+	}
+	app := &types.App{ID: "app-shared", OrganizationID: "org-test", AgentKind: types.AgentKindOrg}
+
+	err := server.syncOrgAgentProjectCodeAgentConfig(context.Background(), app)
+
+	require.ErrorContains(t, err, "linked to more than one Org Bot")
+}
+
+func TestUpdateAppRejectsMultipleLinkedOrgProjectsAndRestoresApp(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	user := types.User{ID: "usr-owner", Type: types.OwnerTypeUser}
+	existing := &types.App{
+		ID: "app-engineer", Owner: user.ID, OwnerType: user.Type,
+		OrganizationID: "org-test", AgentKind: types.AgentKindOrg,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			Name: "Software Engineer", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode, CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			Model: "claude-opus-5",
+		}}}},
+	}
+	update := *existing
+	update.Config.Helix.Assistants = append([]types.AssistantConfig(nil), existing.Config.Helix.Assistants...)
+	update.Config.Helix.Assistants[0].CodeAgentRuntime = types.CodeAgentRuntimeZedAgent
+	update.Config.Helix.Assistants[0].CodeAgentCredentialType = types.CodeAgentCredentialTypeAPIKey
+	update.Config.Helix.Assistants[0].Provider = "provider-qwen"
+	update.Config.Helix.Assistants[0].Model = "qwen3.8-27b"
+	projects := []*types.Project{
+		{ID: "project-one", OrganizationID: existing.OrganizationID, DefaultHelixAppID: existing.ID},
+		{ID: "project-two", OrganizationID: existing.OrganizationID, DefaultHelixAppID: existing.ID},
+	}
+
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID: user.ID, OrganizationID: existing.OrganizationID, Role: types.OrganizationRoleMember,
+	}, nil)
+	providerManager.EXPECT().ListProviderEndpointsForOwner(gomock.Any(), existing.OrganizationID, types.OwnerTypeOrg).
+		Return([]*types.ProviderEndpoint{{ID: "provider-qwen", Name: "qwen"}}, nil)
+	gomock.InOrder(
+		helixStore.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, app *types.App) (*types.App, error) {
+			require.Equal(t, "qwen3.8-27b", app.Config.Helix.Assistants[0].Model)
+			return app, nil
+		}),
+		helixStore.EXPECT().UpdateApp(gomock.Any(), existing).Return(existing, nil),
+	)
+	helixStore.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return(nil, nil)
+	helixStore.EXPECT().ListTriggerConfigurations(gomock.Any(), gomock.Any()).Return(nil, nil)
+	helixStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{OrganizationID: existing.OrganizationID}).Return(projects, nil)
+
+	body, err := json.Marshal(update)
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPut, "/api/v1/agents/"+existing.ID, bytes.NewReader(body))
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+	req = req.WithContext(setRequestUser(req.Context(), user))
+	server := &HelixAPIServer{Store: helixStore, providerManager: providerManager}
+
+	updated, httpErr := server.updateAgent(nil, req)
+
+	require.Nil(t, updated)
+	require.NotNil(t, httpErr)
+	require.Contains(t, httpErr.Message, "more than one project")
 }
 
 func TestIsSpecTaskSelectableAgent(t *testing.T) {
@@ -573,7 +884,7 @@ func TestApplyModelSubstitutions(t *testing.T) {
 
 	t.Run("leaves unavailable provider ID for organization validation", func(t *testing.T) {
 		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "org1").
+			ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).
 			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil).
 			Times(2)
 
@@ -1303,13 +1614,38 @@ func TestValidateProvidersAndModels_UnavailableProviderMessage(t *testing.T) {
 		}
 	}
 
-	mockProviderManager.EXPECT().ListProviderEndpoints(ctx, "org1").Return([]*types.ProviderEndpoint{}, nil)
+	mockProviderManager.EXPECT().ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).Return([]*types.ProviderEndpoint{}, nil)
 	err := server.validateProvidersAndModels(ctx, user, app("org1"))
 	require.EqualError(t, err, types.OrganizationProviderUnavailableMessage)
 
 	mockProviderManager.EXPECT().ListProviderEndpoints(ctx, user.ID).Return([]*types.ProviderEndpoint{}, nil)
 	err = server.validateProvidersAndModels(ctx, user, app(""))
 	require.ErrorContains(t, err, "provider 'pe_provider' is not available")
+}
+
+func TestValidateProvidersAndModels_LegacyPresetNameMatchesOrganizationProvider(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockProviderManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{providerManager: mockProviderManager}
+	ctx := context.Background()
+	user := &types.User{ID: "user1"}
+	app := &types.App{
+		OrganizationID: "org1",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			Provider: "user/anthropic",
+			Model:    "claude-sonnet",
+		}}}},
+	}
+
+	mockProviderManager.EXPECT().
+		ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).
+		Return([]*types.ProviderEndpoint{{
+			ID:           "global/anthropic",
+			Name:         "anthropic",
+			EndpointType: types.ProviderEndpointTypeGlobal,
+		}}, nil)
+
+	require.NoError(t, server.validateProvidersAndModels(ctx, user, app))
 }
 
 // TestListEndpointsForApp covers app-scoped provider snapshots.
@@ -1334,7 +1670,7 @@ func TestListEndpointsForApp(t *testing.T) {
 
 	t.Run("org app excludes personal bucket", func(t *testing.T) {
 		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "org1").
+			ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).
 			Return([]*types.ProviderEndpoint{
 				{ID: "pe_org_01", Name: "org-prov"},
 				{Name: "openai"},

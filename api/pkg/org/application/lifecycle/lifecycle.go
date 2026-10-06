@@ -4,11 +4,9 @@
 // This package owns the two halves of the Node lifecycle: Create (the
 // create cascade - node row, reporting line, topology reconcile,
 // create-activation dispatch) and Delete (the destroy cascade — Helix
-// app teardown, store cleanup, topology reconcile). Both REST
-// and the MCP create_bot tool drive Create here, so the semantics
-// cannot drift between callers. Delete has no MCP counterpart by design
-// (the LLM should not be able to delete bots from chat), so it is a
-// plain Go service callable from REST handlers only.
+// runtime teardown, store cleanup, topology reconcile). REST and the MCP
+// create_bot / delete_bot tools drive both here, so the semantics cannot
+// drift between callers.
 package lifecycle
 
 import (
@@ -16,14 +14,18 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/config"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
@@ -37,27 +39,41 @@ type CreateDispatcher interface {
 	DispatchHire(ctx context.Context, orgID string, botID orgchart.NodeID, activationID activation.ID)
 }
 
-// TopicSubscriber subscribes a Node to Topics. Create uses it to subscribe
-// a new Node to the topics named at creation, reusing the same subscription
+// SourceAttacher attaches a Node to sources. Create uses it to attach
+// a new Node to the sources named at creation, reusing the same attachment
 // use case the standalone subscribe tool drives (DRY). A narrow interface
 // so lifecycle doesn't import the subscriptions package;
-// *subscriptions.Subscriptions satisfies it.
-type TopicSubscriber interface {
-	SubscribeTopics(ctx context.Context, orgID string, botID orgchart.NodeID, topicIDs []streaming.TopicID) error
+// *attachments.Service satisfies it.
+type SourceAttacher interface {
+	AttachAll(ctx context.Context, orgID string, workerID orgchart.NodeID, sources []eventsource.SourceRef, createdBy string) error
 }
 
 // HelixRuntime is the slice of runtime/helix.ProjectService that the
-// Delete cascade needs to tear down a Node's Helix-side agent app.
-// The configured project is deliberately preserved. Production wiring
+// Delete cascade needs to tear down a Node's Helix-side project and agent app.
+// DeleteProject destroys the project's desktops, workspaces, sandboxes, and
+// Docker cache on sandbox hosts before archiving the project; repositories are
+// deliberately preserved. Production wiring
 // satisfies this with the in-process adapter used everywhere else; the
 // interface exists so tests can stub.
 type HelixRuntime interface {
+	DeleteProject(ctx context.Context, id string) error
 	DeleteApp(ctx context.Context, id string) error
 	DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID, sessionID string) error
 }
 
+const chiefOfStaffDeletedConfigKey = "lifecycle.chief_of_staff_deleted"
+
 type AgentCreator interface {
-	CreateAgent(ctx context.Context, orgID, name, instructions string, config AgentConfig) (string, error)
+	CreateAgent(ctx context.Context, orgID, name, instructions string, config AgentConfig) (CreatedAgent, error)
+}
+
+type AgentConfigReader interface {
+	ReadAgentExecutionConfig(ctx context.Context, legacyAppID string) (*types.CodeAgentExecutionConfig, error)
+}
+
+type CreatedAgent struct {
+	LegacyAppID     string
+	CodeAgentConfig *types.CodeAgentExecutionConfig
 }
 
 type AgentConfig struct {
@@ -67,6 +83,9 @@ type AgentConfig struct {
 	Model                   string
 	ReasoningEffort         string
 }
+
+// deleteTimeout bounds a Delete, which destroys sandbox host resources.
+const deleteTimeout = 10 * time.Minute
 
 func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -80,7 +99,7 @@ func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // affected ids and it converges only their neighbourhood (cheap, and it
 // no-ops on an empty set). It is structural — Create treats a failure as
 // FATAL (the new Node's channels weren't set up), Delete as best-effort.
-// *reconcile.Reconciler (activation/team/DM Topics) is the implementer.
+// *reconcile.Reconciler (transcript/team/DM channels) is the implementer.
 type NodeReconciler interface {
 	Reconcile(ctx context.Context, orgID string, affected ...orgchart.NodeID) error
 }
@@ -97,6 +116,13 @@ type OrgReconciler interface {
 	Reconcile(ctx context.Context, orgID string) error
 }
 
+// InstanceDeleter deletes every instance of a Node (their sandboxes,
+// workspaces and sessions). Delete runs it before the Node's project and app
+// go away, so no instance sandbox outlives its bot.
+type InstanceDeleter interface {
+	DeleteAll(ctx context.Context, orgID string, botID orgchart.NodeID) error
+}
+
 type AgentDeliveryLifecycle interface {
 	CleanupAgent(ctx context.Context, orgID string, agentID orgchart.NodeID) error
 	RestoreAgent(orgID string, agentID orgchart.NodeID)
@@ -109,6 +135,7 @@ type Service struct {
 	Store         *store.Store
 	Helix         HelixRuntime
 	Agents        AgentCreator
+	AgentConfigs  AgentConfigReader
 	Logger        *slog.Logger
 	AgentDelivery AgentDeliveryLifecycle
 
@@ -117,10 +144,10 @@ type Service struct {
 	// REST/MCP update path. Required for Create.
 	Nodes *nodes.Nodes
 
-	// Subscriber subscribes a new Node to the topics named at creation
-	// (CreateParams.Topics), reusing the shared subscription use case. nil
+	// Attacher attaches a new Node to the sources named at creation
+	// (CreateParams.Sources), reusing the shared attachment use case. nil
 	// → no creation-time subscription (create still succeeds).
-	Subscriber TopicSubscriber
+	Attacher SourceAttacher
 
 	// NodeReconcilers are the Node-scoped reconcilers (see the contract on
 	// NodeReconciler) run on create (FATAL) and delete (best-effort) with
@@ -131,6 +158,9 @@ type Service struct {
 	// Mirror is the transcript mirror; Delete stops the deleted Node's
 	// subscription so it doesn't leak. nil is a no-op.
 	Mirror *helix.Mirror
+
+	// Instances deletes the Node's instances on Delete. nil is a no-op.
+	Instances InstanceDeleter
 
 	// OrgReconcilers are the whole-org, best-effort reconcilers (see the
 	// contract on OrgReconciler) run after every create/delete — Slack
@@ -157,15 +187,20 @@ type Service struct {
 // nodes service mints a fresh `b-<id>` (discouraged; callers should pass
 // a readable handle). ParentID is the manager this node reports to
 // (empty only for the org root). Content is the node's prompt; Tools and
-// Topics are its capability/manifest.
+// Sources are what will start it.
 type CreateParams struct {
-	ID              string
-	Name            string
-	Content         string
+	ID      string
+	Name    string
+	Content string
+	// CreatedBy is the Worker (or operator) the create is attributed to.
+	// It is stamped onto the attachments made at creation.
+	CreatedBy       string
 	Tools           []tool.Name
-	Topics          []streaming.TopicID
+	Sources         []eventsource.SourceRef
 	ParentID        orgchart.NodeID
 	PreserveContext bool
+	SandboxRuntime  string
+	SandboxVCPUs    int
 	AgentConfig     AgentConfig
 	// DeferActivation creates the Agent and org topology without starting
 	// its runtime. Settings activation provisions it after the org default
@@ -199,6 +234,9 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 	if s.Nodes == nil {
 		return CreateResult{}, errors.New("lifecycle: nodes service not wired")
 	}
+	if s.Agents == nil {
+		return CreateResult{}, errors.New("lifecycle: legacy App creator not wired")
+	}
 
 	var parent *orgchart.NodeID
 	if p.ParentID != "" {
@@ -208,16 +246,19 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		parent = &p.ParentID
 	}
 
-	// Validate every requested topic exists BEFORE writing the node row, so
-	// a bad topic id fails the create with no partially-created Node. The
-	// actual subscription rows are created below, after the node exists.
-	for _, tid := range p.Topics {
-		if tid == "" {
-			return CreateResult{}, fmt.Errorf("topic id is empty")
+	// Validate every requested source is well-formed BEFORE writing the
+	// node row, so a malformed reference fails the create with no
+	// partially-created Node. Existence is checked by the attachment
+	// service below, after the node exists.
+	for _, src := range p.Sources {
+		if err := src.Validate(); err != nil {
+			return CreateResult{}, fmt.Errorf("source: %w", err)
 		}
-		if _, err := s.Store.Topics.Get(ctx, orgID, tid); err != nil {
-			return CreateResult{}, fmt.Errorf("topic %q: %w", tid, err)
-		}
+	}
+	// Same reason: reject an unknown tool name before the agent app is
+	// created, so a typo doesn't cost a create-then-clean-up round trip.
+	if err := s.Nodes.ValidateTools(p.Tools); err != nil {
+		return CreateResult{}, err
 	}
 
 	agentName := strings.TrimSpace(p.Name)
@@ -225,29 +266,28 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		agentName = strings.TrimSpace(p.ID)
 	}
 	if agentName == "" {
-		agentName = "Agent"
+		agentName = "Org Bot"
 	}
-	var agentAppID string
-	var err error
-	if s.Agents != nil {
-		agentAppID, err = s.Agents.CreateAgent(ctx, orgID, agentName, p.Content, p.AgentConfig)
-		if err != nil {
-			return CreateResult{}, fmt.Errorf("create agent app: %w", err)
-		}
+	createdAgent, err := s.Agents.CreateAgent(ctx, orgID, agentName, p.Content, p.AgentConfig)
+	if err != nil {
+		return CreateResult{}, fmt.Errorf("create legacy App: %w", err)
 	}
 	node, err := s.Nodes.Create(ctx, orgID, nodes.CreateParams{
 		ID:              p.ID,
 		Name:            p.Name,
 		Content:         p.Content,
-		AgentID:         agentAppID,
+		AgentID:         createdAgent.LegacyAppID,
+		CodeAgentConfig: createdAgent.CodeAgentConfig,
 		Tools:           p.Tools,
 		PreserveContext: p.PreserveContext,
+		SandboxRuntime:  p.SandboxRuntime,
+		SandboxVCPUs:    p.SandboxVCPUs,
 	})
 	if err != nil {
-		if s.Helix != nil && agentAppID != "" {
+		if s.Helix != nil && createdAgent.LegacyAppID != "" {
 			cleanupCtx, cancel := cleanupContext(ctx)
 			defer cancel()
-			if cleanupErr := s.Helix.DeleteApp(cleanupCtx, agentAppID); cleanupErr != nil && !errors.Is(cleanupErr, helix.ErrProjectNotFound) {
+			if cleanupErr := s.Helix.DeleteApp(cleanupCtx, createdAgent.LegacyAppID); cleanupErr != nil && !errors.Is(cleanupErr, helix.ErrProjectNotFound) {
 				return CreateResult{}, fmt.Errorf("%w; delete agent app: %v", err, cleanupErr)
 			}
 		}
@@ -257,10 +297,19 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 	rollback := func(createErr error) (CreateResult, error) {
 		cleanupCtx, cancel := cleanupContext(ctx)
 		defer cancel()
-		if err := s.Delete(cleanupCtx, orgID, id); err != nil {
+		if err := s.delete(cleanupCtx, orgID, id, false); err != nil {
 			return CreateResult{}, fmt.Errorf("%w; rollback failed: %v", createErr, err)
 		}
 		return CreateResult{}, createErr
+	}
+	clearChiefOfStaffDeletionMarker := func() error {
+		if id != seedprompts.ChiefOfStaffBotID || s.Store.Configs == nil {
+			return nil
+		}
+		if err := s.Store.Configs.Delete(ctx, orgID, chiefOfStaffDeletedConfigKey); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("clear chief of staff deletion marker: %w", err)
+		}
+		return nil
 	}
 
 	// Wire the initial reporting line now that both node rows exist.
@@ -274,7 +323,7 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		}
 	}
 
-	// Reconcile the activation/team Topics implied by the new Node and its
+	// Reconcile the transcript/team channels implied by the new Node and its
 	// reporting line (mints the node's transcript + the manager's team Topic
 	// from one declarative pass). FATAL: a Node without its channels is a
 	// broken create. Node-scoped to the new id.
@@ -287,14 +336,14 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		}
 	}
 
-	// Subscribe the new Node to the topics named at creation, reusing the
+	// Attach the new Node to the sources named at creation, reusing the
 	// shared subscription use case (the same one the subscribe tool drives).
-	// Topics were validated above, so this only fails on an infrastructure
+	// Sources were validated above, so this only fails on an infrastructure
 	// error - treat it as FATAL like the topology reconcile, since a Node
 	// that silently isn't listening is a broken create.
-	if s.Subscriber != nil && len(p.Topics) > 0 {
-		if err := s.Subscriber.SubscribeTopics(ctx, orgID, id, p.Topics); err != nil {
-			return rollback(fmt.Errorf("subscribe new node %q to topics: %w", id, err))
+	if s.Attacher != nil && len(p.Sources) > 0 {
+		if err := s.Attacher.AttachAll(ctx, orgID, id, p.Sources, p.CreatedBy); err != nil {
+			return rollback(fmt.Errorf("attach new node %q to sources: %w", id, err))
 		}
 	}
 
@@ -310,11 +359,13 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 			return rollback(fmt.Errorf("create handler: %w", err))
 		}
 	}
-
 	if s.AgentDelivery != nil {
 		s.AgentDelivery.RestoreAgent(orgID, id)
 	}
 	if p.DeferActivation {
+		if err := clearChiefOfStaffDeletionMarker(); err != nil {
+			return rollback(err)
+		}
 		return CreateResult{Node: node}, nil
 	}
 
@@ -333,6 +384,9 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 			return rollback(fmt.Errorf("persist create activation: %w", err))
 		}
 	}
+	if err := clearChiefOfStaffDeletionMarker(); err != nil {
+		return rollback(err)
+	}
 	if s.Dispatcher != nil {
 		s.Dispatcher.DispatchHire(ctx, orgID, id, actID)
 	}
@@ -341,47 +395,82 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 }
 
 func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
-	if s.Store == nil || s.Nodes == nil || s.Agents == nil {
+	if s.Store == nil || s.Store.Nodes == nil {
 		return nil
 	}
 	all, err := s.Store.Nodes.List(ctx, orgID)
 	if err != nil {
 		return err
 	}
+	logger := s.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	for _, node := range all {
-		if node.IsHuman() || node.AgentID != "" {
-			continue
+		if err := s.reconcileAgentLink(ctx, orgID, node); err != nil {
+			logger.Error("reconcile Org Bot legacy App link", "org_id", orgID, "bot_id", node.ID, "legacy_app_id", node.AgentID, "err", err)
 		}
-		name := node.Name
-		if name == "" {
-			name = string(node.ID)
+	}
+	return nil
+}
+
+func (s *Service) reconcileAgentLink(ctx context.Context, orgID string, node orgchart.Node) error {
+	if node.AgentID != "" {
+		if s.AgentConfigs == nil {
+			return nil
 		}
-		appID, err := s.Agents.CreateAgent(ctx, orgID, name, node.Content, AgentConfig{})
+		config, err := s.AgentConfigs.ReadAgentExecutionConfig(ctx, node.AgentID)
 		if err != nil {
-			return fmt.Errorf("create agent app for %s: %w", node.ID, err)
+			return fmt.Errorf("read execution config: %w", err)
 		}
-		claimed, err := s.Store.Nodes.ClaimAgentApp(ctx, orgID, node.ID, appID)
-		if err != nil {
-			if s.Helix != nil {
-				cleanupCtx, cancel := cleanupContext(ctx)
-				cleanupErr := s.Helix.DeleteApp(cleanupCtx, appID)
-				cancel()
-				if cleanupErr != nil && !errors.Is(cleanupErr, helix.ErrProjectNotFound) {
-					return fmt.Errorf("link agent app for %s: %v; delete unlinked agent app %s: %w", node.ID, err, appID, cleanupErr)
-				}
-			}
-			return fmt.Errorf("link agent app for %s: %w", node.ID, err)
+		if config == nil {
+			return errors.New("read execution config: empty config")
 		}
-		if !claimed {
-			if s.Helix != nil {
-				cleanupCtx, cancel := cleanupContext(ctx)
-				cleanupErr := s.Helix.DeleteApp(cleanupCtx, appID)
-				cancel()
-				if cleanupErr != nil && !errors.Is(cleanupErr, helix.ErrProjectNotFound) {
-					return fmt.Errorf("discard losing agent app %s: %w", appID, cleanupErr)
-				}
+		desired := *config
+		if node.CodeAgentConfig != nil {
+			desired.ServiceTier = node.CodeAgentConfig.ServiceTier
+		}
+		if reflect.DeepEqual(node.CodeAgentConfig, &desired) {
+			return nil
+		}
+		now := time.Now().UTC()
+		if s.Now != nil {
+			now = s.Now()
+		}
+		if err := s.Store.Nodes.UpdateCodeAgentConfig(ctx, orgID, node.ID, &desired, now); err != nil {
+			return fmt.Errorf("repair execution config: %w", err)
+		}
+		return nil
+	}
+	if s.Agents == nil {
+		return errors.New("legacy App creator not wired")
+	}
+	name := node.Name
+	if name == "" {
+		name = string(node.ID)
+	}
+	createdAgent, err := s.Agents.CreateAgent(ctx, orgID, name, node.Content, AgentConfig{})
+	if err != nil {
+		return fmt.Errorf("create agent app: %w", err)
+	}
+	claimed, err := s.Store.Nodes.ClaimLegacyApp(ctx, orgID, node.ID, createdAgent.LegacyAppID, createdAgent.CodeAgentConfig)
+	if err != nil {
+		if s.Helix != nil {
+			cleanupCtx, cancel := cleanupContext(ctx)
+			cleanupErr := s.Helix.DeleteApp(cleanupCtx, createdAgent.LegacyAppID)
+			cancel()
+			if cleanupErr != nil && !errors.Is(cleanupErr, helix.ErrProjectNotFound) {
+				return fmt.Errorf("link agent app: %v; delete unlinked agent app %s: %w", err, createdAgent.LegacyAppID, cleanupErr)
 			}
-			continue
+		}
+		return fmt.Errorf("link agent app: %w", err)
+	}
+	if !claimed && s.Helix != nil {
+		cleanupCtx, cancel := cleanupContext(ctx)
+		cleanupErr := s.Helix.DeleteApp(cleanupCtx, createdAgent.LegacyAppID)
+		cancel()
+		if cleanupErr != nil && !errors.Is(cleanupErr, helix.ErrProjectNotFound) {
+			return fmt.Errorf("discard losing agent app %s: %w", createdAgent.LegacyAppID, cleanupErr)
 		}
 	}
 	return nil
@@ -389,19 +478,30 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 
 // Delete tears down a Node end-to-end:
 //
-//  1. Read the Helix-runtime state before clearing it.
-//  2. Atomically detach and delete the agent app, NodeRuntimeState,
-//     subscriptions, and node row. The org_reporting_lines foreign keys
-//     drop its lines.
-//  3. Reconcile topology: tear down the deleted Node's own activation +
-//     team Topics and collapse any ex-manager's team Topic that just
+//  1. Stop agent delivery: drop queued activations and cancel the running
+//     one, so nothing re-provisions the runtime mid-delete.
+//  2. Delete the Node's instances (their sandboxes, host data, sessions).
+//  3. Destroy the runtime-owned Helix project's desktops, workspaces,
+//     sandboxes, and Docker cache on sandbox hosts, then archive it.
+//  4. Atomically detach and delete the agent app, NodeRuntimeState, and
+//     node row. The org_reporting_lines foreign keys drop its lines.
+//  5. Reconcile topology: tear down the deleted Node's own activation +
+//     team channels and collapse any ex-manager's team chat that just
 //     lost its last report.
 //
-// Subscriptions are node-anchored, so they die with the node. Activation
+// Attachments are node-anchored, so they die with the node. Transcript
 // events themselves are intentionally left behind as an audit trail; only
-// the Topic row is dropped. A configured Helix project is not node-owned and
-// survives deletion; only its reference to the deleted default agent is unset.
+// the Topic row is dropped. Repositories and explicitly allowed other
+// projects survive deletion.
 func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) (err error) {
+	// Detached from the caller: a request cancelled mid-teardown would leave a
+	// half-deleted Node whose retry no longer finds the archived project.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deleteTimeout)
+	defer cancel()
+	return s.delete(ctx, orgID, id, true)
+}
+
+func (s *Service) delete(ctx context.Context, orgID string, id orgchart.NodeID, explicit bool) (err error) {
 	if id == "" {
 		return errors.New("node id is empty")
 	}
@@ -411,6 +511,35 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 	node, err := s.Store.Nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return fmt.Errorf("get node %q: %w", id, err)
+	}
+	deleteSucceeded := false
+	var chiefOfStaffDeletionMarker config.Config
+	if explicit && id == seedprompts.ChiefOfStaffBotID && s.Store.Configs != nil {
+		markerValue := `"` + uuid.NewString() + `"`
+		marker, err := config.New(chiefOfStaffDeletedConfigKey, markerValue, time.Now().UTC(), orgID)
+		if err != nil {
+			return fmt.Errorf("build chief of staff deletion marker: %w", err)
+		}
+		if err := s.Store.Configs.Set(ctx, marker); err != nil {
+			return fmt.Errorf("persist chief of staff deletion marker: %w", err)
+		}
+		chiefOfStaffDeletionMarker = marker
+		defer func() {
+			if deleteSucceeded {
+				return
+			}
+			cleanupCtx, cancel := cleanupContext(ctx)
+			defer cancel()
+			if _, nodeErr := s.Store.Nodes.Get(cleanupCtx, orgID, id); errors.Is(nodeErr, store.ErrNotFound) {
+				return
+			} else if nodeErr != nil {
+				err = fmt.Errorf("%w; verify chief of staff before marker rollback: %v", err, nodeErr)
+				return
+			}
+			if rollbackErr := s.Store.Configs.DeleteIfValue(cleanupCtx, orgID, chiefOfStaffDeletedConfigKey, markerValue); rollbackErr != nil {
+				err = fmt.Errorf("%w; rollback chief of staff deletion marker: %v", err, rollbackErr)
+			}
+		}()
 	}
 	if s.AgentDelivery != nil {
 		if err := s.AgentDelivery.CleanupAgent(ctx, orgID, id); err != nil {
@@ -437,7 +566,17 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 		exReports, _ = s.Store.ReportingLines.ListReports(ctx, orgID, id)
 	}
 
+	if s.Instances != nil {
+		if err := s.Instances.DeleteAll(ctx, orgID, id); err != nil {
+			return fmt.Errorf("delete instances of %s: %w", id, err)
+		}
+	}
 	state, _ := helix.LoadState(ctx, s.Store, orgID, id)
+	if s.Helix != nil && state.ProjectID != "" {
+		if err := s.Helix.DeleteProject(ctx, state.ProjectID); err != nil && !errors.Is(err, helix.ErrProjectNotFound) {
+			return fmt.Errorf("delete project %s: %w", state.ProjectID, err)
+		}
+	}
 
 	agentAppID := node.AgentID
 	if agentAppID == "" {
@@ -461,7 +600,7 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 		s.Mirror.Stop(orgID, id)
 	}
 
-	// Settle the activation/team Topics now that the row (and its reporting
+	// Settle the transcript/team channels now that the row (and its reporting
 	// lines) are gone. Best-effort: a failure leaves a dangling Topic row,
 	// not a half-deleted node, so we log and continue.
 	affected := append([]orgchart.NodeID{id}, exManagers...)
@@ -478,7 +617,29 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 	// Run the whole-org reconcilers so the deleted Node's Slack auto-route is
 	// GC'd. Best-effort, like topology above.
 	s.runOrgReconcilers(ctx, orgID, "delete", id)
+	if chiefOfStaffDeletionMarker.Key != "" {
+		cleanupCtx, cancel := cleanupContext(ctx)
+		defer cancel()
+		if err := s.Store.Configs.Set(cleanupCtx, chiefOfStaffDeletionMarker); err != nil {
+			return fmt.Errorf("confirm chief of staff deletion marker: %w", err)
+		}
+	}
+	deleteSucceeded = true
 	return nil
+}
+
+func (s *Service) ChiefOfStaffDeletionMarked(ctx context.Context, orgID string) (bool, error) {
+	if s == nil || s.Store == nil || s.Store.Configs == nil {
+		return false, nil
+	}
+	_, err := s.Store.Configs.Get(ctx, orgID, chiefOfStaffDeletedConfigKey)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	return false, fmt.Errorf("read chief of staff deletion marker: %w", err)
 }
 
 // runOrgReconcilers runs every whole-org reconciler best-effort, logging (not

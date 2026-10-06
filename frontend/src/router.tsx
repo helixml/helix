@@ -27,6 +27,8 @@ import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
 import Jobs from './pages/Jobs'
 import SpecTasksPage from './pages/SpecTasksPage'
+import Artifacts from './pages/Artifacts'
+import ArtifactViewer from './pages/ArtifactViewer'
 import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
 import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import TeamDesktopPage from './pages/TeamDesktopPage'
@@ -42,19 +44,22 @@ import PasswordReset from './pages/PasswordReset'
 import PasswordResetComplete from './pages/PasswordResetComplete'
 import DesignDocPage from './pages/DesignDocPage'
 import Onboarding from './pages/Onboarding'
+import OrgBotSessionResolver from './pages/OrgBotSessionResolver'
 import Waitlist from './pages/Waitlist'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import HelixOrgChart from './pages/HelixOrgChart'
-import HelixOrgHumanDetail from './pages/HelixOrgHumanDetail'
-import HelixOrgTopics from './pages/HelixOrgTopics'
+import HelixOrgBots from './pages/HelixOrgBots'
+import HelixOrgBotDetail from './pages/HelixOrgBotDetail'
+import HelixOrgTriggers from './pages/HelixOrgTriggers'
 import HelixOrgAssets from './pages/HelixOrgAssets'
-import HelixOrgTopicDetail from './pages/HelixOrgTopicDetail'
+import HelixOrgTriggerDetail from './pages/HelixOrgTriggerDetail'
+import HelixOrgTopicsRetired from './pages/HelixOrgTopicsRetired'
 import HelixOrgProcessorDetail from './pages/HelixOrgProcessorDetail'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
-import { useHelixOrgBot } from './services/helixOrgService'
-import { orgLandingRoute } from './utils/organizations'
+import { orgLandingParams, orgLandingRoute } from './utils/organizations'
+import { getSelectedOrg } from './utils/localStorage'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -69,32 +74,32 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
   render: () => <NotFound />,
 }
 
-const HelixOrgAgentRedirect = () => {
-  const { navigateReplace, params } = useRouter()
-  const { data } = useHelixOrgBot(params.bot_id)
-
-  React.useEffect(() => {
-    const agentID = data?.agent_id ?? data?.agent_app_id
-    if (data?.bot?.kind === 'human') {
-      navigateReplace('helix_org_human_detail', { org_id: params.org_id, bot_id: params.bot_id })
-    } else if (agentID) {
-      navigateReplace('org_agent', { org_id: params.org_id, app_id: agentID })
-    }
-  }, [data?.agent_id, data?.agent_app_id, data?.bot?.kind, params.org_id, params.bot_id])
-
-  return null
-}
-
-const RouteRedirect = ({ route }: { route: string }) => {
+const RouteRedirect = ({ route, mapParams }: { route: string; mapParams?: (params: Record<string, any>) => Record<string, any> }) => {
   const { navigateReplace, params } = useRouter()
   React.useEffect(() => {
-    navigateReplace(route, params)
+    navigateReplace(route, mapParams ? mapParams(params) : params)
   }, [])
   return null
 }
 
+// A Topic kept its id when it became a Trigger, so an old per-topic link
+// resolves to exactly the same thing under the new URL — send the user
+// straight there instead of to a generic "Topics are now Triggers" page.
+const topicIDToTriggerID = ({ topic_id, ...rest }: Record<string, any>) => ({ ...rest, trigger_id: topic_id })
+
 
 const routes: IApplicationRoute[] = [
+{
+  name: 'artifact_viewer',
+  path: '/artifacts/:artifact_id',
+  meta: {
+    drawer: false,
+    title: 'Artifact',
+  },
+  render: () => (
+    <ArtifactViewer />
+  ),
+},
 {
   name: 'org_projects',
   path: '/orgs/:org_id',
@@ -106,15 +111,29 @@ const routes: IApplicationRoute[] = [
     <Projects />
   ),
 }, {
-  name: 'org_chat',
-  path: '/orgs/:org_id/chat',
+  name: 'org_project-new',
+  path: '/orgs/:org_id/projects/:id/new',
   meta: {
-    title: 'Chat',
+    title: 'New Task',
     drawer: true,
   },
   render: () => (
     <Home />
   ),
+}, {
+  name: 'org_bot_session',
+  path: '/orgs/:org_id/chat/bots/:bot_id',
+  meta: {
+    drawer: true,
+    topbar: false,
+    title: 'Bot Chat',
+  },
+  render: () => <OrgBotSessionResolver />,
+}, {
+  name: 'org_bot_session_legacy',
+  path: '/orgs/:org_id/chat/agents/:bot_id',
+  meta: { drawer: false },
+  render: () => <RouteRedirect route="org_bot_session" />,
 }, {
   name: 'org_session',
   path: '/orgs/:org_id/chat/session/:session_id',
@@ -169,7 +188,8 @@ const routes: IApplicationRoute[] = [
   name: 'org_sandboxes',
   path: '/orgs/:org_id/sandboxes',
   meta: {
-    drawer: false,
+    drawer: true,
+    menu: 'orgs',
     title: 'Sandboxes',
   },
   render: () => (
@@ -179,7 +199,8 @@ const routes: IApplicationRoute[] = [
   name: 'org_sandbox_detail',
   path: '/orgs/:org_id/sandboxes/:sandbox_id',
   meta: {
-    drawer: false,
+    drawer: true,
+    menu: 'orgs',
     title: 'Sandbox',
   },
   render: () => (
@@ -270,6 +291,16 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <SpecTasksPage />
+  ),
+}, {
+  name: 'org_project-artifacts',
+  path: '/orgs/:org_id/projects/:id/artifacts',
+  meta: {
+    drawer: false,
+    title: 'Project Artifacts',
+  },
+  render: () => (
+    <Artifacts />
   ),
 }, {
   name: 'org_project-task-detail',
@@ -596,7 +627,9 @@ const routes: IApplicationRoute[] = [
 }, {
   name: 'helix_org_chart',
   path: '/orgs/:org_id/chart',
-  meta: { drawer: false, title: 'Org Chart' },
+  // Reached from the org settings sidebar ("Org Chart"), so it keeps that
+  // sidebar rather than standing alone like the other helix-org pages.
+  meta: { drawer: true, menu: 'orgs', title: 'Org Chart' },
   render: () => <HelixOrgChart />,
 }, {
   name: 'helix_org_chart_legacy',
@@ -605,49 +638,54 @@ const routes: IApplicationRoute[] = [
   render: () => <RouteRedirect route="helix_org_chart" />,
 }, {
   name: 'helix_org_bots',
-  path: '/orgs/:org_id/helix-org/agents',
-  meta: { drawer: false },
-  render: () => <RouteRedirect route="org_agents" />,
+  path: '/orgs/:org_id/bots',
+  meta: { drawer: false, title: 'Org Bots' },
+  render: () => <HelixOrgBots />,
 }, {
   name: 'helix_org_bot_detail',
-  path: '/orgs/:org_id/helix-org/agents/:bot_id',
-  meta: { drawer: false },
-  render: () => <HelixOrgAgentRedirect />,
+  path: '/orgs/:org_id/bots/:bot_id',
+  meta: { drawer: false, title: 'Org Bot' },
+  render: () => <HelixOrgBotDetail />,
 }, {
   name: 'helix_org_bots_legacy',
   path: '/orgs/:org_id/helix-org/bots',
-  meta: { drawer: false, title: 'Helix Org - Agents' },
+  meta: { drawer: false },
   render: () => <RouteRedirect route="helix_org_bots" />,
 }, {
   name: 'helix_org_bot_detail_legacy',
   path: '/orgs/:org_id/helix-org/bots/:bot_id',
-  meta: { drawer: false, title: 'Helix Org - Agent' },
+  meta: { drawer: false },
   render: () => <RouteRedirect route="helix_org_bot_detail" />,
 }, {
-  name: 'helix_org_human_detail',
-  path: '/orgs/:org_id/people/:bot_id',
-  meta: { drawer: false, title: 'Person' },
-  render: () => <HelixOrgHumanDetail />,
-}, {
-  name: 'helix_org_human_detail_legacy',
-  path: '/orgs/:org_id/helix-org/humans/:bot_id',
+  name: 'helix_org_agents_legacy',
+  path: '/orgs/:org_id/helix-org/agents',
   meta: { drawer: false },
-  render: () => <RouteRedirect route="helix_org_human_detail" />,
+  render: () => <RouteRedirect route="helix_org_bots" />,
+}, {
+  name: 'helix_org_agent_detail_legacy',
+  path: '/orgs/:org_id/helix-org/agents/:bot_id',
+  meta: { drawer: false },
+  render: () => <RouteRedirect route="helix_org_bot_detail" />,
 }, {
   name: 'helix_org_settings',
   path: '/orgs/:org_id/helix-org/settings',
   meta: { drawer: false },
   render: () => <RouteRedirect route="org_general" />,
 }, {
+  name: 'helix_org_triggers',
+  path: '/orgs/:org_id/triggers',
+  meta: { drawer: false, title: 'Triggers' },
+  render: () => <HelixOrgTriggers />,
+}, {
   name: 'helix_org_topics',
   path: '/orgs/:org_id/topics',
-  meta: { drawer: false, title: 'Topics' },
-  render: () => <HelixOrgTopics />,
+  meta: { drawer: false, title: 'Topics retired' },
+  render: () => <HelixOrgTopicsRetired />,
 }, {
   name: 'helix_org_topics_legacy',
   path: '/orgs/:org_id/helix-org/topics',
   meta: { drawer: false },
-  render: () => <RouteRedirect route="helix_org_topics" />,
+  render: () => <HelixOrgTopicsRetired />,
 }, {
   name: 'helix_org_assets',
   path: '/orgs/:org_id/assets',
@@ -669,15 +707,20 @@ const routes: IApplicationRoute[] = [
   meta: { drawer: false },
   render: () => <RouteRedirect route="helix_org_processor_detail" />,
 }, {
+  name: 'helix_org_trigger_detail',
+  path: '/orgs/:org_id/triggers/:trigger_id',
+  meta: { drawer: false, title: 'Trigger' },
+  render: () => <HelixOrgTriggerDetail />,
+}, {
   name: 'helix_org_topic_detail',
   path: '/orgs/:org_id/topics/:topic_id',
-  meta: { drawer: false, title: 'Topic' },
-  render: () => <HelixOrgTopicDetail />,
+  meta: { drawer: false, title: 'Trigger' },
+  render: () => <RouteRedirect route="helix_org_trigger_detail" mapParams={topicIDToTriggerID} />,
 }, {
   name: 'helix_org_topic_detail_legacy',
   path: '/orgs/:org_id/helix-org/topics/:topic_id',
   meta: { drawer: false },
-  render: () => <RouteRedirect route="helix_org_topic_detail" />,
+  render: () => <RouteRedirect route="helix_org_trigger_detail" mapParams={topicIDToTriggerID} />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
@@ -696,25 +739,57 @@ router.subscribe((state) => {
   }
 })
 
-const SELECTED_ORG_STORAGE_KEY = 'selected_org'
-
+// The stored org is only a hint: it is written per browser, so it may name an
+// org belonging to a user who signed in here earlier. We can't validate it at
+// module load — the org list needs an authenticated request — so useOrganizations
+// re-checks it once the list arrives and redirects away (clearing the value) if
+// it turns out to be inaccessible.
 const getStoredOrg = (): string | undefined => {
   const currentPath = window.location.pathname
   if (currentPath !== '/' && currentPath !== '') return undefined
 
-  const storedOrg = localStorage.getItem(SELECTED_ORG_STORAGE_KEY)
-  if (!storedOrg) return undefined
-
-  return storedOrg
+  return getSelectedOrg()
 }
 
 const storedOrg = getStoredOrg()
 // Capture path before router.start() changes it (router activates defaultRoute which rewrites URL)
 const initialPath = window.location.pathname
+
+/**
+ * The query string exactly as the browser received it, snapshotted before
+ * router.start() rewrites it.
+ *
+ * WHY THIS IS NEEDED. router5 re-serialises the query on start, and its
+ * serialiser form-encodes a space as "+". A host that correctly sent %20 gets
+ * its value rewritten to %2B, which then reads back as a literal plus. Find
+ * AI's embedded agent greeted candidates with "What+are+you+looking+for?" in
+ * front of the client for exactly this reason, and the host was already
+ * encoding correctly — the damage happens here.
+ *
+ * It cannot be repaired downstream: after the round trip a space and a real
+ * "+" are indistinguishable, so the value has to be read before the router
+ * touches it. URLSearchParams decodes both %20 and "+" as a space, which is
+ * the right reading of a query string under either convention.
+ *
+ * Only for values that are DISPLAYED verbatim. Anything the router owns should
+ * still come from route.params.
+ */
+export const initialQueryParams: Record<string, string> = (() => {
+  const out: Record<string, string> = {}
+  try {
+    new URLSearchParams(window.location.search).forEach((value, key) => {
+      out[key] = value
+    })
+  } catch {
+    // A malformed query string must not stop the app booting.
+  }
+  return out
+})()
+
 router.start()
 
 if (storedOrg) {
-  router.navigate(orgLandingRoute(), { org_id: storedOrg }, { replace: true })
+  router.navigate(orgLandingRoute(), orgLandingParams(storedOrg), { replace: true })
 } else if (initialPath === '/' || initialPath === '') {
   // On mobile, UserOrgSelector may not be mounted (temporary Drawer is closed),
   // so its auto-select effect won't fire. Redirect to /orgs so users can pick one.

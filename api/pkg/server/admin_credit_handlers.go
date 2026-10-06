@@ -35,6 +35,15 @@ type OwnedOrgSummary struct {
 	DisplayName string `json:"display_name,omitempty"`
 }
 
+func findOwnedOrg(orgs []*types.Organization, orgID string) *types.Organization {
+	for _, org := range orgs {
+		if org.ID == orgID {
+			return org
+		}
+	}
+	return nil
+}
+
 // GrantCreditsResponse describes the outcome of an admin credit grant.
 //
 // Status values:
@@ -183,13 +192,7 @@ func (apiServer *HelixAPIServer) adminGrantCredits(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError400(fmt.Sprintf("org_id is required: user owns %d organisation(s), pick which one receives the grant", len(ownedOrgs)))
 	}
 
-	var selectedOrg *types.Organization
-	for _, org := range ownedOrgs {
-		if org.ID == body.OrgID {
-			selectedOrg = org
-			break
-		}
-	}
+	selectedOrg := findOwnedOrg(ownedOrgs, body.OrgID)
 	if selectedOrg == nil {
 		return nil, system.NewHTTPError400(fmt.Sprintf("user does not own organisation %s", body.OrgID))
 	}

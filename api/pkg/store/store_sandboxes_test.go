@@ -19,9 +19,63 @@ func newSandboxTestStore(t *testing.T) *PostgresStore {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&types.Sandbox{}))
+	require.NoError(t, db.AutoMigrate(&types.Sandbox{}, &types.ProjectWebServiceState{}))
 
 	return &PostgresStore{gdb: db, Store: orgstore.New(db)}
+}
+
+func TestSetActiveWebServiceSandboxRequiresEligibleSandbox(t *testing.T) {
+	tests := []struct {
+		name      string
+		projectID string
+		purpose   string
+		deleted   bool
+		wantErr   bool
+	}{
+		{name: "web service", projectID: "prj_1", purpose: types.SandboxPurposeWebService},
+		{name: "deleted", projectID: "prj_1", purpose: types.SandboxPurposeWebService, deleted: true, wantErr: true},
+		{name: "wrong project", projectID: "prj_2", purpose: types.SandboxPurposeWebService, wantErr: true},
+		{name: "ordinary sandbox", projectID: "prj_1", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			store := newSandboxTestStore(t)
+			require.NoError(t, store.UpsertProjectWebServiceState(ctx, &types.ProjectWebServiceState{
+				ProjectID:       "prj_1",
+				ActiveSandboxID: "sbx_current",
+			}))
+
+			sb, err := store.CreateSandbox(ctx, &types.Sandbox{
+				ID:             "sbx_candidate",
+				OrganizationID: "org_1",
+				ProjectID:      tt.projectID,
+				Owner:          "user_1",
+				Runtime:        types.SandboxRuntimeHeadlessUbuntu,
+				Purpose:        tt.purpose,
+			})
+			require.NoError(t, err)
+			if tt.deleted {
+				require.NoError(t, store.DeleteSandbox(ctx, sb.ID))
+			}
+
+			err = store.SetActiveWebServiceSandbox(ctx, "prj_1", sb.ID)
+			if tt.wantErr {
+				require.ErrorIs(t, err, ErrNotFound)
+			} else {
+				require.NoError(t, err)
+			}
+
+			state, err := store.GetProjectWebServiceState(ctx, "prj_1")
+			require.NoError(t, err)
+			if tt.wantErr {
+				require.Equal(t, "sbx_current", state.ActiveSandboxID)
+			} else {
+				require.Equal(t, sb.ID, state.ActiveSandboxID)
+			}
+		})
+	}
 }
 
 func TestSetSandboxContainerIgnoresDeletedRows(t *testing.T) {

@@ -8,7 +8,7 @@
 //
 // The ID type is a Go type alias (`type NodeID = string`) rather than a
 // distinct named type. This is deliberate: orgchart's Node references
-// tool.Name and streaming.TopicID (so orgchart imports those packages),
+// tool.Name and streaming.StreamID (so orgchart imports those packages),
 // and tool.Invocation.Caller needs a caller identity (which would
 // normally pull tool back to orgchart, closing the cycle). Defining the
 // ID as an alias lets tool's Caller be a tiny local interface —

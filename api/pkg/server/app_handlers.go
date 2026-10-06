@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -22,8 +23,12 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/oauth"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	orgdomainstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
@@ -79,11 +84,10 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 		return substitutions, err
 	}
 
-	// One predicate, case-insensitive on names: substitution catalogs are
-	// name-keyed (alt.Provider is always a canonical name) but the
-	// agent-stored value may be an ID, a canonical global name, or a
-	// legacy mixed-case name. Single helper avoids the case-sensitive Go
-	// map gotcha that the previous double-keyed providerSet papered over.
+	// One predicate for all supported provider reference shapes. Provider
+	// endpoint presets used to be stored as names such as "user/anthropic",
+	// while global endpoints are now exposed as "anthropic". Treat those as
+	// the same provider kind; DB-backed pe_ references must still match by ID.
 	providerKnown := func(ref string) bool {
 		if ref == "" {
 			return false
@@ -92,7 +96,7 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			if ep.ID != "" && ep.ID == ref {
 				return true
 			}
-			if strings.EqualFold(ep.Name, ref) {
+			if types.CanonicalProviderName(ep.Name) == types.CanonicalProviderName(ref) {
 				return true
 			}
 		}
@@ -266,6 +270,9 @@ func (s *HelixAPIServer) listAgents(_ http.ResponseWriter, r *http.Request) ([]*
 	ctx := r.Context()
 	user := getRequestUser(r)
 	orgID := r.URL.Query().Get("organization_id") // If filtering for a specific organization
+	if orgID == "" && user.TokenType == types.TokenTypeAPIKey {
+		orgID = user.OrganizationID
+	}
 
 	if orgID != "" {
 		orgApps, err := s.listOrganizationApps(ctx, user, orgID)
@@ -499,9 +506,6 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 	}
 
 	normalizeHelixAgentAssistantSpecs(app)
-	if err := s.applyDefaultNewProjectAgentConfig(ctx, app); err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
 
 	err = s.validateProvidersAndModels(ctx, user, app)
 	if err != nil {
@@ -619,65 +623,6 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 	}, nil
 }
 
-func needsDefaultNewProjectAgentConfig(app *types.Agent) bool {
-	if app == nil {
-		return false
-	}
-	for _, assistant := range app.Config.Helix.Assistants {
-		if assistant.GetAgentType() == types.AgentTypeZedExternal &&
-			!assistant.CodeAgentCredentialType.IsSubscription() &&
-			assistant.Provider == "" && assistant.Model == "" {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *HelixAPIServer) applyDefaultNewProjectAgentConfig(ctx context.Context, app *types.Agent) error {
-	if !needsDefaultNewProjectAgentConfig(app) {
-		return nil
-	}
-
-	settings, err := s.Store.GetSystemSettings(ctx)
-	if err != nil {
-		return fmt.Errorf("get default new project agent configuration: %w", err)
-	}
-	return applyDefaultNewProjectAgentConfig(settings, app)
-}
-
-func applyDefaultNewProjectAgentConfig(settings *types.SystemSettings, app *types.Agent) error {
-	if !needsDefaultNewProjectAgentConfig(app) {
-		return nil
-	}
-	if settings == nil || settings.DefaultNewProjectAgentProvider == "" || settings.DefaultNewProjectAgentModel == "" {
-		return errors.New("default new project agent provider and model are not configured in Admin > System Settings")
-	}
-
-	effort := settings.DefaultNewProjectAgentReasoningEffort
-	if effort == "" {
-		effort = types.ReasoningEffortNone
-	}
-	if !types.ValidReasoningEffort(effort) {
-		return fmt.Errorf("invalid default new project agent reasoning effort %q", effort)
-	}
-
-	for idx := range app.Config.Helix.Assistants {
-		assistant := &app.Config.Helix.Assistants[idx]
-		if assistant.GetAgentType() != types.AgentTypeZedExternal ||
-			assistant.CodeAgentCredentialType.IsSubscription() ||
-			assistant.Provider != "" || assistant.Model != "" {
-			continue
-		}
-		assistant.CodeAgentCredentialType = types.CodeAgentCredentialTypeAPIKey
-		assistant.Provider = settings.DefaultNewProjectAgentProvider
-		assistant.Model = settings.DefaultNewProjectAgentModel
-		if assistant.ReasoningEffort == "" {
-			assistant.ReasoningEffort = effort
-		}
-	}
-	return nil
-}
-
 // validateProvidersAndModels checks if the provider and model are valid. Provider
 // can be empty, however model is required
 func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *types.User, app *types.Agent) error {
@@ -697,15 +642,16 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 	}
 
 	// Provider references are IDs for DB-backed providers, canonical names
-	// for env-baked globals. Match incoming agent values against either —
-	// case-insensitive on names so a legacy agent that stored "OpenAI" still
-	// matches the canonical "openai" record.
+	// for env-baked globals, and (on legacy agents) preset names such as
+	// "user/openai". Match IDs exactly and names by canonical provider kind.
+	// This lets a legacy org agent be saved and migrated when the matching
+	// org/global provider exists, without making a personal pe_ ID visible.
 	providerKnown := func(ref string) bool {
 		for _, ep := range endpoints {
 			if ep.ID != "" && ep.ID == ref {
 				return true
 			}
-			if strings.EqualFold(ep.Name, ref) {
+			if types.CanonicalProviderName(ep.Name) == types.CanonicalProviderName(ref) {
 				return true
 			}
 		}
@@ -1098,6 +1044,51 @@ func (s *HelixAPIServer) getAgent(_ http.ResponseWriter, r *http.Request) (*type
 	return app, nil
 }
 
+// appSystemPrompt reads the first assistant's system prompt, guarding
+// against an empty Assistants slice on either side of a diff.
+func appSystemPrompt(app *types.App) string {
+	if app == nil || len(app.Config.Helix.Assistants) == 0 {
+		return ""
+	}
+	return app.Config.Helix.Assistants[0].SystemPrompt
+}
+
+// appAgentRuntimeConfig is the part of an App's assistant that a running
+// helix-org sandbox bakes in at process start: the ACP agent binary is spawned
+// with the model, provider and reasoning effort in its environment (see the
+// opencode agent_servers config the settings daemon writes), so none of these
+// reach a live agent until it is restarted. Compared before and after a save
+// to decide whether to arm the restart-required banner.
+type agentRuntimeConfig struct {
+	systemPrompt            string
+	codeAgentRuntime        types.CodeAgentRuntime
+	codeAgentCredentialType types.CodeAgentCredentialType
+	provider                string
+	model                   string
+	reasoningEffort         string
+	generationModelProvider string
+	generationModel         string
+	claudeSubscriptionModel string
+}
+
+func appAgentRuntimeConfig(app *types.App) agentRuntimeConfig {
+	if app == nil || len(app.Config.Helix.Assistants) == 0 {
+		return agentRuntimeConfig{}
+	}
+	a := app.Config.Helix.Assistants[0]
+	return agentRuntimeConfig{
+		systemPrompt:            a.SystemPrompt,
+		codeAgentRuntime:        a.CodeAgentRuntime,
+		codeAgentCredentialType: a.CodeAgentCredentialType,
+		provider:                a.Provider,
+		model:                   a.Model,
+		reasoningEffort:         a.ReasoningEffort,
+		generationModelProvider: a.GenerationModelProvider,
+		generationModel:         a.GenerationModel,
+		claudeSubscriptionModel: a.ClaudeSubscriptionModel,
+	}
+}
+
 // updateAgent godoc
 // @Summary Update an existing agent
 // @Description Update existing agent
@@ -1217,16 +1208,112 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// A changed system prompt, model, provider, runtime or effort is
+	// restart-sensitive for any helix-org Bot backed by this App: the running
+	// sandbox materialized AGENTS.md/CLAUDE.md from the old prompt and spawned
+	// its agent process with the old model in its environment.
+	// s.orgAgentConfigChanged is nil when helix-org isn't mounted, and a no-op
+	// save must not fire it.
+	if s.orgAgentConfigChanged != nil && appAgentRuntimeConfig(existing) != appAgentRuntimeConfig(updated) {
+		s.orgAgentConfigChanged(r.Context(), updated.ID)
+	}
+
+	restore := func(updateErr error) *system.HTTPError {
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+		defer cancel()
+		if _, rollbackErr := s.Store.UpdateApp(rollbackCtx, existing); rollbackErr != nil {
+			return system.NewHTTPError500(fmt.Sprintf("%v; restore agent app: %v", updateErr, rollbackErr))
+		}
+		return system.NewHTTPError500(updateErr.Error())
+	}
+
 	err = s.ensureKnowledge(r.Context(), updated)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, restore(err)
 	}
 
 	err = s.ensureTriggerConfigurations(r.Context(), updated)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, restore(err)
+	}
+	if err := s.syncOrgAgentProjectCodeAgentConfig(r.Context(), updated); err != nil {
+		return nil, restore(err)
 	}
 	return updated, nil
+}
+
+func (s *HelixAPIServer) syncOrgAgentProjectCodeAgentConfig(ctx context.Context, app *types.App) error {
+	if app.AgentKind != types.AgentKindOrg || app.OrganizationID == "" {
+		return nil
+	}
+	var linkedNode *orgchart.Node
+	if s.helixOrg != nil && s.helixOrg.store != nil && s.helixOrg.store.Nodes != nil {
+		nodes, err := s.helixOrg.store.Nodes.List(ctx, app.OrganizationID)
+		if err != nil {
+			return fmt.Errorf("list linked Org Bots: %w", err)
+		}
+		for i := range nodes {
+			if nodes[i].AgentID != app.ID {
+				continue
+			}
+			if linkedNode != nil {
+				return fmt.Errorf("legacy App %s is linked to more than one Org Bot", app.ID)
+			}
+			linkedNode = &nodes[i]
+		}
+	}
+	projects, err := s.Store.ListProjects(ctx, &store.ListProjectsQuery{OrganizationID: app.OrganizationID})
+	if err != nil {
+		return fmt.Errorf("list linked projects: %w", err)
+	}
+	var linked *types.Project
+	for _, project := range projects {
+		if project == nil || project.OrganizationID != app.OrganizationID || project.DefaultHelixAppID != app.ID {
+			continue
+		}
+		if linked != nil {
+			return fmt.Errorf("Org Bot %s is linked to more than one project", app.ID)
+		}
+		linked = project
+	}
+	if linked == nil && linkedNode == nil {
+		return nil
+	}
+	desired, err := external_agent.MaterializeCodeAgentConfig(app, nil)
+	if err != nil {
+		return fmt.Errorf("materialize Org Bot execution config: %w", err)
+	}
+	var previousProjectConfig *types.CodeAgentExecutionConfig
+	if linked != nil {
+		previousProjectConfig = linked.CodeAgentConfig
+		projectConfig := *desired
+		if previousProjectConfig != nil {
+			projectConfig.ServiceTier = previousProjectConfig.ServiceTier
+		}
+		linked.CodeAgentConfig = &projectConfig
+		if err := s.Store.UpdateProject(ctx, linked); err != nil {
+			return fmt.Errorf("sync linked project %s: %w", linked.ID, err)
+		}
+	}
+	if linkedNode != nil {
+		nodeConfig := *desired
+		if linkedNode.CodeAgentConfig != nil {
+			nodeConfig.ServiceTier = linkedNode.CodeAgentConfig.ServiceTier
+		}
+		if reflect.DeepEqual(linkedNode.CodeAgentConfig, &nodeConfig) {
+			return nil
+		}
+		if err := s.helixOrg.store.Nodes.UpdateCodeAgentConfig(ctx, app.OrganizationID, linkedNode.ID, &nodeConfig, time.Now().UTC()); err != nil {
+			if linked != nil {
+				linked.CodeAgentConfig = previousProjectConfig
+				if rollbackErr := s.Store.UpdateProject(context.WithoutCancel(ctx), linked); rollbackErr != nil {
+					return fmt.Errorf("sync Org Bot %s: %v; restore linked project %s: %w", linkedNode.ID, err, linked.ID, rollbackErr)
+				}
+			}
+			return fmt.Errorf("sync Org Bot %s: %w", linkedNode.ID, err)
+		}
+	}
+	return nil
 }
 
 // deleteAgent godoc
@@ -1263,7 +1350,15 @@ func (s *HelixAPIServer) deleteAgent(_ http.ResponseWriter, r *http.Request) (*t
 			return nil, system.NewHTTPError500(listErr.Error())
 		}
 		for _, bot := range bots {
-			if bot.AgentID == id {
+			linked := bot.AgentID == id
+			if !linked && bot.AgentID == "" {
+				state, stateErr := runtimehelix.LoadState(r.Context(), s.helixOrg.store, existing.OrganizationID, bot.ID)
+				if stateErr != nil && !errors.Is(stateErr, orgdomainstore.ErrNotFound) {
+					return nil, system.NewHTTPError500(stateErr.Error())
+				}
+				linked = stateErr == nil && state.AgentID == id
+			}
+			if linked {
 				if keepKnowledge {
 					return nil, system.NewHTTPError400("keep_knowledge is not supported when deleting an org-linked agent")
 				}

@@ -2,20 +2,24 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
 var agentProvisioningKeys = map[string]bool{
-	configregistry.DefaultAgentConfigKey: true,
-	"worker.runtime":                     true,
-	"worker.credentials":                 true,
-	"worker.provider":                    true,
-	"worker.model":                       true,
+	configregistry.DefaultAgentConfigKey:    true,
+	"worker.runtime":                        true,
+	"worker.credentials":                    true,
+	"worker.provider":                       true,
+	"worker.model":                          true,
+	configregistry.DefaultSandboxRuntimeKey: true,
+	configregistry.DefaultSandboxVCPUsKey:   true,
 }
 
 // ---- Settings -----------------------------------------------------------
@@ -97,6 +101,17 @@ func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if key == configregistry.DefaultAgentConfigKey && a.deps.ValidateDefaultAgentConfig != nil {
+		var config types.AssistantConfig
+		if err := json.Unmarshal([]byte(req.Value), &config); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := a.deps.ValidateDefaultAgentConfig(r.Context(), orgID, config); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
 	if err := a.deps.Configs.Set(r.Context(), orgID, key, req.Value); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -117,9 +132,6 @@ func (a *apiHandler) activateDeferredBotsAfterRuntimeChange(ctx context.Context,
 		return
 	}
 	for _, b := range bs {
-		if b.IsHuman() {
-			continue
-		}
 		provisioned := true
 		if a.deps.BotRuntime != nil {
 			info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID)

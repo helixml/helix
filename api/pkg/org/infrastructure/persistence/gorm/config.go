@@ -78,3 +78,9 @@ func (r *configsRepo) Delete(ctx context.Context, orgID, key string) error {
 		store.WithCondition("key", key),
 	)
 }
+
+func (r *configsRepo) DeleteIfValue(ctx context.Context, orgID, key, value string) error {
+	return r.db.WithContext(ctx).
+		Where("org_id = ? AND key = ? AND value = ?", orgID, key, value).
+		Delete(&configRow{}).Error
+}

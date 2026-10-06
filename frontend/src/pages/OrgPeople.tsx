@@ -14,6 +14,7 @@ import UserSearchModal from '../components/orgs/UserSearchModal'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import { useOrganizationMembers } from '../services/orgService'
 
 import { TypesOrganizationMembership, TypesOrganizationRole, TypesUser } from '../api/api'
 
@@ -24,6 +25,17 @@ const OrgPeople: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
   
+  // Presence comes from the polled members list; the account context's
+  // memberships are a one-off snapshot taken when the org was opened.
+  const { data: liveMembers } = useOrganizationMembers(
+    account.organizationTools.organization?.id || '',
+    { refetchInterval: 30000 },
+  )
+  const membersWithPresence = (account.organizationTools.organization?.memberships || []).map((member) => ({
+    ...member,
+    online: liveMembers?.find((live) => live.user_id === member.user_id)?.online ?? member.online,
+  }))
+
   // State for the delete modal
   const [deleteMember, setDeleteMember] = useState<TypesOrganizationMembership | undefined>()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -150,7 +162,7 @@ const OrgPeople: FC = () => {
         <Box sx={{ mt: 3 }}>
           {account.organizationTools.organization?.memberships && (
             <MembersTable
-              data={account.organizationTools.organization.memberships}
+              data={membersWithPresence}
               onDelete={handleDelete}
               onUserRoleChanged={handleUserRoleChanged}
               loading={account.organizationTools.loading}

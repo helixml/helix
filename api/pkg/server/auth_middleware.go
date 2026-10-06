@@ -18,10 +18,10 @@ import (
 )
 
 // lastSeenThrottle limits how often we write users.last_seen_at.
-// Hot-path auth runs on every request; 5 minutes of resolution is plenty
-// for the "when was this user last active" UI while keeping the write
-// rate trivially low.
-const lastSeenThrottle = 5 * time.Minute
+// Hot-path auth runs on every request; one write per user per minute keeps
+// the rate trivially low while giving org presence (types.PresenceOnlineWindow)
+// minute-level resolution. Keep it below PresenceOnlineWindow.
+const lastSeenThrottle = time.Minute
 
 var (
 	// Allowed paths for app API keys. Currently we support
@@ -33,10 +33,11 @@ var (
 )
 
 var (
-	ErrNoAPIKeyFound           = errors.New("no API key found")
-	ErrNoUserIDFound           = errors.New("no user ID found")
-	ErrAppAPIKeyPathNotAllowed = errors.New("path not allowed for app API keys, use your personal account key from your /account page instead")
-	ErrEmbedKeyNotAllowed      = errors.New("this embed key is scoped to a single task and may not access this resource")
+	ErrNoAPIKeyFound            = errors.New("no API key found")
+	ErrNoUserIDFound            = errors.New("no user ID found")
+	ErrAppAPIKeyPathNotAllowed  = errors.New("path not allowed for app API keys, use your personal account key from your /account page instead")
+	ErrEmbedKeyNotAllowed       = errors.New("this embed key is scoped to a single task and may not access this resource")
+	ErrBotInstanceKeyNotAllowed = errors.New("this bot instance key is scoped to its own sandbox and may not access this resource")
 	// ErrHelixTokenWithOIDC is returned when a Helix-issued JWT is used while OIDC authentication
 	// is configured. This can happen when a user has stale cookies from when the server was using
 	// regular auth. The user needs to clear their cookies and log in again via OIDC.
@@ -63,6 +64,14 @@ type authMiddleware struct {
 	lastSeenCache sync.Map
 }
 
+func rejectWaitlisted(w http.ResponseWriter, user *types.User) bool {
+	if user == nil || !user.Waitlisted {
+		return false
+	}
+	http.Error(w, "Account is waiting for approval", http.StatusForbidden)
+	return true
+}
+
 func newAuthMiddleware(
 	authenticator authpkg.Authenticator,
 	oidcClient authpkg.OIDC,
@@ -80,7 +89,6 @@ func newAuthMiddleware(
 		sessionManager: sessionManager,
 	}
 }
-
 
 // looksLikeHelixJWT checks if a token appears to be a Helix-issued JWT
 // by parsing the token without verification and checking the issuer claim.
@@ -107,13 +115,19 @@ func looksLikeHelixJWT(token string) bool {
 
 // touchUserLastSeen records that the user just authenticated. The write is
 // throttled per-user by lastSeenThrottle to keep the cost negligible even on
-// hot paths. Runner / empty users are skipped. The DB write runs in a detached
-// goroutine so the request context cancellation does not abort it.
+// hot paths. Runner / empty users are skipped, as are session-scoped API keys:
+// those are minted for sandboxes and org agents acting on a human's behalf,
+// and an agent polling the API all night must not make its owner look online.
+// The DB write runs in a detached goroutine so the request context
+// cancellation does not abort it.
 func (auth *authMiddleware) touchUserLastSeen(user *types.User) {
 	if user == nil || user.ID == "" {
 		return
 	}
 	if user.TokenType == types.TokenTypeRunner {
+		return
+	}
+	if user.TokenType == types.TokenTypeAPIKey && user.SessionID != "" {
 		return
 	}
 
@@ -221,7 +235,12 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.APIKeyType = apiKey.Type
 		user.ID = apiKey.Owner
 		user.Type = apiKey.OwnerType
-		user.Admin = auth.isAdminWithContext(ctx, user.ID)
+		// An org-labelled key is scoped to its organization: the bearer acts as
+		// the key owner within that org (membership rules apply) and must not
+		// inherit the owner's global admin — otherwise a global admin's org key
+		// would reach every organization and admin endpoint. dbUser carries the
+		// owner's Admin flag, so it must be cleared here, not just not set.
+		user.Admin = apiKey.OrganizationID == "" && auth.isAdminWithContext(ctx, user.ID)
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}
@@ -329,6 +348,9 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 		if auth.sessionManager != nil {
 			user, err = auth.getUserFromSession(r.Context(), r)
 			if err == nil && user != nil {
+				if rejectWaitlisted(w, user) {
+					return
+				}
 				// Successfully authenticated via session
 				auth.touchUserLastSeen(user)
 				r = r.WithContext(setRequestUser(r.Context(), *user))
@@ -380,6 +402,9 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 		if user == nil {
 			user = &types.User{}
 		}
+		if rejectWaitlisted(w, user) {
+			return
+		}
 
 		// If app API key, check if the path is in the allowed list
 		if user.AppID != "" {
@@ -401,6 +426,13 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 				return
 			}
 			http.Error(w, ErrEmbedKeyNotAllowed.Error(), http.StatusForbidden)
+			return
+		}
+
+		// Bot instance keys live in a sandbox that reads untrusted input, so
+		// they reach only their own session's needs. Fail closed.
+		if user.APIKeyType == types.APIkeytypeBotInstance && !auth.botInstanceKeyAllows(r.Context(), user, r) {
+			http.Error(w, ErrBotInstanceKeyNotAllowed.Error(), http.StatusForbidden)
 			return
 		}
 
@@ -436,6 +468,9 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 		if user == nil {
 			user = &types.User{}
 		}
+		if rejectWaitlisted(w, user) {
+			return
+		}
 
 		if user.AppID != "" {
 			if _, ok := AppAPIKeyPaths[r.URL.Path]; !ok {
@@ -456,6 +491,13 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 			http.Error(w, ErrEmbedKeyNotAllowed.Error(), http.StatusForbidden)
+			return
+		}
+
+		// Bot instance keys live in a sandbox that reads untrusted input, so
+		// they reach only their own session's needs. Fail closed.
+		if user.APIKeyType == types.APIkeytypeBotInstance && !auth.botInstanceKeyAllows(r.Context(), user, r) {
+			http.Error(w, ErrBotInstanceKeyNotAllowed.Error(), http.StatusForbidden)
 			return
 		}
 

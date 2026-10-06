@@ -1,3 +1,5 @@
+import { workspaceReviewMessagePreview } from './workspaceReviewMessage'
+
 export const CHAT_TURN_NAVIGATOR_MIN_ITEMS = 1
 export const CHAT_TURN_NAVIGATOR_ITEM_SPACING = 8
 
@@ -8,7 +10,8 @@ export interface ChatTurnNavigatorItem {
 }
 
 export const compactChatTurnPreview = (text: string | null | undefined) => {
-  const compact = text?.replace(/\s+/g, ' ').trim() ?? ''
+  const visibleText = text ? workspaceReviewMessagePreview(text) || text : ''
+  const compact = visibleText.replace(/\s+/g, ' ').trim()
   return compact || null
 }
 

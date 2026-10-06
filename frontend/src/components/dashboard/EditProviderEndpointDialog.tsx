@@ -7,29 +7,34 @@ import {
   Button,
   TextField,
   FormControl,
-  InputLabel,
-  Select,
   MenuItem,
   Alert,
   Stack,
-  SelectChangeEvent,
   RadioGroup,
   FormControlLabel,
   Radio,
   FormLabel,
   IconButton,
+  Tooltip,
   Box,
   Divider,
   Typography,
   Switch,
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
+import { Check, Copy, Server } from 'lucide-react';
 import { TypesProviderEndpointType } from '../../api/api'
 import { useUpdateProviderEndpoint } from '../../services/providersService';
 import useAccount from '../../hooks/useAccount';
+import { getFormSelectSx } from '../../contexts/theme';
+import { copyTextToClipboard } from '../../utils/clipboard';
+import { APP_MONO_FONT_FAMILY } from '../../styles/typography';
 import ProviderEndpointIcon, { PROVIDER_ICON_OPTIONS, ProviderMark } from '../providers/ProviderEndpointIcon';
-import { Server } from 'lucide-react';
+import {
+  CustomHeadersEditor,
+  FormRow,
+  FormSection,
+  ProviderEndpointHeader,
+} from './ProviderEndpointFormFields';
 
 // Helper function to determine auth type from endpoint
 interface EditableProviderEndpoint {
@@ -75,6 +80,38 @@ interface EditProviderEndpointDialogProps {
 
 type AuthType = 'api_key' | 'api_key_file' | 'none';
 
+const EndpointIdChip: React.FC<{ id: string }> = ({ id }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await copyTextToClipboard(id);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0 }}>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        noWrap
+        sx={{ fontFamily: APP_MONO_FONT_FAMILY }}
+      >
+        {id}
+      </Typography>
+      <Tooltip title={copied ? 'Copied' : 'Copy endpoint ID'}>
+        <IconButton
+          onClick={handleCopy}
+          aria-label="Copy endpoint ID"
+          sx={{ width: 24, height: 24, color: 'text.secondary', '&:hover': { color: 'text.primary' } }}
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+        </IconButton>
+      </Tooltip>
+    </Stack>
+  );
+};
+
 const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   open,
   endpoint,
@@ -94,7 +131,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
     api_key_file: endpoint?.api_key_file || '',
     endpoint_type: endpoint?.endpoint_type || 'user',
     auth_type: getEndpointAuthType(endpoint),
-    headers: [] as Array<{ key: string; value: string }>,
+    headers: [] as ProviderEndpointHeader[],
   });
 
   const { mutateAsync: updateProviderEndpoint } = useUpdateProviderEndpoint();
@@ -123,16 +160,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
     }
   }, [endpoint]);
 
-  const handleTextFieldChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-    setError('');
-  };
-
-  const handleSelectChange = (e: SelectChangeEvent) => {
+  const handleTextFieldChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
@@ -153,28 +181,9 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
     setError('');
   };
 
-  const handleHeaderChange = (index: number, field: 'key' | 'value', value: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      headers: prev.headers.map((header, i) =>
-        i === index ? { ...header, [field]: value } : header
-      ),
-    }));
+  const handleHeadersChange = (headers: ProviderEndpointHeader[]) => {
+    setFormData((prev) => ({ ...prev, headers }));
     setError('');
-  };
-
-  const addHeader = () => {
-    setFormData((prev) => ({
-      ...prev,
-      headers: [...prev.headers, { key: '', value: '' }],
-    }));
-  };
-
-  const removeHeader = (index: number) => {
-    setFormData((prev) => ({
-      ...prev,
-      headers: prev.headers.filter((_, i) => i !== index),
-    }));
   };
 
   const validateForm = useCallback(() => {
@@ -238,7 +247,10 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
             ? formData.api_key_file
             : undefined,
         endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),
-        headers: Object.keys(headersObj).length > 0 ? headersObj : undefined,
+        // Always send the map, including when it is empty: the server treats a
+        // missing `headers` as "leave them alone", so omitting it would make
+        // removing the last header impossible.
+        headers: headersObj,
       }
       await updateProviderEndpoint({ id: endpoint.id, body });
       refreshData();
@@ -270,222 +282,215 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   // Don't render anything if we don't have an endpoint
   if (!endpoint?.id) return null;
 
+  const previewEndpoint = {
+    icon: formData.icon,
+    name: formData.name,
+    base_url: formData.base_url,
+  };
+
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Edit Provider Endpoint: {endpoint.name}</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ mt: 2 }}>
+    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pb: 1.5 }}>
+        <ProviderEndpointIcon endpoint={previewEndpoint} size={28} />
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="h6" noWrap>{endpoint.name}</Typography>
+          <EndpointIdChip id={endpoint.id} />
+        </Box>
+      </DialogTitle>
+
+      <DialogContent dividers>
+        <Stack spacing={3} sx={{ mt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
 
-          <TextField
-            name="id"
-            label="Endpoint ID"
-            value={endpoint.id}
-            fullWidth
-            autoComplete="off"
-            disabled
-          />
+          <FormSection title="Details">
+            <Stack spacing={2}>
+              <FormRow>
+                <TextField
+                  name="name"
+                  label="Name"
+                  value={formData.name}
+                  onChange={handleTextFieldChange}
+                  required
+                  autoComplete="off"
+                  placeholder="my-provider"
+                  helperText="A unique name to identify this provider endpoint"
+                  sx={{ gridColumn: { sm: account.admin ? 'auto' : '1 / -1' } }}
+                />
 
-          <TextField
-            name="name"
-            label="Name"
-            value={formData.name}
-            onChange={handleTextFieldChange}
-            fullWidth
-            required
-            autoComplete="off"
-            placeholder="my-provider"
-            helperText="A unique name to identify this provider endpoint"
-          />
-
-          <TextField
-            name="description"
-            label="Description"
-            value={formData.description}
-            onChange={handleTextFieldChange}
-            fullWidth
-            multiline
-            minRows={3}
-            helperText="Explain what this endpoint serves and where it runs"
-          />
-
-          {account.admin && (
-            <>
-              <FormControl fullWidth>
-                <InputLabel>Provider icon</InputLabel>
-                <Select
-                  name="icon"
-                  value={formData.icon}
-                  onChange={handleSelectChange}
-                  label="Provider icon"
-                  renderValue={(value) => {
-                    const option = PROVIDER_ICON_OPTIONS.find(item => item.key === value)
-                    return (
+                {account.admin && (
+                  <TextField
+                    select
+                    name="icon"
+                    label="Provider icon"
+                    value={formData.icon}
+                    onChange={handleTextFieldChange}
+                    helperText="Defaults to a mark inferred from the name and base URL"
+                    // The empty value means "Automatic", so the label has to stay
+                    // shrunk or it would sit on top of the rendered value.
+                    InputLabelProps={{ shrink: true }}
+                    sx={theme => getFormSelectSx(theme.palette.mode === 'light')}
+                    SelectProps={{
+                      displayEmpty: true,
+                      renderValue: (value: unknown) => {
+                        const option = PROVIDER_ICON_OPTIONS.find(item => item.key === value)
+                        return (
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            {option
+                              ? <ProviderMark provider={option.provider} size={22} />
+                              : <ProviderEndpointIcon endpoint={previewEndpoint} size={22} />}
+                            <span>{option?.label || 'Automatic'}</span>
+                          </Stack>
+                        )
+                      },
+                    }}
+                  >
+                    <MenuItem value="">
                       <Stack direction="row" spacing={1} alignItems="center">
-                        {option
-                          ? <ProviderMark provider={option.provider} size={22} />
-                          : <ProviderEndpointIcon endpoint={endpoint} size={22} />}
-                        <span>{option?.label || 'Automatic'}</span>
-                      </Stack>
-                    )
-                  }}
-                >
-                  <MenuItem value="">
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Server size={22} />
-                      <span>Automatic</span>
-                    </Stack>
-                  </MenuItem>
-                  {PROVIDER_ICON_OPTIONS.map(option => (
-                    <MenuItem key={option.key} value={option.key}>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <ProviderMark provider={option.provider} size={22} />
-                        <span>{option.label}</span>
+                        <Server size={22} />
+                        <span>Automatic</span>
                       </Stack>
                     </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+                    {PROVIDER_ICON_OPTIONS.map(option => (
+                      <MenuItem key={option.key} value={option.key}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <ProviderMark provider={option.provider} size={22} />
+                          <span>{option.label}</span>
+                        </Stack>
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              </FormRow>
 
-              <FormControlLabel
-                control={(
-                  <Switch
-                    name="billing_enabled"
-                    checked={formData.billing_enabled}
-                    onChange={event => setFormData(previous => ({
-                      ...previous,
-                      billing_enabled: event.target.checked,
-                    }))}
+              <TextField
+                name="description"
+                label="Description"
+                value={formData.description}
+                onChange={handleTextFieldChange}
+                fullWidth
+                multiline
+                minRows={2}
+                helperText="Explain what this endpoint serves and where it runs"
+              />
+            </Stack>
+          </FormSection>
+
+          <Divider />
+
+          <FormSection title="Connection">
+            <Stack spacing={2}>
+              <TextField
+                name="base_url"
+                label="Base URL"
+                value={formData.base_url}
+                onChange={handleTextFieldChange}
+                fullWidth
+                required
+                autoComplete="off"
+                placeholder="https://api.openai.com/v1"
+                helperText="OpenAI-compatible (https://api.openai.com/v1), Anthropic (https://api.anthropic.com/v1), or Google (https://generativelanguage.googleapis.com/v1beta/openai)"
+              />
+
+              <FormRow>
+                <FormControl component="fieldset">
+                  <FormLabel component="legend" sx={{ typography: 'body2', mb: 0.5 }}>
+                    Authentication
+                  </FormLabel>
+                  <RadioGroup
+                    row
+                    name="auth_type"
+                    value={formData.auth_type}
+                    onChange={handleAuthTypeChange}
+                  >
+                    <FormControlLabel value="api_key" control={<Radio size="small" />} label="API key" />
+                    <FormControlLabel value="api_key_file" control={<Radio size="small" />} label="Key file" />
+                    <FormControlLabel value="none" control={<Radio size="small" />} label="None" />
+                  </RadioGroup>
+                </FormControl>
+
+                {formData.auth_type === 'api_key' && (
+                  <TextField
+                    name="api_key"
+                    label="API key"
+                    value={formData.api_key}
+                    onChange={handleTextFieldChange}
+                    type="password"
+                    autoComplete="off"
+                    placeholder="••••••••"
+                    helperText="Leave blank to keep the existing API key"
                   />
                 )}
-                label="Charge users for inference through this provider"
-              />
-            </>
-          )}
 
-          <TextField
-            name="base_url"
-            label="Base URL"
-            value={formData.base_url}
-            onChange={handleTextFieldChange}
-            fullWidth
-            required
-            autoComplete="off"
-            placeholder="https://api.openai.com/v1"
-            helperText="OpenAI-compatible (https://api.openai.com/v1), Anthropic (https://api.anthropic.com/v1), or Google (https://generativelanguage.googleapis.com/v1beta/openai)"
-          />
+                {formData.auth_type === 'api_key_file' && (
+                  <TextField
+                    name="api_key_file"
+                    label="API key file path"
+                    value={formData.api_key_file}
+                    onChange={handleTextFieldChange}
+                    autoComplete="off"
+                    placeholder="/etc/helix/provider.key"
+                    helperText="Path to a file on the Helix server containing the API key"
+                  />
+                )}
+              </FormRow>
+            </Stack>
+          </FormSection>
 
-          <FormControl component="fieldset">
-            <FormLabel component="legend">Authentication Method</FormLabel>
-            <RadioGroup
-              name="auth_type"
-              value={formData.auth_type}
-              onChange={handleAuthTypeChange}
-            >
-              <FormControlLabel value="api_key" control={<Radio />} label="API Key" />
-              <FormControlLabel value="api_key_file" control={<Radio />} label="API Key File" />
-              <FormControlLabel value="none" control={<Radio />} label="None" />
-            </RadioGroup>
-          </FormControl>
+          <Divider />
 
-          {formData.auth_type === 'api_key' && (
-            <TextField
-              name="api_key"
-              label="API Key"
-              value={formData.api_key}
-              onChange={handleTextFieldChange}
-              fullWidth
-              type="password"
-              autoComplete="off"
-              helperText="Leave blank to keep the existing API key"
-            />
-          )}
-
-          {formData.auth_type === 'api_key_file' && (
-            <TextField
-              name="api_key_file"
-              label="API Key File Path"
-              value={formData.api_key_file}
-              onChange={handleTextFieldChange}
-              fullWidth
-              helperText="Specify a file path containing the API key"
-            />
-          )}
-
-          <FormControl fullWidth>
-            <InputLabel>Type</InputLabel>
-            <Select
-              name="endpoint_type"
-              value={formData.endpoint_type}
-              onChange={handleSelectChange}
-              label="Type"
-            >
-              <MenuItem value="user">User (available to you only)</MenuItem>
-              <MenuItem value="global">Global (available to all users in Helix installation)</MenuItem>
-            </Select>
-          </FormControl>
-
-          <Divider sx={{ my: 2 }} />
-
-          <Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6">Custom Headers</Typography>
-              <Button
-                startIcon={<AddIcon />}
-                onClick={addHeader}
-                variant="outlined"
-                size="small"
+          <FormSection title="Availability">
+            <FormRow>
+              <TextField
+                select
+                name="endpoint_type"
+                label="Visibility"
+                value={formData.endpoint_type}
+                onChange={handleTextFieldChange}
+                helperText="Who can select this endpoint"
+                sx={theme => getFormSelectSx(theme.palette.mode === 'light')}
               >
-                Add Header
-              </Button>
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Add custom headers that will be sent with requests to this endpoint
-            </Typography>
-            
-            {formData.headers.map((header, index) => (
-              <Box key={index} sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
-                <TextField
-                  label="Header Name"
-                  value={header.key}
-                  onChange={(e) => handleHeaderChange(index, 'key', e.target.value)}
-                  placeholder="e.g., X-API-Key"
-                  sx={{ flex: 1 }}
-                />
-                <TextField
-                  label="Header Value"
-                  value={header.value}
-                  onChange={(e) => handleHeaderChange(index, 'value', e.target.value)}
-                  placeholder="e.g., your-api-key"
-                  sx={{ flex: 1 }}
-                />
-                <IconButton
-                  onClick={() => removeHeader(index)}
-                  color="error"
-                  size="small"
-                >
-                  <DeleteIcon />
-                </IconButton>
-              </Box>
-            ))}
-            
-            {formData.headers.length === 0 && (
-              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                No custom headers added. Click "Add Header" to add custom headers.
-              </Typography>
-            )}
-          </Box>
+                <MenuItem value="user">User (available to you only)</MenuItem>
+                <MenuItem value="global">Global (available to all users in Helix installation)</MenuItem>
+              </TextField>
+
+              {account.admin && (
+                <Box>
+                  <FormControlLabel
+                    control={(
+                      <Switch
+                        name="billing_enabled"
+                        checked={formData.billing_enabled}
+                        onChange={event => setFormData(previous => ({
+                          ...previous,
+                          billing_enabled: event.target.checked,
+                        }))}
+                      />
+                    )}
+                    label="Charge users for inference"
+                  />
+                  <Typography variant="body2" color="text.secondary">
+                    Usage through this provider is billed to the user's wallet balance.
+                  </Typography>
+                </Box>
+              )}
+            </FormRow>
+          </FormSection>
+
+          <Divider />
+
+          <CustomHeadersEditor headers={formData.headers} onChange={handleHeadersChange} />
         </Stack>
       </DialogContent>
-      <DialogActions>
+
+      <DialogActions sx={{ px: 3, py: 2 }}>
         <Button onClick={handleClose}>Cancel</Button>
-        <Button 
-          onClick={handleSubmit} 
+        <Button
+          onClick={handleSubmit}
           variant="outlined"
           color="secondary"
           disabled={loading}
         >
-          Save Changes
+          Save changes
         </Button>
       </DialogActions>
     </Dialog>

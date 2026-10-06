@@ -4,12 +4,16 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -56,6 +60,34 @@ func TestProjectNameExists(t *testing.T) {
 	}
 }
 
+func TestNewProjectCodeAgentConfigInheritsOrganizationDefault(t *testing.T) {
+	orgStore := orgmemory.New()
+	configs := configregistry.New(orgStore.Configs)
+	configs.Register(configregistry.Spec{Key: configregistry.DefaultAgentConfigKey, Type: configregistry.TypeObject})
+	require.NoError(t, configs.Set(context.Background(), "org-1", configregistry.DefaultAgentConfigKey,
+		`{"code_agent_runtime":"claude_code","code_agent_credential_type":"subscription","model":"claude-fable-5","reasoning_effort":"high"}`))
+	server := &HelixAPIServer{helixOrg: &helixOrgHandlers{configs: configs}}
+
+	got, err := server.newProjectCodeAgentConfig(context.Background(), "org-1", nil)
+	require.NoError(t, err)
+	require.Equal(t, &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+		Model: "claude-fable-5", ReasoningEffort: types.ReasoningEffortHigh,
+	}, got)
+}
+
+func TestNewProjectCodeAgentConfigPreservesExplicitConfig(t *testing.T) {
+	explicit := &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeCodexCLI, CredentialType: types.CodeAgentCredentialTypeSubscription,
+		Model: "gpt-5.6-terra",
+	}
+	server := &HelixAPIServer{}
+
+	got, err := server.newProjectCodeAgentConfig(context.Background(), "org-1", explicit)
+	require.NoError(t, err)
+	require.Same(t, explicit, got)
+}
+
 // makeProject returns a personal project owned by the test user.
 func (s *ProjectRepositoryHandlersSuite) makeProject(id, defaultRepoID string) *types.Project {
 	return &types.Project{
@@ -85,6 +117,136 @@ func (s *ProjectRepositoryHandlersSuite) detachRequest(projectID, repoID string)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/projects/"+projectID+"/repositories/"+repoID+"/detach", http.NoBody)
 	req = req.WithContext(s.authCtx)
 	return mux.SetURLVars(req, map[string]string{"id": projectID, "repo_id": repoID})
+}
+
+func (s *ProjectRepositoryHandlersSuite) updateRequest(projectID, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/projects/"+projectID, strings.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	return mux.SetURLVars(req, map[string]string{"id": projectID})
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectSetsDefaultSandboxRuntime() {
+	project := s.makeProject("proj-runtime", "repo-1")
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.Project) error {
+			s.Equal(types.SandboxRuntimeHeadlessUbuntu, updated.DefaultSandboxRuntime)
+			return nil
+		},
+	)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"default_sandbox_runtime":"headless-ubuntu"}`),
+	)
+	s.Nil(httpErr)
+	s.Equal(types.SandboxRuntimeHeadlessUbuntu, resp.DefaultSandboxRuntime)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectRejectsInvalidDefaultSandboxRuntime() {
+	project := s.makeProject("proj-runtime-invalid", "repo-1")
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"default_sandbox_runtime":"windows"}`),
+	)
+	s.Nil(resp)
+	s.NotNil(httpErr)
+	s.Equal(http.StatusBadRequest, httpErr.StatusCode)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectSetsDefaultSandboxResources() {
+	project := s.makeProject("proj-resources", "repo-1")
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.Project) error {
+			s.Require().NotNil(updated.DefaultSandboxResourceOverrides)
+			s.Equal(8, updated.DefaultSandboxResourceOverrides.VCPUs)
+			s.Equal(16384, updated.DefaultSandboxResourceOverrides.MemoryMB)
+			return nil
+		},
+	)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"default_sandbox_resource_overrides":{"vcpus":8,"memory_mb":16384}}`),
+	)
+	s.Nil(httpErr)
+	s.Require().NotNil(resp.DefaultSandboxResourceOverrides)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectRejectsInvalidDefaultSandboxResources() {
+	project := s.makeProject("proj-resources-invalid", "repo-1")
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"default_sandbox_resource_overrides":{"vcpus":3,"memory_mb":4096}}`),
+	)
+	s.Nil(resp)
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusBadRequest, httpErr.StatusCode)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectRejectsCodingAppID() {
+	project := s.makeProject("proj-agent", "repo-1")
+	appID := "app-coding"
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(&types.App{
+		ID: appID, Owner: s.userID, AgentKind: types.AgentKindCoding,
+	}, nil)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"default_helix_app_id":"app-coding"}`),
+	)
+	s.Nil(resp)
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusBadRequest, httpErr.StatusCode)
+	s.Contains(httpErr.Message, "code_agent_config")
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectAcceptsCodeAgentConfig() {
+	project := s.makeProject("proj-agent-config", "repo-1")
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.Project) error {
+			s.Require().NotNil(updated.CodeAgentConfig)
+			s.Equal(types.CodeAgentRuntimeClaudeCode, updated.CodeAgentConfig.Runtime)
+			s.Equal("claude-opus-5", updated.CodeAgentConfig.Model)
+			return nil
+		},
+	)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"code_agent_config":{"runtime":"claude_code","credential_type":"subscription","model":"claude-opus-5"}}`),
+	)
+	s.Nil(httpErr)
+	s.Require().NotNil(resp)
+	s.Require().NotNil(resp.CodeAgentConfig)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectAcceptsPlanningCodeAgentConfig() {
+	project := s.makeProject("proj-planning-agent-config", "repo-1")
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.Project) error {
+			s.Require().NotNil(updated.PlanningCodeAgentConfig)
+			s.Equal(types.CodeAgentRuntimeClaudeCode, updated.PlanningCodeAgentConfig.Runtime)
+			s.Equal("claude-opus-5", updated.PlanningCodeAgentConfig.Model)
+			return nil
+		},
+	)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"planning_code_agent_config":{"runtime":"claude_code","credential_type":"subscription","model":"claude-opus-5"}}`),
+	)
+	s.Nil(httpErr)
+	s.Require().NotNil(resp)
+	s.Require().NotNil(resp.PlanningCodeAgentConfig)
 }
 
 // ---------------------------------------------------------------------------
@@ -214,4 +376,82 @@ func (s *ProjectRepositoryHandlersSuite) TestDetachRepo_KeepsDefaultWhenNotDefau
 	resp, httpErr := s.server.detachRepositoryFromProject(rec, s.detachRequest(project.ID, otherRepo.ID))
 	s.Nil(httpErr)
 	s.NotNil(resp)
+}
+
+// updateProjectMetadata runs PUT /projects/{id} with body against a project
+// whose stored metadata is stored, and returns the metadata that was saved.
+func (s *ProjectRepositoryHandlersSuite) updateProjectMetadata(stored types.ProjectMetadata, body string) types.ProjectMetadata {
+	project := s.makeProject("proj-metadata", "repo-1")
+	project.Metadata = stored
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	var saved types.ProjectMetadata
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.Project) error {
+			saved = updated.Metadata
+			return nil
+		},
+	)
+
+	_, httpErr := s.server.updateProject(httptest.NewRecorder(), s.updateRequest(project.ID, body))
+	s.Require().Nil(httpErr)
+	return saved
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectBoardSettingsOnlyPreservesMetadataBools() {
+	cacheStatus := &types.DockerCacheState{Sandboxes: map[string]*types.SandboxCacheState{"sb-1": {Status: "ready"}}}
+	saved := s.updateProjectMetadata(
+		types.ProjectMetadata{AutoWarmDockerCache: true, OrgMembersAccess: true, DockerCacheStatus: cacheStatus},
+		`{"metadata":{"board_settings":{"wip_limits":{"planning":3,"review":2,"implementation":5}}}}`,
+	)
+
+	s.True(saved.AutoWarmDockerCache)
+	s.True(saved.OrgMembersAccess)
+	s.Same(cacheStatus, saved.DockerCacheStatus)
+	s.Require().NotNil(saved.BoardSettings)
+	s.Equal(types.WIPLimits{Planning: 3, Review: 2, Implementation: 5}, saved.BoardSettings.WIPLimits)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectAutoWarmDockerCacheExplicitFalseTurnsOff() {
+	saved := s.updateProjectMetadata(
+		types.ProjectMetadata{AutoWarmDockerCache: true, OrgMembersAccess: true},
+		`{"metadata":{"auto_warm_docker_cache":false}}`,
+	)
+	s.False(saved.AutoWarmDockerCache)
+	s.True(saved.OrgMembersAccess)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectAutoWarmDockerCacheExplicitTrueTurnsOn() {
+	saved := s.updateProjectMetadata(
+		types.ProjectMetadata{},
+		`{"metadata":{"auto_warm_docker_cache":true}}`,
+	)
+	s.True(saved.AutoWarmDockerCache)
+	s.False(saved.OrgMembersAccess)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectOrgMembersAccessExplicitFalseTurnsOff() {
+	saved := s.updateProjectMetadata(
+		types.ProjectMetadata{AutoWarmDockerCache: true, OrgMembersAccess: true},
+		`{"metadata":{"org_members_access":false}}`,
+	)
+	s.False(saved.OrgMembersAccess)
+	s.True(saved.AutoWarmDockerCache)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectOrgMembersAccessExplicitTrueTurnsOn() {
+	saved := s.updateProjectMetadata(
+		types.ProjectMetadata{},
+		`{"metadata":{"org_members_access":true}}`,
+	)
+	s.True(saved.OrgMembersAccess)
+	s.False(saved.AutoWarmDockerCache)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectWithoutMetadataLeavesMetadataUntouched() {
+	saved := s.updateProjectMetadata(
+		types.ProjectMetadata{AutoWarmDockerCache: true, OrgMembersAccess: true},
+		`{"name":"renamed"}`,
+	)
+	s.True(saved.AutoWarmDockerCache)
+	s.True(saved.OrgMembersAccess)
 }

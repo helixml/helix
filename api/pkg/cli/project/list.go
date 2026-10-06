@@ -10,6 +10,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func newListCommand() *cobra.Command {
@@ -93,10 +94,11 @@ prompted. The HELIX_ORG environment variable is also honoured.`,
 }
 
 type Project struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Technologies  []string `json:"technologies"`
-	Status        string   `json:"status"`
-	StartupScript string   `json:"startup_script"`
+	ID                    string               `json:"id"`
+	Name                  string               `json:"name"`
+	Description           string               `json:"description"`
+	Technologies          []string             `json:"technologies"`
+	Status                string               `json:"status"`
+	StartupScript         string               `json:"startup_script"`
+	DefaultSandboxRuntime types.SandboxRuntime `json:"default_sandbox_runtime"`
 }

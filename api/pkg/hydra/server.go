@@ -3,7 +3,9 @@ package hydra
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -39,6 +41,153 @@ type Server struct {
 	listener            net.Listener
 	server              *http.Server
 	router              *mux.Router
+	apiProxyServer      *http.Server
+	apiProxyListener    net.Listener
+	apiProxyRetryCancel context.CancelFunc
+	apiProxyRetryDone   sync.WaitGroup
+	sshProxyListener    net.Listener
+	sshProxyRetryCancel context.CancelFunc
+	sshProxyRetryDone   sync.WaitGroup
+}
+
+// StartSandboxAPIProxy exposes the fixed Helix API upstream on the isolated
+// session bridge. It deliberately uses its own HTTP server and handler rather
+// than Hydra's control router, which must remain reachable only over its Unix
+// socket and RevDial transport.
+func (s *Server) StartSandboxAPIProxy(listenAddr, rawUpstream string) error {
+	if listenAddr == "" {
+		listenAddr = SandboxAPIProxyListenAddress
+	}
+	if s.apiProxyServer != nil {
+		return fmt.Errorf("sandbox API proxy already started")
+	}
+
+	handler, err := newSandboxAPIProxyHandler(rawUpstream)
+	if err != nil {
+		return err
+	}
+	return s.startSandboxAPIProxy(listenAddr, rawUpstream, handler)
+}
+
+func (s *Server) startSandboxAPIProxy(listenAddr, rawUpstream string, handler http.Handler) error {
+	if s.apiProxyServer != nil {
+		return fmt.Errorf("sandbox API proxy already started")
+	}
+	listener, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("listen for sandbox API proxy on %s: %w", listenAddr, err)
+	}
+
+	s.apiProxyListener = listener
+	proxyServer := &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       90 * time.Second,
+	}
+	s.apiProxyServer = proxyServer
+	go func() {
+		if err := proxyServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Msg("Sandbox API proxy server error")
+		}
+	}()
+
+	log.Info().Str("listen", listener.Addr().String()).Str("upstream", rawUpstream).
+		Msg("Sandbox API proxy started")
+	return nil
+}
+
+// StartSandboxAPIProxyWithRetry validates the upstream synchronously, then
+// retries transient listener failures without taking Hydra's lifecycle API
+// down. This handles hot deployments where dockerd has not recreated the
+// sandbox bridge address yet.
+func (s *Server) StartSandboxAPIProxyWithRetry(ctx context.Context, listenAddr, rawUpstream string, retryInterval time.Duration) error {
+	if listenAddr == "" {
+		listenAddr = SandboxAPIProxyListenAddress
+	}
+	if retryInterval <= 0 {
+		retryInterval = 2 * time.Second
+	}
+	if s.apiProxyServer != nil || s.apiProxyRetryCancel != nil {
+		return fmt.Errorf("sandbox API proxy already started")
+	}
+	handler, err := newSandboxAPIProxyHandler(rawUpstream)
+	if err != nil {
+		return err
+	}
+	retryCtx, cancel := context.WithCancel(ctx)
+	s.apiProxyRetryCancel = cancel
+	s.apiProxyRetryDone.Add(1)
+	go func() {
+		defer s.apiProxyRetryDone.Done()
+		for {
+			if err := s.startSandboxAPIProxy(listenAddr, rawUpstream, handler); err == nil {
+				return
+			} else {
+				log.Warn().Err(err).Dur("retry_in", retryInterval).Msg("Sandbox API proxy listener unavailable")
+			}
+			timer := time.NewTimer(retryInterval)
+			select {
+			case <-retryCtx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+	}()
+	return nil
+}
+
+func newSandboxAPIProxyHandler(rawUpstream string) (http.Handler, error) {
+	if rawUpstream == "" {
+		return nil, fmt.Errorf("sandbox API proxy upstream URL is required")
+	}
+	// Tolerate a scheme-less HELIX_API_URL (e.g. "api:8080"): coerce to http
+	// rather than rejecting, which previously log.Fatal'd hydra into a boot
+	// crash-loop and took the whole sandbox host offline.
+	if !strings.Contains(rawUpstream, "://") {
+		rawUpstream = "http://" + rawUpstream
+	}
+	target, err := url.Parse(rawUpstream)
+	if err != nil {
+		return nil, fmt.Errorf("parse sandbox API proxy upstream URL: %w", err)
+	}
+	if target.Scheme != "http" && target.Scheme != "https" {
+		return nil, fmt.Errorf("sandbox API proxy upstream scheme must be http or https")
+	}
+	if target.Host == "" {
+		return nil, fmt.Errorf("sandbox API proxy upstream host is required")
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	// Match every sibling sandbox→API client (RevDial, heartbeat, settings
+	// daemon), which skip verification so private-CA enterprise installs work.
+	// Without this the proxy 502s all in-session traffic against a private CA
+	// while the sandbox still registers healthy over RevDial.
+	proxy.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // TODO: trust the deployment CA instead
+	}
+	director := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		director(req)
+		req.Host = target.Host
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, proxyErr error) {
+		log.Warn().Err(proxyErr).Str("method", r.Method).Str("path", r.URL.Path).
+			Msg("Sandbox API proxy request failed")
+		http.Error(w, "Helix API unavailable", http.StatusBadGateway)
+	}
+
+	// Defense in depth: the session bridge must not reach diagnostic surfaces
+	// even though the API happens to serve them. /debug/pprof through the
+	// isolated route re-exposed goroutine/heap dumps unauth (infra#70 N2).
+	// Sandboxes only ever need /api/v1/* and /v1/*.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/debug" || strings.HasPrefix(r.URL.Path, "/debug/") {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		proxy.ServeHTTP(w, r)
+	}), nil
 }
 
 // NewServer creates a new Hydra server with an internally-allocated log
@@ -146,6 +295,20 @@ func (s *Server) Start(ctx context.Context) error {
 // Stop gracefully stops the server
 func (s *Server) Stop(ctx context.Context) error {
 	log.Info().Msg("Stopping Hydra server...")
+	if s.apiProxyRetryCancel != nil {
+		s.apiProxyRetryCancel()
+		s.apiProxyRetryDone.Wait()
+	}
+
+	if s.apiProxyServer != nil {
+		if err := s.apiProxyServer.Shutdown(ctx); err != nil {
+			log.Error().Err(err).Msg("Error shutting down sandbox API proxy")
+		}
+	}
+	if s.apiProxyListener != nil {
+		s.apiProxyListener.Close()
+	}
+	s.stopSandboxSSHProxy()
 
 	// Stop manager
 	if err := s.manager.Stop(ctx); err != nil {
@@ -184,6 +347,7 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/dev-containers/{session_id}", s.handleGetDevContainer).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}/resources", s.handleUpdateDevContainerResources).Methods("PATCH")
 	api.HandleFunc("/dev-containers/{session_id}", s.handleDeleteDevContainer).Methods("DELETE")
+	api.HandleFunc("/dev-containers/{session_id}/destroy", s.handleDestroyDevContainer).Methods("POST")
 	api.HandleFunc("/dev-containers/{session_id}/clients", s.handleGetDevContainerClients).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}/video/stats", s.handleGetDevContainerVideoStats).Methods("GET")
 
@@ -297,7 +461,12 @@ func (s *Server) handleCreateDevContainer(w http.ResponseWriter, r *http.Request
 			Str("session_id", req.SessionID).
 			Str("container_name", req.ContainerName).
 			Msg("Failed to create dev container")
-		http.Error(w, fmt.Sprintf("failed to create dev container: %s", err), http.StatusInternalServerError)
+		status := http.StatusInternalServerError
+		var capacityErr *DiskCapacityError
+		if errors.As(err, &capacityErr) {
+			status = http.StatusInsufficientStorage
+		}
+		http.Error(w, fmt.Sprintf("failed to create dev container: %s", err), status)
 		return
 	}
 
@@ -308,7 +477,7 @@ func (s *Server) handleCreateDevContainer(w http.ResponseWriter, r *http.Request
 
 // handleListDevContainers lists all active dev containers
 func (s *Server) handleListDevContainers(w http.ResponseWriter, r *http.Request) {
-	resp := s.devContainerManager.ListDevContainers()
+	resp := s.devContainerManager.ListDevContainers(r.Context())
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -370,6 +539,27 @@ func (s *Server) handleDeleteDevContainer(w http.ResponseWriter, r *http.Request
 			Str("session_id", sessionID).
 			Msg("Failed to delete dev container")
 		http.Error(w, fmt.Sprintf("failed to delete dev container: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleDestroyDevContainer removes a dev container and every on-host resource
+// its session owns. A separate route, not a DELETE flag, so an older hydra
+// answers 404 instead of silently doing a plain stop.
+func (s *Server) handleDestroyDevContainer(w http.ResponseWriter, r *http.Request) {
+	sessionID := mux.Vars(r)["session_id"]
+
+	// Destroy deletes workspaces and inner Docker data, which can be tens of GB.
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	resp, err := s.devContainerManager.DestroyDevContainer(ctx, sessionID, r.URL.Query().Get("spec_task_id"))
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to destroy dev container")
+		http.Error(w, fmt.Sprintf("failed to destroy dev container: %s", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -521,10 +711,13 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	// The 30s bound is for the LOOKUP only. It used to bound the whole proxied
+	// request too, which put a 30-second ceiling on every request to every
+	// Helix-hosted web service — a slow API call, a long upload, an SSE stream.
+	lookupCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	container, err := s.devContainerManager.GetDevContainer(ctx, sessionID)
+	container, err := s.devContainerManager.GetDevContainer(lookupCtx, sessionID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("dev container not found: %s", err), http.StatusNotFound)
 		return
@@ -568,7 +761,17 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	proxyReq, err := http.NewRequestWithContext(ctx, r.Method, targetURL, r.Body)
+	forwardToDevContainer(w, r, targetURL, sessionID, port)
+}
+
+// forwardToDevContainer proxies one plain HTTP request to a hosted web
+// service and streams the answer back. Split out of handleDevContainerProxy so
+// the timing behaviour can be tested without a dev container behind it.
+func forwardToDevContainer(w http.ResponseWriter, r *http.Request, targetURL, sessionID string, port int) {
+	// Bounded by the CLIENT: if the browser goes away, r.Context() is
+	// cancelled and so is this. What the upstream may take is bounded by the
+	// transport's header timeout, not by a flat wall-clock cap.
+	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to create proxy request: %s", err), http.StatusInternalServerError)
 		return
@@ -593,7 +796,13 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 	}
 
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		// NO overall Timeout. It covered reading the body as well, so it capped
+		// every response at 30s end to end. Found on we-find.ai, a Helix-hosted
+		// site, 30 Sept 2026: a CV parse or advert generation taking 32s came
+		// back as this proxy's 502 → the branded "Starting up" page at exactly
+		// 30.3s, while the same call made directly to its backend returned 200.
+		// That is the "Match service unavailable" from the Find AI demo.
+		Transport: devContainerProxyTransport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -623,6 +832,9 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 
 	w.WriteHeader(resp.StatusCode)
 
+	// Flush as we go, so a streamed response (SSE, chunked progress) reaches
+	// the client as it is produced rather than when it finishes.
+	flusher, _ := w.(http.Flusher)
 	buf := make([]byte, 32*1024)
 	for {
 		n, readErr := resp.Body.Read(buf)
@@ -630,11 +842,31 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
 				break
 			}
+			if flusher != nil {
+				flusher.Flush()
+			}
 		}
 		if readErr != nil {
 			break
 		}
 	}
+}
+
+// devContainerProxyResponseHeaderTimeout bounds how long a hosted web service
+// may take to START answering. Generous, because an API route can legitimately
+// wait on a model for a minute or two before writing a byte; bounded, so a
+// wedged upstream cannot hold a proxy connection forever. Once headers arrive
+// the body streams for as long as the client stays connected.
+const devContainerProxyResponseHeaderTimeout = 10 * time.Minute
+
+// devContainerProxyTransport is shared so connections to a container are
+// reused across requests.
+var devContainerProxyTransport = &http.Transport{
+	Proxy:                 nil,
+	DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+	ResponseHeaderTimeout: devContainerProxyResponseHeaderTimeout,
+	IdleConnTimeout:       90 * time.Second,
+	MaxIdleConnsPerHost:   16,
 }
 
 // inferenceProxyAddr is the host:port of the local inference-proxy process
@@ -764,7 +996,7 @@ func (s *Server) handleGCReconcile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := s.devContainerManager.ReconcileGC(req)
+	resp := s.devContainerManager.ReconcileGC(r.Context(), req)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -773,7 +1005,7 @@ func (s *Server) handleGCReconcile(w http.ResponseWriter, r *http.Request) {
 // handleSystemStats returns GPU stats and session counts
 func (s *Server) handleSystemStats(w http.ResponseWriter, r *http.Request) {
 	gpus := getGPUInfo()
-	containers := s.devContainerManager.ListDevContainers()
+	containers := s.devContainerManager.ListDevContainers(r.Context())
 
 	resp := &SystemStatsResponse{
 		GPUs:             gpus,

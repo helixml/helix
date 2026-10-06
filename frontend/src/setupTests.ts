@@ -1,39 +1,19 @@
 import '@testing-library/jest-dom'
+import { createElement } from 'react'
 import { vi } from 'vitest'
-
-// Mock for DOMPurify that simulates basic sanitization behavior
-vi.mock('dompurify', () => {
-  return {
-    default: {
-      sanitize: (html: string, config: any = {}) => {
-        // Basic simulation of DOMPurify's sanitization
-        if (!html) return '';
-        
-        // Parse allowed tags from config or use defaults
-        const allowedTags = config.ALLOWED_TAGS || [
-          'b', 'i', 'u', 'strong', 'em', 'code', 'pre', 
-          'a', 'span', 'div', 'p', 'ul', 'ol', 'li',
-          'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'details', 'summary'
-        ];
-        
-        // Keep think-container and thinking classes for testing
-        let sanitized = html;
-        
-        // Simulate preserving allowed tags
-        if (allowedTags.includes('div')) {
-          // Preserve think-container divs for testing
-          const thinkingPattern = /<div class="think-container( thinking)?"/g;
-          sanitized = sanitized.replace(thinkingPattern, (match) => match);
-        }
-        
-        return sanitized;
-      }
-    }
-  }
-})
 
 // Stub global window objects used in components
 global.window.scrollTo = vi.fn();
+
+// jsdom never implements window.isSecureContext, so it reads as undefined and
+// every component using the shared clipboard helper silently takes the
+// insecure-context (execCommand) path, which jsdom also lacks. Helix is served
+// over HTTPS/localhost in practice, so default the flag to true like real
+// deployments. Tests that exercise the insecure fallback redefine it per case.
+Object.defineProperty(window, 'isSecureContext', {
+  configurable: true,
+  value: true,
+});
 
 // Stub localStorage if not fully provided by jsdom
 if (!global.localStorage || typeof global.localStorage.clear !== 'function') {
@@ -57,12 +37,23 @@ vi.mock('react-markdown', () => {
   }
 })
 
-// Mock react-syntax-highlighter to pass through content
+// Mock react-syntax-highlighter: skip tokenizing, but keep the real
+// <pre><code> wrapper and the caller's styles so tests can assert the code
+// surface (inline-code CSS keys off `:not(pre) > code`).
 vi.mock('react-syntax-highlighter', () => {
-  const SyntaxHighlighterMock = ({ children }: { children: string }) => {
-    return children
-  }
-  
+  const SyntaxHighlighterMock = ({
+    children,
+    customStyle,
+    codeTagProps,
+    PreTag = 'pre',
+    CodeTag = 'code',
+  }: any) =>
+    createElement(
+      PreTag,
+      { style: customStyle },
+      createElement(CodeTag, codeTagProps, children),
+    )
+
   return {
     Prism: SyntaxHighlighterMock
   }
@@ -71,6 +62,7 @@ vi.mock('react-syntax-highlighter', () => {
 // Mock styles
 vi.mock('react-syntax-highlighter/dist/esm/styles/prism', () => {
   return {
-    oneDark: {}
+    oneDark: {},
+    oneLight: {}
   }
-}) 
+})

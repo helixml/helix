@@ -7,6 +7,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -110,6 +111,36 @@ func InitGStreamer() {
 	gstInitOnce.Do(func() {
 		gst.Init(nil)
 	})
+}
+
+// WarmUpGStreamer initializes GStreamer and loads the plugins the video
+// pipeline will need, so the first stream does not pay for them.
+//
+// Measured on a CPU-saturated host (load ~265 on 16 cores): a cold registry
+// scan took 61s and the first in-process load of nvcodec (CUDA init + NVENC
+// capability probing per GPU, run again in-process even with a cached
+// registry because the scan happens in gst-plugin-scanner) took 3.5-6s per
+// GPU. Both used to land on someone's critical path: the scan blocked the
+// desktop-bridge HTTP listener (and with it helix-desktop MCP), the plugin
+// load blocked the first viewer's pipeline construction.
+//
+// Run it in the background. Callers that need GStreamer go through
+// InitGStreamer and simply wait for the same once.
+func WarmUpGStreamer(logger interface{ Info(string, ...any) }) {
+	start := time.Now()
+	InitGStreamer()
+	logger.Info("GStreamer initialized", "took", time.Since(start).Round(time.Millisecond))
+
+	if detectGPUVendor() != GPUVendorNVIDIA {
+		return
+	}
+	// Held like a pipeline creation: nvcodec's plugin init creates CUDA
+	// contexts, which is what pipelineCreateMu keeps from running concurrently.
+	pipelineCreateMu.Lock()
+	defer pipelineCreateMu.Unlock()
+	start = time.Now()
+	loaded := gst.LoadPluginByName("nvcodec") != nil
+	logger.Info("GStreamer nvcodec plugin preloaded", "ok", loaded, "took", time.Since(start).Round(time.Millisecond))
 }
 
 // VideoFrame represents a video frame from the GStreamer pipeline
@@ -669,7 +700,31 @@ func (g *GstPipeline) Errors() <-chan error {
 // everything after the delimiter as smaller, monospaced technical detail, so the
 // underlying failure (element, raw error, GStreamer debug string) is diagnosable
 // from the UI instead of being flattened to a generic sentence.
+// ErrNoFirstFrame marks a pipeline that failed only because the compositor
+// had not delivered its first frame by pipewirezerocopysrc's deadline
+// (FIRST_FRAME_TIMEOUT in desktop/gst-pipewire-zerocopy/src/pipewiresrc/imp.rs).
+// On a CPU-starved host mutter is alive but slow, so this is retryable.
+var ErrNoFirstFrame = errors.New("no first video frame from the compositor")
+
+// noFirstFrameMarker is the start of the element error text imp.rs posts.
+const noFirstFrameMarker = "no video frame received from the compositor"
+
 func (g *GstPipeline) createUserFriendlyError(errMsg, debugStr, srcElement string) error {
+	err := g.userFriendlyError(errMsg, debugStr, srcElement)
+	if strings.Contains(errMsg, noFirstFrameMarker) {
+		return noFirstFrameError{err}
+	}
+	return err
+}
+
+// noFirstFrameError keeps the user-facing message unchanged while matching
+// errors.Is(err, ErrNoFirstFrame).
+type noFirstFrameError struct{ error }
+
+func (e noFirstFrameError) Is(target error) bool { return target == ErrNoFirstFrame }
+func (e noFirstFrameError) Unwrap() error        { return e.error }
+
+func (g *GstPipeline) userFriendlyError(errMsg, debugStr, srcElement string) error {
 	friendly := friendlyVideoError(errMsg)
 
 	// Assemble the technical detail: source element + raw error, plus the

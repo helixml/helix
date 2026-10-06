@@ -24,6 +24,8 @@ const (
 	BYTE = 1 << (10 * iota)
 	KILOBYTE
 	MEGABYTE
+
+	maxChatCompletionRequestBodyBytes = 10 * MEGABYTE
 )
 
 // POST https://app.helix.ml/v1/chat/completions
@@ -96,9 +98,14 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
+	body, err := io.ReadAll(http.MaxBytesReader(rw, r.Body, maxChatCompletionRequestBodyBytes))
 	if err != nil {
 		log.Error().Err(err).Msg("error reading body")
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			http.Error(rw, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -203,22 +210,31 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	chatCompletionRequest.Model = modelName
 
 	responseID := system.GenerateOpenAIResponseID()
+	usageAttribution, err := s.resolveProxyUsageAttribution(r.Context(), user, responseID)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to resolve proxy usage attribution")
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
-		OwnerID:         ownerID,
-		ProjectID:       user.ProjectID,
-		SpecTaskID:      user.SpecTaskID,
-		SessionID:       responseID,
-		InteractionID:   "n/a",
-		OriginalRequest: body,
+		OwnerID:          ownerID,
+		ProjectID:        user.ProjectID,
+		SpecTaskID:       user.SpecTaskID,
+		CodeAgentRuntime: usageAttribution.CodeAgentRuntime,
+		SessionID:        usageAttribution.SessionID,
+		InteractionID:    "n/a",
+		OriginalRequest:  body,
 	})
 
 	options := &controller.ChatCompletionOptions{
-		OrganizationID: user.OrganizationID,
-		AppID:          r.URL.Query().Get("app_id"),
-		AssistantID:    r.URL.Query().Get("assistant_id"),
-		RAGSourceID:    r.URL.Query().Get("rag_source_id"),
-		Provider:       validatedProvider,
+		OrganizationID:     user.OrganizationID,
+		AppID:              r.URL.Query().Get("app_id"),
+		AssistantID:        r.URL.Query().Get("assistant_id"),
+		RAGSourceID:        r.URL.Query().Get("rag_source_id"),
+		Provider:           validatedProvider,
+		CodeAgentOverrides: usageAttribution.CodeAgentOverrides,
+		CodeAgentRuntime:   usageAttribution.CodeAgentRuntime,
 		QueryParams: func() map[string]string {
 			params := make(map[string]string)
 			for key, values := range r.URL.Query() {
@@ -231,26 +247,49 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	}
 
 	var app *types.App
+	if usageAttribution.AppID != "" {
+		if options.AppID != "" && options.AppID != usageAttribution.AppID {
+			log.Error().Str("app_id", usageAttribution.AppID).Str("requested_app_id", options.AppID).Msg("app IDs do not match")
+			http.Error(rw, "URL query app_id does not match authenticated session app_id", http.StatusBadRequest)
+			return
+		}
+		options.AppID = usageAttribution.AppID
+	}
+
+	// A task or session carrying its own code-agent execution config has no App
+	// by design — resolveProxyUsageAttribution clears it. Honour that over an
+	// app_id arriving on the API key or in the query string, so neither can pull
+	// an assistant back into a coding-agent request.
+	tokenAppID := user.AppID
+	if usageAttribution.hasExecutionConfig && (tokenAppID != "" || options.AppID != "") {
+		log.Debug().
+			Str("token_app_id", tokenAppID).
+			Str("query_app_id", options.AppID).
+			Str("session_id", usageAttribution.SessionID).
+			Msg("ignoring app_id: request is driven by a code-agent execution config")
+		tokenAppID = ""
+		options.AppID = ""
+	}
 
 	switch {
 	// If app ID is set from authentication token
-	case user.AppID != "":
+	case tokenAppID != "":
 		// Basic sanity validation to see whether app ID from URL query matches
 		// the app ID from the authentication token
-		if options.AppID != "" && user.AppID != options.AppID {
-			log.Error().Str("app_id", user.AppID).Str("requested_app_id", options.AppID).Msg("app IDs do not match")
+		if options.AppID != "" && tokenAppID != options.AppID {
+			log.Error().Str("app_id", tokenAppID).Str("requested_app_id", options.AppID).Msg("app IDs do not match")
 			http.Error(rw, "URL query app_id does not match token app_id", http.StatusBadRequest)
 			return
 		}
 
-		app, err = s.Store.GetApp(ctx, user.AppID)
+		app, err = s.Store.GetApp(ctx, tokenAppID)
 		if err != nil {
-			log.Error().Err(err).Str("app_id", user.AppID).Msg("error getting app")
+			log.Error().Err(err).Str("app_id", tokenAppID).Msg("error getting app")
 			http.Error(rw, fmt.Sprintf("Error getting app: %s", err), http.StatusInternalServerError)
 			return
 		}
 
-		options.AppID = user.AppID
+		options.AppID = tokenAppID
 	// If app is set through URL query options
 	case options.AppID != "":
 		app, err = s.Store.GetApp(ctx, options.AppID)
@@ -282,6 +321,10 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 
 		// Get any existing session ID from the query parameters to tie the responses to a specific session
 		if sessionID := r.URL.Query().Get("session_id"); sessionID != "" {
+			if user.SessionID != "" && sessionID != user.SessionID {
+				http.Error(rw, "URL query session_id does not match authenticated session_id", http.StatusBadRequest)
+				return
+			}
 			ctx = oai.SetContextSessionID(ctx, sessionID)
 			log.Debug().Str("session_id", sessionID).Msg("setting session_id in context for document tracking")
 		}
@@ -400,6 +443,7 @@ func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, owne
 	// These are visible to all users but owned by the admin who created them
 	providers, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      ownerID,
+		OwnerType:  types.OwnerTypeUser,
 		WithGlobal: true,
 	})
 	if err == nil {
@@ -432,6 +476,10 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	globalProviders, err := s.providerManager.ListProviders(ctx, "")
 	if err == nil {
 		for _, globalProvider := range globalProviders {
+			globalRef := types.GlobalProviderID(string(globalProvider))
+			if strings.HasPrefix(modelName, globalRef+"/") {
+				return globalRef, strings.TrimPrefix(modelName, globalRef+"/")
+			}
 			residue := modelName
 			if strings.HasPrefix(modelName, string(globalProvider)+"/") {
 				residue = modelName[len(globalProvider)+1:]
@@ -460,6 +508,7 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	// Check database-stored provider endpoints for the user (user + global from DB)
 	providers, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      ownerID,
+		OwnerType:  types.OwnerTypeUser,
 		WithGlobal: true,
 	})
 	if err != nil {
@@ -471,6 +520,7 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	if orgID != "" && orgID != ownerID {
 		orgProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 			Owner:      orgID,
+			OwnerType:  types.OwnerTypeOrg,
 			WithGlobal: false, // Global already covered above
 		})
 		if err != nil {
@@ -493,6 +543,9 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	//      stripping the provider's literal `Name + "/"` prefix and
 	//      matching the residue against cached/static ids.
 	for _, provider := range providers {
+		if provider.ID != "" && strings.HasPrefix(modelName, provider.ID+"/") {
+			return provider.ID, strings.TrimPrefix(modelName, provider.ID+"/")
+		}
 		residue := modelName
 		if strings.HasPrefix(modelName, provider.Name+"/") {
 			residue = modelName[len(provider.Name)+1:]

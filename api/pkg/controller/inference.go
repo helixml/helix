@@ -15,11 +15,13 @@ import (
 
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/data"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
+	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -41,9 +43,18 @@ type ChatCompletionOptions struct {
 	RAGSourceID     string
 	Provider        string
 	ReasoningEffort string
-	QueryParams     map[string]string
-	OAuthTokens     map[string]string // OAuth tokens mapped by provider name
-	Conversational  bool              // Whether to send thoughts about tools and decisions
+	// CodeAgentOverrides is set only for session-scoped coding-agent proxy
+	// requests. Applying it to the loaded Agent keeps the controller's
+	// authoritative model selection aligned with the session or SpecTask.
+	CodeAgentOverrides *types.CodeAgentOverrides
+	// CodeAgentRuntime marks the request as a coding-agent proxy pass-through.
+	// When set, an external harness (Zed, opencode, Codex, Claude Code, ...) owns
+	// the prompt, the tool set and every sampling parameter, so no assistant
+	// identity may be applied on top. See loadAssistant.
+	CodeAgentRuntime types.CodeAgentRuntime
+	QueryParams      map[string]string
+	OAuthTokens      map[string]string // OAuth tokens mapped by provider name
+	Conversational   bool              // Whether to send thoughts about tools and decisions
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
@@ -114,46 +125,6 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		opts.Provider = assistant.Provider
 	}
 
-	// Check token quota before processing
-	if err := c.checkInferenceTokenQuota(ctx, user.ID, opts.Provider); err != nil {
-		return nil, nil, err
-	}
-
-	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get client: %v", err)
-	}
-
-	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, client.BillingEnabled())
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
-	}
-
-	if !hasEnoughBalance {
-		return nil, nil, fmt.Errorf("insufficient balance")
-	}
-
-	// Evaluate and add OAuth tokens
-	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
-	}
-
-	if len(assistant.Tools) > 0 {
-		// Check whether the app is configured for the call,
-		// if yes, execute the tools and return the response
-		toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
-		if err != nil {
-			return nil, nil, fmt.Errorf("tool execution failed: %w", err)
-		}
-
-		if ok {
-			return toolResp, &req, nil
-		}
-	}
-
-	req = setSystemPrompt(&req, assistant.SystemPrompt)
-
 	// Determine which model to use: prefer assistant.Model, fall back to GenerationModel
 	effectiveModel := assistant.Model
 	effectiveProvider := assistant.Provider
@@ -178,6 +149,51 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 
 		req.Model = modelName
 	}
+
+	// Check token quota before processing
+	if err := c.checkInferenceTokenQuota(ctx, user.ID, opts.Provider); err != nil {
+		return nil, nil, err
+	}
+
+	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	billingEnabled := client.BillingEnabled()
+	if err := c.validateBillingModelPricing(ctx, billingEnabled, opts.Provider, req.Model); err != nil {
+		return nil, nil, err
+	}
+
+	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, billingEnabled)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
+	}
+
+	if !hasEnoughBalance {
+		return nil, nil, errors.New(types.ErrorInsufficientBalance)
+	}
+
+	// Evaluate and add OAuth tokens
+	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
+	}
+
+	if len(assistant.Tools) > 0 {
+		// Check whether the app is configured for the call,
+		// if yes, execute the tools and return the response
+		toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
+		if err != nil {
+			return nil, nil, fmt.Errorf("tool execution failed: %w", err)
+		}
+
+		if ok {
+			return toolResp, &req, nil
+		}
+	}
+
+	req = setSystemPrompt(&req, assistant.SystemPrompt)
 
 	if assistant.Temperature != 0.0 {
 		req.Temperature = assistant.Temperature
@@ -309,46 +325,6 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		opts.Provider = assistant.Provider
 	}
 
-	// Check token quota before processing
-	if err := c.checkInferenceTokenQuota(ctx, user.ID, opts.Provider); err != nil {
-		return nil, nil, err
-	}
-
-	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get client: %v", err)
-	}
-
-	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, client.BillingEnabled())
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
-	}
-
-	if !hasEnoughBalance {
-		return nil, nil, fmt.Errorf("insufficient balance")
-	}
-
-	// Evaluate and add OAuth tokens
-	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
-	}
-
-	if len(assistant.Tools) > 0 {
-		// Check whether the app is configured for the call,
-		// if yes, execute the tools and return the response
-		toolRespStream, ok, err := c.evaluateToolUsageStream(ctx, user, req, opts)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load tools: %w", err)
-		}
-
-		if ok {
-			return toolRespStream, &req, nil
-		}
-	}
-
-	req = setSystemPrompt(&req, assistant.SystemPrompt)
-
 	// Determine which model to use: prefer assistant.Model, fall back to GenerationModel
 	effectiveModel := assistant.Model
 	effectiveProvider := assistant.Provider
@@ -373,6 +349,51 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 
 		req.Model = modelName
 	}
+
+	// Check token quota before processing
+	if err := c.checkInferenceTokenQuota(ctx, user.ID, opts.Provider); err != nil {
+		return nil, nil, err
+	}
+
+	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	billingEnabled := client.BillingEnabled()
+	if err := c.validateBillingModelPricing(ctx, billingEnabled, opts.Provider, req.Model); err != nil {
+		return nil, nil, err
+	}
+
+	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, billingEnabled)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
+	}
+
+	if !hasEnoughBalance {
+		return nil, nil, errors.New(types.ErrorInsufficientBalance)
+	}
+
+	// Evaluate and add OAuth tokens
+	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
+	}
+
+	if len(assistant.Tools) > 0 {
+		// Check whether the app is configured for the call,
+		// if yes, execute the tools and return the response
+		toolRespStream, ok, err := c.evaluateToolUsageStream(ctx, user, req, opts)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to load tools: %w", err)
+		}
+
+		if ok {
+			return toolRespStream, &req, nil
+		}
+	}
+
+	req = setSystemPrompt(&req, assistant.SystemPrompt)
 
 	if assistant.Temperature != 0.0 {
 		req.Temperature = assistant.Temperature
@@ -419,6 +440,39 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	}
 
 	return stream, &req, nil
+}
+
+func (c *Controller) validateBillingModelPricing(ctx context.Context, billingEnabled bool, provider, modelName string) error {
+	if !billingEnabled || modelName == "" {
+		return nil
+	}
+	if provider == "" {
+		provider = c.Options.Config.Inference.Provider
+	}
+	if c.Options.ModelInfoProvider == nil {
+		return fmt.Errorf("billing requires pricing metadata for model %q from provider %q", modelName, provider)
+	}
+
+	modelInfo, err := c.Options.ModelInfoProvider.GetModelInfo(ctx, &model.ModelInfoRequest{
+		Provider: provider,
+		Model:    modelName,
+	})
+	if err != nil || modelInfo == nil {
+		return fmt.Errorf("billing requires pricing metadata for model %q from provider %q", modelName, provider)
+	}
+
+	cost, err := pricing.CalculateTokenPrice(modelInfo, pricing.TokenUsage{
+		PromptTokens:     1,
+		CompletionTokens: 1,
+	})
+	if err != nil {
+		return fmt.Errorf("invalid pricing metadata for model %q from provider %q: %w", modelName, provider, err)
+	}
+	if cost.PromptCost == 0 && cost.CompletionCost == 0 {
+		return fmt.Errorf("billing requires non-zero pricing metadata for model %q from provider %q", modelName, provider)
+	}
+
+	return nil
 }
 
 type helixAgentModelRef struct {
@@ -478,7 +532,7 @@ func (c *Controller) preflightHelixAgentModels(ctx context.Context, user *types.
 	}
 
 	if !hasEnoughBalance {
-		return fmt.Errorf("insufficient balance")
+		return errors.New(types.ErrorInsufficientBalance)
 	}
 
 	return nil
@@ -515,13 +569,16 @@ func (c *Controller) getClient(ctx context.Context, organizationID, userID, prov
 		Msg("getting OpenAI API client")
 
 	owner := userID
+	ownerType := types.OwnerTypeUser
 	if organizationID != "" {
 		owner = organizationID
+		ownerType = types.OwnerTypeOrg
 	}
 
 	client, err := c.providerManager.GetClient(ctx, &manager.GetClientRequest{
-		Provider: provider,
-		Owner:    owner,
+		Provider:  provider,
+		Owner:     owner,
+		OwnerType: ownerType,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client: %v", err)
@@ -958,6 +1015,18 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 }
 
 func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *ChatCompletionOptions) (*types.AssistantConfig, error) {
+	// A coding-agent proxy request is a pass-through, not a Helix conversation.
+	// The harness built the prompt, chose the tools and set the sampling
+	// parameters; the model and provider are already encoded in the request it
+	// sent. Every field left zero here is a field the request gets to keep, so
+	// returning an empty config is what makes the request reach the provider
+	// unmodified. Notably this must not fall through to the no-app branch below:
+	// that one seeds DefaultChatSystemPrompt, which setSystemPrompt then writes
+	// over the harness's own system message.
+	if opts.CodeAgentRuntime != "" {
+		return &types.AssistantConfig{}, nil
+	}
+
 	if opts.AppID == "" {
 		// No app — pull the user's stored chat defaults (system prompt, temperature, etc.)
 		// and present them as an implicit assistant config so the existing inference
@@ -988,6 +1057,7 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate secrets: %w", err)
 	}
+	app = external_agent.ApplyCodeAgentOverrides(app, opts.CodeAgentOverrides)
 
 	assistant := data.GetAssistant(app, opts.AssistantID)
 

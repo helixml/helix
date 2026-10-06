@@ -103,6 +103,9 @@ func (s *HelixAPIServer) getProjectWebService(_ http.ResponseWriter, r *http.Req
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+	for _, domain := range domains {
+		s.setVHostRouteURL(domain)
+	}
 
 	deploys, err := s.Store.ListWebServiceDeploys(r.Context(), project.ID, 20)
 	if err != nil {

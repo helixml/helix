@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -18,7 +19,9 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 	q := s.gdb.WithContext(ctx).Model(&types.Session{})
 
 	// Add owner and owner type conditions
-	q = q.Where("owner = ? AND owner_type = ?", query.Owner, query.OwnerType)
+	if !query.AnyOwner {
+		q = q.Where("owner = ? AND owner_type = ?", query.Owner, query.OwnerType)
+	}
 
 	// Add parent session condition if specified
 	if query.ParentSession != "" {
@@ -33,6 +36,14 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 
 	if query.AppID != "" {
 		q = q.Where("parent_app = ?", query.AppID)
+	}
+
+	if query.RestrictToProjects {
+		if len(query.ProjectIDs) == 0 {
+			q = q.Where("1 = 0")
+		} else {
+			q = q.Where("project_id IN ?", query.ProjectIDs)
+		}
 	}
 
 	switch query.ProjectScope {
@@ -312,6 +323,48 @@ func (s *PostgresStore) UpdateSessionMetadata(ctx context.Context, sessionID str
 	return nil
 }
 
+func (s *PostgresStore) ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error) {
+	if sessionID == "" {
+		return false, fmt.Errorf("id not specified")
+	}
+
+	metadata, err := json.Marshal(map[string]time.Time{"last_auto_restart_at": restartedAt})
+	if err != nil {
+		return false, fmt.Errorf("encode restart time: %w", err)
+	}
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("id = ? AND (config->>'last_auto_restart_at' IS NULL OR (config->>'last_auto_restart_at')::timestamptz < ?)", sessionID, before).
+		Update("config", gorm.Expr("config || ?::jsonb", string(metadata)))
+	if result.Error != nil {
+		return false, fmt.Errorf("claim session auto-restart: %w", result.Error)
+	}
+	return result.RowsAffected == 1, nil
+}
+
+func (s *PostgresStore) SetSessionBotInstanceProfile(ctx context.Context, sessionID string, profile types.BotInstanceProfile) error {
+	if sessionID == "" {
+		return errors.New("session_id is required")
+	}
+	encoded, err := json.Marshal(profile)
+	if err != nil {
+		return fmt.Errorf("encode instance profile: %w", err)
+	}
+	// Targeted JSONB merge (not a full-row save): an instance mid-boot has its
+	// external_agent_status and zed_thread_id written concurrently.
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("id = ?", sessionID).
+		Update("config", gorm.Expr(`config || jsonb_build_object('bot_instance', ?::jsonb)`, string(encoded)))
+	if result.Error != nil {
+		return fmt.Errorf("set instance profile: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // TouchSession updates only the Updated timestamp on a session.
 func (s *PostgresStore) TouchSession(ctx context.Context, sessionID string) error {
 	return s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).Update("updated", time.Now()).Error
@@ -337,6 +390,12 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*t
 
 // GetProjectExploratorySession gets the active exploratory session for a project
 // Returns the session if found and active, nil if not found or inactive
+//
+// Hot path: the org-bot transcript Mirror calls this every 5s per tracked
+// worker. The config->>'project_id' / config->>'session_role' expressions are
+// backed by idx_sessions_config_project_id_session_role (created in
+// runMigrations — GORM tags cannot express this index, and dropping it turns
+// every call into a full parallel seq scan of sessions).
 func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error) {
 	var session types.Session
 
@@ -359,12 +418,14 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 }
 
 // ClearStaleStartingSessions clears external_agent_status and status_message
-// for sessions stuck in "starting" state. Called on API startup — if the API
-// just started, no session can legitimately be mid-startup.
+// for sessions stuck in "starting" or "restarting" state. Called on API startup
+// — if the API just started, no session can legitimately be mid-startup, and a
+// restart interrupted mid-teardown would otherwise pin the session on a spinner
+// forever (nothing else clears "restarting").
 func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Session{}).
-		Where("config->>'external_agent_status' = ?", "starting").
+		Where("config->>'external_agent_status' IN ?", []string{"starting", "restarting"}).
 		Updates(map[string]interface{}{
 			"config": gorm.Expr(`config || '{"external_agent_status":"","status_message":""}'::jsonb`),
 		})
@@ -373,13 +434,15 @@ func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context) (int64, 
 
 // MarkSessionStartingIfIdle atomically flips external_agent_status to "starting"
 // and status_message to "Starting Desktop..." for the named session, but ONLY
-// if the current external_agent_status is neither "starting" nor "running".
+// if the current external_agent_status is none of "starting", "restarting" or
+// "running" — all three already mean a boot is in flight or the desktop is up.
 // Targeted JSONB merge — does NOT use GORM Save, so it can't race with the
 // streaming path's full-row writes (see auto_wake_stuck_interactions.go header
 // at lines 75-86 for the original incident this pattern guards against).
 //
 // Returns true when the row was updated. False (with err=nil) means the row
-// already showed "starting" or "running" — caller can log a no-op and move on.
+// already showed a boot-in-flight or running status — caller can log a no-op
+// and move on.
 //
 // Used by syncPromptHistory to close the cache-vs-backend race that causes
 // the "Starting Desktop..." spinner to flicker off when chatting to an idle
@@ -394,7 +457,7 @@ func (s *PostgresStore) MarkSessionStartingIfIdle(ctx context.Context, sessionID
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Session{}).
 		Where("id = ?", sessionID).
-		Where("COALESCE(config->>'external_agent_status', '') NOT IN ('starting', 'running')").
+		Where("COALESCE(config->>'external_agent_status', '') NOT IN ('starting', 'restarting', 'running')").
 		Updates(map[string]interface{}{
 			"config": gorm.Expr(`config || '{"external_agent_status":"starting","status_message":"Starting Desktop..."}'::jsonb`),
 		})
@@ -404,12 +467,39 @@ func (s *PostgresStore) MarkSessionStartingIfIdle(ctx context.Context, sessionID
 	return result.RowsAffected > 0, nil
 }
 
-// ClearSessionStartingStatus reverts external_agent_status from "starting"
-// back to empty (and clears status_message), but ONLY if the current status
-// is "starting". Used by the auto-wake worker after retry exhaustion so the
-// frontend spinner returns to "Desktop Paused" instead of sitting on
-// "Starting Desktop..." forever. Targeted JSONB merge for the same race
-// reasons as MarkSessionStartingIfIdle.
+// MarkSessionRestarting flips external_agent_status to "restarting" and
+// status_message to "Restarting desktop..." for the named session, regardless
+// of the current status — a restart is clicked precisely because the desktop is
+// running, so the MarkSessionStartingIfIdle guard would be wrong here.
+//
+// The marker is written BEFORE StopDesktop tears the container down, and
+// StopDesktop deliberately preserves it, so the whole teardown+boot window
+// reads as "a boot is in flight" rather than "stopped". Without it the session
+// briefly has no status while the container name is still set, and the live
+// executor probe in getSession downgrades it to "stopped" — which is what made
+// the UI offer a "Start sandbox" button mid-restart.
+//
+// Targeted JSONB merge (not GORM Save) for the same race reasons as
+// MarkSessionStartingIfIdle.
+func (s *PostgresStore) MarkSessionRestarting(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return errors.New("session_id is required")
+	}
+	return s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("id = ?", sessionID).
+		Updates(map[string]interface{}{
+			"config": gorm.Expr(`config || '{"external_agent_status":"restarting","status_message":"Restarting desktop..."}'::jsonb`),
+		}).Error
+}
+
+// ClearSessionStartingStatus reverts external_agent_status from "starting" or
+// "restarting" back to empty (and clears status_message), but ONLY if a boot is
+// actually marked in flight. Used by the auto-wake worker after retry
+// exhaustion, and by the restart handler on its error paths, so the frontend
+// spinner returns to "Desktop Paused" instead of sitting on "Starting
+// Desktop..." forever. Targeted JSONB merge for the same race reasons as
+// MarkSessionStartingIfIdle.
 func (s *PostgresStore) ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error) {
 	if sessionID == "" {
 		return false, errors.New("session_id is required")
@@ -417,7 +507,7 @@ func (s *PostgresStore) ClearSessionStartingStatus(ctx context.Context, sessionI
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Session{}).
 		Where("id = ?", sessionID).
-		Where("config->>'external_agent_status' = ?", "starting").
+		Where("config->>'external_agent_status' IN ?", []string{"starting", "restarting"}).
 		Updates(map[string]interface{}{
 			"config": gorm.Expr(`config || '{"external_agent_status":"","status_message":""}'::jsonb`),
 		})
@@ -462,7 +552,9 @@ func (s *PostgresStore) ListSessionsByOwner(ctx context.Context, ownerID string)
 // ListIdleDesktops returns one representative session per desktop (identified by
 // external_agent_id) where no interaction has been created or updated since
 // idleSince. For desktops with no interactions at all, the session's own
-// updated timestamp is used as the activity marker.
+// updated timestamp is used as the activity marker. Golden build sessions never
+// have interactions but are working, not idle; they are bounded by the golden
+// build timeout instead, so they are never returned.
 func (s *PostgresStore) ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) {
 	// CTE computes the last activity time per desktop, then the outer query
 	// selects one session per desktop that is past the idle threshold.
@@ -477,9 +569,10 @@ WITH desktop_last_activity AS (
       AND s.config->>'external_agent_status' = 'running'
       AND s.config->>'dev_container_id' IS NOT NULL
       AND s.config->>'dev_container_id' != ''
+      AND COALESCE((s.config->>'golden_build')::boolean, false) = false
       AND NOT EXISTS (
           SELECT 1 FROM spec_tasks st
-          WHERE st.agent_session_id = s.id
+          WHERE st.planning_session_id = s.id
             AND st.keep_alive = true
       )
     GROUP BY s.config->>'dev_container_id'
@@ -502,7 +595,8 @@ ORDER BY s.config->>'dev_container_id', s.created ASC`
 // ListExternalAgentSessionIDs returns the IDs of external-agent (hydra) sessions
 // that should be considered LIVE for the purposes of the orphan-resource reaper.
 //
-// A session is live if ANY of:
+// A session is live if it is a desktop session outside a deleted project and
+// ANY of:
 //   - its external_agent_status is "running" (a desktop container is up), OR
 //   - it was updated at or after cutoff (recent activity — covers sessions
 //     mid-startup or recently stopped whose container row hasn't settled), OR
@@ -517,13 +611,17 @@ func (s *PostgresStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff 
 	err := s.gdb.WithContext(ctx).
 		Model(&types.Session{}).
 		Where("deleted_at IS NULL").
-		Where("model_name = ?", "external_agent").
+		// Desktop sessions: spec-task sessions carry model_name external_agent;
+		// org bot and exploratory sessions carry their real model name.
+		Where("(model_name = ? OR config->>'agent_type' = ?)", "external_agent", "zed_external").
+		// A deleted project's desktops are gone; its leftovers are orphans.
+		Where("NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = sessions.project_id AND p.deleted_at IS NOT NULL)").
 		Where(s.gdb.
 			Where("config->>'external_agent_status' = ?", "running").
 			Or("updated >= ?", cutoff).
 			Or(`EXISTS (
 				SELECT 1 FROM spec_tasks st
-				WHERE st.agent_session_id = sessions.id
+				WHERE st.planning_session_id = sessions.id
 				  AND st.keep_alive = true
 			)`)).
 		Pluck("id", &ids).Error

@@ -13,9 +13,12 @@ import {
   Typography,
 } from "@mui/material";
 import {
+  BarChart3,
+  Bot,
   CloudUpload,
   EllipsisVertical,
   Files,
+  FileText,
   Globe2,
   Lock,
   LockOpen,
@@ -33,13 +36,17 @@ import {
   X,
 } from "lucide-react";
 import { useElementWidth } from "../../hooks/useElementWidth";
+import useIsPhone from "../../hooks/useIsPhone";
 
 export type TaskView =
   | "chat"
+  | "plan"
+  | "agents"
   | "desktop"
   | "browser"
   | "changes"
   | "files"
+  | "usage"
   | "details";
 
 /**
@@ -108,6 +115,12 @@ interface ViewTab {
   sessionOnly: boolean;
   /** Chat is a tab only when chat has no panel of its own. */
   chatOnly?: boolean;
+  /**
+   * Folded into the overflow menu on a phone. Six tabs plus the lifecycle
+   * controls do not fit across 390px, and these views are the ones you visit
+   * deliberately rather than flick between.
+   */
+  foldOnPhone?: boolean;
 }
 
 const VIEW_TABS: ViewTab[] = [
@@ -118,15 +131,19 @@ const VIEW_TABS: ViewTab[] = [
     sessionOnly: true,
     chatOnly: true,
   },
-  { value: "desktop", label: "Desktop", icon: MonitorPlay, sessionOnly: true },
+  { value: "plan", label: "Plan", icon: FileText, sessionOnly: true },
+  { value: "desktop", label: "Desktop", icon: MonitorPlay, sessionOnly: true, foldOnPhone: true },
   { value: "browser", label: "Browser", icon: Globe2, sessionOnly: true },
   { value: "changes", label: "Diff", icon: GitCompare, sessionOnly: true },
-  { value: "files", label: "Files", icon: Files, sessionOnly: true },
+  { value: "files", label: "Files", icon: Files, sessionOnly: true, foldOnPhone: true },
+  { value: "agents", label: "Agents", icon: Bot, sessionOnly: true, foldOnPhone: true },
+  { value: "usage", label: "Usage", icon: BarChart3, sessionOnly: true, foldOnPhone: true },
   {
     value: "details",
     label: "Details",
     icon: SlidersHorizontal,
     sessionOnly: false,
+    foldOnPhone: true,
   },
 ];
 
@@ -151,7 +168,15 @@ export interface SpecTaskViewToolbarProps {
   hasSession: boolean;
   /** Show the Chat tab (single-column layouts where chat has no panel). */
   showChatTab?: boolean;
-  /** Status-specific action buttons (Reject / Open PR / …). */
+  /** Show approved/in-progress planning documents in the task workspace. */
+  showPlan?: boolean;
+  /** Headless tasks have no stream and cannot be converted to a desktop. */
+  showDesktop?: boolean;
+  /** Planning has no runnable application preview yet. */
+  showBrowser?: boolean;
+  /** LLM spend/tokens/latency for the session (org agent workspaces only). */
+  showUsage?: boolean;
+  /** Status-specific action buttons (Open PR / …). */
   renderActions?: (density: ToolbarDensity) => ReactNode;
 
   onToggleTerminal?: () => void;
@@ -188,6 +213,8 @@ export interface SpecTaskViewToolbarProps {
   onCollapsePanel?: () => void;
   /** Trailing control: close the task view. */
   onClosePanel?: () => void;
+  /** Label for the "details" view; org agents call it Settings. */
+  detailsLabel?: string;
 }
 
 /**
@@ -201,6 +228,10 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   onViewChange,
   hasSession,
   showChatTab = false,
+  showPlan = false,
+  showDesktop = true,
+  showBrowser = true,
+  showUsage = false,
   renderActions,
   onToggleTerminal,
   terminalOpen,
@@ -224,12 +255,14 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   renderMenuItems,
   onCollapsePanel,
   onClosePanel,
+  detailsLabel,
 }) => {
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const closeMenu = () => setMenuAnchorEl(null);
 
   // Density comes from the toolbar's own width, not the viewport: in split view
   // the toolbar lives in the right panel, which is far narrower than the window.
+  const isPhone = useIsPhone();
   const [toolbarRef, toolbarWidth] = useElementWidth<HTMLDivElement>();
   const density = toolbarDensityForWidth(toolbarWidth);
 
@@ -237,9 +270,19 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   const iconButtonSx = toolbarIconButtonSx(density);
   const controlIconSize = ICON_BUTTON_METRICS[density].icon;
 
-  const tabs = VIEW_TABS.filter(
-    (t) => (!t.sessionOnly || hasSession) && (!t.chatOnly || showChatTab),
+  const availableViewTabs = VIEW_TABS.filter((tab) => tab.value !== "plan" || showPlan);
+  const viewTabs = detailsLabel
+    ? availableViewTabs.map((t) => (t.value === "details" ? { ...t, label: detailsLabel } : t))
+    : availableViewTabs;
+  const availableTabs = viewTabs.filter(
+    (t) => (!t.sessionOnly || hasSession)
+      && (!t.chatOnly || showChatTab)
+      && (t.value !== "desktop" || showDesktop)
+      && (t.value !== "browser" || showBrowser)
+      && (t.value !== "usage" || showUsage),
   );
+  const tabs = availableTabs.filter((t) => !(isPhone && t.foldOnPhone));
+  const foldedTabs = availableTabs.filter((t) => isPhone && t.foldOnPhone);
 
   const controls: SecondaryControl[] = [];
   if (onRestoreSplit) {
@@ -327,7 +370,7 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   const overflow = controls.filter((c) => !keepInline.includes(c));
 
   const extraMenuItems = renderMenuItems?.(closeMenu);
-  const hasMenu = overflow.length > 0 || !!extraMenuItems;
+  const hasMenu = overflow.length > 0 || foldedTabs.length > 0 || !!extraMenuItems;
 
   return (
     <Box
@@ -457,7 +500,7 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
               <PanelRight size={controlIconSize} />
             </IconButton>
           </Tooltip>
-        ) : onClosePanel ? (
+        ) : onClosePanel && !isPhone ? (
           <Tooltip title="Close">
             <IconButton
               size="small"
@@ -476,6 +519,21 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
         open={Boolean(menuAnchorEl)}
         onClose={closeMenu}
       >
+        {foldedTabs.map(({ value, label, icon: Icon }) => (
+          <MenuItem
+            key={`view-${value}`}
+            selected={currentView === value}
+            onClick={() => {
+              closeMenu();
+              onViewChange(value);
+            }}
+          >
+            <ListItemIcon>
+              <Icon size={18} />
+            </ListItemIcon>
+            <ListItemText>{label}</ListItemText>
+          </MenuItem>
+        ))}
         {overflow.map((control) => (
           <MenuItem
             key={control.key}

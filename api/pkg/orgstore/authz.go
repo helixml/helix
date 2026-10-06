@@ -25,12 +25,29 @@ type Authorizer struct {
 // NewAuthorizer returns an Authorizer backed by the given Queryer.
 func NewAuthorizer(q Queryer) *Authorizer { return &Authorizer{store: q} }
 
+// enforceKeyOrgScope confines an org-scoped credential to its own
+// organization. Organization API keys carry the org they were created for on
+// the request user; without this check a key created by a user belonging to
+// several organizations inherits their memberships everywhere.
+func enforceKeyOrgScope(user *types.User, orgID string) error {
+	if user == nil || user.OrganizationID == "" || user.OrganizationID == orgID {
+		return nil
+	}
+	return fmt.Errorf("credentials are scoped to organization %s", user.OrganizationID)
+}
+
 // Authorizer returns an Authorizer bound to this store.
 func (s *Store) Authorizer() *Authorizer { return &Authorizer{store: s} }
 
 // AuthorizeOrgOwner checks the user is an owner of the organization (global
 // admins are treated as owners).
 func (a *Authorizer) AuthorizeOrgOwner(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
+	// Org-scoped credentials (organization API keys and ephemeral session
+	// keys) authorize only within their own organization, no matter which
+	// other organizations or privileges the owning user has.
+	if err := enforceKeyOrgScope(user, orgID); err != nil {
+		return nil, err
+	}
 	if user.Admin {
 		membership, err := a.store.GetOrganizationMembership(ctx, &GetOrganizationMembershipQuery{OrganizationID: orgID, UserID: user.ID})
 		if err == nil {
@@ -51,6 +68,9 @@ func (a *Authorizer) AuthorizeOrgOwner(ctx context.Context, user *types.User, or
 // AuthorizeOrgMember checks the user is a member of the organization (global
 // admins are treated as members/owners).
 func (a *Authorizer) AuthorizeOrgMember(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
+	if err := enforceKeyOrgScope(user, orgID); err != nil {
+		return nil, err
+	}
 	if user.Admin {
 		membership, err := a.store.GetOrganizationMembership(ctx, &GetOrganizationMembershipQuery{OrganizationID: orgID, UserID: user.ID})
 		if err == nil {

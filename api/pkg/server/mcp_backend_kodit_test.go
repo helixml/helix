@@ -233,9 +233,9 @@ func (s *KoditRepoResolverSuite) TestSkipsReposWithoutKoditRepoID() {
 // ---------------------------------------------------------------------------
 
 // TestEnableSkillRouteToKoditBackend verifies the end-to-end wiring:
-// 1. The enable endpoint produces an AssistantMCP whose URL ends with /api/v1/mcp/kodit.
-// 2. A request to that URL path (served by the disabled Kodit backend) returns 501,
-//    confirming the route is correctly registered and the URL is right.
+//  1. The enable endpoint produces an AssistantMCP whose URL ends with /api/v1/mcp/kodit.
+//  2. A request to that URL path (served by the disabled Kodit backend) returns 501,
+//     confirming the route is correctly registered and the URL is right.
 func TestEnableSkillRouteToKoditBackend(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

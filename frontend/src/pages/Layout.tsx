@@ -20,14 +20,13 @@ import Sidebar from "../components/system/Sidebar";
 import ProjectChatSidebar from "../components/session/ProjectChatSidebar";
 import FilesSidebar from "../components/files/FilesSidebar";
 import AdminPanelSidebar from "../components/admin/AdminPanelSidebar";
-import AccountSidebar from "../components/account/AccountSidebar";
 import OrgSidebar from "../components/orgs/OrgSidebar";
 import AppSidebar from "../components/app/AppSidebar";
 import ProjectSettingsSidebar from "../components/project/ProjectSettingsSidebar";
 import FullScreenDialog from "../components/dialog/FullScreenDialog";
 import Dashboard from "./Dashboard";
-import Account from "./Account";
 import ProjectSettings from "./ProjectSettings";
+import AccountDialog from "../components/account/AccountDialog";
 import OAuthConnections from "../components/account/OAuthConnections";
 import { SettingsDialogProvider, useSettingsDialog } from "../contexts/settingsDialog";
 
@@ -57,6 +56,8 @@ import useAccount from "../hooks/useAccount";
 import useLightTheme from "../hooks/useLightTheme";
 import useThemeConfig from "../hooks/useThemeConfig";
 import useIsBigScreen from "../hooks/useIsBigScreen";
+import useIsPhone from "../hooks/useIsPhone";
+import { isNavigationRouteActive } from "../components/orgs/UserOrgSelector.logic";
 import useApps from "../hooks/useApps";
 import useUserMenuHeight from "../hooks/useUserMenuHeight";
 import { LIGHT_SIDEBAR_COLORS } from "../styles/themeTokens";
@@ -74,7 +75,6 @@ const SettingsDialogs: FC = () => {
   const { activeDialog, dialogOptions, closeDialog } = useSettingsDialog()
   const [adminTab, setAdminTab] = useState('llm_calls')
   const [adminProviderId, setAdminProviderId] = useState<string | undefined>()
-  const [accountTab, setAccountTab] = useState('general')
   const [projectSettingsTab, setProjectSettingsTab] = useState('general')
 
   // When opening the admin dialog with a specific tab, set it
@@ -97,7 +97,6 @@ const SettingsDialogs: FC = () => {
     if (!activeDialog) {
       setAdminTab('llm_calls')
       setAdminProviderId(undefined)
-      setAccountTab('general')
       setProjectSettingsTab('general')
     }
   }, [activeDialog])
@@ -128,6 +127,13 @@ const SettingsDialogs: FC = () => {
       url.searchParams.delete('dialog_provider_from')
       url.searchParams.delete('dialog_provider_to')
     }
+    window.history.replaceState({}, '', url.toString())
+  }, [])
+
+  // Sync the account tab to URL so refresh and deep links preserve the section
+  const handleAccountTabChange = React.useCallback((tab: string) => {
+    const url = new URL(window.location.href)
+    url.searchParams.set('dialog_tab', tab)
     window.history.replaceState({}, '', url.toString())
   }, [])
 
@@ -174,61 +180,12 @@ const SettingsDialogs: FC = () => {
           <OAuthConnections />
         </Box>
       </FullScreenDialog>
-      <DarkDialog
+      <AccountDialog
         open={activeDialog === 'account'}
         onClose={closeDialog}
-        maxWidth="xl"
-        fullWidth
-        PaperProps={{
-          sx: {
-            height: '90vh',
-            maxHeight: '90vh',
-          },
-        }}
-      >
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            px: 3,
-            py: 1.5,
-            flexShrink: 0,
-          }}
-        >
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>
-            Account
-          </Typography>
-          <IconButton
-            onClick={closeDialog}
-            sx={{
-              color: '#A0AEC0',
-              '&:hover': {
-                color: '#F1F1F1',
-                backgroundColor: 'rgba(255, 255, 255, 0.08)',
-              },
-            }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </Box>
-        <DialogContent sx={{ p: 0, display: 'flex', overflow: 'hidden' }}>
-          <Box sx={{ display: 'flex', height: '100%', width: '100%' }}>
-            <Box sx={{
-              width: 240,
-              flexShrink: 0,
-              borderRight: '1px solid rgba(255, 255, 255, 0.1)',
-              overflowY: 'auto',
-              pr: 1,
-            }}>
-              <AccountSidebar activeTab={accountTab} onTabChange={setAccountTab} />
-            </Box>
-            <Box sx={{ flex: 1, overflow: 'auto' }}>
-              <Account tab={accountTab} />
-            </Box>
-          </Box>
-        </DialogContent>
-      </DarkDialog>
+        initialTab={activeDialog === 'account' ? dialogOptions.tab : undefined}
+        onTabChange={handleAccountTabChange}
+      />
       {/* Project Settings Dialog */}
       <DarkDialog
         open={activeDialog === 'project-settings'}
@@ -298,6 +255,9 @@ const Layout: FC<{
   const themeConfig = useThemeConfig();
   const lightTheme = useLightTheme();
   const isBigScreen = useIsBigScreen();
+  // A phone has no room for the 300px drawer to sit beside the conversation —
+  // the chat list ends up a strip too narrow to read. It takes the screen.
+  const isPhone = useIsPhone();
   const router = useRouter();
   const account = useAccount();
   const apps = useApps();
@@ -552,12 +512,16 @@ const Layout: FC<{
 
   // Hide secondary context sidebar on helix-org routes (nav is in the top
   // AppBar; chat is an in-page left rail). Still show the 64px org rail.
+  // helix_org_chart is the exception: it is a leaf of the org settings nav
+  // ("Org Chart"), so it keeps OrgSidebar.
   const isHelixOrgRoute =
-    typeof router.name === "string" && router.name.startsWith("helix_org_");
+    typeof router.name === "string" &&
+    router.name.startsWith("helix_org_") &&
+    router.name !== "helix_org_chart";
   const isProjectsIndex =
     router.name === "org_projects" &&
     (!router.params.tab || router.params.tab === "projects");
-  const isConversationRoute = ["org_chat", "org_chat-task", "org_session", "org_new"].includes(
+  const isConversationRoute = ["org_project-new", "org_chat-task", "org_session", "org_bot_session", "org_new"].includes(
     router.name,
   );
   const routedAgent = router.params.app_id
@@ -574,6 +538,20 @@ const Layout: FC<{
     !isProjectsIndex &&
     !isFocusedAgentRoute &&
     !(router.name === "org_new" && router.params.app_id);
+
+  // On a phone the drawer holds the chat list, so opening a thread has to hide
+  // it — otherwise the thread you just picked sits behind the list you picked
+  // it from. Driven by the route rather than wired into each navigation, so it
+  // holds however you arrive: tapping a row, sending from the composer, or a
+  // link straight into a thread.
+  useEffect(() => {
+    if (!isPhone) return;
+    if (isNavigationRouteActive(router.name, ["session", "bot_session", "chat-task"])) {
+      account.setMobileMenuOpen(false);
+    }
+    // account is a context object and must not be a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPhone, router.name]);
 
   if (shouldShowSidebar) {
     // Determine which sidebar to show based on route
@@ -603,12 +581,12 @@ const Layout: FC<{
         return <OrgSidebar />;
 
       case "helix_org_root":
-      case "helix_org_chart":
       case "helix_org_bots":
       case "helix_org_bot_detail":
-      case "helix_org_human_detail":
       case "helix_org_settings":
       case "helix_org_topics":
+      case "helix_org_triggers":
+      case "helix_org_trigger_detail":
       case "helix_org_assets":
       case "helix_org_topic_detail":
       case "helix_org_processor_detail":
@@ -629,6 +607,9 @@ const Layout: FC<{
       case "org_api_keys":
       case "org_providers":
       case "org_provider_detail":
+      case "org_sandboxes":
+      case "org_sandbox_detail":
+      case "helix_org_chart":
       case "team_people":
         // Organization management pages use the org context sidebar
         return <OrgSidebar />;
@@ -726,7 +707,8 @@ const Layout: FC<{
       <Box
         id="root-container"
         sx={{
-          minHeight: "100dvh",
+          // The shell is exactly the fixed #root pane; a min-height here would
+          // be a second source of overflow to fight with.
           height: "100%",
           display: "flex",
           backgroundColor: lightTheme.backgroundColor, // Extend background behind iOS safe area
@@ -759,8 +741,11 @@ const Layout: FC<{
                   ? isConversationRoute
                     ? visibleChatSidebarWidth
                     : themeConfig.drawerWidth
-                  : themeConfig.smallDrawerWidth
+                  : isPhone
+                    ? "100%"
+                    : themeConfig.smallDrawerWidth
                 : 64,
+              maxWidth: "100%",
               boxSizing: "border-box",
               overflowX: "hidden", // Prevent horizontal scrolling
               // Drawer takes full viewport height. The floating user menu is
@@ -769,7 +754,7 @@ const Layout: FC<{
               // visible gap below it. The shrink-by-userMenuHeight happens in
               // Sidebar.tsx for the secondary nav's content column only.
               // Use dvh (dynamic viewport height) for iOS Safari compatibility.
-              height: isBigScreen ? "100%" : "100dvh",
+              height: isBigScreen ? "100%" : "min(var(--app-height, 100svh), 100svh)",
               // The primary rail must remain viewport-anchored. Secondary
               // navigation owns its scrolling inside SlideMenuContainer.
               overflowY: "hidden",

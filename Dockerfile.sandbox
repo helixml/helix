@@ -6,7 +6,7 @@
 # ====================================================================
 
 # ====================================================================
-# Stage 1: Build Go binaries (hydra, sandbox-heartbeat)
+# Stage 1: Build Go binaries
 # Note: revdial-client is built into Hydra daemon
 # ====================================================================
 # Pin to specific digest for stable layer caching.
@@ -212,9 +212,13 @@ _INSTALL_NVIDIA_TOOLKIT
 # Copy sandbox-images directory containing:
 # - .ref: registry path for production (e.g., "ghcr.io/helixml/helix-sway:v1.2.3")
 # - .version: image hash tag for dev (e.g., "abc123")
-# At runtime, startup script pulls from registry (production) or expects
-# images transferred via local dev registry (development)
+# Keep an immutable metadata seed outside /opt/images so a runtime bind mount
+# or volume cannot hide the pointers baked into the sandbox image. Copy the
+# multi-gigabyte image archives only once; the seed contains metadata only.
 COPY sandbox-images/ /opt/images/
+RUN mkdir -p /opt/images-seed && \
+    find /opt/images -maxdepth 1 -type f \( -name 'helix-*.version' -o -name 'helix-*.ref' \) \
+        -exec cp {} /opt/images-seed/ \;
 
 # ====================================================================
 # Copy GOW-style overlay (init system)
@@ -251,12 +255,19 @@ RUN mkdir -p /etc/helix
 
 # Start dockerd script
 COPY sandbox/04-start-dockerd.sh /etc/cont-init.d/40-start-dockerd.sh
+COPY sandbox/desktop-image-gc.sh /usr/local/lib/helix-desktop-image-gc.sh
+COPY sandbox/desktop-image-metadata.sh /usr/local/lib/helix-desktop-image-metadata.sh
 RUN chmod +x /etc/cont-init.d/40-start-dockerd.sh
 
 # Start (and supervise) the sandbox DNS proxy AFTER dockerd so nested
 # containers can resolve names. Re-added after it was dropped in 099156501.
 COPY sandbox/05-start-dns-proxy.sh /etc/cont-init.d/45-start-dns-proxy.sh
 RUN chmod +x /etc/cont-init.d/45-start-dns-proxy.sh
+
+# The existing dockerd lifecycle owns the isolated bridge and firewall. It
+# sources this library before dockerd starts and after every daemon restart.
+COPY sandbox/06-setup-network-policy.sh /usr/local/lib/helix-sandbox-network-policy.sh
+RUN chmod 0644 /usr/local/lib/helix-sandbox-network-policy.sh
 
 # Start sandbox heartbeat daemon
 # Note: RevDial client is built into Hydra daemon (see sandbox/10-start-hydra.sh)
@@ -283,6 +294,10 @@ RUN chmod +x /etc/cont-init.d/85-start-inference-proxy.sh
 COPY sandbox/startup-app.sh /opt/gow/startup-app.sh
 RUN chmod +x /opt/gow/startup-app.sh
 
+# Graceful shutdown, run by /entrypoint.sh (PID 1) on SIGTERM
+COPY sandbox/shutdown.sh /usr/local/bin/helix-sandbox-shutdown
+RUN chmod +x /usr/local/bin/helix-sandbox-shutdown
+
 # ====================================================================
 # Environment variables
 # ====================================================================
@@ -297,6 +312,7 @@ ENV HELIX_API_URL="" \
     HYDRA_ENABLED="true" \
     HELIX_KEEP_DEAD_CONTAINERS="false" \
     HELIX_SANDBOX_REGISTRY="" \
+    HELIX_SANDBOX_EGRESS_ALLOW_CIDRS="" \
     HELIX_EXPERIMENTAL_DESKTOPS=""
 
 # XDG_RUNTIME_DIR (creates volume when starting container)

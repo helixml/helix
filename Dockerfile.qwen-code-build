@@ -1,54 +1,19 @@
-# ====================================================================
-# Node.js 20 Build Environment for Qwen Code
-# ====================================================================
-# Produces pre-built qwen-code bundles that can be installed globally
-# without triggering prepare scripts (which require husky).
-#
-# Uses BuildKit cache mounts for npm download cache and layer caching
-# for dependencies (npm ci only re-runs when package manifests change).
-#
-# Usage: ./stack build-qwen-code
-# ====================================================================
-FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS builder
+# Produces a pinned Qwen Code runtime for the desktop images. Qwen publishes a
+# self-contained npm package, so Helix no longer needs a source checkout or a
+# fork-specific build. QWEN_VERSION comes from sandbox-versions.txt; upgrading
+# Qwen is a one-line pin change followed by a live ACP turn.
+FROM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS builder
 
-# Install git (required for simple-git dependency)
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+ARG QWEN_VERSION
+RUN <<_INSTALL_QWEN
+set -eu
+test -n "${QWEN_VERSION}"
+npm install --global --prefix /opt/qwen-code \
+  --no-audit --no-fund "@qwen-code/qwen-code@${QWEN_VERSION}"
+/opt/qwen-code/bin/qwen --version | grep -Fx "${QWEN_VERSION}"
+echo "${QWEN_VERSION}" > /opt/qwen-code/version
+npm cache clean --force > /dev/null 2>&1 || true
+_INSTALL_QWEN
 
-WORKDIR /build
-
-# Copy package manifests and workspace packages first for layer caching.
-# npm ci only re-runs when these files change.
-COPY package.json package-lock.json ./
-# Root tsconfig.json must be present BEFORE the workspace build below: each
-# workspace's tsconfig extends "../../tsconfig.json" (which carries target/lib
-# es2022/ES2023). Without it `tsc --build` fails with TS5083 and falls back to
-# ES5 defaults (TS18028 private-identifier / TS2802 iterator errors).
-COPY tsconfig.json ./
-COPY packages/ ./packages/
-
-# Install dependencies — cached as a Docker layer when manifests unchanged.
-# --ignore-scripts skips husky prepare hooks.
-# Cache mount keeps npm download cache across builds even when layer is rebuilt.
-# Build only the workspace packages the bundle consumes as built modules
-# (web-templates + channel adapters), in dependency order. See the comment in
-# Dockerfile.qwen-build for why `npm run build --workspaces` can't be used.
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --ignore-scripts && \
-    npm run build \
-      --workspace=@qwen-code/web-templates \
-      --workspace=@qwen-code/channel-base \
-      --workspace=@qwen-code/channel-telegram \
-      --workspace=@qwen-code/channel-weixin \
-      --workspace=@qwen-code/channel-dingtalk
-
-# Copy remaining source and build the bundle.
-COPY . .
-RUN npm run bundle
-
-# Output stage — only the files needed for `npm install -g`
 FROM scratch
-COPY --from=builder /build/package.json /package.json
-COPY --from=builder /build/package-lock.json /package-lock.json
-COPY --from=builder /build/dist/ /dist/
-COPY --from=builder /build/packages/ /packages/
-COPY --from=builder /build/node_modules/ /node_modules/
+COPY --from=builder /opt/qwen-code/ /

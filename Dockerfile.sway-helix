@@ -62,6 +62,7 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Building Go binaries..." && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix . && \
     CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /docker-wrapper ./cmd/docker-wrapper
@@ -729,13 +730,15 @@ RUN mkdir -p /etc/skel/.config/google-chrome && \
       > /etc/skel/.config/google-chrome/Default/Preferences
 
 # Install chrome-devtools-mcp globally and pre-build fontconfig cache
-RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
+# Throwaway cache: HOME is /home/retro, so root-run npm would leave a
+# root-owned ~/.npm that breaks every later `npm install` by the agent.
+RUN npm_config_cache=/tmp/npm-build-cache npm install -g chrome-devtools-mcp@latest && rm -rf /tmp/npm-build-cache && fc-cache -f -v
 
 # Install drone-ci-mcp (Helix's Drone CI MCP server for build log navigation)
 # Build and pack the package, then install globally from the tarball
 COPY mcp-servers/drone-ci/package.json mcp-servers/drone-ci/package-lock.json mcp-servers/drone-ci/tsconfig.json /tmp/drone-ci-mcp/
 COPY mcp-servers/drone-ci/src /tmp/drone-ci-mcp/src/
-RUN cd /tmp/drone-ci-mcp && npm install && npm run build && npm pack && npm install -g helix-drone-ci-mcp-*.tgz && rm -rf /tmp/drone-ci-mcp
+RUN export npm_config_cache=/tmp/npm-build-cache && cd /tmp/drone-ci-mcp && npm install && npm run build && npm pack && npm install -g helix-drone-ci-mcp-*.tgz && rm -rf /tmp/drone-ci-mcp /tmp/npm-build-cache
 
 # Chrome MCP server configuration for headless mode
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
@@ -745,9 +748,16 @@ ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
 ADD desktop/sway-config/15-setup-gpu-permissions.sh /etc/cont-init.d/15-setup-gpu-permissions.sh
 RUN chmod 755 /etc/cont-init.d/15-setup-gpu-permissions.sh
 
+# CPU tiers: agent work (Zed's shell children, inner dockerd) runs in an
+# idle-class cgroup so the display path keeps the CPU during builds.
+ADD desktop/shared/16-cpu-tiers.sh /etc/cont-init.d/16-cpu-tiers.sh
+ADD desktop/shared/agent-tier-bash.sh /usr/local/libexec/helix/agent-tier/bash
+RUN chmod 755 /etc/cont-init.d/16-cpu-tiers.sh /usr/local/libexec/helix/agent-tier/bash
+
 # Start dockerd inside desktop container if /var/lib/docker is volume-mounted
 ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
-RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
+ADD desktop/shared/helix-buildkit-cache-stats.sh /usr/local/bin/helix-buildkit-cache-stats
+RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh /usr/local/bin/helix-buildkit-cache-stats
 
 # Workspace README
 RUN mkdir -p /opt/helix
@@ -837,6 +847,27 @@ _INSTALL_ZEROCOPY
 COPY --from=grim-build /grim-bin /usr/bin/grim
 
 # ====================================================================
+# Headless document extraction - read a document without opening it
+# ====================================================================
+# Mirrors Dockerfile.ubuntu-helix; see the long note there for why.
+#
+# Short version: the office editors below are GUI apps for OPENING and EDITING
+# documents. Extracting text from an uploaded file is a different job, and
+# there was no headless path for it — arch-dependently, since the arm64 branch
+# gets LibreOffice (which has `soffice --headless --convert-to`) and the amd64
+# branch gets OnlyOffice (which does not ship a supported conversion CLI).
+#
+# ~238MB, mostly pandoc. See the size note in Dockerfile.ubuntu-helix.
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    pandoc \
+    antiword \
+    poppler-utils \
+    unzip \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
 # OnlyOffice Desktop Editors - Office document support
 # ====================================================================
 # Enables AI agents to open and edit Word, Excel, and PowerPoint documents.
@@ -868,7 +899,7 @@ _INSTALL_ONLYOFFICE
 
 # AI agent privacy configs
 RUN mkdir -p /home/retro/.qwen && \
-    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.qwen/settings.json
+    echo '{"privacy":{"usageStatisticsEnabled":false},"telemetry":{"enabled":false},"general":{"enableAutoUpdate":false}}' > /home/retro/.qwen/settings.json
 
 RUN mkdir -p /home/retro/.gemini && \
     echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
@@ -920,11 +951,44 @@ ENV NVD_BACKEND=direct \
 # Order: Qwen → Sway config → Zed → startup scripts → Go binaries
 # Rationale: Go binaries and startup scripts change most often, so they're at the very end
 
-# Qwen Code
+# Qwen Code (version recorded in /opt/qwen-code/version).
 WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
-RUN chmod +x dist/cli.js && \
-    ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
+RUN test -x bin/qwen && \
+    ln -sf /opt/qwen-code/bin/qwen /usr/local/bin/qwen && \
+    qwen --version
+
+# Helix agent skills (github.com/helixml/skills).
+#
+# A shallow clone pinned at SKILLS_COMMIT is baked in as the seed, so an
+# offline or air-gapped deployment still gets the skills. On every container
+# start helix-workspace-setup.sh copies it into persistent workspace storage,
+# refreshes it from upstream (HELIX_SKILLS_REF, default main) when the network
+# allows, and links the selected skills (HELIX_SKILLS, default all) into each
+# harness's discovery directory. The clone keeps its .git so that refresh is a
+# plain `git fetch`. Linking cannot happen here: that script replaces ~/.claude
+# with a symlink to persistent storage, dropping anything this stage wrote.
+#
+# SKILLS_COMMIT is read from sandbox-versions.txt by `./stack build-desktop`
+# and .drone.yml. There is deliberately no default so the pin cannot drift.
+ARG SKILLS_COMMIT
+RUN <<_INSTALL_SKILLS
+set -eu
+if [ -z "${SKILLS_COMMIT:-}" ]; then
+  echo "ERROR: SKILLS_COMMIT build-arg is required (see sandbox-versions.txt)" >&2
+  exit 1
+fi
+echo "=== Installing Helix agent skills @ ${SKILLS_COMMIT} ==="
+git init -q /opt/helix/skills
+git -C /opt/helix/skills remote add origin https://github.com/helixml/skills.git
+git -C /opt/helix/skills fetch -q --depth 1 origin "${SKILLS_COMMIT}"
+git -C /opt/helix/skills checkout -q --detach FETCH_HEAD
+# Fail the build rather than ship an empty skill set.
+ls -d /opt/helix/skills/skills/*/SKILL.md >/dev/null
+chown -R root:root /opt/helix/skills
+chmod -R a+rX,go-w /opt/helix/skills
+ls /opt/helix/skills/skills
+_INSTALL_SKILLS
 
 # Sway configuration (GOW pattern)
 ADD desktop/sway-config/config /cfg/sway/config
@@ -962,6 +1026,7 @@ ADD desktop/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+ADD desktop/shared/helix-chrome-devtools-mcp.sh /usr/local/bin/helix-chrome-devtools-mcp
 ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
@@ -969,11 +1034,13 @@ ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
 ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
 RUN chmod +x /usr/local/bin/start-zed-helix.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
-    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-chrome-devtools-mcp \
+    /usr/local/bin/helix-run-startup-script.sh \
     /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
     /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
 
 # Helix Go binaries - at the very end since they're the lightest to rebuild
 COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
+COPY --from=go-build-env /helix /usr/local/bin/helix
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /docker-wrapper /opt/helix/docker-wrapper

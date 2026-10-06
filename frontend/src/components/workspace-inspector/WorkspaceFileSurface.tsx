@@ -1,51 +1,94 @@
-import React, { FC, useMemo } from "react";
-import { CodeView } from "@pierre/diffs/react";
-import type { CodeViewFileItem } from "@pierre/diffs";
+import React, { FC, useEffect, useState } from "react";
 import { Alert, Box, CircularProgress, Typography } from "@mui/material";
-import useLightTheme from "../../hooks/useLightTheme";
-import { DIFF_UNSAFE_CSS, PIERRE_THEMES } from "./pierreStyles";
+import useApi from "../../hooks/useApi";
 import { useWorkspaceFile } from "./workspaceReviewService";
 import WorkspaceFileTree from "./WorkspaceFileTree";
+import WorkspaceEditableFile from "./WorkspaceEditableFile";
+import type { WorkspaceReviewComment } from "./workspaceReviewComments";
 
 interface WorkspaceFileSurfaceProps {
   sessionId: string;
   workspace?: string;
   workspacePath?: string;
+  baseBranch?: string;
+  pollInterval: number;
   path: string | null;
   revealPath: string | null;
   onOpenFile: (path: string) => void;
+  comments: readonly WorkspaceReviewComment[];
+  onUpsertComment: (comment: WorkspaceReviewComment) => void;
+  onRemoveComment: (commentId: string) => void;
 }
+
+const isImagePath = (path: string) =>
+  /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(path);
+
+const WorkspaceImage: FC<{
+  sessionId: string;
+  workspace?: string;
+  path: string;
+}> = ({ sessionId, workspace, path }) => {
+  const api = useApi();
+  const [src, setSrc] = useState<string>();
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectURL = "";
+
+    api
+      .getApiClient()
+      .v1ExternalAgentsWorkspaceFileDownloadDetail(
+        sessionId,
+        { path, workspace },
+        { signal: controller.signal },
+      )
+      .then((response) => {
+        objectURL = URL.createObjectURL(response.data);
+        if (controller.signal.aborted) {
+          URL.revokeObjectURL(objectURL);
+          return;
+        }
+        setSrc(objectURL);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setError(true);
+      });
+
+    return () => {
+      controller.abort();
+      if (objectURL) URL.revokeObjectURL(objectURL);
+    };
+  }, [path, sessionId, workspace]);
+
+  if (error) return <Alert severity="error">Could not preview {path}.</Alert>;
+  if (!src) return <CircularProgress size={22} />;
+
+  return (
+    <Box
+      component="img"
+      src={src}
+      alt={path.split("/").pop() || path}
+      onError={() => setError(true)}
+      sx={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+    />
+  );
+};
 
 const WorkspaceFileSurface: FC<WorkspaceFileSurfaceProps> = ({
   sessionId,
   workspace,
   workspacePath,
+  baseBranch,
+  pollInterval,
   path,
   revealPath,
   onOpenFile,
+  comments,
+  onUpsertComment,
+  onRemoveComment,
 }) => {
-  const lightTheme = useLightTheme();
   const fileQuery = useWorkspaceFile(sessionId, workspace, path);
-  const item = useMemo<CodeViewFileItem[] | null>(() => {
-    if (
-      !path ||
-      !fileQuery.data ||
-      fileQuery.data.binary ||
-      fileQuery.data.contents === undefined
-    )
-      return null;
-    return [
-      {
-        id: `${path}:${fileQuery.data.content_hash || fileQuery.data.byte_length || 0}`,
-        type: "file",
-        file: {
-          name: path,
-          contents: fileQuery.data.contents,
-          cacheKey: fileQuery.data.content_hash,
-        },
-      },
-    ];
-  }, [fileQuery.data, path]);
 
   return (
     <Box sx={{ display: "flex", minHeight: 0, height: "100%" }}>
@@ -84,6 +127,15 @@ const WorkspaceFileSurface: FC<WorkspaceFileSurfaceProps> = ({
           <Box sx={{ p: 2 }}>
             <Alert severity="error">Could not read {path}.</Alert>
           </Box>
+        ) : isImagePath(path) ? (
+          <Box sx={{ flex: 1, minHeight: 0, display: "grid", placeItems: "center", p: 2 }}>
+            <WorkspaceImage
+              key={`${sessionId}:${workspace || "primary"}:${path}`}
+              sessionId={sessionId}
+              workspace={workspace}
+              path={path}
+            />
+          </Box>
         ) : fileQuery.data?.binary ? (
           <Box
             sx={{
@@ -101,21 +153,25 @@ const WorkspaceFileSurface: FC<WorkspaceFileSurfaceProps> = ({
               </Typography>
             </Box>
           </Box>
-        ) : item ? (
+        ) : fileQuery.data?.truncated ? (
+          <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 2 }}>
+            <Typography component="pre" sx={{ m: 0, fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-wrap" }}>
+              {fileQuery.data.contents}
+            </Typography>
+          </Box>
+        ) : fileQuery.data?.contents !== undefined && fileQuery.data.content_hash ? (
           <Box sx={{ flex: 1, minHeight: 0 }}>
-            <CodeView
-              items={item}
-              style={{ height: "100%", minHeight: 0, overflow: "auto" }}
-              options={{
-                theme: PIERRE_THEMES,
-                themeType: lightTheme.isLight ? "light" : "dark",
-                overflow: "scroll",
-                stickyHeaders: true,
-                tokenizeMaxLineLength: 1_000,
-                unsafeCSS: DIFF_UNSAFE_CSS,
-                itemMetrics: { diffHeaderHeight: 32 },
-                layout: { gap: 0, paddingTop: 0, paddingBottom: 0 },
-              }}
+            <WorkspaceEditableFile
+              key={`${workspace || "primary"}:${path}`}
+              sessionId={sessionId}
+              workspace={workspace}
+              path={path}
+              initialContents={fileQuery.data.contents}
+              initialContentHash={fileQuery.data.content_hash}
+              comments={comments}
+              onUpsertComment={onUpsertComment}
+              onRemoveComment={onRemoveComment}
+              onReload={async () => (await fileQuery.refetch()).data}
             />
           </Box>
         ) : null}
@@ -125,6 +181,8 @@ const WorkspaceFileSurface: FC<WorkspaceFileSurfaceProps> = ({
           sessionId={sessionId}
           workspace={workspace}
           workspacePath={workspacePath}
+          baseBranch={baseBranch}
+          pollInterval={pollInterval}
           selectedPath={path}
           revealPath={revealPath}
           onOpenFile={onOpenFile}

@@ -8,52 +8,72 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/application/processors"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
-// processorView is the agent-facing projection of a Processor. Output
-// topic ids are included so a create_processor caller can immediately
-// subscribe bots to the auto-provisioned branches.
+// inputSource turns the two mutually-exclusive input arguments the
+// processor tools accept into one terminal reference. Both empty means
+// unwired.
+func inputSource(triggerID, processorOutput string) (eventsource.SourceRef, error) {
+	if triggerID != "" && processorOutput != "" {
+		return eventsource.SourceRef{}, fmt.Errorf("pass either inputTriggerId or inputProcessorOutput, not both")
+	}
+	if triggerID != "" {
+		return eventsource.Trigger(triggerID), nil
+	}
+	if processorOutput != "" {
+		return ParseProcessorOutput(processorOutput)
+	}
+	return eventsource.SourceRef{}, nil
+}
+
+// processorView is the agent-facing projection of a Processor. Each
+// output carries the `<processorId>:<outputId>` handle attach_worker
+// takes, so a create_processor caller can wire a Worker to a branch
+// without a second lookup.
 type processorView struct {
-	ID           string             `json:"id"`
-	Name         string             `json:"name"`
-	InputTopicID string             `json:"inputTopicId"`
-	Kind         string             `json:"kind"`
-	Config       json.RawMessage    `json:"config,omitempty"`
-	Outputs      []processorOutView `json:"outputs"`
-	CreatedBy    string             `json:"createdBy,omitempty"`
-	Automated    bool               `json:"automated"`
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	InputSource string             `json:"inputSource,omitempty"`
+	Kind        string             `json:"kind"`
+	Config      json.RawMessage    `json:"config,omitempty"`
+	Outputs     []processorOutView `json:"outputs"`
+	CreatedBy   string             `json:"createdBy,omitempty"`
+	Automated   bool               `json:"automated"`
 }
 
 type processorOutView struct {
-	TopicID string `json:"topicId"`
-	Label   string `json:"label,omitempty"`
-	Match   string `json:"match,omitempty"`
-	Owned   bool   `json:"owned"`
+	ID     string `json:"id"`
+	Source string `json:"source"`
+	Label  string `json:"label,omitempty"`
+	Match  string `json:"match,omitempty"`
 }
 
 func processorViewOf(p processor.Processor) processorView {
 	outs := make([]processorOutView, 0, len(p.Outputs))
 	for _, o := range p.Outputs {
 		outs = append(outs, processorOutView{
-			TopicID: string(o.TopicID),
-			Label:   o.Label,
-			Match:   o.Match,
-			Owned:   o.Owned,
+			ID:     o.ID,
+			Source: p.ID + ":" + o.ID,
+			Label:  o.Label,
+			Match:  o.Match,
 		})
 	}
-	return processorView{
-		ID:           string(p.ID),
-		Name:         p.Name,
-		InputTopicID: string(p.InputTopicID),
-		Kind:         string(p.Kind),
-		Config:       p.Config,
-		Outputs:      outs,
-		CreatedBy:    p.CreatedBy,
-		Automated:    p.Automated(),
+	view := processorView{
+		ID:        string(p.ID),
+		Name:      p.Name,
+		Kind:      string(p.Kind),
+		Config:    p.Config,
+		Outputs:   outs,
+		CreatedBy: p.CreatedBy,
+		Automated: p.Automated(),
 	}
+	if !p.InputSource.Zero() {
+		view.InputSource = p.InputSource.Key()
+	}
+	return view
 }
 
 // --- list_processors -------------------------------------------------------
@@ -158,9 +178,13 @@ type createProcessorArgs struct {
 	ID string `json:"id,omitempty"`
 	// Name is required — shown on the org chart.
 	Name string `json:"name"`
-	// InputTopicID is the topic this processor reads. Empty leaves it
-	// unwired (inert until connected).
-	InputTopicID string `json:"inputTopicId,omitempty"`
+	// InputTrigger is the Trigger this processor reads. Empty leaves it
+	// unwired (inert until connected). Mutually exclusive with
+	// InputProcessorOutput.
+	InputTrigger string `json:"inputTriggerId,omitempty"`
+	// InputProcessorOutput reads another Processor's branch, as
+	// "<processorId>:<outputId>" (read it from list_processors).
+	InputProcessorOutput string `json:"inputProcessorOutput,omitempty"`
 	// Kind: template | truncate | filter | js
 	Kind processor.Kind `json:"kind"`
 	// Config is kind-specific. Examples:
@@ -180,21 +204,18 @@ type createProcessorOutput struct {
 	Label string `json:"label,omitempty"`
 	// Match is the filter predicate template (filter kind). Empty = catch-all.
 	Match string `json:"match,omitempty"`
-	// TopicID, when set, wires the branch to an existing topic instead of
-	// auto-provisioning one.
-	TopicID string `json:"topicId,omitempty"`
 }
 
 func (t *CreateProcessor) Name() tool.Name { return CreateProcessorName }
 func (t *CreateProcessor) Description() string {
-	return "Create a Processor that reads a topic, transforms/filters/routes messages, " +
-		"and writes to auto-provisioned output topics. Kinds: " +
+	return "Create a Processor that reads one source, transforms/filters/routes messages, " +
+		"and writes to its own output branches. Kinds: " +
 		`"template" (rewrite body with Go text/template), ` +
 		`"truncate" (cap body length), ` +
 		`"filter" (route by predicate; each output is a branch), ` +
 		`"js" (run JavaScript process(event, ctx) with http.get/post/put/patch/delete). ` +
-		"Returns the processor including output topic ids — subscribe bots to those " +
-		"topics to consume the results. " +
+		"Returns the processor including each branch's `source` handle — pass those to " +
+		"attach_worker so a Worker is started by the results. " +
 		"JS example config: " +
 		`{"code":"function process(event) { event.body = event.body.toUpperCase(); return event; }"}` +
 		". JS with HTTP: " +
@@ -233,21 +254,21 @@ func (t *CreateProcessor) Invoke(ctx context.Context, inv tool.Invocation) (json
 
 	specs := make([]processors.OutputSpec, 0, len(args.Outputs))
 	for _, o := range args.Outputs {
-		specs = append(specs, processors.OutputSpec{
-			TopicID: streaming.TopicID(o.TopicID),
-			Label:   o.Label,
-			Match:   o.Match,
-		})
+		specs = append(specs, processors.OutputSpec{Label: o.Label, Match: o.Match})
+	}
+	input, err := inputSource(args.InputTrigger, args.InputProcessorOutput)
+	if err != nil {
+		return nil, err
 	}
 
 	p, err := t.deps.Processors.Create(ctx, orgID, processors.CreateParams{
-		ID:           args.ID,
-		Name:         args.Name,
-		InputTopicID: streaming.TopicID(args.InputTopicID),
-		Kind:         args.Kind,
-		Config:       args.Config,
-		CreatedBy:    inv.Caller.ID(),
-		Outputs:      specs,
+		ID:          args.ID,
+		Name:        args.Name,
+		InputSource: input,
+		Kind:        args.Kind,
+		Config:      args.Config,
+		CreatedBy:   inv.Caller.ID(),
+		Outputs:     specs,
 	})
 	if err != nil {
 		return nil, err
@@ -258,7 +279,7 @@ func (t *CreateProcessor) Invoke(ctx context.Context, inv tool.Invocation) (json
 // --- update_processor ------------------------------------------------------
 
 // UpdateProcessor rewrites name/kind/config and optionally re-points the
-// input topic (including disconnect via empty inputTopicId). Outputs are
+// input source (including disconnect via `disconnectInput`). Outputs are
 // immutable after create in v1 — delete and recreate to redesign branches.
 type UpdateProcessor struct {
 	deps Deps
@@ -272,17 +293,20 @@ type updateProcessorArgs struct {
 	// Kind is required on update (same as REST — full replace of mutable fields).
 	Kind   processor.Kind  `json:"kind"`
 	Config json.RawMessage `json:"config,omitempty"`
-	// InputTopicID: omit to leave unchanged; "" to disconnect; non-empty to rewire.
-	// Using a pointer would need custom schema; we use a present flag via raw
-	// optional string and a separate clearInput bool for disconnect clarity.
-	InputTopicID *string `json:"inputTopicId,omitempty"`
+	// InputTrigger / InputProcessorOutput re-point the input. Omit both to
+	// leave it unchanged.
+	InputTrigger         string `json:"inputTriggerId,omitempty"`
+	InputProcessorOutput string `json:"inputProcessorOutput,omitempty"`
+	// DisconnectInput clears the input, leaving the processor inert.
+	DisconnectInput bool `json:"disconnectInput,omitempty"`
 }
 
 func (t *UpdateProcessor) Name() tool.Name { return UpdateProcessorName }
 func (t *UpdateProcessor) Description() string {
-	return "Update a Processor's name, kind, config, and/or input topic. " +
-		"Pass inputTopicId to rewire the input (empty string disconnects, leaving " +
-		"the processor inert). Output branches cannot be redesigned here — delete " +
+	return "Update a Processor's name, kind, config, and/or input source. " +
+		"Pass inputTriggerId or inputProcessorOutput to rewire the input, or " +
+		"disconnectInput=true to leave the processor inert. " +
+		"Output branches cannot be redesigned here — delete " +
 		"and recreate for that. For js kind, config.code is the full script " +
 		"defining function process(event, ctx)."
 }
@@ -321,9 +345,15 @@ func (t *UpdateProcessor) Invoke(ctx context.Context, inv tool.Invocation) (json
 		Kind:   args.Kind,
 		Config: args.Config,
 	}
-	if args.InputTopicID != nil {
-		tid := streaming.TopicID(*args.InputTopicID)
-		params.InputTopicID = &tid
+	switch {
+	case args.DisconnectInput:
+		params.InputSource = &eventsource.SourceRef{}
+	case args.InputTrigger != "" || args.InputProcessorOutput != "":
+		input, err := inputSource(args.InputTrigger, args.InputProcessorOutput)
+		if err != nil {
+			return nil, err
+		}
+		params.InputSource = &input
 	}
 
 	p, err := t.deps.Processors.Update(ctx, orgID, processor.ProcessorID(args.ID), params)
@@ -335,7 +365,8 @@ func (t *UpdateProcessor) Invoke(ctx context.Context, inv tool.Invocation) (json
 
 // --- delete_processor ------------------------------------------------------
 
-// DeleteProcessor removes a Processor and cascades its owned output Topics.
+// DeleteProcessor removes a Processor and every Worker attachment to its
+// output branches.
 type DeleteProcessor struct {
 	deps Deps
 }

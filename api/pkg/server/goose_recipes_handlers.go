@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/goose"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -61,12 +62,16 @@ func (s *HelixAPIServer) listProjectGooseRecipes(_ http.ResponseWriter, r *http.
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	if project.DefaultHelixAppID == "" {
+	var app *types.App
+	if project.CodeAgentConfig != nil {
+		app = external_agent.AppFromCodeAgentConfig(project.CodeAgentConfig, project.UserID, project.OrganizationID)
+	} else if project.DefaultHelixAppID != "" {
+		app, err = s.Store.GetApp(ctx, project.DefaultHelixAppID)
+		if err != nil {
+			return nil, system.NewHTTPError404("project agent not found")
+		}
+	} else {
 		return []ProjectGooseRecipe{}, nil
-	}
-	app, err := s.Store.GetApp(ctx, project.DefaultHelixAppID)
-	if err != nil {
-		return nil, system.NewHTTPError404("project agent not found")
 	}
 
 	var assistant *types.AssistantConfig

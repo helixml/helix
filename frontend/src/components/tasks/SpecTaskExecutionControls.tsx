@@ -10,11 +10,13 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { ChevronDown, Cpu } from "lucide-react";
+import { ChevronDown, Cpu, Monitor } from "lucide-react";
 import {
   TypesCodeAgentOverrides,
+  TypesCodeAgentExecutionConfig,
   TypesSandboxResourceOverrides,
-  TypesSpecTaskExecutionConfig,
+  TypesAgentExecutionConfig,
+  TypesSandboxRuntime,
 } from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp, IAssistantConfig } from "../../types";
 import useSnackbar from "../../hooks/useSnackbar";
@@ -22,8 +24,13 @@ import {
   DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
   DEFAULT_CODEX_SUBSCRIPTION_MODEL,
 } from "../agent/CodingAgentForm";
+import AgentHarness, { getAgentHarnessLabel } from "../agent/AgentHarness";
 import { getCodeAgentEffortOptions } from "../agent/CodeAgentEffortSelect";
+import { useModelReasoningEfforts } from "../../hooks/useModelReasoningEfforts";
 import SpecTaskModelPicker from "./SpecTaskModelPicker";
+import { codeAgentExecutionConfigFromApp } from "../../utils/codeAgentExecutionConfig";
+import { SandboxPreset, sandboxPresetsFor } from "../../constants/sandboxPresets";
+import { useDefaultSandboxPreset } from "../../hooks/useDefaultSandboxPreset";
 
 type MaybePromise = void | Promise<unknown>;
 
@@ -31,21 +38,22 @@ interface SpecTaskExecutionControlsProps {
   agents: IApp[];
   selectedAgentId: string;
   codeAgentOverrides?: TypesCodeAgentOverrides;
-  currentExecutionConfig?: TypesSpecTaskExecutionConfig;
+  currentExecutionConfig?: TypesAgentExecutionConfig;
   sandboxResourceOverrides?: TypesSandboxResourceOverrides;
-  onAgentModelChange: (agentId: string, value: TypesCodeAgentOverrides) => MaybePromise;
-  onSandboxResourceOverridesChange: (value: TypesSandboxResourceOverrides) => MaybePromise;
+  sandboxRuntime?: TypesSandboxRuntime;
+  onAgentModelChange: (
+    agentId: string,
+    value: TypesCodeAgentOverrides,
+    config?: TypesCodeAgentExecutionConfig,
+  ) => MaybePromise;
+  // Omitted by surfaces that don't own a resizable sandbox (plain chat
+  // sessions); the compute control is then hidden rather than inert.
+  onSandboxResourceOverridesChange?: (value: TypesSandboxResourceOverrides) => MaybePromise;
+  onSandboxRuntimeChange?: (value: TypesSandboxRuntime) => MaybePromise;
   disabled?: boolean;
   compact?: boolean;
+  grouped?: boolean;
 }
-
-const SANDBOX_PRESETS = [
-  { vcpus: 1, memory_mb: 2048, label: "1 CPU", description: "2 GB RAM" },
-  { vcpus: 4, memory_mb: 8192, label: "4 CPU", description: "8 GB RAM" },
-  { vcpus: 8, memory_mb: 16384, label: "8 CPU", description: "16 GB RAM" },
-] as const;
-
-const DEFAULT_SANDBOX_PRESET = SANDBOX_PRESETS[1];
 
 const compactButtonSx = {
   height: 28,
@@ -103,10 +111,13 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   codeAgentOverrides = {},
   currentExecutionConfig,
   sandboxResourceOverrides,
+  sandboxRuntime,
   onAgentModelChange,
   onSandboxResourceOverridesChange,
+  onSandboxRuntimeChange,
   disabled = false,
   compact = false,
+  grouped = false,
 }) => {
   const snackbar = useSnackbar();
   const [agentSettingsAnchor, setAgentSettingsAnchor] = useState<HTMLElement | null>(null);
@@ -126,11 +137,22 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
     || currentExecutionConfig?.reasoning_effort
     || "default";
   const effectiveTier = codeAgentOverrides.service_tier || currentExecutionConfig?.service_tier || "standard";
-  const effortOptions = getCodeAgentEffortOptions(runtime);
+  // Narrow the harness tier list to what the selected model actually accepts.
+  // Undefined means Helix has no profile for the model, in which case the full
+  // runtime list stands. See api/pkg/model/reasoning_efforts.go.
+  const supportedEfforts = useModelReasoningEfforts(effectiveModel, runtime);
+  const effortOptions = getCodeAgentEffortOptions(runtime, supportedEfforts);
+  const defaultSandboxPreset = useDefaultSandboxPreset();
   const effectiveSandboxResources = sandboxResourceOverrides?.vcpus
     ? sandboxResourceOverrides
-    : DEFAULT_SANDBOX_PRESET;
+    : defaultSandboxPreset;
+  const sandboxPresets = sandboxPresetsFor(
+    effectiveSandboxResources.vcpus, effectiveSandboxResources.memory_mb);
   const sandboxLabel = `${effectiveSandboxResources.vcpus} vCPU`;
+  const effectiveSandboxRuntime = sandboxRuntime
+    || TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop;
+  const showSandboxRuntime = sandboxRuntime !== undefined || !!onSandboxRuntimeChange;
+  const sandboxRuntimeLocked = showSandboxRuntime && !onSandboxRuntimeChange;
   const effortLabel = effortOptions.find((option) => option.value === effectiveEffort)?.label || effectiveEffort;
   const agentSettingsLabel = runtime === "codex_cli" && effectiveTier === "fast"
     ? `${effortLabel} · Fast`
@@ -143,7 +165,19 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   ) => {
     setIsSaving(true);
     try {
-      await onAgentModelChange(agentId, next);
+      const targetAgent = agents.find((candidate) => candidate.id === agentId);
+      const taskConfig = targetAgent
+        ? codeAgentExecutionConfigFromApp(targetAgent, next)
+        : currentExecutionConfig?.code_agent_config
+          ? {
+              ...currentExecutionConfig.code_agent_config,
+              provider_ref: next.provider_ref || currentExecutionConfig.code_agent_config.provider_ref,
+              model: next.model || currentExecutionConfig.code_agent_config.model,
+              reasoning_effort: next.reasoning_effort,
+              service_tier: next.service_tier,
+            }
+          : undefined;
+      await onAgentModelChange(agentId, next, taskConfig);
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : "Failed to update model configuration");
     } finally {
@@ -162,7 +196,8 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
     );
   };
 
-  const selectSandbox = async (preset: typeof SANDBOX_PRESETS[number]) => {
+  const selectSandbox = async (preset: SandboxPreset) => {
+    if (!onSandboxResourceOverridesChange) return;
     setCpuAnchor(null);
     setIsSaving(true);
     try {
@@ -177,59 +212,128 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
     }
   };
 
+  const selectSandboxRuntime = async (runtime: TypesSandboxRuntime) => {
+    if (!onSandboxRuntimeChange) return;
+    setCpuAnchor(null);
+    setIsSaving(true);
+    try {
+      await onSandboxRuntimeChange(runtime);
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : "Failed to update sandbox runtime");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const modelControl = (agent || currentExecutionConfig || agents.length > 0) ? (
+    <SpecTaskModelPicker
+      agents={agents}
+      selectedAgentId={selectedAgentId}
+      model={effectiveModel}
+      providerRefValue={effectiveProvider}
+      currentExecutionConfig={currentExecutionConfig}
+      disabled={controlsDisabled}
+      onSelectAgentModel={selectModel}
+    />
+  ) : null;
+
+  const reasoningControl = agent || currentExecutionConfig ? (
+    agent ? (
+      <Tooltip title="Change reasoning and service tier">
+        <Box component="span" sx={{ display: "inline-flex" }}>
+          <Button
+            size="small"
+            disabled={controlsDisabled}
+            aria-label="Change reasoning and service tier"
+            onClick={(event) => setAgentSettingsAnchor(event.currentTarget)}
+            endIcon={<ChevronDown size={13} />}
+            sx={compactButtonSx}
+          >
+            {agentSettingsLabel}
+          </Button>
+        </Box>
+      </Tooltip>
+    ) : (
+      <Box sx={{ height: 28, px: 0.75, display: "inline-flex", alignItems: "center" }}>
+        <Typography variant="body2" color="text.secondary">
+          {agentSettingsLabel}
+        </Typography>
+      </Box>
+    )
+  ) : null;
+
+  const computeControl = !onSandboxResourceOverridesChange ? null : (
+    <Tooltip title={`Change sandbox size (${sandboxLabel})`}>
+      <Box component="span" sx={{ display: "inline-flex" }}>
+        <Button
+          size="small"
+          disabled={controlsDisabled}
+          aria-label="Change sandbox size"
+          onClick={(event) => setCpuAnchor(event.currentTarget)}
+          startIcon={(
+            <Stack direction="row" spacing={0.375} alignItems="center">
+              <Cpu size={15} />
+              {effectiveSandboxRuntime === TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop && (
+                <Monitor size={15} />
+              )}
+            </Stack>
+          )}
+          endIcon={<ChevronDown size={13} />}
+          sx={compactButtonSx}
+        >
+          {sandboxLabel}
+        </Button>
+      </Box>
+    </Tooltip>
+  );
+
   return (
     <>
-      <Stack
-        direction="row"
-        alignItems="center"
-        spacing={0.25}
-        sx={{ minWidth: 0, flexWrap: compact ? "nowrap" : "wrap" }}
-      >
-        {(agent || currentExecutionConfig || agents.length > 0) && (
-          <SpecTaskModelPicker
-            agents={agents}
-            selectedAgentId={selectedAgentId}
-            model={effectiveModel}
-            providerRefValue={effectiveProvider}
-            currentExecutionConfig={currentExecutionConfig}
-            disabled={controlsDisabled}
-            onSelectAgentModel={selectModel}
-          />
-        )}
-
-        {agent && (
-          <Tooltip title="Change reasoning and service tier">
-            <Box component="span" sx={{ display: "inline-flex" }}>
-              <Button
-                size="small"
-                disabled={controlsDisabled}
-                aria-label="Change reasoning and service tier"
-                onClick={(event) => setAgentSettingsAnchor(event.currentTarget)}
-                endIcon={<ChevronDown size={13} />}
-                sx={compactButtonSx}
-              >
-                {agentSettingsLabel}
-              </Button>
-            </Box>
-          </Tooltip>
-        )}
-
-        <Tooltip title={`Change sandbox size (${sandboxLabel})`}>
-          <Box component="span" sx={{ display: "inline-flex" }}>
-            <Button
-              size="small"
-              disabled={controlsDisabled}
-              aria-label="Change sandbox size"
-              onClick={(event) => setCpuAnchor(event.currentTarget)}
-              startIcon={<Cpu size={15} />}
-              endIcon={<ChevronDown size={13} />}
-              sx={compactButtonSx}
-            >
-              {sandboxLabel}
-            </Button>
+      {grouped ? (
+        <Box
+          aria-label="Execution configuration"
+          sx={{
+            display: "grid",
+            gridTemplateColumns: "64px minmax(0, 1fr)",
+            alignItems: "center",
+            columnGap: 0.75,
+            rowGap: 0.5,
+            minWidth: 0,
+          }}
+        >
+          <Typography variant="body2" color="text.secondary">Runtime:</Typography>
+          <Box
+            aria-label={`Runtime: ${getAgentHarnessLabel(runtime)}`}
+            sx={{ height: 28, px: 0.75, display: "inline-flex", alignItems: "center" }}
+          >
+            <AgentHarness runtime={runtime} variant="long" size={16} showTooltip={false} />
           </Box>
-        </Tooltip>
-      </Stack>
+
+          <Typography variant="body2" color="text.secondary">Model:</Typography>
+          <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: "wrap" }}>
+            {modelControl}
+            {reasoningControl}
+          </Stack>
+
+          {computeControl && (
+            <>
+              <Typography variant="body2" color="text.secondary">Compute:</Typography>
+              <Box sx={{ minWidth: 0 }}>{computeControl}</Box>
+            </>
+          )}
+        </Box>
+      ) : (
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={0.25}
+          sx={{ minWidth: 0, flexWrap: compact ? "nowrap" : "wrap" }}
+        >
+          {modelControl}
+          {reasoningControl}
+          {computeControl}
+        </Stack>
+      )}
 
       <Menu
         anchorEl={agentSettingsAnchor}
@@ -293,20 +397,70 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
         anchorOrigin={{ vertical: "top", horizontal: "left" }}
         transformOrigin={{ vertical: "bottom", horizontal: "left" }}
       >
-        {SANDBOX_PRESETS.map((preset) => (
+        <ListSubheader disableSticky>Compute</ListSubheader>
+        {sandboxPresets.map((preset) => (
           <MenuItem
             key={preset.vcpus}
             selected={preset.vcpus === effectiveSandboxResources.vcpus}
+            disabled={controlsDisabled}
             onClick={() => void selectSandbox(preset)}
+            sx={{ columnGap: 2 }}
           >
-            <Box>
-              <Typography variant="body2">{preset.vcpus} vCPU</Typography>
-              <Typography variant="caption" color="text.secondary">
-                {preset.description}{preset.vcpus === DEFAULT_SANDBOX_PRESET.vcpus ? " · Default" : ""}
-              </Typography>
-            </Box>
+            <Typography variant="body2" sx={{ flex: 1, whiteSpace: "nowrap" }}>{preset.vcpus} vCPU</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+              {preset.description}
+              {preset.vcpus === defaultSandboxPreset.vcpus ? " · Default" : ""}
+            </Typography>
           </MenuItem>
         ))}
+
+        {showSandboxRuntime && [
+          <Divider key="runtime-divider" sx={{ my: 0.5 }} />,
+          <ListSubheader key="runtime-heading" disableSticky>Environment</ListSubheader>,
+          ...[
+            {
+              value: TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop,
+              label: "Full Desktop",
+            },
+            {
+              value: TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
+              label: "Headless",
+            },
+          ].map((option) => {
+            const selected = option.value === effectiveSandboxRuntime;
+            const item = (
+              <MenuItem
+                key={option.value}
+                selected={selected}
+                disabled={controlsDisabled}
+                aria-disabled={sandboxRuntimeLocked || undefined}
+                onClick={sandboxRuntimeLocked
+                  ? undefined
+                  : () => void selectSandboxRuntime(option.value)}
+                sx={{
+                  columnGap: 2,
+                  ...(sandboxRuntimeLocked ? { cursor: "not-allowed" } : {}),
+                }}
+              >
+                <Typography variant="body2" sx={{ flex: 1 }}>{option.label}</Typography>
+                {selected && (
+                  <Typography variant="caption" color="text.secondary">Selected</Typography>
+                )}
+              </MenuItem>
+            );
+            if (!sandboxRuntimeLocked) return item;
+            return (
+              <Tooltip
+                key={option.value}
+                title="Sandbox environment can't be changed after the task starts. Start a new task to use a different environment."
+                placement="right"
+                describeChild
+              >
+                {item}
+              </Tooltip>
+            );
+          }),
+        ]}
       </Menu>
     </>
   );

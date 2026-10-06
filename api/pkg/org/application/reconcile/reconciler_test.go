@@ -11,8 +11,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	memorystore "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
 
@@ -20,10 +18,9 @@ const orgID = "org-test"
 
 func fixedNow() time.Time { return time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC) }
 
-// The pure Required / topic-id derivation tests live with the domain
+// The pure Required / channel-id derivation tests live with the domain
 // function in domain/channels. The tests below exercise the
-// application-layer Reconciler and its ensureTopicWithMembers primitive
-// against the memory store.
+// application-layer Reconciler against the memory store.
 
 // bot builds a Bot for tests. The former Role/Worker (AI vs human)
 // distinction is gone: there is one Bot aggregate, so every test fixture
@@ -61,7 +58,7 @@ func eq(a, b []orgchart.NodeID) bool {
 func newRec(t *testing.T) (*Reconciler, *store.Store) {
 	t.Helper()
 	st := memorystore.New()
-	return New(Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: fixedNow}), st
+	return New(Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Triggers: st.Triggers, Attachments: st.WorkerAttachments, Now: fixedNow}), st
 }
 
 func seedBot(t *testing.T, st *store.Store, b orgchart.Node) {
@@ -78,24 +75,24 @@ func addLine(t *testing.T, st *store.Store, manager, report orgchart.NodeID) {
 	}
 }
 
-func topicMembers(t *testing.T, st *store.Store, sid streaming.TopicID) []orgchart.NodeID {
+func channelMembers(t *testing.T, st *store.Store, id string) []orgchart.NodeID {
 	t.Helper()
-	subs, err := st.Subscriptions.ListForTopic(context.Background(), orgID, sid)
+	rows, err := st.WorkerAttachments.Find(context.Background(), store.WithOrg(orgID), store.WithTriggerID(id))
 	if err != nil {
-		t.Fatalf("list subscribers of %s: %v", sid, err)
+		t.Fatalf("list members of %s: %v", id, err)
 	}
-	out := make([]orgchart.NodeID, 0, len(subs))
-	for _, s := range subs {
-		out = append(out, orgchart.NodeID(s.NodeID))
+	out := make([]orgchart.NodeID, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, a.WorkerID)
 	}
 	sort.Strings(out)
 	return out
 }
 
-func topicExists(t *testing.T, st *store.Store, sid streaming.TopicID) bool {
+func channelExists(t *testing.T, st *store.Store, id string) bool {
 	t.Helper()
-	_, err := st.Topics.Get(context.Background(), orgID, sid)
-	return err == nil
+	rows, err := st.Triggers.Find(context.Background(), store.WithOrg(orgID), store.WithID(id), store.WithLimit(1))
+	return err == nil && len(rows) > 0
 }
 
 // TestReconcile_HireFirstAndSecondReport mirrors the first two TDD rows:
@@ -112,11 +109,11 @@ func TestReconcile_HireFirstAndSecondReport(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	if got := topicMembers(t, st, channels.TeamTopicID("w-jane")); !eq(got, []orgchart.NodeID{"w-jane", "w-li"}) {
+	if got := channelMembers(t, st, channels.TeamTriggerID("w-jane")); !eq(got, []orgchart.NodeID{"w-jane", "w-li"}) {
 		t.Fatalf("after first hire, s-team-w-jane = %v, want [w-jane w-li]", got)
 	}
 	// w-li's transcript is observed by jane.
-	if got := topicMembers(t, st, activation.TranscriptID("w-li")); !eq(got, []orgchart.NodeID{"w-jane"}) {
+	if got := channelMembers(t, st, activation.TranscriptID("w-li")); !eq(got, []orgchart.NodeID{"w-jane"}) {
 		t.Fatalf("s-transcript-w-li = %v, want [w-jane]", got)
 	}
 
@@ -126,7 +123,7 @@ func TestReconcile_HireFirstAndSecondReport(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-sam"); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	if got := topicMembers(t, st, channels.TeamTopicID("w-jane")); !eq(got, []orgchart.NodeID{"w-jane", "w-li", "w-sam"}) {
+	if got := channelMembers(t, st, channels.TeamTriggerID("w-jane")); !eq(got, []orgchart.NodeID{"w-jane", "w-li", "w-sam"}) {
 		t.Fatalf("after second hire, s-team-w-jane = %v, want [w-jane w-li w-sam]", got)
 	}
 }
@@ -152,13 +149,13 @@ func TestReconcile_AddSecondManager(t *testing.T) {
 		t.Fatalf("reconcile add manager: %v", err)
 	}
 
-	if got := topicMembers(t, st, channels.TeamTopicID("w-bob")); !eq(got, []orgchart.NodeID{"w-bob", "w-li"}) {
+	if got := channelMembers(t, st, channels.TeamTriggerID("w-bob")); !eq(got, []orgchart.NodeID{"w-bob", "w-li"}) {
 		t.Fatalf("s-team-w-bob = %v, want [w-bob w-li]", got)
 	}
-	if got := topicMembers(t, st, channels.TeamTopicID("w-jane")); !eq(got, []orgchart.NodeID{"w-jane", "w-li"}) {
+	if got := channelMembers(t, st, channels.TeamTriggerID("w-jane")); !eq(got, []orgchart.NodeID{"w-jane", "w-li"}) {
 		t.Fatalf("s-team-w-jane (unchanged) = %v, want [w-jane w-li]", got)
 	}
-	if got := topicMembers(t, st, activation.TranscriptID("w-li")); !eq(got, []orgchart.NodeID{"w-bob", "w-jane"}) {
+	if got := channelMembers(t, st, activation.TranscriptID("w-li")); !eq(got, []orgchart.NodeID{"w-bob", "w-jane"}) {
 		t.Fatalf("s-transcript-w-li = %v, want [w-bob w-jane]", got)
 	}
 }
@@ -176,7 +173,7 @@ func TestReconcile_RemoveManager(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile initial: %v", err)
 	}
-	if !topicExists(t, st, channels.TeamTopicID("w-jane")) {
+	if !channelExists(t, st, channels.TeamTriggerID("w-jane")) {
 		t.Fatalf("precondition: s-team-w-jane should exist")
 	}
 
@@ -188,11 +185,11 @@ func TestReconcile_RemoveManager(t *testing.T) {
 		t.Fatalf("reconcile remove: %v", err)
 	}
 
-	if topicExists(t, st, channels.TeamTopicID("w-jane")) {
+	if channelExists(t, st, channels.TeamTriggerID("w-jane")) {
 		t.Fatalf("s-team-w-jane should be torn down (jane has 0 reports)")
 	}
 	// jane no longer observes w-li's transcript.
-	if got := topicMembers(t, st, activation.TranscriptID("w-li")); len(got) != 0 {
+	if got := channelMembers(t, st, activation.TranscriptID("w-li")); len(got) != 0 {
 		t.Fatalf("s-transcript-w-li observers = %v, want none after losing its only manager", got)
 	}
 }
@@ -219,7 +216,7 @@ func TestReconcile_RemoveManager_KeepsTopicWhenOtherReports(t *testing.T) {
 		t.Fatalf("reconcile remove: %v", err)
 	}
 
-	if got := topicMembers(t, st, channels.TeamTopicID("w-jane")); !eq(got, []orgchart.NodeID{"w-jane", "w-sam"}) {
+	if got := channelMembers(t, st, channels.TeamTriggerID("w-jane")); !eq(got, []orgchart.NodeID{"w-jane", "w-sam"}) {
 		t.Fatalf("s-team-w-jane = %v, want [w-jane w-sam]", got)
 	}
 }
@@ -250,10 +247,10 @@ func TestReconcile_FireReport(t *testing.T) {
 		t.Fatalf("reconcile fire: %v", err)
 	}
 
-	if topicExists(t, st, channels.TeamTopicID("w-jane")) {
+	if channelExists(t, st, channels.TeamTriggerID("w-jane")) {
 		t.Fatalf("s-team-w-jane should be gone after firing its only report")
 	}
-	if topicExists(t, st, activation.TranscriptID("w-li")) {
+	if channelExists(t, st, activation.TranscriptID("w-li")) {
 		t.Fatalf("s-transcript-w-li should be gone after firing w-li")
 	}
 }
@@ -275,7 +272,7 @@ func TestReconcile_FireManager(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile li: %v", err)
 	}
-	if !topicExists(t, st, channels.TeamTopicID("w-jane")) {
+	if !channelExists(t, st, channels.TeamTriggerID("w-jane")) {
 		t.Fatalf("precondition: s-team-w-jane should exist")
 	}
 
@@ -288,11 +285,11 @@ func TestReconcile_FireManager(t *testing.T) {
 		t.Fatalf("reconcile fire: %v", err)
 	}
 
-	if topicExists(t, st, channels.TeamTopicID("w-jane")) {
+	if channelExists(t, st, channels.TeamTriggerID("w-jane")) {
 		t.Fatalf("s-team-w-jane should be torn down")
 	}
 	// w-li still exists and keeps its own transcript.
-	if !topicExists(t, st, activation.TranscriptID("w-li")) {
+	if !channelExists(t, st, activation.TranscriptID("w-li")) {
 		t.Fatalf("w-li should keep its own transcript")
 	}
 }
@@ -308,35 +305,31 @@ func TestReconcile_Idempotent(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile 1: %v", err)
 	}
-	before := topicMembers(t, st, channels.TeamTopicID("w-jane"))
+	before := channelMembers(t, st, channels.TeamTriggerID("w-jane"))
 
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile 2: %v", err)
 	}
-	after := topicMembers(t, st, channels.TeamTopicID("w-jane"))
+	after := channelMembers(t, st, channels.TeamTriggerID("w-jane"))
 	if !eq(before, after) {
 		t.Fatalf("idempotency broken: before=%v after=%v", before, after)
 	}
 }
 
-// TestEnsureTopicWithMembers_ConcurrentCreateRace proves the helper is
-// safe against two callers racing on the same deterministic topic id —
-// the TOCTOU the topology design must tolerate (two simultaneous DMs
-// between the same pair, two reconciles touching one team topic). Many
-// goroutines released from a barrier all get-or-create the SAME topic
-// and subscribe the SAME member; the memory store runs Get and Create
-// under separate locks, so the loser of each race takes the
-// re-check-after-Create path. Every call must succeed, and the end state
-// must be exactly one topic with exactly one subscription.
-func TestEnsureTopicWithMembers_ConcurrentCreateRace(t *testing.T) {
-	st := memorystore.New()
-	rec := New(Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: fixedNow})
+// TestConvergeChannel_ConcurrentRace proves the reconciler is safe
+// against two callers racing on the same deterministic channel id — the
+// TOCTOU the topology design must tolerate (two simultaneous DMs between
+// the same pair, two reconciles touching one team chat). Many goroutines
+// released from a barrier all reconcile the SAME graph; the memory store
+// runs Find and Create under separate locks, so the loser of each race
+// takes the re-check-after-Create path. Every call must succeed, and the
+// end state must be exactly one channel with exactly one member.
+func TestConvergeChannel_ConcurrentRace(t *testing.T) {
+	rec, st := newRec(t)
 	ctx := context.Background()
-	const sid = streaming.TopicID("s-team-w-race")
-	topic, err := streaming.NewTopic(sid, "Team: race", "", "w-race", fixedNow(), transport.Transport{}, orgID)
-	if err != nil {
-		t.Fatalf("new topic: %v", err)
-	}
+	seedBot(t, st, bot("w-race"))
+	seedBot(t, st, bot("w-member"))
+	addLine(t, st, "w-race", "w-member")
 
 	const n = 32
 	var wg sync.WaitGroup
@@ -347,7 +340,7 @@ func TestEnsureTopicWithMembers_ConcurrentCreateRace(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			<-start // release all at once to maximise interleaving
-			errs[idx] = rec.ensureTopicWithMembers(ctx, topic, fixedNow(), "w-member")
+			errs[idx] = rec.Reconcile(ctx, orgID, "w-member", "w-race")
 		}(i)
 	}
 	close(start)
@@ -355,19 +348,19 @@ func TestEnsureTopicWithMembers_ConcurrentCreateRace(t *testing.T) {
 
 	for i, e := range errs {
 		if e != nil {
-			t.Fatalf("goroutine %d errored on concurrent ensure: %v", i, e)
+			t.Fatalf("goroutine %d errored on concurrent reconcile: %v", i, e)
 		}
 	}
-	// Exactly one topic, exactly one subscription — no duplicates, no
-	// spurious unique-constraint failures.
-	if got := topicMembers(t, st, sid); !eq(got, []orgchart.NodeID{"w-member"}) {
-		t.Fatalf("subscribers = %v, want exactly [w-member]", got)
+	// Exactly one team chat with exactly its two members — no
+	// duplicates, no spurious unique-constraint failures.
+	if got := channelMembers(t, st, channels.TeamTriggerID("w-race")); !eq(got, []orgchart.NodeID{"w-member", "w-race"}) {
+		t.Fatalf("members = %v, want exactly [w-member w-race]", got)
 	}
 }
 
 // TestReconcile_RootWithReport: a manager-less root worker with a direct
-// report has a transcript (unobserved — no self-subscribe) and a team
-// topic containing the root + report.
+// report has a transcript (unobserved — never self-attached) and a team
+// chat containing the root + report.
 func TestReconcile_RootWithReport(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
@@ -376,8 +369,8 @@ func TestReconcile_RootWithReport(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-root"); err != nil {
 		t.Fatalf("reconcile root: %v", err)
 	}
-	if got := topicMembers(t, st, activation.TranscriptID("w-root")); len(got) != 0 {
-		t.Fatalf("root transcript observers = %v, want none (no self-subscribe)", got)
+	if got := channelMembers(t, st, activation.TranscriptID("w-root")); len(got) != 0 {
+		t.Fatalf("root transcript observers = %v, want none (never self-attached)", got)
 	}
 
 	seedBot(t, st, bot("w-jane"))
@@ -385,11 +378,11 @@ func TestReconcile_RootWithReport(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-jane"); err != nil {
 		t.Fatalf("reconcile jane: %v", err)
 	}
-	if got := topicMembers(t, st, channels.TeamTopicID("w-root")); !eq(got, []orgchart.NodeID{"w-jane", "w-root"}) {
+	if got := channelMembers(t, st, channels.TeamTriggerID("w-root")); !eq(got, []orgchart.NodeID{"w-jane", "w-root"}) {
 		t.Fatalf("s-team-w-root = %v, want [w-jane w-root]", got)
 	}
-	// The root's own transcript survived the team-topic creation.
-	if !topicExists(t, st, activation.TranscriptID("w-root")) {
+	// The root's own transcript survived the team-chat creation.
+	if !channelExists(t, st, activation.TranscriptID("w-root")) {
 		t.Fatalf("root transcript should still exist after report")
 	}
 }

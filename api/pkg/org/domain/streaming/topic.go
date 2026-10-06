@@ -20,7 +20,7 @@ import (
 // streaming aggregate intentionally does not import orgchart to keep
 // the dependency DAG one-way.
 type Topic struct {
-	ID             TopicID
+	ID             StreamID
 	OrganizationID string
 	Name           string
 	Description    string
@@ -32,7 +32,7 @@ type Topic struct {
 // NewTopic validates and constructs a Topic. orgID is required.
 // If t.Kind is empty, the returned Topic uses
 // transport.LocalTransport().
-func NewTopic(id TopicID, name, description string, createdBy string, createdAt time.Time, t transport.Transport, orgID string) (Topic, error) {
+func NewTopic(id StreamID, name, description string, createdBy string, createdAt time.Time, t transport.Transport, orgID string) (Topic, error) {
 	if id == "" {
 		return Topic{}, errors.New("topic id is empty")
 	}

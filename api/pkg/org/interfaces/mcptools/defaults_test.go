@@ -2,6 +2,7 @@ package mcptools
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
@@ -18,13 +19,12 @@ func TestBaseReadToolsGolden(t *testing.T) {
 		ReportsName,
 		ListBotsName,
 		GetBotName,
-		ListTopicsName,
-		GetTopicName,
-		ListTopicEventsName,
+		ListTriggersName,
+		GetTriggerName,
+		ListTriggerEventsName,
 		ReadEventsName,
 		BotLogName,
-		MintCredentialName,
-		AskHumanName,
+		GetSecretName,
 		ListSecretsName,
 		ListProcessorsName,
 		GetProcessorName,
@@ -48,20 +48,19 @@ func TestBaseReadToolsAllRegistered(t *testing.T) {
 	// added to BaseReadTools without a matching entry here, the test
 	// fails — same failure mode RegisterBuiltins would produce at boot.
 	baselineImpls := map[tool.Name]tool.Tool{
-		ManagersName:        &Managers{deps: deps},
-		ReportsName:         &Reports{deps: deps},
-		ListBotsName:        &ListBots{deps: deps},
-		GetBotName:          &GetBot{deps: deps},
-		ListTopicsName:      &ListTopics{deps: deps},
-		GetTopicName:        &GetTopic{deps: deps},
-		ListTopicEventsName: &ListTopicEvents{deps: deps},
-		ReadEventsName:      &ReadEvents{deps: deps},
-		BotLogName:          &BotLog{deps: deps},
-		MintCredentialName:  &MintCredential{deps: deps},
-		AskHumanName:        &AskHuman{deps: deps},
-		ListSecretsName:     &ListSecrets{deps: deps},
-		ListProcessorsName:  &ListProcessors{deps: deps},
-		GetProcessorName:    &GetProcessor{deps: deps},
+		ManagersName:          &Managers{deps: deps},
+		ReportsName:           &Reports{deps: deps},
+		ListBotsName:          &ListBots{deps: deps},
+		GetBotName:            &GetBot{deps: deps},
+		ListTriggersName:      &ListTriggers{deps: deps},
+		GetTriggerName:        &GetTrigger{deps: deps},
+		ListTriggerEventsName: &ListTriggerEvents{deps: deps},
+		ReadEventsName:        &ReadEvents{deps: deps},
+		BotLogName:            &BotLog{deps: deps},
+		GetSecretName:         &GetSecret{deps: deps},
+		ListSecretsName:       &ListSecrets{deps: deps},
+		ListProcessorsName:    &ListProcessors{deps: deps},
+		GetProcessorName:      &GetProcessor{deps: deps},
 	}
 	for _, name := range BaseReadTools {
 		impl, ok := baselineImpls[name]
@@ -91,25 +90,24 @@ func TestMergeBaseReadToolsPreservesCallerOrderAndDedups(t *testing.T) {
 	t.Parallel()
 	// Caller-supplied: includes one baseline name (managers) and one
 	// non-baseline mutation (publish), with a duplicate to verify dedup.
-	in := []tool.Name{PublishName, ManagersName, PublishName}
+	in := []tool.Name{ChatName, ManagersName, ChatName}
 	got := MergeBaseReadTools(in)
 
 	// Expected order: caller's deduped order first, then baseline
 	// names not yet present in baseline order (managers is skipped).
 	want := []tool.Name{
-		PublishName,
+		ChatName,
 		ManagersName,
 		// rest of baseline, in BaseReadTools order, minus managers:
 		ReportsName,
 		ListBotsName,
 		GetBotName,
-		ListTopicsName,
-		GetTopicName,
-		ListTopicEventsName,
+		ListTriggersName,
+		GetTriggerName,
+		ListTriggerEventsName,
 		ReadEventsName,
 		BotLogName,
-		MintCredentialName,
-		AskHumanName,
+		GetSecretName,
 		ListSecretsName,
 		ListProcessorsName,
 		GetProcessorName,
@@ -125,10 +123,110 @@ func TestMergeBaseReadToolsPreservesCallerOrderAndDedups(t *testing.T) {
 // would rewrite every Bot on every run.
 func TestMergeBaseReadToolsIdempotent(t *testing.T) {
 	t.Parallel()
-	in := []tool.Name{PublishName, DMName}
+	in := []tool.Name{ChatName, DMName}
 	once := MergeBaseReadTools(in)
 	twice := MergeBaseReadTools(once)
 	if !reflect.DeepEqual(once, twice) {
 		t.Fatalf("merge is not idempotent.\n once: %v\ntwice: %v", once, twice)
+	}
+}
+
+// TestDefaultBotToolsGolden pins the operational surface granted to every
+// newly created standard Bot. Organization-management mutations must remain
+// an explicit manager capability.
+func TestDefaultBotToolsGolden(t *testing.T) {
+	t.Parallel()
+	want := []tool.Name{
+		ChatName,
+		DMName,
+		ListProjectsName,
+		GetProjectName,
+		ListRepositoriesName,
+		ListBotRepositoriesName,
+		ListAssetsName,
+		GetAssetName,
+		CreateSpecTaskName,
+		ListSpecTasksName,
+		GetSpecTaskName,
+		UpdateSpecTaskName,
+		StartSpecTaskPlanningName,
+		SendSpecTaskAgentMessageName,
+		ListSpecTaskAgentMessagesName,
+		StartSpecTaskAgentName,
+		StopSpecTaskAgentName,
+		RestartSpecTaskAgentName,
+		ReviewSpecTaskSpecName,
+		ApproveSpecTaskSpecName,
+		RequestSpecTaskChangesName,
+		CreateSpecTaskPRsName,
+		ManagersName,
+		ReportsName,
+		ListBotsName,
+		GetBotName,
+		ListTriggersName,
+		GetTriggerName,
+		ListTriggerEventsName,
+		ReadEventsName,
+		BotLogName,
+		GetSecretName,
+		ListSecretsName,
+		ListProcessorsName,
+		GetProcessorName,
+	}
+	if got := DefaultBotTools(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("DefaultBotTools drifted from golden list.\n got: %v\nwant: %v", got, want)
+	}
+}
+
+func TestMergeDefaultBotToolsPreservesAdditionsAndDedups(t *testing.T) {
+	t.Parallel()
+	in := []tool.Name{AttachWorkerName, ChatName, AttachWorkerName}
+	got := MergeDefaultBotTools(in)
+	want := append([]tool.Name{AttachWorkerName}, DefaultBotTools()...)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("default merge drifted.\n got: %v\nwant: %v", got, want)
+	}
+}
+
+func TestHasNonDefaultBotTool(t *testing.T) {
+	t.Parallel()
+	if HasNonDefaultBotTool(DefaultBotTools()) {
+		t.Fatal("standard worker tools must not require organization-manager access")
+	}
+	if !HasNonDefaultBotTool([]tool.Name{ChatName, CreateBotName}) {
+		t.Fatal("create_bot must require organization-manager access")
+	}
+}
+
+func TestOwnerBotToolsContainsStandardAndManagementCapabilities(t *testing.T) {
+	t.Parallel()
+	got := OwnerBotTools()
+	counts := make(map[tool.Name]int, len(got))
+	for _, name := range got {
+		counts[name]++
+	}
+	for _, name := range DefaultBotTools() {
+		if counts[name] != 1 {
+			t.Errorf("standard tool %q appears %d times in owner set", name, counts[name])
+		}
+	}
+	for _, name := range []tool.Name{CreateBotName, AttachToolName, AttachRepositoryName, CreateSandboxName} {
+		if counts[name] != 1 {
+			t.Errorf("management tool %q appears %d times in owner set", name, counts[name])
+		}
+	}
+}
+
+// Spec-task PRs open only from user-approved proposals; a spec-task agent must
+// never be able to reach the tool that opens them directly. Bots keep it.
+func TestCreateSpecTaskPRsIsBotOnly(t *testing.T) {
+	if IsSpecTaskAgentTool(CreateSpecTaskPRsName) {
+		t.Fatal("create_spectask_prs must not be offered to spec-task agents")
+	}
+	if !IsSpecTaskBlockedTool(CreateSpecTaskPRsName) {
+		t.Fatal("create_spectask_prs must be blocked on spec-task surfaces (including bound-agent tools)")
+	}
+	if !slices.Contains(DefaultBotTools(), CreateSpecTaskPRsName) {
+		t.Fatal("bots must keep create_spectask_prs")
 	}
 }

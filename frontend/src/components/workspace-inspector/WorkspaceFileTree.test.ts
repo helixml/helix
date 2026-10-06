@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TypesWorkspaceFileEntry } from "../../api/api";
-import { ancestorDirectoryPaths, filteredTreePaths, treeSelectionNeedsSync } from "./WorkspaceFileTree";
+import { ancestorDirectoryPaths, changedFileGitStatus, filteredTreePaths, treeSelectionNeedsSync } from "./WorkspaceFileTree";
 
 const entries: TypesWorkspaceFileEntry[] = [
   { kind: "directory", path: "src" },
@@ -11,6 +11,21 @@ const entries: TypesWorkspaceFileEntry[] = [
 ];
 
 describe("workspace file tree filtering", () => {
+  it("maps changed files to Pierre git status decorations", () => {
+    expect(changedFileGitStatus([
+      { path: "src/changed.ts", kind: "modified" },
+      { path: "src/new.ts", kind: "added" },
+      { path: "src/copied.ts", kind: "copied" },
+      { path: "src/mystery.ts", kind: "unknown" },
+      { kind: "deleted" },
+    ])).toEqual([
+      { path: "src/changed.ts", status: "modified" },
+      { path: "src/new.ts", status: "added" },
+      { path: "src/copied.ts", status: "added" },
+      { path: "src/mystery.ts", status: "modified" },
+    ]);
+  });
+
   it("uses AND-token matching and retains the matching file's ancestors", () => {
     expect(filteredTreePaths(entries, "workspace second json")).toEqual([
       "src/",

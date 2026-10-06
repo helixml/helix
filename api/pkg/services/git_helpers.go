@@ -174,6 +174,36 @@ func (g *GitRepo) ListBranches() ([]string, error) {
 	return branches, nil
 }
 
+// GetMergeParentSHAs returns the non-first-parent commit SHAs of merge commits
+// reachable from targetBranch. If a branch's current tip exactly matches one of
+// these SHAs, Git records affirmative evidence that tip was merged. Squash,
+// rebase, fast-forward, and otherwise ambiguous histories intentionally produce
+// no evidence.
+func GetMergeParentSHAs(ctx context.Context, repoPath, targetBranch string) (map[string]struct{}, error) {
+	stdout, _, err := gitcmd.NewCommand("rev-list", "--merges", "--parents").
+		AddDynamicArguments(targetBranch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect merges into %s: %w", targetBranch, err)
+	}
+
+	return parseMergeParentSHAs(stdout), nil
+}
+
+func parseMergeParentSHAs(stdout string) map[string]struct{} {
+	mergeParents := make(map[string]struct{})
+	for _, line := range strings.Split(stdout, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		for _, parentSHA := range fields[2:] {
+			mergeParents[parentSHA] = struct{}{}
+		}
+	}
+	return mergeParents
+}
+
 // FindTaskDirInBranch returns the helix-specs path for a spec task's
 // design-doc directory.
 //
@@ -403,7 +433,7 @@ func WriteBlob(ctx context.Context, repoPath string, content []byte) (string, er
 // Equivalent to: git rev-parse <ref>^{tree}
 func GetTreeSHA(ctx context.Context, repoPath, ref string) (string, error) {
 	stdout, _, err := gitcmd.NewCommand("rev-parse").
-		AddDynamicArguments(ref + "^{tree}").
+		AddDynamicArguments(ref+"^{tree}").
 		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
 	if err != nil {
 		return "", err

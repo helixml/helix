@@ -19,6 +19,15 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+type recordingSlackSender struct {
+	messages []string
+}
+
+func (s *recordingSlackSender) SendSubscriptionMessage(message string) error {
+	s.messages = append(s.messages, message)
+	return nil
+}
+
 func Test_handleSubscriptionEvent(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -75,11 +84,57 @@ func Test_handleSubscriptionEvent_NotFound(t *testing.T) {
 
 }
 
+func TestHandleSubscriptionEvent_SendsDistinctTrialNotifications(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		eventType      stripe.EventType
+		previousStatus stripe.SubscriptionStatus
+		status         stripe.SubscriptionStatus
+		message        string
+	}{
+		{"trial started", stripe.EventTypeCustomerSubscriptionCreated, "", stripe.SubscriptionStatusTrialing, "🆓 Free trial started: test@example.com"},
+		{"trial converted", stripe.EventTypeCustomerSubscriptionUpdated, stripe.SubscriptionStatusTrialing, stripe.SubscriptionStatusActive, "💰 Free trial converted to a paid subscription: test@example.com"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			db := store.NewMockStore(ctrl)
+			slack := &recordingSlackSender{}
+			s := NewStripe(config.Stripe{}, db)
+			s.SetSlackSender(slack)
+			wallet := &types.Wallet{ID: "wallet_123", UserID: "user_123", SubscriptionStatus: tt.previousStatus}
+
+			db.EXPECT().GetWalletByStripeCustomerID(gomock.Any(), "cus_123").Return(wallet, nil)
+			db.EXPECT().UpdateWallet(gomock.Any(), wallet).Return(wallet, nil)
+			db.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{Email: "test@example.com"}, nil)
+
+			event := stripeEvent(t, tt.eventType, &stripe.Subscription{
+				ID:       "sub_123",
+				Customer: &stripe.Customer{ID: "cus_123"},
+				Status:   tt.status,
+			})
+			require.NoError(t, s.handleSubscriptionEvent(event))
+			require.Equal(t, []string{tt.message}, slack.messages)
+		})
+	}
+}
+
+func TestBillingAccount_PrefersOrganizationForOrgWallet(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{}, db)
+	wallet := &types.Wallet{ID: "wallet_123", OrgID: "org_123"}
+
+	db.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(&types.Organization{Name: "Acme"}, nil)
+	db.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{Email: "initiator@example.com"}, nil)
+
+	require.Equal(t, "Acme (initiated by initiator@example.com)", s.billingAccount(context.Background(), wallet, "initiator_123"))
+}
+
 type mockSubscriptionBackend struct {
-	t             *testing.T
-	expectedPath  string
-	subscription  *stripe.Subscription
-	callInvoked   bool
+	t            *testing.T
+	expectedPath string
+	subscription *stripe.Subscription
+	callInvoked  bool
 }
 
 func (m *mockSubscriptionBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
@@ -108,12 +163,46 @@ func (m *mockSubscriptionBackend) CallMultipart(string, string, string, string, 
 
 func (m *mockSubscriptionBackend) SetMaxNetworkRetries(int64) {}
 
+type mockSubscriptionListBackend struct {
+	t            *testing.T
+	subscription *stripe.Subscription
+	callInvoked  bool
+}
+
+func (m *mockSubscriptionListBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
+	return m.setList(method, path, v)
+}
+
+func (m *mockSubscriptionListBackend) setList(method, path string, v stripe.LastResponseSetter) error {
+	require.Equal(m.t, http.MethodGet, method)
+	require.Equal(m.t, "/v1/subscriptions", path)
+	list, ok := v.(*stripe.SubscriptionList)
+	require.True(m.t, ok)
+	list.Data = []*stripe.Subscription{m.subscription}
+	m.callInvoked = true
+	return nil
+}
+
+func (m *mockSubscriptionListBackend) CallStreaming(string, string, string, stripe.ParamsContainer, stripe.StreamingLastResponseSetter) error {
+	return fmt.Errorf("unexpected CallStreaming invocation")
+}
+
+func (m *mockSubscriptionListBackend) CallRaw(method, path, _ string, _ *form.Values, _ *stripe.Params, v stripe.LastResponseSetter) error {
+	return m.setList(method, path, v)
+}
+
+func (m *mockSubscriptionListBackend) CallMultipart(string, string, string, string, *bytes.Buffer, *stripe.Params, stripe.LastResponseSetter) error {
+	return fmt.Errorf("unexpected CallMultipart invocation")
+}
+
+func (m *mockSubscriptionListBackend) SetMaxNetworkRetries(int64) {}
+
 type mockProductBackend struct {
-	t               *testing.T
-	expectedPath    string
-	product         *stripe.Product
-	err             error
-	callInvoked     bool
+	t            *testing.T
+	expectedPath string
+	product      *stripe.Product
+	err          error
+	callInvoked  bool
 }
 
 func (m *mockProductBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
@@ -187,11 +276,70 @@ func TestSyncSubscription_UpdatesAndPersistsWallet(t *testing.T) {
 		return got, nil
 	})
 
-	s.SyncSubscription(context.Background(), wallet)
+	s.SyncSubscription(context.Background(), wallet, false)
 
 	require.True(t, mockBackend.callInvoked)
 	require.Equal(t, stripe.SubscriptionStatusPastDue, wallet.SubscriptionStatus)
 	require.Equal(t, int64(1111), wallet.SubscriptionCurrentPeriodStart)
 	require.Equal(t, int64(2222), wallet.SubscriptionCurrentPeriodEnd)
 	require.True(t, wallet.SubscriptionCancelAtPeriodEnd)
+}
+
+func TestGetCheckoutSessionURLRejectsSecondTrialForLiveSubscription(t *testing.T) {
+	backend := &mockSubscriptionListBackend{
+		t: t,
+		subscription: &stripe.Subscription{
+			ID:     "sub_existing",
+			Status: stripe.SubscriptionStatusTrialing,
+		},
+	}
+	originalAPIBackend := stripe.GetBackend(stripe.APIBackend)
+	stripe.SetBackend(stripe.APIBackend, backend)
+	t.Cleanup(func() { stripe.SetBackend(stripe.APIBackend, originalAPIBackend) })
+
+	s := NewStripe(config.Stripe{
+		SecretKey:            "sk_test",
+		WebhookSigningSecret: "whsec_test",
+	}, nil)
+	_, err := s.GetCheckoutSessionURL(SubscriptionSessionParams{
+		StripeCustomerID: "cus_existing",
+		TrialPeriodDays:  3,
+	})
+	require.EqualError(t, err, "customer already has a live subscription")
+	require.True(t, backend.callInvoked)
+}
+
+func TestSyncSubscription_DiscoversSubscriptionWhenWebhookIsDelayed(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	store := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{SecretKey: "sk_test_sync"}, store)
+	wallet := &types.Wallet{
+		ID:               "wallet_123",
+		StripeCustomerID: "cus_123",
+	}
+
+	mockBackend := &mockSubscriptionListBackend{
+		t: t,
+		subscription: &stripe.Subscription{
+			ID:                 "sub_trial_123",
+			Status:             stripe.SubscriptionStatusTrialing,
+			Created:            1000,
+			CurrentPeriodStart: 1000,
+			CurrentPeriodEnd:   2000,
+		},
+	}
+	originalAPIBackend := stripe.GetBackend(stripe.APIBackend)
+	stripe.SetBackend(stripe.APIBackend, mockBackend)
+	t.Cleanup(func() { stripe.SetBackend(stripe.APIBackend, originalAPIBackend) })
+
+	store.EXPECT().UpdateWallet(gomock.Any(), wallet).Return(wallet, nil)
+
+	s.SyncSubscription(context.Background(), wallet, true)
+
+	require.True(t, mockBackend.callInvoked)
+	require.Equal(t, "sub_trial_123", wallet.StripeSubscriptionID)
+	require.Equal(t, stripe.SubscriptionStatusTrialing, wallet.SubscriptionStatus)
+	require.Equal(t, int64(1000), wallet.SubscriptionCreated)
 }

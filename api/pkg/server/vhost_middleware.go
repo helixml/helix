@@ -75,7 +75,7 @@ func hostnameOf(serverURL string) string {
 // VHostMiddleware dispatches incoming requests by Host header:
 //   - canonical hostname → fall through to the main mux
 //   - <share-*>.<base>   → look up vhost_routes (sandbox_preview)
-//   - other host with a matching vhost_routes row → project web service
+//   - other host with a matching vhost_routes row → project web service or artifact
 //   - everything else    → fall through to the main mux (404s from there)
 //
 // This replaces the old SubdomainProxyMiddleware (deleted) and the
@@ -119,8 +119,9 @@ func (m *VHostMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. Project web services — any other hostname that has a verified row.
-	m.serveVHostLookup(w, r, host, types.VHostTargetProjectWebService)
+	// 3. Project web services and static artifacts — any other hostname that
+	// has a verified row. The route row determines the target kind.
+	m.serveVHostLookup(w, r, host, "")
 }
 
 // serveVHostLookup resolves a hostname via vhost_routes and dispatches
@@ -140,7 +141,7 @@ func (m *VHostMiddleware) serveVHostLookup(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "vhost lookup failed", http.StatusInternalServerError)
 		return
 	}
-	if route.TargetKind != expectedKind {
+	if expectedKind != "" && route.TargetKind != expectedKind {
 		// Misrouted (likely a misconfiguration or someone trying to use
 		// the wrong dispatch branch). Treat as unknown.
 		m.next.ServeHTTP(w, r)
@@ -156,9 +157,24 @@ func (m *VHostMiddleware) serveVHostLookup(w http.ResponseWriter, r *http.Reques
 		m.dispatchSandboxPreview(w, r, route)
 	case types.VHostTargetProjectWebService:
 		m.dispatchProjectWebService(w, r, route)
+	case types.VHostTargetArtifact, types.VHostTargetArtifactPrivate:
+		m.dispatchArtifact(w, r, route)
 	default:
 		http.Error(w, "unknown route target kind", http.StatusInternalServerError)
 	}
+}
+
+func (m *VHostMiddleware) dispatchArtifact(w http.ResponseWriter, r *http.Request, route *types.VHostRoute) {
+	artifact, err := m.apiServer.Store.GetArtifact(r.Context(), route.TargetID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if artifact.Visibility != types.ArtifactVisibilityPublic {
+		m.apiServer.servePrivateArtifactVHost(w, r, artifact, route, strings.TrimPrefix(r.URL.Path, "/"))
+		return
+	}
+	m.apiServer.serveArtifactFile(w, r, artifact, strings.TrimPrefix(r.URL.Path, "/"))
 }
 
 // dispatchSandboxPreview proxies a preview-token request to the
@@ -178,7 +194,7 @@ func (m *VHostMiddleware) dispatchSandboxPreview(w http.ResponseWriter, r *http.
 			http.Error(w, "preview target session has no sandbox", http.StatusServiceUnavailable)
 			return
 		}
-		m.apiServer.proxyToContainer(w, r, sess.SandboxID, targetID, route.Port, r.URL.Path, "")
+		m.apiServer.proxyToContainer(w, r, sess.SandboxID, targetID, route.Port, r.URL.Path, "", true)
 		return
 	}
 	if strings.HasPrefix(targetID, "sbx_") {
@@ -189,7 +205,7 @@ func (m *VHostMiddleware) dispatchSandboxPreview(w http.ResponseWriter, r *http.
 		}
 		// Sandbox-API containers are registered in hydra under
 		// req.SessionID = sandbox.ID (see sandbox/controller_provision.go).
-		m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, sb.ID, route.Port, r.URL.Path, "")
+		m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, sb.ID, route.Port, r.URL.Path, "", true)
 		return
 	}
 	http.Error(w, "unrecognised preview target id format", http.StatusBadRequest)
@@ -213,7 +229,11 @@ func (m *VHostMiddleware) dispatchProjectWebService(w http.ResponseWriter, r *ht
 		return
 	}
 	if state.ActiveSandboxID == "" {
-		http.Error(w, "project web service has no active deployment", http.StatusServiceUnavailable)
+		// Customer-facing hostname: show the branded holding page rather than
+		// an internal string. Nothing is deployed yet (or a deploy is in
+		// flight); serveHoldingPage picks "starting up" vs "temporarily
+		// unavailable" from the deploy state.
+		m.apiServer.serveHoldingPage(r.Context(), w, route.TargetID)
 		return
 	}
 	// Web service sandboxes are registered with hydra under their
@@ -223,13 +243,25 @@ func (m *VHostMiddleware) dispatchProjectWebService(w http.ResponseWriter, r *ht
 	// itself.
 	sb, err := m.apiServer.Store.GetSandbox(r.Context(), state.ActiveSandboxID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("active sandbox not found: %s", err), http.StatusBadGateway)
+		// active_sandbox_id points at a row that is gone (soft-deleted).
+		// Recovery deletes the old sandbox BEFORE provisioning its replacement,
+		// and only repoints active_sandbox_id at the very end of a successful
+		// deploy — so this window is entirely normal, and on 2026-09-27 it
+		// lasted ~28h. It used to emit a raw 502 carrying
+		// "active sandbox not found: not found", leaking internals to the
+		// customer and bypassing every holding page. Serve the branded page.
+		log.Warn().Err(err).
+			Str("project_id", route.TargetID).
+			Str("active_sandbox_id", state.ActiveSandboxID).
+			Str("hostname", route.Hostname).
+			Msg("vhost: web-service active sandbox row is missing; serving holding page")
+		m.apiServer.serveHoldingPage(r.Context(), w, route.TargetID)
 		return
 	}
 	// route.TargetID is the projectID for a web-service route → lets the holding
 	// page distinguish "starting up" (deploy in flight) from "temporarily
 	// unavailable" (down / crashed).
-	m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, sb.ID, route.Port, r.URL.Path, route.TargetID)
+	m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, sb.ID, route.Port, r.URL.Path, route.TargetID, false)
 }
 
 // stripPort removes a trailing :port from a Host header value, taking

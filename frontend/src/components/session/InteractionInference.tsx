@@ -1,15 +1,19 @@
 import React, { FC, useState, useEffect, useMemo } from "react";
 import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
 import ReplayIcon from "@mui/icons-material/Replay";
-import TerminalWindow from "../widgets/TerminalWindow";
-import ClickLink from "../widgets/ClickLink";
+import { useGetWallet } from "../../services/useBilling";
 import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
 import WorkLog from "./WorkLog";
+import { CollapsibleToolCall } from "./CollapsibleToolCall";
 import ActivitySummary from "./ActivitySummary";
+import SubagentActivityCard from "./SubagentActivityCard";
+import { parseSubagentEntry } from "./subagentActivity";
 import { SessionPlanProgress } from "./PlanProgress";
 import { getInteractionDurationMs } from "./interactionDuration";
 import ImageLightbox, { LightboxImage } from "./ImageLightbox";
@@ -24,6 +28,9 @@ export interface ResponseEntry {
   message_id: string;
   tool_name?: string;
   tool_status?: string;
+  tool_call_id?: string;
+  tool_call_name?: string;
+  subagent_id?: string;
 }
 
 interface TextActivitySegment {
@@ -45,7 +52,23 @@ interface ToolActivitySegment {
   }>;
 }
 
-type ActivitySegment = TextActivitySegment | ToolActivitySegment;
+interface SubagentActivitySegment {
+  type: "subagent";
+  index: number;
+  entry: ResponseEntry;
+}
+
+interface QuestionActivitySegment {
+  type: "question";
+  index: number;
+  answer: TypesResolvedQuestion;
+}
+
+type ActivitySegment =
+  | TextActivitySegment
+  | ToolActivitySegment
+  | SubagentActivitySegment
+  | QuestionActivitySegment;
 
 const hasThinking = (content: string) => /<(?:think|thinking)>/i.test(content);
 
@@ -73,6 +96,7 @@ const toolActivityEntry = (
 export function buildActivityTimeline(
   responseEntries: ResponseEntry[],
   isStreaming: boolean,
+  questionHistory: TypesResolvedQuestion[] = [],
 ): { activitySegments: ActivitySegment[]; finalTextIndex: number | undefined } {
   let finalTextIndex: number | undefined;
   if (!isStreaming) {
@@ -89,9 +113,29 @@ export function buildActivityTimeline(
 
   const activitySegments: ActivitySegment[] = [];
   let currentToolSegment: ToolActivitySegment | undefined;
+  const remainingQuestions = [...questionHistory];
 
   responseEntries.forEach((entry, index) => {
     if (entry.type === "tool_call") {
+      const subagent = parseSubagentEntry(entry);
+      if (subagent) {
+        currentToolSegment = undefined;
+        if (subagent.action === "start") {
+          activitySegments.push({ type: "subagent", index, entry });
+        }
+        return;
+      }
+      const questionIndex = remainingQuestions.findIndex(
+        (question) =>
+          Boolean(question.tool_call_id) &&
+          question.tool_call_id === entry.tool_call_id,
+      );
+      if (questionIndex >= 0) {
+        const [answer] = remainingQuestions.splice(questionIndex, 1);
+        currentToolSegment = undefined;
+        activitySegments.push({ type: "question", index, answer });
+        return;
+      }
       const toolEntry = toolActivityEntry(
         entry,
         index,
@@ -114,11 +158,8 @@ export function buildActivityTimeline(
       return;
     }
 
-    // Any text entry ends the current tool run, even when its thinking content
-    // is hidden while streaming.
-    currentToolSegment = undefined;
-
     if (index === finalTextIndex) {
+      currentToolSegment = undefined;
       if (hasThinking(entry.content)) {
         activitySegments.push({
           type: "text",
@@ -134,6 +175,7 @@ export function buildActivityTimeline(
     const renderThinking = !isStreaming && hasThinking(entry.content);
     const renderContent = hasVisibleAssistantText(entry.content);
     if (renderThinking || renderContent) {
+      currentToolSegment = undefined;
       activitySegments.push({
         type: "text",
         entry,
@@ -142,6 +184,14 @@ export function buildActivityTimeline(
         renderContent,
       });
     }
+  });
+
+  remainingQuestions.forEach((answer, index) => {
+    activitySegments.push({
+      type: "question",
+      index: responseEntries.length + index,
+      answer,
+    });
   });
 
   return {
@@ -157,6 +207,8 @@ import CopyButtonWithCheck from "./CopyButtonWithCheck";
 import InteractionDebugCopyButton from "./InteractionDebugCopyButton";
 import MessageReceivedTimestamp from "./MessageReceivedTimestamp";
 import ToolStepsWidget from "./ToolStepsWidget";
+import WorkspaceReviewMessage from "./WorkspaceReviewMessage";
+import { parseWorkspaceReviewMessage } from "./workspaceReviewMessage";
 
 import { ThumbsUp, ThumbsDown, Download, FileText, Paperclip } from "lucide-react";
 
@@ -174,6 +226,7 @@ import {
   TypesFeedback,
   TypesInteraction,
   TypesInteractionState,
+  TypesResolvedQuestion,
   TypesSession,
 } from "../../api/api";
 import {
@@ -191,6 +244,7 @@ import {
 export const MessageWithToolCalls: FC<{
   text: string;
   responseEntries?: ResponseEntry[];
+  questionHistory?: TypesResolvedQuestion[];
   session: TypesSession;
   getFileURL: (url: string) => string;
   showBlinker: boolean;
@@ -204,6 +258,7 @@ export const MessageWithToolCalls: FC<{
 }> = ({
   text,
   responseEntries,
+  questionHistory = [],
   session,
   getFileURL,
   showBlinker,
@@ -242,11 +297,34 @@ export const MessageWithToolCalls: FC<{
     const { activitySegments, finalTextIndex } = buildActivityTimeline(
       responseEntries,
       isStreaming,
+      questionHistory,
     );
-    const hasActivity = activitySegments.length > 0;
-    const activity = activitySegments.map((segment, segmentIndex) => {
+    const renderActivitySegment = (segment: ActivitySegment, segmentIndex: number) => {
       if (segment.type === "tools") {
         return <WorkLog key={`tool-run-${segmentIndex}`} entries={segment.entries} />;
+      }
+
+      if (segment.type === "subagent") {
+        return (
+          <SubagentActivityCard
+            key={`subagent-${segment.entry.message_id || segment.index}`}
+            entry={segment.entry}
+            isStreaming={isStreaming}
+          />
+        );
+      }
+
+      if (segment.type === "question") {
+        return (
+          <CollapsibleToolCall
+            key={`question-${segment.answer.request_id || segment.index}`}
+            toolName="User input"
+            status="Completed"
+            body=""
+            questionAnswer={segment.answer}
+            dense
+          />
+        );
       }
 
       return (
@@ -263,7 +341,15 @@ export const MessageWithToolCalls: FC<{
           renderContent={segment.renderContent}
         />
       );
-    });
+    };
+    const subagentActivity = activitySegments
+      .filter((segment) => segment.type === "subagent")
+      .map(renderActivitySegment);
+    const collapsibleActivity = activitySegments
+      .filter((segment) => segment.type !== "subagent")
+      .map(renderActivitySegment);
+    const hasCollapsibleActivity = collapsibleActivity.length > 0;
+    const streamingActivity = activitySegments.map(renderActivitySegment);
     const finalEntry = finalTextIndex === undefined ? undefined : responseEntries[finalTextIndex];
     const finalContent = finalEntry ? (
       <Markdown
@@ -280,7 +366,7 @@ export const MessageWithToolCalls: FC<{
 
     return isStreaming ? (
       <>
-        {activity}
+        {streamingActivity}
         {planProgress}
         <ActivitySummary
           durationMs={durationMs}
@@ -291,13 +377,14 @@ export const MessageWithToolCalls: FC<{
       </>
     ) : (
       <>
+        {subagentActivity}
         <ActivitySummary
           durationMs={durationMs}
-          hasActivity={hasActivity}
+          hasActivity={hasCollapsibleActivity}
           isStreaming={false}
           startedAt={activityStartedAt}
         >
-          {activity}
+          {collapsibleActivity}
         </ActivitySummary>
         {planProgress}
         {finalContent}
@@ -332,9 +419,20 @@ export const MessageWithToolCalls: FC<{
       renderContent={false}
     />
   ) : null;
+  const questionActivity = questionHistory.map((answer, index) => (
+    <CollapsibleToolCall
+      key={`question-${answer.request_id || index}`}
+      toolName="User input"
+      status="Completed"
+      body=""
+      questionAnswer={answer}
+      dense
+    />
+  ));
 
   return isStreaming ? (
     <>
+      {questionActivity}
       {finalContent}
       {planProgress}
       <ActivitySummary
@@ -345,6 +443,20 @@ export const MessageWithToolCalls: FC<{
       >
         {activityContent}
       </ActivitySummary>
+    </>
+  ) : questionActivity.length > 0 ? (
+    <>
+      <ActivitySummary
+        durationMs={durationMs}
+        hasActivity
+        isStreaming={false}
+        startedAt={activityStartedAt}
+      >
+        {activityContent}
+        {questionActivity}
+      </ActivitySummary>
+      {planProgress}
+      {finalContent}
     </>
   ) : (
     <>
@@ -367,6 +479,13 @@ export const InteractionInference: FC<{
   workspaceAttachments?: ChatWorkspaceAttachment[];
   message?: string;
   error?: string;
+  /**
+   * The session went on to complete a later turn, so this error is history.
+   * Render it as a quiet note instead of an alert, and withhold Retry: the
+   * prompt it would re-send has already been overtaken by the work that
+   * followed.
+   */
+  errorIsHistorical?: boolean;
   serverConfig?: TypesServerConfigForFrontend;
   interaction: TypesInteraction;
   session: TypesSession;
@@ -386,6 +505,7 @@ export const InteractionInference: FC<{
   workspaceAttachments = [],
   message,
   error,
+  errorIsHistorical = false,
   serverConfig,
   interaction,
   session,
@@ -403,7 +523,6 @@ export const InteractionInference: FC<{
 }) => {
   const account = useAccount();
   const router = useRouter();
-  const [viewingError, setViewingError] = useState(false);
   const [viewingExport, setViewingExport] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const [userMessageExpanded, setUserMessageExpanded] = useState(false);
@@ -426,6 +545,35 @@ export const InteractionInference: FC<{
     session.id || "",
     interaction.id || "",
   );
+  const isInsufficientBalance = !!error && /insufficient balance/i.test(error);
+  const { data: wallet } = useGetWallet(
+    router.params.org_id,
+    isInsufficientBalance && !!router.params.org_id,
+  );
+  const hasCredits = (wallet?.balance ?? 0)
+    >= (serverConfig?.minimum_inference_balance ?? 0.01);
+  const showAddCredits = isInsufficientBalance
+    && !hasCredits
+    && !!router.params.org_id;
+  const isBotProviderUnavailable = !!error
+    && !!router.params.org_id
+    && !!router.params.bot_id
+    && (
+      /provider is not available to the organization/i.test(error)
+      || /provider ".+" is not enabled for coding-agent (?:runtime|harness) ".+" in this organization/i.test(error)
+    );
+  const errorTitle = isInsufficientBalance
+    ? "More credits needed"
+    : isBotProviderUnavailable
+      ? "Provider setup required"
+      : "We couldn’t complete that request";
+  const errorMessage = isInsufficientBalance
+    ? hasCredits
+      ? "Credits are available now. Retry to continue."
+      : "Your organization doesn’t have enough credits. Add credits to continue."
+    : isBotProviderUnavailable
+      ? "Configure this bot's provider and model."
+      : error;
   const handleCancel =
     externalHandleCancel ||
     (() => {
@@ -484,9 +632,17 @@ export const InteractionInference: FC<{
       .map((e: ResponseEntry) => e.content)
       .join("\n\n");
   }, [message, interaction]);
-  const shouldCollapseUserMessage = !isFromAssistant && !!message && (
-    message.length > 600 || message.split("\n").length > 8
-  );
+  const hasWorkspaceReviewComments =
+    !isFromAssistant &&
+    !!message &&
+    parseWorkspaceReviewMessage(message).some(
+      (segment) => segment.type === "comment",
+    );
+  const shouldCollapseUserMessage =
+    !isFromAssistant &&
+    !hasWorkspaceReviewComments &&
+    !!message &&
+    (message.length > 600 || message.split("\n").length > 8);
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null;
   if (!interaction) return null;
@@ -712,18 +868,27 @@ export const InteractionInference: FC<{
                         : undefined,
                     }}
                   >
-                    <MessageWithToolCalls
-                      text={message || ""}
-                      responseEntries={isFromAssistant ? (interaction as any)?.response_entries : undefined}
-                      session={session}
-                      getFileURL={getFileURL}
-                      showBlinker={false}
-                      isStreaming={false}
-                      durationMs={getInteractionDurationMs(interaction)}
-                      showActivitySummary={isFromAssistant}
-                      includeTaskChecklist={isFromAssistant && !!isLastInteraction}
-                      onFilterDocument={onFilterDocument}
-                    />
+                    {!isFromAssistant && hasWorkspaceReviewComments ? (
+                      <WorkspaceReviewMessage
+                        text={message || ""}
+                        session={session}
+                        getFileURL={getFileURL}
+                      />
+                    ) : (
+                      <MessageWithToolCalls
+                        text={message || ""}
+                        responseEntries={isFromAssistant ? (interaction as any)?.response_entries : undefined}
+                        questionHistory={isFromAssistant ? interaction.question_history : undefined}
+                        session={session}
+                        getFileURL={getFileURL}
+                        showBlinker={false}
+                        isStreaming={false}
+                        durationMs={getInteractionDurationMs(interaction)}
+                        showActivitySummary={isFromAssistant}
+                        includeTaskChecklist={isFromAssistant && !!isLastInteraction}
+                        onFilterDocument={onFilterDocument}
+                      />
+                    )}
                   </Box>
                   {shouldCollapseUserMessage && (
                     <Button
@@ -910,7 +1075,28 @@ export const InteractionInference: FC<{
           </Box>
         </Box>
       )}
-      {error && (
+      {error && errorIsHistorical && (
+        <Row sx={{ mt: 2 }}>
+          <Cell grow>
+            <Typography variant="caption" color="text.secondary">
+              This turn was interrupted and did not finish. The session
+              continued afterwards.
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{
+                display: "block",
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {error}
+            </Typography>
+          </Cell>
+        </Row>
+      )}
+      {error && !errorIsHistorical && (
         <Row
           sx={{
             mt: 3,
@@ -918,22 +1104,50 @@ export const InteractionInference: FC<{
         >
           <Cell grow>
             <Alert severity="error">
-              The system has encountered an error -
-              <ClickLink
-                sx={{
-                  pl: 0.5,
-                  pr: 0.5,
-                }}
-                onClick={() => {
-                  setViewingError(true);
-                }}
+              <AlertTitle>{errorTitle}</AlertTitle>
+              <Typography
+                variant="body2"
+                sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
               >
-                click here
-              </ClickLink>
-              to view the details.
+                {errorMessage}
+              </Typography>
+              {showAddCredits && (
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  size="small"
+                  sx={{ mt: 1 }}
+                  onClick={() =>
+                    router.navigate("org_billing", {
+                      org_id: router.params.org_id,
+                    })
+                  }
+                >
+                  Add credits
+                </Button>
+              )}
+              {isBotProviderUnavailable && (
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  size="small"
+                  sx={{ mt: 1 }}
+                  onClick={() =>
+                    router.navigate("helix_org_bot_detail", {
+                      org_id: router.params.org_id,
+                      bot_id: router.params.bot_id,
+                    })
+                  }
+                >
+                  Configure provider
+                </Button>
+              )}
             </Alert>
           </Cell>
-          {onRegenerate && !message && (
+          {onRegenerate
+            && !message
+            && !isBotProviderUnavailable
+            && (!isInsufficientBalance || hasCredits) && (
             <Cell
               sx={{
                 ml: 2,
@@ -961,16 +1175,6 @@ export const InteractionInference: FC<{
             </Cell>
           )}
         </Row>
-      )}
-      {viewingError && (
-        <TerminalWindow
-          open
-          title="Error"
-          data={error}
-          onClose={() => {
-            setViewingError(false);
-          }}
-        />
       )}
       {viewingExport && (
         <ExportDocument

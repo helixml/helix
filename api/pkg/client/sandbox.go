@@ -20,14 +20,26 @@ import (
 // Auth: every method uses the same Bearer token as the rest of HelixClient.
 // All sandbox routes are scoped to an org id; pass it in via the orgID arg.
 //
-// Note: makeRequest has a 10s timeout, which is fine for control-plane calls
-// (list/create/get/delete, exec for non-detached commands). Streaming endpoints
-// (terminal websocket, command log SSE) bypass it and use the http client
-// directly so they can stay open indefinitely.
+// Note: makeRequest applies a 10s timeout unless ctx carries a deadline, which
+// is fine for control-plane calls (list/create/get/delete). A synchronous
+// command runs for up to its TimeoutSeconds, so give RunSandboxCommand a ctx
+// with a deadline beyond that. Streaming endpoints (terminal websocket,
+// command log SSE) bypass it and use the http client directly so they can
+// stay open indefinitely.
 
 // SandboxListFilter narrows ListSandboxes results. ProjectID="" matches all.
 type SandboxListFilter struct {
 	ProjectID string
+}
+
+// SandboxRuntimeInfo describes one runtime and whether this deployment can
+// actually run it. Desktop runtimes are unavailable on a fleet whose sandbox
+// hosts have no render node.
+type SandboxRuntimeInfo struct {
+	Name            string `json:"name"`
+	RequiresDisplay bool   `json:"requires_display"`
+	Available       bool   `json:"available"`
+	Reason          string `json:"reason,omitempty"`
 }
 
 // ListSandboxRuntimes returns the runtime names this server is configured to
@@ -41,6 +53,21 @@ func (c *HelixClient) ListSandboxRuntimes(ctx context.Context) ([]string, error)
 		return nil, err
 	}
 	return resp.Runtimes, nil
+}
+
+// ListSandboxRuntimeDetails returns per-runtime availability alongside whether
+// the deployment has any display-capable sandbox host at all. Servers older
+// than this field return an empty slice, in which case callers should fall
+// back to ListSandboxRuntimes.
+func (c *HelixClient) ListSandboxRuntimeDetails(ctx context.Context) ([]SandboxRuntimeInfo, bool, error) {
+	var resp struct {
+		RuntimeDetails []SandboxRuntimeInfo `json:"runtime_details"`
+		DesktopCapable bool                 `json:"desktop_capable"`
+	}
+	if err := c.makeRequest(ctx, http.MethodGet, "/sandbox-runtimes", nil, &resp); err != nil {
+		return nil, false, err
+	}
+	return resp.RuntimeDetails, resp.DesktopCapable, nil
 }
 
 // ListSandboxes returns the sandboxes belonging to an organization.

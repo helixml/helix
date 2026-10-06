@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
@@ -16,8 +17,8 @@ func mkProc(t *testing.T, id, name, input, tmpl, out, org string) processor.Proc
 	t.Helper()
 	cfg, _ := json.Marshal(map[string]string{"template": tmpl})
 	p, err := processor.NewProcessor(
-		id, name, input, processor.KindTemplate, cfg,
-		[]processor.Output{{TopicID: out}}, "w-owner", time.Now(), org,
+		id, name, eventsource.Trigger(input), processor.KindTemplate, cfg,
+		[]processor.Output{{ID: "po-" + out, StreamID: out}}, "w-owner", time.Now(), org,
 	)
 	if err != nil {
 		t.Fatalf("NewProcessor: %v", err)
@@ -38,7 +39,7 @@ func TestProcessorsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.Name != "Formatter" || got.InputTopicID != "s-in" || got.Outputs[0].TopicID != "s-out" {
+	if got.Name != "Formatter" || got.InputSource != eventsource.Trigger("s-in") || got.Outputs[0].StreamID != "s-out" {
 		t.Fatalf("Get returned %+v", got)
 	}
 
@@ -65,7 +66,7 @@ func TestProcessorsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestProcessorsListByInputTopic(t *testing.T) {
+func TestProcessorsListByInputSource(t *testing.T) {
 	ctx := context.Background()
 	s := memory.New()
 	_ = s.Processors.Create(ctx, mkProc(t, "p-a", "A", "s-in", "{{.Message.body}}", "s-a", "org-1"))
@@ -74,9 +75,9 @@ func TestProcessorsListByInputTopic(t *testing.T) {
 	// Another org sharing the input topic id must not leak in.
 	_ = s.Processors.Create(ctx, mkProc(t, "p-a", "A", "s-in", "{{.Message.body}}", "s-z", "org-2"))
 
-	got, err := s.Processors.ListByInputTopic(ctx, "org-1", "s-in")
+	got, err := s.Processors.ListByInputSource(ctx, "org-1", eventsource.Trigger("s-in"))
 	if err != nil {
-		t.Fatalf("ListByInputTopic: %v", err)
+		t.Fatalf("ListByInputSource: %v", err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("want 2 processors on s-in in org-1, got %d", len(got))

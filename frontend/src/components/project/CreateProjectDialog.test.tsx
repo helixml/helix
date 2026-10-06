@@ -3,11 +3,11 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { TypesGitRepository } from '../../api/api'
+import type { TypesCodeAgentExecutionConfig, TypesGitRepository } from '../../api/api'
 import CreateProjectDialog from './CreateProjectDialog'
 
 const mocks = vi.hoisted(() => ({
-  createAgent: vi.fn(),
+  getConfig: vi.fn(),
   createProject: vi.fn(),
   createRepo: vi.fn(),
   projects: [] as Array<{ id: string; name: string }>,
@@ -57,7 +57,7 @@ vi.mock('../../services/oauthProvidersService', () => ({
 
 vi.mock('../agent/CodingAgentForm', () => ({
   default: forwardRef(function MockCodingAgentForm(_, ref) {
-    useImperativeHandle(ref, () => ({ handleCreateAgent: mocks.createAgent }))
+    useImperativeHandle(ref, () => ({ handleGetConfig: mocks.getConfig }))
     return <div>Runtime selector</div>
   }),
 }))
@@ -66,14 +66,21 @@ vi.mock('./BrowseProvidersDialog', () => ({
   default: () => null,
 }))
 
-function renderDialog(repositories: TypesGitRepository[] = []) {
+function renderDialog(
+  repositories: TypesGitRepository[] = [],
+  onClose = vi.fn(),
+  onSuccess = vi.fn(),
+  initialCodeAgentConfig?: TypesCodeAgentExecutionConfig,
+) {
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <CreateProjectDialog
         open
-        onClose={vi.fn()}
+        onClose={onClose}
+        onSuccess={onSuccess}
         repositories={repositories}
         onCreateRepo={mocks.createRepo}
+        initialCodeAgentConfig={initialCodeAgentConfig}
       />
     </QueryClientProvider>,
   )
@@ -82,7 +89,11 @@ function renderDialog(repositories: TypesGitRepository[] = []) {
 describe('CreateProjectDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.createAgent.mockResolvedValue({ id: 'agent-1' })
+    mocks.getConfig.mockReturnValue({
+      runtime: 'claude_code',
+      credential_type: 'subscription',
+      model: 'claude-opus-5',
+    })
     mocks.createProject.mockResolvedValue({ id: 'project-1' })
     mocks.createRepo.mockResolvedValue({ id: 'repo-1', name: 'demo' })
     mocks.projects.length = 0
@@ -127,12 +138,59 @@ describe('CreateProjectDialog', () => {
     fireEvent.click(createProject)
 
     await waitFor(() => expect(mocks.createRepo).toHaveBeenCalledWith('Demo project', ''))
-    await waitFor(() => expect(mocks.createAgent).toHaveBeenCalledOnce())
     expect(mocks.createProject).toHaveBeenCalledWith(expect.objectContaining({
       name: 'Demo project',
       default_repo_id: 'repo-1',
-      default_helix_app_id: 'agent-1',
+      code_agent_config: expect.objectContaining({
+        runtime: 'claude_code',
+        credential_type: 'subscription',
+        model: 'claude-opus-5',
+      }),
     }))
+  })
+
+  it('submits the onboarding config unchanged after the user supplies a name', async () => {
+    const initialConfig = {
+      runtime: 'claude_code',
+      credential_type: 'subscription',
+      model: 'claude-fable-5',
+      reasoning_effort: 'high',
+    } as TypesCodeAgentExecutionConfig
+    renderDialog([], vi.fn(), vi.fn(), initialConfig)
+
+    expect(mocks.createProject).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name$/i }), {
+      target: { value: 'Onboarded project' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Create Project/i }))
+
+    await waitFor(() => expect(mocks.createProject).toHaveBeenCalledWith(expect.objectContaining({
+      code_agent_config: initialConfig,
+    })))
+    expect(mocks.getConfig).not.toHaveBeenCalled()
+  })
+
+  it('shows subscription policy failures without closing the dialog', async () => {
+    const onClose = vi.fn()
+    const onSuccess = vi.fn()
+    mocks.createProject.mockRejectedValue({
+      response: {
+        data: 'subscription credentials are not enabled for coding-agent runtime "claude_code" in this organization',
+      },
+    })
+    renderDialog([], onClose, onSuccess)
+
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name$/i }), {
+      target: { value: 'Demo project' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Create Project/i }))
+
+    expect(await screen.findByText(
+      'Claude Code subscription access is not enabled for this organization. Ask an organization administrator to enable it in Settings > Providers, or select another coding agent.',
+    )).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(onSuccess).not.toHaveBeenCalled()
   })
 
   it('submits with Cmd or Ctrl plus Enter', async () => {

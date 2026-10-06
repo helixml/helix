@@ -13,11 +13,30 @@ import (
 
 	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/config"
 )
 
+// orgClient returns the typed API client and the resolved organization id
+// (--org, else $HELIX_ORG).
+func orgClient(ctx context.Context, orgFlag string) (*client.HelixClient, string, error) {
+	apiClient, err := client.NewClientFromEnv()
+	if err != nil {
+		return nil, "", err
+	}
+	if orgFlag == "" {
+		orgFlag = os.Getenv("HELIX_ORG")
+	}
+	orgID, err := cli.ResolveOrganization(ctx, apiClient, orgFlag)
+	if err != nil {
+		return nil, "", err
+	}
+	return apiClient, orgID, nil
+}
+
 // httpClient is a thin authenticated HTTP helper for helix-org REST paths
-// that are not (yet) on the typed Go client. Prefer NewClientFromEnv for
-// org resolution; use this for /orgs/{org}/bots|topics|processors|….
+// that are not (yet) on the typed Go client (triggers, processors, assets,
+// the exploratory-session chat and the `helix api` escape hatch). Use
+// orgClient and *client.HelixClient for everything the typed client covers.
 type httpClient struct {
 	base   string // e.g. http://localhost:8080/api/v1
 	apiKey string
@@ -25,25 +44,14 @@ type httpClient struct {
 }
 
 func newHTTPClient() (*httpClient, error) {
-	c, err := client.NewClientFromEnv()
-	if err != nil {
-		return nil, err
-	}
-	// HelixClient.url already includes /api/v1 — reach it via a small
-	// parallel helper that exposes the same env defaults.
-	url := os.Getenv("HELIX_URL")
-	if url == "" {
-		url = "http://localhost:8080"
-	}
-	url = strings.TrimRight(url, "/")
+	url := strings.TrimRight(config.CliURL("http://localhost:8080"), "/")
 	if !strings.HasSuffix(url, "/api/v1") {
 		url = url + "/api/v1"
 	}
-	apiKey := os.Getenv("HELIX_API_KEY")
+	apiKey := config.CliAPIKey()
 	if apiKey == "" {
-		return nil, fmt.Errorf("HELIX_API_KEY is not set")
+		return nil, fmt.Errorf("HELIX_API_KEY (or USER_API_TOKEN inside a Helix sandbox) is not set")
 	}
-	_ = c
 	return &httpClient{
 		base:   url,
 		apiKey: apiKey,

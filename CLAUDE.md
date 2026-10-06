@@ -77,6 +77,7 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 - QEMU builds must include `--enable-spice`; NEVER modify UTM source
 - Build QEMU: **ALWAYS use `cd for-mac && make rebuild-qemu`** (stop VM first). This builds, installs to app bundle, fixes dylib rpaths, copies to dev-qemu, and signs. **NEVER** use raw `ninja install` + manual `cp` + `codesign` — this breaks rpaths (`@rpath/pixman-1.0.framework` etc. won't resolve).
 - QEMU source: `~/pm/qemu-utm` (default branch)
+- **Release CI builds QEMU** from the helixml/qemu-utm commit pinned in `for-mac/qemu-helix/QEMU_UTM_COMMIT` (`for-mac/qemu-helix/build-qemu-ci.sh`, cached per commit on the Mac runner). After changing qemu-utm, bump the pin — same ordering as `ZED_COMMIT`. libslirp is vendored in qemu-utm (`subprojects/slirp/`), not taken from the UTM sysroot.
 - If signing fails with `errSecInternalComponent`, use `codesign --force --sign - --timestamp=none --options runtime --entitlements build/darwin/entitlements.plist build/dev-qemu/*`
 - QEMU version string is in `hw/display/helix/helix-frame-export.m` `helix_frame_export_init()` — update it when making QEMU changes
 - Dev-mode uses `build/dev-qemu/qemu-system-aarch64` (separate from app bundle)
@@ -89,6 +90,7 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 
 ### Other
 - **NEVER** rename CWD, commit customer data, or restart hung processes (collect GDB traces first)
+- **NON-NEGOTIABLE: avoid new microservices, daemons, sidecars, and standalone supervisors.** Extend the existing component that already owns the lifecycle and trust boundary. A new service requires explicit user approval after documenting why no existing component can safely own the responsibility.
 
 ## Build Pipeline
 
@@ -102,10 +104,11 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 | Desktop image / desktop-bridge / zerocopy | `./stack build-ubuntu` | Pushes to local registry |
 | Sandbox scripts | `./stack build-sandbox` | Dockerfile.sandbox |
 | Zed IDE | `./stack build-zed release` | Binary → desktop image. **Must use `release` on ARM** (`gemm-f16` fullfp16 asm fails in debug) |
-| Qwen Code | `cd ../qwen-code && git commit -am "msg" && cd ../helix && ./stack build-ubuntu` | |
+| Qwen Code | Bump `QWEN_VERSION` in `sandbox-versions.txt`, then `./stack build-ubuntu` | Published npm release; verify a live ACP turn |
 | DRM manager (`api/pkg/drm/`, `api/cmd/helix-drm-manager/`) | `./stack build-drm-manager` | Systemd service on VM guest |
 | Zed config (`zed_config.go`) | No rebuild | API-side, Air hot reloads. Start NEW session |
 | Settings-sync-daemon | `./stack build-ubuntu` | Start NEW session after |
+| Agent skills (helixml/skills) | None — refreshed from `main` at every container start. `SKILLS_COMMIT` in `sandbox-versions.txt` only pins the offline seed: bump + `./stack build-ubuntu` | Start NEW session after |
 
 Full rebuild order: `build-zed` → `build-ubuntu` → `build-sandbox` (if needed) → start new session.
 
@@ -118,25 +121,28 @@ empty). Set e.g. `HELIX_EXPERIMENTAL_DESKTOPS="sway"` in your environment
 to pre-pull sway at sandbox startup; otherwise it's pulled lazily by
 Docker the first time someone launches a sway desktop session.
 
-### **CRITICAL: Bumping sandbox-versions.txt after Zed or Qwen changes**
+### **CRITICAL: Bumping sandbox-versions.txt after Zed changes**
 
-`sandbox-versions.txt` pins the exact commits CI uses to build the sandbox:
+`sandbox-versions.txt` pins the exact Zed commit and Qwen Code release CI uses:
 ```
 ZED_COMMIT=<full git sha>
-QWEN_COMMIT=<full git sha>
+QWEN_VERSION=<semver>
 ```
 
-**If you modify Zed or Qwen, you MUST follow this order:**
+**If you modify Zed, you MUST follow this order:**
 
-1. Commit your changes in the Zed/Qwen repo (do NOT push yet).
+1. Commit your changes in the Zed repo (do NOT push yet).
 2. Copy the local commit hash: `git rev-parse HEAD`
 3. Update `sandbox-versions.txt` in this repo with that hash.
-4. **Open the Helix PR** (with the bumped hash) *before* pushing the Zed/Qwen branch.
-5. Push the Zed/Qwen branch and open that PR.
-6. Merge the Zed/Qwen PR.
+4. **Open the Helix PR** (with the bumped hash) *before* pushing the Zed branch.
+5. Push the Zed branch and open that PR.
+6. Merge the Zed PR.
 7. Merge the Helix PR.
 
 **Why this order matters:** The spec task system marks a task done when all its PRs are merged. If the Zed PR is merged first, the system may close the task before `sandbox-versions.txt` is updated — leaving CI pointing at the wrong commit indefinitely. Getting the commit hash from a local commit (before pushing) solves the chicken-and-egg problem.
+
+Qwen Code is installed from the exact published `@qwen-code/qwen-code`
+version in `QWEN_VERSION`; it has no separate Helix source-repo workflow.
 
 ### Verify Build
 ```bash
@@ -153,6 +159,106 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 41222 ubuntu@
   "cd ~/helix && git fetch && git checkout BRANCH && git pull"
 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 41222 ubuntu@localhost \
   "cd ~/helix && docker compose -f docker-compose.dev.yaml restart api"
+```
+
+## Reasoning Effort per Model
+
+**Source of truth: `api/pkg/model/reasoning_efforts.go`.** If an agent turn dies with a
+400 mentioning `reasoning effort`, start there.
+
+Reasoning-effort support is **not discoverable at runtime**. An OpenAI-compatible
+`/v1/models` response carries no capability data — vLLM returns only `id`, `owned_by`,
+`root`, `max_model_len`, `permission`. The accepted set lives in the model's chat
+template and is only learnable by sending a request and reading the 400. So Helix keeps
+a curated table, and **every entry records the source it came from** (`probed`,
+`catalogue`, `vendor`) plus a `verified_at` date.
+
+Passing an unsupported value is not a soft failure: the provider 400s, the coding agent
+retries the same 400 ~9 times over ~70s, then aborts the turn with no work done and a
+generic "agent turn aborted" in the UI.
+
+### Traps this table exists to record
+
+| Model | Accepts | **Rejects** | Default |
+|---|---|---|---|
+| `qwen3.8-27b` | `none`, `low`, `medium`, `xhigh` | **`high`**, `max`, `minimal` | `xhigh` |
+| `qwen3.8-flash-next` | `low`, `medium`, `xhigh` | **`high`**, `max`, `minimal` | `xhigh` |
+| `glm-5.3-flash` | *(none — every value accepted and ignored)* | — | — |
+| `deepseek-v4-flash` / `-pro` | `high`, `xhigh` | — | `high` |
+| Claude Opus 5 / 4.8 / 4.7, Sonnet 5, Fable 5 | `low`…`max` incl. `xhigh` | — | `high` |
+| Claude Opus 4.6 / Sonnet 4.6 | `low`, `medium`, `high`, `max` | **`xhigh`** | `high` |
+| Claude Sonnet 4.5 / Haiku 4.5 | *(none — predates the parameter)* | any value | — |
+
+- **`qwen3.8-27b` rejects `high` but accepts `xhigh`** — the reverse of every other model,
+  and the exact bug that made a spec task fail. Its template also **silently coerces** any
+  unrecognized value (`foo`, `HIGH`, `ultra`) to the `xhigh` default, so probing only for
+  rejections does not reveal the supported set.
+- **Claude reads `output_config.effort`, never a top-level `reasoning_effort`.** A value
+  sent under the wrong key is ignored with no error — the symptom is "the setting does
+  nothing", not a 400.
+- **`xhigh` arrived with Opus 4.7.** Offering it on a 4.6-generation model errors.
+
+### How it flows
+
+`LookupReasoningEfforts(modelID)` matches on the **longest family prefix**, so dated and
+suffixed builds (`deepseek-v4-flash-0731`, `qwen3.8-27b-instruct`, `provider/model`)
+resolve without their own row. Adding a model is a data edit — append a profile, no code
+change. It reaches the frontend two ways:
+
+- `types.OpenAIModel.ReasoningEfforts` on `/v1/provider-endpoints?with_models=true` —
+  deliberately **separate from `ModelInfo`**, because a non-nil `ModelInfo` is what the
+  Anthropic proxy and usage handlers read as "this model is priceable". Self-hosted models
+  have effort profiles but no pricing entry, so the two must not be conflated.
+- `ModelInfo.SupportedReasoningEfforts` / `DefaultReasoningEffort` — the curated table only
+  **fills gaps** here; `model_info.json` wins where it has data.
+
+Frontend: `useModelReasoningEfforts(modelId)` →
+`getCodeAgentEffortOptions(runtime, supportedEfforts)`. The runtime only decides which
+tiers the *harness* can express; the model decides which the provider will accept. An
+unknown model returns `undefined` and the full runtime list stands — **never guess a
+narrower list**, and never offer an effort for a model with no profile.
+
+### Keeping `model_info.json` current
+
+`api/pkg/model/model_info.json` is sourced from OpenRouter. Use the documented public
+model API, including non-text-output models:
+
+```bash
+curl -fsSL 'https://openrouter.ai/api/v1/models?output_modalities=all'
+curl -fsSL 'https://openrouter.ai/api/v1/model/<author>/<model>'
+curl -fsSL 'https://openrouter.ai/api/v1/models/<author>/<canonical-slug>/endpoints'
+```
+
+- **Do not replace the file wholesale with `/api/v1/models`.** The bundled file retains
+  the older, richer per-endpoint schema used for provider-specific IDs and pricing; the
+  public API is model-level and is not a drop-in replacement.
+- For a missing model, copy model capabilities (`context_length`, input/output
+  modalities, canonical slug) from the exact model response and endpoint limits/pricing
+  from the matching endpoint response. `endpoint.provider_model_id` must be an exact ID
+  the configured provider advertises; verify it against that provider's `/v1/models`.
+- Never infer image support from the family name or description. Require OpenRouter or
+  the provider response to list `image` in `input_modalities`, then add a
+  `BaseModelInfoProvider` test for every ID form Helix uses.
+- Keep refreshes narrowly scoped and inspect all pricing changes. A full feed refresh has
+  previously changed Claude entries to batch/regional endpoints and silently altered
+  usage costs.
+- Validate with `jq empty api/pkg/model/model_info.json`, run `go test ./pkg/model`, and
+  exercise the affected model through its real provider before committing.
+
+### Debugging a suspected effort problem
+
+```bash
+# What did Helix actually send vs what did the caller ask for?
+docker exec helix-postgres-1 psql -U postgres -d postgres -c \
+  "SELECT id, model, original_request->>'reasoning_effort' AS asked, \
+   request->>'reasoning_effort' AS sent, left(error,120) AS err \
+   FROM llm_calls WHERE session_id='ses_…' ORDER BY created DESC LIMIT 10;"
+
+# Probe a provider directly — prompt_tokens reveals the template branch taken;
+# equal counts across values mean they collapse to the same default.
+curl -s $BASE_URL/chat/completions -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"…","max_tokens":1,"messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high"}'
 ```
 
 ## Code Patterns
@@ -194,6 +300,10 @@ func (s *MySuite) SetupTest() { /* init ctrl, store, server */ }
 
 These rules keep our list pages visually consistent. When in doubt, mirror `Sandboxes.tsx` / `Tasks.tsx`.
 
+#### Typography
+- **All font families and text sizes come from `frontend/src/styles/typography.ts`.** Edit the `TYPOGRAPHY` object there to restyle the app; never write a `fontFamily:` literal or a hardcoded chat/code font size in a component. Import `APP_FONT_FAMILY` / `APP_MONO_FONT_FAMILY`, or use `var(--helix-font-sans)` / `var(--helix-font-mono)` in plain CSS. Full reference: `design/2026-08-15-frontend-typography.md`.
+- Defaults match T3 Code: native OS UI font, 16px root / 14px prose (`0.875rem`, line-height `1.625`), 13px code, grayscale smoothing.
+
 #### Icons, toolbars, color, and spacing
 - **Use Lucide icons from `lucide-react` for product UI.** Do not mix MUI icons and Lucide icons in the same surface. Exceptions are brand/provider logos and a pre-existing shared component whose public API supplies its own icon.
 - **Use `AgentHarness` from `frontend/src/components/agent/AgentHarness.tsx` anywhere an agent harness is identified.** Use its `long` variant in tables, forms, and selectors, and its `short` variant in compact status rows and tooltips. Pass the raw `code_agent_runtime`; do not duplicate harness labels, brand marks, or brand colors in consumers. Its Zed Agent, Qwen Code, Goose, Claude Code, and Codex marks are the canonical official assets; never replace them with generic Lucide glyphs.
@@ -231,20 +341,51 @@ These rules keep our list pages visually consistent. When in doubt, mirror `Sand
 - Toggle sits **directly above the table/grid, right-aligned**, in its own row inside the page `Stack`. Don't park it in `topbarContent` — the topbar is reserved for the primary action button (e.g. "New Sandbox").
 - Page header (`<Typography variant="h5">Title</Typography>` + secondary description) sits above the toggle in the same `Stack`.
 
+#### Copyable snippets
+- **Always use `MarkdownCodeBlock` from `frontend/src/components/session/MarkdownCodeBlock.tsx` for copyable commands, prompts, configuration, or code snippets.** It is the canonical AgentChat treatment and provides consistent language chrome, line wrapping, syntax styling, and icon-only copy feedback.
+- Pass the real language (`bash`, `json`, `yaml`, etc.); use `text` and `defaultWrapped` for prose prompts. Do not build bespoke `<pre>` panels, nested background cards, or labeled copy buttons for snippets.
+
 ## Architecture
 - **ACP**: `LLM ←(OpenAI API)→ Qwen Code Agent ←(ACP)→ Zed IDE`
 - **RBAC**: `authorizeUserToResource()` — unified AccessGrants
 - **Enterprise**: Support internal DNS, proxies, air-gapped, private CAs
+
+## Glossary
+
+- **Org Bot**: an executable participant in an organization's graph. Org Bots are stored in `org_bots`, exposed at `/api/v1/orgs/{org}/bots`, and shown at `/orgs/:org_id/bots`. Use “bot” as shorthand only when the org context is already clear.
+- **Person / org member**: a human who belongs to an organization. People are backed by `users` and `organization_memberships`; they are never rows in `org_bots` and never run as Bots. Org-chart people views must read memberships, not synthesize Bot placeholders.
+- **Helix App**: a reusable agent configuration exposed by the general `/api/v1/agents` API. An Org Bot may still reference a legacy Helix App during migration, but “Agent” is not a synonym for Org Bot.
+- **Coding agent / harness**: the runtime used inside a Bot's sandbox (for example Claude Code, Codex, or Qwen Code). Names such as `AgentRuntime` refer to that execution layer, not to the Org Bot domain model.
 
 ## helix-org design philosophy
 
 Anything under `api/pkg/org/` is the org-graph runtime (Workers, Positions, Roles, Streams). Behaviour lives in the prompt/profile, not in Go code. The code is scaffolding.
 
 - **Prefer data and text over code.** If a feature can be expressed as a Role/Position prompt edit, a scope value, or a tool description, do that before adding Go logic.
-- **Keep the MCP surface small.** MCP tools are reserved for org-graph primitives (reads + mutations of Workers, Positions, Roles, Streams). Anything else a Worker needs goes through shell tools provisioned in their environment (`bash`, `curl`, `git`, `gh`, `python`). Don't add MCP wrappers like `publish_to_blog` or `fetch_url` — describe the shell usage in the Role text instead. **One recorded exception:** `mint_credential` is a generic credential-minting *primitive* (it is what makes the shell tools usable on long-running sessions whose boot-time tokens have expired). A *primitive* is different from a per-action wrapper; the per-action ban stands. See `design/tasks/002092_helix-org-mintcredential/design.md` §2 for the full rationale.
+- **Keep the MCP surface small.** MCP tools are reserved for org-graph primitives (reads + mutations of Workers, Positions, Roles, Streams). Anything else a Worker needs goes through shell tools provisioned in their environment (`bash`, `curl`, `git`, `gh`, `python`). Don't add MCP wrappers like `publish_to_blog` or `fetch_url` — describe the shell usage in the Role text instead. `get_secret` is the generic credential-retrieval primitive that makes those shell tools usable for long-running Sessions without adding provider-action wrappers.
 - **Complete a user action in as few steps as possible.** A tool should do the whole of what the user means by one action, not force a chain of follow-up calls. `create_bot`, for example, grants the new Bot its initial tools AND subscribes it to the topics named at creation — in one call — because a manager creating a Bot almost always wants it tooled-up and listening immediately. Prefer bulk arguments (arrays) over one-at-a-time calls for the same reason. This supersedes the older "no workflow in code / `Role.Streams` stays prompt-driven" rule: creation-time subscription is a supported convenience, not forbidden orchestration. Keep the *implementation* DRY — `create_bot` reuses the same `subscriptions.Subscribe` use case the standalone `subscribe` tool calls; it does not reimplement it. Structural derivation still holds: `Bot.Tools` is the live MCP surface, and editing it changes the Bot's capability. When reviewing a tool, ask: "does this complete the user's intent, reusing existing use cases, without hiding a decision the agent should make?"
 - **Social enforcement first.** A Worker reads scope from its prompt and complies. Reach for hard enforcement only when the cost of a violation is high.
 - **Keep the core generic.** Tool definitions and scope shapes live with the tool, not in the registry, server, or domain layer. New tools must be addable without editing the core.
+
+## Worktrees
+
+Clear merged worktrees before creating a new one and after your PR merges:
+
+```bash
+scripts/prune-merged-worktrees.sh           # dry run: what would go, and why the rest stays
+scripts/prune-merged-worktrees.sh --apply
+```
+
+It removes a worktree only when its branch is merged into `origin/main` (or GitHub has a
+merged PR for it — squash merges leave no ancestor link), it has no uncommitted or untracked
+changes, and none of its commits are missing from the remote. Detached HEADs and T3 Code
+worktrees (`~/.t3/worktrees`) are never touched; root-owned build output (`api/tmp/` from
+air in containers) is removed through a throwaway container. Create worktrees as
+`~/worktrees/helix-<topic>` — not under `/tmp` (tmpfs; entries go stale) or `~/.cache`.
+
+A full host disk breaks the dev stack in a non-obvious way: Hydra refuses to start sandboxes
+below 2% free (`hydra API error (status 507) … disk space critically low` in the API log), and
+chats only report "external agent not ready" after 5 minutes.
 
 ## Dev Environment (Helix-in-Helix)
 
@@ -299,6 +440,34 @@ CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 - For any reset/clear/delete/cancel/switch feature, always exercise the IMMEDIATELY
   FOLLOWING normal operation: clear → send a message; delete → recreate; cancel →
   resume; reset thread → next turn. Bugs live in that seam, not in the mutation itself.
+
+### Test the full object lifecycle — nothing may leak
+Any change that creates or deletes a resource-owning object (sandbox, session, bot,
+bot instance, spec task, project, …) is not done until you have run create → use →
+delete end-to-end and proved every underlying resource is gone. Leaked containers,
+volumes, and directories accumulate until a sandbox host runs out of disk.
+- **Inventory first.** Before deleting, list everything the create *and its use*
+  produced: DB rows (including side tables and runtime state), containers, Docker
+  volumes, zvols, host directories (`/data/workspaces/…`, `/data/sessions/…`,
+  `/container-docker/sessions/…`), filestore files (`/filestore/…`), API keys, NATS
+  consumers, running goroutines/activations, external webhooks.
+- **Verify each one after delete** — the row is gone (or soft-deleted by design), the
+  container is gone, the disk path is removed. Example for a sandbox:
+  ```bash
+  docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT id, deleted_at FROM sandboxes WHERE id='sbx_…';"
+  docker exec helix-sandbox-nvidia-1 docker ps -a --filter label=helix.session_id=<id>
+  docker exec helix-sandbox-nvidia-1 docker volume ls | grep <id>
+  docker exec helix-sandbox-nvidia-1 find /data/workspaces /data/sessions /container-docker/sessions -maxdepth 3 -name '*<id>*'
+  ```
+- **Stop is not delete.** Hydra's plain stop keeps workspace and Docker data for a warm
+  restart. Deletion paths must use destroy (`Executor.DestroyDesktop`), not stop.
+- **Test the untracked case too.** Teardown must not depend on in-memory state: restart
+  hydra (or the API) between create and delete and verify delete still removes
+  everything.
+- **Best-effort teardown needs a backstop.** If a delete continues when a host is
+  unreachable, the orphan reaper must treat the leftovers as dead — check its live set.
+- Anything deliberately kept (audit rows, repositories) must be named as kept in the
+  PR, not silently left behind. Report every resource checked, with the command output.
 
 ### Live external-agent (Zed) testing is mandatory for lifecycle changes
 - Features touching session/thread lifecycle (clear, fork, cancel, resume, switch-agent)
@@ -399,6 +568,7 @@ Helix stack runs **inside the UTM VM** (SSH: `ssh -p 2222 luke@127.0.0.1`). Only
 ```bash
 /tmp/helix spectask list|list-agents|start|resume|stop|screenshot|stream|benchmark|send|mcp|live
 /tmp/helix org bots list|get|start|stop|restart|chat   # helix-org — see skills/helix-org-cli/SKILL.md
+/tmp/helix artifact create|update|list|get|delete  # publish static pages/SPAs/PDFs — see the helix-artifacts skill
 /tmp/helix api GET /orgs/<org>/bots                    # gh-api style escape hatch
 ```
 
@@ -580,6 +750,29 @@ helix org processors list
 helix api GET /orgs/unmanned-org/bots          # gh-api-style escape hatch
 helix api -X POST /orgs/unmanned-org/bots/chief-of-staff/activate
 ```
+
+### Agent skills
+
+Skills that teach a coding agent to drive Helix live in
+[helixml/skills](https://github.com/helixml/skills). The desktop images bake a shallow clone
+at `/opt/helix/skills`, pinned by `SKILLS_COMMIT` in `sandbox-versions.txt` (passed as a
+build-arg by `./stack build-desktop` and `.drone.yml`; the Dockerfile has no default). On
+every container start `helix-workspace-setup.sh` copies it to `~/work/.helix-skills`,
+refreshes it from upstream `main`, and links the default set (`helix-cli`, `helix-artifacts`,
+`helix-spec-tasks`, `helix-board`, `helix-files`) into `~/.agents/skills` and `~/.claude/skills` — the two directories that between them cover zed-agent, Claude Code,
+Codex, Gemini CLI, goose, opencode and qwen. When the fetch fails (air-gapped, proxy) the
+last good checkout is kept, so the pin only matters offline. Per-container knobs:
+`HELIX_SKILLS_REF` (branch/tag/sha; empty disables refresh), `HELIX_SKILLS` (space-separated
+names, or `all` — the operator skills `helix-deploy`/`helix-e2e`/`helix-agents` are opt-in only),
+`HELIX_SKILLS_REPO`. A broken skills checkout never aborts workspace setup.
+
+Inside the sandbox the `helix` CLI authenticates from `HELIX_API_URL` + `USER_API_TOKEN`
+(`config.LoadCliConfig` falls back to them when `HELIX_URL`/`HELIX_API_KEY` are unset), so
+the skills' `helix …` commands work as written. The planning and implementation prompts
+carry a short "## Helix skills" section pointing the agent at them.
+
+`skills/helix-org-cli/SKILL.md` above is a different thing — a skill checked into this repo,
+visible only to an agent working on this repo.
 
 ## Sandboxes API
 

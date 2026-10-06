@@ -38,6 +38,7 @@ const SecretsContent: React.FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newSecretName, setNewSecretName] = useState('');
   const [newSecretValue, setNewSecretValue] = useState('');
+  const [deleteConflict, setDeleteConflict] = useState('');
 
   useEffect(() => {
     if(!account.user) return
@@ -51,17 +52,26 @@ const SecretsContent: React.FC = () => {
   };
 
   const handleDeleteConfirm = async () => {
-    if (secretToDelete) {
-      await secrets.deleteSecret(secretToDelete);
-      setDeleteDialogOpen(false);
-      setSecretToDelete(null);
+    if (!secretToDelete) return;
+    try {
+      // The second confirm is the force: the server refuses with 409
+      // while the secret is still granted to an agent.
+      await secrets.deleteSecret(secretToDelete, Boolean(deleteConflict));
+      handleDeleteCancel();
       secrets.loadData(); // Refresh the list after deleting a secret
+    } catch (error: any) {
+      if (error?.response?.status === 409) {
+        setDeleteConflict(error.response.data || 'This secret is granted to one or more agents.');
+        return;
+      }
+      throw error;
     }
   };
 
   const handleDeleteCancel = () => {
     setDeleteDialogOpen(false);
     setSecretToDelete(null);
+    setDeleteConflict('');
   };
 
   const handleCreateClick = () => {
@@ -174,12 +184,12 @@ const SecretsContent: React.FC = () => {
       <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
-          Are you sure you want to delete this secret? This action cannot be undone.
+          {deleteConflict || 'Are you sure you want to delete this secret? This action cannot be undone.'}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleDeleteCancel}>Cancel</Button>
           <Button onClick={handleDeleteConfirm} color="error">
-            Delete
+            {deleteConflict ? 'Delete anyway' : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>

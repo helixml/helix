@@ -11,13 +11,13 @@ import (
 
 	githubclient "github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 )
 
 // WebhookProvisioner is the GitHub implementation of
-// streaming.Inbound: it registers / inspects the repo webhook
-// for a github-transport Topic. It is the single home for the
+// trigger.Inbound: it registers / inspects the repo webhook
+// for a github-transport Trigger. It is the single home for the
 // GitHub-API specifics (payload-URL resolution, loopback refusal, the
 // auto-generated webhook secret, the repo webhook upsert/find) — the
 // application layer only dispatches on the Topic's transport Kind, so
@@ -35,65 +35,65 @@ func NewWebhookProvisioner(configs *configregistry.Registry, token TokenResolver
 	return &WebhookProvisioner{configs: configs, token: token, publicURL: publicServerURL}
 }
 
-func fail(kind streaming.FailKind, format string, args ...any) *streaming.Failure {
-	return &streaming.Failure{Kind: kind, Err: fmt.Errorf(format, args...)}
+func fail(kind trigger.FailKind, format string, args ...any) *trigger.Failure {
+	return &trigger.Failure{Kind: kind, Err: fmt.Errorf(format, args...)}
 }
 
-// Install registers (or adopts) the repo webhook for the github topic
+// Install registers (or adopts) the repo webhook for the github Trigger
 // and returns the hook coordinates + the transport config to persist.
-func (p *WebhookProvisioner) Install(ctx context.Context, orgID string, topic streaming.Topic) (streaming.InstallResult, error) {
+func (p *WebhookProvisioner) Install(ctx context.Context, orgID string, t trigger.Trigger) (trigger.InstallResult, error) {
 	publicURL := p.resolvePublicURL()
 	if publicURL == "" {
-		return streaming.InstallResult{}, fail(streaming.FailPrecondition, "no public URL configured for helix. Set SERVER_URL in helix's .env to a publicly reachable URL and restart the api container, then re-install the webhook.")
+		return trigger.InstallResult{}, fail(trigger.FailPrecondition, "no public URL configured for helix. Set SERVER_URL in helix's .env to a publicly reachable URL and restart the api container, then re-install the webhook.")
 	}
 	if u, err := url.Parse(publicURL); err == nil {
 		host := strings.ToLower(u.Hostname())
 		if host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" {
-			return streaming.InstallResult{}, fail(streaming.FailPrecondition, "SERVER_URL %q is a loopback address — GitHub refuses to install webhooks pointed at unreachable hosts. Set SERVER_URL in helix's .env to a publicly reachable hostname (cloudflared / ngrok / reverse proxy) and restart the api container", publicURL)
+			return trigger.InstallResult{}, fail(trigger.FailPrecondition, "SERVER_URL %q is a loopback address — GitHub refuses to install webhooks pointed at unreachable hosts. Set SERVER_URL in helix's .env to a publicly reachable hostname (cloudflared / ngrok / reverse proxy) and restart the api container", publicURL)
 		}
 	}
 
-	cfg, err := topic.Transport.GitHubConfig()
+	cfg, err := t.Transport().GitHubConfig()
 	if err != nil {
-		return streaming.InstallResult{}, fail(streaming.FailBadRequest, "parse github config: %w", err)
+		return trigger.InstallResult{}, fail(trigger.FailBadRequest, "parse github config: %w", err)
 	}
 	if cfg.Repo == "" {
-		return streaming.InstallResult{}, fail(streaming.FailBadRequest, "topic's github config has no repo set; edit the topic first")
+		return trigger.InstallResult{}, fail(trigger.FailBadRequest, "topic's github config has no repo set; edit the topic first")
 	}
 	if len(cfg.Events) == 0 {
 		cfg.Events = []string{"*"}
 	}
 	owner, repoName, ferr := splitRepo(cfg.Repo)
 	if ferr != nil {
-		return streaming.InstallResult{}, ferr
+		return trigger.InstallResult{}, ferr
 	}
 
 	token, ferr := p.resolveToken(ctx, orgID)
 	if ferr != nil {
-		return streaming.InstallResult{}, ferr
+		return trigger.InstallResult{}, ferr
 	}
 	secret, err := p.ensureWebhookSecret(ctx, orgID)
 	if err != nil {
-		return streaming.InstallResult{}, fail(streaming.FailInternal, "ensure webhook secret: %w", err)
+		return trigger.InstallResult{}, fail(trigger.FailInternal, "ensure webhook secret: %w", err)
 	}
-	payloadURL := p.payloadURL(publicURL, orgID, topic.ID)
+	payloadURL := p.payloadURL(publicURL, orgID, t.ID)
 
 	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token})
 	if err != nil {
-		return streaming.InstallResult{}, fail(streaming.FailInternal, "build github client: %w", err)
+		return trigger.InstallResult{}, fail(trigger.FailInternal, "build github client: %w", err)
 	}
 	hook, err := client.UpsertWebhook(owner, repoName, "web", payloadURL, cfg.Events, secret)
 	if err != nil {
-		return streaming.InstallResult{}, fail(streaming.FailUpstream, "create github webhook: %w", err)
+		return trigger.InstallResult{}, fail(trigger.FailUpstream, "create github webhook: %w", err)
 	}
 	htmlURL := githubclient.WebhookSettingsURL(owner, repoName, hook.ID)
 	cfg.WebhookID = hook.ID
 	cfg.WebhookHTMLURL = htmlURL
 	cfgRaw, err := json.Marshal(cfg)
 	if err != nil {
-		return streaming.InstallResult{}, fail(streaming.FailInternal, "re-marshal config: %w", err)
+		return trigger.InstallResult{}, fail(trigger.FailInternal, "re-marshal config: %w", err)
 	}
-	return streaming.InstallResult{
+	return trigger.InstallResult{
 		WebhookID:      hook.ID,
 		WebhookHTMLURL: htmlURL,
 		PayloadURL:     payloadURL,
@@ -104,13 +104,13 @@ func (p *WebhookProvisioner) Install(ctx context.Context, orgID string, topic st
 // Status reports the live webhook state by listing the repo's hooks and
 // matching this topic's payload URL. Read-only; every "can't tell" case
 // degrades to State="unknown" with a Detail.
-func (p *WebhookProvisioner) Status(ctx context.Context, orgID string, topic streaming.Topic) (streaming.InboundState, error) {
-	cfg, err := topic.Transport.GitHubConfig()
+func (p *WebhookProvisioner) Status(ctx context.Context, orgID string, t trigger.Trigger) (trigger.InboundState, error) {
+	cfg, err := t.Transport().GitHubConfig()
 	if err != nil {
-		return streaming.InboundState{}, fail(streaming.FailBadRequest, "parse github config: %w", err)
+		return trigger.InboundState{}, fail(trigger.FailBadRequest, "parse github config: %w", err)
 	}
-	unknown := func(detail string) (streaming.InboundState, error) {
-		return streaming.InboundState{State: "unknown", Detail: detail}, nil
+	unknown := func(detail string) (trigger.InboundState, error) {
+		return trigger.InboundState{State: "unknown", Detail: detail}, nil
 	}
 	if cfg.Repo == "" {
 		return unknown("topic has no repo set")
@@ -123,7 +123,7 @@ func (p *WebhookProvisioner) Status(ctx context.Context, orgID string, topic str
 	if publicURL == "" {
 		return unknown("no public URL configured for helix")
 	}
-	payloadURL := p.payloadURL(publicURL, orgID, topic.ID)
+	payloadURL := p.payloadURL(publicURL, orgID, t.ID)
 	if p.token == nil {
 		return unknown("no GitHubTokenResolver wired")
 	}
@@ -143,9 +143,9 @@ func (p *WebhookProvisioner) Status(ctx context.Context, orgID string, topic str
 		return unknown(fmt.Sprintf("list webhooks on %s: %v", cfg.Repo, err))
 	}
 	if !found {
-		return streaming.InboundState{State: "missing", PayloadURL: payloadURL}, nil
+		return trigger.InboundState{State: "missing", PayloadURL: payloadURL}, nil
 	}
-	return streaming.InboundState{
+	return trigger.InboundState{
 		State:          "installed",
 		WebhookID:      hook.ID,
 		WebhookHTMLURL: githubclient.WebhookSettingsURL(owner, repoName, hook.ID),
@@ -155,16 +155,16 @@ func (p *WebhookProvisioner) Status(ctx context.Context, orgID string, topic str
 	}, nil
 }
 
-func (p *WebhookProvisioner) resolveToken(ctx context.Context, orgID string) (string, *streaming.Failure) {
+func (p *WebhookProvisioner) resolveToken(ctx context.Context, orgID string) (string, *trigger.Failure) {
 	if p.token == nil {
-		return "", fail(streaming.FailPrecondition, "no GitHubTokenResolver wired")
+		return "", fail(trigger.FailPrecondition, "no GitHubTokenResolver wired")
 	}
 	token, err := p.token(ctx, orgID)
 	if err != nil {
-		return "", fail(streaming.FailInternal, "resolve github token: %w", err)
+		return "", fail(trigger.FailInternal, "resolve github token: %w", err)
 	}
 	if token == "" {
-		return "", fail(streaming.FailPrecondition, "no GitHub credentials for this org: install the Helix GitHub App (preferred) or connect GitHub OAuth on the Connected Services page")
+		return "", fail(trigger.FailPrecondition, "no GitHub credentials for this org: install the Helix GitHub App (preferred) or connect GitHub OAuth on the Connected Services page")
 	}
 	return token, nil
 }
@@ -174,10 +174,10 @@ func (p *WebhookProvisioner) resolvePublicURL() string {
 	return strings.TrimSpace(p.publicURL)
 }
 
-func (p *WebhookProvisioner) payloadURL(publicURL, orgID string, topicID streaming.TopicID) string {
+func (p *WebhookProvisioner) payloadURL(publicURL, orgID, triggerID string) string {
 	return strings.TrimRight(publicURL, "/") +
 		"/api/v1/orgs/" + url.PathEscape(orgID) +
-		"/topics/" + url.PathEscape(string(topicID)) + "/github/webhook"
+		"/triggers/" + url.PathEscape(triggerID) + "/github/webhook"
 }
 
 // ensureWebhookSecret reads transport.github webhook_secret, generating +
@@ -211,16 +211,16 @@ func (p *WebhookProvisioner) ensureWebhookSecret(ctx context.Context, orgID stri
 	return cfg.WebhookSecret, nil
 }
 
-func splitRepo(repo string) (owner, name string, ferr *streaming.Failure) {
+func splitRepo(repo string) (owner, name string, ferr *trigger.Failure) {
 	parts := strings.SplitN(repo, "/", 2)
 	if len(parts) != 2 {
-		return "", "", fail(streaming.FailBadRequest, "malformed repo %q", repo)
+		return "", "", fail(trigger.FailBadRequest, "malformed repo %q", repo)
 	}
 	return parts[0], parts[1], nil
 }
 
 // compile-time assertion that the provisioner satisfies the port.
-var _ streaming.Inbound = (*WebhookProvisioner)(nil)
+var _ trigger.Inbound = (*WebhookProvisioner)(nil)
 
 // guard against transport.KindGitHub drifting — referenced so the import
 // is used even if the provisioner is registered by string elsewhere.

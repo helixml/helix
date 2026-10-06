@@ -411,18 +411,21 @@ func (c *Controller) DeployLog(ctx context.Context, projectID string) (string, e
 //  3. sandbox running + dockerd alive → Redeploy in place (re-runs
 //     .helix/startup.sh → docker compose up against the same sandbox).
 //
-// Redeploy is async; this returns once recovery has been kicked off.
-func (c *Controller) RecoverWebService(ctx context.Context, projectID string) error {
+// Case 2 is destructive and is gated on the pinned runner being able to take a
+// replacement — see the comment on that branch below. Redeploy is async, so the
+// returned deploy is the one to watch for the real outcome; a nil deploy with a
+// nil error means no recovery was needed.
+func (c *Controller) RecoverWebService(ctx context.Context, projectID string) (*types.WebServiceDeploy, error) {
 	state, err := c.store.GetProjectWebServiceState(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("get web service state: %w", err)
+		return nil, fmt.Errorf("get web service state: %w", err)
 	}
 	if !state.Enabled || state.ActiveSandboxID == "" {
-		return nil // nothing to recover
+		return nil, nil // nothing to recover
 	}
 	project, err := c.store.GetProject(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("get project: %w", err)
+		return nil, fmt.Errorf("get project: %w", err)
 	}
 
 	sb, sbErr := c.sandboxes.Get(ctx, state.ActiveSandboxID)
@@ -439,7 +442,7 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) er
 		if c.Probe(ctx, state, 8*time.Second) {
 			log.Info().Str("project_id", projectID).
 				Msg("health-monitor: web service healthy on re-probe — skipping recovery (transient blip, e.g. RevDial reconnect)")
-			return nil
+			return nil, nil
 		}
 	}
 
@@ -456,6 +459,31 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) er
 	}
 
 	if recreate {
+		// DESTRUCTIVE PATH — every signal that got us here (the failed probe
+		// and the `docker info` check) travels the same RevDial path to the
+		// runner. An overloaded or unreachable runner is therefore
+		// indistinguishable from a broken container, and deleting the
+		// container on that evidence is how a host memory hiccup became a
+		// ~28h customer outage on 2026-09-27: the runner was marked offline,
+		// so the replacement could not be placed (a persistent sandbox never
+		// relocates — its data is on that host's disk), and we had already
+		// destroyed a container that was in fact serving fine. Its containers
+		// carry restart=unless-stopped, so leaving them alone means the
+		// service comes back on its own the moment the runner recovers, with
+		// no deploy at all.
+		if ready, why := c.sandboxes.HostReadyForReplacement(ctx, sb); !ready {
+			log.Error().
+				Str("project_id", projectID).
+				Str("sandbox_id", state.ActiveSandboxID).
+				Str("probe_reason", reason).
+				Str("host_reason", why).
+				Msg("health-monitor: NOT recreating web-service sandbox — its runner cannot take a replacement, so the existing container is left in place")
+			// Reported as a failed recovery on purpose: it grows the monitor's
+			// backoff and drives helix_webservice_consecutive_recovery_failures,
+			// so HelixWebServiceRecoveryLooping pages a human for what is an
+			// infrastructure problem we cannot fix by redeploying.
+			return nil, fmt.Errorf("refusing destructive recovery: %s (probe reported: %s)", why, reason)
+		}
 		log.Warn().Str("project_id", projectID).Str("sandbox_id", state.ActiveSandboxID).
 			Str("reason", reason).Msg("health-monitor: recreating web-service sandbox")
 		if delErr := c.sandboxes.Delete(context.Background(), state.ActiveSandboxID); delErr != nil {
@@ -467,10 +495,11 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) er
 			Msg("health-monitor: recovering web service")
 	}
 
-	if _, err := c.Redeploy(ctx, DeployRequest{ProjectID: projectID, Owner: project.UserID}); err != nil {
-		return fmt.Errorf("redeploy: %w", err)
+	deploy, err := c.Redeploy(ctx, DeployRequest{ProjectID: projectID, Owner: project.UserID})
+	if err != nil {
+		return nil, fmt.Errorf("redeploy: %w", err)
 	}
-	return nil
+	return deploy, nil
 }
 
 // ensureSandbox returns the project's single web-service sandbox, creating it

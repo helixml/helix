@@ -20,9 +20,8 @@ package server
 //
 // Both helpers reach the desktop via RevDial → /workspace/status and
 // /workspace/commit-and-push (defined in api/pkg/desktop/workspace.go).
-// We deliberately do NOT use the generic /exec endpoint because it's
-// allowlist-restricted to a small set of safe commands — git plumbing
-// runs through dedicated endpoints with structured request/response.
+// Git plumbing runs through dedicated endpoints with structured
+// request/response payloads instead of parsing generic command output.
 
 import (
 	"bufio"
@@ -40,6 +39,15 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+type desktopHTTPError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *desktopHTTPError) Error() string {
+	return fmt.Sprintf("desktop returned HTTP %d: %s", e.StatusCode, e.Body)
+}
 
 // resolveExpectedBranch returns the branch the fork's pre-commit step
 // should target. Reads from the spec task's BranchName first (set when
@@ -61,6 +69,28 @@ func resolveExpectedBranch(specTask *types.SpecTask) string {
 	// TaskNumber (or BranchPrefix); without those it falls through to
 	// an ID-based name which is still pushable.
 	return services.GenerateFeatureBranchName(specTask)
+}
+
+// orgWorkerDefaultBranch resolves the branch an org bot's session commits to:
+// the default branch of its project's primary repository. Empty when the
+// project or repo cannot be resolved, which leaves the caller's "no branch"
+// handling in charge.
+func (apiServer *HelixAPIServer) orgWorkerDefaultBranch(ctx context.Context, projectID string) string {
+	if projectID == "" {
+		return ""
+	}
+	project, err := apiServer.Store.GetProject(ctx, projectID)
+	if err != nil || project == nil || project.DefaultRepoID == "" {
+		return ""
+	}
+	repo, err := apiServer.Store.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil || repo == nil {
+		return ""
+	}
+	if repo.DefaultBranch != "" {
+		return repo.DefaultBranch
+	}
+	return "main"
 }
 
 // Wire types mirroring api/pkg/desktop/workspace.go. Duplicated
@@ -221,7 +251,7 @@ func callDesktopJSON(conn io.ReadWriteCloser, method, path string, body interfac
 		return fmt.Errorf("read body: %w", err)
 	}
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("desktop returned HTTP %d: %s", resp.StatusCode, string(respBody))
+		return &desktopHTTPError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 	if out != nil {
 		if err := json.Unmarshal(respBody, out); err != nil {
@@ -333,6 +363,16 @@ func (apiServer *HelixAPIServer) workspaceStatus(_ http.ResponseWriter, req *htt
 			resp.ExpectedBranch = resolveExpectedBranch(specTask)
 		}
 	}
+	// An org bot works directly on the default branch of its own per-bot
+	// repository — there is no feature branch and nothing protects main
+	// there — so the safety net commits to that branch instead of refusing.
+	orgWorkerBranch := false
+	if resp.ExpectedBranch == "" && session.Metadata.OrgWorkerID != "" {
+		if branch := apiServer.orgWorkerDefaultBranch(ctx, projectID); branch != "" {
+			resp.ExpectedBranch = branch
+			orgWorkerBranch = true
+		}
+	}
 
 	// Decide whether the pre-fork commit can actually save changes.
 	// Default to "can save" — only flip false when there ARE dirty
@@ -343,6 +383,8 @@ func (apiServer *HelixAPIServer) workspaceStatus(_ http.ResponseWriter, req *htt
 		case resp.ExpectedBranch == "":
 			resp.CanSaveChanges = false
 			resp.CannotSaveReason = "This session isn't linked to a feature branch — the safety net can't decide where to commit your changes. Commit and push them from the desktop terminal first, then try switching agent."
+		case orgWorkerBranch:
+			// Bot repo default branch: pushable by design.
 		case resp.ExpectedBranch == "main" || resp.ExpectedBranch == "master":
 			resp.CanSaveChanges = false
 			resp.CannotSaveReason = fmt.Sprintf("The branch for this session is %q, which the repository protects from direct pushes. Commit your changes to a feature branch from the desktop terminal first, then try switching agent.", resp.ExpectedBranch)

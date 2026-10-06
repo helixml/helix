@@ -2,10 +2,12 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
 )
 
 // CreateProject creates a new project
@@ -26,6 +28,9 @@ func (s *PostgresStore) GetProject(ctx context.Context, projectID string) (*type
 	var project types.Project
 	err := s.gdb.WithContext(ctx).Where("id = ?", projectID).First(&project).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
 		return nil, fmt.Errorf("error getting project: %w", err)
 	}
 	return &project, nil
@@ -140,7 +145,7 @@ func (s *PostgresStore) populateProjectLastActivity(ctx context.Context, project
 					FROM spec_tasks archived_task
 					WHERE archived_task.archived = true
 						AND (
-							archived_task.agent_session_id = sessions.id
+							archived_task.planning_session_id = sessions.id
 							OR archived_task.id = COALESCE(sessions.config->>'spec_task_id', '')
 						)
 				)
@@ -166,21 +171,6 @@ func (s *PostgresStore) populateProjectLastActivity(ctx context.Context, project
 		project.LastActivityAt = activityByProjectID[project.ID]
 	}
 	return nil
-}
-
-// ListProjectsWithActiveGoldenBuild returns projects where at least one sandbox
-// has docker_cache_status with status "building". Used on API startup to recover
-// stale golden builds whose monitoring goroutines died during a restart.
-func (s *PostgresStore) ListProjectsWithActiveGoldenBuild(ctx context.Context) ([]*types.Project, error) {
-	var projects []*types.Project
-	err := s.gdb.WithContext(ctx).
-		Where("metadata->'docker_cache_status'->'sandboxes' IS NOT NULL").
-		Where("metadata::text LIKE ?", `%"status":"building"%`).
-		Find(&projects).Error
-	if err != nil {
-		return nil, fmt.Errorf("error listing projects with active golden builds: %w", err)
-	}
-	return projects, nil
 }
 
 type projectTaskStats struct {
@@ -249,7 +239,8 @@ func (s *PostgresStore) populateProjectStats(ctx context.Context, projects []*ty
 	return nil
 }
 
-// DeleteProject deletes a project by ID
+// DeleteProject soft-deletes a project by ID. Repository rows and their
+// project attachments are retained as restore metadata.
 func (s *PostgresStore) DeleteProject(ctx context.Context, projectID string) error {
 	if projectID == "" {
 		return fmt.Errorf("project ID is required")

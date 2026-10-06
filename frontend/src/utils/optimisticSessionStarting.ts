@@ -8,11 +8,33 @@ import { GET_SESSION_QUERY_KEY } from '../services/sessionService'
 // invalidateQueries, which prefix-matches), so we have to write to both.
 const QUERY_VARIANTS = ['full', 'skip'] as const
 
-// Synchronously flip the cached session config to external_agent_status="starting"
-// when the user submits a chat to a paused desktop. The next useSandboxState 3s
-// poll reconciles to the authoritative backend value — by which point the
-// backend's synchronous syncPromptHistory mark has already written "starting"
-// to the DB row, so the optimistic patch and the refetch agree.
+export interface OptimisticStartingOptions {
+  /** Backend lifecycle status to write. Defaults to 'starting'. */
+  status?: 'starting' | 'restarting'
+  /** status_message to show. Defaults per status. */
+  message?: string
+  /**
+   * Write even when the cache already shows 'starting' or 'running'.
+   *
+   * Required for restart: the button is clicked precisely BECAUSE the desktop
+   * is running, so the idle guard below would make the optimistic write a
+   * no-op and the spinner would not appear until the 3s poll landed.
+   */
+  force?: boolean
+}
+
+const DEFAULT_MESSAGES: Record<string, string> = {
+  starting: 'Starting Desktop...',
+  restarting: 'Restarting desktop...',
+}
+
+// Synchronously flip the cached session config to a boot-in-flight status when
+// the user submits a chat to a paused desktop, or clicks Restart. The next
+// useSandboxState 3s poll reconciles to the authoritative backend value — by
+// which point the backend's synchronous mark (syncPromptHistory's
+// MarkSessionStartingIfIdle, or restartSessionContainer's MarkSessionRestarting)
+// has already written the same status to the DB row, so the optimistic patch
+// and the refetch agree.
 //
 // We deliberately do NOT call invalidateQueries here: an immediate refetch
 // races the asynchronous wake goroutine on the backend and overwrites the
@@ -22,12 +44,16 @@ const QUERY_VARIANTS = ['full', 'skip'] as const
 //
 // No-op when the cache already shows "starting" or "running" (avoids stomping
 // fresher state from a poll that landed between the user's keystrokes and the
-// click). Also no-op when the cache is empty for both variants.
+// click) unless `force` is set. Also no-op when the cache is empty for both
+// variants.
 export function optimisticallyMarkSessionStarting(
   queryClient: QueryClient,
   sessionId: string,
+  options: OptimisticStartingOptions = {},
 ): void {
   if (!sessionId) return
+  const status = options.status ?? 'starting'
+  const message = options.message ?? DEFAULT_MESSAGES[status]
   for (const variant of QUERY_VARIANTS) {
     queryClient.setQueryData(
       [...GET_SESSION_QUERY_KEY(sessionId), variant],
@@ -35,8 +61,9 @@ export function optimisticallyMarkSessionStarting(
         if (!old?.data) return old
         const cfg = old.data.config ?? {}
         if (
-          cfg.external_agent_status === 'running' ||
-          cfg.external_agent_status === 'starting'
+          !options.force &&
+          (cfg.external_agent_status === 'running' ||
+            cfg.external_agent_status === 'starting')
         ) {
           return old
         }
@@ -46,8 +73,12 @@ export function optimisticallyMarkSessionStarting(
             ...old.data,
             config: {
               ...cfg,
-              external_agent_status: 'starting',
-              status_message: cfg.status_message || 'Starting Desktop...',
+              external_agent_status: status,
+              // Forced writes (restart) replace a stale "running"-era message;
+              // the idle path keeps whatever progress text is already there.
+              status_message: options.force
+                ? message
+                : cfg.status_message || message,
             },
           },
         }

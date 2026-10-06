@@ -114,6 +114,34 @@ func run(cmd *cobra.Command, args []string) {
 	// in-flight log lines from the other services.
 	hydra.StartServiceLogTailers(ctx, logBuffer, "/var/log/helix-services")
 
+	// Resolve the shared control-plane endpoint before accepting lifecycle
+	// requests. Hydra owns the fixed session-facing listener and its RevDial
+	// client, but keeps their HTTP surfaces separate.
+	revDialAPIURL := apiURL
+	if revDialAPIURL == "" {
+		revDialAPIURL = os.Getenv("HELIX_API_URL")
+	}
+	if revDialAPIURL != "" {
+		// Do NOT log.Fatal on a bad upstream URL: that crash-loops the whole
+		// sandbox host at boot over a misconfigured env var. Log loudly and keep
+		// hydra's lifecycle API up so the host stays diagnosable; sessions that
+		// need the API path will surface the misconfig, not the whole runner.
+		if err := server.StartSandboxAPIProxyWithRetry(ctx, "", revDialAPIURL, 2*time.Second); err != nil {
+			log.Error().Err(err).Str("upstream", revDialAPIURL).
+				Msg("Sandbox API proxy not started (bad HELIX_API_URL); session API path unavailable")
+		}
+		// The control plane's SSH proxy (asset and sandbox SSH for agents) sits
+		// beside the API; mirror it on the bridge so sandboxed agents can reach
+		// it as helix-api.internal:2224.
+		if sshUpstream, err := hydra.SandboxSSHProxyUpstream(revDialAPIURL); err != nil {
+			log.Error().Err(err).Str("upstream", revDialAPIURL).Msg("Sandbox SSH proxy not started (bad HELIX_API_URL)")
+		} else if err := server.StartSandboxSSHProxyWithRetry(ctx, "", sshUpstream, 2*time.Second); err != nil {
+			log.Error().Err(err).Str("upstream", sshUpstream).Msg("Sandbox SSH proxy not started")
+		}
+	} else {
+		log.Error().Msg("HELIX_API_URL is empty; sandbox API proxy not started, sessions cannot reach the Helix API")
+	}
+
 	// Start server
 	if err := server.Start(ctx); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start Hydra server")
@@ -121,10 +149,6 @@ func run(cmd *cobra.Command, args []string) {
 
 	// Start RevDial client if configured
 	// Environment variables take precedence over flags
-	revDialAPIURL := apiURL
-	if revDialAPIURL == "" {
-		revDialAPIURL = os.Getenv("HELIX_API_URL")
-	}
 	revDialToken := runnerToken
 	if revDialToken == "" {
 		revDialToken = os.Getenv("RUNNER_TOKEN")
@@ -136,7 +160,6 @@ func run(cmd *cobra.Command, args []string) {
 	if revDialSandboxID == "" {
 		revDialSandboxID = "local"
 	}
-
 	var revDialClient *revdial.Client
 	if revDialAPIURL != "" && revDialToken != "" {
 		revDialClient = revdial.NewClient(&revdial.ClientConfig{

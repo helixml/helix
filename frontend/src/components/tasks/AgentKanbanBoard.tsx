@@ -75,6 +75,7 @@ import { useTheme } from '@mui/material/styles'
 import useApi from '../../hooks/useApi'
 import useAccount from '../../hooks/useAccount'
 import { IApp } from '../../types'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 // Task types
 type TaskPriority = 'low' | 'medium' | 'high' | 'critical'
@@ -706,7 +707,9 @@ const AgentKanbanBoard: FC<AgentKanbanBoardProps> = ({ projectId, apps }) => {
         </MenuItem>
         <MenuItem onClick={() => {
           if (selectedTask) {
-            navigator.clipboard.writeText(selectedTask.id)
+            void copyTextToClipboard(selectedTask.id).catch((error) => {
+              console.error('Failed to copy task ID', error)
+            })
           }
           setTaskMenuAnchor(null)
         }}>

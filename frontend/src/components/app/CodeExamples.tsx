@@ -9,6 +9,7 @@ import IconButton from '@mui/material/IconButton';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { Eye, EyeOff } from 'lucide-react';
 import { CODE_EXAMPLES } from '../../data/codeExamples';
+import { copyTextToClipboard } from '../../utils/clipboard';
 import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
@@ -61,7 +62,7 @@ const CodeExamples: FC<CodeExamplesProps> = ({ apiKey }) => {
   // Always copy with the real key, regardless of reveal state
   const handleCopyCode = async () => {
     try {
-      await navigator.clipboard.writeText(CODE_EXAMPLES[selectedTab].code(address, apiKey));
+      await copyTextToClipboard(CODE_EXAMPLES[selectedTab].code(address, apiKey));
     } catch (err) {
       console.error('Failed to copy code:', err);
     }

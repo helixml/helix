@@ -49,7 +49,7 @@ func (s *PromptHistoryHandlersSuite) SetupTest() {
 		},
 		externalAgentWSManager:      NewExternalAgentWSManager(),
 		externalAgentRunnerManager:  NewExternalAgentRunnerManager(),
-		contextMappings:             make(map[string]string),
+		contextMappings:             make(map[threadRouteKey]string),
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
 		pendingCancelChannels:       make(map[string]chan string),
@@ -91,7 +91,7 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Id
 	// GetSpecTask is called to determine the canonical planning session (fix #10b)
 	s.store.EXPECT().
 		GetSpecTask(gomock.Any(), "task-123").
-		Return(&types.SpecTask{ID: "task-123", AgentSessionID: sessionID}, nil)
+		Return(&types.SpecTask{ID: "task-123", PlanningSessionID: sessionID}, nil)
 
 	// The session-scoped processor re-lists the session's prompts to decide
 	// interrupt vs queue.
@@ -142,7 +142,7 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Id
 	// GetSpecTask is called to determine the canonical planning session (fix #10b)
 	s.store.EXPECT().
 		GetSpecTask(gomock.Any(), "task-456").
-		Return(&types.SpecTask{ID: "task-456", AgentSessionID: sessionID}, nil)
+		Return(&types.SpecTask{ID: "task-456", PlanningSessionID: sessionID}, nil)
 
 	s.store.EXPECT().
 		ListPromptHistoryBySession(gomock.Any(), sessionID).
@@ -188,7 +188,7 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Bu
 	// GetSpecTask is called to determine the canonical planning session (fix #10b)
 	s.store.EXPECT().
 		GetSpecTask(gomock.Any(), "task-789").
-		Return(&types.SpecTask{ID: "task-789", AgentSessionID: sessionID}, nil)
+		Return(&types.SpecTask{ID: "task-789", PlanningSessionID: sessionID}, nil)
 
 	s.store.EXPECT().
 		ListPromptHistoryBySession(gomock.Any(), sessionID).
@@ -290,6 +290,64 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForSession_BusyInt
 	s.server.processPendingPromptsForSession(context.Background(), sessionID)
 }
 
+func (s *PromptHistoryHandlersSuite) TestIsOrphanedWaitingInteraction_StoppedSandboxReapsImmediately() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_stopped"}
+	session.Metadata.ExternalAgentStatus = "stopped"
+	latest := &types.Interaction{
+		ID:      "int_recent",
+		State:   types.InteractionStateWaiting,
+		Updated: now.Add(-time.Second),
+	}
+
+	s.True(isOrphanedWaitingInteraction(session, latest, false, now),
+		"an explicitly stopped sandbox cannot finish its waiting turn and should be reaped immediately, including during first-thread creation")
+}
+
+func (s *PromptHistoryHandlersSuite) TestIsOrphanedWaitingInteraction_TerminatedIdleReapsImmediately() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_idle_reaped"}
+	session.Metadata.ZedThreadID = "thread-established"
+	session.Metadata.ExternalAgentStatus = "terminated_idle"
+	latest := &types.Interaction{
+		ID:      "int_recent",
+		State:   types.InteractionStateWaiting,
+		Updated: now.Add(-time.Second),
+	}
+
+	s.True(isOrphanedWaitingInteraction(session, latest, false, now))
+}
+
+func (s *PromptHistoryHandlersSuite) TestIsOrphanedWaitingInteraction_AmbiguousDisconnectKeepsGracePeriod() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_disconnected"}
+	session.Metadata.ZedThreadID = "thread-established"
+	session.Metadata.ExternalAgentStatus = "running"
+	latest := &types.Interaction{
+		ID:      "int_recent",
+		State:   types.InteractionStateWaiting,
+		Updated: now.Add(-time.Second),
+	}
+
+	s.False(isOrphanedWaitingInteraction(session, latest, false, now),
+		"a transient disconnect from a nominally running sandbox must retain the stale-turn grace period")
+}
+
+func (s *PromptHistoryHandlersSuite) TestIsOrphanedWaitingInteraction_LiveWSNeverReapsStoppedStatus() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_live"}
+	session.Metadata.ZedThreadID = "thread-established"
+	session.Metadata.ExternalAgentStatus = "stopped"
+	latest := &types.Interaction{
+		ID:      "int_old",
+		State:   types.InteractionStateWaiting,
+		Updated: now.Add(-time.Hour),
+	}
+
+	s.False(isOrphanedWaitingInteraction(session, latest, true, now),
+		"a live websocket remains authoritative over stale lifecycle metadata")
+}
+
 // TestMarkCanonicalSessionStartingForSync_NoWS_MarksStarting verifies that
 // when a chat is sent to a session whose desktop has no live WebSocket,
 // syncPromptHistory's helper flips external_agent_status to "starting"
@@ -302,7 +360,7 @@ func (s *PromptHistoryHandlersSuite) TestMarkCanonicalSessionStartingForSync_NoW
 
 	s.store.EXPECT().
 		GetSpecTask(gomock.Any(), specTaskID).
-		Return(&types.SpecTask{ID: specTaskID, AgentSessionID: sessionID}, nil)
+		Return(&types.SpecTask{ID: specTaskID, PlanningSessionID: sessionID}, nil)
 
 	// No WS registered for this session — manager returns (nil, false).
 	// MarkSessionStartingIfIdle must then be called and return true (row was idle).
@@ -322,7 +380,7 @@ func (s *PromptHistoryHandlersSuite) TestMarkCanonicalSessionStartingForSync_Liv
 
 	s.store.EXPECT().
 		GetSpecTask(gomock.Any(), specTaskID).
-		Return(&types.SpecTask{ID: specTaskID, AgentSessionID: sessionID}, nil)
+		Return(&types.SpecTask{ID: specTaskID, PlanningSessionID: sessionID}, nil)
 
 	// Register a live WS for the session. Pass a non-nil placeholder
 	// connection so the registration sticks.
@@ -340,7 +398,7 @@ func (s *PromptHistoryHandlersSuite) TestMarkCanonicalSessionStartingForSync_NoP
 
 	s.store.EXPECT().
 		GetSpecTask(gomock.Any(), specTaskID).
-		Return(&types.SpecTask{ID: specTaskID, AgentSessionID: ""}, nil)
+		Return(&types.SpecTask{ID: specTaskID, PlanningSessionID: ""}, nil)
 
 	// MarkSessionStartingIfIdle must NOT be called.
 	s.server.markCanonicalSessionStartingForSync(context.Background(), specTaskID)
@@ -355,7 +413,7 @@ func (s *PromptHistoryHandlersSuite) TestMarkCanonicalSessionStartingForSync_Alr
 
 	s.store.EXPECT().
 		GetSpecTask(gomock.Any(), specTaskID).
-		Return(&types.SpecTask{ID: specTaskID, AgentSessionID: sessionID}, nil)
+		Return(&types.SpecTask{ID: specTaskID, PlanningSessionID: sessionID}, nil)
 
 	// Helper falls into the no-update branch when the WHERE guard skipped
 	// the row.

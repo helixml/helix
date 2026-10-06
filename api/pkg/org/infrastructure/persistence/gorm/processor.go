@@ -9,9 +9,9 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
 // isUniqueViolation reports whether err is a database unique-constraint
@@ -30,18 +30,46 @@ func isUniqueViolation(err error) bool {
 
 // processorRow is the GORM row for a Processor. Outputs are stored as a
 // JSON column (the slice is small and only ever read/written whole), so
-// no join table is needed. Mirrors topicRow's shape and (org_id, name)
-// unique index.
+// no join table is needed.
+//
+// The input is a terminal eventsource.SourceRef spread over three
+// nullable columns — exactly the shape attachmentRow uses, so the same
+// (trigger XOR processor+output) invariant reads the same way in both
+// tables.
+//
+// InputTopicID is the retired pre-cutover column. Nothing at runtime
+// reads or writes it; it survives only as the input the repeat-safe
+// conversion in application/cutover reads, and is dropped once deployed
+// data has converted.
 type processorRow struct {
-	ID           string `gorm:"primaryKey;type:text"`
-	OrgID        string `gorm:"primaryKey;type:text;index;uniqueIndex:idx_processor_org_name,priority:1"`
-	Name         string `gorm:"not null;uniqueIndex:idx_processor_org_name,priority:2"`
-	InputTopicID string `gorm:"not null;index"`
-	Kind         string `gorm:"not null"`
-	Config       string `gorm:"not null;default:''"`
-	Outputs      string `gorm:"not null;default:'[]'"`
-	CreatedBy    string `gorm:"index"`
-	CreatedAt    time.Time
+	ID               string  `gorm:"primaryKey;type:text"`
+	OrgID            string  `gorm:"primaryKey;type:text;index;uniqueIndex:idx_processor_org_name,priority:1"`
+	Name             string  `gorm:"not null;uniqueIndex:idx_processor_org_name,priority:2"`
+	InputTopicID     string  `gorm:"not null;default:'';index"`
+	InputTriggerID   *string `gorm:"index"`
+	InputProcessorID *string `gorm:"index"`
+	InputOutputID    *string `gorm:"index"`
+	Kind             string  `gorm:"not null"`
+	Config           string  `gorm:"not null;default:''"`
+	Outputs          string  `gorm:"not null;default:'[]'"`
+	CreatedBy        string  `gorm:"index"`
+	CreatedAt        time.Time
+}
+
+// inputColumns spreads a terminal source reference across the row's three
+// nullable input columns. A zero reference clears all three (an unwired
+// Processor).
+func inputColumns(src eventsource.SourceRef) (triggerID, processorID, outputID *string) {
+	switch src.Kind {
+	case eventsource.KindTrigger:
+		id := src.TriggerID
+		return &id, nil, nil
+	case eventsource.KindProcessorOutput:
+		p, o := src.ProcessorID, src.OutputID
+		return nil, &p, &o
+	default:
+		return nil, nil, nil
+	}
 }
 
 func (processorRow) TableName() string { return "org_processors" }
@@ -57,16 +85,19 @@ func (processorMapper) ToRow(p processor.Processor) (processorRow, error) {
 	if len(p.Config) > 0 {
 		cfg = string(p.Config)
 	}
+	triggerID, procID, outputID := inputColumns(p.InputSource)
 	return processorRow{
-		ID:           string(p.ID),
-		OrgID:        p.OrganizationID,
-		Name:         p.Name,
-		InputTopicID: string(p.InputTopicID),
-		Kind:         string(p.Kind),
-		Config:       cfg,
-		Outputs:      string(outs),
-		CreatedBy:    p.CreatedBy,
-		CreatedAt:    p.CreatedAt,
+		ID:               string(p.ID),
+		OrgID:            p.OrganizationID,
+		Name:             p.Name,
+		InputTriggerID:   triggerID,
+		InputProcessorID: procID,
+		InputOutputID:    outputID,
+		Kind:             string(p.Kind),
+		Config:           cfg,
+		Outputs:          string(outs),
+		CreatedBy:        p.CreatedBy,
+		CreatedAt:        p.CreatedAt,
 	}, nil
 }
 
@@ -81,10 +112,17 @@ func (processorMapper) ToDomain(row processorRow) (processor.Processor, error) {
 	if row.Config != "" {
 		cfg = json.RawMessage(row.Config)
 	}
+	var input eventsource.SourceRef
+	switch {
+	case row.InputTriggerID != nil:
+		input = eventsource.Trigger(*row.InputTriggerID)
+	case row.InputProcessorID != nil && row.InputOutputID != nil:
+		input = eventsource.ProcessorOutput(*row.InputProcessorID, *row.InputOutputID)
+	}
 	return processor.NewProcessor(
 		processor.ProcessorID(row.ID),
 		row.Name,
-		streaming.TopicID(row.InputTopicID),
+		input,
 		processor.Kind(row.Kind),
 		cfg,
 		outs,
@@ -122,17 +160,22 @@ func (r *processorsRepo) List(ctx context.Context, orgID string) ([]processor.Pr
 	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
 }
 
-// ListByInputTopic returns every processor in the org reading the given
-// input topic — the dispatcher's fan-out lookup on every publish.
-func (r *processorsRepo) ListByInputTopic(ctx context.Context, orgID string, in streaming.TopicID) ([]processor.Processor, error) {
-	return r.Find(ctx,
-		store.WithOrg(orgID),
-		store.WithCondition("input_topic_id", string(in)),
-		store.WithOrderAsc("id"),
-	)
+// ListByInputSource returns every processor in the org reading the given
+// source — the runner's fan-out lookup on every published event.
+func (r *processorsRepo) ListByInputSource(ctx context.Context, orgID string, in eventsource.SourceRef) ([]processor.Processor, error) {
+	opts := []store.Option{store.WithOrg(orgID)}
+	switch in.Kind {
+	case eventsource.KindTrigger:
+		opts = append(opts, store.WithCondition("input_trigger_id", in.TriggerID))
+	case eventsource.KindProcessorOutput:
+		opts = append(opts, store.WithCondition("input_processor_id", in.ProcessorID), store.WithCondition("input_output_id", in.OutputID))
+	default:
+		return nil, nil
+	}
+	return r.Find(ctx, append(opts, store.WithOrderAsc("id"))...)
 }
 
-// Update rewrites the mutable subset (name, input topic, kind, config,
+// Update rewrites the mutable subset (name, input source, kind, config,
 // outputs) of the row identified by (id, orgID). Immutable fields on
 // the passed Processor are ignored. Returns store.ErrNotFound when no
 // row matches.
@@ -145,12 +188,15 @@ func (r *processorsRepo) Update(ctx context.Context, p processor.Processor) erro
 	if len(p.Config) > 0 {
 		cfg = string(p.Config)
 	}
+	triggerID, procID, outputID := inputColumns(p.InputSource)
 	updates := map[string]any{
-		"name":           p.Name,
-		"input_topic_id": string(p.InputTopicID),
-		"kind":           string(p.Kind),
-		"config":         cfg,
-		"outputs":        string(outs),
+		"name":               p.Name,
+		"input_trigger_id":   triggerID,
+		"input_processor_id": procID,
+		"input_output_id":    outputID,
+		"kind":               string(p.Kind),
+		"config":             cfg,
+		"outputs":            string(outs),
 	}
 	if err := r.Repository.Update(ctx,
 		store.WithOrg(p.OrganizationID),
@@ -165,9 +211,8 @@ func (r *processorsRepo) Update(ctx context.Context, p processor.Processor) erro
 	return nil
 }
 
-// Delete removes the processor row. The auto-created output topics are
-// cascaded by the processors application service, not here (mirrors how
-// topicsRepo.Delete leaves higher-level cleanup to its caller).
+// Delete removes the processor row. Attachments to its outputs are
+// cascaded by the processors application service, not here.
 func (r *processorsRepo) Delete(ctx context.Context, orgID string, id processor.ProcessorID) error {
 	res := r.db.WithContext(ctx).Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&processorRow{})
 	if res.Error != nil {

@@ -116,18 +116,17 @@ func (s *PostgresStore) UpdateSystemSettings(ctx context.Context, req *types.Sys
 		}
 		settings.MaxConcurrentDesktopSandboxes = *req.MaxConcurrentDesktopSandboxes
 	}
-	if req.DefaultNewProjectAgentProvider != nil {
-		settings.DefaultNewProjectAgentProvider = *req.DefaultNewProjectAgentProvider
+	if req.OpenCodeVersion != nil {
+		settings.OpenCodeVersion = *req.OpenCodeVersion
 	}
-	if req.DefaultNewProjectAgentModel != nil {
-		settings.DefaultNewProjectAgentModel = *req.DefaultNewProjectAgentModel
+	if req.OnboardingHelixModelProvider != nil {
+		settings.OnboardingHelixModelProvider = *req.OnboardingHelixModelProvider
 	}
-	if req.DefaultNewProjectAgentReasoningEffort != nil {
-		effort := *req.DefaultNewProjectAgentReasoningEffort
-		if effort != "" && !types.ValidReasoningEffort(effort) {
-			return nil, fmt.Errorf("default new project agent reasoning effort must be one of none, low, medium, or high")
-		}
-		settings.DefaultNewProjectAgentReasoningEffort = effort
+	if req.OnboardingHelixModel != nil {
+		settings.OnboardingHelixModel = *req.OnboardingHelixModel
+	}
+	if req.OnboardingHelixModelEffort != nil {
+		settings.OnboardingHelixModelEffort = *req.OnboardingHelixModelEffort
 	}
 	if req.OptimusReasoningModelProvider != nil {
 		settings.OptimusReasoningModelProvider = *req.OptimusReasoningModelProvider

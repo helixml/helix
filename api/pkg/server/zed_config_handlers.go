@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/goose"
+	"github.com/helixml/helix/api/pkg/hydra"
 	modelPkg "github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
@@ -54,8 +55,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// Get app (for external agents, parent_app may be empty). SpecTasks are
-	// authoritative for both the Agent reference and task-level overrides.
+	// SpecTasks carry a complete execution config and do not resolve a Helix App.
+	// General sessions may be App-less; org-agent sessions keep the App as their
+	// identity and overlay the session-owned coding execution config.
 	var app *types.App
 	var specTask *types.SpecTask
 	if session.Metadata.SpecTaskID != "" {
@@ -64,10 +66,19 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		}
 	}
 	appID := session.ParentApp
-	if specTask != nil && specTask.HelixAppID != "" {
+	var activeTaskConfig *types.CodeAgentExecutionConfig
+	if specTask != nil {
+		activeTaskConfig = specTask.ActiveCodeAgentConfig()
+	}
+	if specTask != nil && activeTaskConfig != nil {
+		app = external_agent.AppFromCodeAgentConfig(activeTaskConfig, specTask.UserID, specTask.OrganizationID)
+		appID = ""
+	} else if specTask != nil && specTask.HelixAppID != "" {
+		// Pre-start legacy task. Start-time migration clears this path before a
+		// sandbox can request Zed configuration.
 		appID = specTask.HelixAppID
 	}
-	if appID != "" {
+	if app == nil && appID != "" {
 		app, err = apiServer.Store.GetApp(ctx, appID)
 		if err != nil {
 			log.Warn().Err(err).Str("app_id", appID).Str("session_id", sessionID).Msg("Parent app not found - falling back to default config")
@@ -77,7 +88,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 				Config: types.AppConfig{},
 			}
 		}
-	} else {
+	} else if app == nil {
 		// External agent sessions don't have a parent app - create minimal app config
 		log.Debug().Str("session_id", sessionID).Msg("Session has no parent_app (likely external agent), using default config")
 		app = &types.App{
@@ -85,30 +96,43 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			Config: types.AppConfig{},
 		}
 	}
-	app = external_agent.ApplyCodeAgentOverrides(app, func() *types.CodeAgentOverrides {
-		if specTask == nil {
-			return nil
+	if (specTask == nil || activeTaskConfig == nil) && session.Metadata.CodeAgentConfig != nil {
+		app = external_agent.ApplyCodeAgentExecutionConfig(app, session.Metadata.CodeAgentConfig)
+	} else if specTask == nil || activeTaskConfig == nil {
+		app = external_agent.ApplyCodeAgentOverrides(app, effectiveCodeAgentOverrides(session, specTask))
+	}
+	if app.OrganizationID == "" {
+		app.OrganizationID = session.OrganizationID
+	}
+	if app.OrganizationID != "" {
+		if assistant := external_agent.FindZedExternalAssistant(app); assistant != nil {
+			// The bot may have switched to a subscription after this instance
+			// started; never hand an instance its owner's subscription.
+			if session.Metadata.SessionRole == types.SessionRoleOrgBotInstance && assistant.CodeAgentCredentialType.IsSubscription() {
+				return nil, system.NewHTTPError422(types.ErrBotInstanceSubscriptionCredentials.Error())
+			}
+			runtime := assistant.CodeAgentRuntime
+			if runtime == "" {
+				runtime = types.CodeAgentRuntimeZedAgent
+			}
+			providerRef, _ := external_agent.AssistantModelSelection(assistant)
+			if err := apiServer.validateOrgCodeAgentHarness(
+				ctx,
+				app.OrganizationID,
+				runtime,
+				assistant.CodeAgentCredentialType,
+				providerRef,
+			); err != nil {
+				return nil, system.NewHTTPError422(err.Error())
+			}
 		}
-		return specTask.CodeAgentOverrides
-	}())
-
-	// Generate Zed MCP config
-	// Use SERVER_URL for external-facing URLs (browser access)
-	helixAPIURL := apiServer.Cfg.WebServer.URL
-	if helixAPIURL == "" {
-		helixAPIURL = "http://api:8080"
 	}
 
-	// Use SANDBOX_API_URL for sandbox containers
-	// This is the URL that Zed inside the sandbox uses to call the Helix API
-	// If not explicitly set, use the external-facing URL (SERVER_URL) so that
-	// remote sandboxes can reach the API. Only use http://api:8080 in
-	// development where sandboxes run in the same Docker network.
-	sandboxAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
-	if sandboxAPIURL == "" {
-		// Default to external URL so remote sandboxes work out of the box
-		sandboxAPIURL = helixAPIURL
-	}
+	// Every URL in the Zed config (MCP endpoints, language-model api_urls, the
+	// code-agent BaseURL, the WebSocket sync URL) is Helix-owned and must be
+	// reachable from inside the egress-isolated sandbox. Emit the canonical
+	// sandbox proxy URL so the settings daemon never has to rewrite addresses.
+	sandboxAPIURL := hydra.SandboxAPIProxyURL
 
 	// Get API key for MCP and LLM authentication
 	helixToken, err := apiServer.getAPIKeyForSession(ctx, session)
@@ -164,11 +188,17 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// pulls don't race UpdateApp and runner traffic doesn't bump
 	// app.UpdatedAt — the in-memory rewrite still feeds Generate below.
 	apiServer.healLegacyProviderRefs(ctx, app, providerSnapshot, user.TokenType != types.TokenTypeRunner)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, providerSnapshot, session.Metadata.OrgWorkerID)
+	hasDesktop, err := apiServer.sessionHasDesktop(ctx, session)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to resolve sandbox runtime for Zed config")
+		return nil, system.NewHTTPError500("failed to resolve sandbox runtime")
+	}
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, providerSnapshot, session.Metadata.OrgWorkerID, apiServer.specTaskAgentTools(ctx, session), hasDesktop)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
 	}
+	zedConfig.ApplyBotInstanceProfile(session.Metadata.BotInstance)
 
 	// Hard-fail when the agent's stored model config is empty or references
 	// an unknown provider. The settings-sync-daemon uses this endpoint as
@@ -295,9 +325,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		version = session.Updated.Unix()
 	}
 
-	// Build CodeAgentConfig from whichever app drives this session's
-	// runtime. Mirrors getAgentNameForSession's source order: spec
-	// task's HelixAppID first, then session.ParentApp — so any
+	// Build CodeAgentConfig from whichever execution config drives this
+	// session's runtime. Spec tasks use a synthetic, non-persisted App built
+	// from task-owned configuration; general sessions use session.ParentApp. Any
 	// zed_external session opened via /sessions/chat against a
 	// claude_code (or other custom-runtime) agent ships the full
 	// CodeAgentConfig, not just an "agent_name". Previously only the
@@ -309,13 +339,18 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			sessionProjectID = specTask.ProjectID
 		}
 		codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL, sessionProjectID)
-		if codeAgentConfig != nil && specTask.CodeAgentOverrides != nil {
+		if codeAgentConfig != nil && activeTaskConfig != nil {
+			codeAgentConfig.ServiceTier = activeTaskConfig.ServiceTier
+		} else if codeAgentConfig != nil && specTask.CodeAgentOverrides != nil {
 			codeAgentConfig.ServiceTier = specTask.CodeAgentOverrides.ServiceTier
 		}
 		apiServer.applySpecTaskGooseRecipe(ctx, specTask, codeAgentConfig)
 	}
-	if codeAgentConfig == nil && session.ParentApp != "" {
+	if codeAgentConfig == nil && (session.ParentApp != "" || session.Metadata.CodeAgentConfig != nil) {
 		codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL, sessionProjectID)
+		if codeAgentConfig != nil && session.Metadata.CodeAgentConfig != nil {
+			codeAgentConfig.ServiceTier = session.Metadata.CodeAgentConfig.ServiceTier
+		}
 	}
 
 	// Check if user has an active subscription (for credential sync in containers).
@@ -471,13 +506,7 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		app = &types.App{ID: "default-agent", Config: types.AppConfig{}}
 	}
 
-	helixAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
-	if helixAPIURL == "" {
-		helixAPIURL = apiServer.Cfg.WebServer.URL
-		if helixAPIURL == "" {
-			helixAPIURL = "http://api:8080"
-		}
-	}
+	helixAPIURL := hydra.SandboxAPIProxyURL
 
 	helixToken, err := apiServer.getAPIKeyForSession(ctx, session)
 	if err != nil {
@@ -504,11 +533,17 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 	// providerSnapshot=nil here: this endpoint only exposes context_servers,
 	// which don't depend on provider resolution or model validation. The
 	// daemon hits /zed-config separately and handles those concerns there.
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, nil, session.Metadata.OrgWorkerID)
+	hasDesktop, err := apiServer.sessionHasDesktop(ctx, session)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to resolve sandbox runtime for Zed config")
+		return nil, system.NewHTTPError500("failed to resolve sandbox runtime")
+	}
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, nil, session.Metadata.OrgWorkerID, apiServer.specTaskAgentTools(ctx, session), hasDesktop)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
 	}
+	zedConfig.ApplyBotInstanceProfile(session.Metadata.BotInstance)
 
 	userOverrides, err := external_agent.GetUserZedOverrides(ctx, apiServer.Store, sessionID)
 	if err != nil {
@@ -534,10 +569,10 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 
 	agentName := "zed-agent" // Default to Zed's built-in agent
 
-	// Resolve the app whose code_agent_runtime drives this session's
-	// runtime choice. Two sources, in order:
-	//   - spec task's HelixAppID, for spec-task-driven sessions
-	//   - session.ParentApp, for any direct /sessions/chat caller that
+	// Resolve the execution source whose code_agent_runtime drives this
+	// session's runtime choice. Two sources, in order:
+	//   - task-owned CodeAgentConfig for spec-task-driven sessions
+	//   - session.ParentApp for any direct /sessions/chat caller that
 	//     opens a session against an agent app (e.g. helix-org's
 	//     embedded Spawner). Previously the function early-returned
 	//     "zed-agent" for non-spec-task sessions, ignoring the parent
@@ -548,11 +583,21 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 		runtimeApp *types.App
 		source     string
 	)
-	if session.Metadata.SpecTaskID != "" {
-		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil && specTask.HelixAppID != "" {
-			if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
-				runtimeApp = app
+	if session.Metadata.CodeAgentConfig != nil && session.Metadata.SpecTaskID == "" {
+		runtimeApp = external_agent.AppFromCodeAgentConfig(
+			session.Metadata.CodeAgentConfig, session.Owner, session.OrganizationID,
+		)
+		source = "session"
+	} else if session.Metadata.SpecTaskID != "" {
+		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil {
+			if activeConfig := specTask.ActiveCodeAgentConfig(); activeConfig != nil {
+				runtimeApp = external_agent.AppFromCodeAgentConfig(activeConfig, specTask.UserID, specTask.OrganizationID)
 				source = "spec_task"
+			} else if specTask.HelixAppID != "" {
+				if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
+					runtimeApp = app
+					source = "legacy_spec_task"
+				}
 			}
 		}
 	}
@@ -566,17 +611,7 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 		return agentName
 	}
 
-	// Use SANDBOX_API_URL for sandbox containers
-	// If not explicitly set, default to external-facing URL (SERVER_URL)
-	sandboxAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
-	if sandboxAPIURL == "" {
-		sandboxAPIURL = apiServer.Cfg.WebServer.URL
-		if sandboxAPIURL == "" {
-			sandboxAPIURL = "http://api:8080"
-		}
-	}
-
-	codeAgentConfig := apiServer.buildCodeAgentConfig(ctx, runtimeApp, sandboxAPIURL, "")
+	codeAgentConfig := apiServer.buildCodeAgentConfig(ctx, runtimeApp, hydra.SandboxAPIProxyURL, "")
 	if codeAgentConfig != nil {
 		agentName = codeAgentConfig.AgentName
 		log.Info().
@@ -620,7 +655,10 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 			snapshot := providerSnapshotFromEndpoints(endpoints)
 			cfg := apiServer.buildCodeAgentConfigFromAssistant(ctx, &assistant, helixURL, snapshot)
 			_, modelName := external_agent.AssistantModelSelection(&assistant)
-			apiServer.applyAdvertisedModelLimits(ctx, cfg, modelName, endpoints)
+			apiServer.applyAdvertisedModelMetadata(ctx, cfg, modelName, endpoints)
+			if cfg != nil && cfg.Runtime == types.CodeAgentRuntimeOpenCode {
+				apiServer.applyOpenCodeVersionOverride(ctx, cfg)
+			}
 			if cfg != nil && cfg.Runtime == types.CodeAgentRuntimeGooseCode && projectID != "" && len(assistant.GooseRecipes) > 0 {
 				if err := apiServer.resolveGooseRecipesIntoConfig(ctx, app, &assistant, projectID, cfg); err != nil {
 					log.Warn().Err(err).Str("app_id", app.ID).Str("project_id", projectID).Msg("buildCodeAgentConfig: failed to resolve goose recipes; slash commands will be unavailable in this session")
@@ -647,6 +685,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	isSubscription := assistant.CodeAgentCredentialType.IsSubscription()
 
 	providerName, modelName := external_agent.AssistantModelSelection(assistant)
+	providerKind := providerName
 
 	// Resolve the agent's stored provider token (ID or legacy name) to the
 	// provider's current canonical name. Required so the model prefix here
@@ -654,7 +693,12 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	// see comment in buildCodeAgentConfig.
 	if providerSnapshot != nil && providerName != "" {
 		if resolved, _, ok := external_agent.ResolveProvider(providerName, providerSnapshot); ok {
-			providerName = resolved.Name
+			providerKind = resolved.Name
+			if resolved.ID != "" {
+				providerName = resolved.ID
+			} else {
+				providerName = resolved.Name
+			}
 		}
 	}
 
@@ -664,7 +708,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		return nil
 	}
 
-	provider := strings.ToLower(providerName)
+	provider := types.CanonicalProviderName(providerKind)
 	var baseURL, apiType, agentName, model string
 
 	// The runtime choice determines how the LLM is configured in Zed
@@ -693,7 +737,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 			apiType = ""
 			model = assistant.ClaudeSubscriptionModel
 			if model == "" {
-				model = "claude-opus-5"
+				model = "claude-opus-5-5"
 			}
 		} else {
 			// API key mode: route through Helix proxy.
@@ -704,6 +748,35 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 			apiType = "anthropic"
 			model = modelName
 		}
+
+	case types.CodeAgentRuntimeOpenCode:
+		// opencode: `opencode acp` as a custom agent_server. Like qwen, every
+		// provider is reached through Helix's OpenAI-compatible proxy, so
+		// there is a single code path here — the provider prefix is part of
+		// the model id the proxy routes on.
+		baseURL = helixURL + "/v1"
+		apiType = "openai"
+		agentName = "opencode"
+		model = fmt.Sprintf("%s/%s", providerName, modelName)
+
+	case types.CodeAgentRuntimeDeepSeekHarness:
+		// DeepSeek Harness: `dsh-acp` as a custom agent_server. Like qwen and
+		// opencode, every provider is reached through Helix's
+		// OpenAI-compatible proxy, so the provider prefix stays part of the
+		// model id the proxy routes on.
+		baseURL = helixURL + "/v1"
+		apiType = "openai"
+		agentName = "dsh"
+		model = fmt.Sprintf("%s/%s", providerName, modelName)
+
+	case types.CodeAgentRuntimeGooseCode:
+		// Goose: `goose acp` as a custom agent_server, reaching every
+		// provider through Helix's OpenAI-compatible proxy (the daemon maps
+		// apiType "openai" to GOOSE_PROVIDER=openai + OPENAI_BASE_URL).
+		baseURL = helixURL + "/v1"
+		apiType = "openai"
+		agentName = "goose"
+		model = fmt.Sprintf("%s/%s", providerName, modelName)
 
 	case types.CodeAgentRuntimeCodexCLI:
 		agentName = "codex"
@@ -743,6 +816,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	// Look up model info to get token limits
 	// Get token limits from model info if available (0 means use agent defaults)
 	var maxTokens, maxOutputTokens int
+	var inputModalities, outputModalities []types.Modality
 	if apiServer.modelInfoProvider != nil {
 		modelInfo, err := apiServer.modelInfoProvider.GetModelInfo(ctx, &modelPkg.ModelInfoRequest{
 			Provider: providerName,
@@ -751,9 +825,10 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		if err == nil {
 			maxTokens = modelInfo.ContextLength
 			maxOutputTokens = modelInfo.MaxCompletionTokens
+			inputModalities = append([]types.Modality(nil), modelInfo.InputModalities...)
+			outputModalities = append([]types.Modality(nil), modelInfo.OutputModalities...)
 		}
 	}
-
 	return &types.CodeAgentConfig{
 		Provider:         providerName,
 		Model:            model,
@@ -765,21 +840,53 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		ReasoningEffort:  normalizeCodeAgentReasoningEffort(runtime, assistant.ReasoningEffort),
 		MaxTokens:        maxTokens,
 		MaxOutputTokens:  maxOutputTokens,
+		InputModalities:  inputModalities,
+		OutputModalities: outputModalities,
 	}
 }
 
-// applyAdvertisedModelLimits makes the selected provider's /v1/models response
-// authoritative for its context window. The bundled model catalogue is still
-// used by buildCodeAgentConfigFromAssistant as a fallback for providers that do
-// not advertise a context length or are temporarily unavailable.
-func (apiServer *HelixAPIServer) applyAdvertisedModelLimits(ctx context.Context, cfg *types.CodeAgentConfig, modelName string, endpoints []*types.ProviderEndpoint) {
+// applyOpenCodeVersionOverride attaches the admin-pinned opencode release to
+// the config so the container installs it instead of the build baked into the
+// desktop image. A blank setting (the default) leaves OpenCodeBinary nil and
+// the container uses its baked binary with no network access at all.
+//
+// Resolution failures are logged and leave OpenCodeBinary nil, which means the
+// session runs the baked build. That is safe here — and only here — because
+// the version was already resolved successfully when the admin saved it, so a
+// failure at this point is a transient outage of the release index rather than
+// a bad pin. The daemon applies the opposite rule: once it has been handed a
+// pinned artifact it refuses to start the agent unless it can install exactly
+// that artifact.
+func (apiServer *HelixAPIServer) applyOpenCodeVersionOverride(ctx context.Context, cfg *types.CodeAgentConfig) {
+	settings, err := apiServer.Store.GetSystemSettings(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("applyOpenCodeVersionOverride: failed to read system settings; using the bundled opencode build")
+		return
+	}
+	version := strings.TrimSpace(settings.OpenCodeVersion)
+	if version == "" {
+		return
+	}
+
+	binary, err := apiServer.openCodeResolver.Resolve(ctx, version)
+	if err != nil {
+		log.Error().Err(err).Str("opencode_version", version).Msg("applyOpenCodeVersionOverride: failed to resolve the pinned opencode release; falling back to the bundled build for this session")
+		return
+	}
+	cfg.OpenCodeBinary = binary
+}
+
+// applyAdvertisedModelMetadata makes the selected provider's /v1/models
+// response authoritative for capabilities it advertises. The bundled model
+// catalogue and curated profiles remain fallbacks for missing metadata.
+func (apiServer *HelixAPIServer) applyAdvertisedModelMetadata(ctx context.Context, cfg *types.CodeAgentConfig, modelName string, endpoints []*types.ProviderEndpoint) {
 	if cfg == nil || cfg.Provider == "" || modelName == "" {
 		return
 	}
 
 	bareModelName := strings.TrimPrefix(modelName, cfg.Provider+"/")
 	for _, endpoint := range endpoints {
-		if endpoint == nil || endpoint.Name != cfg.Provider {
+		if endpoint == nil || (endpoint.ID != cfg.Provider && endpoint.Name != cfg.Provider) {
 			continue
 		}
 
@@ -797,18 +904,22 @@ func (apiServer *HelixAPIServer) applyAdvertisedModelLimits(ctx context.Context,
 			if advertisedModel.ID != modelName && advertisedBareName != bareModelName {
 				continue
 			}
-			if advertisedModel.ContextLength <= 0 {
-				continue
+			if len(advertisedModel.InputModalities) > 0 {
+				cfg.InputModalities = make([]types.Modality, 0, len(advertisedModel.InputModalities))
+				for _, modality := range advertisedModel.InputModalities {
+					cfg.InputModalities = append(cfg.InputModalities, types.Modality(modality))
+				}
 			}
-
-			catalogueContextLength := cfg.MaxTokens
-			cfg.MaxTokens = advertisedModel.ContextLength
-			log.Debug().
-				Str("provider", cfg.Provider).
-				Str("model", modelName).
-				Int("advertised_context_length", advertisedModel.ContextLength).
-				Int("catalogue_context_length", catalogueContextLength).
-				Msg("buildCodeAgentConfig: using provider-advertised context length")
+			if advertisedModel.ContextLength > 0 {
+				catalogueContextLength := cfg.MaxTokens
+				cfg.MaxTokens = advertisedModel.ContextLength
+				log.Debug().
+					Str("provider", cfg.Provider).
+					Str("model", modelName).
+					Int("advertised_context_length", advertisedModel.ContextLength).
+					Int("catalogue_context_length", catalogueContextLength).
+					Msg("buildCodeAgentConfig: using provider-advertised context length")
+			}
 			return
 		}
 	}
@@ -901,19 +1012,20 @@ func (apiServer *HelixAPIServer) applySpecTaskGooseRecipe(ctx context.Context, s
 	if cfg.Runtime != types.CodeAgentRuntimeGooseCode {
 		return
 	}
-	if specTask.GooseRecipeName == "" {
+	recipeName, recipeParams := specTask.GooseRecipeForPhase(types.SpecTaskPhaseForStatus(specTask.Status))
+	if recipeName == "" {
 		return
 	}
 
 	var sourcePath string
 	for _, r := range cfg.GooseRecipes {
-		if r.Name == specTask.GooseRecipeName {
+		if r.Name == recipeName {
 			sourcePath = r.Path
 			break
 		}
 	}
 	if sourcePath == "" {
-		log.Warn().Str("spec_task_id", specTask.ID).Str("recipe", specTask.GooseRecipeName).Msg("spec-task references a goose recipe not declared on the agent; baking skipped")
+		log.Warn().Str("spec_task_id", specTask.ID).Str("recipe", recipeName).Msg("spec-task references a goose recipe not declared on the agent; baking skipped")
 		return
 	}
 
@@ -928,20 +1040,20 @@ func (apiServer *HelixAPIServer) applySpecTaskGooseRecipe(ctx context.Context, s
 	// where that attachment lives inside the agent's workspace (committed
 	// to the helix-specs branch at /home/retro/work/helix-specs/design/
 	// tasks/<dir>/attachments/<filename>).
-	params, err := apiServer.resolveGooseRecipeFileParams(ctx, specTask, content)
+	params, err := apiServer.resolveGooseRecipeFileParams(ctx, specTask, recipeParams, content)
 	if err != nil {
-		log.Warn().Err(err).Str("spec_task_id", specTask.ID).Str("recipe", specTask.GooseRecipeName).Msg("failed to resolve file params for goose recipe; baking skipped")
+		log.Warn().Err(err).Str("spec_task_id", specTask.ID).Str("recipe", recipeName).Msg("failed to resolve file params for goose recipe; baking skipped")
 		return
 	}
 
 	baked, err := goose.Bake(content, params)
 	if err != nil {
-		log.Warn().Err(err).Str("spec_task_id", specTask.ID).Str("recipe", specTask.GooseRecipeName).Msg("failed to bake goose recipe; falling back to unbaked")
+		log.Warn().Err(err).Str("spec_task_id", specTask.ID).Str("recipe", recipeName).Msg("failed to bake goose recipe; falling back to unbaked")
 		return
 	}
 
 	cfg.GooseBakedRecipe = &types.CodeAgentBakedRecipe{
-		Name:    specTask.GooseRecipeName,
+		Name:    recipeName,
 		Content: baked,
 	}
 }
@@ -952,9 +1064,9 @@ func (apiServer *HelixAPIServer) applySpecTaskGooseRecipe(ctx context.Context, s
 // workspace. Non-file parameters pass through unchanged. The recipe is
 // re-parsed (cheap, the file is already in memory) to discover which params
 // are file-typed — we deliberately don't trust the frontend to tell us.
-func (apiServer *HelixAPIServer) resolveGooseRecipeFileParams(ctx context.Context, specTask *types.SpecTask, recipeContent []byte) (map[string]string, error) {
-	out := make(map[string]string, len(specTask.GooseRecipeParams))
-	for k, v := range specTask.GooseRecipeParams {
+func (apiServer *HelixAPIServer) resolveGooseRecipeFileParams(ctx context.Context, specTask *types.SpecTask, recipeParams map[string]string, recipeContent []byte) (map[string]string, error) {
+	out := make(map[string]string, len(recipeParams))
+	for k, v := range recipeParams {
 		out[k] = v
 	}
 
@@ -1020,13 +1132,105 @@ func (apiServer *HelixAPIServer) resolveGooseRecipeFileParams(ctx context.Contex
 // GenerateZedMCPConfig to skip resolution.
 func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, actorID string, app *types.App) ([]external_agent.ProviderRef, error) {
 	if apiServer.providerManager == nil {
+		if app != nil && app.OrganizationID != "" {
+			return []external_agent.ProviderRef{}, nil
+		}
 		return nil, nil
 	}
 	endpoints, err := apiServer.listEndpointsForApp(ctx, actorID, app)
 	if err != nil {
 		return nil, err
 	}
+	if app != nil && app.OrganizationID != "" {
+		assistant := external_agent.FindZedExternalAssistant(app)
+		if assistant != nil {
+			runtime := assistant.CodeAgentRuntime
+			if runtime == "" {
+				runtime = types.CodeAgentRuntimeZedAgent
+			}
+			harness, err := apiServer.loadOrgCodeAgentHarnessPolicy(ctx, app.OrganizationID, runtime)
+			if err != nil {
+				return nil, err
+			}
+			endpoints = filterProviderEndpointsForHarness(endpoints, harness, runtime)
+		}
+	}
 	return providerSnapshotFromEndpoints(endpoints), nil
+}
+
+func filterProviderEndpointsByRefs(endpoints []*types.ProviderEndpoint, refs []string) []*types.ProviderEndpoint {
+	allowed := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		if endpoint := resolveProviderEndpointRef(endpoints, ref); endpoint != nil {
+			allowed[endpoint.ID] = struct{}{}
+		}
+	}
+	filtered := make([]*types.ProviderEndpoint, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint == nil {
+			continue
+		}
+		if _, ok := allowed[endpoint.ID]; ok {
+			filtered = append(filtered, endpoint)
+		}
+	}
+	return filtered
+}
+
+func filterProviderEndpointsForHarness(
+	endpoints []*types.ProviderEndpoint,
+	harness *types.OrgCodeAgentHarness,
+	runtime types.CodeAgentRuntime,
+) []*types.ProviderEndpoint {
+	if !harness.Enabled || harness.AllowsSubscription() {
+		return []*types.ProviderEndpoint{}
+	}
+	compatible := make([]*types.ProviderEndpoint, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint != nil && external_agent.CodeAgentRuntimeAllowsProvider(runtime, endpoint.Name) {
+			compatible = append(compatible, endpoint)
+		}
+	}
+	if harness.ProviderRefs == nil {
+		return compatible
+	}
+	return filterProviderEndpointsByRefs(compatible, harness.ProviderRefs)
+}
+
+func providerEndpointMatchesRef(endpoint *types.ProviderEndpoint, ref string) bool {
+	return endpoint != nil && endpoint.ID != "" && endpoint.ID == ref
+}
+
+func resolveProviderEndpointRef(endpoints []*types.ProviderEndpoint, ref string) *types.ProviderEndpoint {
+	for _, endpoint := range endpoints {
+		if providerEndpointMatchesRef(endpoint, ref) {
+			return endpoint
+		}
+	}
+	if types.IsGlobalProviderID(ref) || strings.HasPrefix(ref, "pe_") {
+		return nil
+	}
+	var selected *types.ProviderEndpoint
+	for _, endpoint := range endpoints {
+		if endpoint == nil || types.CanonicalProviderName(endpoint.Name) != types.CanonicalProviderName(ref) {
+			continue
+		}
+		if selected == nil || providerEndpointPrecedence(endpoint) > providerEndpointPrecedence(selected) {
+			selected = endpoint
+		}
+	}
+	return selected
+}
+
+func providerEndpointPrecedence(endpoint *types.ProviderEndpoint) int {
+	switch {
+	case endpoint.EndpointType == types.ProviderEndpointTypeOrg:
+		return 3
+	case endpoint.EndpointType == types.ProviderEndpointTypeGlobal && endpoint.ID != "" && endpoint.ID != "-":
+		return 2
+	default:
+		return 1
+	}
 }
 
 func providerSnapshotFromEndpoints(endpoints []*types.ProviderEndpoint) []external_agent.ProviderRef {
@@ -1035,7 +1239,7 @@ func providerSnapshotFromEndpoints(endpoints []*types.ProviderEndpoint) []extern
 		if ep == nil {
 			continue
 		}
-		refs = append(refs, external_agent.ProviderRef{ID: ep.ID, Name: ep.Name})
+		refs = append(refs, external_agent.ProviderRef{ID: ep.ID, Name: ep.Name, EndpointType: ep.EndpointType})
 	}
 	return refs
 }
@@ -1047,27 +1251,47 @@ func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorI
 	if apiServer.providerManager == nil {
 		return nil, nil
 	}
-	owner := actorID
 	if app != nil && app.OrganizationID != "" {
-		owner = app.OrganizationID
+		endpoints, err := apiServer.providerManager.ListProviderEndpointsForOwner(ctx, app.OrganizationID, types.OwnerTypeOrg)
+		if err != nil {
+			return nil, err
+		}
+		return endpoints, nil
 	}
-	return apiServer.providerManager.ListProviderEndpoints(ctx, owner)
+	return apiServer.providerManager.ListProviderEndpoints(ctx, actorID)
 }
 
-// validateSpecTaskAgentConfig pre-flights the agent's provider/model snapshot
+// validateSpecTaskAgentConfig pre-flights the task's provider/model snapshot
 // against the registered providers visible to the actor. Returns a
 // human-readable reason (suitable for HTTP 422) when the agent is
 // misconfigured, or "" when usable. Used by spec-task entry handlers
-// (start-planning, approve-specs) to refuse to queue a task whose agent
-// would fail at session start. Without this, a stale agent record would
+// (start-planning, approve-specs) to refuse to queue a task whose config
+// would fail at session start. Without this, a stale provider reference would
 // spawn a desktop that boots but can't reach a routable model — the user
 // has to dig through API logs to find the cause.
 //
-// Resolves the agent the same way the spec-driven task service does:
-// task.HelixAppID first, falling back to project.DefaultHelixAppID. If
-// neither is set, returns "" — the absent-agent failure is surfaced
-// downstream with its own dedicated message.
-func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context, task *types.SpecTask, actorID string) (string, error) {
+// Unmigrated historical tasks temporarily fall back through the task and
+// project App links. Startup migration removes those links.
+func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context, task *types.SpecTask, actorID string, phase types.SpecTaskPhase) (string, error) {
+	config := task.CodeAgentConfigForPhase(phase)
+	if config != nil {
+		if err := apiServer.validateOrgCodeAgentHarness(
+			ctx,
+			task.OrganizationID,
+			config.Runtime,
+			config.CredentialType,
+			config.ProviderRef,
+		); err != nil {
+			return err.Error(), nil
+		}
+		app := external_agent.AppFromCodeAgentConfig(config, task.UserID, task.OrganizationID)
+		snapshot, err := apiServer.getProviderSnapshot(ctx, actorID, app)
+		if err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Msg("spec-task: failed to list providers; skipping code-agent config validation")
+			return "", nil
+		}
+		return external_agent.ValidateAssistantModelConfig(app, snapshot), nil
+	}
 	appID := task.HelixAppID
 	if appID == "" {
 		project, err := apiServer.Store.GetProject(ctx, task.ProjectID)
@@ -1113,9 +1337,13 @@ func (apiServer *HelixAPIServer) healLegacyProviderRefs(ctx context.Context, app
 		log.Debug().Str("app_id", app.ID).Msg("agent legacy-name → ID migration: in-memory only (runner-token read)")
 		return
 	}
-	if _, err := apiServer.Store.UpdateApp(ctx, app); err != nil {
+	updated, err := apiServer.Store.UpdateApp(ctx, app)
+	if err != nil {
 		log.Warn().Err(err).Str("app_id", app.ID).Msg("agent legacy-name → ID migration: persist failed; will retry on next read")
 		return
+	}
+	if err := apiServer.syncOrgAgentProjectCodeAgentConfig(ctx, updated); err != nil {
+		log.Warn().Err(err).Str("app_id", app.ID).Msg("agent legacy-name → ID migration: Org Bot config sync failed; reconciliation will retry")
 	}
 	log.Info().Str("app_id", app.ID).Msg("agent legacy-name → ID migration: rewrote provider fields to immutable IDs")
 }
@@ -1180,4 +1408,21 @@ func (apiServer *HelixAPIServer) getAPIKeyForSession(ctx context.Context, sessio
 		return "", fmt.Errorf("failed to get session API key for session %s: %w", session.ID, err)
 	}
 	return apiKey, nil
+}
+
+// sessionHasDesktop reports whether the session's sandbox runs a desktop, by
+// the same rule HydraExecutor uses to pick the container type: headless when
+// the org worker's runtime or the spec task's runtime says so.
+func (apiServer *HelixAPIServer) sessionHasDesktop(ctx context.Context, session *types.Session) (bool, error) {
+	if types.EffectiveSpecTaskSandboxRuntime(session.Metadata.SandboxRuntime) == types.SandboxRuntimeHeadlessUbuntu {
+		return false, nil
+	}
+	if session.Metadata.SpecTaskID == "" {
+		return true, nil
+	}
+	task, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+	if err != nil {
+		return false, fmt.Errorf("load spec task %s: %w", session.Metadata.SpecTaskID, err)
+	}
+	return types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime) != types.SandboxRuntimeHeadlessUbuntu, nil
 }

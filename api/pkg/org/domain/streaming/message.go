@@ -34,7 +34,7 @@ type Message struct {
 
 	// ReplyHint is transport-authored guidance, rendered into the
 	// recipient Worker's activation prompt, on how to respond to this
-	// message through its origin transport — e.g. for Slack, publish basic
+	// message through its legacy Topic transport — e.g. for Slack, publish basic
 	// text through a configured Topic or mint a token for rich actions.
 	// The inbound transport sets it (with the concrete
 	// coordinates baked in); it rides through routing like the rest of the

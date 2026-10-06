@@ -21,9 +21,49 @@ type EventHandler func(eventType types.SubscriptionEventType, user types.StripeU
 
 type TopUpEventHandler func(paymentIntentID, orgID, userID string, amount float64) error
 
+type SlackSender interface {
+	SendSubscriptionMessage(message string) error
+}
+
 type Stripe struct {
 	cfg   config.Stripe
 	store store.Store
+	slack SlackSender
+}
+
+func (s *Stripe) SetSlackSender(slack SlackSender) {
+	s.slack = slack
+}
+
+func (s *Stripe) billingAccount(ctx context.Context, wallet *types.Wallet, userID string) string {
+	if wallet.OrgID != "" {
+		account := wallet.OrgID
+		org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: wallet.OrgID})
+		if err == nil {
+			account = org.Name
+		} else {
+			log.Warn().Err(err).Str("org_id", wallet.OrgID).Msg("failed to resolve Stripe billing organization for Slack notification")
+		}
+		if userID != "" {
+			user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+			if err == nil {
+				return fmt.Sprintf("%s (initiated by %s)", account, user.Email)
+			}
+			log.Warn().Err(err).Str("user_id", userID).Msg("failed to resolve Stripe billing user for Slack notification")
+		}
+		return account
+	}
+	if userID == "" {
+		userID = wallet.UserID
+	}
+	if userID != "" {
+		user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+		if err == nil {
+			return user.Email
+		}
+		log.Warn().Err(err).Str("user_id", userID).Msg("failed to resolve Stripe billing user for Slack notification")
+	}
+	return wallet.ID
 }
 
 func NewStripe(
@@ -90,22 +130,31 @@ func (s *Stripe) ListSubscriptions(stripeCustomerID string) ([]*stripe.Subscript
 		sub := subscriptions.Subscription()
 		subs = append(subs, sub)
 	}
-	return subs, nil
+	return subs, subscriptions.Err()
 }
 
 // SyncSubscription fetches the current subscription state from Stripe and updates the wallet.
 // This ensures the wallet always reflects the latest Stripe state (e.g. cancel_at_period_end)
 // even if a webhook was missed or the field was added after the webhook fired.
-func (s *Stripe) SyncSubscription(ctx context.Context, wallet *types.Wallet) {
-	if wallet.StripeSubscriptionID == "" {
-		return
-	}
-
+func (s *Stripe) SyncSubscription(ctx context.Context, wallet *types.Wallet, discover bool) {
 	if s.cfg.SecretKey == "" {
 		return
 	}
 
-	sub, err := subscription.Get(wallet.StripeSubscriptionID, nil)
+	var sub *stripe.Subscription
+	var err error
+	if wallet.StripeSubscriptionID == "" {
+		if !discover || wallet.StripeCustomerID == "" {
+			return
+		}
+		var subscriptions []*stripe.Subscription
+		subscriptions, err = s.ListSubscriptions(wallet.StripeCustomerID)
+		if err == nil && len(subscriptions) > 0 {
+			sub = subscriptions[0]
+		}
+	} else {
+		sub, err = subscription.Get(wallet.StripeSubscriptionID, nil)
+	}
 	if err != nil {
 		log.Warn().Err(err).
 			Str("subscription_id", wallet.StripeSubscriptionID).
@@ -113,10 +162,15 @@ func (s *Stripe) SyncSubscription(ctx context.Context, wallet *types.Wallet) {
 			Msg("failed to fetch subscription from Stripe for sync")
 		return
 	}
+	if sub == nil {
+		return
+	}
 
+	wallet.StripeSubscriptionID = sub.ID
 	wallet.SubscriptionStatus = sub.Status
 	wallet.SubscriptionCurrentPeriodStart = sub.CurrentPeriodStart
 	wallet.SubscriptionCurrentPeriodEnd = sub.CurrentPeriodEnd
+	wallet.SubscriptionCreated = sub.Created
 	wallet.SubscriptionCancelAtPeriodEnd = sub.CancelAtPeriodEnd
 
 	_, err = s.store.UpdateWallet(context.Background(), wallet)
@@ -169,15 +223,21 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 		}
 		return
 	case stripe.EventTypeCheckoutSessionCompleted:
+		// Top-up handlers must return a non-2xx status on failure so Stripe
+		// retries the delivery. The wallet store deduplicates retries by
+		// checkout session and payment intent IDs, so a retried event credits
+		// the wallet exactly once.
 		err := s.handleTopUpCheckoutSessionCompletedEvent(event)
 		if err != nil {
 			log.Error().Msgf("Error handling checkout session completed event: %s", err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 		return
 	case stripe.EventTypePaymentIntentSucceeded:
 		err := s.handleTopUpEvent(event)
 		if err != nil {
 			log.Error().Msgf("Error handling top up event: %s", err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 		return
 	default:

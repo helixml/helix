@@ -102,6 +102,13 @@ type GitHub struct {
 	PersonalAccessToken string `json:"personal_access_token"`
 	BaseURL             string `json:"base_url"` // For GitHub Enterprise instances (empty for github.com)
 
+	// WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review
+	// deliveries with (spec task PR review feedback). Auto-generated at first
+	// webhook install; one repo's secret never validates another repo's
+	// deliveries, keeping orgs isolated on shared deployments.
+	WebhookSecret   string `json:"webhook_secret,omitempty"`
+	ReviewBotUserID int64  `json:"review_bot_user_id,omitempty"`
+
 	// GitHub App authentication (service-to-service)
 	// When AppID and PrivateKey are set, uses GitHub App installation tokens
 	AppID          int64  `json:"app_id,omitempty"`          // GitHub App ID
@@ -191,6 +198,7 @@ type GitRepositoryUpdateRequest struct {
 	GitHub            *GitHub                `json:"github,omitempty"`
 	GitLab            *GitLab                `json:"gitlab,omitempty"`
 	Bitbucket         *Bitbucket             `json:"bitbucket,omitempty"`
+	ReviewBotUserID   *int64                 `json:"review_bot_user_id,omitempty"`
 	OAuthConnectionID *string                `json:"oauth_connection_id,omitempty"` // OAuth connection for authentication
 	Metadata          map[string]interface{} `json:"metadata,omitempty"`
 	KoditIndexing     *bool                  `json:"kodit_indexing,omitempty"` // Enable Kodit code intelligence indexing (pointer to distinguish unset from false)
@@ -218,10 +226,11 @@ type CreateSampleRepositoryRequest struct {
 
 // TreeEntry represents a file or directory in a repository
 type TreeEntry struct {
-	Name  string `json:"name"`
-	Path  string `json:"path"`
-	IsDir bool   `json:"is_dir"`
-	Size  int64  `json:"size"`
+	Name         string     `json:"name"`
+	Path         string     `json:"path"`
+	IsDir        bool       `json:"is_dir"`
+	Size         int64      `json:"size"`
+	LastCommitAt *time.Time `json:"last_commit_at,omitempty"`
 }
 
 // GitRepositoryTreeResponse represents the response for browsing repository tree
@@ -305,6 +314,9 @@ type PullRequest struct {
 	// provider's CI/build APIs for the right commit. Empty if the
 	// provider response did not include it.
 	HeadSHA string `json:"head_sha,omitempty"`
+	// BaseSHA is the commit SHA on the target side of the PR. CI failures on
+	// the head are only actionable when CI passed on this commit.
+	BaseSHA string `json:"base_sha,omitempty"`
 }
 
 // CIStatus is the normalized CI verdict returned by GitRepositoryService.
@@ -315,6 +327,18 @@ type CIStatus struct {
 	State   string `json:"state"`
 	URL     string `json:"url,omitempty"`
 	HeadSHA string `json:"head_sha,omitempty"`
+}
+
+// PRReviewComment is a normalized inline pull request review comment.
+// Used by the GitHub review webhook to build PR feedback messages for
+// spec task agents.
+type PRReviewComment struct {
+	ReviewID int64  `json:"review_id"`
+	Author   string `json:"author"`
+	Body     string `json:"body"`
+	Path     string `json:"path"`
+	Line     int    `json:"line"`
+	URL      string `json:"url,omitempty"`
 }
 
 type PullRequestState string

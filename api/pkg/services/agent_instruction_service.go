@@ -76,6 +76,7 @@ func GetRawScreenshotBaseURL(repo *types.GitRepository, taskDirName string) stri
 type ApprovalPromptData struct {
 	Guidelines            string   // Formatted guidelines section
 	KoditSection          string   // Dynamic MCP tool documentation from kodit (empty when disabled)
+	AgentToolsSection     string   // Helix task-management tools granted to this task (empty when none)
 	RepositorySection     string   // Available repositories section (local + Kodit repos)
 	PrimaryRepoName       string   // Name of the primary repository (e.g., "my-app")
 	NonPrimaryRepoNames   []string // Names of non-primary repositories (for per-repo PR descriptions)
@@ -87,6 +88,7 @@ type ApprovalPromptData struct {
 	ClonedTaskPreamble    string   // Extra instructions for cloned tasks (empty if not cloned)
 	ApprovalComments      string   // Reviewer's comments when approving (may be empty)
 	ScreenshotBaseURL     string   // Raw content URL prefix for screenshots on helix-specs branch (empty if no external repo)
+	HasPullRequests       bool     // Project has an external repo, so work ships as agent-proposed pull requests
 }
 
 // CommentPromptData contains data for design review comment prompts
@@ -151,6 +153,8 @@ If you use an internal to-do tool instead of tasks.md, users cannot see your pro
 1. **/home/retro/work/helix-specs/** = Design docs and progress tracking (push to helix-specs branch)
 2. **/home/retro/work/{{.PrimaryRepoName}}/** = Code changes (push to feature branch) - THIS IS YOUR PRIMARY PROJECT
 {{.RepositorySection}}
+{{.AgentToolsSection}}
+` + helixSkillsSection + `
 ## Task Checklist
 
 Your checklist: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks.md
@@ -186,38 +190,9 @@ git push origin helix-specs
    - Genuinely ambiguous, where choosing wrong would lose real information or change intent: **ask.** Use ` + "`request_human_attention`" + ` with the specific question. Do not guess, and do not abandon the branch.
    Commit the merge before pushing.
 5. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
-6. **Opening pull requests (zero, one, or many)**
-
-   If your task produces code changes, open one or more PRs via the ` + "`propose_pull_request`" + ` MCP tool. Each call creates a pending proposal for the user to approve in the Helix UI. You may call it multiple times per task to ship work as a series of reviewable slices, and you may request a non-default branch name; the user can override it during approval.
-
-   The simple "click Open PR in the UI" path still works for single-PR tasks — you don't *have* to use ` + "`propose_pull_request`" + ` if there's only one PR and it goes on the default branch.
-
-   **Opening zero PRs is a valid outcome.** Some tasks (research, analysis, knowledge work, doc-only updates that live in the spec branch) finish without any code changes. That's fine — call ` + "`mark_task_complete`" + ` when you're done (see step 8).
-
-   Do NOT use ` + "`gh pr create`" + `, the GitHub MCP tools, or any other direct route to open PRs — ` + "`propose_pull_request`" + ` is the only sanctioned mechanism.
-
-7. **Capture knowledge as you go**
-
-   Two channels for writing down what you learned. Use both as appropriate:
-
-   - **Spec branch (` + "`helix-specs`" + `) — no PR needed, push freely.** This branch is forward-only and you push to it constantly throughout the task anyway. At minimum, update ` + "`design/tasks/{{.TaskDirName}}/design.md`" + ` with: gotchas you hit, design decisions you made, why you picked approach A over B, things future agents on similar tasks should know. You can also add new files (` + "`learnings.md`" + `, ` + "`architecture-notes.md`" + `) in the same task directory. None of this needs a PR — it's already pushed and visible.
-
-   - **Main repo markdown files — use ` + "`propose_pull_request`" + ` like any code change.** For content that should live next to the code (` + "`README.md`" + `, ` + "`docs/`" + `, ` + "`ARCHITECTURE.md`" + `, etc.), include the file in a regular PR proposal. Doc-only PRs are valid.
-
-   When in doubt, prefer the spec branch — it's friction-free and the knowledge is guaranteed to be captured.
-
-8. **Declaring the task done — REQUIRED**
-
-   ` + "`mark_task_complete`" + ` is the **only** way the task moves to ` + "`done`" + `. There is no automatic completion based on PRs merging. You must call it explicitly when the work is finished, regardless of how many PRs you opened or what state they're in.
-
-   - Zero PRs and you've captured what you needed → call ` + "`mark_task_complete`" + `.
-   - One PR open and waiting for review → call ` + "`mark_task_complete`" + ` after pushing.
-   - All PRs merged → call ` + "`mark_task_complete`" + `.
-
-   The user clicks Mark Done (or Send Back with feedback) in the UI to confirm. Without your explicit call the task stays in its current state forever.
-
-   If during implementation you discover follow-up work that should be its own task, use ` + "`propose_spec_task`" + ` to propose it before calling ` + "`mark_task_complete`" + `.
-
+{{if .HasPullRequests}}6. **Pull requests are opened only through ` + "`propose_pull_request`" + `** (never ` + "`gh pr create`" + `, the GitHub API or GitHub MCP tools). Helix never opens one on its own: when work is ready for review, push it and propose the pull request; the user approves each proposal (see "Pull Requests" below).
+{{else}}6. **Do NOT create pull requests yourself** (no ` + "`gh pr create`" + `, no GitHub MCP tools). Pushing to the branch is sufficient; the user lands your branch from Helix.
+{{end}}
 ## How Pushing Works (Read This Before Debugging Any Push Failure)
 
 ` + "`origin`" + ` in every repo under ` + "`/home/retro/work/`" + ` points at the Helix-hosted intermediate git server over HTTPS. Credentials come from ` + "`~/.git-credentials`" + ` via the ` + "`store`" + ` credential helper. There is no SSH, no SSH agent, no SSH keys, and no GitHub CLI in this environment. The Helix API relays your pushes to the external GitHub/GitLab/ADO repo using the OAuth credential the user configured.
@@ -337,9 +312,20 @@ Example addition to design.md:
 
 Don't treat the original plan as fixed - update it based on what you learn.
 
-## Pull Request Description (IMPORTANT)
+{{if .HasPullRequests}}## Pull Requests (IMPORTANT)
+
+Every pull request for this task is one you propose with ` + "`propose_pull_request`" + ` and the user approves (or that is approved automatically, if the task auto-approves pull requests — the tool result says so). The title and description you put in the proposal become the pull request's title and description.
+
+- **First pull request:** when the work is ready, merge the base branch, push ` + "`{{.BranchName}}`" + `, then call ` + "`propose_pull_request`" + ` with ` + "`title`" + `, ` + "`body`" + ` and a ` + "`reason`" + ` for the user. ` + "`head_branch`" + ` defaults to ` + "`{{.BranchName}}`" + `.{{if .NonPrimaryRepoNames}} Propose one pull request per repository you changed (pass ` + "`repository`" + `).{{end}}
+- **More than one pull request:** a task can ship as several pull requests. Propose each further slice with its own new ` + "`head_branch`" + ` BEFORE pushing to it: you can only push to your task branch and to branches the user has approved. Once approved, push the branch and Helix opens the pull request as soon as it has commits that are not on the base.
+- **Updating:** pushing more commits to the branch of an open pull request updates it; do not propose it again.
+- **Outcomes** arrive as messages in this session (opened with link, approved-awaiting-push, rejected with feedback, or failed). ` + "`list_pull_request_proposals`" + ` shows the current state. Keep working while a proposal is pending.
+
+{{else}}## Pull Request Description (IMPORTANT)
 
 Before you finish, create PR description files in your task directory. These will be used as the PR title and description when pull requests are created.
+
+Before each follow-up pull request, replace the relevant ` + "`pull_request*.md`" + ` title and body. Describe only the changes that are not already merged. Do not append to or reuse the previous pull request's title or body.
 {{if .NonPrimaryRepoNames}}
 **This is a multi-repo project.** Create a separate PR description for EACH repository, describing only the changes in that repo:
 
@@ -400,7 +386,7 @@ if ! git diff --cached --quiet; then git commit -m "docs(specs): add PR descript
 git fetch origin helix-specs && git rebase origin/helix-specs && git push origin helix-specs
 ` + "```" + `
 {{end}}
-**Tips for good PR descriptions:**
+{{end}}**Tips for good PR descriptions:**
 - Title should be imperative ("Add feature" not "Added feature")
 - Summary explains the "what" and "why"
 - Changes list the key modifications
@@ -494,7 +480,7 @@ git push origin helix-specs
 // guidelines contains concatenated organization + project guidelines (can be empty)
 // primaryRepoName is the name of the primary project repository (e.g., "my-app")
 // repoSection is the pre-built repository access section (from BuildRepositorySection)
-func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName, koditSection, repoSection string, nonPrimaryRepoNames []string, screenshotBaseURL string) string {
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName, koditSection, repoSection, agentToolsSection string, nonPrimaryRepoNames []string, screenshotBaseURL string, hasPullRequests bool) string {
 	taskDirName := GetTaskDirName(task)
 
 	// Build guidelines section if provided
@@ -537,10 +523,9 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 `
 	}
 
-	// Format original prompt section - for cloned tasks, reframe as historical context
-	// Only include original prompt for cloned tasks (where the agent hasn't seen it before)
-	// For normal tasks, the agent already has the original prompt from the planning phase
-	var originalPromptSection string
+	// Implementation starts on a clean ACP thread, so the approved artifacts
+	// and original request are the complete handoff instead of planner chat.
+	originalPromptSection := "**Original Request:**\n> \"" + task.OriginalPrompt + "\""
 	if task.ClonedFromID != "" {
 		originalPromptSection = "**Original Request (for context only - any questions have already been resolved in the specs):**\n> \"" + task.OriginalPrompt + "\""
 	}
@@ -552,8 +537,10 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 	}
 
 	data := ApprovalPromptData{
+		HasPullRequests:       hasPullRequests,
 		Guidelines:            guidelinesSection,
 		KoditSection:          koditSection,
+		AgentToolsSection:     agentToolsSection,
 		RepositorySection:     repoSection,
 		PrimaryRepoName:       primaryRepoName,
 		NonPrimaryRepoNames:   nonPrimaryRepoNames,
@@ -627,18 +614,14 @@ func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) strin
 // Service Methods (Database Interaction)
 // =============================================================================
 
-// SendApprovalInstruction sends a message to the agent to start implementation
-// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildApprovalInstructionPrompt
-// and send via sendChatMessageToExternalAgent instead
-func (s *AgentInstructionService) SendApprovalInstruction(
+// BuildApprovalInstruction gathers the task's approved, durable handoff.
+func (s *AgentInstructionService) BuildApprovalInstruction(
 	ctx context.Context,
-	sessionID string,
-	userID string,
 	task *types.SpecTask,
 	branchName string,
 	baseBranch string,
 	primaryRepoName string,
-) error {
+) string {
 	// Fetch guidelines from project and organization
 	guidelines, project := s.getGuidelinesForTask(ctx, task)
 	koditDoc := ""
@@ -652,6 +635,7 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	// Gather non-primary repo names and find primary repo for screenshot URLs
 	var nonPrimaryRepoNames []string
 	var screenshotBaseURL string
+	hasPullRequests := false
 	taskDirName := GetTaskDirName(task)
 	if task.ProjectID != "" {
 		projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
@@ -659,6 +643,9 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 		})
 		if err == nil {
 			for _, repo := range projectRepos {
+				if repo.ExternalURL != "" {
+					hasPullRequests = true
+				}
 				if repo.Name == primaryRepoName && repo.ExternalURL != "" {
 					screenshotBaseURL = GetRawScreenshotBaseURL(repo, taskDirName)
 				} else if repo.Name != primaryRepoName && repo.ExternalURL != "" {
@@ -668,11 +655,27 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 		}
 	}
 
-	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, nonPrimaryRepoNames, screenshotBaseURL)
+	agentToolsSection := ""
+	if project != nil {
+		agentToolsSection = BuildAgentToolsSection(project.AgentTools, task.AgentTools)
+	}
+	return BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, agentToolsSection, nonPrimaryRepoNames, screenshotBaseURL, hasPullRequests)
+}
+
+// SendApprovalInstructionMessage queues a prepared implementation handoff on
+// the current thread. It is retained for non-server callers that do not own the
+// live ACP switching machinery.
+func (s *AgentInstructionService) SendApprovalInstructionMessage(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	message string,
+) error {
 
 	log.Info().
 		Str("session_id", sessionID).
-		Str("branch_name", branchName).
+		Str("branch_name", task.BranchName).
 		Msg("Sending approval instruction to agent")
 
 	// Enqueue onto the session-scoped prompt queue. interrupt=false: approval
@@ -684,6 +687,20 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	}
 
 	return nil
+}
+
+// SendApprovalInstruction sends a message to the current agent thread.
+func (s *AgentInstructionService) SendApprovalInstruction(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	branchName string,
+	baseBranch string,
+	primaryRepoName string,
+) error {
+	message := s.BuildApprovalInstruction(ctx, task, branchName, baseBranch, primaryRepoName)
+	return s.SendApprovalInstructionMessage(ctx, sessionID, userID, task, message)
 }
 
 // getGuidelinesForTask fetches concatenated organization/user + project guidelines

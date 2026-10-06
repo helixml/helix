@@ -16,18 +16,28 @@ import {
   listPromptHistory,
   backendToLocal,
 } from '../services/promptHistoryService'
+import useAccount from './useAccount'
 
 const HISTORY_STORAGE_KEY = 'helix_prompt_history'
 const DRAFT_STORAGE_KEY = 'helix_prompt_draft'
+const DRAFT_UPDATED_EVENT = 'helix-prompt-draft-updated'
 const LAST_SYNC_KEY = 'helix_prompt_last_sync'
 const MAX_HISTORY_SIZE = 100
 const SYNC_DEBOUNCE_MS = 100 // Debounce for batching rapid changes (100ms feels instant)
+// Status refreshes fired after a new prompt syncs, catching the backend's
+// immediate dispatch well inside the composer's queue-visibility grace window.
+const POST_SYNC_REFRESH_DELAYS_MS = [400, 1200]
 
 export interface PromptHistoryEntry {
   id: string
   content: string
   timestamp: number
   sessionId?: string
+  // Who queued this entry. The queue is the AGENT's, so it also carries prompts
+  // queued by teammates and by bots via the session-messages API; those are
+  // displayed with an owner indicator and are read-only to everyone else.
+  // Undefined on a local entry that has not round-tripped through the backend yet.
+  userId?: string
   // 'pending'  → in queue, not yet dispatched to Zed
   // 'sending'  → backend has dispatched to Zed but Zed hasn't started streaming yet
   //              (the queue UI keeps these visible — that's the user-visible "in flight" state)
@@ -133,6 +143,17 @@ function saveDraft(sessionId: string, content: string): void {
   }
 }
 
+export function appendPromptDraft(sessionId: string, content: string): void {
+  const current = loadDraft(sessionId)
+  const addition = content.trim()
+  if (!addition || current.trimEnd().endsWith(addition)) return
+  const needsSpace = current.length > 0 && !/\s$/.test(current)
+  saveDraft(sessionId, current + (needsSpace ? ' ' : '') + addition)
+  window.dispatchEvent(new CustomEvent(DRAFT_UPDATED_EVENT, {
+    detail: { sessionId },
+  }))
+}
+
 function clearDraftStorage(sessionId: string): void {
   try {
     localStorage.removeItem(`${DRAFT_STORAGE_KEY}_${sessionId}`)
@@ -178,6 +199,10 @@ export function usePromptHistory({
   projectId,
   apiClient,
 }: UsePromptHistoryOptions): UsePromptHistoryReturn {
+  // Needed to tell our own queued prompts from other owners' — the queue is
+  // task/session-scoped now, not per-user.
+  const account = useAccount()
+  const currentUserId = account.user?.id
   // Load initial state from localStorage
   const [history, setHistory] = useState<PromptHistoryEntry[]>(() => loadHistory(specTaskId))
   // Mirror of the latest history for synchronous reads in event handlers (e.g.
@@ -189,6 +214,7 @@ export function usePromptHistory({
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null)
   const hasSyncedRef = useRef(false)
   const pendingSyncRef = useRef(false)
+  const burstRefreshTimersRef = useRef<NodeJS.Timeout[]>([])
 
   // Filter history for current session (for display purposes), excluding tombstoned entries
   const sessionHistory = history.filter(h => h.sessionId === sessionId && !h.deleted)
@@ -245,6 +271,114 @@ export function usePromptHistory({
     })
   }, [specTaskId])
 
+  // Pull backend-owned status for the queue and reconcile it into local state.
+  // Shared by the periodic poll below and the burst refresh fired right after a
+  // new prompt syncs.
+  const refreshStatusesFromBackend = useCallback(async () => {
+    if (!apiClient || !specTaskId || !projectId) return
+    if (!navigator.onLine) return
+
+    try {
+      const response = await listPromptHistory(apiClient, specTaskId, { projectId })
+
+      if (response.entries && response.entries.length > 0) {
+        const backendEntries = response.entries.map(backendToLocal)
+        // Create a map for quick lookup
+        const backendEntriesMap = new Map(backendEntries.map(e => [e.id, e]))
+
+        // Update status of pending messages from backend
+        setHistory(prev => {
+          let updated = false
+          // Foreign rows that have disappeared server-side; removed after the
+          // map so the pass stays a pure reconcile.
+          const droppedIds = new Set<string>()
+          const newHistory = prev.map(h => {
+            if (h.deleted) return h // Don't update tombstoned entries
+            const backendEntry = backendEntriesMap.get(h.id)
+            // Check if status or retry info changed (covers "errored on backend":
+            // the backend marks it failed/crashed and we reflect that here).
+            // This poll is a pull: reflect backend-owned status but preserve any
+            // un-pushed local edit (reconcileEntry, pushed=false). Keep the
+            // changed-check so we don't churn state when nothing moved.
+            if (backendEntry && (
+              h.status !== backendEntry.status ||
+              h.retryCount !== backendEntry.retryCount ||
+              h.nextRetryAt !== backendEntry.nextRetryAt ||
+              h.errorMessage !== backendEntry.errorMessage
+            )) {
+              updated = true
+              return reconcileEntry(h, backendEntry, false)
+            }
+            // Reconcile against the source of truth: a queue entry we previously
+            // synced to the backend that is no longer in the authoritative list has
+            // been removed server-side (deleted/expired) and will never send.
+            // Surface it as failed instead of letting it sit as a perpetual
+            // "waiting to send", so the user can delete it. Guards:
+            //  - syncedToBackend: a freshly-created local entry not yet pushed is
+            //    legitimately absent — don't misclassify it.
+            //  - pending/sending only: don't touch 'sent'/'failed' rows.
+            //  - the `response.entries.length > 0` check above means we never act
+            //    on a transient empty response, and the poll passes no limit so the
+            //    backend returns the full set (no pagination false-positives).
+            if (
+              !backendEntry &&
+              h.syncedToBackend &&
+              (h.status === 'pending' || h.status === 'sending')
+            ) {
+              // Someone else's prompt that has vanished must be DROPPED, not
+              // marked failed. The queue now shows every owner's rows, so a
+              // viewer caches prompts they don't own; when the owner deletes one
+              // the "failed — delete it to clear" state is a dead end for the
+              // viewer, who has no delete affordance for a foreign row (hidden in
+              // the UI, 403 from the API). It would sit there forever.
+              if (h.userId && currentUserId && h.userId !== currentUserId) {
+                droppedIds.add(h.id)
+                updated = true
+                return h
+              }
+              updated = true
+              return {
+                ...h,
+                status: 'failed' as const,
+                errorMessage: 'This queued message is no longer on the server (it was removed). Delete it to clear.',
+              }
+            }
+            return h
+          })
+
+          if (updated) {
+            const pruned = droppedIds.size > 0
+              ? newHistory.filter(h => !droppedIds.has(h.id))
+              : newHistory
+            saveHistory(pruned, specTaskId)
+            return pruned
+          }
+          return prev
+        })
+      }
+    } catch (e) {
+      // Silently ignore polling errors - not critical
+      console.debug('[PromptHistory] Poll failed:', e)
+    }
+  }, [apiClient, specTaskId, projectId, currentUserId])
+
+  // The backend dispatches a synced prompt from a goroutine kicked off by the
+  // sync request itself, so an idle agent takes it almost immediately. Refresh
+  // twice, quickly, instead of waiting for the 2s poll: until the status lands
+  // the entry looks 'pending', and a prompt that is already on its way must not
+  // linger in the composer's queue panel as though it were waiting.
+  const scheduleBurstRefresh = useCallback(() => {
+    burstRefreshTimersRef.current.forEach(clearTimeout)
+    burstRefreshTimersRef.current = POST_SYNC_REFRESH_DELAYS_MS.map(delay =>
+      setTimeout(() => { void refreshStatusesFromBackend() }, delay)
+    )
+  }, [refreshStatusesFromBackend])
+
+  useEffect(() => () => {
+    burstRefreshTimersRef.current.forEach(clearTimeout)
+    burstRefreshTimersRef.current = []
+  }, [])
+
   // Sync a single entry immediately (for new prompts - no debounce)
   const syncEntryImmediately = useCallback(async (entry: PromptHistoryEntry) => {
     if (!apiClient || !specTaskId || !projectId) return
@@ -266,10 +400,13 @@ export function usePromptHistory({
         saveHistory(updated, specTaskId)
         return updated
       })
+
+      // Watch for the dispatch the sync just triggered server-side.
+      scheduleBurstRefresh()
     } catch (e) {
       console.warn('[PromptHistory] Failed immediate sync:', e)
     }
-  }, [apiClient, specTaskId, projectId])
+  }, [apiClient, specTaskId, projectId, scheduleBurstRefresh])
 
   // Sync to backend (debounced - for status updates and edits)
   const syncToBackend = useCallback(async () => {
@@ -404,78 +541,11 @@ export function usePromptHistory({
     const hasPendingMessages = pendingPrompts.length > 0 || failedPrompts.length > 0
     if (!hasPendingMessages) return
 
-    const pollInterval = setInterval(async () => {
-      if (!navigator.onLine) return
-
-      try {
-        const response = await listPromptHistory(apiClient, specTaskId, { projectId })
-
-        if (response.entries && response.entries.length > 0) {
-          const backendEntries = response.entries.map(backendToLocal)
-          // Create a map for quick lookup
-          const backendEntriesMap = new Map(backendEntries.map(e => [e.id, e]))
-
-          // Update status of pending messages from backend
-          setHistory(prev => {
-            let updated = false
-            const newHistory = prev.map(h => {
-              if (h.deleted) return h // Don't update tombstoned entries
-              const backendEntry = backendEntriesMap.get(h.id)
-              // Check if status or retry info changed (covers "errored on backend":
-              // the backend marks it failed/crashed and we reflect that here).
-              // This poll is a pull: reflect backend-owned status but preserve any
-              // un-pushed local edit (reconcileEntry, pushed=false). Keep the
-              // changed-check so we don't churn state when nothing moved.
-              if (backendEntry && (
-                h.status !== backendEntry.status ||
-                h.retryCount !== backendEntry.retryCount ||
-                h.nextRetryAt !== backendEntry.nextRetryAt ||
-                h.errorMessage !== backendEntry.errorMessage
-              )) {
-                updated = true
-                return reconcileEntry(h, backendEntry, false)
-              }
-              // Reconcile against the source of truth: a queue entry we previously
-              // synced to the backend that is no longer in the authoritative list has
-              // been removed server-side (deleted/expired) and will never send.
-              // Surface it as failed instead of letting it sit as a perpetual
-              // "waiting to send", so the user can delete it. Guards:
-              //  - syncedToBackend: a freshly-created local entry not yet pushed is
-              //    legitimately absent — don't misclassify it.
-              //  - pending/sending only: don't touch 'sent'/'failed' rows.
-              //  - the `response.entries.length > 0` check above means we never act
-              //    on a transient empty response, and the poll passes no limit so the
-              //    backend returns the full set (no pagination false-positives).
-              if (
-                !backendEntry &&
-                h.syncedToBackend &&
-                (h.status === 'pending' || h.status === 'sending')
-              ) {
-                updated = true
-                return {
-                  ...h,
-                  status: 'failed' as const,
-                  errorMessage: 'This queued message is no longer on the server (it was removed). Delete it to clear.',
-                }
-              }
-              return h
-            })
-
-            if (updated) {
-              saveHistory(newHistory, specTaskId)
-              return newHistory
-            }
-            return prev
-          })
-        }
-      } catch (e) {
-        // Silently ignore polling errors - not critical
-        console.debug('[PromptHistory] Poll failed:', e)
-      }
-    }, 2000) // Poll every 2 seconds while there are pending messages
+    // Poll every 2 seconds while there are pending messages
+    const pollInterval = setInterval(() => { void refreshStatusesFromBackend() }, 2000)
 
     return () => clearInterval(pollInterval)
-  }, [apiClient, specTaskId, projectId, pendingPrompts.length, failedPrompts.length])
+  }, [apiClient, specTaskId, projectId, pendingPrompts.length, failedPrompts.length, refreshStatusesFromBackend])
 
   // Debounced draft save
   const setDraft = useCallback((value: string) => {
@@ -503,6 +573,15 @@ export function usePromptHistory({
   useEffect(() => {
     const loaded = loadDraft(sessionId)
     setDraftState(loaded)
+  }, [sessionId])
+
+  useEffect(() => {
+    const reloadAppendedDraft = (event: Event) => {
+      if ((event as CustomEvent<{ sessionId: string }>).detail.sessionId !== sessionId) return
+      setDraftState(loadDraft(sessionId))
+    }
+    window.addEventListener(DRAFT_UPDATED_EVENT, reloadAppendedDraft)
+    return () => window.removeEventListener(DRAFT_UPDATED_EVENT, reloadAppendedDraft)
   }, [sessionId])
 
   // Reload history when specTaskId changes

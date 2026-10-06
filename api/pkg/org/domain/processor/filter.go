@@ -60,7 +60,7 @@ func (c filterConfig) Process(_ context.Context, in streaming.Message, out []Out
 			return nil, fmt.Errorf("filter output %d: %w", i, err)
 		}
 		if match {
-			res = append(res, Result{TopicID: o.TopicID, Message: in})
+			res = append(res, Result{Output: o, Message: in})
 		}
 	}
 	return res, nil

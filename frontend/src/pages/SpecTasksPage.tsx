@@ -24,6 +24,7 @@ import {
   Tab as TabIcon,
   Archive as ArchiveIcon,
   BarChart as MetricsIcon,
+  SmartToy as BotIcon,
   Visibility as ViewIcon,
   PushPin as PushPinIcon,
   PushPinOutlined as PushPinOutlinedIcon,
@@ -37,6 +38,7 @@ import {
   FolderOpen,
   GitMerge,
   UserPlus,
+  PanelsTopLeft,
 } from "lucide-react";
 
 import Page from "../components/system/Page";
@@ -75,9 +77,6 @@ import {
   isProjectAccessDeniedError,
 } from "../services/projectService";
 import { useListSessions, useGetSession } from "../services/sessionService";
-import { useClaudeSubscriptions } from "../components/account/ClaudeSubscriptionConnect";
-import ClaudeSubscriptionConnect from "../components/account/ClaudeSubscriptionConnect";
-import { getTokenExpiryStatus } from "../components/account/claudeSubscriptionUtils";
 import {
   useListProjectAccessGrants,
   useCreateProjectAccessGrant,
@@ -85,6 +84,7 @@ import {
 } from "../services/projectAccessGrantService";
 import ProjectMembersBar from "../components/project/ProjectMembersBar";
 import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
+import { registerNewTaskShortcut } from "../components/tasks/specTaskKeyboardShortcuts";
 
 const SpecTasksPage: FC = () => {
   const account = useAccount();
@@ -221,6 +221,7 @@ const SpecTasksPage: FC = () => {
   // Kanban view options state (controlled from topbar)
   const METRICS_STORAGE_KEY = "helix-kanban-show-metrics";
   const MERGED_STORAGE_KEY = "helix-kanban-show-merged";
+  const BOT_TASKS_STORAGE_KEY = "helix-kanban-show-bot-tasks";
   const [showArchived, setShowArchived] = useState(false);
   const [showMetrics, setShowMetrics] = useState(() => {
     const stored = localStorage.getItem(METRICS_STORAGE_KEY);
@@ -230,6 +231,9 @@ const SpecTasksPage: FC = () => {
     const stored = localStorage.getItem(MERGED_STORAGE_KEY);
     return stored !== null ? stored === "true" : true;
   });
+  const [showBotTasks, setShowBotTasks] = useState(
+    () => localStorage.getItem(BOT_TASKS_STORAGE_KEY) === "true",
+  );
   const [viewMenuAnchorEl, setViewMenuAnchorEl] = useState<null | HTMLElement>(
     null,
   );
@@ -246,6 +250,14 @@ const SpecTasksPage: FC = () => {
     setShowMerged((prev) => {
       const newValue = !prev;
       localStorage.setItem(MERGED_STORAGE_KEY, String(newValue));
+      return newValue;
+    });
+  }, []);
+
+  const handleToggleBotTasks = useCallback(() => {
+    setShowBotTasks((prev) => {
+      const newValue = !prev;
+      localStorage.setItem(BOT_TASKS_STORAGE_KEY, String(newValue));
       return newValue;
     });
   }, []);
@@ -334,58 +346,9 @@ const SpecTasksPage: FC = () => {
   // Track newly created task ID for focusing "Start Planning" button
   const [focusTaskId, setFocusTaskId] = useState<string | undefined>(undefined);
 
-  // Get display settings from the project's default app for exploratory sessions
-  const exploratoryDisplaySettings = useMemo(() => {
-    if (!project?.default_helix_app_id || !apps.apps) {
-      return { width: 1920, height: 1080, fps: 60 };
-    }
-    const defaultApp = apps.apps.find(
-      (a) => a.id === project.default_helix_app_id,
-    );
-    const config = defaultApp?.config?.helix?.external_agent_config;
-    if (!config) {
-      return { width: 1920, height: 1080, fps: 60 };
-    }
+  const exploratoryDisplaySettings = { width: 1920, height: 1080, fps: 60 };
 
-    // Get dimensions from resolution preset or explicit values
-    let width = config.display_width || 1920;
-    let height = config.display_height || 1080;
-    if (config.resolution === "5k") {
-      width = 5120;
-      height = 2880;
-    } else if (config.resolution === "4k") {
-      width = 3840;
-      height = 2160;
-    } else if (config.resolution === "1080p") {
-      width = 1920;
-      height = 1080;
-    }
-
-    return {
-      width,
-      height,
-      fps: config.display_refresh_rate || 60,
-    };
-  }, [project?.default_helix_app_id, apps.apps]);
-
-  // Check if the project's default app uses Claude Code with subscription credentials
-  const { data: claudeSubscriptions } = useClaudeSubscriptions();
-  const claudeTokenExpiry = useMemo(() => {
-    if (!project?.default_helix_app_id || !apps.apps) return null;
-    const defaultApp = apps.apps.find(
-      (a) => a.id === project.default_helix_app_id,
-    );
-    const assistant = defaultApp?.config?.helix?.assistants?.[0];
-    if (
-      assistant?.code_agent_runtime !== "claude_code" ||
-      assistant?.code_agent_credential_type !== "subscription"
-    )
-      return null;
-    const sub = claudeSubscriptions?.[0];
-    if (!sub) return null;
-    if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
-    return getTokenExpiryStatus(sub.access_token_expires_at);
-  }, [project?.default_helix_app_id, apps.apps, claudeSubscriptions]);
+  // Check if the project uses Claude Code with subscription credentials
 
   // Load tasks and apps on mount
   useEffect(() => {
@@ -402,41 +365,6 @@ const SpecTasksPage: FC = () => {
       router.removeParams(["new"]);
     }
   }, [router.params.new]);
-
-  // Keyboard shortcut: Enter to toggle new task dialog
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.key === "Enter" &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        !e.shiftKey
-      ) {
-        // Only trigger if not typing in an input field or focused interactive element
-        const target = e.target as HTMLElement;
-        if (
-          target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable ||
-          target.hasAttribute("tabindex")
-        ) {
-          // Exclude focusable elements like stream viewer
-          return;
-        }
-        e.preventDefault();
-        // Toggle behavior: open if closed, close if open and no focus
-        // Also close chat panel when opening create dialog
-        if (!createDialogOpen) {
-          setChatPanelOpen(false);
-        }
-        setCreateDialogOpen((prev) => !prev);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [createDialogOpen]);
 
   // Keyboard shortcut: ESC to close create task panel or chat panel
   useEffect(() => {
@@ -631,6 +559,11 @@ const SpecTasksPage: FC = () => {
     setChatPanelOpen(false);
     setCreateDialogOpen(true);
   }, []);
+
+  useEffect(() => {
+    if (viewMode !== "kanban" || createDialogOpen) return;
+    return registerNewTaskShortcut(viewMode, handleOpenCreateDialog);
+  }, [createDialogOpen, handleOpenCreateDialog, viewMode]);
 
   const handleTaskCreated = useCallback((task: TypesSpecTask) => {
     setCreateDialogOpen(false);
@@ -945,6 +878,18 @@ const SpecTasksPage: FC = () => {
               alignItems: "center",
             }}
           >
+            <Button
+              variant="text"
+              color="secondary"
+              startIcon={<PanelsTopLeft size={18} />}
+              onClick={() => router.navigate("org_project-artifacts", {
+                org_id: router.params.org_id,
+                id: projectId,
+              })}
+              sx={{ flexShrink: 0, minHeight: 40, textTransform: "none", fontWeight: 500 }}
+            >
+              Artifacts
+            </Button>
             {!exploratorySessionData ? (
               <Tooltip title="Test your app and find tasks for your agents. Shared with your team.">
                 <Button
@@ -1115,6 +1060,15 @@ const SpecTasksPage: FC = () => {
             </MenuItem>
             <MenuItem
               onClick={() => {
+                handleToggleBotTasks();
+                setViewMenuAnchorEl(null);
+              }}
+            >
+              <BotIcon sx={{ mr: 1.5, fontSize: 20 }} />
+              {showBotTasks ? "Hide Bot Tasks" : "Show Bot Tasks"}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
                 handleToggleMetrics();
                 setViewMenuAnchorEl(null);
               }}
@@ -1206,26 +1160,6 @@ const SpecTasksPage: FC = () => {
               </Alert>
             )}
 
-          {/* Claude subscription token expiry warning */}
-          {claudeTokenExpiry &&
-            (claudeTokenExpiry.isExpired ||
-              claudeTokenExpiry.isExpiringSoon) && (
-              <Alert
-                severity="warning"
-                sx={{ mb: 2 }}
-                action={
-                  <ClaudeSubscriptionConnect
-                    variant="button"
-                    orgId={project?.organization_id}
-                  />
-                }
-              >
-                {claudeTokenExpiry.isExpired
-                  ? `Claude subscription token has expired (${claudeTokenExpiry.label}). It will automatically refresh the next time a session uses Claude Code, or you can re-authenticate now.`
-                  : `Claude subscription token is expiring soon (${claudeTokenExpiry.label}). It will automatically refresh the next time a session uses Claude Code, or you can re-authenticate now.`}
-              </Alert>
-            )}
-
           {/* Main Content: Kanban Board, Tabs View, or Audit Trail */}
           <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
           <Box
@@ -1263,6 +1197,7 @@ const SpecTasksPage: FC = () => {
                 showArchived={showArchived}
                 showMetrics={showMetrics}
                 showMerged={showMerged}
+                showBotTasks={showBotTasks}
               />
             )}
             {viewMode === "workspace" && (

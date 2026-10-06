@@ -15,6 +15,14 @@ vi.mock('./OrgAgentSettings', () => ({
   default: ({ section }: { section: string }) => <div data-testid={`org-${section}`} />,
 }))
 
+vi.mock('../helix-org/WorkerSecretsPanel', () => ({
+  default: () => <div data-testid="worker-secrets" />,
+}))
+
+vi.mock('../helix-org/BotInstanceProfileSettings', () => ({
+  default: () => <div data-testid="bot-instance-profile" />,
+}))
+
 const renderDetails = (kind: 'coding' | 'org', accessManagement?: ReactNode) => render(
   <FocusedAgentDetails
     agentID="app_test"
@@ -57,18 +65,20 @@ describe('FocusedAgentDetails', () => {
       />,
     )
 
-    for (const title of ['General', 'Desktop', 'Instructions', 'Available tools', 'Subscriptions', 'Permissions']) {
+    for (const title of ['General', 'Desktop', 'Instructions', 'Available tools', 'Instances', 'Triggers', 'Secrets', 'Permissions']) {
       expect(screen.getByRole('heading', { name: title })).toBeInTheDocument()
     }
     for (const section of ['basics', 'runtime', 'instructions', 'tools', 'subscriptions', 'access']) {
       expect(screen.getByTestId(`org-${section}`)).toBeInTheDocument()
     }
     expect(screen.getByTestId('agent-access')).toBeInTheDocument()
+    expect(screen.getByTestId('worker-secrets')).toBeInTheDocument()
+    expect(screen.getByTestId('bot-instance-profile')).toBeInTheDocument()
   })
 
-  it('explains when an org backing agent is no longer linked to a worker', () => {
+  it('explains when a legacy App is no longer linked to an Org Bot', () => {
     renderDetails('org')
 
-    expect(screen.getByText(/no longer linked to an organization worker/i)).toBeInTheDocument()
+    expect(screen.getByText(/no longer linked to an org bot/i)).toBeInTheDocument()
   })
 })

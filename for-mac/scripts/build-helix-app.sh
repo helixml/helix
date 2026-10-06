@@ -30,6 +30,8 @@ REPO_ROOT="$(cd "$FOR_MAC_DIR/.." && pwd)"
 
 # Configuration
 SYSROOT="${SYSROOT:-$HOME/pm/UTM/sysroot-macOS-arm64}"
+# Where the QEMU build was installed (release CI: qemu-helix/build-qemu-ci.sh)
+QEMU_PREFIX="${QEMU_PREFIX:-$SYSROOT}"
 UTM_FRAMEWORKS="${UTM_APP_FRAMEWORKS:-/Applications/UTM.app/Contents/Frameworks}"
 EFI_CODE="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
 EFI_VARS_TEMPLATE="/opt/homebrew/share/qemu/edk2-arm-vars.fd"
@@ -71,10 +73,18 @@ if [ ! -d "$SYSROOT" ]; then
     exit 1
 fi
 
-QEMU_DYLIB="$SYSROOT/lib/libqemu-aarch64-softmmu.dylib"
+QEMU_DYLIB="$QEMU_PREFIX/lib/libqemu-aarch64-softmmu.dylib"
 if [ ! -f "$QEMU_DYLIB" ]; then
     echo "ERROR: QEMU dylib not found at: $QEMU_DYLIB"
     echo "Build QEMU first: ./qemu-helix/build-qemu-standalone.sh"
+    exit 1
+fi
+
+# helixml/qemu-utm vendors a patched libslirp and links it statically.
+# A dylib that still links slirp.0 is a stale build without those fixes.
+if otool -L "$QEMU_DYLIB" | tail -n +2 | grep -q slirp; then
+    echo "ERROR: $QEMU_DYLIB links an external libslirp (stale QEMU build)"
+    echo "Rebuild QEMU from helixml/qemu-utm: ./qemu-helix/build-qemu-standalone.sh"
     exit 1
 fi
 
@@ -128,7 +138,7 @@ mkdir -p "$MACOS_DIR"
 #   - libqemu-aarch64-softmmu.dylib (34MB) — core QEMU implementation
 #   - qemu-system-aarch64 (75KB) — wrapper with main() that loads the dylib
 # The wrapper is what we exec.Command() — you cannot execute a .dylib directly.
-QEMU_WRAPPER="$SYSROOT/bin/qemu-system-aarch64"
+QEMU_WRAPPER="$QEMU_PREFIX/bin/qemu-system-aarch64"
 if [ ! -f "$QEMU_WRAPPER" ]; then
     echo "ERROR: QEMU wrapper executable not found at: $QEMU_WRAPPER"
     echo "Build QEMU first: ./qemu-helix/build-qemu-standalone.sh"
@@ -140,7 +150,7 @@ cp "$QEMU_WRAPPER" "$MACOS_DIR/qemu-system-aarch64"
 
 # qemu-img is needed at runtime for creating/resizing qcow2 disk images.
 # Without it bundled, the app fails on machines without Homebrew QEMU installed.
-QEMU_IMG="$SYSROOT/bin/qemu-img"
+QEMU_IMG="$QEMU_PREFIX/bin/qemu-img"
 if [ -f "$QEMU_IMG" ]; then
     cp "$QEMU_IMG" "$MACOS_DIR/qemu-img"
     log "  Copied qemu-img ($(du -h "$MACOS_DIR/qemu-img" | awk '{print $1}'))"
@@ -162,7 +172,7 @@ mkdir -p "$FRAMEWORKS_DIR"
 #
 # Direct QEMU deps:
 #   pixman-1.0, jpeg.62, epoxy.0, gio-2.0.0, gobject-2.0.0, glib-2.0.0,
-#   zstd.1, slirp.0, spice-server.1, virglrenderer.1, usbredirparser.1,
+#   zstd.1, spice-server.1, virglrenderer.1, usbredirparser.1,
 #   usb-1.0.0, gmodule-2.0.0
 #
 # Transitive deps:
@@ -182,7 +192,6 @@ REQUIRED_FRAMEWORKS=(
     "gobject-2.0.0"
     "glib-2.0.0"
     "zstd.1"
-    "slirp.0"
     "spice-server.1"
     "virglrenderer.1"
     "usbredirparser.1"
@@ -309,7 +318,7 @@ install_name_tool -id "@rpath/libqemu-aarch64-softmmu.dylib" \
     "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" 2>/dev/null || true
 
 # Fix QEMU wrapper: change absolute sysroot path to @executable_path
-QEMU_OLD_ID="$SYSROOT/lib/libqemu-aarch64-softmmu.dylib"
+QEMU_OLD_ID="$QEMU_PREFIX/lib/libqemu-aarch64-softmmu.dylib"
 install_name_tool -change "$QEMU_OLD_ID" \
     "@executable_path/libqemu-aarch64-softmmu.dylib" \
     "$MACOS_DIR/qemu-system-aarch64" 2>/dev/null || true

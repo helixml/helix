@@ -60,7 +60,7 @@ func (s *GitIntegrationSuite) TestStageUploadedAttachments_RacingUploadAfterPlan
 		ProjectID:         "proj-1",
 		CreatedBy:         "test-user",
 		DesignDocPath:     "000123_racing-task",
-		AgentSessionID: "ses-1", // planning already running — the bug's precondition
+		PlanningSessionID: "ses-1", // planning already running — the bug's precondition
 	}
 	att := &types.SpecTaskAttachment{
 		ID:            "att-1",
@@ -99,7 +99,7 @@ func (s *GitIntegrationSuite) TestStageUploadedAttachments_RacingUploadAfterPlan
 }
 
 // TestStageUploadedAttachments_BacklogNoSession covers the case where planning has not
-// started yet (no AgentSessionID). The file must still be committed so it is present
+// started yet (no PlanningSessionID). The file must still be committed so it is present
 // when the planning prompt is later built — but no note is enqueued (the prompt will list
 // it via ListSpecTaskAttachments).
 func (s *GitIntegrationSuite) TestStageUploadedAttachments_BacklogNoSession() {
@@ -111,7 +111,7 @@ func (s *GitIntegrationSuite) TestStageUploadedAttachments_BacklogNoSession() {
 		ProjectID:     "proj-2",
 		CreatedBy:     "test-user",
 		DesignDocPath: "000124_backlog-task",
-		// AgentSessionID intentionally empty
+		// PlanningSessionID intentionally empty
 	}
 	att := &types.SpecTaskAttachment{
 		ID:            "att-2",
@@ -152,7 +152,7 @@ func (s *GitIntegrationSuite) TestStageUploadedAttachments_Idempotent() {
 		ProjectID:         "proj-3",
 		CreatedBy:         "test-user",
 		DesignDocPath:     "000125_idem-task",
-		AgentSessionID: "ses-3",
+		PlanningSessionID: "ses-3",
 	}
 	att := &types.SpecTaskAttachment{
 		ID:            "att-3",

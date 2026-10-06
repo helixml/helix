@@ -22,7 +22,7 @@ import (
 // Both can land on a task in QueuedSpecGeneration within milliseconds of each
 // other and each spawn a goroutine that calls StartSpecGeneration. The old guard
 // at spec_driven_task_service.go:414-423 was a read-then-write TOCTOU — both
-// callers read AgentSessionID=="", both passed, both went on to CreateSession
+// callers read PlanningSessionID=="", both passed, both went on to CreateSession
 // and StartDesktop. Real-world evidence of this failure: planning session
 // ses_01kts7zgv54067bgkdyjv3kj2x for task spt_01kts7zed3fe0wmadwb5wv0xzy on
 // 2026-06-10, where two containers (01kts7zgv0znfte5dr3nq6stbs +
@@ -30,7 +30,7 @@ import (
 // with a half-written /home/retro/work/helix whose `git fetch origin --prune`
 // returned only `* branch HEAD -> FETCH_HEAD`.
 //
-// The fix: SetAgentSessionIDIfEmpty does the claim atomically at the store
+// The fix: SetPlanningSessionIDIfEmpty does the claim atomically at the store
 // layer; the loser deletes its orphan session and returns BEFORE StartDesktop.
 func TestSpecDrivenTaskService_StartSpecGeneration_NoDoubleStartDesktopOnConcurrency(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -40,33 +40,31 @@ func TestSpecDrivenTaskService_StartSpecGeneration_NoDoubleStartDesktopOnConcurr
 	mockExecutor := external_agent.NewMockExecutor(ctrl)
 
 	project := &types.Project{
-		ID:                "project-race",
-		OrganizationID:    "org-1",
-		DefaultHelixAppID: "app-race",
+		ID:              "project-race",
+		OrganizationID:  "org-1",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
 	}
-	app := &types.App{ID: "app-race"}
 	baseTask := &types.SpecTask{
-		ID:         "task-race",
-		ProjectID:  "project-race",
-		HelixAppID: "app-race",
-		Status:     types.TaskStatusQueuedSpecGeneration,
-		CreatedBy:  "user-1",
-		BranchMode: types.BranchModeNew,
-		BaseBranch: "main",
-		Name:       "racing task",
+		ID:              "task-race",
+		ProjectID:       "project-race",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+		Status:          types.TaskStatusQueuedSpecGeneration,
+		CreatedBy:       "user-1",
+		BranchMode:      types.BranchModeNew,
+		BaseBranch:      "main",
+		Name:            "racing task",
 	}
 
 	// All read-side store calls happen on both goroutines; allow any number.
 	mockStore.EXPECT().GetProject(gomock.Any(), "project-race").Return(project, nil).AnyTimes()
-	mockStore.EXPECT().GetApp(gomock.Any(), "app-race").Return(app, nil).AnyTimes()
 	mockStore.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	// The TOCTOU read at spec_driven_task_service.go:417. We force it to ALWAYS
-	// return an empty agent_session_id so both concurrent callers pass the
+	// return an empty planning_session_id so both concurrent callers pass the
 	// read-then-write guard. This is the canonical setup for the race.
 	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task-race").Return(&types.SpecTask{
 		ID:                "task-race",
-		AgentSessionID: "",
+		PlanningSessionID: "",
 	}, nil).AnyTimes()
 
 	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -87,7 +85,7 @@ func TestSpecDrivenTaskService_StartSpecGeneration_NoDoubleStartDesktopOnConcurr
 	// the in-test simulation of the postgres single-statement UPDATE: the
 	// first caller wins, the rest lose. Without the fix this is never called.
 	var claimAttempts int32
-	mockStore.EXPECT().SetAgentSessionIDIfEmpty(gomock.Any(), "task-race", gomock.Any()).
+	mockStore.EXPECT().SetPlanningSessionIDIfEmpty(gomock.Any(), "task-race", gomock.Any()).
 		DoAndReturn(func(_ context.Context, _, _ string) (bool, error) {
 			return atomic.AddInt32(&claimAttempts, 1) == 1, nil
 		}).AnyTimes()
@@ -104,7 +102,7 @@ func TestSpecDrivenTaskService_StartSpecGeneration_NoDoubleStartDesktopOnConcurr
 		Return([]*types.SpecTaskAttachment{}, nil).AnyTimes()
 
 	// The assertion this whole test exists for: even with two concurrent
-	// StartSpecGeneration callers seeing the same empty AgentSessionID,
+	// StartSpecGeneration callers seeing the same empty PlanningSessionID,
 	// exactly one of them must reach StartDesktop. The other must bail.
 	var startDesktopCount int32
 	mockExecutor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).
@@ -154,4 +152,55 @@ func TestSpecDrivenTaskService_StartSpecGeneration_NoDoubleStartDesktopOnConcurr
 	assert.Equal(t, int32(1), atomic.LoadInt32(&startDesktopCount),
 		"StartDesktop must fire exactly once per task even when two StartSpecGeneration goroutines race; got %d calls",
 		atomic.LoadInt32(&startDesktopCount))
+}
+
+func TestSpecDrivenTaskService_StartJustDoItMode_LosingClaimDeletesOrphan(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockExecutor := external_agent.NewMockExecutor(ctrl)
+	project := &types.Project{
+		ID:              "project-jdi-race",
+		OrganizationID:  "org-1",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+	}
+	task := &types.SpecTask{
+		ID:                      "task-jdi-race",
+		ProjectID:               project.ID,
+		CodeAgentConfig:         testSpecTaskCodeAgentConfig(),
+		PlanningCodeAgentConfig: testSpecTaskCodeAgentConfig(),
+		Status:                  types.TaskStatusQueuedImplementation,
+		CreatedBy:               "user-1",
+		BranchMode:              types.BranchModeExisting,
+		BranchName:              "feature/existing",
+		Name:                    "racing Just Do It task",
+	}
+
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	mockStore.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).Return(nil)
+	mockStore.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, session types.Session) (*types.Session, error) {
+			return &session, nil
+		})
+	mockStore.EXPECT().SetPlanningSessionIDIfEmpty(gomock.Any(), task.ID, gomock.Any()).Return(false, nil)
+	mockStore.EXPECT().DeleteSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil)
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+		nil,
+		mockExecutor,
+		nil,
+		nil,
+		NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+
+	service.StartJustDoItMode(context.Background(), task)
+
+	assert.Empty(t, task.PlanningSessionID)
 }

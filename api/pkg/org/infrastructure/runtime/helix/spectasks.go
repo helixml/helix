@@ -24,6 +24,7 @@ type SpecTaskStore interface {
 	CreateSpecTask(ctx context.Context, task *types.SpecTask) error
 	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
+	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	GetProject(ctx context.Context, id string) (*types.Project, error)
 	IncrementGlobalTaskNumber(ctx context.Context) (int, error)
@@ -42,7 +43,10 @@ type SpecTaskWorkflow interface {
 	// the comment isn't dropped on the MCP path. userID is the actor to
 	// attribute / notify (the Worker's hiring user).
 	RequestChanges(ctx context.Context, task *types.SpecTask, comment, userID string) error
+	SendAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, userID string) (string, error)
+	StartAgent(ctx context.Context, task *types.SpecTask, userID string) error
 	StopAgent(ctx context.Context, task *types.SpecTask) error
+	RestartAgent(ctx context.Context, task *types.SpecTask, userID string) (promptsReset int, threadReset bool, err error)
 }
 
 // SpecTasks is the helix-runtime implementation of runtime.SpecTasks. It
@@ -92,6 +96,23 @@ func (s *SpecTasks) OwnProjectID(ctx context.Context, orgID string, workerID org
 // always the Worker's hiring user, so cross-project mutations are still
 // attributed to a real Helix user.
 func (s *SpecTasks) resolveProject(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID string) (projectID, hiringUserID string, err error) {
+	// A project principal (a spec task's own coding agent) has no Worker
+	// runtime state — it carries its project and acting user directly. It is
+	// pinned to that one project: naming any other is refused rather than
+	// silently redirected, so a task can never reach a sibling project.
+	if principal, ok := runtime.ProjectPrincipalFromContext(ctx); ok {
+		if requestedProjectID != "" && requestedProjectID != principal.ProjectID {
+			return "", "", fmt.Errorf("caller is scoped to project %s and cannot act on project %s", principal.ProjectID, requestedProjectID)
+		}
+		project, projErr := s.tasks.GetProject(ctx, principal.ProjectID)
+		if projErr != nil {
+			return "", "", fmt.Errorf("get project: %w", projErr)
+		}
+		if project.OrganizationID != orgID {
+			return "", "", fmt.Errorf("project %s does not belong to this caller's organization", principal.ProjectID)
+		}
+		return principal.ProjectID, principal.ActingUserID, nil
+	}
 	state, err := LoadState(ctx, s.orgStore, orgID, workerID)
 	if err != nil {
 		return "", "", fmt.Errorf("load worker state: %w", err)
@@ -140,6 +161,9 @@ func (s *SpecTasks) ownedTask(ctx context.Context, projectID, taskID string) (*t
 	if task.ProjectID != projectID {
 		return nil, fmt.Errorf("task %s does not belong to this worker's project", taskID)
 	}
+	if task.Status == types.TaskStatusPreparing {
+		return nil, fmt.Errorf("get spec task: not found")
+	}
 	return task, nil
 }
 
@@ -175,6 +199,35 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 		}
 	}
 
+	// Sandbox size and runtime resolve exactly as CreateTaskFromPrompt resolves
+	// them for the REST path: explicit value, else the project default, else nil
+	// and the global default is applied at container-create time. A Worker filing
+	// a task through MCP must land on the same sandbox it would have got through
+	// the UI.
+	var sandboxResources *types.SandboxResourceOverrides
+	if in.SandboxVCPUs != 0 {
+		preset, ok := types.SpecTaskSandboxPresetForVCPUs(in.SandboxVCPUs)
+		if !ok {
+			return runtime.SpecTaskView{}, fmt.Errorf("sandbox_vcpus must be one of %s (got %d)",
+				types.SpecTaskSandboxVCPUList(), in.SandboxVCPUs)
+		}
+		sandboxResources = preset
+	} else if project.DefaultSandboxResourceOverrides != nil {
+		projectResources := *project.DefaultSandboxResourceOverrides
+		sandboxResources = &projectResources
+	}
+
+	sandboxRuntime := types.SandboxRuntime(strings.TrimSpace(in.SandboxRuntime))
+	if !types.ValidSpecTaskSandboxRuntime(sandboxRuntime) {
+		return runtime.SpecTaskView{}, fmt.Errorf(
+			"sandbox_runtime must be %q or %q (got %q)",
+			types.SandboxRuntimeUbuntuDesktop, types.SandboxRuntimeHeadlessUbuntu, in.SandboxRuntime)
+	}
+	if sandboxRuntime == "" {
+		sandboxRuntime = project.DefaultSandboxRuntime
+	}
+	sandboxRuntime = types.EffectiveSpecTaskSandboxRuntime(sandboxRuntime)
+
 	now := time.Now()
 	task := &types.SpecTask{
 		ID:             system.GenerateSpecTaskID(),
@@ -190,9 +243,15 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 		DependsOn:      dependsOn,
 		JustDoItMode:   in.SkipPlanning,
 		CreatedBy:      hiringUserID,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		// The Bot, not the person it acts for, is what created this task.
+		CreatedByOrgBot: string(workerID),
+		CreatedAt:       now,
+		UpdatedAt:       now,
+
+		SandboxResourceOverrides: sandboxResources,
+		SandboxRuntime:           sandboxRuntime,
 	}
+	task.InitAutoApprovePullRequests(nil, project, hiringUserID)
 	taskNumber, err := s.tasks.IncrementGlobalTaskNumber(ctx)
 	if err != nil {
 		return runtime.SpecTaskView{}, fmt.Errorf("assign task number: %w", err)
@@ -203,7 +262,16 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 	if err := s.tasks.CreateSpecTask(ctx, task); err != nil {
 		return runtime.SpecTaskView{}, fmt.Errorf("create spec task: %w", err)
 	}
-	return toView(task), nil
+	view := toView(task)
+	// The task carries no code-agent config of its own: it is materialized from
+	// the project when the task starts, so the project's is what it will run
+	// on. Report that rather than an empty field, which reads as "unset" and
+	// invites a Worker to go and set one.
+	if project.CodeAgentConfig != nil {
+		view.CodeAgentRuntime = string(project.CodeAgentConfig.Runtime)
+		view.CodeAgentModel = project.CodeAgentConfig.Model
+	}
+	return view, nil
 }
 
 func (s *SpecTasks) List(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID string, filter runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
@@ -212,10 +280,11 @@ func (s *SpecTasks) List(ctx context.Context, orgID string, workerID orgchart.No
 		return nil, err
 	}
 	tasks, err := s.tasks.ListSpecTasks(ctx, &types.SpecTaskFilters{
-		ProjectID: projectID,
-		Status:    types.SpecTaskStatus(filter.Status),
-		Type:      filter.Type,
-		Priority:  filter.Priority,
+		ProjectID:       projectID,
+		Status:          types.SpecTaskStatus(filter.Status),
+		Type:            filter.Type,
+		Priority:        filter.Priority,
+		ExcludeStatuses: []types.SpecTaskStatus{types.TaskStatusPreparing},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list spec tasks: %w", err)
@@ -317,6 +386,104 @@ func (s *SpecTasks) StartPlanning(ctx context.Context, orgID string, workerID or
 	return toView(task), nil
 }
 
+func (s *SpecTasks) SendAgentMessage(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string, in runtime.SpecTaskMessageInput) (runtime.SpecTaskMessageView, error) {
+	projectID, hiringUserID, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	if err != nil {
+		return runtime.SpecTaskMessageView{}, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return runtime.SpecTaskMessageView{}, err
+	}
+	message := strings.TrimSpace(in.Content)
+	if message == "" {
+		return runtime.SpecTaskMessageView{}, errors.New("content is required")
+	}
+	if task.PlanningSessionID == "" {
+		return runtime.SpecTaskMessageView{}, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
+	}
+	promptID, err := s.workflow.SendAgentMessage(ctx, task, message, in.Interrupt, hiringUserID)
+	if err != nil {
+		return runtime.SpecTaskMessageView{}, fmt.Errorf("send spec task agent message: %w", err)
+	}
+	return runtime.SpecTaskMessageView{
+		TaskID:    task.ID,
+		SessionID: task.PlanningSessionID,
+		PromptID:  promptID,
+	}, nil
+}
+
+func (s *SpecTasks) ListAgentMessages(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string, limit int) ([]runtime.SpecTaskAgentMessageView, error) {
+	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	if err != nil {
+		return nil, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.PlanningSessionID == "" {
+		return nil, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
+	}
+	if limit == 0 {
+		limit = 20
+	}
+	if limit < 1 || limit > 100 {
+		return nil, fmt.Errorf("limit must be between 1 and 100 (got %d)", limit)
+	}
+	interactions, _, err := s.tasks.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    task.PlanningSessionID,
+		GenerationID: -1,
+		PerPage:      limit,
+		Order:        "id DESC",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list spec task agent messages: %w", err)
+	}
+
+	views := make([]runtime.SpecTaskAgentMessageView, 0, len(interactions))
+	for i := len(interactions) - 1; i >= 0; i-- {
+		interaction := interactions[i]
+		userMessage := interaction.PromptMessage
+		if interaction.DisplayMessage != "" {
+			userMessage = interaction.DisplayMessage
+		}
+		views = append(views, runtime.SpecTaskAgentMessageView{
+			InteractionID: interaction.ID,
+			PromptID:      interaction.PromptID,
+			UserMessage:   userMessage,
+			AgentMessage:  interaction.ResponseMessage,
+			State:         string(interaction.State),
+			Error:         interaction.Error,
+			CreatedAt:     interaction.Created,
+			UpdatedAt:     interaction.Updated,
+		})
+	}
+	return views, nil
+}
+
+func (s *SpecTasks) StartAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string) (runtime.SpecTaskAgentActionView, error) {
+	projectID, hiringUserID, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	if err != nil {
+		return runtime.SpecTaskAgentActionView{}, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return runtime.SpecTaskAgentActionView{}, err
+	}
+	if task.PlanningSessionID == "" {
+		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
+	}
+	if err := s.workflow.StartAgent(ctx, task, hiringUserID); err != nil {
+		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("start spec task agent: %w", err)
+	}
+	return runtime.SpecTaskAgentActionView{
+		TaskID:    task.ID,
+		SessionID: task.PlanningSessionID,
+		Status:    "started",
+	}, nil
+}
+
 func (s *SpecTasks) StopAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string) (runtime.SpecTaskView, error) {
 	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
 	if err != nil {
@@ -330,6 +497,31 @@ func (s *SpecTasks) StopAgent(ctx context.Context, orgID string, workerID orgcha
 		return runtime.SpecTaskView{}, fmt.Errorf("stop spec task agent: %w", err)
 	}
 	return toView(task), nil
+}
+
+func (s *SpecTasks) RestartAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string) (runtime.SpecTaskAgentActionView, error) {
+	projectID, hiringUserID, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	if err != nil {
+		return runtime.SpecTaskAgentActionView{}, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return runtime.SpecTaskAgentActionView{}, err
+	}
+	if task.PlanningSessionID == "" {
+		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
+	}
+	promptsReset, threadReset, err := s.workflow.RestartAgent(ctx, task, hiringUserID)
+	if err != nil {
+		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("restart spec task agent: %w", err)
+	}
+	return runtime.SpecTaskAgentActionView{
+		TaskID:       task.ID,
+		SessionID:    task.PlanningSessionID,
+		Status:       "restarted",
+		PromptsReset: promptsReset,
+		ThreadReset:  threadReset,
+	}, nil
 }
 
 func (s *SpecTasks) ReviewSpec(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string) (runtime.SpecReviewView, error) {
@@ -444,13 +636,23 @@ func (s *SpecTasks) CreatePullRequests(ctx context.Context, orgID string, worker
 // toView projects a SpecTask onto the tool-facing view.
 func toView(t *types.SpecTask) runtime.SpecTaskView {
 	v := runtime.SpecTaskView{
-		ID:          t.ID,
-		Name:        t.Name,
-		Description: t.Description,
-		Status:      string(t.Status),
-		Priority:    string(t.Priority),
-		Type:        t.Type,
-		BranchName:  t.BranchName,
+		ID:             t.ID,
+		Name:           t.Name,
+		Description:    t.Description,
+		Status:         string(t.Status),
+		Priority:       string(t.Priority),
+		Type:           t.Type,
+		BranchName:     t.BranchName,
+		SandboxRuntime: string(t.SandboxRuntime),
+	}
+	if t.SandboxResourceOverrides != nil {
+		v.SandboxVCPUs = t.SandboxResourceOverrides.VCPUs
+	}
+	// Nil until the task starts — it is materialized from the project then, so
+	// callers that want it before that overlay the project's own (see Create).
+	if t.CodeAgentConfig != nil {
+		v.CodeAgentRuntime = string(t.CodeAgentConfig.Runtime)
+		v.CodeAgentModel = t.CodeAgentConfig.Model
 	}
 	for _, pr := range t.RepoPullRequests {
 		v.PullRequests = append(v.PullRequests, runtime.PullRequestView{

@@ -1,4 +1,5 @@
-// Package messages owns mutations of the events retained on Topics.
+// Package messages owns mutations of the events retained on a source's
+// event stream.
 package messages
 
 import (
@@ -10,37 +11,41 @@ import (
 )
 
 type Notifier interface {
-	Notify(orgID string, topicID streaming.TopicID)
+	Notify(orgID string, streamID streaming.StreamID)
 }
 
 type Messages struct {
-	topics   store.Topics
+	triggers store.Triggers
 	events   store.Events
 	notifier Notifier
 }
 
 type Deps struct {
-	Topics   store.Topics
+	Triggers store.Triggers
 	Events   store.Events
 	Notifier Notifier
 }
 
 func New(deps Deps) *Messages {
-	return &Messages{topics: deps.Topics, events: deps.Events, notifier: deps.Notifier}
+	return &Messages{triggers: deps.Triggers, events: deps.Events, notifier: deps.Notifier}
 }
 
-// Clear deletes every retained event on one Topic and wakes live readers so
-// they immediately receive the empty event list. The Topic itself and all
-// subscriptions remain unchanged.
-func (m *Messages) Clear(ctx context.Context, orgID string, topicID streaming.TopicID) error {
-	if _, err := m.topics.Get(ctx, orgID, topicID); err != nil {
-		return fmt.Errorf("get topic: %w", err)
+// Clear deletes every retained event on one Trigger's stream and wakes
+// live readers so they immediately receive the empty event list. The
+// Trigger itself and all its attachments remain unchanged.
+func (m *Messages) Clear(ctx context.Context, orgID, triggerID string) error {
+	rows, err := m.triggers.Find(ctx, store.WithOrg(orgID), store.WithID(triggerID), store.WithLimit(1))
+	if err != nil {
+		return fmt.Errorf("get trigger: %w", err)
 	}
-	if err := m.events.DeleteForTopic(ctx, orgID, topicID); err != nil {
-		return fmt.Errorf("delete topic messages: %w", err)
+	if len(rows) == 0 {
+		return fmt.Errorf("trigger %q: %w", triggerID, store.ErrNotFound)
+	}
+	if err := m.events.DeleteForStream(ctx, orgID, triggerID); err != nil {
+		return fmt.Errorf("delete trigger events: %w", err)
 	}
 	if m.notifier != nil {
-		m.notifier.Notify(orgID, topicID)
+		m.notifier.Notify(orgID, triggerID)
 	}
 	return nil
 }

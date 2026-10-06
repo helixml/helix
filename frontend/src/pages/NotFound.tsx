@@ -9,7 +9,7 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
 import { SELECTED_ORG_STORAGE_KEY } from '../utils/localStorage'
-import { orgLandingRoute } from '../utils/organizations'
+import { orgLandingParams, orgLandingRoute } from '../utils/organizations'
 
 const float = keyframes`
   0%, 100% { transform: translateY(0px); }
@@ -64,7 +64,7 @@ const NotFound: FC = () => {
   const handleGoHome = () => {
     if (firstAccessibleOrg?.name) {
       localStorage.setItem(SELECTED_ORG_STORAGE_KEY, firstAccessibleOrg.name)
-      router.navigate(orgLandingRoute(), { org_id: firstAccessibleOrg.name })
+      router.navigate(orgLandingRoute(), orgLandingParams(firstAccessibleOrg.name))
     }
   }
 

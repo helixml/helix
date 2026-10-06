@@ -25,6 +25,29 @@ type ApplyProjectSuite struct {
 	server  *HelixAPIServer
 }
 
+type applyProjectGitRepositoryService struct {
+	gitRepositoryServicer
+	createRepository func(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error)
+	getRepository    func(ctx context.Context, repoID string) (*types.GitRepository, error)
+	updateRepository func(ctx context.Context, repoID string, request *types.GitRepositoryUpdateRequest, koditAPIKey string) (*types.GitRepository, error)
+}
+
+func (s *applyProjectGitRepositoryService) CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
+	return s.createRepository(ctx, request)
+}
+
+func (s *applyProjectGitRepositoryService) GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error) {
+	return s.getRepository(ctx, repoID)
+}
+
+func (s *applyProjectGitRepositoryService) UpdateRepository(ctx context.Context, repoID string, request *types.GitRepositoryUpdateRequest, koditAPIKey string) (*types.GitRepository, error) {
+	return s.updateRepository(ctx, repoID, request, koditAPIKey)
+}
+
+func (s *applyProjectGitRepositoryService) WithRepoLock(_ string, fn func() error) error {
+	return fn()
+}
+
 func TestApplyProjectSuite(t *testing.T) {
 	suite.Run(t, new(ApplyProjectSuite))
 }
@@ -352,20 +375,96 @@ func (s *ApplyProjectSuite) TestApply_RepoCreatedWhenNotFound() {
 		GetGitRepositoryByExternalURL(gomock.Any(), "", "https://github.com/org/my-repo").
 		Return(nil, store.ErrNotFound)
 
-	s.store.EXPECT().
-		CreateGitRepository(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, r *types.GitRepository) error {
-			s.Equal("https://github.com/org/my-repo", r.ExternalURL)
-			s.Equal("main", r.DefaultBranch)
-			s.True(r.IsExternal)
-			return nil
-		})
+	s.server.gitRepositoryService = &applyProjectGitRepositoryService{
+		createRepository: func(_ context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
+			s.Equal("my-repo", request.Name)
+			s.Equal("https://github.com/org/my-repo", request.ExternalURL)
+			s.Equal(types.ExternalRepositoryTypeGitHub, request.ExternalType)
+			s.Equal("main", request.DefaultBranch)
+			s.True(request.IsExternal)
+			return &types.GitRepository{
+				ID:            "repo-cloned-123",
+				Name:          request.Name,
+				ExternalURL:   request.ExternalURL,
+				ExternalType:  request.ExternalType,
+				CloneURL:      "http://helix.test/git/repo-cloned-123",
+				LocalPath:     "/tmp/git-repositories/repo-cloned-123",
+				DefaultBranch: request.DefaultBranch,
+			}, nil
+		},
+	}
 
-	s.store.EXPECT().AttachRepositoryToProject(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-	s.store.EXPECT().SetProjectPrimaryRepository(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	s.store.EXPECT().AttachRepositoryToProject(gomock.Any(), gomock.Any(), "repo-cloned-123").Return(nil)
+	s.store.EXPECT().SetProjectPrimaryRepository(gomock.Any(), gomock.Any(), "repo-cloned-123").Return(nil)
 
 	rec := httptest.NewRecorder()
 	resp, httpErr := s.server.applyProject(rec, s.applyRequest(req))
+	s.Nil(httpErr)
+	s.True(resp.Created)
+}
+
+func (s *ApplyProjectSuite) TestExternalRepositoryTypeForURL() {
+	tests := []struct {
+		url      string
+		expected types.ExternalRepositoryType
+	}{
+		{url: "https://github.com/org/repo", expected: types.ExternalRepositoryTypeGitHub},
+		{url: "ssh://git@gitlab.com/org/repo.git", expected: types.ExternalRepositoryTypeGitLab},
+		{url: "https://bitbucket.org/org/repo", expected: types.ExternalRepositoryTypeBitbucket},
+		{url: "https://dev.azure.com/org/project/_git/repo", expected: types.ExternalRepositoryTypeADO},
+		{url: "https://org.visualstudio.com/project/_git/repo", expected: types.ExternalRepositoryTypeADO},
+		{url: "https://github.com.example.org/org/repo", expected: ""},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.url, func() {
+			s.Equal(tt.expected, externalRepositoryTypeForURL(tt.url))
+		})
+	}
+}
+
+func (s *ApplyProjectSuite) TestApply_ExistingIncompleteRepoIsRepaired() {
+	existingRepo := &types.GitRepository{
+		ID:           "repo-incomplete-123",
+		ExternalURL:  "https://github.com/org/my-repo",
+		CloneURL:     "https://github.com/org/my-repo",
+		IsExternal:   true,
+		LocalPath:    "",
+		ExternalType: "",
+	}
+	req := types.ProjectApplyRequest{
+		Name: "repo-project",
+		Spec: types.ProjectSpec{
+			Repository: &types.ProjectRepositorySpec{URL: existingRepo.ExternalURL},
+		},
+	}
+
+	s.store.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return([]*types.Project{}, nil)
+	s.store.EXPECT().CreateProject(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, project *types.Project) (*types.Project, error) { return project, nil },
+	)
+	s.store.EXPECT().GetGitRepositoryByExternalURL(gomock.Any(), "", existingRepo.ExternalURL).Return(existingRepo, nil)
+
+	repairedRepo := *existingRepo
+	repairedRepo.LocalPath = "/tmp/git-repositories/repo-incomplete-123"
+	repairedRepo.CloneURL = "http://helix.test/git/repo-incomplete-123"
+	s.server.gitRepositoryService = &applyProjectGitRepositoryService{
+		getRepository: func(_ context.Context, repoID string) (*types.GitRepository, error) {
+			s.Equal(existingRepo.ID, repoID)
+			return &repairedRepo, nil
+		},
+		updateRepository: func(_ context.Context, repoID string, request *types.GitRepositoryUpdateRequest, _ string) (*types.GitRepository, error) {
+			s.Equal(existingRepo.ID, repoID)
+			s.Equal(types.ExternalRepositoryTypeGitHub, request.ExternalType)
+			repairedRepo.ExternalType = request.ExternalType
+			return &repairedRepo, nil
+		},
+	}
+
+	s.store.EXPECT().AttachRepositoryToProject(gomock.Any(), gomock.Any(), existingRepo.ID).Return(nil)
+	s.store.EXPECT().SetProjectPrimaryRepository(gomock.Any(), gomock.Any(), existingRepo.ID).Return(nil)
+
+	resp, httpErr := s.server.applyProject(httptest.NewRecorder(), s.applyRequest(req))
 	s.Nil(httpErr)
 	s.True(resp.Created)
 }
@@ -375,6 +474,8 @@ func (s *ApplyProjectSuite) TestApply_RepoAttachedWhenAlreadyExists() {
 	existingRepo := &types.GitRepository{
 		ID:          "repo-already-123",
 		ExternalURL: "https://github.com/org/my-repo",
+		CloneURL:    "http://helix.test/git/repo-already-123",
+		LocalPath:   "/tmp/git-repositories/repo-already-123",
 	}
 	req := types.ProjectApplyRequest{
 		Name: "repo-project",
@@ -427,8 +528,18 @@ func (s *ApplyProjectSuite) TestApply_MultiRepo_PrimarySetCorrectly() {
 		CreateProject(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, p *types.Project) (*types.Project, error) { return p, nil })
 
-	frontendRepo := &types.GitRepository{ID: "repo-frontend"}
-	backendRepo := &types.GitRepository{ID: "repo-backend"}
+	frontendRepo := &types.GitRepository{
+		ID:          "repo-frontend",
+		ExternalURL: "https://github.com/org/frontend",
+		CloneURL:    "http://helix.test/git/repo-frontend",
+		LocalPath:   "/tmp/git-repositories/repo-frontend",
+	}
+	backendRepo := &types.GitRepository{
+		ID:          "repo-backend",
+		ExternalURL: "https://github.com/org/backend",
+		CloneURL:    "http://helix.test/git/repo-backend",
+		LocalPath:   "/tmp/git-repositories/repo-backend",
+	}
 
 	s.store.EXPECT().
 		GetGitRepositoryByExternalURL(gomock.Any(), "", "https://github.com/org/frontend").
@@ -475,7 +586,7 @@ func (s *ApplyProjectSuite) TestApply_NewAgentAppIsCodingAgent() {
 	s.store.EXPECT().
 		ListProjects(gomock.Any(), &store.ListProjectsQuery{UserID: s.userID}).
 		Return([]*types.Project{existingProject}, nil)
-	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).Times(3)
 
 	var created *types.App
 	s.store.EXPECT().
@@ -571,7 +682,8 @@ func (s *ApplyProjectSuite) TestApply_PreservesExistingAgentSkills() {
 		Return([]*types.Project{existingProject}, nil)
 	s.store.EXPECT().
 		UpdateProject(gomock.Any(), gomock.Any()).
-		Return(nil)
+		Return(nil).
+		Times(2)
 	s.store.EXPECT().
 		GetApp(gomock.Any(), appID).
 		Return(existingApp, nil)
@@ -666,7 +778,7 @@ func (s *ApplyProjectSuite) TestApply_LinkedAgentPreservesCanonicalConfig() {
 				s.Equal(appID, project.DefaultHelixAppID)
 			}
 			return nil
-		}).Times(2)
+		}).Times(3)
 	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(existingApp, nil)
 	// No UpdateApp: linking an app to a project must not rewrite the app —
 	// neither its config nor its kind. Reclassifying a caller's coding agent to
@@ -723,7 +835,7 @@ func (s *ApplyProjectSuite) TestApply_ToolsFromSpecOverrideSkills() {
 	}
 
 	s.store.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return([]*types.Project{existingProject}, nil)
-	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(existingApp, nil)
 
 	var updated *types.App

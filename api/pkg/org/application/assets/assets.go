@@ -10,6 +10,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -31,14 +32,15 @@ type KeyGenerator func() (privateKeyPEM, publicKeyOpenSSH string, err error)
 type Encrypt func(plaintext []byte) (string, error)
 
 type Service struct {
-	assets         store.Assets
-	links          store.AssetLinks
-	nodes          store.Nodes
-	generateKey    KeyGenerator
-	encrypt        Encrypt
-	now            func() time.Time
-	newID          func() string
-	onToolsChanged func(context.Context, string)
+	assets            store.Assets
+	links             store.AssetLinks
+	nodes             store.Nodes
+	generateKey       KeyGenerator
+	encrypt           Encrypt
+	now               func() time.Time
+	newID             func() string
+	onToolsChanged    func(context.Context, string)
+	onRestartRequired func(context.Context, string, orgchart.NodeID)
 }
 
 type Deps struct {
@@ -50,6 +52,10 @@ type Deps struct {
 	Now            func() time.Time
 	NewID          func() string
 	OnToolsChanged func(context.Context, string)
+	// OnRestartRequired fires after Link/Unlink changes a Node's restart
+	// fingerprint (its granted tool list), mirroring the same signal
+	// nodes.Nodes emits for direct tool edits. nil disables it.
+	OnRestartRequired func(context.Context, string, orgchart.NodeID)
 }
 
 func New(deps Deps) (*Service, error) {
@@ -70,7 +76,8 @@ func New(deps Deps) (*Service, error) {
 	return &Service{
 		assets: deps.Assets, links: deps.Links, nodes: deps.Nodes,
 		generateKey: deps.GenerateKey, encrypt: deps.Encrypt, now: now, newID: newID,
-		onToolsChanged: deps.OnToolsChanged,
+		onToolsChanged:    deps.OnToolsChanged,
+		onRestartRequired: deps.OnRestartRequired,
 	}, nil
 }
 
@@ -306,12 +313,14 @@ func (s *Service) Link(ctx context.Context, orgID string, assetID asset.ID, agen
 	if err := s.links.Create(ctx, link); err != nil {
 		return asset.Link{}, err
 	}
+	before := agent
 	agent = agent.WithTools(nodes.MergeTools(agent.Tools, toolsForKind(a.Kind))).WithUpdatedAt(s.now())
 	if err := s.nodes.Update(ctx, agent); err != nil {
 		_ = s.links.Delete(ctx, orgID, assetID, agentID)
 		return asset.Link{}, fmt.Errorf("attach asset tools to agent: %w", err)
 	}
 	s.notifyToolsChanged(ctx, agent.AgentID)
+	s.notifyRestartRequired(ctx, orgID, before, agent)
 	return link, nil
 }
 
@@ -344,12 +353,14 @@ func (s *Service) Unlink(ctx context.Context, orgID string, assetID asset.ID, ag
 		}
 		tools = append(tools, name)
 	}
+	before := agent
 	agent = agent.WithTools(tools).WithUpdatedAt(s.now())
 	if err := s.nodes.Update(ctx, agent); err != nil {
 		_ = s.links.Create(ctx, link)
 		return fmt.Errorf("detach asset tools from agent: %w", err)
 	}
 	s.notifyToolsChanged(ctx, agent.AgentID)
+	s.notifyRestartRequired(ctx, orgID, before, agent)
 	return nil
 }
 
@@ -357,6 +368,20 @@ func (s *Service) notifyToolsChanged(ctx context.Context, appID string) {
 	if s.onToolsChanged != nil && appID != "" {
 		s.onToolsChanged(ctx, appID)
 	}
+}
+
+// notifyRestartRequired fires OnRestartRequired when Link/Unlink changed
+// the agent's restart fingerprint, mirroring nodes.Nodes's own
+// before/after check so a no-op re-link (tools already present/absent)
+// does not nag the operator.
+func (s *Service) notifyRestartRequired(ctx context.Context, orgID string, before, after orgchart.Node) {
+	if s.onRestartRequired == nil {
+		return
+	}
+	if orgchart.RestartFingerprint(before) == orgchart.RestartFingerprint(after) {
+		return
+	}
+	s.onRestartRequired(ctx, orgID, after.ID)
 }
 
 func (s *Service) Delete(ctx context.Context, orgID string, id asset.ID) error {

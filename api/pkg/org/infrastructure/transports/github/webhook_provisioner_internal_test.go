@@ -16,8 +16,9 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/aggregate"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
@@ -33,27 +34,30 @@ func newReg(t *testing.T) *configregistry.Registry {
 	return reg
 }
 
-// ghTopic builds a github-transport Topic with the given config JSON.
-// Built as a struct literal (not streaming.NewTopic) on purpose: NewTopic
-// runs Transport.Validate(), which rejects empty / malformed repos — but
-// those are exactly the degraded configs we need to exercise the
-// provisioner's repo guards against.
-func ghTopic(configJSON string) streaming.Topic {
-	return streaming.Topic{
-		ID:             "s-gh",
-		OrganizationID: provOrg,
-		Name:           "s-gh",
-		CreatedBy:      "w-root",
-		CreatedAt:      time.Now().UTC(),
-		Transport:      transport.Transport{Kind: transport.KindGitHub, Config: json.RawMessage(configJSON)},
+// ghTrigger builds a github-transport Trigger with the given config
+// JSON. Built as a struct literal (not trigger.New) on purpose:
+// trigger.New runs Transport.Validate(), which rejects empty / malformed
+// repos — but those are exactly the degraded configs we need to exercise
+// the provisioner's repo guards against.
+func ghTrigger(configJSON string) trigger.Trigger {
+	return trigger.Trigger{
+		Aggregate: aggregate.Aggregate{
+			ID:             "s-gh",
+			OrganizationID: provOrg,
+			CreatedBy:      "w-root",
+			CreatedAt:      time.Now().UTC(),
+		},
+		Name:   "s-gh",
+		Kind:   transport.KindGitHub,
+		Config: json.RawMessage(configJSON),
 	}
 }
 
-func failKind(t *testing.T, err error) streaming.FailKind {
+func failKind(t *testing.T, err error) trigger.FailKind {
 	t.Helper()
-	var f *streaming.Failure
+	var f *trigger.Failure
 	if !errors.As(err, &f) {
-		t.Fatalf("error is not a *streaming.Failure: %T %v", err, err)
+		t.Fatalf("error is not a *trigger.Failure: %T %v", err, err)
 	}
 	return f.Kind
 }
@@ -66,7 +70,7 @@ func TestSplitRepo(t *testing.T) {
 	}
 	if _, _, ferr := splitRepo("no-slash"); ferr == nil {
 		t.Fatal("splitRepo(no slash) should fail")
-	} else if ferr.Kind != streaming.FailBadRequest {
+	} else if ferr.Kind != trigger.FailBadRequest {
 		t.Fatalf("splitRepo malformed kind = %v, want FailBadRequest", ferr.Kind)
 	}
 }
@@ -74,9 +78,9 @@ func TestSplitRepo(t *testing.T) {
 func TestPayloadURL(t *testing.T) {
 	t.Parallel()
 	p := NewWebhookProvisioner(nil, nil, "https://meta.helix.ml/")
-	// Trailing slash on the base is trimmed; org + topic id are escaped.
+	// Trailing slash on the base is trimmed; org + trigger id are escaped.
 	got := p.payloadURL("https://meta.helix.ml/", "org ab", "s-x/y")
-	want := "https://meta.helix.ml/api/v1/orgs/org%20ab/topics/s-x%2Fy/github/webhook"
+	want := "https://meta.helix.ml/api/v1/orgs/org%20ab/triggers/s-x%2Fy/github/webhook"
 	if got != want {
 		t.Fatalf("payloadURL = %q, want %q", got, want)
 	}
@@ -160,17 +164,17 @@ func TestResolveToken(t *testing.T) {
 	ctx := context.Background()
 
 	// nil resolver → precondition failure.
-	if _, ferr := NewWebhookProvisioner(nil, nil, "").resolveToken(ctx, provOrg); ferr == nil || ferr.Kind != streaming.FailPrecondition {
+	if _, ferr := NewWebhookProvisioner(nil, nil, "").resolveToken(ctx, provOrg); ferr == nil || ferr.Kind != trigger.FailPrecondition {
 		t.Fatalf("nil resolver = %v", ferr)
 	}
 	// resolver error → internal failure.
 	errResolver := func(context.Context, string) (string, error) { return "", errors.New("boom") }
-	if _, ferr := NewWebhookProvisioner(nil, errResolver, "").resolveToken(ctx, provOrg); ferr == nil || ferr.Kind != streaming.FailInternal {
+	if _, ferr := NewWebhookProvisioner(nil, errResolver, "").resolveToken(ctx, provOrg); ferr == nil || ferr.Kind != trigger.FailInternal {
 		t.Fatalf("error resolver = %v", ferr)
 	}
 	// empty token → precondition failure (no creds for the org).
 	emptyResolver := func(context.Context, string) (string, error) { return "", nil }
-	if _, ferr := NewWebhookProvisioner(nil, emptyResolver, "").resolveToken(ctx, provOrg); ferr == nil || ferr.Kind != streaming.FailPrecondition {
+	if _, ferr := NewWebhookProvisioner(nil, emptyResolver, "").resolveToken(ctx, provOrg); ferr == nil || ferr.Kind != trigger.FailPrecondition {
 		t.Fatalf("empty resolver = %v", ferr)
 	}
 	// valid token passes through.
@@ -195,18 +199,18 @@ func TestInstall_PreconditionGuards(t *testing.T) {
 		publicURL string
 		token     TokenResolver
 		topicJSON string
-		wantKind  streaming.FailKind
+		wantKind  trigger.FailKind
 	}{
-		{"no public url", "", okToken, repoCfg, streaming.FailPrecondition},
-		{"loopback localhost", "http://localhost:8080", okToken, repoCfg, streaming.FailPrecondition},
-		{"loopback 127.0.0.1", "http://127.0.0.1:9000", okToken, repoCfg, streaming.FailPrecondition},
-		{"no repo", "https://meta.helix.ml", okToken, `{}`, streaming.FailBadRequest},
-		{"no token", "https://meta.helix.ml", nil, repoCfg, streaming.FailPrecondition},
+		{"no public url", "", okToken, repoCfg, trigger.FailPrecondition},
+		{"loopback localhost", "http://localhost:8080", okToken, repoCfg, trigger.FailPrecondition},
+		{"loopback 127.0.0.1", "http://127.0.0.1:9000", okToken, repoCfg, trigger.FailPrecondition},
+		{"no repo", "https://meta.helix.ml", okToken, `{}`, trigger.FailBadRequest},
+		{"no token", "https://meta.helix.ml", nil, repoCfg, trigger.FailPrecondition},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := NewWebhookProvisioner(newReg(t), tc.token, tc.publicURL)
-			_, err := p.Install(ctx, provOrg, ghTopic(tc.topicJSON))
+			_, err := p.Install(ctx, provOrg, ghTrigger(tc.topicJSON))
 			if err == nil {
 				t.Fatal("expected Install to fail before the GitHub call")
 			}
@@ -245,7 +249,7 @@ func TestStatus_DegradesToUnknown(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := NewWebhookProvisioner(newReg(t), tc.token, tc.publicURL)
-			state, err := p.Status(ctx, provOrg, ghTopic(tc.topicJSON))
+			state, err := p.Status(ctx, provOrg, ghTrigger(tc.topicJSON))
 			if err != nil {
 				t.Fatalf("Status should degrade, not error: %v", err)
 			}

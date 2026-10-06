@@ -21,6 +21,8 @@
 WORK_DIR="$HOME/work"
 COMPLETE_SIGNAL="$HOME/.helix-setup-complete"
 FOLDERS_FILE="$HOME/.helix-zed-folders"
+# Bash that runs in the agent CPU tier (see /etc/cont-init.d/16-cpu-tiers.sh).
+AGENT_TIER_BASH=/usr/local/libexec/helix/agent-tier/bash
 
 # Will be populated by read_zed_folders
 ZED_FOLDERS=()
@@ -29,19 +31,44 @@ ZED_FOLDERS=()
 # Helper functions
 # =========================================
 
+launch_setup_terminal() {
+    # The setup runs the project's .helix/startup.sh: agent work.
+    launch_terminal "Helix Setup" "$WORK_DIR" "$AGENT_TIER_BASH" "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
+    TERMINAL_PID=$!
+    echo "Setup terminal launched (PID $TERMINAL_PID)"
+}
+
+# Polls every 0.1s: setup usually takes 1-3s and this gate delays Zed's start.
+# The terminal outlives the setup script (it stays open for debugging, and
+# the script keeps it open on failure), so a dead terminal before the signal
+# means the terminal itself crashed — ghostty does when the Wayland compositor
+# is not ready yet. It is relaunched once.
 wait_for_setup_complete() {
     echo "Waiting for workspace setup to complete..."
-    local WAIT_COUNT=0
-    local MAX_WAIT=300  # 5 minutes max wait
+    local POLLS=0
+    local MAX_POLLS=3000  # 5 minutes max wait
+    local RELAUNCHED=0
 
     while [ ! -f "$COMPLETE_SIGNAL" ]; do
-        sleep 1
-        WAIT_COUNT=$((WAIT_COUNT + 1))
-        if [ $((WAIT_COUNT % 30)) -eq 0 ]; then
-            echo "Still waiting for setup... ($WAIT_COUNT seconds)"
+        if ! kill -0 "$TERMINAL_PID" 2>/dev/null && [ ! -f "$COMPLETE_SIGNAL" ]; then
+            if [ "$RELAUNCHED" -eq 1 ]; then
+                echo "FATAL: Setup terminal failed to start after retry."
+                exit 1
+            fi
+            echo "ERROR: Setup terminal (PID $TERMINAL_PID) exited before setup completed."
+            echo "This usually means the Wayland compositor was not ready."
+            echo "Retrying in 3 seconds..."
+            sleep 3
+            launch_setup_terminal
+            RELAUNCHED=1
         fi
-        if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
-            echo "FATAL: Workspace setup did not complete after ${MAX_WAIT}s."
+        sleep 0.1
+        POLLS=$((POLLS + 1))
+        if [ $((POLLS % 300)) -eq 0 ]; then
+            echo "Still waiting for setup... ($((POLLS / 10)) seconds)"
+        fi
+        if [ $POLLS -ge $MAX_POLLS ]; then
+            echo "FATAL: Workspace setup did not complete after $((MAX_POLLS / 10))s."
             echo "Check: cat /tmp/helix-workspace-setup.log"
             exit 1
         fi
@@ -100,6 +127,123 @@ wait_for_zed_config() {
     echo "FATAL: Zed settings not ready after ${MAX_WAIT}s. Settings-sync-daemon may have failed."
     echo "Check: ls -la $HOME/.config/zed/settings.json; journalctl -u settings-sync-daemon --no-pager -n 50"
     exit 1
+}
+
+# Prove the Helix MCP context servers are reachable before EVERY Zed launch.
+#
+# Zed hands the agent its MCP servers exactly once, on the ACP session/new
+# request, and the agent (opencode, qwen, ...) connects to each one exactly
+# once. There is no retry on either side: a server that fails to connect in
+# that window stays "failed" for the whole session, its tools never enter the
+# model's tool map, and every call the model makes returns "Model tried to call
+# unavailable tool". Inference keeps working because it retries per turn, so
+# the session looks healthy while the agent is silently tool-less.
+#
+# This runs per launch, not once at boot, because run_zed_restart_loop respawns
+# Zed for the life of the container and the settings-sync-daemon's restartZed()
+# deliberately uses that path to give the agent a fresh ACP session on an agent
+# switch. Every one of those launches is another one-shot registration.
+#
+# The verdict is measured fresh by the daemon each time we ask. See
+# design/2026-09-01-opencode-mcp-tools-unavailable.md and
+# design/2026-10-01-desktops-under-load.md.
+#
+# This gate is the ONLY place that decides when MCP readiness has failed. When
+# it gives up it reports through the daemon (/mcp-readiness/gave-up), which
+# fails the user's turn with the gate's own verdict. It then keeps waiting at a
+# slower cadence and launches Zed if the servers recover, so a slow desktop
+# degrades to "late", never to "dead until someone restarts it".
+#
+# Two clocks, because "unreachable" and "not started yet" are different facts:
+#   - 425 from the daemon: an in-container dependency (the desktop-bridge, which
+#     serves helix-desktop) is still starting. Under CPU load the bridge binds
+#     minutes after boot because it waits for the GNOME session. That time is
+#     bounded by DEP_MAX_WAIT and does not consume the MCP budget.
+#   - anything else: a context server is genuinely unreachable. Bounded by
+#     MCP_MAX_WAIT, counted only while dependencies are up.
+wait_for_mcp_endpoints() {
+    local PORT="${SETTINGS_SYNC_PORT:-9877}"
+    local URL="http://127.0.0.1:${PORT}/mcp-readiness"
+    # Rides out a transient API/proxy blip once the desktop is up. Bounded,
+    # because a session that cannot reach its own API is not going to fix
+    # itself quickly and the user needs the error rather than a silent hang.
+    local MCP_MAX_WAIT=180
+    # How long the desktop-bridge may take to start listening. On a
+    # CPU-saturated host GNOME alone has taken 2+ minutes to come up. Matches
+    # the API's cold-start envelope (coldStartGracePeriod in
+    # api/pkg/server/auto_wake_stuck_interactions.go, 5 min), after which the
+    # API recreates a container whose agent never connected anyway.
+    local DEP_MAX_WAIT=300
+    # Wall-clock accounting, not attempt counts: each iteration can spend up to
+    # the curl timeout plus the sleep.
+    local MCP_WAITED=0
+    local DEP_WAITED=0
+    local REPORTED=0
+    local LAST_REPORT=0
+    local T0=0
+    local DT=0
+    local RESPONSE=""
+    local STATUS=""
+    local BODY=""
+
+    echo "Checking Helix MCP context servers are reachable..."
+    while true; do
+        T0=$(date +%s)
+        # Not curl -f: a non-200 carries the reason in its body and that is
+        # exactly what we want to print. Status and body are captured together.
+        RESPONSE=$(curl -sS --max-time 10 -w '\n%{http_code}' "$URL" 2>&1)
+        STATUS=$(printf '%s' "$RESPONSE" | tail -n 1)
+        BODY=$(printf '%s' "$RESPONSE" | sed '$d')
+        if [ "$STATUS" = "200" ]; then
+            echo "Helix MCP context servers reachable (waited ${DEP_WAITED}s for the desktop, ${MCP_WAITED}s for MCP)"
+            return 0
+        fi
+        if [ "$REPORTED" -eq 1 ]; then
+            sleep 10
+            continue
+        fi
+        sleep 1
+        DT=$(( $(date +%s) - T0 ))
+        # 000: the daemon itself is not listening yet — also still starting.
+        if [ "$STATUS" = "425" ] || [ "$STATUS" = "000" ]; then
+            DEP_WAITED=$(( DEP_WAITED + DT ))
+        else
+            MCP_WAITED=$(( MCP_WAITED + DT ))
+        fi
+        if [ $(( DEP_WAITED + MCP_WAITED - LAST_REPORT )) -ge 10 ]; then
+            LAST_REPORT=$(( DEP_WAITED + MCP_WAITED ))
+            if [ "$STATUS" = "425" ] || [ "$STATUS" = "000" ]; then
+                echo "Waiting for the desktop to start serving MCP... (${DEP_WAITED}s of ${DEP_MAX_WAIT}s): ${BODY}"
+            else
+                echo "Still waiting for MCP context servers... (${MCP_WAITED}s of ${MCP_MAX_WAIT}s): ${BODY}"
+            fi
+        fi
+
+        local WAITING_FOR=""
+        local WAITED=0
+        if [ "$DEP_WAITED" -ge "$DEP_MAX_WAIT" ]; then
+            WAITING_FOR="desktop-bridge"
+            WAITED=$DEP_MAX_WAIT
+        elif [ "$MCP_WAITED" -ge "$MCP_MAX_WAIT" ]; then
+            WAITING_FOR="mcp"
+            WAITED=$MCP_MAX_WAIT
+        else
+            continue
+        fi
+
+        echo "FATAL: Helix MCP context servers are not reachable from this container (waited ${WAITED}s for ${WAITING_FOR})."
+        echo "Last verdict from ${URL}:"
+        echo "  ${BODY}"
+        echo "Starting the agent now would give it no Helix tools for the entire session;"
+        echo "holding it back and reporting the failure. Zed will launch if they recover."
+        echo "Check: HELIX_API_URL=${HELIX_API_URL:-UNSET}; the context_server urls in"
+        echo "  $HOME/.config/zed/settings.json must resolve and connect from inside this container."
+        if ! printf '%s' "$BODY" | curl -sS --max-time 30 -X POST --data-binary @- \
+            "http://127.0.0.1:${PORT}/mcp-readiness/gave-up?waiting_for=${WAITING_FOR}&waited=${WAITED}"; then
+            echo "WARNING: could not report the MCP failure to the session"
+        fi
+        REPORTED=1
+    done
 }
 
 wait_for_claude_credentials() {
@@ -186,9 +330,19 @@ run_zed_restart_loop() {
     trap 'echo "Caught signal, continuing restart loop..."' 15 2 1
 
     while true; do
+        # Every launch is a fresh ACP session and therefore a fresh one-shot
+        # MCP registration by the agent. Re-verify before each one.
+        wait_for_mcp_endpoints
         echo "Launching Zed..."
+        # Zed's UI stays in the display tier. Zed starts ACP agents, MCP
+        # servers, terminals and tasks through $SHELL, which puts them and
+        # everything they spawn in the agent tier.
         # ZED_EXTRA_FILES can be set by desktop-specific script (e.g., user guide)
-        /zed-build/zed "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
+        if [ "${HELIX_HEADLESS}" = "1" ]; then
+            SHELL="$AGENT_TIER_BASH" /zed-build/zed --headless "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
+        else
+            SHELL="$AGENT_TIER_BASH" /zed-build/zed "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
+        fi
         echo "Zed exited, restarting in 2 seconds..."
         sleep 2
     done
@@ -264,25 +418,7 @@ start_zed_helix() {
     # - Startup script (if exists)
     # - Stays open as bash shell for debugging
     echo "Launching setup terminal..."
-    launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
-    TERMINAL_PID=$!
-    # Verify the terminal process actually started (ghostty can crash silently
-    # if the Wayland compositor isn't ready, which hangs wait_for_setup_complete)
-    sleep 1
-    if ! kill -0 "$TERMINAL_PID" 2>/dev/null; then
-        echo "ERROR: Setup terminal (PID $TERMINAL_PID) died immediately after launch."
-        echo "This usually means the Wayland compositor was not ready."
-        echo "Retrying in 3 seconds..."
-        sleep 3
-        launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
-        TERMINAL_PID=$!
-        sleep 1
-        if ! kill -0 "$TERMINAL_PID" 2>/dev/null; then
-            echo "FATAL: Setup terminal failed to start after retry."
-            exit 1
-        fi
-    fi
-    echo "Setup terminal launched (PID $TERMINAL_PID)"
+    launch_setup_terminal
 
     wait_for_setup_complete
 

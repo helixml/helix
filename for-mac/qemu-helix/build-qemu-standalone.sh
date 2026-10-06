@@ -10,6 +10,10 @@ echo ""
 # Configuration
 QEMU_SRC="${QEMU_SRC:-$HOME/pm/qemu-utm}"
 SYSROOT="${SYSROOT:-$HOME/pm/UTM/sysroot-macOS-arm64}"
+# Install prefix (CI installs outside the shared sysroot) and whether to also
+# install into /Applications/UTM.app (dev convenience; CI sets false).
+QEMU_PREFIX="${QEMU_PREFIX:-$SYSROOT}"
+INSTALL_TO_UTM="${INSTALL_TO_UTM:-true}"
 BUILD_DIR="$QEMU_SRC/build"
 NCPU=$(sysctl -n hw.ncpu)
 
@@ -68,10 +72,11 @@ echo ""
 # Configure creates build dir and calls meson internally
 # It will use our PKG_CONFIG to find sysroot libraries
 ./configure \
-    --prefix="$SYSROOT" \
+    --prefix="$QEMU_PREFIX" \
     --target-list=aarch64-softmmu \
     -Dshared_lib=true \
     -Dcocoa=disabled \
+    -Dsdl=disabled \
     -Db_pie=false \
     -Ddocs=disabled \
     -Dplugins=true
@@ -106,19 +111,21 @@ ninja -j$NCPU
 
 # Install to sysroot
 echo ""
-echo "📥 Installing to sysroot..."
+echo "📥 Installing to $QEMU_PREFIX..."
 ninja install
 
 echo ""
 echo "✅ QEMU build complete!"
 echo ""
 echo "Output:"
-echo "  • QEMU dylib: $SYSROOT/lib/libqemu-aarch64-softmmu.dylib"
+echo "  • QEMU dylib: $QEMU_PREFIX/lib/libqemu-aarch64-softmmu.dylib"
 echo ""
 
 # Install to UTM.app automatically
 UTM_FRAMEWORK="/Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu"
-if [ -f "$UTM_FRAMEWORK" ]; then
+if [ "$INSTALL_TO_UTM" != true ]; then
+    echo "Skipping UTM.app install (INSTALL_TO_UTM=$INSTALL_TO_UTM)"
+elif [ -f "$UTM_FRAMEWORK" ]; then
     echo "📦 Installing to UTM.app..."
     echo "   CRITICAL: UTM loads QEMU from the FRAMEWORK, not the loose dylib!"
     echo "   Install path: $UTM_FRAMEWORK"
@@ -128,7 +135,7 @@ if [ -f "$UTM_FRAMEWORK" ]; then
     sudo cp "$UTM_FRAMEWORK" "$UTM_FRAMEWORK.backup" 2>/dev/null || true
 
     # Install to framework
-    sudo cp "$SYSROOT/lib/libqemu-aarch64-softmmu.dylib" "$UTM_FRAMEWORK"
+    sudo cp "$QEMU_PREFIX/lib/libqemu-aarch64-softmmu.dylib" "$UTM_FRAMEWORK"
 
     # Delete the wrong dylib location (UTM doesn't use this)
     WRONG_DYLIB="/Applications/UTM.app/Contents/Frameworks/libqemu-aarch64-softmmu.dylib"
@@ -168,7 +175,7 @@ if [ -f "$UTM_FRAMEWORK" ]; then
 else
     echo "⚠️  UTM.app not found at /Applications/UTM.app"
     echo "   Manual install required:"
-    echo "   sudo cp $SYSROOT/lib/libqemu-aarch64-softmmu.dylib \\"
+    echo "   sudo cp $QEMU_PREFIX/lib/libqemu-aarch64-softmmu.dylib \\"
     echo "        /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu"
     echo "   sudo ~/pm/helix/scripts/fix-qemu-paths.sh"
 fi

@@ -103,17 +103,16 @@ export default function Waitlist() {
               lineHeight: 1.6,
             }}
           >
-            We're gradually rolling out access. You'll receive an email once
-            your account is approved. Alternatively, you can download and deploy
-            Helix yourself from our{" "}
+            We're gradually rolling out access. We'll email you when your
+            account is approved. In the meantime, visit the{" "}
             <a
-              href="https://github.com/helixml/helix"
+              href="https://helix.ml/blog"
               target="_blank"
               rel="noopener noreferrer"
             >
-              GitHub repo
+              Helix blog
             </a>
-            .
+            {" "}for the latest news and updates.
           </Typography>
 
           <Typography

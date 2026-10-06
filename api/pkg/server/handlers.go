@@ -10,12 +10,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	pathpkg "path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -88,6 +88,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		FilestorePrefix:                        filestorePrefix,
 		StripeEnabled:                          apiServer.Stripe.Enabled(),
 		BillingEnabled:                         apiServer.Cfg.Stripe.BillingEnabled,
+		MinimumInferenceBalance:                apiServer.Cfg.Stripe.MinimumInferenceBalance,
 		SentryDSNFrontend:                      apiServer.Cfg.Janitor.SentryDsnFrontend,
 		GoogleAnalyticsFrontend:                apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
 		RudderStackWriteKey:                    apiServer.Cfg.Janitor.RudderStackWriteKey,
@@ -100,6 +101,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		DeploymentID:                           deploymentID,
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
 		Edition:                                apiServer.Cfg.Edition,
+		DefaultSpecTaskSandbox:                 *types.DefaultSpecTaskSandboxResources(),
 		DefaultChatSystemPrompt:                types.DefaultChatSystemPrompt,
 		DevSubdomain:                           apiServer.Cfg.WebServer.DevSubdomain,
 		PreviewURLHTTPS:                        apiServer.Cfg.WebServer.PreviewURLHTTPS,
@@ -115,7 +117,10 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	if err != nil {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500(err.Error())
 	}
-	config.ProvidersManagementEnabled = systemSettings.ProvidersManagementEnabled || apiServer.Cfg.Providers.EnableCustomUserProviders
+	config.ProvidersManagementEnabled = providersManagementEnabled(systemSettings, apiServer.Cfg)
+	config.OnboardingHelixModelProvider = systemSettings.OnboardingHelixModelProvider
+	config.OnboardingHelixModel = systemSettings.OnboardingHelixModel
+	config.OnboardingHelixModelEffort = systemSettings.OnboardingHelixModelEffort
 
 	// /config is unauthenticated (registered on insecureRouter), so we don't
 	// know which user is calling and can't ask the quota manager for their
@@ -440,11 +445,11 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 
 // filestoreUpload godoc
 // @Summary Upload files to filestore
-// @Description Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field
+// @Description Upload one or more files to the filestore. The path may be a directory, in which case multipart filenames are appended, or the exact full path when its basename matches the multipart filename.
 // @Tags    filestore
 // @Accept  multipart/form-data
 // @Produce json
-// @Param   path query string true "Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')"
+// @Param   path query string true "Destination directory or exact full file path (e.g., 'documents' or 'documents/report.json')"
 // @Param   files formData file true "Files to upload (multipart form data)"
 // @Success 200 {object} object{success=bool} "Upload success status"
 // @Router /api/v1/filestore/upload [post]
@@ -490,18 +495,13 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			}
 			defer file.Close()
 
-			// Extract the relative path within the app
-			relativePath := path[len("apps/")+len(appID):]
-			relativePath = strings.TrimPrefix(relativePath, "/")
-
-			// Strip filename from path if it contains the filename to prevent duplication
-			if strings.HasSuffix(relativePath, fileHeader.Filename) {
-				relativePath = strings.TrimSuffix(relativePath, fileHeader.Filename)
-				relativePath = strings.TrimSuffix(relativePath, "/")
+			destination, err := filestoreAppUploadDestination(path, appID, fileHeader.Filename)
+			if err != nil {
+				return false, fmt.Errorf("invalid upload path: %w", err)
 			}
 
 			// Use the app-specific upload method
-			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, filepath.Join(relativePath, fileHeader.Filename), file)
+			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, destination, file)
 			if err != nil {
 				return false, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
@@ -528,20 +528,52 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		}
 		defer file.Close()
 
-		// Strip filename from path if it contains the filename to prevent duplication
-		uploadPath := path
-		if strings.HasSuffix(uploadPath, fileHeader.Filename) {
-			uploadPath = strings.TrimSuffix(uploadPath, fileHeader.Filename)
-			uploadPath = strings.TrimSuffix(uploadPath, "/")
+		destination, err := filestoreUploadDestination(path, fileHeader.Filename)
+		if err != nil {
+			return false, fmt.Errorf("invalid upload path: %w", err)
 		}
 
-		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filepath.Join(uploadPath, fileHeader.Filename), file)
+		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), destination, file)
 		if err != nil {
 			return false, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
 	}
 
 	return true, nil
+}
+
+func filestoreUploadDestination(requestPath, uploadedFilename string) (string, error) {
+	if uploadedFilename == "" {
+		return "", fmt.Errorf("uploaded filename is required")
+	}
+	filename := pathpkg.Base(strings.ReplaceAll(uploadedFilename, `\`, "/"))
+	if filename == "." || filename == ".." || filename == "/" {
+		return "", fmt.Errorf("invalid uploaded filename: %s", uploadedFilename)
+	}
+	cleanPath, err := filestore.CleanRelativePath(requestPath)
+	if err != nil {
+		return "", err
+	}
+	if requestPath == "" || cleanPath == "." {
+		return filename, nil
+	}
+	if strings.HasSuffix(requestPath, "/") {
+		return filepath.Join(cleanPath, filename), nil
+	}
+	if filepath.Base(cleanPath) == filename {
+		return cleanPath, nil
+	}
+	return filepath.Join(cleanPath, filename), nil
+}
+
+func filestoreAppUploadDestination(requestPath, appID, uploadedFilename string) (string, error) {
+	appPrefix := pathpkg.Join("apps", appID)
+	if requestPath != appPrefix && !strings.HasPrefix(requestPath, appPrefix+"/") {
+		return "", fmt.Errorf("path is outside app scope: %s", requestPath)
+	}
+	relativePath := strings.TrimPrefix(requestPath, appPrefix)
+	relativePath = strings.TrimPrefix(relativePath, "/")
+	return filestoreUploadDestination(relativePath, uploadedFilename)
 }
 
 // in this case the path contains the full /dev/users/XXX/sessions/XXX path
@@ -1058,8 +1090,18 @@ func (apiServer *HelixAPIServer) adminMintUserAPIKey(_ http.ResponseWriter, req 
 	specTaskID := req.URL.Query().Get("spec_task_id")
 	sessionID := req.URL.Query().Get("session_id")
 	if req.URL.Query().Get("type") == string(types.APIkeytypeEmbed) {
-		if specTaskID == "" {
-			return nil, system.NewHTTPError400("spec_task_id is required for an embed key — an unbound embed key can address nothing")
+		// At least ONE binding. An unbound embed key can address nothing, and
+		// an unbound key that were allowed through would be a browser-safe
+		// credential with no subject — the one shape this key type must never
+		// take.
+		//
+		// A session with no spec task is legitimate: an org bot INSTANCE is a
+		// bare session (session_role = org_bot_instance) with no task, and its
+		// chat is embedded the same way a task's is. The task-scoped rules in
+		// embedKeyAllows fail closed on their own when SpecTaskID is empty, so
+		// such a key reaches its own session and nothing else.
+		if specTaskID == "" && sessionID == "" {
+			return nil, system.NewHTTPError400("spec_task_id or session_id is required for an embed key — an unbound embed key can address nothing")
 		}
 		keyType = types.APIkeytypeEmbed
 	}
@@ -1194,10 +1236,11 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 		trialDays = *targetUser.TrialDaysOnFirstOrg
 	}
 	notifyErr := apiServer.Controller.Options.Notifier.Notify(ctx, &types.Notification{
-		Event:     types.EventWaitlistApproved,
-		Email:     targetUser.Email,
-		FirstName: firstName,
-		TrialDays: trialDays,
+		Event:        types.EventWaitlistApproved,
+		Email:        targetUser.Email,
+		FirstName:    firstName,
+		TrialDays:    trialDays,
+		TrialPending: trialDays > 0,
 	})
 	if notifyErr != nil {
 		log.Error().
@@ -1283,6 +1326,16 @@ func containsType(keyType string, typesParam string) bool {
 	return false
 }
 
+func isPersonalAPIKey(key *types.ApiKey) bool {
+	if key == nil || key.Type != types.APIkeytypeAPI {
+		return false
+	}
+	if key.AppID != nil && key.AppID.Valid && key.AppID.String != "" {
+		return false
+	}
+	return key.OrganizationID == "" && key.ProjectID == "" && key.SpecTaskID == "" && key.SessionID == ""
+}
+
 // getAPIKeys godoc
 // @Summary Get API keys
 // @Description Get API keys
@@ -1303,6 +1356,26 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 
 	typesParam := req.URL.Query().Get("types")
 	appIDParam := req.URL.Query().Get("app_id")
+	if typesParam == "" && appIDParam == "" {
+		var latest *types.ApiKey
+		for _, key := range apiKeys {
+			if isPersonalAPIKey(key) && (latest == nil || key.Created.After(latest.Created)) {
+				latest = key
+			}
+		}
+		if latest != nil {
+			return []*types.ApiKey{latest}, nil
+		}
+
+		createdKey, err := apiServer.Controller.CreateAPIKey(ctx, user, &types.ApiKey{
+			Name: "API Key",
+			Type: types.APIkeytypeAPI,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return []*types.ApiKey{createdKey}, nil
+	}
 
 	includeAllTypes := false
 	if typesParam == "all" {
@@ -1320,22 +1393,6 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 		filteredAPIKeys = append(filteredAPIKeys, key)
 	}
 	apiKeys = filteredAPIKeys
-
-	// If filter is missing, we are getting user keys. If we haven't got any. create a new one.
-	if typesParam == "" && appIDParam == "" && len(apiKeys) == 0 {
-		createdKey, err := apiServer.Controller.CreateAPIKey(ctx, user, &types.ApiKey{
-			Created: time.Now(),
-			Key:     uuid.New().String(),
-			Name:    "API Key",
-			Type:    types.APIkeytypeAPI,
-			Owner:   user.ID,
-		})
-		if err != nil {
-			return nil, err
-		}
-		apiKeys = append(apiKeys, createdKey)
-		return apiKeys, nil
-	}
 
 	return apiKeys, nil
 }

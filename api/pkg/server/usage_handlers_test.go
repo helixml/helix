@@ -172,6 +172,7 @@ func TestGetOrgUsageSummaryParsesFiltersAndPagination(t *testing.T) {
 			require.Equal(t, toTime, q.To)
 			require.Equal(t, "user_456", q.UserID)
 			require.Equal(t, "prj_456", q.ProjectID)
+			require.Equal(t, "spt_456", q.TaskID)
 			require.Equal(t, "app_456", q.AppID)
 			require.Equal(t, "ses_456", q.SessionID)
 			require.Equal(t, "anthropic", q.Provider)
@@ -196,10 +197,11 @@ func TestGetOrgUsageSummaryParsesFiltersAndPagination(t *testing.T) {
 			require.Equal(t, fromTime, q.From)
 			require.Equal(t, toTime, q.To)
 			require.Equal(t, "prj_456", q.ProjectID)
+			require.Equal(t, "spt_456", q.TaskID)
 			return &types.OrgComputeUsage{TotalCredits: 12.5, DesktopCredits: 12.5}, nil
 		})
 
-	req := httptest.NewRequest("GET", "/api/v1/usage/org-summary?org_id=koala-bunny-corp&from="+from+"&to="+to+"&user_id=user_456&project_id=prj_456&app_id=app_456&session_id=ses_456&provider=anthropic&model=claude-sonnet-4&user_search=alice@example.com&user_limit=25&user_offset=50&project_limit=10&project_offset=20&task_limit=10&task_offset=30&session_limit=25&session_offset=75", nil)
+	req := httptest.NewRequest("GET", "/api/v1/usage/org-summary?org_id=koala-bunny-corp&from="+from+"&to="+to+"&user_id=user_456&project_id=prj_456&task_id=spt_456&app_id=app_456&session_id=ses_456&provider=anthropic&model=claude-sonnet-4&user_search=alice@example.com&user_limit=25&user_offset=50&project_limit=10&project_offset=20&task_limit=10&task_offset=30&session_limit=25&session_offset=75", nil)
 	req = req.WithContext(setRequestUser(req.Context(), user))
 
 	resp, httpErr := server.getOrgUsageSummary(httptest.NewRecorder(), req)

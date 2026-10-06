@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	gitlabtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/gitlab"
 )
@@ -28,14 +28,14 @@ func (m *webhookManager) FindGitLabWebhook(_ context.Context, _, _, payloadURL s
 	return 42, "https://gitlab.com/group/project/-/hooks/42/edit", true, m.active, nil
 }
 
-func provisionerTopic(t *testing.T) streaming.Topic {
+func provisionerTrigger(t *testing.T) trigger.Trigger {
 	t.Helper()
 	raw, _ := json.Marshal(map[string]any{"repository_id": "repo-1", "events": []string{"Merge Request Hook"}})
-	topic, err := streaming.NewTopic("s-topic", "topic", "", "b-owner", time.Now(), transport.Transport{Kind: transport.KindGitLab, Config: raw}, "org/id")
+	row, err := trigger.New("s-trigger", "org/id", "trigger", "", transport.KindGitLab, raw, "b-owner", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return topic
+	return row
 }
 
 func TestWebhookProvisionerInstallPreservesSecretsAndBuildsURL(t *testing.T) {
@@ -46,11 +46,11 @@ func TestWebhookProvisionerInstallPreservesSecretsAndBuildsURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := &webhookManager{}
-	result, err := gitlabtransport.NewWebhookProvisioner(registry, manager, "https://prime.helix.ml").Install(context.Background(), "org/id", provisionerTopic(t))
+	result, err := gitlabtransport.NewWebhookProvisioner(registry, manager, "https://prime.helix.ml").Install(context.Background(), "org/id", provisionerTrigger(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantURL := "https://prime.helix.ml/api/v1/orgs/org%2Fid/topics/s-topic/gitlab/webhook"
+	wantURL := "https://prime.helix.ml/api/v1/orgs/org%2Fid/triggers/s-trigger/gitlab/webhook"
 	if result.PayloadURL != wantURL || manager.payloadURL != wantURL {
 		t.Fatalf("url=%q", result.PayloadURL)
 	}
@@ -69,7 +69,7 @@ func TestWebhookProvisionerInstallPreservesSecretsAndBuildsURL(t *testing.T) {
 func TestWebhookProvisionerStatusPreservesDisabledState(t *testing.T) {
 	registry := configregistry.New(orggorm.GetOrgTestDB(t).Configs)
 	manager := &webhookManager{active: false}
-	status, err := gitlabtransport.NewWebhookProvisioner(registry, manager, "https://prime.helix.ml").Status(context.Background(), "org/id", provisionerTopic(t))
+	status, err := gitlabtransport.NewWebhookProvisioner(registry, manager, "https://prime.helix.ml").Status(context.Background(), "org/id", provisionerTrigger(t))
 	if err != nil {
 		t.Fatal(err)
 	}

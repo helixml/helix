@@ -102,7 +102,8 @@ func (t *ListSpecTasksTool) Execute(ctx context.Context, meta agent.Meta, args m
 		Msg("Executing ListSpecTasks tool")
 
 	filters := &types.SpecTaskFilters{
-		ProjectID: projectID,
+		ProjectID:       projectID,
+		ExcludeStatuses: []types.SpecTaskStatus{types.TaskStatusPreparing},
 	}
 
 	if status, ok := args["status"].(string); ok && status != "" {

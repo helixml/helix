@@ -115,7 +115,7 @@ func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL str
 
 // MintInstallationToken returns a raw GitHub App installation access token
 // string (valid ~1h) for an installation. Workers obtain it on demand via
-// the mint_credential MCP tool (which goes through MintInstallationCredential
+// the Worker secret resolver (which goes through MintInstallationCredential
 // to also surface ExpiresAt); other server-side call sites — repo
 // aggregation, webhook install — use this string-only form directly.
 //
@@ -136,7 +136,7 @@ func MintInstallationToken(ctx context.Context, appID, installationID int64, pri
 }
 
 // InstallationCredential is the installation-token result paired with
-// the GitHub-reported expiry. ExpiresAt is what the mint_credential MCP
+// the GitHub-reported expiry. ExpiresAt is what the Worker secret resolver
 // tool surfaces to the agent so it can plan when to refresh.
 type InstallationCredential struct {
 	Token     string
@@ -294,6 +294,73 @@ func (c *Client) ListPullRequests(ctx context.Context, owner, repo string) ([]*g
 	}
 
 	return allPRs, nil
+}
+
+// UpsertWebhook creates a webhook on the repo if none points at `url`, or
+// PATCHes the existing one so events/content-type/secret match. Same
+// semantics as the api/pkg/github wrapper's UpsertWebhook; kept local because
+// this package is the PR-facing client GitRepositoryService holds.
+// Note: go-github v57 types Hook.Config as map[string]interface{}.
+func (c *Client) UpsertWebhook(ctx context.Context, owner, repo, name, url string, events []string, secret string) error {
+	active := true
+
+	hooks, _, err := c.client.Repositories.ListHooks(ctx, owner, repo, nil)
+	if err != nil {
+		return fmt.Errorf("failed to list repo webhooks: %w", err)
+	}
+	for _, hook := range hooks {
+		if hookURL, ok := hook.Config["url"].(string); !ok || hookURL != url {
+			continue
+		}
+		if _, _, err := c.client.Repositories.EditHook(ctx, owner, repo, hook.GetID(), &github.Hook{
+			Active: &active,
+			Events: events,
+			Config: map[string]interface{}{
+				"content_type": "json",
+				"url":          url,
+				"secret":       secret,
+			},
+		}); err != nil {
+			return fmt.Errorf("failed to update repo webhook: %w", err)
+		}
+		return nil
+	}
+	if _, _, err := c.client.Repositories.CreateHook(ctx, owner, repo, &github.Hook{
+		Name:   &name,
+		Active: &active,
+		Events: events,
+		Config: map[string]interface{}{
+			"content_type": "json",
+			"url":          url,
+			"secret":       secret,
+		},
+	}); err != nil {
+		return fmt.Errorf("failed to create repo webhook: %w", err)
+	}
+	return nil
+}
+
+// ListPullRequestReviewComments lists the inline review comments on a pull
+// request (all reviews, paginated). Callers filter by review ID.
+func (c *Client) ListPullRequestReviewComments(ctx context.Context, owner, repo string, number int) ([]*github.PullRequestComment, error) {
+	var all []*github.PullRequestComment
+	opt := &github.PullRequestListCommentsOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+
+	for {
+		comments, resp, err := c.client.PullRequests.ListComments(ctx, owner, repo, number, opt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list pull request review comments: %w", err)
+		}
+		all = append(all, comments...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
+	}
+
+	return all, nil
 }
 
 // CIStatusResult is the normalized verdict for a head SHA, aggregated

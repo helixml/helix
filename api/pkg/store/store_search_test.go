@@ -73,6 +73,67 @@ func (suite *PostgresStoreTestSuite) TestResourceSearch_AllTypes() {
 	suite.True(foundTypes[types.ResourceSession], "Should find session")
 }
 
+// TestResourceSearch_SessionProjectParent tests that session results carry their
+// project id in ParentID so the UI can open them in project context, while
+// projectless sessions leave it empty.
+func (suite *PostgresStoreTestSuite) TestResourceSearch_SessionProjectParent() {
+	userID := "search-sessionparent-user-" + system.GenerateUUID()
+
+	project := &types.Project{
+		ID:     "prj-sessionparent-" + system.GenerateUUID(),
+		Name:   "SessionParentProject",
+		UserID: userID,
+	}
+	createdProject, err := suite.db.CreateProject(suite.ctx, project)
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), createdProject.ID)
+	})
+
+	projectSession := &types.Session{
+		ID:   "ses-sessionparent-" + system.GenerateUUID(),
+		Name: "IotaSessionParent",
+		Owner: userID,
+		Mode: types.SessionModeInference,
+		Metadata: types.SessionMetadata{
+			ProjectID: project.ID,
+		},
+	}
+	createdProjectSession, err := suite.db.CreateSession(suite.ctx, *projectSession)
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(context.Background(), createdProjectSession.ID)
+	})
+
+	plainSession := &types.Session{
+		ID:    "ses-sessionplain-" + system.GenerateUUID(),
+		Name:  "IotaSessionPlain",
+		Owner: userID,
+		Mode:  types.SessionModeInference,
+	}
+	createdPlainSession, err := suite.db.CreateSession(suite.ctx, *plainSession)
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(context.Background(), createdPlainSession.ID)
+	})
+
+	results, err := suite.db.ResourceSearch(suite.ctx, &types.ResourceSearchRequest{
+		Query: "iota",
+		UserID: userID,
+		Types: []types.Resource{types.ResourceSession},
+		Limit: 10,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(2, len(results.Results))
+
+	parentsBySession := make(map[string]string)
+	for _, r := range results.Results {
+		parentsBySession[r.ResourceID] = r.ParentID
+	}
+	suite.Equal(project.ID, parentsBySession[createdProjectSession.ID], "Project session should carry its project id")
+	suite.Equal("", parentsBySession[createdPlainSession.ID], "Projectless session should have no parent")
+}
+
 // TestResourceSearch_FilterByTypes tests filtering search by specific resource types
 func (suite *PostgresStoreTestSuite) TestResourceSearch_FilterByTypes() {
 	userID := "search-filter-user-" + system.GenerateUUID()

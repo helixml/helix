@@ -142,26 +142,24 @@ func TestBranchIsolation(t *testing.T) {
 	err = giteagit.InitRepository(ctx, tempWorkPath, false, "sha1")
 	require.NoError(t, err)
 
-	// Create initial file
+	initialCommitTime := time.Date(2025, time.January, 2, 3, 4, 5, 0, time.UTC)
+
+	// Create initial files
 	require.NoError(t, os.WriteFile(filepath.Join(tempWorkPath, "README.md"), []byte("# Test Repo"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempWorkPath, "docs"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(tempWorkPath, "docs", "guide.md"), []byte("main"), 0644))
 
 	// Add and commit
 	err = giteagit.AddChanges(ctx, tempWorkPath, true)
 	require.NoError(t, err)
 
-	err = giteagit.CommitChanges(ctx, tempWorkPath, giteagit.CommitChangesOptions{
-		Message: "Initial commit",
-		Author: &giteagit.Signature{
-			Name:  "Test Author",
-			Email: "test@example.com",
-			When:  time.Now(),
-		},
-		Committer: &giteagit.Signature{
-			Name:  "Test Author",
-			Email: "test@example.com",
-			When:  time.Now(),
-		},
-	})
+	_, _, err = gitcmd.NewCommand().
+		AddOptionValues("-c", "user.name=Test Author").
+		AddOptionValues("-c", "user.email=test@example.com").
+		AddArguments("commit").
+		AddOptionFormat("--date=%s", initialCommitTime.Format(time.RFC3339)).
+		AddOptionFormat("--message=%s", "Initial commit").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: tempWorkPath})
 	require.NoError(t, err)
 
 	// Add bare repo as remote and push
@@ -196,7 +194,7 @@ func TestBranchIsolation(t *testing.T) {
 	err = service.CreateBranch(context.Background(), repoID, "feature-branch", "master")
 	require.NoError(t, err)
 
-	filePath := "branch-specific-file.txt"
+	filePath := "docs/guide.md"
 	fileContent := "This file is only on feature-branch"
 
 	_, err = service.CreateOrUpdateFileContents(
@@ -214,25 +212,40 @@ func TestBranchIsolation(t *testing.T) {
 	featureBranchEntries, err := service.BrowseTree(context.Background(), repoID, ".", "feature-branch")
 	require.NoError(t, err)
 
-	foundInFeatureBranch := false
+	var featureDirectoryCommit time.Time
 	for _, entry := range featureBranchEntries {
-		if entry.Name == filePath {
-			foundInFeatureBranch = true
-			assert.False(t, entry.IsDir)
+		if entry.Name == "docs" {
+			require.NotNil(t, entry.LastCommitAt)
+			featureDirectoryCommit = *entry.LastCommitAt
+			assert.True(t, entry.IsDir)
 			break
 		}
 	}
-	assert.True(t, foundInFeatureBranch, "File should be visible on feature-branch")
+	require.False(t, featureDirectoryCommit.IsZero())
+	assert.True(t, featureDirectoryCommit.After(initialCommitTime))
+
+	featureDirectoryEntries, err := service.BrowseTree(context.Background(), repoID, "docs", "feature-branch")
+	require.NoError(t, err)
+	require.Len(t, featureDirectoryEntries, 1)
+	require.NotNil(t, featureDirectoryEntries[0].LastCommitAt)
+	assert.Equal(t, featureDirectoryCommit, *featureDirectoryEntries[0].LastCommitAt)
 
 	masterEntries, err := service.BrowseTree(context.Background(), repoID, ".", "master")
 	require.NoError(t, err)
 
-	foundInMaster := false
+	var masterDirectoryCommit time.Time
 	for _, entry := range masterEntries {
-		if entry.Name == filePath {
-			foundInMaster = true
+		if entry.Name == "docs" {
+			require.NotNil(t, entry.LastCommitAt)
+			masterDirectoryCommit = *entry.LastCommitAt
 			break
 		}
 	}
-	assert.False(t, foundInMaster, "File should NOT be visible on master branch")
+	assert.True(t, initialCommitTime.Equal(masterDirectoryCommit))
+
+	masterDirectoryEntries, err := service.BrowseTree(context.Background(), repoID, "docs", "master")
+	require.NoError(t, err)
+	require.Len(t, masterDirectoryEntries, 1)
+	require.NotNil(t, masterDirectoryEntries[0].LastCommitAt)
+	assert.True(t, initialCommitTime.Equal(*masterDirectoryEntries[0].LastCommitAt))
 }

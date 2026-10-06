@@ -22,6 +22,11 @@ type fakePort struct {
 	err         error
 	lastTaskID  string
 	lastComment string
+	lastMessage runtime.SpecTaskMessageInput
+	action      runtime.SpecTaskAgentActionView
+	message     runtime.SpecTaskMessageView
+	messages    []runtime.SpecTaskAgentMessageView
+	lastLimit   int
 }
 
 func (f *fakePort) Create(_ context.Context, org string, w orgchart.NodeID, projectID string, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
@@ -47,9 +52,25 @@ func (f *fakePort) StartPlanning(_ context.Context, org string, w orgchart.NodeI
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.view, f.err
 }
+func (f *fakePort) SendAgentMessage(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string, in runtime.SpecTaskMessageInput) (runtime.SpecTaskMessageView, error) {
+	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID, f.lastMessage = org, w, projectID, taskID, in
+	return f.message, f.err
+}
+func (f *fakePort) ListAgentMessages(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string, limit int) ([]runtime.SpecTaskAgentMessageView, error) {
+	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID, f.lastLimit = org, w, projectID, taskID, limit
+	return f.messages, f.err
+}
+func (f *fakePort) StartAgent(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecTaskAgentActionView, error) {
+	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
+	return f.action, f.err
+}
 func (f *fakePort) StopAgent(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.view, f.err
+}
+func (f *fakePort) RestartAgent(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecTaskAgentActionView, error) {
+	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
+	return f.action, f.err
 }
 func (f *fakePort) ReviewSpec(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecReviewView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
@@ -173,6 +194,41 @@ func TestService_RequestChangesPassesComment(t *testing.T) {
 	}
 	if fp.lastComment != "fix scope" || fp.lastTaskID != "task_1" {
 		t.Errorf("got comment=%q taskID=%q", fp.lastComment, fp.lastTaskID)
+	}
+}
+
+func TestService_AgentControlsPassCallerIdentity(t *testing.T) {
+	t.Parallel()
+	fp := &fakePort{
+		message: runtime.SpecTaskMessageView{TaskID: "task_1", SessionID: "ses_1", PromptID: "pmt_1"},
+		action:  runtime.SpecTaskAgentActionView{TaskID: "task_1", SessionID: "ses_1", Status: "started"},
+	}
+	svc := New(fp, nil)
+	caller := fakeCaller{id: "w-pm", org: "org-1"}
+
+	msg, err := svc.SendAgentMessage(context.Background(), caller, "prj_target", "task_1", runtime.SpecTaskMessageInput{Content: "status?", Interrupt: true})
+	if err != nil {
+		t.Fatalf("SendAgentMessage: %v", err)
+	}
+	if msg.PromptID != "pmt_1" || fp.lastMessage.Content != "status?" || !fp.lastMessage.Interrupt {
+		t.Errorf("message result/input = %+v / %+v", msg, fp.lastMessage)
+	}
+	fp.messages = []runtime.SpecTaskAgentMessageView{{InteractionID: "int_1", AgentMessage: "done"}}
+	messages, err := svc.ListAgentMessages(context.Background(), caller, "prj_target", "task_1", 7)
+	if err != nil {
+		t.Fatalf("ListAgentMessages: %v", err)
+	}
+	if len(messages) != 1 || messages[0].AgentMessage != "done" || fp.lastLimit != 7 {
+		t.Errorf("messages/limit = %+v/%d", messages, fp.lastLimit)
+	}
+	if _, err := svc.StartAgent(context.Background(), caller, "prj_target", "task_1"); err != nil {
+		t.Fatalf("StartAgent: %v", err)
+	}
+	if _, err := svc.RestartAgent(context.Background(), caller, "prj_target", "task_1"); err != nil {
+		t.Fatalf("RestartAgent: %v", err)
+	}
+	if fp.lastOrg != "org-1" || fp.lastWorker != "w-pm" || fp.lastProject != "prj_target" || fp.lastTaskID != "task_1" {
+		t.Errorf("last target = %q/%q/%q/%q", fp.lastOrg, fp.lastWorker, fp.lastProject, fp.lastTaskID)
 	}
 }
 

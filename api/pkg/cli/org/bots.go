@@ -18,9 +18,9 @@ import (
 
 func newBotsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "agents",
-		Short:   "List and manage helix-org agents",
-		Aliases: []string{"agent", "bots", "bot"},
+		Use:     "bots",
+		Short:   "List and manage Org Bots",
+		Aliases: []string{"bot"},
 	}
 	cmd.AddCommand(newBotsListCmd())
 	cmd.AddCommand(newBotsGetCmd())
@@ -28,6 +28,14 @@ func newBotsCmd() *cobra.Command {
 	cmd.AddCommand(newBotsStopCmd())
 	cmd.AddCommand(newBotsRestartCmd())
 	cmd.AddCommand(newBotsChatCmd())
+	cmd.AddCommand(newBotsApplyCmd())
+	cmd.AddCommand(newBotsExportCmd())
+	cmd.AddCommand(newBotsPromptCmd())
+	cmd.AddCommand(newBotsProfileCmd())
+	cmd.AddCommand(newBotsApplyConfigCmd())
+	cmd.AddCommand(newBotsDoctorCmd())
+	cmd.AddCommand(newBotsAppKeyCmd())
+	cmd.AddCommand(newBotsDeleteCmd())
 	return cmd
 }
 
@@ -38,32 +46,26 @@ func newBotsListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List bots in an organization",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			c, err := newHTTPClient()
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			orgID, err := c.resolveOrg(cmd.Context(), orgFlag)
+			listCtx, cancel := callCtx(cmd.Context(), 30*time.Second)
+			defer cancel()
+			bots, err := c.ListOrgBots(listCtx, orgID)
 			if err != nil {
-				return err
-			}
-			var bots []orgapi.BotDTO
-			if err := c.doJSON(cmd.Context(), http.MethodGet, "/orgs/"+orgID+"/bots", nil, &bots, 30*time.Second); err != nil {
 				return err
 			}
 			if jsonOut {
 				return printJSON(bots)
 			}
-			fmt.Printf("%-28s %-24s %-10s %s\n", "ID", "NAME", "STATUS", "KIND")
+			fmt.Printf("%-28s %-24s %s\n", "ID", "NAME", "STATUS")
 			for _, b := range bots {
-				kind := b.Kind
-				if kind == "" {
-					kind = "agent"
-				}
-				status := b.AgentStatus
+				status := b.Status
 				if status == "" {
 					status = "-"
 				}
-				fmt.Printf("%-28s %-24s %-10s %s\n", b.ID, truncate(b.Name, 24), status, kind)
+				fmt.Printf("%-28s %-24s %s\n", b.ID, truncate(b.Name, 24), status)
 			}
 			return nil
 		},
@@ -80,16 +82,12 @@ func newBotsGetCmd() *cobra.Command {
 		Short: "Get one bot (detail + project/session ids)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := newHTTPClient()
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			orgID, err := c.resolveOrg(cmd.Context(), orgFlag)
+			detail, err := c.GetOrgBot(cmd.Context(), orgID, args[0])
 			if err != nil {
-				return err
-			}
-			var detail orgapi.BotDetailDTO
-			if err := c.doJSON(cmd.Context(), http.MethodGet, "/orgs/"+orgID+"/bots/"+args[0], nil, &detail, 30*time.Second); err != nil {
 				return err
 			}
 			return printJSON(detail)
@@ -100,16 +98,16 @@ func newBotsGetCmd() *cobra.Command {
 }
 
 func newBotsStartCmd() *cobra.Command {
-	return botActionCmd("start", "Start (activate) a bot's agent desktop", http.MethodPost, "activate")
+	return botActionCmd("start", "Start (activate) a Bot's sandbox", "activate")
 }
 func newBotsStopCmd() *cobra.Command {
-	return botActionCmd("stop", "Stop a bot's agent desktop", http.MethodPost, "stop-agent")
+	return botActionCmd("stop", "Stop a Bot's sandbox", "stop")
 }
 func newBotsRestartCmd() *cobra.Command {
-	return botActionCmd("restart", "Restart a bot's agent (fresh session)", http.MethodPost, "restart-agent")
+	return botActionCmd("restart", "Restart a Bot with a fresh session", "restart")
 }
 
-func botActionCmd(use, short, method, suffix string) *cobra.Command {
+func botActionCmd(use, short, action string) *cobra.Command {
 	var orgFlag string
 	var jsonOut bool
 	cmd := &cobra.Command{
@@ -117,26 +115,32 @@ func botActionCmd(use, short, method, suffix string) *cobra.Command {
 		Short: short,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := newHTTPClient()
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			orgID, err := c.resolveOrg(cmd.Context(), orgFlag)
+			// Activation ensures the bot's project synchronously: allow it 2 minutes.
+			ctx, cancel := callCtx(cmd.Context(), 120*time.Second)
+			defer cancel()
+			var res *orgapi.BotActivateDTO
+			switch action {
+			case "activate":
+				res, err = c.ActivateOrgBot(ctx, orgID, args[0])
+			case "restart":
+				res, err = c.RestartOrgBot(ctx, orgID, args[0])
+			case "stop":
+				err = c.StopOrgBot(ctx, orgID, args[0])
+			case "apply-config":
+				err = c.ApplyOrgBotConfig(ctx, orgID, args[0])
+			default:
+				return fmt.Errorf("unknown bot action %q", action)
+			}
 			if err != nil {
 				return err
 			}
-			path := fmt.Sprintf("/orgs/%s/bots/%s/%s", orgID, args[0], suffix)
-			// activate/restart → BotActivateDTO (202); stop → 204.
-			if suffix == "stop-agent" {
-				if err := c.doJSON(cmd.Context(), method, path, nil, nil, 120*time.Second); err != nil {
-					return err
-				}
+			if res == nil { // stop → 204, apply-config → 202 without a body
 				fmt.Printf("%s %s ok\n", use, args[0])
 				return nil
-			}
-			var res orgapi.BotActivateDTO
-			if err := c.doJSON(cmd.Context(), method, path, nil, &res, 120*time.Second); err != nil {
-				return err
 			}
 			if jsonOut {
 				return printJSON(res)
@@ -164,7 +168,7 @@ func newBotsChatCmd() *cobra.Command {
 		Short: "Send a message to a bot's exploratory chat session",
 		Long: `Chat with a helix-org bot via its project exploratory session.
 
-Resolves the bot's project, starts the agent if needed (unless --no-start),
+Resolves the Bot's project, starts it if needed (unless --no-start),
 finds or waits for the exploratory session, then POSTs the message to
 /sessions/chat and prints the assistant reply.
 
@@ -202,14 +206,22 @@ Examples:
 			if err := c.doJSON(ctx, http.MethodGet, "/orgs/"+orgID+"/bots/"+botID, nil, &detail, 30*time.Second); err != nil {
 				return err
 			}
+			if detail.ProjectID == "" && noStart {
+				return fmt.Errorf("bot %s has never been started — drop --no-start or run: helix org bots start %s", botID, botID)
+			}
+			if !noStart && detail.Bot.Status != "running" {
+				fmt.Fprintf(os.Stderr, "starting bot %s…\n", botID)
+				if err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/orgs/%s/bots/%s/activate", orgID, botID), nil, nil, 120*time.Second); err != nil {
+					return fmt.Errorf("start bot %s: %w", botID, err)
+				}
+				// Activation creates the bot's project on first start.
+				if err := c.doJSON(ctx, http.MethodGet, "/orgs/"+orgID+"/bots/"+botID, nil, &detail, 30*time.Second); err != nil {
+					return err
+				}
+			}
 			projectID := detail.ProjectID
 			if projectID == "" {
-				return fmt.Errorf("bot %s has no project yet — try: helix org bots start %s", botID, botID)
-			}
-
-			if !noStart && detail.Bot.AgentStatus != "running" {
-				fmt.Fprintf(os.Stderr, "starting bot %s…\n", botID)
-				_ = c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/orgs/%s/bots/%s/activate", orgID, botID), nil, nil, 120*time.Second)
+				return fmt.Errorf("bot %s has no project after starting", botID)
 			}
 
 			sid := sessionID

@@ -28,10 +28,10 @@ func line(manager, report orgchart.NodeID) orgchart.ReportingLine {
 	return l
 }
 
-func membersOf(set Set, sid streaming.TopicID) []orgchart.NodeID {
+func membersOf(set Set, sid streaming.StreamID) []orgchart.NodeID {
 	var out []orgchart.NodeID
 	for k := range set.Members {
-		if k.TopicID == sid {
+		if k.TriggerID == sid {
 			out = append(out, k.NodeID)
 		}
 	}
@@ -65,7 +65,7 @@ func TestRequired_ManagerlessRootHasUnobservedTranscript(t *testing.T) {
 	if got := membersOf(set, tx); len(got) != 0 {
 		t.Fatalf("manager-less root transcript observers = %v, want none (no self-subscribe)", got)
 	}
-	if _, ok := set.Channels[TeamTopicID("w-root")]; ok {
+	if _, ok := set.Channels[TeamTriggerID("w-root")]; ok {
 		t.Fatalf("root with no reports must NOT have a team topic")
 	}
 }
@@ -87,10 +87,10 @@ func TestRequired_ObservedByManagers(t *testing.T) {
 		t.Fatalf("w-li activation observers = %v, want [w-bob w-jane]", got)
 	}
 	// w-li is a member of BOTH team topics.
-	if got := membersOf(set, TeamTopicID("w-jane")); !eq(got, []orgchart.NodeID{"w-jane", "w-li"}) {
+	if got := membersOf(set, TeamTriggerID("w-jane")); !eq(got, []orgchart.NodeID{"w-jane", "w-li"}) {
 		t.Fatalf("s-team-w-jane members = %v, want [w-jane w-li]", got)
 	}
-	if got := membersOf(set, TeamTopicID("w-bob")); !eq(got, []orgchart.NodeID{"w-bob", "w-li"}) {
+	if got := membersOf(set, TeamTriggerID("w-bob")); !eq(got, []orgchart.NodeID{"w-bob", "w-li"}) {
 		t.Fatalf("s-team-w-bob members = %v, want [w-bob w-li]", got)
 	}
 }
@@ -121,7 +121,7 @@ func TestRequired_EveryBotGetsTranscript(t *testing.T) {
 		t.Fatalf("w-renee transcript observers = %v, want [w-owner]", got)
 	}
 	// And the owner now has a team topic containing renee.
-	if got := membersOf(set, TeamTopicID("w-owner")); !eq(got, []orgchart.NodeID{"w-owner", "w-renee"}) {
+	if got := membersOf(set, TeamTriggerID("w-owner")); !eq(got, []orgchart.NodeID{"w-owner", "w-renee"}) {
 		t.Fatalf("s-team-w-owner members = %v, want [w-owner w-renee]", got)
 	}
 }
@@ -132,7 +132,7 @@ func TestRequired_EveryBotGetsTranscript(t *testing.T) {
 func TestRequired_DanglingLineIgnored(t *testing.T) {
 	bots := []orgchart.Node{bot("w-owner")}
 	set := Required(bots, []orgchart.ReportingLine{line("w-owner", "w-ghost")})
-	if _, ok := set.Channels[TeamTopicID("w-owner")]; ok {
+	if _, ok := set.Channels[TeamTriggerID("w-owner")]; ok {
 		t.Fatalf("team topic must not exist when the only report is a ghost")
 	}
 }

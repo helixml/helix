@@ -108,6 +108,17 @@ func (apiServer *HelixAPIServer) listModelsForProvider(rw http.ResponseWriter, r
 		return
 	}
 
+	// A stored endpoint may restrict which of the upstream's models it offers.
+	// Env-baked providers have no row and no whitelist, so a lookup miss just
+	// means "everything".
+	endpoint, err := apiServer.Store.GetProviderEndpoint(r.Context(), &store.GetProviderEndpointsQuery{
+		Name:  provider,
+		Owner: req.Owner,
+	})
+	if err == nil {
+		models = applyModelWhitelist(endpoint, models)
+	}
+
 	writeResponse(rw, types.OpenAIModelsList{Models: models}, http.StatusOK)
 }
 

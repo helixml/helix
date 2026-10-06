@@ -1,11 +1,55 @@
 package project
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
+
+func TestProjectSpecTaskToolsHidePreparingTasks(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		tool func(store.Store) agent.Tool
+		args map[string]interface{}
+	}{
+		{name: "get", tool: func(st store.Store) agent.Tool { return NewGetSpecTaskTool("project-1", st) }, args: map[string]interface{}{"task_id": "task-1"}},
+		{name: "update", tool: func(st store.Store) agent.Tool { return NewUpdateSpecTaskTool("project-1", st) }, args: map[string]interface{}{"task_id": "task-1", "name": "changed"}},
+		{name: "start", tool: func(st store.Store) agent.Tool { return NewStartSpecTaskTool("project-1", st) }, args: map[string]interface{}{"task_id": "task-1"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			mockStore.EXPECT().GetSpecTask(gomock.Any(), "task-1").Return(&types.SpecTask{
+				ID: "task-1", ProjectID: "project-1", Status: types.TaskStatusPreparing,
+			}, nil)
+
+			_, err := test.tool(mockStore).Execute(context.Background(), agent.Meta{}, test.args)
+			require.EqualError(t, err, "spec task not found")
+		})
+	}
+}
+
+func TestUpdateSpecTaskToolRejectsPreparingTarget(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task-1").Return(&types.SpecTask{
+		ID: "task-1", ProjectID: "project-1", Status: types.TaskStatusBacklog,
+	}, nil)
+
+	_, err := NewUpdateSpecTaskTool("project-1", mockStore).Execute(
+		context.Background(),
+		agent.Meta{},
+		map[string]interface{}{"task_id": "task-1", "status": string(types.TaskStatusPreparing)},
+	)
+	require.EqualError(t, err, "preparing is an internal task status")
+}
 
 func TestSpecTaskSummary_ToString(t *testing.T) {
 	t.Run("with all fields", func(t *testing.T) {

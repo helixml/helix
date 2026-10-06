@@ -88,8 +88,8 @@ export const useCreateProject = () => {
       const response = await apiClient.v1ProjectsCreate(request);
       return response.data;
     },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: projectsListQueryKey(variables.organization_id) });
+    onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({ queryKey: projectsListQueryKey(variables.organization_id) });
     },
   });
 };
@@ -249,7 +249,7 @@ export const useInstantiateSampleProject = () => {
         project_name: request.project_name,
         description: request.description,
         organization_id: request.organization_id,
-        helix_app_id: request.helix_app_id,
+        code_agent_config: request.code_agent_config,
       });
       return response.data;
     },

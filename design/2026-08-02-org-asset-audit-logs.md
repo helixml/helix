@@ -9,6 +9,6 @@ Initial event coverage:
 - SSH `exec` requests intercepted by the asset proxy;
 - direct asset command and SFTP connection paths used by org MCP tools.
 
-MCP arguments are stored after recursively redacting credential, password, private-key, secret, token, and authorization fields. Tool results are not stored because results such as `mint_credential` contain live credentials. SSH commands are stored verbatim because command accountability is the purpose of the audit event; callers must treat audit-log access as sensitive.
+MCP arguments are stored after recursively redacting credential, password, private-key, secret, token, and authorization fields. Tool results are not stored because results such as `get_secret` contain live credentials. SSH commands are stored verbatim because command accountability is the purpose of the audit event; callers must treat audit-log access as sensitive.
 
 SSH command status is `attempted` after the upstream server accepts the `exec` request. This does not claim that the remote process exited successfully. Connection and MCP statuses represent their completed outcomes.

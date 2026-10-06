@@ -3,19 +3,151 @@ package server
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/dgraph-io/ristretto/v2"
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestGetZedConfigHarnessPolicyUsesGenerationModelProvider(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		provider   string
+		wantStatus int
+		wantError  string
+	}{
+		{name: "allowed", provider: "pe_allowed", wantStatus: http.StatusInternalServerError, wantError: "failed to get API key"},
+		{name: "disallowed", provider: "pe_disallowed", wantStatus: http.StatusUnprocessableEntity, wantError: `provider "pe_disallowed" is not enabled`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			providerManager := manager.NewMockProviderManager(ctrl)
+			session := &types.Session{ID: "ses_1", Owner: "user_1", ParentApp: "app_1", OrganizationID: "org_1"}
+			app := &types.App{
+				ID:             session.ParentApp,
+				Owner:          session.Owner,
+				OrganizationID: session.OrganizationID,
+				Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+					AgentType:               types.AgentTypeZedExternal,
+					CodeAgentRuntime:        types.CodeAgentRuntimeZedAgent,
+					GenerationModelProvider: tt.provider,
+					GenerationModel:         "model-1",
+				}}}},
+			}
+
+			getSessionCalls := 1
+			if tt.provider == "pe_allowed" {
+				getSessionCalls = 2
+			}
+			mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).Times(getSessionCalls)
+			mockStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+			mockStore.EXPECT().GetOrgCodeAgentHarness(gomock.Any(), app.OrganizationID, types.CodeAgentRuntimeZedAgent).Return(&types.OrgCodeAgentHarness{
+				Enabled: true, ProviderRefs: []string{"pe_allowed"},
+			}, nil)
+			providerManager.EXPECT().ListProviderEndpointsForOwner(gomock.Any(), app.OrganizationID, types.OwnerTypeOrg).Return([]*types.ProviderEndpoint{{
+				ID: "pe_allowed", Name: "allowed", EndpointType: types.ProviderEndpointTypeOrg,
+			}}, nil)
+			if tt.provider == "pe_allowed" {
+				mockStore.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, errors.New("stop after policy fence"))
+			}
+
+			server := &HelixAPIServer{
+				Store:                 mockStore,
+				providerManager:       providerManager,
+				specDrivenTaskService: services.NewSpecDrivenTaskService(mockStore, nil, "", nil, nil, nil, nil, nil, services.NewDisabledKoditService()),
+			}
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/"+session.ID+"/zed-config", nil)
+			req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: session.Owner}))
+
+			response, httpErr := server.getZedConfig(httptest.NewRecorder(), req)
+
+			require.Nil(t, response)
+			require.NotNil(t, httpErr)
+			assert.Equal(t, tt.wantStatus, httpErr.StatusCode)
+			assert.Contains(t, httpErr.Message, tt.wantError)
+		})
+	}
+}
+
+func TestGetProviderSnapshotMissingHarnessPolicyIncludesGlobalProviders(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{
+		Store:           mockStore,
+		providerManager: providerManager,
+	}
+	app := &types.App{
+		OrganizationID: "org_1",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			AgentType:        types.AgentTypeZedExternal,
+			CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode,
+		}}}},
+	}
+	providerManager.EXPECT().
+		ListProviderEndpointsForOwner(gomock.Any(), "org_1", types.OwnerTypeOrg).
+		Return([]*types.ProviderEndpoint{
+			{ID: "global/anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+			{ID: "pe_anthropic", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg},
+		}, nil)
+	mockStore.EXPECT().
+		GetOrgCodeAgentHarness(gomock.Any(), "org_1", types.CodeAgentRuntimeClaudeCode).
+		Return(nil, store.ErrNotFound)
+
+	snapshot, err := server.getProviderSnapshot(context.Background(), "user_1", app)
+
+	require.NoError(t, err)
+	require.Equal(t, []external_agent.ProviderRef{
+		{ID: "global/anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+		{ID: "pe_anthropic", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg},
+	}, snapshot)
+}
+
+func TestGetProviderSnapshotSubscriptionExcludesGlobalProviders(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{Store: mockStore, providerManager: providerManager}
+	app := &types.App{
+		OrganizationID: "org_1",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			AgentType:               types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+		}}}},
+	}
+	providerManager.EXPECT().
+		ListProviderEndpointsForOwner(gomock.Any(), "org_1", types.OwnerTypeOrg).
+		Return([]*types.ProviderEndpoint{{
+			ID: "pe_anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal,
+		}}, nil)
+	mockStore.EXPECT().
+		GetOrgCodeAgentHarness(gomock.Any(), "org_1", types.CodeAgentRuntimeClaudeCode).
+		Return(&types.OrgCodeAgentHarness{
+			Enabled: true, SubscriptionEnabled: boolPointer(true), ProviderRefs: []string{},
+		}, nil)
+
+	snapshot, err := server.getProviderSnapshot(context.Background(), "user_1", app)
+
+	require.NoError(t, err)
+	require.Empty(t, snapshot)
+}
 
 func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 	helixURL := "http://localhost:8080"
@@ -27,6 +159,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 	tests := []struct {
 		name      string
 		assistant *types.AssistantConfig
+		snapshot  []external_agent.ProviderRef
 		want      *types.CodeAgentConfig
 	}{
 		{
@@ -61,6 +194,23 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 				APIType:         "openai",
 				Runtime:         types.CodeAgentRuntimeZedAgent,
 				ReasoningEffort: types.ReasoningEffortNone,
+			},
+		},
+		{
+			name: "legacy anthropic task ref resolves org endpoint for zed_agent",
+			assistant: &types.AssistantConfig{
+				Provider:         "anthropic",
+				Model:            "claude-sonnet-4-20250514",
+				CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+			},
+			snapshot: []external_agent.ProviderRef{{ID: "pe_org_anthropic", Name: "user/anthropic"}},
+			want: &types.CodeAgentConfig{
+				Provider:  "pe_org_anthropic",
+				Model:     "claude-sonnet-4-20250514",
+				AgentName: "zed-agent",
+				BaseURL:   "http://localhost:8080/v1",
+				APIType:   "anthropic",
+				Runtime:   types.CodeAgentRuntimeZedAgent,
 			},
 		},
 		{
@@ -151,7 +301,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			want: &types.CodeAgentConfig{
 				AgentName:        "claude",
-				Model:            "claude-opus-5",
+				Model:            "claude-opus-5-5",
 				Runtime:          types.CodeAgentRuntimeClaudeCode,
 				UsesSubscription: true,
 			},
@@ -180,7 +330,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			want: &types.CodeAgentConfig{
 				AgentName:        "claude",
-				Model:            "claude-opus-5",
+				Model:            "claude-opus-5-5",
 				Runtime:          types.CodeAgentRuntimeClaudeCode,
 				UsesSubscription: true,
 			},
@@ -279,6 +429,52 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 		},
 		{
+			// opencode reaches every provider through the Helix
+			// OpenAI-compatible proxy, so the model stays provider-prefixed —
+			// that prefix is what the proxy routes on.
+			name: "opencode routes through the helix proxy",
+			assistant: &types.AssistantConfig{
+				Provider:         "anthropic",
+				Model:            "claude-opus-4-8",
+				CodeAgentRuntime: types.CodeAgentRuntimeOpenCode,
+			},
+			want: &types.CodeAgentConfig{
+				Provider: "anthropic", Model: "anthropic/claude-opus-4-8", AgentName: "opencode",
+				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeOpenCode,
+			},
+		},
+		{
+			// Same routing as opencode/qwen: one OpenAI-compatible endpoint,
+			// provider prefix retained in the model id. The agent name is
+			// "dsh", which is what settings-sync-daemon keys the
+			// agent_servers entry on.
+			name: "deepseek_harness routes through the helix proxy",
+			assistant: &types.AssistantConfig{
+				Provider:         "deepseek",
+				Model:            "deepseek-v4-pro",
+				CodeAgentRuntime: types.CodeAgentRuntimeDeepSeekHarness,
+			},
+			want: &types.CodeAgentConfig{
+				Provider: "deepseek", Model: "deepseek/deepseek-v4-pro", AgentName: "dsh",
+				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeDeepSeekHarness,
+			},
+		},
+		{
+			// Without its own case goose fell through to the zed-agent
+			// default, so chats ran Zed's native agent while the daemon
+			// configured an unused "goose" agent_server.
+			name: "goose_code routes to the goose agent_server",
+			assistant: &types.AssistantConfig{
+				Provider:         "openai",
+				Model:            "gpt-5.2",
+				CodeAgentRuntime: types.CodeAgentRuntimeGooseCode,
+			},
+			want: &types.CodeAgentConfig{
+				Provider: "openai", Model: "openai/gpt-5.2", AgentName: "goose",
+				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeGooseCode,
+			},
+		},
+		{
 			name: "codex_cli omits none reasoning effort",
 			assistant: &types.AssistantConfig{
 				GenerationModelProvider: "openai",
@@ -295,7 +491,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := apiServer.buildCodeAgentConfigFromAssistant(ctx, tt.assistant, helixURL, nil)
+			got := apiServer.buildCodeAgentConfigFromAssistant(ctx, tt.assistant, helixURL, tt.snapshot)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -418,12 +614,16 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 		providerModelsErr    error
 		wantContext          int
 		wantOutputTokens     int
+		advertisedModalities []string
+		wantInputModalities  []types.Modality
 	}{
 		{
-			name:              "advertised context overrides larger catalogue value",
-			advertisedContext: 262144,
-			wantContext:       262144,
-			wantOutputTokens:  catalogueOutputTokens,
+			name:                 "advertised context overrides larger catalogue value",
+			advertisedContext:    262144,
+			advertisedModalities: []string{"text", "image"},
+			wantContext:          262144,
+			wantOutputTokens:     catalogueOutputTokens,
+			wantInputModalities:  []types.Modality{types.ModalityText, types.ModalityImage},
 		},
 		{
 			name:                 "advertised context works without catalogue metadata",
@@ -493,7 +693,7 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 
 			if tt.providerListErr == nil {
 				providerManager.EXPECT().
-					GetClient(gomock.Any(), &manager.GetClientRequest{Provider: providerName, Owner: "user-1"}).
+					GetClient(gomock.Any(), &manager.GetClientRequest{Provider: "pe_ds4", Owner: "user-1"}).
 					Return(providerClient, nil)
 				providerClient.EXPECT().
 					ListModels(gomock.Any()).
@@ -501,7 +701,10 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 						if tt.providerModelsErr != nil {
 							return nil
 						}
-						return []types.OpenAIModel{{ID: modelName, ContextLength: tt.advertisedContext}}
+						return []types.OpenAIModel{{
+							ID: modelName, ContextLength: tt.advertisedContext,
+							InputModalities: tt.advertisedModalities,
+						}}
 					}(), tt.providerModelsErr)
 			}
 
@@ -531,7 +734,64 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 			require.NotNil(t, got)
 			assert.Equal(t, tt.wantContext, got.MaxTokens)
 			assert.Equal(t, tt.wantOutputTokens, got.MaxOutputTokens)
-			assert.Equal(t, providerName+"/"+modelName, got.Model)
+			assert.Equal(t, tt.wantInputModalities, got.InputModalities)
+			if tt.providerListErr == nil {
+				assert.Equal(t, "pe_ds4/"+modelName, got.Model)
+			} else {
+				assert.Equal(t, providerName+"/"+modelName, got.Model)
+			}
 		})
 	}
+}
+
+func TestBuildOpenCodeConfigUsesCatalogueVisionCapabilities(t *testing.T) {
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	apiServer := &HelixAPIServer{modelInfoProvider: modelInfoProvider}
+	assistant := &types.AssistantConfig{
+		AgentType:               types.AgentTypeZedExternal,
+		GenerationModelProvider: "vision-provider",
+		GenerationModel:         "qwen3.8-27b",
+		CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+	}
+
+	got := apiServer.buildCodeAgentConfigFromAssistant(
+		context.Background(), assistant, "http://helix-api:8080", nil,
+	)
+
+	require.NotNil(t, got)
+	assert.Equal(t, []types.Modality{
+		types.ModalityText,
+		types.ModalityImage,
+		types.Modality("video"),
+	}, got.InputModalities)
+	assert.Equal(t, []types.Modality{types.ModalityText}, got.OutputModalities)
+}
+
+func TestBuildOpenCodeConfigUsesQwen38FlashNextCatalogueCapabilities(t *testing.T) {
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	apiServer := &HelixAPIServer{modelInfoProvider: modelInfoProvider}
+	assistant := &types.AssistantConfig{
+		AgentType:               types.AgentTypeZedExternal,
+		GenerationModelProvider: "custom-provider",
+		GenerationModel:         "qwen3.8-flash-next",
+		CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+	}
+
+	got := apiServer.buildCodeAgentConfigFromAssistant(
+		context.Background(), assistant, "http://helix-api:8080", nil,
+	)
+
+	require.NotNil(t, got)
+	assert.Equal(t, 262_144, got.MaxTokens)
+	assert.Zero(t, got.MaxOutputTokens)
+	assert.Equal(t, []types.Modality{
+		types.ModalityText,
+		types.ModalityImage,
+		types.Modality("video"),
+	}, got.InputModalities)
+	assert.Equal(t, []types.Modality{types.ModalityText}, got.OutputModalities)
 }

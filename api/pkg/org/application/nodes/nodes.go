@@ -29,6 +29,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // ErrReportingCycle is returned by AddParent when the proposed edge
@@ -39,15 +40,25 @@ var ErrReportingCycle = errors.New("reporting cycle")
 // repository is not wired. Adapters map it to 501.
 var ErrReportingLinesUnavailable = errors.New("reporting lines not wired")
 
+// ErrUnknownTool is returned by any write that would persist a tool name
+// the live registry does not know. Adapters map it to 400.
+var ErrUnknownTool = errors.New("unknown tool")
+
+// ErrInvalidInstanceProfile is returned for an instance profile that can
+// never be valid (unsupported runtime, the org server named as an MCP server).
+var ErrInvalidInstanceProfile = errors.New("invalid instance profile")
+
 // Nodes owns the node-mutation use cases.
 type Nodes struct {
-	nodes          store.Nodes
-	lines          store.ReportingLines
-	reconciler     *reconcile.Reconciler
-	now            func() time.Time
-	newID          func() string
-	baseTools      []tool.Name
-	onToolsChanged func(context.Context, string)
+	nodes             store.Nodes
+	lines             store.ReportingLines
+	reconciler        *reconcile.Reconciler
+	now               func() time.Time
+	newID             func() string
+	baseTools         []tool.Name
+	knownTools        func() map[tool.Name]bool
+	onToolsChanged    func(context.Context, string)
+	onRestartRequired func(context.Context, string, orgchart.NodeID)
 }
 
 // Deps are the constructor-injected collaborators for New.
@@ -65,8 +76,19 @@ type Deps struct {
 	// created Node so no Node can miss the read primitives every Node
 	// needs. Injected by the wiring (tools.BaseReadTools) to avoid an
 	// import cycle.
-	BaseTools      []tool.Name
+	BaseTools []tool.Name
+	// KnownTools reports the live registry's catalogue, so Reconcile can
+	// prune a persisted name the registry no longer knows. Injected (not
+	// imported) for the same reason as BaseTools. nil disables pruning —
+	// a runtime without a registry must not guess a Bot's capability
+	// away.
+	KnownTools     func() map[tool.Name]bool
 	OnToolsChanged func(context.Context, string)
+	// OnRestartRequired fires after a write that changed the Node's
+	// restart fingerprint — the config a running sandbox reads once at
+	// startup and never re-reads. The composition root uses it to stamp
+	// which sandbox container is now stale. nil disables the signal.
+	OnRestartRequired func(context.Context, string, orgchart.NodeID)
 }
 
 // New constructs the Nodes service.
@@ -76,13 +98,15 @@ func New(deps Deps) *Nodes {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &Nodes{
-		nodes:          deps.Nodes,
-		lines:          deps.Lines,
-		reconciler:     deps.Reconciler,
-		now:            now,
-		newID:          deps.NewID,
-		baseTools:      deps.BaseTools,
-		onToolsChanged: deps.OnToolsChanged,
+		nodes:             deps.Nodes,
+		lines:             deps.Lines,
+		reconciler:        deps.Reconciler,
+		now:               now,
+		newID:             deps.NewID,
+		baseTools:         deps.BaseTools,
+		knownTools:        deps.KnownTools,
+		onToolsChanged:    deps.OnToolsChanged,
+		onRestartRequired: deps.OnRestartRequired,
 	}
 }
 
@@ -95,14 +119,13 @@ type CreateParams struct {
 	Name            string
 	Content         string
 	AgentID         string
+	CodeAgentConfig *types.CodeAgentExecutionConfig
 	Tools           []tool.Name
 	PreserveContext bool
-	// Kind, HelixUserID, Identity create a human placeholder when Kind ==
-	// orgchart.NodeKindHuman. A human gets no base tools (it never makes an
-	// MCP request) and is never spawned.
-	Kind        orgchart.NodeKind
-	HelixUserID string
-	Identity    map[string]string
+	// SandboxRuntime / SandboxVCPUs are the node's own sandbox config; empty
+	// / 0 inherit the org default. VCPUs must be a spec-task preset rung.
+	SandboxRuntime string
+	SandboxVCPUs   int
 }
 
 // Create builds and persists a new Node, returning the created
@@ -122,12 +145,10 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return orgchart.Node{}, fmt.Errorf("check node id %q: %w", id, err)
 	}
-	// A human placeholder gets no tools — it never makes an MCP request.
-	// An agent gets the caller's tools unioned with the read baseline.
-	tools := p.Tools
-	if p.Kind != orgchart.NodeKindHuman {
-		tools = MergeTools(p.Tools, s.baseTools)
+	if err := s.ValidateTools(p.Tools); err != nil {
+		return orgchart.Node{}, err
 	}
+	tools := MergeTools(p.Tools, s.baseTools)
 	node, err := orgchart.NewNode(id, p.Content, tools, s.now(), orgID)
 	if err != nil {
 		return orgchart.Node{}, err
@@ -138,17 +159,18 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	if p.AgentID != "" {
 		node = node.WithAgentID(p.AgentID)
 	}
+	if p.CodeAgentConfig != nil {
+		node = node.WithCodeAgentConfig(p.CodeAgentConfig)
+	}
 	if p.PreserveContext {
 		node = node.WithPreserveContext(true)
 	}
-	if p.Kind != "" {
-		node = node.WithKind(p.Kind)
-	}
-	if p.HelixUserID != "" {
-		node = node.WithHelixUserID(p.HelixUserID)
-	}
-	if len(p.Identity) > 0 {
-		node = node.WithIdentity(p.Identity)
+	if p.SandboxRuntime != "" || p.SandboxVCPUs != 0 {
+		runtime, vcpus, memoryMB, err := ValidateSandboxConfig(p.SandboxRuntime, p.SandboxVCPUs)
+		if err != nil {
+			return orgchart.Node{}, err
+		}
+		node = node.WithSandboxRuntime(runtime).WithSandboxResources(vcpus, memoryMB)
 	}
 	if err := s.nodes.Create(ctx, node); err != nil {
 		return orgchart.Node{}, err
@@ -161,20 +183,37 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 // Tools on a content-only update.
 type UpdateParams struct {
 	AgentID         *string
+	CodeAgentConfig *types.CodeAgentExecutionConfig
 	Name            *string
 	Content         *string
 	Tools           *[]tool.Name
 	ProjectIDs      *[]string
 	PreserveContext *bool
-	// Identity, when non-nil, replaces the node's per-channel handle map
-	// (human nodes only). nil leaves it unchanged.
-	Identity *map[string]string
+	// SandboxRuntime / SandboxVCPUs patch the node's sandbox config. A
+	// non-nil empty runtime or zero vCPUs resets that field to "inherit".
+	SandboxRuntime *string
+	SandboxVCPUs   *int
+	// InstanceProfile replaces the Node's instance profile.
+	InstanceProfile *types.BotInstanceProfile
 }
 
 // Update reads the existing Node, applies the patch via the domain's
 // With* builders, bumps UpdatedAt, and persists. Returns
 // store.ErrNotFound (wrapped) when the (orgID, id) row is absent.
 func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p UpdateParams) (orgchart.Node, error) {
+	if p.Tools != nil {
+		if err := s.ValidateTools(*p.Tools); err != nil {
+			return orgchart.Node{}, err
+		}
+	}
+	if p.InstanceProfile != nil {
+		if err := p.InstanceProfile.Validate(); err != nil {
+			return orgchart.Node{}, fmt.Errorf("%w: %v", ErrInvalidInstanceProfile, err)
+		}
+		if err := s.ValidateTools(toolNames(p.InstanceProfile.Tools)); err != nil {
+			return orgchart.Node{}, fmt.Errorf("instance tools: %w", err)
+		}
+	}
 	existing, err := s.nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return orgchart.Node{}, err
@@ -182,6 +221,9 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 	updated := existing
 	if p.AgentID != nil {
 		updated = updated.WithAgentID(*p.AgentID)
+	}
+	if p.CodeAgentConfig != nil {
+		updated = updated.WithCodeAgentConfig(p.CodeAgentConfig)
 	}
 	if p.Name != nil {
 		updated = updated.WithName(*p.Name)
@@ -193,25 +235,46 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 		updated = updated.WithTools(*p.Tools)
 	}
 	if p.ProjectIDs != nil {
-		updated = updated.WithProjectIDs(normalizeProjectIDs(*p.ProjectIDs))
+		updated = updated.WithProjectIDs(normalizeNames(*p.ProjectIDs))
 	}
 	if p.PreserveContext != nil {
 		updated = updated.WithPreserveContext(*p.PreserveContext)
 	}
-	if p.Identity != nil {
-		updated = updated.WithIdentity(*p.Identity)
+	if p.SandboxRuntime != nil || p.SandboxVCPUs != nil {
+		runtime := updated.SandboxRuntime
+		if p.SandboxRuntime != nil {
+			runtime = *p.SandboxRuntime
+		}
+		vcpus := updated.SandboxVCPUs
+		if p.SandboxVCPUs != nil {
+			vcpus = *p.SandboxVCPUs
+		}
+		runtime, vcpus, memoryMB, err := ValidateSandboxConfig(runtime, vcpus)
+		if err != nil {
+			return orgchart.Node{}, err
+		}
+		updated = updated.WithSandboxRuntime(runtime).WithSandboxResources(vcpus, memoryMB)
+	}
+	if p.InstanceProfile != nil {
+		profile := *p.InstanceProfile
+		profile.MCPServers = normalizeNames(profile.MCPServers)
+		profile.Tools = normalizeNames(profile.Tools)
+		updated = updated.WithInstanceProfile(&profile)
 	}
 	updated = updated.WithUpdatedAt(s.now())
 	if err := s.nodes.Update(ctx, updated); err != nil {
 		return orgchart.Node{}, err
 	}
-	if p.Tools != nil {
+	if p.Tools != nil && !sameToolList(existing.Tools, updated.Tools) {
 		s.notifyToolsChanged(ctx, updated.AgentID)
+	}
+	if orgchart.RestartFingerprint(existing) != orgchart.RestartFingerprint(updated) {
+		s.notifyRestartRequired(ctx, orgID, updated.ID)
 	}
 	return updated, nil
 }
 
-func normalizeProjectIDs(projectIDs []string) []string {
+func normalizeNames(projectIDs []string) []string {
 	seen := make(map[string]struct{}, len(projectIDs))
 	out := make([]string, 0, len(projectIDs))
 	for _, projectID := range projectIDs {
@@ -234,6 +297,9 @@ func normalizeProjectIDs(projectIDs []string) []string {
 // and a call that adds nothing writes nothing. Returns store.ErrNotFound
 // (wrapped) when the (orgID, id) row is absent.
 func (s *Nodes) AttachTools(ctx context.Context, orgID string, id orgchart.NodeID, names []tool.Name) (orgchart.Node, error) {
+	if err := s.ValidateTools(names); err != nil {
+		return orgchart.Node{}, err
+	}
 	existing, err := s.nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return orgchart.Node{}, err
@@ -247,6 +313,9 @@ func (s *Nodes) AttachTools(ctx context.Context, orgID string, id orgchart.NodeI
 		return orgchart.Node{}, err
 	}
 	s.notifyToolsChanged(ctx, updated.AgentID)
+	if orgchart.RestartFingerprint(existing) != orgchart.RestartFingerprint(updated) {
+		s.notifyRestartRequired(ctx, orgID, updated.ID)
+	}
 	return updated, nil
 }
 
@@ -286,12 +355,21 @@ func (s *Nodes) DetachTools(ctx context.Context, orgID string, id orgchart.NodeI
 		return orgchart.Node{}, err
 	}
 	s.notifyToolsChanged(ctx, updated.AgentID)
+	if orgchart.RestartFingerprint(existing) != orgchart.RestartFingerprint(updated) {
+		s.notifyRestartRequired(ctx, orgID, updated.ID)
+	}
 	return updated, nil
 }
 
 func (s *Nodes) notifyToolsChanged(ctx context.Context, appID string) {
 	if s.onToolsChanged != nil && appID != "" {
 		s.onToolsChanged(ctx, appID)
+	}
+}
+
+func (s *Nodes) notifyRestartRequired(ctx context.Context, orgID string, id orgchart.NodeID) {
+	if s.onRestartRequired != nil {
+		s.onRestartRequired(ctx, orgID, id)
 	}
 }
 
@@ -374,11 +452,19 @@ func (s *Nodes) RemoveParent(ctx context.Context, orgID string, reportID, manage
 	return nil
 }
 
-// Reconcile backfills the universal read baseline (the injected
-// BaseTools) onto every Node in the org. Idempotent: a Node already at the
-// baseline is left untouched (no write, no UpdatedAt bump). Order is
+// Reconcile converges every Node's persisted tool list against the live
+// registry: retired names are rewritten to their replacements, names the
+// registry no longer knows are pruned, and the universal read baseline
+// (the injected BaseTools) is backfilled. Idempotent: a Node already
+// converged is left untouched (no write, no UpdatedAt bump). Order is
 // stable — caller tools first, baseline appended in BaseTools order —
 // because it reuses the same MergeTools the create path does.
+//
+// Renaming rather than dropping matters: a Bot that could do something
+// before a tool was renamed must still be able to do it afterwards.
+// Pruning matters too — a persisted name the registry doesn't know is
+// silently ignored at invoke time, so leaving it makes the Bot's
+// advertised capability a lie.
 func (s *Nodes) Reconcile(ctx context.Context, orgID string) error {
 	if s == nil {
 		return nil
@@ -389,7 +475,7 @@ func (s *Nodes) Reconcile(ctx context.Context, orgID string) error {
 	}
 	now := s.now()
 	for _, node := range all {
-		merged := MergeTools(node.Tools, s.baseTools)
+		merged := MergeTools(s.convergeToolNames(node.Tools), s.baseTools)
 		if sameToolList(node.Tools, merged) {
 			continue
 		}
@@ -418,6 +504,79 @@ func sameToolList(a, b []tool.Name) bool {
 	return true
 }
 
+// convergeToolNames applies RenamedTools to a persisted list and drops
+// any name the registry no longer knows. An unavailable or empty
+// catalogue leaves unknown names alone — a runtime that hasn't wired the
+// registry must not prune a Bot's capability on a guess. Renames still
+// apply in that case: those are a fixed mapping, not a guess.
+func (s *Nodes) convergeToolNames(existing []tool.Name) []tool.Name {
+	var known map[tool.Name]bool
+	if s.knownTools != nil {
+		known = s.knownTools()
+	}
+	out := make([]tool.Name, 0, len(existing))
+	for _, name := range existing {
+		replacements, renamed := RenamedTools[name]
+		if renamed {
+			out = append(out, replacements...)
+			continue
+		}
+		if len(known) > 0 && !known[name] {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+// ValidateTools rejects any name the live registry does not know, so a
+// typo fails the whole write instead of persisting a dead name. A stored
+// name with no tool behind it is silently ignored at invoke time, which
+// leaves the Bot advertising a capability it does not have.
+//
+// It is the single validation the MCP tools and the REST handlers share.
+// An unavailable or empty catalogue skips the check for the same reason
+// pruning does: a runtime that hasn't wired the registry must not guess
+// a name is wrong.
+func (s *Nodes) ValidateTools(names []tool.Name) error {
+	if s == nil || len(names) == 0 || s.knownTools == nil {
+		return nil
+	}
+	known := s.knownTools()
+	if len(known) == 0 {
+		return nil
+	}
+	for _, name := range names {
+		if !known[name] {
+			return fmt.Errorf("%w %q", ErrUnknownTool, name)
+		}
+	}
+	return nil
+}
+
+// RenamedTools maps a retired tool name to the name (or names) that
+// replace it. One retired name may map to several: `mint_credential`
+// became the pair `list_secrets` + `get_secret` — discover, then
+// retrieve — so a Bot that could mint a credential keeps an equivalent
+// capability rather than silently losing it.
+//
+// Entries stay here permanently: the map is what an org upgraded from
+// any older release converges through, and removing an entry would strand
+// whatever data still carries the old name.
+var RenamedTools = map[tool.Name][]tool.Name{
+	// PR 2 replaced the credential-minting tool with the read pair.
+	"mint_credential": {"list_secrets", "get_secret"},
+	// PR 4's Topic→Trigger cutover renamed the org-graph primitives.
+	"create_topic":      {"create_trigger"},
+	"list_topics":       {"list_triggers"},
+	"get_topic":         {"get_trigger"},
+	"list_topic_events": {"list_trigger_events"},
+	"topic_members":     {"trigger_members"},
+	"subscribe":         {"attach_worker"},
+	"unsubscribe":       {"detach_worker"},
+	"publish":           {"chat"},
+}
+
 // MergeTools returns the union of `existing` and `base`: the order of
 // `existing` is preserved, any `base` entries not already present are
 // appended in base order, and duplicates within `existing` are dropped.
@@ -439,6 +598,37 @@ func MergeTools(existing, base []tool.Name) []tool.Name {
 		}
 		seen[name] = struct{}{}
 		out = append(out, name)
+	}
+	return out
+}
+
+// ValidateSandboxConfig normalises a node's sandbox config against the
+// spec-task vocabulary: runtime must be "", ubuntu-desktop or
+// headless-ubuntu; vcpus must be 0 (inherit) or a preset rung, whose memory
+// is returned so the pair is always a valid preset.
+func ValidateSandboxConfig(runtime string, vcpus int) (string, int, int, error) {
+	runtime = strings.TrimSpace(runtime)
+	if !types.ValidSpecTaskSandboxRuntime(types.SandboxRuntime(runtime)) {
+		return "", 0, 0, fmt.Errorf("sandbox_runtime must be %q or %q (got %q)",
+			types.SandboxRuntimeUbuntuDesktop, types.SandboxRuntimeHeadlessUbuntu, runtime)
+	}
+	if vcpus < 0 {
+		return "", 0, 0, fmt.Errorf("sandbox vcpus must be positive (got %d)", vcpus)
+	}
+	if vcpus == 0 {
+		return runtime, 0, 0, nil
+	}
+	preset, ok := types.SpecTaskSandboxPresetForVCPUs(vcpus)
+	if !ok {
+		return "", 0, 0, fmt.Errorf("sandbox vcpus must be one of %s (got %d)", types.SpecTaskSandboxVCPUList(), vcpus)
+	}
+	return runtime, preset.VCPUs, preset.MemoryMB, nil
+}
+
+func toolNames(names []string) []tool.Name {
+	out := make([]tool.Name, 0, len(names))
+	for _, name := range names {
+		out = append(out, tool.Name(name))
 	}
 	return out
 }

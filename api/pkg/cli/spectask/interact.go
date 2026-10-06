@@ -34,7 +34,7 @@ func newInteractCommand() *cobra.Command {
 	var watchInterval int
 
 	cmd := &cobra.Command{
-		Use:   "interact <session-id>",
+		Use:   "interact <session-id|task-id>",
 		Short: "Interact with a Helix session - chat, view history, send prompts",
 		Long: `Interactive CLI for chatting with a Helix session.
 
@@ -59,10 +59,16 @@ Examples:
 
   # Watch mode - auto-refresh session status
   helix spectask interact ses_01xxx --watch --interval 5
+
+  # Address the task directly — its session is resolved for you
+  helix spectask interact spt_01xxx --history
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			sessionID := args[0]
+			sessionID, err := resolveSessionID(args[0])
+			if err != nil {
+				return err
+			}
 			apiURL := getAPIURL()
 			token := getToken()
 

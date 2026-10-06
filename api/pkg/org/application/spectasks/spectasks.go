@@ -59,6 +59,12 @@ func (s *Service) callerIdentity(ctx context.Context, caller tool.Caller) (strin
 	if workerID == "" {
 		return "", "", errors.New("caller has no worker id")
 	}
+	// A project principal (a spec task's own agent) is not a Bot, so there is
+	// no membership row to verify — the MCP mount authenticated it against the
+	// project instead. Its project comes from the context, not worker state.
+	if _, ok := runtime.ProjectPrincipalFromContext(ctx); ok {
+		return orgID, orgchart.NodeID(workerID), nil
+	}
 	if s.members != nil {
 		if _, err := s.members.GetBot(ctx, orgID, orgchart.NodeID(workerID)); err != nil {
 			return "", "", fmt.Errorf("caller bot %s is not a member of org %s: %w", workerID, orgID, err)
@@ -107,12 +113,44 @@ func (s *Service) StartPlanning(ctx context.Context, caller tool.Caller, project
 	return s.port.StartPlanning(ctx, orgID, workerID, projectID, taskID)
 }
 
+func (s *Service) SendAgentMessage(ctx context.Context, caller tool.Caller, projectID, taskID string, in runtime.SpecTaskMessageInput) (runtime.SpecTaskMessageView, error) {
+	orgID, workerID, err := s.callerIdentity(ctx, caller)
+	if err != nil {
+		return runtime.SpecTaskMessageView{}, err
+	}
+	return s.port.SendAgentMessage(ctx, orgID, workerID, projectID, taskID, in)
+}
+
+func (s *Service) ListAgentMessages(ctx context.Context, caller tool.Caller, projectID, taskID string, limit int) ([]runtime.SpecTaskAgentMessageView, error) {
+	orgID, workerID, err := s.callerIdentity(ctx, caller)
+	if err != nil {
+		return nil, err
+	}
+	return s.port.ListAgentMessages(ctx, orgID, workerID, projectID, taskID, limit)
+}
+
+func (s *Service) StartAgent(ctx context.Context, caller tool.Caller, projectID, taskID string) (runtime.SpecTaskAgentActionView, error) {
+	orgID, workerID, err := s.callerIdentity(ctx, caller)
+	if err != nil {
+		return runtime.SpecTaskAgentActionView{}, err
+	}
+	return s.port.StartAgent(ctx, orgID, workerID, projectID, taskID)
+}
+
 func (s *Service) StopAgent(ctx context.Context, caller tool.Caller, projectID, taskID string) (runtime.SpecTaskView, error) {
 	orgID, workerID, err := s.callerIdentity(ctx, caller)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
 	}
 	return s.port.StopAgent(ctx, orgID, workerID, projectID, taskID)
+}
+
+func (s *Service) RestartAgent(ctx context.Context, caller tool.Caller, projectID, taskID string) (runtime.SpecTaskAgentActionView, error) {
+	orgID, workerID, err := s.callerIdentity(ctx, caller)
+	if err != nil {
+		return runtime.SpecTaskAgentActionView{}, err
+	}
+	return s.port.RestartAgent(ctx, orgID, workerID, projectID, taskID)
 }
 
 func (s *Service) ReviewSpec(ctx context.Context, caller tool.Caller, projectID, taskID string) (runtime.SpecReviewView, error) {

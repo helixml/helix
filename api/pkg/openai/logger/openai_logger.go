@@ -18,6 +18,7 @@ import (
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/pricing"
+	"github.com/helixml/helix/api/pkg/toolcall"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -87,6 +88,7 @@ func (m *LoggingMiddleware) UsageLogStores() []LogStore {
 }
 
 func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	ctx = oai.EnsureRequestID(ctx)
 	start := time.Now()
 	resp, err := m.client.CreateChatCompletion(ctx, request)
 	if err != nil {
@@ -111,6 +113,7 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 }
 
 func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	ctx = oai.EnsureRequestID(ctx)
 	start := time.Now()
 
 	upstream, err := m.client.CreateChatCompletionStream(ctx, request)
@@ -197,6 +200,9 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 		}
 	}
 
+	// The accumulated response is a full completion, not a chunk.
+	resp.Object = "chat.completion"
+
 	if chunk.Model != "" {
 		resp.Model = chunk.Model
 	}
@@ -211,22 +217,65 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 
 	// Append the chunk to the response
 	if len(chunk.Choices) > 0 {
+		delta := chunk.Choices[0].Delta
+		msg := &resp.Choices[0].Message
+
 		// Role
-		if chunk.Choices[0].Delta.Role != "" {
-			resp.Choices[0].Message.Role = chunk.Choices[0].Delta.Role
+		if delta.Role != "" {
+			msg.Role = delta.Role
 		}
 
 		// Content
-		resp.Choices[0].Message.Content += chunk.Choices[0].Delta.Content
+		msg.Content += delta.Content
+		msg.ReasoningContent += delta.ReasoningContent
 
-		// Function calls
-		if chunk.Choices[0].Delta.FunctionCall != nil {
-			resp.Choices[0].Message.FunctionCall = chunk.Choices[0].Delta.FunctionCall
+		// Legacy function calls stream the arguments in fragments; only the
+		// first fragment carries the name.
+		if delta.FunctionCall != nil {
+			if msg.FunctionCall == nil {
+				msg.FunctionCall = &openai.FunctionCall{}
+			}
+			if delta.FunctionCall.Name != "" {
+				msg.FunctionCall.Name = delta.FunctionCall.Name
+			}
+			msg.FunctionCall.Arguments += delta.FunctionCall.Arguments
 		}
 
-		// Tool calls
-		if len(chunk.Choices[0].Delta.ToolCalls) > 0 {
-			resp.Choices[0].Message.ToolCalls = append(resp.Choices[0].Message.ToolCalls, chunk.Choices[0].Delta.ToolCalls...)
+		// A single tool call arrives as many deltas sharing an index: the first
+		// carries id/type/name, the rest only argument fragments. Merge by
+		// index instead of appending each fragment as its own tool call.
+		for _, tc := range delta.ToolCalls {
+			var idx int
+			if tc.Index != nil {
+				idx = *tc.Index
+			} else if tc.ID != "" || len(msg.ToolCalls) == 0 {
+				// No index: a fragment carrying an ID starts a new tool call,
+				// an ID-less fragment continues the last one.
+				idx = len(msg.ToolCalls)
+			} else {
+				idx = len(msg.ToolCalls) - 1
+			}
+			if idx < 0 {
+				continue
+			}
+			for idx >= len(msg.ToolCalls) {
+				msg.ToolCalls = append(msg.ToolCalls, openai.ToolCall{})
+			}
+			merged := &msg.ToolCalls[idx]
+			if tc.ID != "" {
+				merged.ID = tc.ID
+			}
+			if tc.Type != "" {
+				merged.Type = tc.Type
+			}
+			if tc.Function.Name != "" {
+				merged.Function.Name = tc.Function.Name
+			}
+			merged.Function.Arguments += tc.Function.Arguments
+		}
+
+		if chunk.Choices[0].FinishReason != "" {
+			resp.Choices[0].FinishReason = chunk.Choices[0].FinishReason
 		}
 	}
 
@@ -351,32 +400,41 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		Float64("total_cost", totalCost).
 		Msg("logging LLM call")
 
+	tools := validateToolCalls(req, resp)
+
 	llmCall := &types.LLMCall{
-		Created:          createdAt,
-		AppID:            appID,
-		SessionID:        vals.SessionID,
-		InteractionID:    vals.InteractionID,
-		OrganizationID:   orgID,
-		Model:            req.Model,
-		Step:             step.Step,
-		OriginalRequest:  vals.OriginalRequest,
-		Request:          reqBts,
-		Response:         respBts,
-		Provider:         string(m.provider),
+		Created:            createdAt,
+		RequestID:          vals.RequestID,
+		AppID:              appID,
+		SessionID:          vals.SessionID,
+		CodeAgentRuntime:   vals.CodeAgentRuntime,
+		InteractionID:      vals.InteractionID,
+		OrganizationID:     orgID,
+		Model:              req.Model,
+		Step:               step.Step,
+		OriginalRequest:    vals.OriginalRequest,
+		Request:            reqBts,
+		Response:           respBts,
+		Provider:           string(m.provider),
 		DurationMs:         durationMs,
 		TimeToFirstTokenMs: firstTokenMs,
-		PromptTokens:     int64(promptTokens),
-		CompletionTokens: int64(completionTokens),
-		TotalTokens:      int64(totalTokens),
-		CacheReadTokens:  int64(cachedPromptTokens),
-		PromptCost:       cost.PromptCost,
-		CompletionCost:   cost.CompletionCost,
-		CacheReadCost:    cost.CacheReadCost,
-		TotalCost:        totalCost,
-		UserID:           vals.OwnerID,
-		Stream:           stream,
-		ProjectID:        vals.ProjectID,
-		SpecTaskID:       vals.SpecTaskID,
+		PromptTokens:       int64(promptTokens),
+		CompletionTokens:   int64(completionTokens),
+		TotalTokens:        int64(totalTokens),
+		CacheReadTokens:    int64(cachedPromptTokens),
+		PromptCost:         cost.PromptCost,
+		CompletionCost:     cost.CompletionCost,
+		CacheReadCost:      cost.CacheReadCost,
+		TotalCost:          totalCost,
+		UserID:             vals.OwnerID,
+		Stream:             stream,
+		ProjectID:          vals.ProjectID,
+		SpecTaskID:         vals.SpecTaskID,
+		FinishReason:       finishReason(resp),
+		ToolsOffered:       tools.ToolsOffered,
+		ToolCallsReturned:  tools.Calls,
+		ToolCallErrors:     tools.Errors,
+		ToolCallErrorKinds: tools.KindsString(),
 	}
 
 	if apiError != nil {
@@ -587,4 +645,54 @@ func (m *LoggingMiddleware) CreateFlexibleEmbeddings(ctx context.Context, reques
 	}
 
 	return resp, err
+}
+
+// finishReason reports why the provider stopped. Streaming responses carry it
+// on the accumulated choice just like non-streaming ones.
+func finishReason(resp *openai.ChatCompletionResponse) string {
+	if resp == nil || len(resp.Choices) == 0 {
+		return ""
+	}
+	return string(resp.Choices[0].FinishReason)
+}
+
+// validateToolCalls checks the tool calls in the response against the schemas
+// the request offered. Legacy function_call responses are not checked — no
+// current model emits them, and folding them in would mix two argument shapes
+// into one counter.
+func validateToolCalls(req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse) toolcall.Result {
+	if req == nil || resp == nil || len(resp.Choices) == 0 {
+		return toolcall.Result{}
+	}
+
+	tools := make([]toolcall.Tool, 0, len(req.Tools))
+	for _, tool := range req.Tools {
+		if tool.Function == nil {
+			continue
+		}
+		var schema json.RawMessage
+		if tool.Function.Parameters != nil {
+			encoded, err := json.Marshal(tool.Function.Parameters)
+			if err != nil {
+				// An unencodable schema is the caller's problem, not the
+				// model's: treat the tool as unconstrained rather than
+				// charging every call against it.
+				log.Debug().Err(err).Str("tool", tool.Function.Name).Msg("failed to encode tool schema")
+			} else {
+				schema = encoded
+			}
+		}
+		tools = append(tools, toolcall.Tool{Name: tool.Function.Name, Schema: schema})
+	}
+
+	returned := resp.Choices[0].Message.ToolCalls
+	calls := make([]toolcall.Call, 0, len(returned))
+	for _, call := range returned {
+		calls = append(calls, toolcall.Call{
+			Name:      call.Function.Name,
+			Arguments: call.Function.Arguments,
+		})
+	}
+
+	return toolcall.Validate(tools, calls)
 }

@@ -1,14 +1,14 @@
 // Package processors is the application service that owns the Processor
 // CRUD use cases — Create, Update, Delete, Preview — plus the two
-// structural invariants a Processor carries: its output Topics are
-// auto-provisioned and owned by it, and the processor graph must stay
-// acyclic. Both the REST handlers and the MCP tools (create_processor,
-// update_processor, delete_processor, list/get) delegate here so those
-// invariants cannot drift between callers.
+// structural invariants a Processor carries: every output branch has a
+// durable identity and its own event stream, and the processor graph
+// must stay acyclic. Both the REST handlers and the MCP tools
+// (create_processor, update_processor, delete_processor, list/get)
+// delegate here so those invariants cannot drift between callers.
 //
 // Per CLAUDE.md helix-org philosophy this is the only place that does
-// structural derivation (auto-creating output topics) — it is not
-// workflow: the output topic *is* part of what a Processor means,
+// structural derivation (allocating a branch's identity and stream) — it
+// is not workflow: the branch *is* part of what a Processor means,
 // exactly as Role.Tools is a Worker's capability. The service does not
 // orchestrate anything an agent should decide.
 package processors
@@ -21,38 +21,32 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/topics"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
 // ErrCycle signals that a Create/Update would close a cycle in the
-// topic graph. Adapters map it to 409 Conflict.
-var ErrCycle = errors.New("processor would create a cycle in the topic graph")
-
-// TopicWriter is the narrow slice of the topics application service the
-// processors service needs to auto-provision and tear down output
-// Topics. *topics.Topics satisfies it.
-type TopicWriter interface {
-	Create(ctx context.Context, orgID string, p topics.CreateParams) (streaming.Topic, error)
-	Delete(ctx context.Context, orgID string, id streaming.TopicID) error
-}
+// source graph. Adapters map it to 409 Conflict.
+var ErrCycle = errors.New("processor would create a cycle in the source graph")
 
 // Processors owns the processor-mutation use cases.
 type Processors struct {
-	procs  store.Processors
-	topics TopicWriter
-	now    func() time.Time
-	newID  func() string
+	procs       store.Processors
+	triggers    store.Triggers
+	attachments store.WorkerAttachments
+	now         func() time.Time
+	newID       func() string
 }
 
 // Deps are the constructor-injected collaborators.
 type Deps struct {
-	Processors store.Processors
-	Topics     TopicWriter
-	Now        func() time.Time
-	NewID      func() string
+	Processors  store.Processors
+	Triggers    store.Triggers
+	Attachments store.WorkerAttachments
+	Now         func() time.Time
+	NewID       func() string
 }
 
 // New constructs the Processors service.
@@ -65,23 +59,21 @@ func New(deps Deps) *Processors {
 	if newID == nil {
 		newID = func() string { return "stub" }
 	}
-	return &Processors{procs: deps.Processors, topics: deps.Topics, now: now, newID: newID}
+	return &Processors{procs: deps.Processors, triggers: deps.Triggers, attachments: deps.Attachments, now: now, newID: newID}
 }
 
 // OutputSpec describes one desired output branch at create/update time.
-// TopicID is normally empty — the service auto-provisions a local Topic
-// and fills it in (design decision 2). A non-empty TopicID points the
-// branch at an existing Topic instead of provisioning one (OQ1's
-// "publish into an existing topic"): it enables fan-in to a shared
-// topic, and it is the only way to form a graph the cycle check must
-// reject — so it is what makes checkAcyclic a live guard rather than
-// dead code. Explicit-output topics are not owned by the processor and
-// are left intact on delete. Match/Label are carried onto the resulting
-// processor.Output (Match is meaningful only to the filter Kind).
+// ID is normally empty — the service allocates a durable `po-<id>` and
+// the stream that branch writes to. A non-empty ID re-states an existing
+// branch (the conversion and reconcilers do this). Match/Label are
+// carried onto the resulting processor.Output (Match is meaningful only
+// to the filter Kind).
 type OutputSpec struct {
-	TopicID streaming.TopicID
-	Label   string
-	Match   string
+	// ID is the durable branch identity. Callers may omit it; the
+	// application service allocates one when the branch is created.
+	ID    string
+	Label string
+	Match string
 	// ManagedFor tags an auto-managed route with the orgchart.NodeID it
 	// serves (see processor.Output.ManagedFor). Empty for ordinary
 	// human-authored outputs.
@@ -92,11 +84,11 @@ type OutputSpec struct {
 // `p-<id>` when empty). Outputs default to a single unconditional
 // branch when none are given (the common transform case).
 type CreateParams struct {
-	ID           string
-	Name         string
-	InputTopicID streaming.TopicID
-	Kind         processor.Kind
-	Config       json.RawMessage
+	ID          string
+	Name        string
+	InputSource eventsource.SourceRef
+	Kind        processor.Kind
+	Config      json.RawMessage
 	// CreatedBy anchors the processor to a Worker on the chart, or carries
 	// processor.SystemActor ("helix") when automation owns it — which is how
 	// a processor is marked Automated (see processor.Processor.Automated).
@@ -104,10 +96,8 @@ type CreateParams struct {
 	Outputs   []OutputSpec
 }
 
-// Create validates the config, auto-provisions the output Topic(s),
-// cycle-checks the resulting graph, and persists the Processor. On a
-// cycle or a persist failure it deletes any Topics it provisioned so a
-// failed create leaves no orphans.
+// Create validates the config, allocates each branch's identity and
+// stream, cycle-checks the resulting graph, and persists the Processor.
 func (s *Processors) Create(ctx context.Context, orgID string, p CreateParams) (processor.Processor, error) {
 	id := processor.ProcessorID(strings.TrimSpace(p.ID))
 	if id == "" {
@@ -116,76 +106,48 @@ func (s *Processors) Create(ctx context.Context, orgID string, p CreateParams) (
 	if p.Name == "" {
 		return processor.Processor{}, fmt.Errorf("processor name is empty")
 	}
+	if err := s.validateSource(ctx, orgID, id, p.InputSource); err != nil {
+		return processor.Processor{}, err
+	}
 
 	specs := p.Outputs
 	if len(specs) == 0 {
 		specs = []OutputSpec{{}} // single unconditional output (transform default)
 	}
-
 	outputs := make([]processor.Output, 0, len(specs))
-	provisioned := make([]streaming.TopicID, 0, len(specs))
-	rollback := func() {
-		for _, tid := range provisioned {
-			_ = s.topics.Delete(ctx, orgID, tid)
-		}
+	for _, spec := range specs {
+		outputs = append(outputs, s.newOutput(spec))
 	}
 
-	for i, spec := range specs {
-		if spec.TopicID != "" {
-			// Explicit existing topic — not owned by the processor, so it
-			// is not provisioned here and not torn down on delete.
-			outputs = append(outputs, processor.Output{TopicID: spec.TopicID, Match: spec.Match, Label: spec.Label, Owned: false, ManagedFor: spec.ManagedFor})
-			continue
-		}
-		t, err := s.topics.Create(ctx, orgID, topics.CreateParams{
-			Name:        outputTopicName(id, spec.Label, i, len(specs)),
-			Description: fmt.Sprintf("Output of processor %s (%s)", id, p.Name),
-			// Inherit CreatedBy so an automated router's output Topics carry
-			// the same SystemActor marker for free.
-			CreatedBy: p.CreatedBy,
-		})
-		if err != nil {
-			rollback()
-			return processor.Processor{}, fmt.Errorf("provision output topic: %w", err)
-		}
-		provisioned = append(provisioned, t.ID)
-		outputs = append(outputs, processor.Output{TopicID: t.ID, Match: spec.Match, Label: spec.Label, Owned: true, ManagedFor: spec.ManagedFor})
-	}
-
-	proc, err := processor.NewProcessor(id, p.Name, p.InputTopicID, p.Kind, p.Config, outputs, p.CreatedBy, s.now(), orgID)
+	proc, err := processor.NewProcessor(id, p.Name, p.InputSource, p.Kind, p.Config, outputs, p.CreatedBy, s.now(), orgID)
 	if err != nil {
-		rollback()
 		return processor.Processor{}, err
 	}
 	if err := s.checkAcyclic(ctx, orgID, proc, ""); err != nil {
-		rollback()
 		return processor.Processor{}, err
 	}
 	if err := s.procs.Create(ctx, proc); err != nil {
-		rollback()
 		return processor.Processor{}, err
 	}
 	return proc, nil
 }
 
-// UpdateParams describes the mutable fields. Outputs are left as-is when
-// nil; the auto-provisioned output Topics are not re-created on update
-// (changing the branch count is a delete-and-recreate concern for v1).
-// InputTopicID uses pointer semantics: nil leaves the input unchanged; a
-// non-nil value sets it — including the empty string, which DISCONNECTS
-// the processor (deleting its input edge on the chart), leaving it inert.
-// A non-empty value re-points it at a different input (drag-to-wire),
-// re-running the cycle check.
+// UpdateParams describes the mutable fields. Outputs are left as-is
+// (changing the branch set goes through AddOutput / RemoveOutput).
+// InputSource uses pointer semantics: nil leaves the input unchanged; a
+// non-nil value sets it — including the zero SourceRef, which
+// DISCONNECTS the processor (deleting its input edge on the chart),
+// leaving it inert. A non-zero value re-points it at a different source
+// (drag-to-wire), re-running the cycle check.
 type UpdateParams struct {
-	Name         string
-	Kind         processor.Kind
-	Config       json.RawMessage
-	InputTopicID *streaming.TopicID
+	Name        string
+	Kind        processor.Kind
+	Config      json.RawMessage
+	InputSource *eventsource.SourceRef
 }
 
-// Update rewrites name/kind/config (and optionally the input topic) on an
-// existing Processor, re-running validation and the cycle check. Outputs
-// are immutable here (v1).
+// Update rewrites name/kind/config (and optionally the input source) on
+// an existing Processor, re-running validation and the cycle check.
 func (s *Processors) Update(ctx context.Context, orgID string, id processor.ProcessorID, p UpdateParams) (processor.Processor, error) {
 	existing, err := s.procs.Get(ctx, orgID, id)
 	if err != nil {
@@ -194,8 +156,11 @@ func (s *Processors) Update(ctx context.Context, orgID string, id processor.Proc
 	existing.Name = p.Name
 	existing.Kind = p.Kind
 	existing.Config = p.Config
-	if p.InputTopicID != nil {
-		existing.InputTopicID = *p.InputTopicID
+	if p.InputSource != nil {
+		existing.InputSource = *p.InputSource
+	}
+	if err := s.validateSource(ctx, orgID, id, existing.InputSource); err != nil {
+		return processor.Processor{}, err
 	}
 	if err := existing.Validate(); err != nil {
 		return processor.Processor{}, err
@@ -209,73 +174,98 @@ func (s *Processors) Update(ctx context.Context, orgID string, id processor.Proc
 	return existing, nil
 }
 
-// AddOutput appends one output branch ("route") to an existing Processor,
-// provisioning and owning a new output Topic when spec.TopicID is empty
-// (the same auto-provision rule as Create), or wiring an explicit existing
-// Topic otherwise. It re-validates the Kind config against the new output
-// set and re-runs the cycle check before persisting. On any failure it
-// deletes a Topic it provisioned so a failed add leaves no orphan. Returns
-// the resulting Output (with its TopicID filled in) so callers can wire a
-// subscription to it.
+// AddOutput appends one output branch ("route") to an existing
+// Processor, allocating its durable identity and stream. It re-validates
+// the Kind config against the new output set and re-runs the cycle check
+// before persisting. Returns the resulting Output so callers can attach a
+// Worker to it.
 func (s *Processors) AddOutput(ctx context.Context, orgID string, id processor.ProcessorID, spec OutputSpec) (processor.Output, error) {
 	existing, err := s.procs.Get(ctx, orgID, id)
 	if err != nil {
 		return processor.Output{}, err
 	}
-
-	var out processor.Output
-	var provisioned streaming.TopicID
-	if spec.TopicID != "" {
-		out = processor.Output{TopicID: spec.TopicID, Match: spec.Match, Label: spec.Label, Owned: false, ManagedFor: spec.ManagedFor}
-	} else {
-		t, err := s.topics.Create(ctx, orgID, topics.CreateParams{
-			Name:        addedOutputTopicName(id, spec.Label, spec.ManagedFor),
-			Description: fmt.Sprintf("Output of processor %s (%s)", id, existing.Name),
-			// Inherit CreatedBy so a managed route's output Topic carries the
-			// router's SystemActor marker.
-			CreatedBy: existing.CreatedBy,
-		})
-		if err != nil {
-			return processor.Output{}, fmt.Errorf("provision output topic: %w", err)
-		}
-		provisioned = t.ID
-		out = processor.Output{TopicID: t.ID, Match: spec.Match, Label: spec.Label, Owned: true, ManagedFor: spec.ManagedFor}
-	}
-	rollback := func() {
-		if provisioned != "" {
-			_ = s.topics.Delete(ctx, orgID, provisioned)
-		}
-	}
-
+	out := s.newOutput(spec)
 	existing.Outputs = append(existing.Outputs, out)
 	if err := existing.Validate(); err != nil {
-		rollback()
 		return processor.Output{}, err
 	}
 	if err := s.checkAcyclic(ctx, orgID, existing, id); err != nil {
-		rollback()
 		return processor.Output{}, err
 	}
 	if err := s.procs.Update(ctx, existing); err != nil {
-		rollback()
 		return processor.Output{}, err
 	}
 	return out, nil
 }
 
-// RemoveOutput drops the output branch whose destination is topicID and,
-// when that branch owned its Topic, deletes the Topic (cascading its
-// subscriptions). Idempotent: an unknown topicID is a no-op. Rejected when
-// it would leave the Processor with zero outputs (Validate forbids that) —
-// delete the whole Processor instead.
-func (s *Processors) RemoveOutput(ctx context.Context, orgID string, id processor.ProcessorID, topicID streaming.TopicID) error {
+// newOutput allocates a branch's durable identity and the stream it
+// writes to. Both are minted here and never change afterwards: the id is
+// what attachments and downstream inputs name, and the stream is what
+// carries the branch's history.
+func (s *Processors) newOutput(spec OutputSpec) processor.Output {
+	outputID := strings.TrimSpace(spec.ID)
+	if outputID == "" {
+		outputID = "po-" + s.newID()
+	}
+	return processor.Output{
+		ID:         outputID,
+		StreamID:   streaming.StreamID("s-" + s.newID()),
+		Match:      spec.Match,
+		Label:      spec.Label,
+		ManagedFor: spec.ManagedFor,
+	}
+}
+
+// validateSource rejects an input that names a source that does not
+// exist. A zero source (unwired) is allowed. A Processor naming one of
+// its own branches is a cycle, not a missing row — reported as ErrCycle
+// so the adapter maps it to 409 like every other cycle.
+func (s *Processors) validateSource(ctx context.Context, orgID string, id processor.ProcessorID, src eventsource.SourceRef) error {
+	if src.Zero() {
+		return nil
+	}
+	if err := src.Validate(); err != nil {
+		return fmt.Errorf("validate processor input: %w", err)
+	}
+	if src.Kind == eventsource.KindProcessorOutput && src.ProcessorID == string(id) {
+		return fmt.Errorf("%w: input %q is this processor's own branch", ErrCycle, src.Key())
+	}
+	switch src.Kind {
+	case eventsource.KindTrigger:
+		if s.triggers == nil {
+			return errors.New("validate processor input: trigger repository is not configured")
+		}
+		rows, err := s.triggers.Find(ctx, store.WithOrg(orgID), store.WithID(src.TriggerID), store.WithLimit(1))
+		if err != nil {
+			return fmt.Errorf("validate processor input trigger %q: %w", src.TriggerID, err)
+		}
+		if len(rows) == 0 {
+			return fmt.Errorf("validate processor input trigger %q: %w", src.TriggerID, store.ErrNotFound)
+		}
+	case eventsource.KindProcessorOutput:
+		upstream, err := s.procs.Get(ctx, orgID, src.ProcessorID)
+		if err != nil {
+			return fmt.Errorf("validate processor input %q: %w", src.Key(), err)
+		}
+		if _, ok := upstream.Output(src.OutputID); !ok {
+			return fmt.Errorf("validate processor input %q: %w", src.Key(), store.ErrNotFound)
+		}
+	}
+	return nil
+}
+
+// RemoveOutput drops the branch with the given durable id. Idempotent:
+// an unknown id is a no-op. Rejected when the branch still has Worker
+// attachments, or when removing it would leave the Processor with zero
+// outputs (Validate forbids that) — delete the whole Processor instead.
+func (s *Processors) RemoveOutput(ctx context.Context, orgID string, id processor.ProcessorID, outputID string) error {
 	existing, err := s.procs.Get(ctx, orgID, id)
 	if err != nil {
 		return err
 	}
 	idx := -1
 	for i, o := range existing.Outputs {
-		if o.TopicID == topicID {
+		if o.ID == outputID {
 			idx = i
 			break
 		}
@@ -284,62 +274,62 @@ func (s *Processors) RemoveOutput(ctx context.Context, orgID string, id processo
 		return nil // already gone
 	}
 	removed := existing.Outputs[idx]
+	if s.attachments == nil {
+		return errors.New("remove processor output: attachment repository is not configured")
+	}
+	attached, err := s.attachments.Find(ctx, store.WithOrg(orgID), store.WithProcessorID(id), store.WithOutputID(removed.ID), store.WithLimit(1))
+	if err != nil {
+		return fmt.Errorf("check output %q attachments: %w", removed.ID, err)
+	}
+	if len(attached) > 0 {
+		return fmt.Errorf("processor output %q has worker attachments: %w", removed.ID, store.ErrConflict)
+	}
 	existing.Outputs = append(existing.Outputs[:idx:idx], existing.Outputs[idx+1:]...)
 	if err := existing.Validate(); err != nil {
-		return fmt.Errorf("remove output %q: %w", topicID, err)
+		return fmt.Errorf("remove output %q: %w", outputID, err)
 	}
-	if err := s.procs.Update(ctx, existing); err != nil {
-		return err
-	}
-	if removed.Owned {
-		if err := s.topics.Delete(ctx, orgID, removed.TopicID); err != nil && !errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("output removed but owned topic %q cleanup failed: %w", removed.TopicID, err)
-		}
-	}
-	return nil
+	return s.procs.Update(ctx, existing)
 }
 
-// Delete removes the Processor and the output Topics it owns (cascading
-// their subscriptions, as topic delete already does).
+// Delete removes the Processor and every Worker attachment to its
+// outputs. The branches' event history is retained: nothing else
+// addresses those streams, and dropping the record of what a Worker was
+// woken by is not this delete's job.
 func (s *Processors) Delete(ctx context.Context, orgID string, id processor.ProcessorID) error {
-	existing, err := s.procs.Get(ctx, orgID, id)
-	if err != nil {
+	if s.attachments == nil {
+		return errors.New("delete processor: attachment repository is not configured")
+	}
+	if _, err := s.procs.Get(ctx, orgID, id); err != nil {
 		return err
+	}
+	attached, err := s.attachments.Find(ctx, store.WithOrg(orgID), store.WithProcessorID(id))
+	if err != nil {
+		return fmt.Errorf("delete processor: list attachments: %w", err)
 	}
 	if err := s.procs.Delete(ctx, orgID, id); err != nil {
 		return err
 	}
-	for _, o := range existing.Outputs {
-		if !o.Owned {
-			continue // explicit/shared topic — outlives the processor
-		}
-		if err := s.topics.Delete(ctx, orgID, o.TopicID); err != nil {
-			// Idempotent: an already-deleted output topic (ErrNotFound) is
-			// fine — the goal state is reached. Any other error is logged
-			// via the wrap but doesn't fail the delete (the processor row
-			// is already gone, so a leftover output topic is inert).
-			if errors.Is(err, store.ErrNotFound) {
-				continue
-			}
-			return fmt.Errorf("processor deleted but output topic %q cleanup failed: %w", o.TopicID, err)
+	for _, a := range attached {
+		if err := s.attachments.Delete(ctx, orgID, a.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("processor deleted but attachment %q cleanup failed: %w", a.ID, err)
 		}
 	}
 	return nil
 }
 
-// DeleteAutomatedByInput deletes every Automated Processor whose input is
-// inputTopicID, cascading each one's owned output Topics (via Delete). It is
-// how the Slack auto-router is torn down when its workspace Topic — or the
-// workspace integration itself — is deleted: the router's lifecycle is bound
-// to the Topic it reads. Human-authored processors reading the same Topic are
-// left untouched (they become inert, but the operator owns them). Idempotent.
-func (s *Processors) DeleteAutomatedByInput(ctx context.Context, orgID string, inputTopicID streaming.TopicID) error {
+// DeleteAutomatedByInput deletes every Automated Processor reading the
+// given source. It is how the Slack auto-router is torn down when its
+// workspace Trigger — or the workspace integration itself — is deleted:
+// the router's lifecycle is bound to the source it reads. Human-authored
+// processors reading the same source are left untouched (they become
+// inert, but the operator owns them). Idempotent.
+func (s *Processors) DeleteAutomatedByInput(ctx context.Context, orgID string, src eventsource.SourceRef) error {
 	all, err := s.procs.List(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("list processors: %w", err)
 	}
 	for _, p := range all {
-		if p.InputTopicID != inputTopicID || !p.Automated() {
+		if p.InputSource != src || !p.Automated() {
 			continue
 		}
 		if err := s.Delete(ctx, orgID, p.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -359,42 +349,28 @@ func (s *Processors) List(ctx context.Context, orgID string) ([]processor.Proces
 	return s.procs.List(ctx, orgID)
 }
 
-// OwnerOfOutput returns the id of the Processor that owns topicID as an
-// auto-provisioned output, and true, if any does. The topic-delete
-// handler uses it to block independent deletion of a processor-managed
-// output topic (which would leave the processor with a dangling output);
-// the caller should delete the processor instead, which cascades it.
-func (s *Processors) OwnerOfOutput(ctx context.Context, orgID string, topicID streaming.TopicID) (processor.ProcessorID, bool, error) {
-	all, err := s.procs.List(ctx, orgID)
-	if err != nil {
-		return "", false, err
-	}
-	for _, p := range all {
-		for _, o := range p.Outputs {
-			if o.Owned && o.TopicID == topicID {
-				return p.ID, true, nil
-			}
-		}
-	}
-	return "", false, nil
-}
-
 // checkAcyclic rejects a candidate Processor that would close a cycle in
-// the topic graph: starting from any of the candidate's output topics
+// the source graph: starting from any of the candidate's output branches
 // and following processor edges (input→outputs), the candidate's input
-// topic must not be reachable. excludeID (non-empty on Update) drops the
+// must not be reachable. excludeID (non-empty on Update) drops the
 // pre-update version of the candidate from the graph so re-saving an
 // unchanged processor is never seen as its own cycle.
 func (s *Processors) checkAcyclic(ctx context.Context, orgID string, candidate processor.Processor, excludeID processor.ProcessorID) error {
+	if candidate.InputSource.Zero() {
+		return nil // unwired: nothing to loop back to
+	}
 	all, err := s.procs.List(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("cycle check: list processors: %w", err)
 	}
-	// Adjacency: topic -> topics reachable in one processor hop.
-	edges := map[streaming.TopicID][]streaming.TopicID{}
+	// Adjacency: source key -> source keys reachable in one processor hop.
+	edges := map[string][]string{}
 	add := func(p processor.Processor) {
+		if p.InputSource.Zero() {
+			return
+		}
 		for _, o := range p.Outputs {
-			edges[p.InputTopicID] = append(edges[p.InputTopicID], o.TopicID)
+			edges[p.InputSource.Key()] = append(edges[p.InputSource.Key()], p.Source(o).Key())
 		}
 	}
 	for _, p := range all {
@@ -405,19 +381,19 @@ func (s *Processors) checkAcyclic(ctx context.Context, orgID string, candidate p
 	}
 	add(candidate)
 
-	// DFS from each candidate output; a path back to the input is a cycle.
-	target := candidate.InputTopicID
-	seen := map[streaming.TopicID]bool{}
-	var reaches func(t streaming.TopicID) bool
-	reaches = func(t streaming.TopicID) bool {
-		if t == target {
+	// DFS from each candidate branch; a path back to the input is a cycle.
+	target := candidate.InputSource.Key()
+	seen := map[string]bool{}
+	var reaches func(key string) bool
+	reaches = func(key string) bool {
+		if key == target {
 			return true
 		}
-		if seen[t] {
+		if seen[key] {
 			return false
 		}
-		seen[t] = true
-		for _, next := range edges[t] {
+		seen[key] = true
+		for _, next := range edges[key] {
 			if reaches(next) {
 				return true
 			}
@@ -425,41 +401,9 @@ func (s *Processors) checkAcyclic(ctx context.Context, orgID string, candidate p
 		return false
 	}
 	for _, o := range candidate.Outputs {
-		if reaches(o.TopicID) {
-			return fmt.Errorf("%w: output %q leads back to input %q", ErrCycle, o.TopicID, candidate.InputTopicID)
+		if reaches(candidate.Source(o).Key()) {
+			return fmt.Errorf("%w: output %q leads back to input %q", ErrCycle, o.ID, target)
 		}
 	}
 	return nil
-}
-
-// addedOutputTopicName names an output Topic provisioned by AddOutput.
-// Unlike outputTopicName (which knows the full branch count up front), an
-// added branch names itself from its label, falling back to its ManagedFor
-// Worker id, then a generic suffix. Processor names are unique per org, so
-// `<procID> · <label>` cannot collide across processors; the topic id is
-// independently minted and unique even if two labels coincide.
-func addedOutputTopicName(id processor.ProcessorID, label, managedFor string) string {
-	suffix := label
-	if suffix == "" {
-		suffix = managedFor
-	}
-	if suffix == "" {
-		suffix = "out"
-	}
-	return fmt.Sprintf("%s · %s", id, suffix)
-}
-
-// outputTopicName builds a unique, human-readable name for an
-// auto-provisioned output topic. Processor names are unique per org, so
-// `<procID> output` (single) / `<procID> · <label>` (multi) cannot
-// collide across processors; the topic id itself is independently
-// minted and unique.
-func outputTopicName(id processor.ProcessorID, label string, idx, total int) string {
-	if total <= 1 {
-		return fmt.Sprintf("%s output", id)
-	}
-	if label == "" {
-		label = fmt.Sprintf("out-%d", idx)
-	}
-	return fmt.Sprintf("%s · %s", id, label)
 }

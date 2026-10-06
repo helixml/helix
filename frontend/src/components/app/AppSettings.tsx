@@ -1,4 +1,4 @@
-import React, { useState, useEffect, FC, useRef, useMemo } from 'react'
+import React, { useState, useEffect, FC, ReactNode, useRef, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -50,6 +50,8 @@ import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
 import { useListProviders } from '../../services/providersService'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
+import { formatClaudeAccountDetail } from '../account/claudeSubscriptionUtils'
+import SubscriptionIdentity from '../account/SubscriptionIdentity'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import useRouter from '../../hooks/useRouter'
 import { useGetOrgByName } from '../../services/orgService'
@@ -135,7 +137,7 @@ const DEFAULT_VALUES = {
   frequency_penalty: 0,
   presence_penalty: 0,
   top_p: 1,
-  max_tokens: 2000,
+  max_tokens: 0,
   reasoning_effort: 'medium',
   max_iterations: 10,
 } as const
@@ -184,6 +186,28 @@ const BarsIcon = ({ effort }: { effort: string }) => {
   )
 }
 
+// Caption next to the Claude Subscription radio: the Claude account the token
+// authenticates as (its plan and rate-limit tier) — the identity that gets
+// billed. Same shared formatter as the account-settings pills; falls back to
+// the Helix user/org that connected the subscription when the Claude account
+// is unknown.
+function formatSubscriptionOwner(
+  status: api.ServerAppClaudeSubscriptionStatus | undefined
+): ReactNode {
+  if (!status?.connected) return null
+  return (
+    <SubscriptionIdentity
+      email={status.claude_account_email}
+      fallback={status.claude_account_name || status.subscription_owner_name}
+      detail={formatClaudeAccountDetail({
+        plan: status.subscription_type,
+        tier: status.subscription_rate_limit_tier,
+      })}
+      ariaLabel="Claude account email"
+    />
+  )
+}
+
 const AppSettings: FC<AppSettingsProps> = ({
   id,
   app,
@@ -219,7 +243,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
-  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli' | 'goose_code'>(app.code_agent_runtime || 'zed_agent')
+  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli' | 'goose_code' | 'opencode' | 'deepseek_harness'>(app.code_agent_runtime || 'zed_agent')
   // External agent display settings
   const [resolution, setResolution] = useState<'1080p' | '4k' | '5k'>(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
   const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -281,6 +305,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const ownerClaudeValid = ownerClaudeStatus !== undefined
     ? !!ownerClaudeStatus.valid
     : (claudeSubscriptions?.length ?? 0) > 0
+  const claudeSubOwnerLabel = formatSubscriptionOwner(ownerClaudeStatus)
   const hasAnthropicProvider = providerEndpoints.some(ep => ep.name === 'anthropic')
   const hasOpenAIProvider = providerEndpoints.some(ep => ep.name === 'openai')
 
@@ -671,7 +696,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             {externalRuntimeView === 'desktop'
               ? 'Configure the desktop environment available to this agent.'
-              : 'Choose the coding harness, credentials, model, and reasoning effort.'}
+              : 'Choose the coding runtime, credentials, model, and reasoning effort.'}
           </Typography>
         )}
         </>)}
@@ -703,7 +728,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                 <Select
                   value={code_agent_runtime}
                   onChange={(e) => {
-                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code';
+                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code' | 'opencode' | 'deepseek_harness';
                     setCodeAgentRuntime(newRuntime);
                     if (newRuntime === 'codex_cli' && !model) {
                       setModel(DEFAULT_CODEX_SUBSCRIPTION_MODEL)
@@ -772,6 +797,28 @@ const AppSettings: FC<AppSettingsProps> = ({
                       </Box>
                     </Stack>
                   </MenuItem>
+                  <MenuItem value="opencode">
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="opencode" variant="short" size={18} />
+                      <Box>
+                      <Typography variant="body2">opencode</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Open-source, model-agnostic ACP agent
+                      </Typography>
+                      </Box>
+                    </Stack>
+                  </MenuItem>
+                  <MenuItem value="deepseek_harness">
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="deepseek_harness" variant="short" size={18} />
+                      <Box>
+                      <Typography variant="body2">DeepSeek Runtime</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        DeepSeek's plugin-based ACP agent
+                      </Typography>
+                      </Box>
+                    </Stack>
+                  </MenuItem>
                 </Select>
               </FormControl>
             </Box>
@@ -822,6 +869,11 @@ const AppSettings: FC<AppSettingsProps> = ({
                             ) : (
                               <Typography variant="caption" color="text.secondary">(not connected)</Typography>
                             )}
+                            {code_agent_runtime === 'claude_code' && claudeSubOwnerLabel ? (
+                              <Typography variant="caption" color="text.secondary">
+                                {claudeSubOwnerLabel}
+                              </Typography>
+                            ) : null}
                           </Box>
                         }
                       />

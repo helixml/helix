@@ -1,21 +1,30 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useMemo, useState } from 'react'
 import {
-  Alert,
   Box,
   Button,
-  CircularProgress,
-  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   IconButton,
+  Menu,
+  MenuItem,
   Stack,
   TextField,
   Tooltip,
   Typography,
 } from '@mui/material'
-import { ArrowRight, Code2, Copy, ExternalLink, RotateCw, Share2, Trash2 } from 'lucide-react'
+import {
+  Code2,
+  Copy,
+  EllipsisVertical,
+  ExternalLink,
+  RotateCw,
+  Share2,
+  Trash2,
+} from 'lucide-react'
+import SimpleTable from '../widgets/SimpleTable'
+import { NEUTRAL_ACTION_BUTTON_SX } from '../../styles/actionButtons'
 
 import useSnackbar from '../../hooks/useSnackbar'
 import { useGetConfig } from '../../services/userService'
@@ -28,6 +37,11 @@ import {
 } from '../../services/sessionPreviewService'
 import { sandboxPreviewUrl } from './sandboxBrowserUrl'
 import { copyTextToClipboard } from '../../utils/clipboard'
+
+const PREVIEW_TABLE_FIELDS = [
+  { name: 'port', title: 'Port' },
+  { name: 'url', title: 'Preview URL' },
+]
 
 interface SharePreviewSectionProps {
   sessionId: string
@@ -50,6 +64,7 @@ const SharePreviewSection: FC<SharePreviewSectionProps> = ({ sessionId }) => {
 
   const [portInput, setPortInput] = useState('8080')
   const [embedOpenFor, setEmbedOpenFor] = useState<TypesVHostRoute | null>(null)
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; token: TypesVHostRoute } | null>(null)
 
   const { data: tokens, isLoading } = useSessionPreviewTokens(sessionId)
   const mintMutation = useCreateSessionPreviewToken(sessionId)
@@ -64,6 +79,57 @@ const SharePreviewSection: FC<SharePreviewSectionProps> = ({ sessionId }) => {
       snackbar.error(`Copy failed: ${error instanceof Error ? error.message : error}`)
     }
   }
+
+  // One row per shared port. The URL is deliberately single-line with an
+  // ellipsis: these hostnames are ~50 chars and this panel is a narrow sidebar
+  // column, so letting it wrap breaks it into a one-character-wide ribbon.
+  // The full value is in the tooltip and one click away on the clipboard.
+  const rows = useMemo(
+    () =>
+      (tokens ?? []).map((token) => {
+        const url = sandboxPreviewUrl(token.url!, '/', previewURLHTTPS)
+        return {
+          id: token.id!,
+          _data: token,
+          port: (
+            <Typography
+              variant="body2"
+              sx={{ fontFamily: 'var(--helix-font-mono)', color: 'text.secondary', whiteSpace: 'nowrap' }}
+            >
+              {token.port}
+            </Typography>
+          ),
+          url: (
+            <Tooltip title={`${url} — click to copy`}>
+              <Typography
+                component="button"
+                variant="body2"
+                onClick={() => void copyWithFeedback(url, 'URL copied')}
+                sx={{
+                  display: 'block',
+                  width: '100%',
+                  maxWidth: 260,
+                  textAlign: 'left',
+                  border: 0,
+                  p: 0,
+                  background: 'none',
+                  cursor: 'pointer',
+                  color: 'text.primary',
+                  fontFamily: 'var(--helix-font-mono)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  '&:hover': { textDecoration: 'underline' },
+                }}
+              >
+                {url.replace(/^https?:\/\//, '')}
+              </Typography>
+            </Tooltip>
+          ),
+        }
+      }),
+    [tokens, previewURLHTTPS],
+  )
 
   if (!sessionId) {
     return null
@@ -84,6 +150,7 @@ const SharePreviewSection: FC<SharePreviewSectionProps> = ({ sessionId }) => {
 
   const hasTokens = !!tokens && tokens.length > 0
 
+
   return (
     <Box sx={{ mb: 3 }}>
       <Stack direction="row" alignItems="center" spacing={1} mb={1}>
@@ -93,40 +160,29 @@ const SharePreviewSection: FC<SharePreviewSectionProps> = ({ sessionId }) => {
         </Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Got an app running on a port in this agent's container? Share it
-        with a teammate or embed it in a doc — Helix mints an
-        unguessable URL that maps to that port. Revoke or rotate any
-        time.
+        Map a port in this agent's container to an unguessable public URL.
+        Rotate or revoke any time.
       </Typography>
 
-      {isLoading ? (
-        <CircularProgress size={20} />
-      ) : (
-        <Collapse in={hasTokens}>
-          <Stack spacing={1} sx={{ mb: 2 }}>
-            {(tokens ?? []).map((t) => (
-              <PreviewTokenRow
-                key={t.id}
-                token={t}
-                previewURLHTTPS={previewURLHTTPS}
-                onOpen={() => window.open(sandboxPreviewUrl(t.url!, '/', previewURLHTTPS), '_blank', 'noopener')}
-                onCopy={() => {
-                  void copyWithFeedback(sandboxPreviewUrl(t.url!, '/', previewURLHTTPS), 'URL copied')
-                }}
-                onEmbed={() => setEmbedOpenFor(t)}
-                onRotate={() => rotateMutation.mutate(t.id!, {
-                  onSuccess: () => snackbar.success('Preview URL rotated — the old link no longer works'),
-                  onError: (error) => snackbar.error(`Rotate failed: ${error instanceof Error ? error.message : error}`),
-                })}
-                onDelete={() => deleteMutation.mutate(t.id!, {
-                  onSuccess: () => snackbar.success('Preview revoked'),
-                  onError: (error) => snackbar.error(`Revoke failed: ${error instanceof Error ? error.message : error}`),
-                })}
-                disabled={rotateMutation.isPending || deleteMutation.isPending}
-              />
-            ))}
-          </Stack>
-        </Collapse>
+      {(isLoading || rows.length > 0) && (
+        <Box sx={{ mb: 2 }}>
+          <SimpleTable
+            authenticated
+            compact
+            loading={isLoading}
+            fields={PREVIEW_TABLE_FIELDS}
+            data={rows}
+            getActions={(row) => (
+              <IconButton
+                size="small"
+                aria-label="Preview URL actions"
+                onClick={(event) => setMenu({ anchor: event.currentTarget, token: row._data })}
+              >
+                <EllipsisVertical size={18} />
+              </IconButton>
+            )}
+          />
+        </Box>
       )}
 
       <Stack direction="row" spacing={1} alignItems="center">
@@ -139,16 +195,82 @@ const SharePreviewSection: FC<SharePreviewSectionProps> = ({ sessionId }) => {
           inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
         />
         <Button
-          variant="contained"
+          variant="text"
           size="small"
-          startIcon={<Share2 size={18} />}
+          startIcon={<Share2 size={16} />}
           disabled={mintMutation.isPending}
           onClick={handleMint}
-          sx={{ textTransform: 'none' }}
+          sx={NEUTRAL_ACTION_BUTTON_SX}
         >
           {hasTokens ? 'Share another port' : 'Create share URL'}
         </Button>
       </Stack>
+
+      <Menu
+        anchorEl={menu?.anchor ?? null}
+        open={!!menu}
+        onClose={() => setMenu(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <MenuItem
+          onClick={() => {
+            if (menu) window.open(sandboxPreviewUrl(menu.token.url!, '/', previewURLHTTPS), '_blank', 'noopener')
+            setMenu(null)
+          }}
+        >
+          <ExternalLink size={20} style={{ marginRight: 8 }} />
+          Open in new tab
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (menu) void copyWithFeedback(sandboxPreviewUrl(menu.token.url!, '/', previewURLHTTPS), 'URL copied')
+            setMenu(null)
+          }}
+        >
+          <Copy size={20} style={{ marginRight: 8 }} />
+          Copy URL
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setEmbedOpenFor(menu?.token ?? null)
+            setMenu(null)
+          }}
+        >
+          <Code2 size={20} style={{ marginRight: 8 }} />
+          Embed as iframe
+        </MenuItem>
+        <MenuItem
+          disabled={rotateMutation.isPending}
+          onClick={() => {
+            if (menu) {
+              rotateMutation.mutate(menu.token.id!, {
+                onSuccess: () => snackbar.success('Preview URL rotated — the old link no longer works'),
+                onError: (error) => snackbar.error(`Rotate failed: ${error instanceof Error ? error.message : error}`),
+              })
+            }
+            setMenu(null)
+          }}
+        >
+          <RotateCw size={20} style={{ marginRight: 8 }} />
+          Rotate URL
+        </MenuItem>
+        <MenuItem
+          disabled={deleteMutation.isPending}
+          onClick={() => {
+            if (menu) {
+              deleteMutation.mutate(menu.token.id!, {
+                onSuccess: () => snackbar.success('Preview revoked'),
+                onError: (error) => snackbar.error(`Revoke failed: ${error instanceof Error ? error.message : error}`),
+              })
+            }
+            setMenu(null)
+          }}
+        >
+          <Trash2 size={20} style={{ marginRight: 8 }} />
+          Revoke
+        </MenuItem>
+      </Menu>
 
       <EmbedDialog
         token={embedOpenFor}
@@ -161,73 +283,6 @@ const SharePreviewSection: FC<SharePreviewSectionProps> = ({ sessionId }) => {
     </Box>
   )
 }
-
-const PreviewTokenRow: FC<{
-  token: TypesVHostRoute
-  previewURLHTTPS: boolean
-  onOpen: () => void
-  onCopy: () => void
-  onEmbed: () => void
-  onRotate: () => void
-  onDelete: () => void
-  disabled: boolean
-}> = ({ token, previewURLHTTPS, onOpen, onCopy, onEmbed, onRotate, onDelete, disabled }) => (
-  <Alert
-    icon={false}
-    severity="info"
-    sx={{
-      '& .MuiAlert-message': { width: '100%' },
-    }}
-  >
-    <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
-      <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-        localhost:{token.port}
-      </Typography>
-      <ArrowRight size={16} aria-hidden />
-      <Typography
-        variant="body2"
-        sx={{ fontFamily: 'monospace', wordBreak: 'break-all', flex: 1 }}
-      >
-        {sandboxPreviewUrl(token.url!, '/', previewURLHTTPS)}
-      </Typography>
-      <Tooltip title="Open in a new tab">
-        <span>
-          <IconButton size="small" aria-label="Open preview in new tab" onClick={onOpen} disabled={disabled}>
-            <ExternalLink size={18} />
-          </IconButton>
-        </span>
-      </Tooltip>
-      <Tooltip title="Copy URL">
-        <span>
-          <IconButton size="small" aria-label="Copy preview URL" onClick={onCopy} disabled={disabled}>
-            <Copy size={18} />
-          </IconButton>
-        </span>
-      </Tooltip>
-      <Tooltip title="Embed as iframe">
-        <span>
-          <IconButton size="small" aria-label="Embed preview" onClick={onEmbed} disabled={disabled}>
-            <Code2 size={18} />
-          </IconButton>
-        </span>
-      </Tooltip>
-      <Tooltip title="Rotate (old URL stops working)">
-        <span>
-          <IconButton size="small" aria-label="Rotate preview URL" onClick={onRotate} disabled={disabled}>
-            <RotateCw size={18} />
-          </IconButton>
-        </span>
-      </Tooltip>
-      <Tooltip title="Revoke">
-        <span>
-          <IconButton size="small" aria-label="Revoke preview URL" onClick={onDelete} disabled={disabled}>
-            <Trash2 size={18} />
-          </IconButton>
-        </span>
-      </Tooltip>
-    </Stack>
-  </Alert>
-)
 
 const EmbedDialog: FC<{
   token: TypesVHostRoute | null

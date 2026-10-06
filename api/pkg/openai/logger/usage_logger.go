@@ -24,6 +24,8 @@ func (l *UsageLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*
 		AppID:             call.AppID,
 		UserID:            call.UserID,
 		InteractionID:     call.InteractionID,
+		SessionID:         call.SessionID,
+		CodeAgentRuntime:  call.CodeAgentRuntime,
 		Model:             call.Model,
 		Provider:          call.Provider,
 		Source:            types.UsageMetricSourceHelixProxy,
@@ -43,6 +45,17 @@ func (l *UsageLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*
 		ResponseSizeBytes: len(call.Response),
 		SpecTaskID:        call.SpecTaskID,
 		ProjectID:         call.ProjectID,
+	}
+
+	// Only requests that actually produced tool calls belong in the tool call
+	// error rate. Counting every request would bury the signal under ordinary
+	// prose turns, and counting requests that merely offered tools would
+	// penalise a model for correctly declining to call one.
+	if call.ToolCallsReturned > 0 {
+		metric.ToolCallRequests = 1
+		if call.ToolCallErrors > 0 {
+			metric.ToolCallErrorRequests = 1
+		}
 	}
 
 	_, err := l.CreateUsageMetric(ctx, metric)

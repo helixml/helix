@@ -54,6 +54,7 @@ import {
 } from "../../services/specTaskService";
 import {
   ServerTaskProgressResponse,
+  TypesSandboxRuntime,
   TypesSpecTaskStatus,
   ServerBatchTaskUsageMetric,
 } from "../../api/api";
@@ -124,9 +125,12 @@ export interface SpecTaskWithExtras {
     | "completed"
     | "failed"
     | "queued";
-  agent_session_id?: string;
+  planning_session_id?: string;
   archived?: boolean;
-  metadata?: { error?: string; error_timestamp?: string };
+  metadata?: {
+    error?: string;
+    error_timestamp?: string;
+  };
   merged_to_main?: boolean;
   just_do_it_mode?: boolean;
   started_at?: string;
@@ -134,6 +138,18 @@ export interface SpecTaskWithExtras {
   clone_group_id?: string;
   cloned_from_id?: string;
   repo_pull_requests?: Array<{
+    repository_id?: string;
+    repository_name?: string;
+    pr_id?: string;
+    pr_number?: number;
+    pr_url?: string;
+    pr_state?: string;
+    ci_status?: string;
+    ci_url?: string;
+    ci_updated_at?: string;
+    ci_head_sha?: string;
+  }>;
+  repo_pull_request_history?: Array<{
     repository_id?: string;
     repository_name?: string;
     pr_id?: string;
@@ -155,6 +171,7 @@ export interface SpecTaskWithExtras {
   // Sandbox state — populated by the listTasks backend handler, avoids per-card session polling
   sandbox_state?: string; // "absent" | "running" | "starting"
   sandbox_status_message?: string; // Transient startup message
+  sandbox_runtime?: TypesSandboxRuntime; // "ubuntu-desktop" (default) | "headless-ubuntu" — headless has no desktop to screenshot
   queue_reason?: string; // Why a queued task hasn't started yet (WIP/dependency); recomputed each read
   // Status tracking
   status_updated_at?: string;
@@ -169,6 +186,8 @@ export interface SpecTaskWithExtras {
   created_at?: string;
   updated_at?: string;
   last_push_at?: string;
+  merged_at?: string;
+  completed_at?: string;
 }
 
 export interface TaskDependency {
@@ -597,6 +616,13 @@ function TaskCardInner({
   const orgMembers = account.organizationTools.organization?.memberships || [];
 
   const assignedUser = resolveOrganizationUser(task.assignee_id, orgMembers, account.user)
+
+  // Headless sandbox tasks run the agent without a compositor or video
+  // encoder, so a desktop screenshot can never load. Skip the viewer (and its
+  // per-card poll loop) entirely instead of showing a stuck "Loading
+  // desktop..." panel.
+  const isHeadlessSandbox =
+    task.sandbox_runtime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu;
 
   // Handle assignee change
   const handleAssigneeChange = (userId: string | null) => {
@@ -1151,7 +1177,7 @@ function TaskCardInner({
             limit or dependency, task.queue_reason explains why — show it
             compactly (tooltip) instead of a misleading "Starting desktop..."
             spinner so the card doesn't look dead. */}
-        {isQueued && !task.agent_session_id && (
+        {isQueued && !task.planning_session_id && (
           task.queue_reason ? (
             <Tooltip title={task.queue_reason}>
               <Box
@@ -1190,30 +1216,32 @@ function TaskCardInner({
                 px: 0.5,
               }}
             >
-              <CircularProgress size={10} thickness={5} />
-              <Typography
-                variant="caption"
-                sx={{ color: "text.secondary", fontSize: "0.7rem" }}
-              >
-                Starting desktop...
-              </Typography>
+                <CircularProgress size={10} thickness={5} />
+                <Typography
+                  variant="caption"
+                  sx={{ color: "text.secondary", fontSize: "0.7rem" }}
+                >
+                  {isHeadlessSandbox ? "Starting sandbox..." : "Starting desktop..."}
+                </Typography>
             </Box>
           )
         )}
 
         {/* Live screenshot for active sessions - click opens desktop viewer.
-            Only render when the sandbox is actually live ("running"/"starting").
-            Polling absent sandboxes burns API requests and dumps a fleet of
-            503s in the logs every time the page loads, since each card spins
-            up its own poll loop until it hits one. */}
-        {task.agent_session_id &&
+            Only render when the sandbox is actually live ("running"/"starting")
+            and the task runs a desktop sandbox - headless tasks have no
+            compositor to capture. Polling absent sandboxes burns API requests
+            and dumps a fleet of 503s in the logs every time the page loads,
+            since each card spins up its own poll loop until it hits one. */}
+        {!isHeadlessSandbox &&
+          task.planning_session_id &&
           task.phase !== "completed" &&
           !task.merged_to_main &&
           !taskError &&
           (task.sandbox_state === "running" ||
             task.sandbox_state === "starting") && (
             <LiveAgentScreenshot
-              sessionId={task.agent_session_id}
+              sessionId={task.planning_session_id}
               projectId={projectId}
               startupErrorMessage={
                 typeof task.metadata?.error === "string"
@@ -1263,6 +1291,7 @@ function TaskCardInner({
                 just_do_it_mode: task.just_do_it_mode,
                 archived: task.archived,
                 metadata: task.metadata,
+                sandbox_state: task.sandbox_state,
               }}
               variant="stacked"
               startPlanningButtonRef={startPlanningButtonRef}
@@ -1357,6 +1386,7 @@ function TaskCardInner({
                   id: task.id,
                   status: "spec_generation",
                   archived: task.archived,
+                  sandbox_state: task.sandbox_state,
                 }}
                 variant="stacked"
               />
@@ -1374,6 +1404,7 @@ function TaskCardInner({
                 status: "spec_review",
                 design_docs_pushed_at: task.design_docs_pushed_at,
                 archived: task.archived,
+                sandbox_state: task.sandbox_state,
               }}
               variant="stacked"
               onReviewSpec={() => onReviewDocs(task)}
@@ -1391,6 +1422,7 @@ function TaskCardInner({
               branch_name: task.branch_name,
               archived: task.archived,
               last_push_at: task.last_push_at,
+              sandbox_state: task.sandbox_state,
             }}
             variant="stacked"
             onReject={(shiftKey) => {
@@ -1506,7 +1538,9 @@ function TaskCardInner({
                       id: task.id,
                       status: "pull_request",
                       repo_pull_requests: task.repo_pull_requests,
+                      repo_pull_request_history: task.repo_pull_request_history,
                       archived: task.archived,
+                      sandbox_state: task.sandbox_state,
                     }}
                     variant="stacked"
                   />
@@ -1608,6 +1642,25 @@ function TaskCardInner({
                   Merged to default branch
                 </Typography>
               </Alert>
+              <SpecTaskActionButtons
+                task={{
+                  id: task.id,
+                  status: "done",
+                  repo_pull_requests: task.repo_pull_requests,
+                  repo_pull_request_history: task.repo_pull_request_history,
+                  metadata: task.metadata,
+                  base_branch: task.base_branch,
+                  branch_name: task.branch_name,
+                  archived: task.archived,
+                  last_push_at: task.last_push_at,
+                  merged_at: task.merged_at,
+                  completed_at: task.completed_at,
+                  sandbox_state: task.sandbox_state,
+                }}
+                variant="stacked"
+                hasExternalRepo={hasExternalRepo}
+                externalRepoType={externalRepoType}
+              />
             </Box>
           )}
       </CardContent>

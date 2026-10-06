@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { ServerForkSessionRequest, ServerSwitchAgentRequest, TypesSession } from '../api/api';
+import {
+  ServerForkSessionRequest,
+  ServerSwitchAgentRequest,
+  TypesSession,
+  TypesSessionExecutionConfigUpdateRequest,
+} from '../api/api';
 import { QueryClient } from '@tanstack/react-query';
 
 export const SESSION_STEPS_QUERY_KEY = (id: string) => [
@@ -34,6 +39,17 @@ export interface ListSessionsFilters {
   projectScope?: 'project' | 'none'
   sort?: 'created' | 'updated' | 'last_message'
   archived?: boolean
+  /**
+   * Another org member's sessions (requires orgId). The server limits them to
+   * projects the caller can read, so this is "what are they working on", not
+   * their private history.
+   */
+  ownerId?: string
+  /**
+   * Every member's chats in one project (requires orgId, projectId and
+   * projectScope 'project'). The server checks project access first.
+   */
+  allMembers?: boolean
 }
 
 // The "sessions" prefix is what every invalidation matches on, so it must stay
@@ -52,6 +68,10 @@ export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?
     projectScope: filters.projectScope ?? '',
     sort: filters.sort ?? '',
     archived: filters.archived ?? false,
+    // Without these, every person group and every everyone's-work project
+    // group would share one cache entry and show the viewer's own chats.
+    ownerId: filters.ownerId ?? '',
+    allMembers: filters.allMembers ?? false,
   },
 ];
 
@@ -122,6 +142,8 @@ export function useListSessions(orgId?: string, search?: string, projectId?: str
       app_id: appId,
       include_external_agents: options?.includeExternalAgents,
       archived: options?.archived,
+      owner_id: options?.ownerId,
+      all_members: options?.allMembers,
     }),
     enabled: options?.enabled ?? true
   })
@@ -202,6 +224,43 @@ export function useSwitchAgent(sessionId: string) {
       queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
     },
+  })
+}
+
+export const SESSION_EXECUTION_CONFIG_QUERY_KEY = (sessionId: string) => [
+  "session-execution-config",
+  sessionId,
+]
+
+// The session's current coding identity (agent, runtime, provider, model,
+// reasoning effort) — the same shape a spec task reports, because both run the
+// same external coding agent.
+export function useGetSessionExecutionConfig(sessionId: string, enabled = true) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: SESSION_EXECUTION_CONFIG_QUERY_KEY(sessionId),
+    queryFn: () => apiClient.v1SessionsExecutionConfigDetail(sessionId).then((res) => res.data),
+    enabled: enabled && !!sessionId,
+  })
+}
+
+// A running agent starts a fresh thread after a model/reasoning change. A
+// stopped agent records the same change for its next start.
+export function useUpdateSessionExecutionConfig(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (request: TypesSessionExecutionConfigUpdateRequest) =>
+      apiClient.v1SessionsExecutionConfigPartialUpdate(sessionId, request).then((res) => res.data),
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: SESSION_EXECUTION_CONFIG_QUERY_KEY(sessionId) }),
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) }),
+      queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+    ]),
   })
 }
 

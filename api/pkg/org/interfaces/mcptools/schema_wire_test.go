@@ -21,7 +21,7 @@ import (
 // this test inspects the bytes a client actually receives.
 func TestSchemaWireArrayParams(t *testing.T) {
 	names := func() []tool.Name {
-		return []tool.Name{"publish", "subscribe", "create_bot", "attach_tool", "detach_tool"}
+		return []tool.Name{"chat", "attach_worker", "create_bot", "attach_tool", "detach_tool"}
 	}
 	deps := Deps{ToolNames: names}
 
@@ -30,11 +30,11 @@ func TestSchemaWireArrayParams(t *testing.T) {
 		tl     tool.Tool
 		params []string
 	}{
-		{NewCreateBot(deps), []string{"tools", "topics"}},
+		{NewCreateBot(deps), []string{"tools", "triggers"}},
 		{&AttachTool{deps: deps}, []string{"tools"}},
 		{&DetachTool{deps: deps}, []string{"tools"}},
-		{&Subscribe{deps: deps}, []string{"topicIds"}},
-		{&Unsubscribe{deps: deps}, []string{"topicIds"}},
+		{&AttachWorker{deps: deps}, []string{"triggerIds", "processorOutputs"}},
+		{&DetachWorker{deps: deps}, []string{"triggerIds", "processorOutputs"}},
 	}
 
 	srv := mcp.NewServer(&mcp.Implementation{Name: "wire-test", Version: "0"}, nil)

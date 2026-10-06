@@ -21,6 +21,8 @@ import {
   alpha,
   Collapse,
   LinearProgress,
+  Chip,
+  Popover,
 } from '@mui/material'
 import {
   SendHorizontal,
@@ -37,6 +39,8 @@ import {
   Paperclip,
   Camera,
   Square,
+  MessageCircle,
+  SlidersHorizontal,
 } from 'lucide-react'
 import {
   DndContext,
@@ -57,6 +61,10 @@ import { CSS } from '@dnd-kit/utilities'
 import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import { Api } from '../../api/api'
 import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
+import {
+  nextQueueVisibilityDeadline,
+  selectVisibleQueuedPrompts,
+} from '../../utils/promptQueueVisibility'
 import { getChatColors } from '../session/chatStyles'
 import ChatAttachmentTray from './ChatAttachmentTray'
 import ContextMenuModal from '../widgets/ContextMenuModal'
@@ -78,9 +86,19 @@ import {
   PendingChatAttachment,
   validateChatAttachmentFiles,
 } from './chatAttachments'
+import {
+  appendWorkspaceReviewComments,
+  type WorkspaceReviewComment,
+} from '../workspace-inspector/workspaceReviewComments'
+import { SessionContextUsageIndicator } from './ContextUsageIndicator'
+import useElementWidth from '../../hooks/useElementWidth'
+import useAccount from '../../hooks/useAccount'
+import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
+import type { TypesOrganizationMembership, TypesUser } from '../../api/api'
 
 // Threshold for converting large text paste to file attachment (10KB)
 const LARGE_TEXT_THRESHOLD = 10 * 1024
+const NO_REVIEW_COMMENTS: readonly WorkspaceReviewComment[] = []
 
 interface RobustPromptInputProps {
   sessionId: string
@@ -88,6 +106,17 @@ interface RobustPromptInputProps {
   placeholder?: string
   disabled?: boolean
   maxHeight?: number
+  /**
+   * Fill the height available instead of hugging the text.
+   *
+   * A phone composing a new task has a whole screen and a keyboard; a card
+   * floating in the middle of it wastes both. In fill mode the shell drops its
+   * card chrome, the text starts at the top, and the actions dock at the
+   * bottom — the shape every mobile compose screen has.
+   */
+  fill?: boolean
+  /** Removes the composer's top corners when an attached drawer is rendered above it. */
+  hasAttachedHeader?: boolean
   sendMode?: 'queued' | 'direct'
   inlineImageAttachments?: boolean
   deferredFileAttachments?: boolean
@@ -97,6 +126,17 @@ interface RobustPromptInputProps {
   validateAttachment?: (file: File) => string | null
   leadingActions?: React.ReactNode
   trailingActions?: React.ReactNode
+  showContextUsage?: boolean
+  /**
+   * Strip the composer back to what a non-technical person needs: a box, a
+   * send button, and nothing that asks them to reason about how the agent
+   * runs. Hides the interrupt/queue toggle.
+   *
+   * For customer-facing embeds. Someone on a job board does not have a mental
+   * model of queued versus interrupting turns, and offering the choice invites
+   * them to get it wrong on a surface where they cannot see what it did.
+   */
+  minimal?: boolean
   contextMenuAppId?: string
   formatContextMenuInsert?: (text: string) => string
   autoFocus?: boolean
@@ -129,6 +169,9 @@ interface RobustPromptInputProps {
   // viewer shows the spinner without waiting for the next 3s poll).
   // Must be cheap and synchronous — runs in the user's click handler.
   onWillSend?: () => void
+  reviewComments?: readonly WorkspaceReviewComment[]
+  onRemoveReviewComment?: (commentId: string) => void
+  onReviewCommentsSent?: () => void
 }
 
 // Props for sortable queue item
@@ -150,6 +193,14 @@ interface SortableQueueItemProps {
   truncateContent: (content: string, maxLen?: number) => string
   handleRestartAgent: () => void
   isRestarting: boolean
+  // Owner attribution. The queue belongs to the agent, so it shows prompts
+  // queued by teammates and by bots through the session-messages API too.
+  // showOwner is only true once the queue holds more than one distinct owner —
+  // an avatar on every row of a single-person queue is pure noise.
+  showOwner: boolean
+  isForeign: boolean
+  orgMembers: TypesOrganizationMembership[]
+  currentUser?: TypesUser
 }
 
 // Sortable queue item component
@@ -171,6 +222,10 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
   truncateContent,
   handleRestartAgent,
   isRestarting,
+  showOwner,
+  isForeign,
+  orgMembers,
+  currentUser,
 }) => {
   const {
     attributes,
@@ -186,6 +241,13 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
     transition,
     opacity: isDragging ? 0.5 : 1,
   }
+
+  // Whose prompt this is, for the hover label. Falls back to a generic label
+  // when the owner isn't in the org membership list (e.g. a bot account).
+  const owner = resolveOrganizationUser(entry.userId, orgMembers, currentUser)
+  const ownerLabel = isForeign
+    ? `Queued by ${owner?.full_name || owner?.username || owner?.email || 'another user'}`
+    : 'Queued by you'
 
   const isFailed = entry.status === 'failed'
   // Classification (transient vs crashed vs stuck → Restart) is shared with
@@ -332,12 +394,12 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           sx={{
             flex: 1,
             minWidth: 0,
-            cursor: isSending ? 'default' : 'pointer',
-            '&:hover': !isSending ? {
+            cursor: isSending || isForeign ? 'default' : 'pointer',
+            '&:hover': !isSending && !isForeign ? {
               '& .edit-hint': { opacity: 1 },
             } : undefined,
           }}
-          onClick={() => !isSending && handleStartEdit(entry)}
+          onClick={() => !isSending && !isForeign && handleStartEdit(entry)}
         >
           {/* minWidth: 0 lets the Typography ellipsise instead of forcing the
               row to its intrinsic min-content width. On mobile the latter
@@ -345,6 +407,19 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               `overflow: hidden` clip so users couldn't dismiss stuck items.
               See design/2026-04-30-queue-and-other-stuck-state-bugs.md. */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+            {showOwner && (
+              <Tooltip title={ownerLabel}>
+                <Box sx={{ display: 'flex', flexShrink: 0 }}>
+                  <OrganizationUserAvatar
+                    userId={entry.userId}
+                    members={orgMembers}
+                    currentUser={currentUser}
+                    size={18}
+                    iconSize={14}
+                  />
+                </Box>
+              </Tooltip>
+            )}
             <Typography
               variant="body2"
               sx={{
@@ -359,7 +434,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             >
               {truncateContent(entry.content, 50)}
             </Typography>
-            {!isSending && (
+            {!isSending && !isForeign && (
               <Pencil
                 className="edit-hint"
                 size={14}
@@ -460,7 +535,10 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           is narrow (e.g. mobile). Without it the Typography content above
           could squeeze the actions past the queue container's overflow:hidden
           clip and leave queue items unrecoverable. */}
-      {!isEditing && !isSending && (
+      {/* Someone else's queued prompt is read-only: the delete endpoint 403s on a
+          non-owner, and letting one viewer re-order or edit another's message
+          would rewrite their queue. Attribution is enough here. */}
+      {!isEditing && !isSending && !isForeign && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
           {/* Interrupt toggle */}
           <Tooltip title={entry.interrupt !== false ? "Interrupt mode - click to queue after current" : "Queue mode - click to interrupt"}>
@@ -509,6 +587,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   placeholder = 'Send message to agent...',
   disabled = false,
   maxHeight = 200,
+  fill = false,
+  hasAttachedHeader = false,
   specTaskId,
   projectId,
   apiClient,
@@ -529,16 +609,23 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   validateAttachment,
   leadingActions,
   trailingActions,
+  showContextUsage = false,
+  minimal = false,
   contextMenuAppId,
   formatContextMenuInsert,
   autoFocus = false,
   enableSandboxCompletions = false,
+  reviewComments = NO_REVIEW_COMMENTS,
+  onRemoveReviewComment,
+  onReviewCommentsSent,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const sandboxEditorRef = useRef<HTMLDivElement>(null)
   const pendingComposerCursorRef = useRef<number | null>(null)
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [composerRef, composerWidth] = useElementWidth<HTMLDivElement>()
+  const [actionsAnchor, setActionsAnchor] = useState<HTMLElement | null>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [isDirectSending, setIsDirectSending] = useState(false)
   const [isRestartingAgent, setIsRestartingAgent] = useState(false)
@@ -550,6 +637,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const attachmentsRef = useRef<PendingChatAttachment[]>([])
   const attachmentUploadsInFlightRef = useRef(new Set<string>())
+  const reviewCommentsRef = useRef(reviewComments)
+  const onReviewCommentsSentRef = useRef(onReviewCommentsSent)
+  reviewCommentsRef.current = reviewComments
+  onReviewCommentsSentRef.current = onReviewCommentsSent
 
   // Use onFileUpload if provided, otherwise fall back to onImagePaste for backwards compat
   const handleFileUploadCallback = onFileUpload || onImagePaste
@@ -646,6 +737,17 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // the moment dispatch is confirmed; if it later bounces it returns via 'failed'.
   // See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
   const queuedPrompts = [...failedPrompts, ...pendingPrompts].filter(p => p.status !== 'sending')
+
+  // Owner attribution for the queue. The queue is the agent's, not one person's:
+  // it also holds prompts queued by teammates and by bots through the
+  // session-messages API. Only show avatars once more than one owner is actually
+  // present — in the overwhelmingly common single-user case they'd be noise.
+  const account = useAccount()
+  const orgMembers: TypesOrganizationMembership[] = account.organizationTools.organization?.memberships || []
+  const currentUserId = account.user?.id
+  const queueHasMultipleOwners = new Set(
+    queuedPrompts.map(p => p.userId).filter(Boolean)
+  ).size > 1
 
   // Track previous appendText to detect changes
   const prevAppendTextRef = useRef<string | undefined>(undefined)
@@ -810,6 +912,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const adjustHeight = useCallback(() => {
     const editor = enableSandboxCompletions ? sandboxEditorRef.current : textareaRef.current
     if (!editor) return
+    // In fill mode the height comes from the flex layout, and writing an inline
+    // height here would collapse it back to the content on every keystroke.
+    if (fill) return
 
     const oldHeight = editor.offsetHeight
     editor.style.height = 'auto'
@@ -820,7 +925,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     if (oldHeight !== newHeight && onHeightChange) {
       onHeightChange()
     }
-  }, [enableSandboxCompletions, maxHeight, onHeightChange])
+  }, [enableSandboxCompletions, fill, maxHeight, onHeightChange])
 
   useEffect(() => {
     adjustHeight()
@@ -848,7 +953,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const submitDraft = useCallback(async (interrupt: boolean) => {
     const content = draft.trim()
     if (
-      (!content && attachments.length === 0) ||
+      (!content && attachments.length === 0 && reviewComments.length === 0) ||
       inputDisabled ||
       (sendMode === 'direct' && isAgentBusy)
     ) return
@@ -857,7 +962,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     if (uploadingAttachments.length > 0) return
     if (attachments.some((attachment) => attachment.uploadStatus === 'failed')) return
 
-    const fullContent = buildMessageWithAttachments(content, attachments)
+    const fullContent = appendWorkspaceReviewComments(
+      buildMessageWithAttachments(content, attachments),
+      reviewCommentsRef.current,
+    )
 
     // Optimistic UI hook: fires synchronously before the queue persist /
     // backend sync POST so the parent can flip a paused desktop's cached
@@ -875,10 +983,15 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       const inlineImages = attachments.flatMap((attachment) => attachment.file ? [attachment.file] : [])
       setIsDirectSending(true)
       try {
-        const sent = await onSend(content, true, inlineImages)
+        const sent = await onSend(
+          appendWorkspaceReviewComments(content, reviewCommentsRef.current),
+          true,
+          inlineImages,
+        )
         if (sent === false) return
         clearDraft()
         clearCurrentAttachments()
+        onReviewCommentsSentRef.current?.()
       } catch (error) {
         console.error('Failed to send prompt:', error)
       } finally {
@@ -890,7 +1003,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     saveToHistory(fullContent, interrupt)
     clearDraft()
     clearCurrentAttachments()
-  }, [draft, attachments, inputDisabled, sendMode, isAgentBusy, onSend, clearDraft, clearCurrentAttachments, saveToHistory, onWillSend])
+    onReviewCommentsSentRef.current?.()
+  }, [draft, attachments, inputDisabled, sendMode, isAgentBusy, onSend, clearDraft, clearCurrentAttachments, saveToHistory, onWillSend, reviewComments.length])
 
   const handleSend = useCallback(async () => {
     await submitDraft(interruptMode)
@@ -1052,7 +1166,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       const content = draft.trim()
 
       // Empty field: promote most-recent queued entry to interrupt instead of sending nothing.
-      if (!content && attachments.length === 0) {
+      if (!content && attachments.length === 0 && reviewComments.length === 0) {
         if (inputDisabled || sendMode === 'direct') return
         // Promote the OLDEST NON-interrupt queued message to interrupt.
         // Scans queuedPrompts (failed + pending) so a deferred message — the one
@@ -1073,7 +1187,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       return
     }
 
-  }, [composerSelectedIndex, composerSuggestions.items, composerTrigger, draft, attachments.length, inputDisabled, sendMode, submitDraft, queuedPrompts, updateInterrupt, sendingId, editingId, selectComposerSuggestion])
+  }, [composerSelectedIndex, composerSuggestions.items, composerTrigger, draft, attachments.length, reviewComments.length, inputDisabled, sendMode, submitDraft, queuedPrompts, updateInterrupt, sendingId, editingId, selectComposerSuggestion])
 
   const addFilesAsAttachments = useCallback((files: File[]) => {
     if (!attachmentsEnabled || files.length === 0) return
@@ -1280,7 +1394,30 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     // Within same mode, maintain original order by timestamp
     return a.timestamp - b.timestamp
   })
-  const hasVisibleQueue = backendQueueEnabled && showQueue && queuedMessages.length > 0
+  // Only surface the queue panel for prompts that are genuinely waiting — a
+  // lone prompt handed to an idle agent is being delivered, not queued, and
+  // showing "1 queued" for it is a lie that clears itself a second later.
+  // See utils/promptQueueVisibility.ts.
+  const visibleQueuedMessages = selectVisibleQueuedPrompts(queuedMessages, { isAgentBusy })
+  const hasVisibleQueue = backendQueueEnabled && showQueue && visibleQueuedMessages.length > 0
+
+  // Keep the last non-empty list on screen while the panel collapses, so the
+  // header never flashes "0 queued" mid-animation. Collapse unmounts it after.
+  const lastVisibleQueueRef = useRef<PromptHistoryEntry[]>(visibleQueuedMessages)
+  if (visibleQueuedMessages.length > 0) lastVisibleQueueRef.current = visibleQueuedMessages
+  const renderedQueueMessages = hasVisibleQueue ? visibleQueuedMessages : lastVisibleQueueRef.current
+
+  // A prompt hidden by the grace window must still appear if its dispatch never
+  // lands, so schedule the single re-render that reveals it. queueRevealAt is a
+  // plain timestamp, so this effect re-arms only when the queue itself changes.
+  const queueRevealAt = nextQueueVisibilityDeadline(queuedMessages, { isAgentBusy })
+  const [, setQueueRevealTick] = useState(0)
+  useEffect(() => {
+    if (queueRevealAt === null) return
+    const delay = Math.max(0, queueRevealAt - Date.now()) + 50
+    const timer = setTimeout(() => setQueueRevealTick(n => n + 1), delay)
+    return () => clearTimeout(timer)
+  }, [queueRevealAt])
   const promptPlaceholder = isDraggingOver
     ? inlineImageAttachments
       ? 'Drop image to attach...'
@@ -1290,15 +1427,18 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       : sendMode === 'direct'
         ? 'Offline'
         : 'Offline - messages will queue'
+  const collapseLeadingActions = !!leadingActions && composerWidth > 0 && composerWidth < 400
 
   const input = (
     <Box
+      ref={composerRef}
       className="prompt-input-container"
       data-prompt-input="true"
       sx={{
         position: 'relative',
         width: '100%',
         minWidth: 0,
+        ...(fill && { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }),
       }}
     >
       {composerTrigger && (
@@ -1316,10 +1456,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           backend-backed queue (spec-task). For plain sessions (org-chat,
           team desktop) the local queue is a non-authoritative ghost — the
           session-keyed SessionPromptQueue is the single source there. */}
-      <Collapse in={hasVisibleQueue}>
+      <Collapse in={hasVisibleQueue} unmountOnExit>
         <Box
           sx={{
-            borderRadius: '20px 20px 0 0',
+            borderRadius: hasAttachedHeader ? 0 : '20px 20px 0 0',
             border: '1px solid',
             borderBottom: 0,
             borderColor: (theme) => getChatColors(theme).border,
@@ -1347,8 +1487,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               {editingId
                 ? 'Editing queued message'
                 : isOnline
-                  ? `${queuedMessages.length} queued`
-                  : `${queuedMessages.length} queued · offline`}
+                  ? `${renderedQueueMessages.length} queued`
+                  : `${renderedQueueMessages.length} queued · offline`}
             </Typography>
           </Box>
 
@@ -1360,15 +1500,15 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               onDragEnd={handleDragEnd}
             >
               <SortableContext
-                items={queuedMessages.map(m => m.id)}
+                items={renderedQueueMessages.map(m => m.id)}
                 strategy={verticalListSortingStrategy}
               >
-                {queuedMessages.map((entry, index) => (
+                {renderedQueueMessages.map((entry, index) => (
                     <SortableQueueItem
                       key={entry.id}
                       entry={entry}
                       index={index}
-                      totalCount={queuedMessages.length}
+                      totalCount={renderedQueueMessages.length}
                       isSending={entry.id === sendingId}
                       isEditing={entry.id === editingId}
                       editingContent={editingContent}
@@ -1383,6 +1523,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                       truncateContent={truncateContent}
                       handleRestartAgent={handleRestartAgent}
                       isRestarting={isRestartingAgent}
+                      showOwner={queueHasMultipleOwners}
+                      isForeign={!!entry.userId && !!currentUserId && entry.userId !== currentUserId}
+                      orgMembers={orgMembers}
+                      currentUser={account.user}
                     />
                   ))}
               </SortableContext>
@@ -1413,16 +1557,23 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         sx={{
           display: 'flex',
           flexDirection: 'column',
-          bgcolor: (theme) => getChatColors(theme).composerSurface,
-          borderRadius: hasVisibleQueue ? '0 0 22px 22px' : '22px',
-          border: '1px solid',
+          ...(fill && { flex: 1, minHeight: 0 }),
+          bgcolor: (theme) => fill ? 'transparent' : getChatColors(theme).composerSurface,
+          borderRadius: fill
+            ? 0
+            : hasVisibleQueue || hasAttachedHeader
+              ? '0 0 22px 22px'
+              : '22px',
+          border: fill ? 'none' : '1px solid',
           borderColor: isDraggingOver
             ? 'primary.main'
             : !isOnline
             ? 'warning.main'
             : (theme) => getChatColors(theme).borderStrong,
           transition: 'border-color 0.15s, box-shadow 0.15s, background-color 0.15s',
-          boxShadow: isDraggingOver
+          boxShadow: fill
+            ? 'none'
+            : isDraggingOver
             ? (theme) => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.22)}`
             : !isOnline
             ? (theme) => `0 0 0 2px ${alpha(theme.palette.warning.main, 0.2)}`
@@ -1439,6 +1590,28 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           pb: { xs: 1.5, sm: 2 },
         }}
       >
+        {reviewComments.length > 0 && (
+          <Box data-review-comment-tray sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
+            {reviewComments.map((comment) => (
+              <Chip
+                key={comment.id}
+                size="small"
+                icon={<MessageCircle size={13} />}
+                label={`${comment.filePath} ${comment.rangeLabel}`}
+                title={comment.text}
+                onDelete={onRemoveReviewComment ? () => onRemoveReviewComment(comment.id) : undefined}
+                sx={{
+                  maxWidth: '100%',
+                  height: 24,
+                  bgcolor: (theme) => getChatColors(theme).inlineCodeSurface,
+                  border: '1px solid',
+                  borderColor: (theme) => getChatColors(theme).inlineCodeBorder,
+                  '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
+                }}
+              />
+            ))}
+          </Box>
+        )}
         <ChatAttachmentTray
           attachments={attachments}
           onRemove={removeAttachment}
@@ -1507,13 +1680,21 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               bgcolor: 'transparent',
               color: (theme) => getChatColors(theme).foreground,
               fontFamily: 'inherit',
-              fontSize: { xs: '0.9375rem', sm: '0.875rem' },
+              // 1rem on a phone, not 0.9375: under 16px iOS zooms in on focus.
+              fontSize: { xs: '1rem', sm: '0.875rem' },
               fontWeight: 450,
               lineHeight: 1.55,
               letterSpacing: '-0.005em',
               p: 0,
-              minHeight: 70,
-              maxHeight: maxHeight,
+              ...(fill
+                ? {
+                    flex: 1,
+                    minHeight: 0,
+                    maxHeight: 'none',
+                    fontSize: '1.0625rem',
+                    overscrollBehavior: 'contain',
+                  }
+                : { minHeight: 70, maxHeight }),
               overflowY: 'auto',
               '&::placeholder': {
                 color: isDraggingOver
@@ -1540,9 +1721,55 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             mt: 1.25,
             minWidth: 0,
             flexWrap: 'nowrap',
+            ...(fill && { flexShrink: 0 }),
           }}
         >
-          {leadingActions}
+          {/* Keep execution settings compact in narrow split panes. Fill-mode
+              composers still scroll their controls when they have room. */}
+          {collapseLeadingActions ? (
+            <>
+              <Tooltip title="Execution settings">
+                <IconButton
+                  size="small"
+                  aria-label="Execution settings"
+                  onClick={(event) => setActionsAnchor(event.currentTarget)}
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    color: (theme) => getChatColors(theme).subtle,
+                    flexShrink: 0,
+                  }}
+                >
+                  <SlidersHorizontal size={17} />
+                </IconButton>
+              </Tooltip>
+              <Popover
+                open={!!actionsAnchor}
+                anchorEl={actionsAnchor}
+                onClose={() => setActionsAnchor(null)}
+                anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                slotProps={{ paper: { sx: { p: 1 } } }}
+              >
+                {leadingActions}
+              </Popover>
+            </>
+          ) : fill ? (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.5,
+                minWidth: 0,
+                overflowX: 'auto',
+                scrollbarWidth: 'none',
+                '&::-webkit-scrollbar': { display: 'none' },
+                '& > *': { flexShrink: 0 },
+              }}
+            >
+              {leadingActions}
+            </Box>
+          ) : leadingActions}
 
           {leadingActions && (
             <Box
@@ -1626,7 +1853,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           )}
 
           {/* Interrupt mode toggle */}
-          {sendMode === 'queued' && <Tooltip
+          {sendMode === 'queued' && !minimal && <Tooltip
             title={
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
@@ -1677,6 +1904,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
           {trailingActions}
 
+          {showContextUsage && <SessionContextUsageIndicator sessionId={sessionId} />}
+
           {/* Cancel button - visible when agent is busy */}
           {isAgentBusy && onCancel && (
             <Tooltip title={isCancelling ? 'Stopping generation…' : 'Stop generation'}>
@@ -1715,7 +1944,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
           {/* Send button */}
           {!isAgentBusy && !isDirectSending && (() => {
-            const hasContent = draft.trim().length > 0
+            const hasContent = draft.trim().length > 0 || reviewComments.length > 0
             const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded')
             const pendingUploads = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
             const failedUploads = attachments.filter(a => a.uploadStatus === 'failed')

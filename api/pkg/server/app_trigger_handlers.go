@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,6 +13,45 @@ import (
 	"github.com/helixml/helix/api/pkg/trigger/cron"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+// requireTriggerAgentKind reports whether triggers may be attached to this agent.
+//
+// Both Helix and coding agents qualify. A cron trigger's default action runs the
+// input as a session against a Helix agent; Action="spec_task" instead creates a spec
+// task, and spec tasks REQUIRE a coding agent (see requireAgentKind in
+// spec_driven_task_handlers.go). Pinning this surface to helix_agent alone therefore
+// banned exactly the triggers that fire spec tasks — which HelixOS's bot schedules all
+// are. The effect was not that they stopped running: already-created triggers kept
+// firing, and became impossible to create, edit or disable through the API (spec 002867).
+func requireTriggerAgentKind(app *types.Agent) error {
+	if app == nil {
+		return fmt.Errorf("agent is required")
+	}
+	switch app.AgentKind {
+	case types.AgentKindHelix, types.AgentKindCoding:
+		return nil
+	default:
+		return fmt.Errorf("agent triggers require agent kind %q or %q, got %q",
+			types.AgentKindHelix, types.AgentKindCoding, app.AgentKind)
+	}
+}
+
+// authorizeUserToTrigger allows a trigger's creator, or anyone who may delete the app
+// it is attached to, to modify or remove it.
+//
+// The app arm matters: a trigger can outlive its creator's access (a rotated service
+// key, a person who left), and without it such a trigger can never be cleaned up by
+// anyone while the cron scheduler goes on firing it.
+func (s *HelixAPIServer) authorizeUserToTrigger(ctx context.Context, user *types.User, trigger *types.TriggerConfiguration) error {
+	if trigger.Owner == user.ID {
+		return nil
+	}
+	app, err := s.Store.GetApp(ctx, trigger.AppID)
+	if err != nil {
+		return fmt.Errorf("could not load the agent this trigger belongs to: %w", err)
+	}
+	return s.authorizeUserToApp(ctx, user, app, types.ActionDelete)
+}
 
 // listTriggers godoc
 // @Summary List all triggers configurations for either user or the org or user within an org
@@ -93,16 +133,35 @@ func (s *HelixAPIServer) listAppTriggers(_ http.ResponseWriter, r *http.Request)
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionDelete)
-	if err != nil {
-		return nil, system.NewHTTPError403(err.Error())
+	// A caller who may delete the app manages it, and sees EVERY trigger attached to
+	// it. Anyone else sees only the ones they created.
+	//
+	// The owner filter used to apply unconditionally, which made a trigger on your own
+	// app invisible to you the moment someone else created it — and createAppTrigger
+	// only requires ActionGet, so anyone who can read an app can attach one. Nothing
+	// could then list it, so nothing could prune it, while the cron scheduler
+	// (getCronAppsFromTriggers) kept firing it: it selects every enabled cron trigger
+	// globally, with no owner filter at all. That gap is how 22 HelixOS bot schedules
+	// went on creating spec tasks for months after their owner's API key was rotated
+	// to a different user — the reconciler that was supposed to prune them had become
+	// a different caller and could no longer see its own past work (spec 002867).
+	manageErr := s.authorizeUserToApp(r.Context(), user, app, types.ActionDelete)
+	canManage := manageErr == nil
+	if !canManage {
+		if err := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet); err != nil {
+			return nil, system.NewHTTPError403(manageErr.Error())
+		}
 	}
 
-	triggers, err := s.Store.ListTriggerConfigurations(ctx, &store.ListTriggerConfigurationsQuery{
+	query := &store.ListTriggerConfigurationsQuery{
 		AppID:          id,
 		OrganizationID: app.OrganizationID,
-		Owner:          user.ID, // Loading user created triggers
-	})
+	}
+	if !canManage {
+		query.Owner = user.ID // Loading user created triggers
+	}
+
+	triggers, err := s.Store.ListTriggerConfigurations(ctx, query)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
@@ -151,7 +210,7 @@ func (s *HelixAPIServer) createAppTrigger(_ http.ResponseWriter, r *http.Request
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
-	if err := requireAgentKind(app, types.AgentKindHelix, "agent triggers"); err != nil {
+	if err := requireTriggerAgentKind(app); err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
@@ -189,12 +248,20 @@ func (s *HelixAPIServer) deleteAppTrigger(_ http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	triggerID := vars["trigger_id"]
 
-	// Get the trigger configuration to verify it exists
+	// Get the trigger configuration to verify it exists. Looked up WITHOUT an owner
+	// filter so an app's managers can clean up triggers other people attached to it;
+	// authorization happens next.
 	triggerConfig, err := s.Store.GetTriggerConfiguration(ctx, &store.GetTriggerConfigurationQuery{
-		ID:    triggerID,
-		Owner: user.ID,
+		ID: triggerID,
 	})
 	if err != nil {
+		return nil, system.NewHTTPError404("Trigger configuration not found")
+	}
+
+	if err := s.authorizeUserToTrigger(ctx, user, triggerConfig); err != nil {
+		// 404 rather than 403: the previous owner-scoped lookup returned "not found"
+		// for anyone else's trigger, and leaking existence to an unauthorized caller
+		// would be a regression.
 		return nil, system.NewHTTPError404("Trigger configuration not found")
 	}
 
@@ -235,21 +302,30 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Authorize user to update triggers for this app
-	err = s.authorizeUserToApp(ctx, user, app, types.ActionUpdate)
-	if err != nil {
+	// The body names the app the trigger should hang off after the update, so the
+	// caller must be allowed to attach a trigger there — the same ActionGet bar
+	// createAppTrigger applies. Authorization for the trigger ITSELF is separate and
+	// happens below, against the app it currently belongs to.
+	if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
-	if err := requireAgentKind(app, types.AgentKindHelix, "agent triggers"); err != nil {
+	if err := requireTriggerAgentKind(app); err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
-	// Get the existing trigger configuration
+	// Get the existing trigger configuration. No owner filter here — a trigger's own
+	// creator may not hold ActionUpdate on the app it hangs off (createAppTrigger only
+	// asks for ActionGet), so filtering by owner AND demanding ActionUpdate left
+	// triggers that literally nobody could edit or disable. Authorization is done
+	// against the trigger below instead.
 	existingTrigger, err := s.Store.GetTriggerConfiguration(ctx, &store.GetTriggerConfigurationQuery{
-		ID:    triggerID,
-		Owner: user.ID,
+		ID: triggerID,
 	})
 	if err != nil {
+		return nil, system.NewHTTPError404("Trigger configuration not found")
+	}
+
+	if err := s.authorizeUserToTrigger(ctx, user, existingTrigger); err != nil {
 		return nil, system.NewHTTPError404("Trigger configuration not found")
 	}
 

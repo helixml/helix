@@ -2,14 +2,111 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestSyncInitialConfigReportsFatalConfigError(t *testing.T) {
+	var configRequests int
+	var startupErrorRequests int
+	var reportedError string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/sessions/ses_1/zed-config":
+			configRequests++
+			http.Error(w, `provider "openai" is not enabled for coding-agent harness "codex_cli" in this organization`, http.StatusUnprocessableEntity)
+		case "/api/v1/sessions/ses_1/agent-startup-error":
+			startupErrorRequests++
+			assert.Equal(t, "Bearer token", r.Header.Get("Authorization"))
+			var body struct {
+				Error string `json:"error"`
+			}
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			reportedError = body.Error
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"ok","transitioned":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	daemon := &SettingsDaemon{
+		httpClient: server.Client(),
+		apiURL:     server.URL,
+		apiToken:   "token",
+		sessionID:  "ses_1",
+	}
+
+	err := daemon.syncInitialConfig(5, 0)
+	require.Error(t, err)
+	assert.True(t, isFatalZedConfigError(err), "fatal error must remain classifiable by main")
+	assert.Equal(t, 1, configRequests, "stable client errors must not be retried")
+	assert.Equal(t, 1, startupErrorRequests)
+	assert.True(t, strings.Contains(reportedError, "status 422"))
+	assert.True(t, strings.Contains(reportedError, `provider "openai" is not enabled`))
+}
+
+func TestSyncInitialConfigDoesNotReportTransientError(t *testing.T) {
+	var configRequests int
+	var startupErrorRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/sessions/ses_1/zed-config":
+			configRequests++
+			http.Error(w, "temporary failure", http.StatusInternalServerError)
+		case "/api/v1/sessions/ses_1/agent-startup-error":
+			startupErrorRequests++
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	daemon := &SettingsDaemon{
+		httpClient: server.Client(),
+		apiURL:     server.URL,
+		sessionID:  "ses_1",
+	}
+
+	err := daemon.syncInitialConfig(2, 0)
+	require.Error(t, err)
+	assert.False(t, isFatalZedConfigError(err), "transient error must not stop the daemon")
+	assert.Equal(t, 2, configRequests)
+	assert.Zero(t, startupErrorRequests, "transient failures must not fail the interaction")
+}
+
+func TestIsFatalZedConfigError(t *testing.T) {
+	tests := []struct {
+		status int
+		fatal  bool
+	}{
+		{status: http.StatusUnauthorized, fatal: true},
+		{status: http.StatusForbidden, fatal: true},
+		{status: http.StatusUnprocessableEntity, fatal: true},
+		{status: http.StatusNotFound, fatal: false},
+		{status: http.StatusConflict, fatal: false},
+		{status: http.StatusTooManyRequests, fatal: false},
+		{status: http.StatusInternalServerError, fatal: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(http.StatusText(tt.status), func(t *testing.T) {
+			err := &zedConfigFetchError{StatusCode: tt.status, Message: "test"}
+			assert.Equal(t, tt.fatal, isFatalZedConfigError(err))
+		})
+	}
+}
 
 func TestInjectAvailableModels(t *testing.T) {
 	tests := []struct {
@@ -258,6 +355,32 @@ func TestInjectAvailableModels(t *testing.T) {
 	}
 }
 
+func TestInjectAvailableModelsPropagatesProviderContextWindowToZed(t *testing.T) {
+	const providerContextWindow = 258_400
+	d := &SettingsDaemon{
+		codeAgentConfig: &CodeAgentConfig{
+			Model:     "deepseek/deepseek-v4-flash",
+			APIType:   "openai",
+			Runtime:   "zed_agent",
+			MaxTokens: providerContextWindow,
+		},
+		helixSettings: map[string]interface{}{
+			"language_models": map[string]interface{}{
+				"openai": map[string]interface{}{},
+			},
+		},
+	}
+
+	d.injectAvailableModels()
+
+	languageModels := d.helixSettings["language_models"].(map[string]interface{})
+	provider := languageModels["openai"].(map[string]interface{})
+	models := provider["available_models"].([]interface{})
+	require.Len(t, models, 1)
+	model := models[0].(AvailableModel)
+	assert.Equal(t, providerContextWindow, model.MaxTokens)
+}
+
 // TestMergeAgentBlock_HelixManagedFieldsProtected verifies that the daemon's
 // client-side merge drops user-side overrides for helix-managed agent fields.
 func TestMergeAgentBlock_HelixManagedFieldsProtected(t *testing.T) {
@@ -347,6 +470,12 @@ func TestInjectAgentPermissions(t *testing.T) {
 	assert.Equal(t, map[string]interface{}{"allow_unsandboxed": true}, agent["sandbox_permissions"])
 	assert.Equal(t, map[string]interface{}{"default": "allow"}, agent["tool_permissions"])
 }
+
+// The daemon no longer rewrites Helix API URLs — the control plane emits the
+// canonical helix-api.internal:18080 proxy URL directly in the zed-config
+// response (see hydra.SandboxAPIProxyURL and the emit sites in
+// api/pkg/server/zed_config_handlers.go). The former TestRewriteHelixConfigURLs
+// / TestIsHelixMCPURL heuristics were removed with the rewrite layer.
 
 // TestExtractUserOverrides_AgentDiffSkipsManagedFields verifies that the daemon
 // does not upload changes to helix-managed agent fields.
@@ -571,11 +700,16 @@ func TestExtractUserOverrides_SkipsHelixOwnedContextServers(t *testing.T) {
 // default_mode: "bypassPermissions" entry; this test keeps the two in
 // step. If you remove the default_mode field, this test fails.
 func TestQwenCodeAgentServerHasYoloDefaultMode(t *testing.T) {
+	oldQwenSettingsPath := QwenSettingsPath
+	QwenSettingsPath = filepath.Join(t.TempDir(), "qwen", "settings.json")
+	t.Cleanup(func() { QwenSettingsPath = oldQwenSettingsPath })
+
 	d := &SettingsDaemon{
 		codeAgentConfig: &CodeAgentConfig{
-			Runtime: "qwen_code",
-			BaseURL: "http://outer-api:8080/v1",
-			Model:   "nebius/zai-org/GLM-5.1",
+			Runtime:         "qwen_code",
+			BaseURL:         "http://outer-api:8080/v1",
+			Model:           "node-6/qwen3.8-27b",
+			ReasoningEffort: "xhigh",
 		},
 		userAPIKey: "hl-test-key",
 	}
@@ -596,25 +730,142 @@ func TestQwenCodeAgentServerHasYoloDefaultMode(t *testing.T) {
 	assert.True(t, ok, "qwen entry must have args")
 	assert.Contains(t, args, "--yolo",
 		"qwen args must include --yolo so the ACP session starts in YOLO mode without depending on the IDE")
+	assert.Contains(t, args, "--acp")
+	assert.NotContains(t, args, "--experimental-acp")
+
+	env, ok := qwen["env"].(map[string]interface{})
+	assert.True(t, ok, "qwen entry must have env")
+	assert.Equal(t, "/home/retro/work/.qwen-state", env["QWEN_HOME"])
+	assert.Equal(t, "/home/retro/work/.qwen-state", env["QWEN_RUNTIME_DIR"])
+	assert.Equal(t, "false", env["QWEN_TELEMETRY_ENABLED"])
+	assert.Equal(t, "false", env["QWEN_USAGE_STATISTICS_ENABLED"])
+	assert.NotContains(t, env, "QWEN_DATA_DIR")
+
+	defaults, ok := qwen["default_config_options"].(map[string]string)
+	assert.True(t, ok, "qwen entry must have default ACP config options")
+	assert.Equal(t, "xhigh", defaults["reasoning_effort"])
+
+	data, err := os.ReadFile(QwenSettingsPath)
+	require.NoError(t, err)
+	var settings map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &settings))
+	model := settings["model"].(map[string]interface{})
+	generationConfig := model["generationConfig"].(map[string]interface{})
+	extraBody := generationConfig["extra_body"].(map[string]interface{})
+	assert.Equal(t, "xhigh", extraBody["reasoning_effort"])
 }
 
-func TestEnsureCodexNonInteractiveConfig(t *testing.T) {
+func TestEnsureQwenSettingsPreservesUserConfigAndClearsEffort(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "qwen", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, os.WriteFile(path, []byte(`{
+  "general": {"vimMode": true},
+  "model": {"generationConfig": {"timeout": 60000, "extra_body": {"custom": true}}}
+}`), 0644))
+
+	require.NoError(t, ensureQwenSettings(path, "medium"))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var settings map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &settings))
+	assert.Equal(t, true, settings["general"].(map[string]interface{})["vimMode"])
+	model := settings["model"].(map[string]interface{})
+	generationConfig := model["generationConfig"].(map[string]interface{})
+	assert.Equal(t, float64(60000), generationConfig["timeout"])
+	extraBody := generationConfig["extra_body"].(map[string]interface{})
+	assert.Equal(t, true, extraBody["custom"])
+	assert.Equal(t, "medium", extraBody["reasoning_effort"])
+
+	require.NoError(t, ensureQwenSettings(path, ""))
+	data, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &settings))
+	model = settings["model"].(map[string]interface{})
+	generationConfig = model["generationConfig"].(map[string]interface{})
+	extraBody = generationConfig["extra_body"].(map[string]interface{})
+	assert.NotContains(t, extraBody, "reasoning_effort")
+	assert.Equal(t, true, extraBody["custom"])
+}
+
+func TestEnsureCodexConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "codex", "config.toml")
-	existing := []byte("model = \"gpt-5.6-sol\"\n\n[projects.\"/workspace\"]\ntrust_level = \"trusted\"\n")
+	existing := []byte("model = \"gpt-5.6-sol\"\nopenai_base_url = \"https://user-proxy.example/v1\"\n\n[features]\napps = true\n\n[model_providers.user_proxy]\nname = \"User proxy\"\nbase_url = \"https://user-proxy.example/v1\"\nenv_key = \"USER_PROXY_KEY\"\nwire_api = \"responses\"\n\n[projects.\"/workspace\"]\ntrust_level = \"trusted\"\n")
 	assert.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
 	assert.NoError(t, os.WriteFile(path, existing, 0644))
 
-	assert.NoError(t, ensureCodexNonInteractiveConfig(path))
+	assert.NoError(t, ensureCodexConfig(path, "http://api:8080/v1", "gpt-5.6-terra"))
 	data, err := os.ReadFile(path)
 	assert.NoError(t, err)
 	var config map[string]interface{}
 	assert.NoError(t, toml.Unmarshal(data, &config))
 	assert.Equal(t, "never", config["approval_policy"])
 	assert.Equal(t, "danger-full-access", config["sandbox_mode"])
-	assert.Equal(t, "gpt-5.6-sol", config["model"])
+	assert.Equal(t, "gpt-5.6-terra", config["model"])
+	assert.Equal(t, "https://user-proxy.example/v1", config["openai_base_url"])
+	assert.Equal(t, "helix", config["model_provider"])
+	features, ok := config["features"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, true, features["apps"])
+	assert.Equal(t, true, features["default_mode_request_user_input"])
+	providers, ok := config["model_providers"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Contains(t, providers, "user_proxy")
+	helixProvider, ok := providers["helix"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "http://api:8080/v1", helixProvider["base_url"])
+	assert.Equal(t, "OPENAI_API_KEY", helixProvider["env_key"])
+	assert.Equal(t, "responses", helixProvider["wire_api"])
+	assert.Equal(t, false, helixProvider["supports_websockets"])
 	projects, ok := config["projects"].(map[string]interface{})
 	assert.True(t, ok)
 	assert.Contains(t, projects, "/workspace")
+
+	assert.NoError(t, ensureCodexConfig(path, "", ""))
+	data, err = os.ReadFile(path)
+	assert.NoError(t, err)
+	config = map[string]interface{}{}
+	assert.NoError(t, toml.Unmarshal(data, &config))
+	assert.Equal(t, "https://user-proxy.example/v1", config["openai_base_url"])
+	assert.NotContains(t, config, "model")
+	assert.NotContains(t, config, "model_provider")
+	features, ok = config["features"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, true, features["apps"])
+	assert.Equal(t, true, features["default_mode_request_user_input"])
+	providers, ok = config["model_providers"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Contains(t, providers, "user_proxy")
+	assert.NotContains(t, providers, "helix")
+}
+
+func TestEnsureCodexConfigEnablesDefaultModeUserInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "codex", "config.toml")
+	existing := []byte("[features]\napps = true\ndefault_mode_request_user_input = false\n")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, os.WriteFile(path, existing, 0644))
+
+	require.NoError(t, ensureCodexConfig(path, "", ""))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var config map[string]interface{}
+	require.NoError(t, toml.Unmarshal(data, &config))
+	features, ok := config["features"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, true, features["apps"])
+	assert.Equal(t, true, features["default_mode_request_user_input"])
+}
+
+func TestEnsureCodexConfigRejectsNonTableFeatures(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "codex", "config.toml")
+	existing := []byte("model = \"gpt-5.6-sol\"\nfeatures = false\n")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, os.WriteFile(path, existing, 0644))
+
+	err := ensureCodexConfig(path, "http://api:8080/v1", "gpt-5.6-terra")
+	require.EqualError(t, err, `Codex setting "features" must be a table`)
+	data, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, existing, data)
 }
 
 func TestCodexAgentServerUsesFullAccess(t *testing.T) {
@@ -622,7 +873,7 @@ func TestCodexAgentServerUsesFullAccess(t *testing.T) {
 	CodexConfigPath = filepath.Join(t.TempDir(), "config.toml")
 	t.Cleanup(func() { CodexConfigPath = originalPath })
 
-	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{Runtime: "codex_cli", BaseURL: "http://api/v1"}}
+	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{Runtime: "codex_cli", BaseURL: "http://api/v1", Model: "gpt-5.6-terra"}}
 	cfg := d.generateAgentServerConfig()
 	codex, ok := cfg["codex-acp"].(map[string]interface{})
 	assert.True(t, ok)
@@ -630,6 +881,7 @@ func TestCodexAgentServerUsesFullAccess(t *testing.T) {
 	env, ok := codex["env"].(map[string]interface{})
 	assert.True(t, ok)
 	assert.Equal(t, "agent-full-access", env["INITIAL_AGENT_MODE"])
+	assert.NotContains(t, env, "OPENAI_BASE_URL")
 
 	data, err := os.ReadFile(CodexConfigPath)
 	assert.NoError(t, err)
@@ -637,6 +889,17 @@ func TestCodexAgentServerUsesFullAccess(t *testing.T) {
 	assert.NoError(t, toml.Unmarshal(data, &persisted))
 	assert.Equal(t, "never", persisted["approval_policy"])
 	assert.Equal(t, "danger-full-access", persisted["sandbox_mode"])
+	assert.Equal(t, "gpt-5.6-terra", persisted["model"])
+	features, ok := persisted["features"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, true, features["default_mode_request_user_input"])
+	assert.Equal(t, "helix", persisted["model_provider"])
+	providers, ok := persisted["model_providers"].(map[string]interface{})
+	assert.True(t, ok)
+	helixProvider, ok := providers["helix"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "http://api/v1", helixProvider["base_url"])
+	assert.Equal(t, false, helixProvider["supports_websockets"])
 }
 
 func TestClaudeAgentServerUsesConfiguredReasoningEffort(t *testing.T) {

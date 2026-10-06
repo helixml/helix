@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -47,7 +49,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
 	ctx := context.Background()
 	task := &types.SpecTask{
 		ID:                "task-123",
-		AgentSessionID: "session-456",
+		PlanningSessionID: "session-456",
 		Status:            types.TaskStatusDone,
 	}
 
@@ -57,11 +59,49 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
 	s.Require().NoError(err)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestPreparingTaskWaitsForAttachmentIngestion() {
+	task := &types.SpecTask{
+		ID:        "task-preparing",
+		Status:    types.TaskStatusPreparing,
+		UpdatedAt: time.Now(),
+	}
+
+	err := s.orchestrator.processTask(context.Background(), task)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestStalePreparingTaskIsReconciledWithOwnedInputs() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:           "task-interrupted",
+		Status:       types.TaskStatusPreparing,
+		JustDoItMode: true,
+		UpdatedAt:    time.Now().Add(-attachmentPreparationTimeout - time.Minute),
+		Metadata:     map[string]interface{}{"source": "from-prompt"},
+	}
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusPreparing},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, fields map[string]any) (bool, error) {
+		metadata, ok := fields["metadata"].(map[string]interface{})
+		s.Require().True(ok)
+		s.Equal("from-prompt", metadata["source"])
+		s.Contains(metadata["error"], "attachment ingestion was interrupted")
+		return true, nil
+	})
+
+	err := s.orchestrator.processTask(ctx, task)
+	s.Require().NoError(err)
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_KeepAliveSkipsStop() {
 	ctx := context.Background()
 	task := &types.SpecTask{
 		ID:                "task-keep-alive",
-		AgentSessionID: "session-keep-alive",
+		PlanningSessionID: "session-keep-alive",
 		Status:            types.TaskStatusDone,
 		KeepAlive:         true,
 	}
@@ -77,6 +117,86 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_EmptyPlanningSessionSkips
 		Status: types.TaskStatusDone,
 	})
 	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_AutoArchivesImmediately() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-completed",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusDone,
+	}
+	latest := *task
+
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(&types.Project{
+		ID:                        task.ProjectID,
+		AutoArchiveCompletedTasks: true,
+	}, nil)
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(&latest, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.SpecTask) error {
+			s.True(updated.Archived)
+			return nil
+		},
+	)
+
+	err := s.orchestrator.processTask(ctx, task)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_LeavesTaskVisibleWhenAutoArchiveDisabled() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-completed",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusDone,
+	}
+
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(&types.Project{
+		ID:                        task.ProjectID,
+		AutoArchiveCompletedTasks: false,
+	}, nil)
+
+	err := s.orchestrator.processTask(ctx, task)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestStaleArchiveSweepArchivesOnlyInactiveTasks() {
+	ctx := context.Background()
+	now := time.Now()
+	staleTask := &types.SpecTask{
+		ID:        "task-stale",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+		CreatedAt: now.Add(-10 * 24 * time.Hour),
+	}
+	doneTask := &types.SpecTask{
+		ID:        "task-done",
+		ProjectID: staleTask.ProjectID,
+		Status:    types.TaskStatusDone,
+		CreatedAt: now.Add(-10 * 24 * time.Hour),
+	}
+	latest := *staleTask
+	s.orchestrator.containerExecutor = nil
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		SortBy: "last_message",
+	}).Return([]*types.SpecTask{staleTask, doneTask}, nil)
+	s.store.EXPECT().GetProject(ctx, staleTask.ProjectID).Return(&types.Project{
+		ID:                       staleTask.ProjectID,
+		ArchiveStaleTasksEnabled: true,
+		ArchiveStaleTasksDays:    6,
+	}, nil)
+	s.store.EXPECT().GetSpecTask(ctx, staleTask.ID).Return(&latest, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.SpecTask) error {
+			s.Equal(staleTask.ID, updated.ID)
+			s.True(updated.Archived)
+			return nil
+		},
+	)
+
+	s.orchestrator.staleArchiveSweep(ctx)
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_SkipsWhenStaleEvent() {
@@ -514,6 +634,104 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_RespectsI
 	s.Equal(types.TaskStatusQueuedImplementation, task.Status)
 }
 
+// An archived task that is still queued must not be started when a WIP slot
+// frees up: archiving a queued task has no sandbox to stop, so starting it
+// later leaks a running desktop nobody is looking at.
+func (s *SpecTaskOrchestratorTestSuite) TestQueuedHandlers_SkipArchivedTasks() {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		status types.SpecTaskStatus
+		handle func(context.Context, *types.SpecTask) error
+	}{
+		{types.TaskStatusQueuedImplementation, s.orchestrator.handleQueuedImplementation},
+		{types.TaskStatusQueuedSpecGeneration, s.orchestrator.handleQueuedSpecGeneration},
+		{types.TaskStatusBacklog, s.orchestrator.handleBacklog},
+	} {
+		task := &types.SpecTask{ID: "task-archived-" + string(tc.status), ProjectID: "project-123", Status: tc.status, Archived: true}
+		s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+
+		err := tc.handle(ctx, task)
+		s.Require().NoError(err)
+		s.Equal(tc.status, task.Status)
+	}
+}
+
+type countingSpecTaskWorkflowService struct {
+	justDoItStarts atomic.Int32
+}
+
+func (s *countingSpecTaskWorkflowService) StartSpecGeneration(context.Context, *types.SpecTask) {}
+
+func (s *countingSpecTaskWorkflowService) StartJustDoItMode(context.Context, *types.SpecTask) {
+	s.justDoItStarts.Add(1)
+}
+
+func (s *countingSpecTaskWorkflowService) ApproveSpecs(context.Context, *types.SpecTask) error {
+	return nil
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_ClaimsAcrossOrchestrators() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-jdi-race",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusQueuedImplementation,
+	}
+	project := &types.Project{ID: task.ProjectID}
+	workflow := &countingSpecTaskWorkflowService{}
+
+	newTaskSnapshot := func() *types.SpecTask {
+		copy := *task
+		return &copy
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).
+		DoAndReturn(func(context.Context, string) (*types.SpecTask, error) {
+			return newTaskSnapshot(), nil
+		}).Times(2)
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(project, nil).Times(2)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     task.ProjectID,
+		WithDependsOn: true,
+	}).DoAndReturn(func(context.Context, *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+		return []*types.SpecTask{newTaskSnapshot()}, nil
+	}).Times(2)
+
+	var claimAttempts atomic.Int32
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusQueuedImplementation},
+		types.TaskStatusImplementation,
+		nil,
+	).DoAndReturn(func(context.Context, string, []types.SpecTaskStatus, types.SpecTaskStatus, map[string]any) (bool, error) {
+		return claimAttempts.Add(1) == 1, nil
+	}).Times(2)
+
+	first := &SpecTaskOrchestrator{store: s.store, specTaskService: workflow}
+	second := &SpecTaskOrchestrator{store: s.store, specTaskService: workflow}
+
+	var callers sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, orchestrator := range []*SpecTaskOrchestrator{first, second} {
+		callers.Add(1)
+		go func(orchestrator *SpecTaskOrchestrator) {
+			defer callers.Done()
+			errs <- orchestrator.handleQueuedImplementation(ctx, newTaskSnapshot())
+		}(orchestrator)
+	}
+	callers.Wait()
+	close(errs)
+	for err := range errs {
+		s.Require().NoError(err)
+	}
+	first.wg.Wait()
+	second.wg.Wait()
+
+	s.Equal(int32(2), claimAttempts.Load())
+	s.Equal(int32(1), workflow.justDoItStarts.Load())
+}
+
 // handleQueuedImplementation claims the WIP slot before launching the agent, so
 // an API restart in that window leaves a task holding a slot it never used.
 func (s *SpecTaskOrchestratorTestSuite) TestHandleImplementation_RequeuesStrandedReservation() {
@@ -548,7 +766,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleImplementation_LeavesLaunchedT
 		StatusUpdatedAt:   &old,
 		StartedAt:         &old,
 		BranchName:        "feat/something",
-		AgentSessionID: "ses_123",
+		PlanningSessionID: "ses_123",
 	}
 
 	s.Require().NoError(s.orchestrator.handleImplementation(ctx, task))
@@ -828,14 +1046,15 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleSpecApproved_SelfHealsNilSpecA
 
 	// Simulate the broken state: spec_approved status but SpecApproval is nil
 	task := &types.SpecTask{
-		ID:             "task-stuck",
-		ProjectID:      "project-1",
-		Status:         types.TaskStatusSpecApproved,
-		SpecApprovedBy: "user-1",
-		SpecApprovedAt: &approvedAt,
-		SpecApproval:   nil,
-		TaskNumber:     42,
-		Name:           "stuck-task",
+		ID:              "task-stuck",
+		ProjectID:       "project-1",
+		Status:          types.TaskStatusSpecApproved,
+		SpecApprovedBy:  "user-1",
+		SpecApprovedAt:  &approvedAt,
+		SpecApproval:    nil,
+		TaskNumber:      42,
+		Name:            "stuck-task",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
 	}
 
 	// Set up the specTaskService on the orchestrator
@@ -860,8 +1079,11 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleSpecApproved_SelfHealsNilSpecA
 		ctx,
 		"task-stuck",
 		gomock.Any(),
-		types.TaskStatusImplementation,
+		types.TaskStatusImplementationQueued,
 		gomock.Any(),
+	).Return(true, nil)
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx, "task-stuck", gomock.Any(), types.TaskStatusImplementation, gomock.Any(),
 	).Return(true, nil)
 
 	err := s.orchestrator.handleSpecApproved(ctx, task)
@@ -869,27 +1091,28 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleSpecApproved_SelfHealsNilSpecA
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestIsDeletedProjectError() {
-	// GORM "record not found" errors should match
-	assert.True(s.T(), isDeletedProjectError(fmt.Errorf("failed to get project: record not found")))
-	assert.True(s.T(), isDeletedProjectError(fmt.Errorf("record not found")))
+	assert.True(s.T(), isDeletedProjectError(store.ErrNotFound))
+	assert.True(s.T(), isDeletedProjectError(fmt.Errorf("failed to get project: %w", store.ErrNotFound)))
 
-	// Domain errors containing "not found" but NOT "record not found" should NOT match
+	// Text alone must not classify an unrelated error as a deleted project.
+	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("record not found")))
 	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("spec approval not found")))
 	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("failed to approve specs: spec approval not found")))
 	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("default repository not set for project")))
 	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("branch not found")))
 }
 
-func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishesNotFoundTypes() {
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_PermanentApprovalConfigErrorFailsTask() {
 	ctx := context.Background()
 
 	// Verify processTask dispatches to handleSpecApproved
 	task := &types.SpecTask{
-		ID:         "task-test",
-		ProjectID:  "project-1",
-		Status:     types.TaskStatusSpecApproved,
-		TaskNumber: 99,
-		Name:       "test-task",
+		ID:              "task-test",
+		ProjectID:       "project-1",
+		Status:          types.TaskStatusSpecApproved,
+		TaskNumber:      99,
+		Name:            "test-task",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
 	}
 
 	service := NewSpecDrivenTaskService(
@@ -906,17 +1129,237 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishes
 		DefaultRepoID: "",
 	}, nil)
 
+	// A permanent handoff misconfiguration now fails the task instead of
+	// returning an error the orchestrator would re-drive every 10s tick.
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-test",
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, extra map[string]any) (bool, error) {
+		meta, ok := extra["metadata"].(map[string]interface{})
+		s.Require().True(ok, "metadata field must be set on the failed task")
+		assert.Contains(s.T(), fmt.Sprint(meta["error"]), "default repository not set")
+		assert.NotEmpty(s.T(), fmt.Sprint(meta["error_timestamp"]))
+		return true, nil
+	})
+
+	err := s.orchestrator.processTask(ctx, task)
+	s.Require().NoError(err, "permanent misconfiguration fails the task, not the tick")
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_TransientApprovalErrorStillSurfaces() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:              "task-transient",
+		ProjectID:       "project-1",
+		Status:          types.TaskStatusSpecApproved,
+		TaskNumber:      7,
+		Name:            "transient-task",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+	}
+
+	service := NewSpecDrivenTaskService(
+		s.store, nil, "test-helix-agent", []string{},
+		nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+	s.orchestrator.specTaskService = service
+
+	s.store.EXPECT().GetSpecTask(ctx, "task-transient").Return(task, nil)
+	// A non-not-found store error is transient: the handoff must keep
+	// retrying (error surfaces) and the task must NOT be failed.
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(nil, fmt.Errorf("connection refused"))
+
 	err := s.orchestrator.processTask(ctx, task)
 	s.Require().Error(err)
-	// The error should contain "not found" in a domain-specific way, not "record not found"
-	assert.Contains(s.T(), err.Error(), "default repository not set")
-	assert.False(s.T(), isDeletedProjectError(err))
+	assert.Contains(s.T(), err.Error(), "connection refused")
+	assert.False(s.T(), IsPermanentApprovalConfigError(err))
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestFailApprovalHandoff_NoOpWhenAlreadyMovedOn() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-raced",
+		ProjectID: "project-1",
+		Status:    types.TaskStatusSpecApproved,
+	}
+
+	// A concurrent transition already claimed the task.
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-raced",
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).Return(false, nil)
+
+	err := s.orchestrator.failApprovalHandoff(ctx, task, ErrApprovalDefaultRepoNotFound)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestIsPermanentApprovalConfigError_MatchesWrapped() {
+	assert.True(s.T(), IsPermanentApprovalConfigError(ErrApprovalNoCodeAgentConfig))
+	assert.True(s.T(), IsPermanentApprovalConfigError(ErrApprovalNoPlanningSession))
+	// The deleted-repo case wraps the sentinel with the repo id.
+	assert.True(s.T(), IsPermanentApprovalConfigError(
+		fmt.Errorf("%w: code-kodit-1771951977", ErrApprovalDefaultRepoNotFound),
+	))
+	assert.True(s.T(), IsPermanentApprovalConfigError(
+		fmt.Errorf("failed to approve specs: %w", ErrApprovalNoDefaultBranch),
+	))
+
+	assert.False(s.T(), IsPermanentApprovalConfigError(store.ErrNotFound))
+	assert.False(s.T(), IsPermanentApprovalConfigError(fmt.Errorf("some transient failure")))
+	assert.False(s.T(), IsPermanentApprovalConfigError(nil))
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProjectMissing_CachesPerSweep() {
+	ctx := context.Background()
+	cache := make(map[string]bool)
+
+	// One miss — the store is consulted exactly once for a repeated project.
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(nil, store.ErrNotFound).Times(1)
+
+	assert.True(s.T(), s.orchestrator.projectMissing(ctx, "project-1", cache))
+	assert.True(s.T(), s.orchestrator.projectMissing(ctx, "project-1", cache), "cached answer")
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTasks_NotFoundOnLiveProjectIsNotSilenced() {
+	ctx := context.Background()
+
+	// Reproduces the prod incident shape: ApproveSpecs fails with a wrapped
+	// ErrNotFound (default repo deleted) while the project itself is alive.
+	// The sweep must consult the project and treat the error as a real
+	// failure (Error log) rather than a deleted-project skip.
+	task := &types.SpecTask{
+		ID:        "task-kodit",
+		ProjectID: "project-1",
+		Status:    types.TaskStatusSpecApproved,
+		Name:      "kodit-task",
+	}
+
+	s.orchestrator.specTaskService = &stubApprovalWorkflowService{
+		err: fmt.Errorf("failed to get default repository: %w", store.ErrNotFound),
+	}
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{WithDependsOn: true}).
+		Return([]*types.SpecTask{task}, nil)
+	// Once for the error verification — the project exists, so this is a real
+	// failure on a live project, not an orphan.
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{ID: "project-1"}, nil).Times(1)
+
+	s.orchestrator.processTasks(ctx)
+	// No transition expectations: a non-permanent error must not fail the task.
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTasks_TrueOrphanStaysSilent() {
+	ctx := context.Background()
+
+	task := &types.SpecTask{
+		ID:        "task-orphan",
+		ProjectID: "project-gone",
+		Status:    types.TaskStatusSpecApproved,
+		Name:      "orphan-task",
+	}
+
+	s.orchestrator.specTaskService = &stubApprovalWorkflowService{
+		err: fmt.Errorf("failed to get project: %w", store.ErrNotFound),
+	}
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{WithDependsOn: true}).
+		Return([]*types.SpecTask{task}, nil)
+	s.store.EXPECT().GetProject(ctx, "project-gone").Return(nil, store.ErrNotFound).Times(1)
+
+	s.orchestrator.processTasks(ctx)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleImplementationQueued_PermanentErrorFailsTask() {
+	ctx := context.Background()
+
+	// The claim already moved this task to implementation_queued; a permanent
+	// error on retry must fail it from there, not re-drive it every tick.
+	task := &types.SpecTask{
+		ID:        "task-iq",
+		ProjectID: "project-1",
+		Status:    types.TaskStatusImplementationQueued,
+	}
+
+	s.orchestrator.specTaskService = &stubApprovalWorkflowService{
+		err: fmt.Errorf("%w: repo-1", ErrApprovalDefaultRepoNotFound),
+	}
+
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-iq",
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).Return(true, nil)
+
+	s.Require().NoError(s.orchestrator.handleImplementationQueued(ctx, task))
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestApproveSpecs_MissingPlanningSessionFailsBeforeClaim() {
+	ctx := context.Background()
+
+	// A task with no planning session must fail BEFORE the claim moves it to
+	// implementation_queued: after the claim the failure transition can never
+	// match (from implementation_queued it would retry forever instead).
+	task := &types.SpecTask{
+		ID:                "task-noplanning",
+		ProjectID:         "project-1",
+		Status:            types.TaskStatusSpecApproved,
+		TaskNumber:        11,
+		Name:              "noplanning-task",
+		CodeAgentConfig:   testSpecTaskCodeAgentConfig(),
+		PlanningSessionID: "", // the permanent condition
+	}
+
+	service := NewSpecDrivenTaskService(
+		s.store, nil, "test-helix-agent", []string{},
+		nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	// NOT test mode: the planning-session validation must run.
+	s.orchestrator.specTaskService = service
+
+	s.store.EXPECT().GetSpecTask(ctx, "task-noplanning").Return(task, nil)
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	s.store.EXPECT().GetGitRepository(ctx, "repo-1").Return(&types.GitRepository{
+		ID:            "repo-1",
+		DefaultBranch: "main",
+	}, nil)
+	// The only transition: the terminal failure, from spec_approved.
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-noplanning",
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).Return(true, nil)
+
+	err := s.orchestrator.handleSpecApproved(ctx, task)
+	s.Require().NoError(err, "missing planning session fails the task before the claim")
+}
+
+// stubApprovalWorkflowService injects an ApproveSpecs result without the real
+// service's store round-trips.
+type stubApprovalWorkflowService struct {
+	err error
+}
+
+func (s *stubApprovalWorkflowService) StartSpecGeneration(context.Context, *types.SpecTask) {}
+func (s *stubApprovalWorkflowService) StartJustDoItMode(context.Context, *types.SpecTask)   {}
+func (s *stubApprovalWorkflowService) ApproveSpecs(context.Context, *types.SpecTask) error {
+	return s.err
 }
 
 // makePullRequestTask returns a task in pull_request status with the given
-// number of tracked PRs and no branch (so the branch-merge fallback path
-// inside processExternalPullRequestStatus early-exits without needing
-// store/repo mocks).
+// number of tracked PRs.
 func makePullRequestTask(prCount int) *types.SpecTask {
 	prs := make([]types.RepoPR, prCount)
 	for i := 0; i < prCount; i++ {
@@ -930,9 +1373,117 @@ func makePullRequestTask(prCount int) *types.SpecTask {
 	return &types.SpecTask{
 		ID:               "task-pr-1",
 		Status:           types.TaskStatusPullRequest,
-		BranchName:       "", // skips IsBranchMerged fallback
 		RepoPullRequests: prs,
 	}
+}
+
+func TestPullRequestPollingInterval(t *testing.T) {
+	now := time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		age  time.Duration
+		want time.Duration
+	}{
+		{name: "new task", age: 29 * time.Minute, want: 30 * time.Second},
+		{name: "thirty minutes old", age: 30 * time.Minute, want: 5 * time.Minute},
+		{name: "same day", age: 23*time.Hour + 59*time.Minute, want: 5 * time.Minute},
+		{name: "one day old", age: 24 * time.Hour, want: time.Hour},
+		{name: "older task", age: 7 * 24 * time.Hour, want: time.Hour},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			startedAt := now.Add(-tt.age)
+			task := &types.SpecTask{StatusUpdatedAt: &startedAt}
+			assert.Equal(t, tt.want, pullRequestPollingInterval(task, now))
+		})
+	}
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestPollPullRequestsUsesAgeBasedIntervals() {
+	ctx := context.Background()
+	now := time.Now()
+	recentStarted := now.Add(-10 * time.Minute)
+	staleStarted := now.Add(-2 * time.Hour)
+	oldStarted := now.Add(-48 * time.Hour)
+	recent := makePullRequestTask(1)
+	recent.ID = "recent"
+	recent.StatusUpdatedAt = &recentStarted
+	stale := makePullRequestTask(1)
+	stale.ID = "stale"
+	stale.StatusUpdatedAt = &staleStarted
+	old := makePullRequestTask(1)
+	old.ID = "old"
+	old.StatusUpdatedAt = &oldStarted
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		Status: types.TaskStatusPullRequest,
+	}).Return([]*types.SpecTask{recent, stale, old}, nil)
+	s.gitService.EXPECT().GetPullRequest(ctx, "repo-1", "1").Return(nil, fmt.Errorf("upstream unavailable"))
+	s.orchestrator.prPollLast = map[string]time.Time{
+		"recent": now.Add(-time.Minute),
+		"stale":  now.Add(-time.Minute),
+		"old":    now.Add(-time.Minute),
+	}
+
+	s.orchestrator.pollPullRequests(ctx)
+
+	assert.WithinDuration(s.T(), now, s.orchestrator.prPollLast["recent"], time.Second)
+	assert.WithinDuration(s.T(), now.Add(-time.Minute), s.orchestrator.prPollLast["stale"], time.Second)
+	assert.WithinDuration(s.T(), now.Add(-time.Minute), s.orchestrator.prPollLast["old"], time.Second)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestForegroundRefreshCoalescesWithBackgroundPoll() {
+	ctx := context.Background()
+	task := makePullRequestTask(1)
+	startedAt := time.Now().Add(-48 * time.Hour)
+	task.StatusUpdatedAt = &startedAt
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil).Times(2)
+	pollStarted := make(chan struct{})
+	finishPoll := make(chan struct{})
+	s.gitService.EXPECT().GetPullRequest(ctx, "repo-1", "1").DoAndReturn(
+		func(context.Context, string, string) (*types.PullRequest, error) {
+			close(pollStarted)
+			<-finishPoll
+			return nil, fmt.Errorf("upstream unavailable")
+		},
+	)
+
+	backgroundResult := make(chan error, 1)
+	go func() {
+		_, err := s.orchestrator.pollPullRequestTask(
+			ctx,
+			task,
+			pullRequestPollingInterval(task, time.Now()),
+			time.Now(),
+		)
+		backgroundResult <- err
+	}()
+	select {
+	case <-pollStarted:
+	case <-time.After(time.Second):
+		s.FailNow("background poll did not start")
+	}
+
+	// The viewer request is coalesced while the scheduler's poll is in flight.
+	s.Require().NoError(s.orchestrator.RefreshPullRequestStatus(ctx, task.ID))
+	close(finishPoll)
+	s.Require().NoError(<-backgroundResult)
+
+	// The completed poll also throttles another immediate foreground refresh.
+	s.Require().NoError(s.orchestrator.RefreshPullRequestStatus(ctx, task.ID))
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestForegroundRefreshOverridesAgeBasedInterval() {
+	ctx := context.Background()
+	task := makePullRequestTask(1)
+	startedAt := time.Now().Add(-48 * time.Hour)
+	task.StatusUpdatedAt = &startedAt
+	s.Require().True(s.orchestrator.beginPRPoll(task.ID, time.Minute, time.Now().Add(-5*time.Minute)))
+	s.orchestrator.finishPRPoll(task.ID)
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	s.gitService.EXPECT().GetPullRequest(ctx, "repo-1", "1").Return(nil, fmt.Errorf("upstream unavailable"))
+
+	s.Require().NoError(s.orchestrator.RefreshPullRequestStatus(ctx, task.ID))
 }
 
 // Regression test for the pod-restart-triggered "wrongly merged" bug.
@@ -964,11 +1515,22 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 	assert.Nil(s.T(), task.MergedAt, "MergedAt must not be set on error")
 }
 
-// When every PR is merged, the orchestrator records MergedToMain/MergedAt
-// metadata but leaves task.Status alone — the only path to done is now an
-// approved mark_task_complete proposal (or the user-initiated approve-
-// implementation flow), not PR merge state.
-func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllMerged_RecordsMetadataNoTransition() {
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_PendingFollowUpStaysInPullRequest() {
+	ctx := context.Background()
+	task := makePullRequestTask(2)
+	task.RepoPullRequests[0].PRState = "merged"
+	task.RepoPullRequests[1].PRID = ""
+	task.RepoPullRequests[1].PRState = "unknown"
+	s.gitService.EXPECT().GetPullRequest(ctx, "repo-1", "1").Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
+
+	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
+	s.Equal(types.TaskStatusPullRequest, task.Status)
+	s.False(task.MergedToMain)
+}
+
+// Sanity: when every PR genuinely is merged, the task DOES transition to
+// done. Guards against an over-eager fix that breaks the happy path.
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllMerged_TransitionsToDone() {
 	ctx := context.Background()
 	task := makePullRequestTask(2)
 
@@ -979,14 +1541,79 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 		GetPullRequest(ctx, "repo-2", "2").
 		Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
 	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).Return(nil)
+	s.store.EXPECT().DismissAttentionEventsForTask(ctx, "task-pr-1").Return(int64(0), nil)
 
 	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
 	s.Require().NoError(err)
 
-	assert.Equal(s.T(), types.TaskStatusPullRequest, task.Status,
-		"all-PRs-merged no longer transitions to done; agent must call mark_task_complete")
+	assert.Equal(s.T(), types.TaskStatusDone, task.Status)
 	assert.True(s.T(), task.MergedToMain)
 	assert.NotNil(s.T(), task.MergedAt)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_BackfillsPRMetadata() {
+	ctx := context.Background()
+	task := makePullRequestTask(2)
+	task.RepoPullRequests[1].PRNumber = 0
+	task.RepoPullRequests[1].PRURL = ""
+
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(&types.PullRequest{Number: 1, State: types.PullRequestStateOpen}, nil)
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-2", "2").
+		Return(&types.PullRequest{
+			Number: 42,
+			URL:    "https://github.com/helixml/helix/pull/42",
+			State:  types.PullRequestStateMerged,
+		}, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, task).Return(nil)
+
+	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
+	s.Require().NoError(err)
+
+	assert.Equal(s.T(), 42, task.RepoPullRequests[1].PRNumber)
+	assert.Equal(s.T(), "https://github.com/helixml/helix/pull/42", task.RepoPullRequests[1].PRURL)
+	assert.Equal(s.T(), "merged", task.RepoPullRequests[1].PRState)
+	assert.Equal(s.T(), types.TaskStatusPullRequest, task.Status)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_TerminalCISkipsUnchangedHeadAndPollsNewHead() {
+	ctx := context.Background()
+	task := makePullRequestTask(1)
+	task.RepoPullRequests[0].CIStatus = CIStatusNone
+	task.RepoPullRequests[0].CIHeadSHA = "sha-1"
+
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(&types.PullRequest{State: types.PullRequestStateOpen, HeadSHA: "sha-1", BaseSHA: "base-sha"}, nil)
+	s.gitService.EXPECT().
+		GetCIStatus(ctx, "repo-1", "1", "sha-1").
+		Return(&types.CIStatus{State: CIStatusPassed}, nil)
+	s.gitService.EXPECT().
+		GetCIStatus(ctx, "repo-1", "1", "base-sha").
+		Return(&types.CIStatus{State: CIStatusPassed}, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, task).Return(nil)
+	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
+	s.Equal("base-sha", task.RepoPullRequests[0].CIBaseSHA)
+	s.Equal(CIStatusPassed, task.RepoPullRequests[0].CIBaseStatus)
+
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(&types.PullRequest{State: types.PullRequestStateOpen, HeadSHA: "sha-1", BaseSHA: "base-sha"}, nil)
+	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
+
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(&types.PullRequest{State: types.PullRequestStateOpen, HeadSHA: "sha-2", BaseSHA: "base-sha"}, nil)
+	s.gitService.EXPECT().
+		GetCIStatus(ctx, "repo-1", "1", "sha-2").
+		Return(&types.CIStatus{State: CIStatusRunning}, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, task).Return(nil)
+
+	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
+	s.Equal("sha-2", task.RepoPullRequests[0].CIHeadSHA)
+	s.Equal(CIStatusRunning, task.RepoPullRequests[0].CIStatus)
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestCheckTaskForExternalPRActivity_NoPRDoesNotTreatBranchAsMerged() {
@@ -1017,22 +1644,15 @@ func (s *SpecTaskOrchestratorTestSuite) TestCheckTaskForExternalPRActivity_NoPRD
 	s.False(task.MergedToMain)
 }
 
-// All PRs error and task has BranchName set: the prior IsBranchMerged
-// fallback has been removed alongside the PR-merge auto-transition, so
-// the orchestrator now records no state change and returns silently.
-// Keeps the regression pin against any future re-introduction of an
-// auto-transition site here.
-func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllErrorsWithBranch_NoTransition() {
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_NoTrackedPR_StaysInPullRequest() {
 	ctx := context.Background()
-	task := makePullRequestTask(1)
-	task.BranchName = "feature/active-work"
-	task.ProjectID = "proj-1"
+	task := &types.SpecTask{
+		ID:         "task-no-pr",
+		ProjectID:  "proj-1",
+		BranchName: "feature/empty",
+		Status:     types.TaskStatusPullRequest,
+	}
 
-	s.gitService.EXPECT().
-		GetPullRequest(ctx, "repo-1", "1").
-		Return(nil, fmt.Errorf("simulated gitlab 502"))
-
-	// No UpdateSpecTask — every PR errored, no state changed.
 	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
 	s.Require().NoError(err)
 
@@ -1064,4 +1684,106 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_Mer
 	assert.Equal(s.T(), types.TaskStatusPullRequest, task.Status,
 		"task must stay in pull_request when at least one PR errors")
 	assert.False(s.T(), task.MergedToMain)
+}
+
+func TestShouldArchiveStaleTask(t *testing.T) {
+	assert.Equal(t, time.Hour, staleArchiveSweepInterval)
+
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	ago := func(d time.Duration) *time.Time {
+		t := now.Add(-d)
+		return &t
+	}
+	proj := func(enabled bool, staleDays int) *types.Project {
+		return &types.Project{
+			ArchiveStaleTasksEnabled: enabled,
+			ArchiveStaleTasksDays:    staleDays,
+		}
+	}
+
+	tests := []struct {
+		name string
+		proj *types.Project
+		task *types.SpecTask
+		want bool
+	}{
+		{
+			name: "stale archiving disabled leaves idle backlog",
+			proj: proj(false, 6),
+			task: &types.SpecTask{Status: types.TaskStatusBacklog, CreatedAt: now.Add(-30 * 24 * time.Hour)},
+			want: false,
+		},
+		{
+			name: "idle backlog past stale window archives",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusBacklog, CreatedAt: now.Add(-10 * 24 * time.Hour)},
+			want: true,
+		},
+		{
+			name: "recent backlog stays",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusBacklog, CreatedAt: now.Add(-3 * 24 * time.Hour)},
+			want: false,
+		},
+		{
+			name: "recent message resets stale clock",
+			proj: proj(true, 6),
+			task: &types.SpecTask{
+				Status:        types.TaskStatusSpecReview,
+				CreatedAt:     now.Add(-30 * 24 * time.Hour),
+				LastMessageAt: ago(24 * time.Hour),
+			},
+			want: false,
+		},
+		{
+			name: "status update resets stale clock",
+			proj: proj(true, 6),
+			task: &types.SpecTask{
+				Status:          types.TaskStatusSpecReview,
+				CreatedAt:       now.Add(-30 * 24 * time.Hour),
+				StatusUpdatedAt: ago(2 * 24 * time.Hour),
+			},
+			want: false,
+		},
+		{
+			name: "active agent work never stale",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusImplementation, CreatedAt: now.Add(-30 * 24 * time.Hour)},
+			want: false,
+		},
+		{
+			name: "open pull request never stale",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusPullRequest, CreatedAt: now.Add(-30 * 24 * time.Hour)},
+			want: false,
+		},
+		{
+			name: "completed task is handled by event automation",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusDone, CreatedAt: now.Add(-30 * 24 * time.Hour)},
+			want: false,
+		},
+		{
+			name: "zero day count falls back to default of six",
+			proj: proj(true, 0),
+			task: &types.SpecTask{Status: types.TaskStatusBacklog, CreatedAt: now.Add(-8 * 24 * time.Hour)},
+			want: true,
+		},
+		{
+			name: "zero day count default does not archive seven-day-old idle with recent message",
+			proj: proj(true, 0),
+			task: &types.SpecTask{
+				Status:        types.TaskStatusBacklog,
+				CreatedAt:     now.Add(-8 * 24 * time.Hour),
+				LastMessageAt: ago(5 * 24 * time.Hour),
+			},
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, shouldArchiveStaleTask(tc.proj, tc.task, now))
+		})
+	}
 }

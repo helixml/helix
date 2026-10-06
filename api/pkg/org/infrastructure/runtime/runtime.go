@@ -138,12 +138,6 @@ func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.NodeID, _ str
 type ProjectConfig interface {
 	GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.NodeID) (ProjectConfigSnapshot, error)
 	UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.NodeID, patch ProjectConfigPatch) (ProjectConfigSnapshot, error)
-	// ListWorkerProjectSecrets returns the worker's project secrets as a
-	// name→value map, read live so a secret added after the container
-	// booted is visible without a restart. Backs the list_secrets tool:
-	// the agent reads these and exports the ones it needs, the same way
-	// mint_credential feeds gh/git tokens into the shell.
-	ListWorkerProjectSecrets(ctx context.Context, orgID string, workerID orgchart.NodeID) (map[string]string, error)
 }
 
 // ProjectConfigSnapshot is the read shape returned by
@@ -181,10 +175,6 @@ func (NoopProjectConfig) UpdateWorkerProjectConfig(_ context.Context, _ string, 
 	return ProjectConfigSnapshot{}, ErrProjectConfigUnsupported
 }
 
-func (NoopProjectConfig) ListWorkerProjectSecrets(_ context.Context, _ string, _ orgchart.NodeID) (map[string]string, error) {
-	return nil, ErrProjectConfigUnsupported
-}
-
 // ErrProjectConfigUnsupported is what the noop impl returns. Tools
 // translate it into a friendly snackbar / MCP error.
 var ErrProjectConfigUnsupported = errors.New("project config access not wired on this runtime")
@@ -218,9 +208,22 @@ type SpecTasks interface {
 	// StartPlanning begins spec generation (or queues implementation
 	// when the task is in skip-planning / just-do-it mode).
 	StartPlanning(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
+	// SendAgentMessage queues a follow-up turn for the task's canonical
+	// planning session. A non-interrupt message waits for the current turn;
+	// an interrupt message cancels the current turn before delivery.
+	SendAgentMessage(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string, in SpecTaskMessageInput) (SpecTaskMessageView, error)
+	// ListAgentMessages returns the latest turns from the task's canonical
+	// planning session in chronological order.
+	ListAgentMessages(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string, limit int) ([]SpecTaskAgentMessageView, error)
+	// StartAgent resumes the task's existing stopped desktop and preserves its
+	// conversation thread. The task must already have a planning session.
+	StartAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskAgentActionView, error)
 	// StopAgent stops the task's running desktop, if any. It leaves the task
 	// and session records intact so work can be resumed.
 	StopAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
+	// RestartAgent recreates the task's desktop through the canonical session
+	// restart path, preserving a healthy conversation and recovering a wedged one.
+	RestartAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskAgentActionView, error)
 	// ReviewSpec returns the generated requirements/design/tasks for the
 	// caller to review before approving or requesting changes.
 	ReviewSpec(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecReviewView, error)
@@ -246,6 +249,20 @@ type CreateSpecTaskInput struct {
 	OriginalPrompt string   `json:"original_prompt,omitempty"`
 	SkipPlanning   bool     `json:"skip_planning,omitempty"`
 	DependsOn      []string `json:"depends_on,omitempty"`
+
+	// SandboxVCPUs picks the sandbox size preset by vCPU count; memory follows.
+	// The selectable counts are types.SpecTaskSandboxPresets.
+	// SandboxRuntime picks ubuntu-desktop or headless-ubuntu. Both are 0/""
+	// for "use the project default".
+	//
+	// These exist because a Worker that needed a bigger or headless sandbox
+	// had no way to say so through MCP and fell back to hand-writing a curl
+	// against the REST API — which meant hand-writing the whole create body,
+	// including a code-agent config copied from some earlier task. That is how
+	// a Bot running opencode ended up filing deepseek_harness tasks. Covering
+	// the knobs here removes the reason to leave the tool.
+	SandboxVCPUs   int    `json:"sandbox_vcpus,omitempty"`
+	SandboxRuntime string `json:"sandbox_runtime,omitempty"`
 }
 
 // UpdateSpecTaskInput is the safe metadata-edit surface. Lifecycle state
@@ -257,6 +274,46 @@ type UpdateSpecTaskInput struct {
 	Priority     *string   `json:"priority,omitempty"`
 	SkipPlanning *bool     `json:"skip_planning,omitempty"`
 	DependsOn    *[]string `json:"depends_on,omitempty"`
+}
+
+// SpecTaskMessageInput is one follow-up turn for a task's running agent.
+// Interrupt false preserves ordering by waiting for the current turn; true
+// cancels the current turn before the message is dispatched.
+type SpecTaskMessageInput struct {
+	Content   string `json:"content"`
+	Interrupt bool   `json:"interrupt,omitempty"`
+}
+
+// SpecTaskMessageView identifies the durable prompt queued for an agent.
+// Delivery is asynchronous; consumers observe the response through the
+// existing spec-task transcript/event surfaces.
+type SpecTaskMessageView struct {
+	TaskID    string `json:"task_id"`
+	SessionID string `json:"session_id"`
+	PromptID  string `json:"prompt_id"`
+}
+
+// SpecTaskAgentMessageView is the safe transcript projection exposed to org
+// agents. It deliberately excludes system prompts, tool payloads, and usage.
+type SpecTaskAgentMessageView struct {
+	InteractionID string    `json:"interaction_id"`
+	PromptID      string    `json:"prompt_id,omitempty"`
+	UserMessage   string    `json:"user_message,omitempty"`
+	AgentMessage  string    `json:"agent_message,omitempty"`
+	State         string    `json:"state"`
+	Error         string    `json:"error,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// SpecTaskAgentActionView reports the result of a desktop lifecycle action.
+// Restart-only fields are omitted for start.
+type SpecTaskAgentActionView struct {
+	TaskID       string `json:"task_id"`
+	SessionID    string `json:"session_id"`
+	Status       string `json:"status"`
+	PromptsReset int    `json:"prompts_reset,omitempty"`
+	ThreadReset  bool   `json:"thread_reset,omitempty"`
 }
 
 // ListSpecTasksFilter narrows a List call. Empty fields = no filter.
@@ -277,6 +334,15 @@ type SpecTaskView struct {
 	Type         string            `json:"type,omitempty"`
 	BranchName   string            `json:"branch_name,omitempty"`
 	PullRequests []PullRequestView `json:"pull_requests,omitempty"`
+
+	// What the task will actually run on. Reported back so a Worker can
+	// confirm the sandbox it asked for and see the coding agent it inherited,
+	// without a follow-up call — and so it has no reason to believe it must
+	// set the agent itself.
+	SandboxVCPUs     int    `json:"sandbox_vcpus,omitempty"`
+	SandboxRuntime   string `json:"sandbox_runtime,omitempty"`
+	CodeAgentRuntime string `json:"code_agent_runtime,omitempty"`
+	CodeAgentModel   string `json:"code_agent_model,omitempty"`
 }
 
 // PullRequestView is one PR opened for a task's repo. CreatePullRequests
@@ -317,8 +383,20 @@ func (NoopSpecTasks) Update(_ context.Context, _ string, _ orgchart.NodeID, _, _
 func (NoopSpecTasks) StartPlanning(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
+func (NoopSpecTasks) SendAgentMessage(_ context.Context, _ string, _ orgchart.NodeID, _, _ string, _ SpecTaskMessageInput) (SpecTaskMessageView, error) {
+	return SpecTaskMessageView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) ListAgentMessages(_ context.Context, _ string, _ orgchart.NodeID, _, _ string, _ int) ([]SpecTaskAgentMessageView, error) {
+	return nil, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) StartAgent(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskAgentActionView, error) {
+	return SpecTaskAgentActionView{}, ErrSpecTasksUnsupported
+}
 func (NoopSpecTasks) StopAgent(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) RestartAgent(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskAgentActionView, error) {
+	return SpecTaskAgentActionView{}, ErrSpecTasksUnsupported
 }
 func (NoopSpecTasks) ReviewSpec(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecReviewView, error) {
 	return SpecReviewView{}, ErrSpecTasksUnsupported

@@ -149,7 +149,8 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     justifyContent: "space-between",
                     px: 3,
                     py: 1,
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
                     flexShrink: 0,
                 }}
             >
@@ -158,7 +159,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     <Typography
                         variant="body2"
                         sx={{
-                            color: "rgba(255, 255, 255, 0.7)",
+                            color: "text.secondary",
                             textAlign: "center",
                         }}
                     >

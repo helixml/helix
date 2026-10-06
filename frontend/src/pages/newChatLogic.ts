@@ -1,26 +1,44 @@
 import {
-  TypesCodeAgentOverrides,
+  TypesCodeAgentExecutionConfig,
   TypesCreateTaskRequest,
-  TypesProviderEndpoint,
   TypesSandboxResourceOverrides,
+  TypesSandboxRuntime,
   TypesSpecTaskPriority,
 } from '../api/api'
 
 export type NewChatTaskMode = 'plan' | 'build'
-export type NewChatReasoningEffort = 'none' | 'low' | 'medium' | 'high'
-
-// Mirrors the tiers agent settings offers and types.ValidReasoningEffort accepts.
-export const NEW_CHAT_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
-  value: NewChatReasoningEffort
-  label: string
-}> = [
-  { value: 'none', label: 'Off' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-]
 
 const PROJECT_CHAT_AGENT_STORAGE_PREFIX = 'helix_project_chat_agent'
+const NEW_CHAT_TASK_MODE_STORAGE_PREFIX = 'helix_project_task_mode'
+
+export function newChatTaskModeStorageKey(
+  userId: string,
+  orgId: string,
+  projectId: string,
+): string {
+  return `${NEW_CHAT_TASK_MODE_STORAGE_PREFIX}:${userId}:${orgId}:${projectId}`
+}
+
+export function readNewChatTaskMode(value: string | null): NewChatTaskMode {
+  return value === 'plan' ? 'plan' : 'build'
+}
+
+export function parseOrgDefaultRuntime(value?: string): TypesCodeAgentExecutionConfig | undefined {
+  if (!value) return undefined
+  try {
+    const config = JSON.parse(value)
+    if (!config.code_agent_runtime || !config.code_agent_credential_type || !config.model) return undefined
+    return {
+      runtime: config.code_agent_runtime,
+      credential_type: config.code_agent_credential_type,
+      provider_ref: config.provider || undefined,
+      model: config.model,
+      reasoning_effort: config.reasoning_effort || 'none',
+    }
+  } catch {
+    return undefined
+  }
+}
 
 export function projectChatAgentStorageKey(orgId: string): string {
   return `${PROJECT_CHAT_AGENT_STORAGE_PREFIX}:${orgId}`
@@ -35,29 +53,6 @@ export function chooseProjectChatAgentId(
     : availableIds[0] || ''
 }
 
-export function readNewChatReasoningEffort(value: string | null): NewChatReasoningEffort {
-  return NEW_CHAT_REASONING_EFFORT_OPTIONS.some((option) => option.value === value)
-    ? value as NewChatReasoningEffort
-    : 'medium'
-}
-
-export function modelSupportsReasoningEffort(
-  providers: TypesProviderEndpoint[],
-  providerRef: string,
-  modelId: string,
-): boolean {
-  if (!modelId) return false
-  return providers.some((provider) => {
-    const matchesProvider = !providerRef
-      || provider.id === providerRef
-      || provider.name?.toLowerCase() === providerRef.toLowerCase()
-    if (!matchesProvider) return false
-    return provider.available_models?.some(
-      (model) => model.id === modelId && model.model_info?.supports_reasoning_effort,
-    ) || false
-  })
-}
-
 export function newChatHeading(projectName?: string): string {
   return projectName
     ? `What should we build in ${projectName}?`
@@ -65,32 +60,40 @@ export function newChatHeading(projectName?: string): string {
 }
 
 export function buildNewChatTaskRequest({
-  appId,
   mode,
   projectId,
   prompt,
-  codeAgentOverrides,
+  codeAgentConfig,
   sandboxResourceOverrides,
+  sandboxRuntime,
+  autoApprovePullRequests,
 }: {
-  appId?: string
-  codeAgentOverrides?: TypesCodeAgentOverrides
+  /** Omitted lets the server apply the project's default. */
+  autoApprovePullRequests?: boolean
+  codeAgentConfig?: TypesCodeAgentExecutionConfig
   mode: NewChatTaskMode
   projectId: string
   prompt: string
   sandboxResourceOverrides?: TypesSandboxResourceOverrides
+  sandboxRuntime?: TypesSandboxRuntime
 }): TypesCreateTaskRequest {
   return {
-    app_id: appId || undefined,
     auto_start: false,
     just_do_it_mode: mode === 'build',
     priority: TypesSpecTaskPriority.SpecTaskPriorityMedium,
     project_id: projectId,
     prompt,
-    ...(codeAgentOverrides && Object.values(codeAgentOverrides).some(Boolean)
-      ? { code_agent_overrides: codeAgentOverrides }
+    ...(codeAgentConfig
+      ? mode === 'plan'
+        ? { planning_code_agent_config: codeAgentConfig }
+        : { code_agent_config: codeAgentConfig }
       : {}),
     ...(sandboxResourceOverrides
       ? { sandbox_resource_overrides: sandboxResourceOverrides }
+      : {}),
+    ...(sandboxRuntime ? { sandbox_runtime: sandboxRuntime } : {}),
+    ...(autoApprovePullRequests !== undefined
+      ? { auto_approve_pull_requests: autoApprovePullRequests }
       : {}),
   }
 }

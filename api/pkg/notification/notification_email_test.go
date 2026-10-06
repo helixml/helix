@@ -9,6 +9,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func Test_getEmailMessage_WaitlistApprovedPassesTrialPending(t *testing.T) {
+	notifier := &Email{cfg: &config.Notifications{}}
+	_, message, err := notifier.getEmailMessage(&Notification{
+		Event:        types.EventWaitlistApproved,
+		TrialDays:    30,
+		TrialPending: true,
+	})
+	require.NoError(t, err)
+	require.Contains(t, message, "Your 30-day free trial will activate automatically when you create your first organization.")
+}
+
 func Test_getEmailMessage_CronTriggerComplete(t *testing.T) {
 	cfg := &config.Notifications{
 		AppURL: "https://app.helix.ai",

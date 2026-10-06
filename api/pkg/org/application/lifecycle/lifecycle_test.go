@@ -12,9 +12,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	"github.com/helixml/helix/api/pkg/org/internal/orgtest"
 )
 
 type recordingAgentDeliveryCleaner struct {
@@ -39,12 +38,12 @@ func (c *recordingAgentDeliveryCleaner) RestoreAgent(orgID string, agentID orgch
 // see s-transcript-w-ai-1 and s-transcript-w-test-ai even though those
 // bots are gone": the Delete cascade tore down subscriptions, runtime
 // state, and the bot row — but left the per-Bot transcript
-// (s-transcript-<botID>) lying around, so the Topics page kept rendering
-// ghost rows for bots that no longer existed and the chart's orphan
-// strip filled up with dashed pseudo-nodes.
+// (s-transcript-<botID>) lying around, so the Triggers page kept
+// rendering ghost rows for bots that no longer existed and the chart's
+// orphan strip filled up with dashed pseudo-nodes.
 //
 // Activation events themselves are still audit-retained (the
-// `org_events` rows survive); only the Topic row is cleaned up so the
+// `org_events` rows survive); only the Trigger row is cleaned up so the
 // UI surfaces stop showing it as an active channel.
 func TestDelete_RemovesBotsTranscript(t *testing.T) {
 	t.Parallel()
@@ -60,36 +59,26 @@ func TestDelete_RemovesBotsTranscript(t *testing.T) {
 	if err := st.Nodes.Create(ctx, bot); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
-	topicID := activation.TranscriptID(bot.ID)
-	topic, err := streaming.NewTopic(
-		topicID, "Activations: w-ghost", "test",
-		bot.ID, time.Now().UTC(),
-		transport.Transport{}, orgID,
-	)
-	if err != nil {
-		t.Fatalf("new topic: %v", err)
-	}
-	if err := st.Topics.Create(ctx, topic); err != nil {
-		t.Fatalf("create topic: %v", err)
+	transcriptID := activation.TranscriptID(bot.ID)
+	orgtest.Trigger(t, st, orgID, transcriptID)
+
+	// Sanity: the channel is there before we delete.
+	if !triggerExists(t, st, orgID, transcriptID) {
+		t.Fatal("precondition: transcript not seeded")
 	}
 
-	// Sanity: the topic is there before we delete.
-	if _, err := st.Topics.Get(ctx, orgID, topicID); err != nil {
-		t.Fatalf("precondition: transcript not seeded: %v", err)
-	}
-
-	svc := &lifecycle.Service{Store: st, NodeReconcilers: []lifecycle.NodeReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})}}
+	svc := &lifecycle.Service{Store: st, NodeReconcilers: []lifecycle.NodeReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Triggers: st.Triggers, Attachments: st.WorkerAttachments})}}
 	if err := svc.Delete(ctx, orgID, bot.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	// The topic row must be gone.
-	if _, err := st.Topics.Get(ctx, orgID, topicID); err == nil {
-		t.Fatalf("transcript %q still exists after Delete — orphan regression", topicID)
+	// The Trigger row must be gone.
+	if triggerExists(t, st, orgID, transcriptID) {
+		t.Fatalf("transcript %q still exists after Delete — orphan regression", transcriptID)
 	}
 }
 
-// TestDelete_CascadesReportingLinesAndSubscriptions pins the two cascade
+// TestDelete_CascadesReportingLinesAndAttachments pins the two cascade
 // bugs found in the 2026-06-06 QA run, now handled structurally by the
 // store:
 //
@@ -97,9 +86,9 @@ func TestDelete_RemovesBotsTranscript(t *testing.T) {
 //     now-deleted bot. With reporting lines, deleting the manager must
 //     drop every line that references it (the gorm store does this with
 //     ON DELETE CASCADE; the memory store mirrors it).
-//   - F5: deleting a bot deleted its s-transcript-<id> topic but
-//     left OTHER bots' subscriptions to that topic behind.
-func TestDelete_CascadesReportingLinesAndSubscriptions(t *testing.T) {
+//   - F5: deleting a bot deleted its s-transcript-<id> channel but
+//     left OTHER bots' attachments to it behind.
+func TestDelete_CascadesReportingLinesAndAttachments(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	st := orggorm.GetOrgTestDB(t)
@@ -128,25 +117,13 @@ func TestDelete_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 		t.Fatalf("add reporting line: %v", err)
 	}
 
-	// The manager's transcript + an outside subscriber (mirrors the
-	// caller auto-subscribed to a new bot's activations).
-	mgrTopic := activation.TranscriptID(mgr.ID)
-	topic, err := streaming.NewTopic(mgrTopic, "Activations: w-mgr", "test", mgr.ID, time.Now().UTC(), transport.Transport{}, orgID)
-	if err != nil {
-		t.Fatalf("new topic: %v", err)
-	}
-	if err := st.Topics.Create(ctx, topic); err != nil {
-		t.Fatalf("create topic: %v", err)
-	}
-	sub, err := streaming.NewSubscription("w-report", mgrTopic, time.Now().UTC(), orgID)
-	if err != nil {
-		t.Fatalf("new subscription: %v", err)
-	}
-	if err := st.Subscriptions.Create(ctx, sub); err != nil {
-		t.Fatalf("create subscription: %v", err)
-	}
+	// The manager's transcript + an outside observer (mirrors the caller
+	// auto-attached to a new bot's activations).
+	mgrTranscript := activation.TranscriptID(mgr.ID)
+	orgtest.Trigger(t, st, orgID, mgrTranscript)
+	orgtest.AttachTrigger(t, st, orgID, "w-report", mgrTranscript)
 
-	svc := &lifecycle.Service{Store: st, NodeReconcilers: []lifecycle.NodeReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})}}
+	svc := &lifecycle.Service{Store: st, NodeReconcilers: []lifecycle.NodeReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Triggers: st.Triggers, Attachments: st.WorkerAttachments})}}
 	if err := svc.Delete(ctx, orgID, mgr.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -160,20 +137,16 @@ func TestDelete_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 		t.Fatalf("w-report still reports to %v after deleting its manager, want none (F8 dangling-line regression)", managers)
 	}
 
-	// F5: no subscription may reference the deleted transcript.
-	subs, err := st.Subscriptions.ListForTopic(ctx, orgID, mgrTopic)
-	if err != nil {
-		t.Fatalf("list subscriptions for topic: %v", err)
-	}
-	if len(subs) != 0 {
-		t.Fatalf("found %d subscription(s) to deleted topic %q, want 0 (F5 orphan-subscription regression)", len(subs), mgrTopic)
+	// F5: no attachment may reference the deleted transcript.
+	if got := triggerMembers(t, st, orgID, mgrTranscript); len(got) != 0 {
+		t.Fatalf("found %d attachment(s) to deleted channel %q, want 0 (F5 orphan regression)", len(got), mgrTranscript)
 	}
 }
 
 // TestDelete_TearsDownDMChannelToReports pins the 2026-06-16 QA finding:
 // deleting a manager left the 1:1 DM channel (`s-dm-<mgr>-<report>`) it
 // shared with each direct report lying around — the report stayed
-// subscribed to a DM with a now-deleted bot. The reconciler's DM-channel
+// attached to a DM with a now-deleted bot. The reconciler's DM-channel
 // teardown is an all-pairs-of-affected scan, so to settle
 // `s-dm-<mgr>-<report>` BOTH endpoints have to be in the affected set;
 // Delete must feed itself + its ex-managers + its ex-reports.
@@ -205,15 +178,15 @@ func TestDelete_TearsDownDMChannelToReports(t *testing.T) {
 		t.Fatalf("add reporting line: %v", err)
 	}
 
-	rec := reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})
+	rec := reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Triggers: st.Triggers, Attachments: st.WorkerAttachments})
 	// Provision the channels the edge implies (transcript observership,
-	// team topic, and — the one under test — the 1:1 DM channel).
+	// team chat, and — the one under test — the 1:1 DM channel).
 	if err := rec.Reconcile(ctx, orgID, "w-mgr", "w-report"); err != nil {
 		t.Fatalf("reconcile (wire edge): %v", err)
 	}
-	dm := channels.DMTopicID("w-mgr", "w-report")
-	if _, err := st.Topics.Get(ctx, orgID, dm); err != nil {
-		t.Fatalf("precondition: DM channel %q should exist after wiring the edge: %v", dm, err)
+	dm := channels.DMTriggerID("w-mgr", "w-report")
+	if !triggerExists(t, st, orgID, dm) {
+		t.Fatalf("precondition: DM channel %q should exist after wiring the edge", dm)
 	}
 
 	svc := &lifecycle.Service{Store: st, NodeReconcilers: []lifecycle.NodeReconciler{rec}}
@@ -223,16 +196,12 @@ func TestDelete_TearsDownDMChannelToReports(t *testing.T) {
 
 	// The DM channel must be gone — not left orphaned referencing the
 	// deleted manager.
-	if _, err := st.Topics.Get(ctx, orgID, dm); err == nil {
+	if triggerExists(t, st, orgID, dm) {
 		t.Fatalf("DM channel %q still exists after deleting the manager — orphan regression", dm)
 	}
-	// And the surviving report must not still be subscribed to it.
-	subs, err := st.Subscriptions.ListForTopic(ctx, orgID, dm)
-	if err != nil {
-		t.Fatalf("list subscriptions for DM topic: %v", err)
-	}
-	if len(subs) != 0 {
-		t.Fatalf("found %d subscription(s) to torn-down DM %q, want 0", len(subs), dm)
+	// And the surviving report must not still be attached to it.
+	if got := triggerMembers(t, st, orgID, dm); len(got) != 0 {
+		t.Fatalf("found %d attachment(s) to torn-down DM %q, want 0", len(got), dm)
 	}
 }
 
@@ -242,7 +211,7 @@ func TestDelete_TearsDownDMChannelToReports(t *testing.T) {
 func newLifecycleSvc(st *store.Store) *lifecycle.Service {
 	return &lifecycle.Service{
 		Store:           st,
-		NodeReconcilers: []lifecycle.NodeReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})},
+		NodeReconcilers: []lifecycle.NodeReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Triggers: st.Triggers, Attachments: st.WorkerAttachments})},
 	}
 }
 
@@ -280,16 +249,16 @@ func TestDelete_ReconcilesSurvivingReport(t *testing.T) {
 	}
 
 	svc := newLifecycleSvc(st)
-	// Provision the channels the edge implies (team topic + DM channel).
+	// Provision the channels the edge implies (team chat + DM channel).
 	if err := svc.NodeReconcilers[0].Reconcile(ctx, orgID, "w-mgr", "w-ic"); err != nil {
 		t.Fatalf("reconcile (wire edge): %v", err)
 	}
-	dm := channels.DMTopicID("w-mgr", "w-ic")
-	if _, err := st.Topics.Get(ctx, orgID, dm); err != nil {
-		t.Fatalf("precondition: DM channel %q should exist: %v", dm, err)
+	dm := channels.DMTriggerID("w-mgr", "w-ic")
+	if !triggerExists(t, st, orgID, dm) {
+		t.Fatalf("precondition: DM channel %q should exist", dm)
 	}
-	if _, err := st.Topics.Get(ctx, orgID, "s-team-w-mgr"); err != nil {
-		t.Fatalf("precondition: team topic s-team-w-mgr should exist: %v", err)
+	if !triggerExists(t, st, orgID, "s-team-w-mgr") {
+		t.Fatal("precondition: team chat s-team-w-mgr should exist")
 	}
 
 	if err := svc.Delete(ctx, orgID, "w-mgr"); err != nil {
@@ -312,11 +281,11 @@ func TestDelete_ReconcilesSurvivingReport(t *testing.T) {
 		t.Fatalf("w-ic still reports to %v after its manager was deleted", mgrs)
 	}
 	// No orphaned comms channels referencing the deleted manager.
-	if _, err := st.Topics.Get(ctx, orgID, dm); err == nil {
+	if triggerExists(t, st, orgID, dm) {
 		t.Fatalf("DM channel %q orphaned after Delete", dm)
 	}
-	if _, err := st.Topics.Get(ctx, orgID, "s-team-w-mgr"); err == nil {
-		t.Fatal("team topic s-team-w-mgr orphaned after Delete")
+	if triggerExists(t, st, orgID, "s-team-w-mgr") {
+		t.Fatal("team chat s-team-w-mgr orphaned after Delete")
 	}
 }
 
@@ -395,4 +364,28 @@ func TestDelete_MissingBotErrorsWithNoSideEffects(t *testing.T) {
 	if _, err := st.Nodes.Get(ctx, orgID, "w-bystander"); err != nil {
 		t.Fatalf("bystander must be untouched by a failed Delete: %v", err)
 	}
+}
+
+// triggerExists reports whether a Trigger row is present.
+func triggerExists(t *testing.T, st *store.Store, orgID, id string) bool {
+	t.Helper()
+	rows, err := st.Triggers.Find(context.Background(), store.WithOrg(orgID), store.WithID(id), store.WithLimit(1))
+	if err != nil {
+		t.Fatalf("find trigger %q: %v", id, err)
+	}
+	return len(rows) > 0
+}
+
+// triggerMembers returns the Workers attached to a Trigger.
+func triggerMembers(t *testing.T, st *store.Store, orgID, id string) []orgchart.NodeID {
+	t.Helper()
+	rows, err := st.WorkerAttachments.Find(context.Background(), store.WithOrg(orgID), store.WithTriggerID(id))
+	if err != nil {
+		t.Fatalf("find attachments for %q: %v", id, err)
+	}
+	out := make([]orgchart.NodeID, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, a.WorkerID)
+	}
+	return out
 }

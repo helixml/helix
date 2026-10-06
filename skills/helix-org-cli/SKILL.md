@@ -40,7 +40,7 @@ helix org processors list [--org NAME]
 ```bash
 helix api /orgs/unmanned-org/bots
 helix api -X POST /orgs/unmanned-org/bots/chief-of-staff/activate
-helix api -X POST /orgs/unmanned-org/bots/b-mason/stop-agent
+helix api -X POST /orgs/unmanned-org/bots/b-mason/stop
 helix api --input '{"…":…}' -X POST /sessions/chat
 echo '{"message":"hi"}' | helix api -X POST /sessions/ses_…/chat --input -
 ```

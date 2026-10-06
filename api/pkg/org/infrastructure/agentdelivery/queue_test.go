@@ -3,6 +3,7 @@ package agentdelivery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -44,6 +45,40 @@ func TestQueueRetriesFailedActivation(t *testing.T) {
 	mu.Lock()
 	require.Equal(t, 2, attempts)
 	mu.Unlock()
+}
+
+func TestQueueDoesNotRetryNonRetryableActivation(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	seen := make(chan string, 2)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		seen <- triggers[0].EventID
+		if triggers[0].EventID == "terminal" {
+			return fmt.Errorf("provider balance: %w", activation.ErrNonRetryable)
+		}
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "terminal"})
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "next"})
+	require.Equal(t, "terminal", <-seen)
+	select {
+	case got := <-seen:
+		require.Equal(t, "next", got)
+	case <-time.After(2 * time.Second):
+		t.Fatal("next activation remained blocked behind non-retryable failure")
+	}
+}
+
+func TestRetryDelay(t *testing.T) {
+	require.Equal(t, time.Second, retryDelay(1))
+	require.Equal(t, 2*time.Second, retryDelay(2))
+	require.Equal(t, 30*time.Minute, retryDelay(12))
+	require.Equal(t, 30*time.Minute, retryDelay(^uint64(0)))
 }
 
 func TestQueueFansOutPerAgent(t *testing.T) {
@@ -116,4 +151,105 @@ func TestQueueCleanupAgentRemovesConsumerAndPendingMessages(t *testing.T) {
 	q.RestoreAgent("org-test", "agent-a")
 	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerHire, EventID: "recreated"})
 	require.Equal(t, "recreated", <-seen)
+}
+
+func TestQueueCancelOutstandingAllowsFreshActivation(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	seen := make(chan string, 2)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		seen <- triggers[0].EventID
+		if triggers[0].EventID == "old" {
+			return errors.New("unconfigured")
+		}
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "old"})
+	require.Equal(t, "old", <-seen)
+	require.NoError(t, q.CancelOutstanding(context.Background(), "org-test", "agent-a"))
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerManual, EventID: "fresh"})
+	select {
+	case got := <-seen:
+		require.Equal(t, "fresh", got)
+	case <-time.After(5 * time.Second):
+		t.Fatal("fresh activation remained blocked behind cancelled delivery")
+	}
+}
+
+func TestQueueCleanupAgentCancelsRunningActivation(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	started := make(chan struct{})
+	exited := make(chan struct{})
+	q, err := New(context.Background(), n, func(ctx context.Context, _ string, _ orgchart.NodeID, _ []activation.Trigger) error {
+		close(started)
+		<-ctx.Done()
+		close(exited)
+		return ctx.Err()
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "e-1"})
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("activation did not start")
+	}
+
+	require.NoError(t, q.CleanupAgent(context.Background(), "org-test", "agent-a"))
+	select {
+	case <-exited:
+	default:
+		t.Fatal("CleanupAgent returned before the running activation exited")
+	}
+}
+
+func TestQueueCancelOutstandingCancelsRunningActivation(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	started := make(chan struct{}, 2)
+	exited := make(chan struct{}, 2)
+	q, err := New(context.Background(), n, func(ctx context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		started <- struct{}{}
+		if triggers[0].EventID == "e-restart" {
+			return nil
+		}
+		<-ctx.Done()
+		exited <- struct{}{}
+		return ctx.Err()
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "e-1"})
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("activation did not start")
+	}
+	require.NoError(t, q.CancelOutstanding(context.Background(), "org-test", "agent-a"))
+	select {
+	case <-exited:
+	default:
+		t.Fatal("CancelOutstanding returned before the running activation exited")
+	}
+
+	// A restart enqueues a fresh activation right after; it must still run.
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "e-restart"})
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("activation after restart did not start")
+	}
 }

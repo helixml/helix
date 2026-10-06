@@ -62,6 +62,16 @@ type ListSessionsQuery struct {
 	IncludeExternalAgents bool            `json:"include_external_agents"`
 	ExcludeArchived       bool            `json:"exclude_archived"` // Hide archived sessions
 	ArchivedOnly          bool            `json:"archived_only"`    // Return ONLY archived sessions; takes precedence over ExcludeArchived
+	// RestrictToProjects limits results to sessions whose project_id is in
+	// ProjectIDs. An empty ProjectIDs then matches nothing. Used when listing
+	// another member's sessions, which are only visible through projects the
+	// caller can access.
+	RestrictToProjects bool     `json:"restrict_to_projects"`
+	ProjectIDs         []string `json:"project_ids"`
+	// AnyOwner drops the owner clause. Only valid together with a project
+	// scope the caller has been authorized for: it is how a project group
+	// shows every member's chats.
+	AnyOwner bool `json:"any_owner"`
 }
 
 type ListAPIKeysQuery struct {
@@ -174,6 +184,7 @@ type GetAggregatedUsageMetricsQuery struct {
 	OrganizationID   string
 	ProjectID        string
 	SpecTaskID       string
+	TaskID           string
 	AppID            string
 	SessionID        string
 	Provider         string
@@ -188,6 +199,7 @@ type GetOrgUsageSummaryQuery struct {
 	To             time.Time
 	UserID         string
 	ProjectID      string
+	TaskID         string
 	AppID          string
 	SessionID      string
 	Provider       string
@@ -216,6 +228,7 @@ var (
 )
 
 type Store interface {
+	SecretIntakeStore
 	//  Auth + Authz
 	CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
 	GetOrganization(ctx context.Context, q *GetOrganizationQuery) (*types.Organization, error)
@@ -272,6 +285,12 @@ type Store interface {
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
 	UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error
+	// ClaimSessionAutoRestart atomically records a restart unless another restart
+	// was recorded after before.
+	ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error)
+	// SetSessionBotInstanceProfile replaces only config.bot_instance, so it
+	// cannot revert status fields a concurrent writer changed.
+	SetSessionBotInstanceProfile(ctx context.Context, sessionID string, profile types.BotInstanceProfile) error
 	TouchSession(ctx context.Context, sessionID string) error
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
@@ -283,11 +302,16 @@ type Store interface {
 	// Targeted JSONB merge so it cannot race with the streaming path's
 	// full-row writes. Returns true when a row was updated.
 	MarkSessionStartingIfIdle(ctx context.Context, sessionID string) (bool, error)
-	// ClearSessionStartingStatus reverts a "starting" session back to empty
-	// status + empty message, but only when the current status is
-	// "starting". Used by the auto-wake worker on retry exhaustion so the
-	// spinner reverts to "Desktop Paused" instead of staying on
-	// "Starting Desktop..." forever.
+	// MarkSessionRestarting unconditionally flips external_agent_status to
+	// "restarting" + status_message to "Restarting desktop...". Written
+	// before StopDesktop so the teardown+boot window reads as "a boot is in
+	// flight" rather than "stopped" (StopDesktop preserves this marker).
+	MarkSessionRestarting(ctx context.Context, sessionID string) error
+	// ClearSessionStartingStatus reverts a "starting"/"restarting" session
+	// back to empty status + empty message, but only when a boot is actually
+	// marked in flight. Used by the auto-wake worker on retry exhaustion and
+	// by the restart handler's error paths, so the spinner reverts to
+	// "Desktop Paused" instead of staying on a spinner forever.
 	ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error)
 	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
 	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)     // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events
@@ -310,6 +334,24 @@ type Store interface {
 	// handleMessageCompleted. See the lost-update fix in
 	// websocket_external_agent_sync.go.
 	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
+	SetInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error)
+	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error)
+	// BindInteractionExternalAgentRequest persists the request ID before an
+	// external-agent turn is dispatched, so queued turns remain identifiable
+	// across API restarts.
+	BindInteractionExternalAgentRequest(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error)
+	// MarkInteractionExternalAgentDispatched records that the chat command is
+	// being handed to the external agent. The update is guarded by state=waiting.
+	MarkInteractionExternalAgentDispatched(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error)
+	// ClearInteractionExternalAgentDispatched rolls back a failed command enqueue.
+	ClearInteractionExternalAgentDispatched(ctx context.Context, interactionID string, generationID int, requestID string) error
+	// RequestInteractionCancellationIfWaiting durably records user intent before
+	// attempting the WebSocket cancellation protocol.
+	RequestInteractionCancellationIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
+	// MarkInteractionInterruptedIfWaiting atomically completes cancellation
+	// without racing streaming or message-completion writes.
+	MarkInteractionInterruptedIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
+	GetInteractionByExternalAgentRequestID(ctx context.Context, requestID string) (*types.Interaction, error)
 	// MarkInteractionCompleteIfWaiting atomically transitions an interaction
 	// from Waiting → Complete and sets completed=now. Returns true if the row
 	// was transitioned, false if the row was already in a terminal state (no
@@ -587,14 +629,15 @@ type Store interface {
 	GetSpecTasksCount(ctx context.Context, query *GetSpecTasksCountQuery) (int64, error)
 	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
+	UpdateSpecTaskFields(ctx context.Context, taskID string, updates map[string]any) error
 	TransitionSpecTaskStatus(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, extraFields map[string]any) (bool, error)
-	// SetAgentSessionIDIfEmpty atomically claims a spec task's agent_session_id
+	// SetPlanningSessionIDIfEmpty atomically claims a spec task's planning_session_id
 	// slot. Returns true if this caller won the claim (row updated), false if another
-	// caller had already set agent_session_id to a non-empty value. The single SQL
+	// caller had already set planning_session_id to a non-empty value. The single SQL
 	// statement closes the TOCTOU window that a read-then-write guard leaves open and
 	// is the primary defence against two concurrent StartSpecGeneration calls each
 	// creating a session and spawning a dev container against the same workspace.
-	SetAgentSessionIDIfEmpty(ctx context.Context, taskID string, sessionID string) (bool, error)
+	SetPlanningSessionIDIfEmpty(ctx context.Context, taskID string, sessionID string) (bool, error)
 	DeleteSpecTask(ctx context.Context, id string) error
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
 	ListProjectLabels(ctx context.Context, projectID string) ([]string, error)
@@ -609,6 +652,11 @@ type Store interface {
 	DeleteSpecTaskAttachment(ctx context.Context, id string) error
 	ListSpecTaskAttachments(ctx context.Context, specTaskID string) ([]*types.SpecTaskAttachment, error)
 	DeleteSpecTaskAttachmentsByTaskID(ctx context.Context, specTaskID string) error
+
+	CreateSpecTaskPRProposal(ctx context.Context, proposal *types.SpecTaskPRProposal) error
+	GetSpecTaskPRProposal(ctx context.Context, id string) (*types.SpecTaskPRProposal, error)
+	ListSpecTaskPRProposals(ctx context.Context, filter *types.SpecTaskPRProposalFilter) ([]*types.SpecTaskPRProposal, error)
+	UpdateSpecTaskPRProposal(ctx context.Context, proposal *types.SpecTaskPRProposal, fromStatuses ...types.SpecTaskPRProposalStatus) (bool, error)
 
 	// spec-driven task work sessions
 	CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error
@@ -640,6 +688,7 @@ type Store interface {
 	CreateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error
 	GetSpecTaskDesignReview(ctx context.Context, id string) (*types.SpecTaskDesignReview, error)
 	UpdateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error
+	UpdateSpecTaskDesignReviewDocument(ctx context.Context, reviewID, taskID string, reviewUpdates, taskUpdates map[string]any) error
 	DeleteSpecTaskDesignReview(ctx context.Context, id string) error
 	ListSpecTaskDesignReviews(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReview, error)
 	GetLatestDesignReview(ctx context.Context, specTaskID string) (*types.SpecTaskDesignReview, error)
@@ -657,9 +706,9 @@ type Store interface {
 	GetCommentByRequestID(ctx context.Context, requestID string) (*types.SpecTaskDesignReviewComment, error)
 	GetCommentByPromptID(ctx context.Context, promptID string) (*types.SpecTaskDesignReviewComment, error)
 	GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error)
-	GetPendingCommentByAgentSessionID(ctx context.Context, agentSessionID string) (*types.SpecTaskDesignReviewComment, error)
-	GetNextQueuedCommentForSession(ctx context.Context, agentSessionID string) (*types.SpecTaskDesignReviewComment, error)
-	IsCommentBeingProcessedForSession(ctx context.Context, agentSessionID string) (bool, error)
+	GetPendingCommentByPlanningSessionID(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error)
+	GetNextQueuedCommentForSession(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error)
+	IsCommentBeingProcessedForSession(ctx context.Context, planningSessionID string) (bool, error)
 	GetSessionsWithPendingComments(ctx context.Context) ([]string, error)
 	ResetStuckComments(ctx context.Context) (int64, error)
 
@@ -667,12 +716,6 @@ type Store interface {
 	CreateSpecTaskDesignReviewCommentReply(ctx context.Context, reply *types.SpecTaskDesignReviewCommentReply) error
 	GetSpecTaskDesignReviewCommentReply(ctx context.Context, id string) (*types.SpecTaskDesignReviewCommentReply, error)
 	ListSpecTaskDesignReviewCommentReplies(ctx context.Context, commentID string) ([]types.SpecTaskDesignReviewCommentReply, error)
-
-	// spec task proposals (agent proposes PR / sub-task / mark-complete; user approves in UI)
-	CreateSpecTaskProposal(ctx context.Context, proposal *types.SpecTaskProposal) error
-	GetSpecTaskProposal(ctx context.Context, id string) (*types.SpecTaskProposal, error)
-	ListSpecTaskProposals(ctx context.Context, filters *types.SpecTaskProposalFilters) ([]*types.SpecTaskProposal, error)
-	UpdateSpecTaskProposal(ctx context.Context, proposal *types.SpecTaskProposal) error
 
 	// git push events
 	CreateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error
@@ -713,6 +756,7 @@ type Store interface {
 	UpdateAttentionEvent(ctx context.Context, id string, update *types.AttentionEventUpdateRequest) error
 	BulkDismissAttentionEvents(ctx context.Context, userID, organizationID string) (int64, error)
 	DismissAttentionEventsForTask(ctx context.Context, specTaskID string) (int64, error)
+	DismissAttentionEventByKey(ctx context.Context, idempotencyKey string) error
 	CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error)
 
 	// Clone Group methods
@@ -737,10 +781,40 @@ type Store interface {
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
 	GetProject(ctx context.Context, projectID string) (*types.Project, error)
 	ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error)
-	ListProjectsWithActiveGoldenBuild(ctx context.Context) ([]*types.Project, error)
 	GetProjectsCount(ctx context.Context, query *GetProjectsCountQuery) (int64, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error
+
+	// Golden Docker cache build state, per project per sandbox
+	ListGoldenBuilds(ctx context.Context, q *ListGoldenBuildsQuery) ([]*types.SandboxCacheState, error)
+	GetGoldenBuild(ctx context.Context, projectID, sandboxID string) (*types.SandboxCacheState, error)
+	UpdateGoldenBuild(ctx context.Context, projectID, sandboxID string, update func(*types.SandboxCacheState) bool) (*types.SandboxCacheState, error)
+	DeleteGoldenBuilds(ctx context.Context, projectID string) error
+
+	// Project artifacts
+	CreateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error
+	GetArtifact(ctx context.Context, artifactID string) (*types.Artifact, error)
+	ListArtifacts(ctx context.Context, query *ListArtifactsQuery) ([]*types.Artifact, error)
+	UpdateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error
+	ListArtifactVersions(ctx context.Context, artifactID string) ([]*types.ArtifactVersion, error)
+	DeleteArtifact(ctx context.Context, artifactID string) error
+
+	// Durable Standard Webhooks endpoints, outbox events, and delivery attempts.
+	CreateWebhookEndpoint(ctx context.Context, endpoint *types.WebhookEndpoint) error
+	GetWebhookEndpoint(ctx context.Context, organizationID, endpointID string) (*types.WebhookEndpoint, error)
+	ListWebhookEndpoints(ctx context.Context, organizationID string) ([]*types.WebhookEndpoint, error)
+	UpdateWebhookEndpointConfig(ctx context.Context, endpoint *types.WebhookEndpoint) error
+	RotateWebhookEndpointSecret(ctx context.Context, endpoint *types.WebhookEndpoint) error
+	DisableWebhookEndpoint(ctx context.Context, organizationID, endpointID, reason, updatedBy string) error
+	ListWebhookDeliveries(ctx context.Context, endpointID string, limit int) ([]*types.WebhookDelivery, error)
+	GetWebhookDelivery(ctx context.Context, endpointID, deliveryID string) (*types.WebhookDelivery, error)
+	GetWebhookEvent(ctx context.Context, eventID string) (*types.WebhookEvent, error)
+	ClaimWebhookDeliveries(ctx context.Context, now, lockedUntil time.Time, limit int) ([]*types.WebhookDelivery, error)
+	CompleteWebhookDelivery(ctx context.Context, update *WebhookDeliveryUpdate) error
+	ReplayWebhookDelivery(ctx context.Context, endpointID, deliveryID string, now time.Time) error
+	// EnqueueWebhookEvent records an event, and a delivery for each matching
+	// endpoint, for state that isn't written in a store transaction of its own.
+	EnqueueWebhookEvent(ctx context.Context, eventType, organizationID, projectID string, data any) error
 	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
 	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
 	DetachRepositoryFromProject(ctx context.Context, projectID string, repoID string) error // NOTE: signature changed to include projectID
@@ -821,13 +895,18 @@ type Store interface {
 	BackfillSandboxMaxSandboxes(ctx context.Context, value int) (int64, error)
 	ResetSandboxOnReconnect(ctx context.Context, id string) error
 	GetSandboxInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
-	FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error)
+	FindAvailableSandboxInstance(ctx context.Context, desktopType string, requiresDisplay bool) (*types.SandboxInstance, error)
 
 	// User Sandbox methods (Sandboxes API — POST /organizations/{org}/sandboxes etc.)
 	CreateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
 	GetSandbox(ctx context.Context, id string) (*types.Sandbox, error)
 	GetSandboxBySession(ctx context.Context, sessionID string) (*types.Sandbox, error)
 	ListSandboxes(ctx context.Context, q *ListSandboxesQuery) ([]*types.Sandbox, error)
+
+	// Organization coding-agent harness policy
+	ListOrgCodeAgentHarnesses(ctx context.Context, orgID string) ([]*types.OrgCodeAgentHarness, error)
+	GetOrgCodeAgentHarness(ctx context.Context, orgID string, runtime types.CodeAgentRuntime) (*types.OrgCodeAgentHarness, error)
+	UpsertOrgCodeAgentHarnesses(ctx context.Context, orgID string, actingUserID string, updates []types.OrgCodeAgentHarnessUpdate) ([]*types.OrgCodeAgentHarness, error)
 	UpdateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
 	SetSandboxStatus(ctx context.Context, id string, status types.SandboxStatus, message string) error
 	SetSandboxBillingLastChargedAt(ctx context.Context, id string, chargedAt time.Time) error
@@ -849,7 +928,7 @@ type Store interface {
 	// Prompt history methods (for cross-device sync)
 	CreatePromptHistoryEntry(ctx context.Context, entry *types.PromptHistoryEntry) error
 	SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
-	ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
+	ListPromptHistory(ctx context.Context, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
 	GetPromptHistoryEntry(ctx context.Context, id string) (*types.PromptHistoryEntry, error)
 	GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
 	GetAnyPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
@@ -857,6 +936,9 @@ type Store interface {
 	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
 	ListPromptHistoryBySession(ctx context.Context, sessionID string) ([]*types.PromptHistoryEntry, error)
 	MarkPromptAsPending(ctx context.Context, promptID string) error
+	// RevertPromptToPending returns a claimed prompt to the queue after a
+	// busy-defer, without charging the retry budget. See the implementation.
+	RevertPromptToPending(ctx context.Context, promptID string) error
 	MarkPromptAsSent(ctx context.Context, promptID string) error
 	// MarkPromptAsFailed records the failure reason and bumps retry_count + next_retry_at
 	// for exponential backoff. errorMsg is shown to the user in the UI; pass err.Error()
@@ -883,10 +965,8 @@ type Store interface {
 	// once at server startup as a one-shot janitor; idempotent and safe to re-run.
 	// Returns the number of prompts reconciled.
 	ReconcileStuckSendingPrompts(ctx context.Context) (int, error)
-	// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
-	// it as "failed" so the retry mechanism picks it up. Used when message_completed
-	// arrives with an empty response (bounce).
-	RequeueBouncedPrompt(ctx context.Context, sessionID string) error
+	// RequeueBouncedPrompt marks an exact in-flight prompt as failed so it can retry.
+	RequeueBouncedPrompt(ctx context.Context, promptID string) error
 	// ClaimPromptForSending atomically transitions a prompt from pending/failed→sending.
 	// Returns true if this caller won the claim (rows affected > 0). If false, another
 	// goroutine already claimed it and the caller must not send the prompt.
@@ -902,8 +982,12 @@ type Store interface {
 	GetClaudeSubscription(ctx context.Context, id string) (*types.ClaudeSubscription, error)
 	GetClaudeSubscriptionForOwner(ctx context.Context, ownerID string, ownerType types.OwnerType) (*types.ClaudeSubscription, error)
 	UpdateClaudeSubscription(ctx context.Context, sub *types.ClaudeSubscription) (*types.ClaudeSubscription, error)
+	UpdateClaudeSubscriptionDelegation(ctx context.Context, id string, orgIDs []string) (*types.ClaudeSubscription, error)
+	UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials string, expiresAt, refreshTokenExpiresAt, refreshedAt time.Time) (bool, error)
+	UpdateClaudeSubscriptionStatus(ctx context.Context, sub *types.ClaudeSubscription) error
 	DeleteClaudeSubscription(ctx context.Context, id string) error
 	ListClaudeSubscriptions(ctx context.Context, ownerID string) ([]*types.ClaudeSubscription, error)
+	GetDelegatedClaudeSubscriptionForOrg(ctx context.Context, orgID string) (*types.ClaudeSubscription, error)
 	GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error)
 	GetSessionClaudeSubscription(ctx context.Context, session *types.Session) (*types.ClaudeSubscription, error)
 	CreateCodexSubscription(ctx context.Context, sub *types.CodexSubscription) (*types.CodexSubscription, error)
@@ -911,6 +995,7 @@ type Store interface {
 	GetCodexSubscriptionForOwner(ctx context.Context, ownerID string, ownerType types.OwnerType) (*types.CodexSubscription, error)
 	UpdateCodexSubscription(ctx context.Context, sub *types.CodexSubscription) (*types.CodexSubscription, error)
 	UpdateCodexSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials, accountID string, refreshedAt time.Time) (bool, error)
+	UpdateCodexSubscriptionIdentity(ctx context.Context, id, accountEmail, accountDisplayName, planType, accountID string) error
 	DeleteCodexSubscription(ctx context.Context, id string) error
 	ListCodexSubscriptions(ctx context.Context, ownerID string) ([]*types.CodexSubscription, error)
 	GetEffectiveCodexSubscription(ctx context.Context, userID, orgID string) (*types.CodexSubscription, error)
@@ -937,4 +1022,17 @@ type Store interface {
 	ListEnabledWebServiceProjectsByRepo(ctx context.Context, repoID string) ([]*types.Project, error)
 	ListActiveWebServices(ctx context.Context) ([]*types.ProjectWebServiceState, error)
 	ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error)
+}
+
+// SecretIntakeStore owns the atomic persistence operations used by secret intake.
+// The API and MCP layers never receive a database handle.
+type SecretIntakeStore interface {
+	CreateSecretIntake(context.Context, *types.SecretIntake) error
+	GetSecretIntake(context.Context, string, string) (*types.SecretIntake, error)
+	GetSecretIntakeByFlow(context.Context, string, time.Time) (*types.SecretIntake, error)
+	RedeemSecretIntakeInvitation(context.Context, string, string, string, string, time.Time, time.Time) (bool, error)
+	SubmitSecretIntake(context.Context, string, string, string, time.Time, time.Time) (bool, error)
+	RevokeSecretIntake(context.Context, string, string) error
+	TakeSecretIntake(context.Context, string, string, time.Time) (string, error)
+	ReapExpiredSecretIntakes(context.Context, time.Time) error
 }

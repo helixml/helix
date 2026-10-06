@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -17,6 +18,52 @@ type seedDispatcher struct {
 	activationIDs []activation.ID
 }
 
+type seedAgentCreator struct{}
+
+func (seedAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
+	return lifecycle.CreatedAgent{LegacyAppID: "app-test"}, nil
+}
+
+func TestSeedChiefOfStaffRespectsDeletionAndExplicitRecreation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	deps := mcptools.DefaultDeps(st).Build()
+	deps.Lifecycle.Agents = seedAgentCreator{}
+	seeder := &orgGraphSeeder{lifecycle: deps.Lifecycle, bots: deps.Nodes, botStore: st.Nodes}
+	const orgID = "org-chief-deletion"
+
+	if err := seeder.SeedChiefOfStaff(ctx, orgID); err != nil {
+		t.Fatalf("seed chief of staff: %v", err)
+	}
+	if err := deps.Lifecycle.Delete(ctx, orgID, chiefOfStaffBotID); err != nil {
+		t.Fatalf("delete chief of staff: %v", err)
+	}
+	if err := seeder.SeedChiefOfStaff(ctx, orgID); err != nil {
+		t.Fatalf("bootstrap after deletion: %v", err)
+	}
+	if _, err := st.Nodes.Get(ctx, orgID, chiefOfStaffBotID); err == nil {
+		t.Fatal("bootstrap recreated explicitly deleted chief of staff")
+	}
+
+	if _, err := deps.Lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
+		ID:              string(chiefOfStaffBotID),
+		Name:            "Chief of Staff",
+		Content:         chiefOfStaffContent,
+		PreserveContext: true,
+		DeferActivation: true,
+	}); err != nil {
+		t.Fatalf("explicitly recreate chief of staff: %v", err)
+	}
+	marked, err := deps.Lifecycle.ChiefOfStaffDeletionMarked(ctx, orgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marked {
+		t.Fatal("explicit recreation did not clear chief of staff deletion marker")
+	}
+}
+
 func (d *seedDispatcher) DispatchHire(_ context.Context, _ string, id orgchart.NodeID, activationID activation.ID) {
 	d.ids = append(d.ids, id)
 	d.activationIDs = append(d.activationIDs, activationID)
@@ -27,6 +74,7 @@ func TestSeedChiefOfStaffPreservesContextForNewBotOnly(t *testing.T) {
 	ctx := context.Background()
 	st := orggorm.GetOrgTestDB(t)
 	deps := mcptools.DefaultDeps(st).Build()
+	deps.Lifecycle.Agents = seedAgentCreator{}
 	dispatcher := &seedDispatcher{}
 	deps.Lifecycle.Dispatcher = dispatcher
 	seeder := &orgGraphSeeder{lifecycle: deps.Lifecycle, bots: deps.Nodes, botStore: st.Nodes}

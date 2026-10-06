@@ -19,6 +19,20 @@ type SandboxDialer interface {
 	Dial(ctx context.Context, key string) (net.Conn, error)
 }
 
+// desktopMCPUnavailableHeader marks a response where the API itself is fine
+// but the session container's desktop-bridge could not be reached. The
+// settings-sync-daemon's MCP readiness probe (api/cmd/settings-sync-daemon)
+// keys on it to tell "the desktop is not up yet" apart from the sandbox
+// proxy's own 502 "Helix API unavailable" (api/pkg/hydra/server.go).
+const desktopMCPUnavailableHeader = "X-Helix-Desktop-Unavailable"
+
+// desktopUnavailable answers for a desktop-bridge that cannot be reached. 503,
+// not 502: the API is healthy, the desktop is not up (yet).
+func desktopUnavailable(w http.ResponseWriter, reason, msg string) {
+	w.Header().Set(desktopMCPUnavailableHeader, reason)
+	http.Error(w, msg, http.StatusServiceUnavailable)
+}
+
 // DesktopMCPBackend implements MCPBackend by proxying MCP requests over
 // RevDial to the desktop HTTP server (port 9876) inside the sandbox
 // container, which serves MCP at /mcp.
@@ -73,7 +87,7 @@ func (b *DesktopMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, us
 			Str("runner_id", runnerID).
 			Str("session_id", sessionID).
 			Msg("desktop MCP: sandbox not connected")
-		http.Error(w, fmt.Sprintf("sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		desktopUnavailable(w, "not-connected", fmt.Sprintf("sandbox not connected: %v", err))
 		return
 	}
 	defer conn.Close()
@@ -102,18 +116,23 @@ func (b *DesktopMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, us
 	}
 	proxyReq.ContentLength = r.ContentLength
 
-	// Write request to RevDial connection
+	// Write request to RevDial connection.
+	//
+	// The RevDial client lives in desktop-bridge and registers before the
+	// bridge's HTTP listener binds (that waits for the GNOME session), so a
+	// tunnel that accepts and then drops the request (EOF) is the normal state
+	// of a desktop that is still booting, not an API fault.
 	if err := proxyReq.Write(conn); err != nil {
-		log.Error().Err(err).Msg("desktop MCP: failed to write request to RevDial")
-		http.Error(w, "failed to forward request to desktop", http.StatusBadGateway)
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("desktop MCP: failed to write request to RevDial")
+		desktopUnavailable(w, "not-listening", "desktop-bridge in the session container is not accepting connections yet")
 		return
 	}
 
 	// Read response from RevDial connection
 	resp, err := http.ReadResponse(bufio.NewReader(conn), proxyReq)
 	if err != nil {
-		log.Error().Err(err).Msg("desktop MCP: failed to read response from RevDial")
-		http.Error(w, "failed to read response from desktop", http.StatusBadGateway)
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("desktop MCP: failed to read response from RevDial")
+		desktopUnavailable(w, "not-listening", "desktop-bridge in the session container is not accepting connections yet")
 		return
 	}
 	defer resp.Body.Close()

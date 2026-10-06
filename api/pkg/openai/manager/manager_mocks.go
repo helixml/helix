@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	openai "github.com/helixml/helix/api/pkg/openai"
+	logger "github.com/helixml/helix/api/pkg/openai/logger"
 	types "github.com/helixml/helix/api/pkg/types"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -110,6 +111,21 @@ func (mr *MockProviderManagerMockRecorder) ListProviderEndpoints(ctx, owner any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProviderEndpoints", reflect.TypeOf((*MockProviderManager)(nil).ListProviderEndpoints), ctx, owner)
 }
 
+// ListProviderEndpointsForOwner mocks base method.
+func (m *MockProviderManager) ListProviderEndpointsForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]*types.ProviderEndpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListProviderEndpointsForOwner", ctx, owner, ownerType)
+	ret0, _ := ret[0].([]*types.ProviderEndpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListProviderEndpointsForOwner indicates an expected call of ListProviderEndpointsForOwner.
+func (mr *MockProviderManagerMockRecorder) ListProviderEndpointsForOwner(ctx, owner, ownerType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProviderEndpointsForOwner", reflect.TypeOf((*MockProviderManager)(nil).ListProviderEndpointsForOwner), ctx, owner, ownerType)
+}
+
 // ListProviders mocks base method.
 func (m *MockProviderManager) ListProviders(ctx context.Context, owner string) ([]types.Provider, error) {
 	m.ctrl.T.Helper()
@@ -123,6 +139,36 @@ func (m *MockProviderManager) ListProviders(ctx context.Context, owner string) (
 func (mr *MockProviderManagerMockRecorder) ListProviders(ctx, owner any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProviders", reflect.TypeOf((*MockProviderManager)(nil).ListProviders), ctx, owner)
+}
+
+// ListProvidersForOwner mocks base method.
+func (m *MockProviderManager) ListProvidersForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]types.Provider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListProvidersForOwner", ctx, owner, ownerType)
+	ret0, _ := ret[0].([]types.Provider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListProvidersForOwner indicates an expected call of ListProvidersForOwner.
+func (mr *MockProviderManagerMockRecorder) ListProvidersForOwner(ctx, owner, ownerType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProvidersForOwner", reflect.TypeOf((*MockProviderManager)(nil).ListProvidersForOwner), ctx, owner, ownerType)
+}
+
+// OpenAIResponsesLogStores mocks base method.
+func (m *MockProviderManager) OpenAIResponsesLogStores() ([]logger.LogStore, logger.LogStore) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OpenAIResponsesLogStores")
+	ret0, _ := ret[0].([]logger.LogStore)
+	ret1, _ := ret[1].(logger.LogStore)
+	return ret0, ret1
+}
+
+// OpenAIResponsesLogStores indicates an expected call of OpenAIResponsesLogStores.
+func (mr *MockProviderManagerMockRecorder) OpenAIResponsesLogStores() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenAIResponsesLogStores", reflect.TypeOf((*MockProviderManager)(nil).OpenAIResponsesLogStores))
 }
 
 // SetRunnerController mocks base method.

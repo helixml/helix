@@ -13,10 +13,16 @@ export function useApproveImplementation(specTaskId: string) {
     mutationFn: async () => {
       const response =
         await apiClient.v1SpecTasksApproveImplementationCreate(specTaskId);
-      return response.data;
+      // 202: external repo — nothing merged or opened; the agent was asked to
+      // push and propose its pull request(s) for approval.
+      return { task: response.data, prsRequested: response.status === 202 };
     },
-    onSuccess: (response: TypesSpecTask) => {
-      if (response.status === "done") {
+    onSuccess: ({ task: response, prsRequested }: { task: TypesSpecTask; prsRequested: boolean }) => {
+      if (prsRequested) {
+        snackbar.success(
+          "Asked the agent to push and propose its pull request(s). Approve each proposal here when it arrives.",
+        );
+      } else if (response.status === "done") {
         // Internal repo - merge succeeded
         snackbar.success("Implementation approved and merged!");
       } else if (response.status === "implementation_review") {
@@ -28,23 +34,7 @@ export function useApproveImplementation(specTaskId: string) {
         snackbar.info(
           "Branch has diverged from main. Agent is rebasing — the merge will complete automatically once it finishes.",
         );
-      } else if (response.repo_pull_requests && response.repo_pull_requests.length > 0) {
-        // External repo - show link to first PR
-        const firstPR = response.repo_pull_requests[0];
-        if (firstPR.pr_url) {
-          snackbar.success(
-            `Pull request opened! View PR: ${firstPR.pr_url}`,
-          );
-        } else {
-          snackbar.success(
-            `Pull request #${firstPR.pr_id} opened - awaiting merge`,
-          );
-        }
-      } else if (response.status === "pull_request") {
-        // External repo - task moved to pull_request status, waiting for agent to push
-        snackbar.success("Agent will push changes to open a pull request...");
       } else {
-        // Fallback
         snackbar.success("Implementation approved!");
       }
       // Invalidate queries to refetch task

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,6 +31,139 @@ func TestToModelInfo_ReasoningEffortCapability(t *testing.T) {
 
 	assert.True(t, toModelInfo(withEffort).SupportsReasoningEffort)
 	assert.False(t, toModelInfo(ModelInfoData{}).SupportsReasoningEffort)
+}
+
+func Test_GetQwen38VisionModalities(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	for _, modelID := range []string{"qwen3.8-27b", "qwen/qwen3.8-27b"} {
+		t.Run(modelID, func(t *testing.T) {
+			modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+				Provider: "openrouter",
+				Model:    modelID,
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, []types.Modality{
+				types.ModalityText,
+				types.ModalityImage,
+				types.Modality("video"),
+			}, modelInfo.InputModalities)
+			assert.Equal(t, []types.Modality{types.ModalityText}, modelInfo.OutputModalities)
+			assert.Equal(t, 1_000_000, modelInfo.ContextLength)
+			assert.Equal(t, 131_072, modelInfo.MaxCompletionTokens)
+			assert.Equal(t, "0.000000425", modelInfo.Pricing.Prompt)
+			assert.Equal(t, "0.00000255", modelInfo.Pricing.Completion)
+		})
+	}
+}
+
+func Test_GetQwen38FlashNextVisionModalities(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	for _, modelID := range []string{
+		"qwen3.8-flash-next",
+		"qwen/qwen3.8-flash-next",
+	} {
+		t.Run(modelID, func(t *testing.T) {
+			modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+				Provider: "custom-provider",
+				Model:    modelID,
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, "qwen3.8-flash-next", modelInfo.ProviderModelID)
+			assert.Equal(t, "qwen/qwen3.8-flash-next", modelInfo.Slug)
+			assert.Equal(t, []types.Modality{
+				types.ModalityText,
+				types.ModalityImage,
+				types.Modality("video"),
+			}, modelInfo.InputModalities)
+			assert.Equal(t, []types.Modality{types.ModalityText}, modelInfo.OutputModalities)
+			assert.Equal(t, 262_144, modelInfo.ContextLength)
+			assert.Zero(t, modelInfo.MaxCompletionTokens)
+			assert.Equal(t, "0.00000015", modelInfo.Pricing.Prompt)
+			assert.Equal(t, "0.00000047", modelInfo.Pricing.Completion)
+			assert.Equal(t, "0.000000016", modelInfo.Pricing.InputCacheRead)
+			assert.Equal(t, "0.0000002", modelInfo.Pricing.InputCacheWrite)
+		})
+	}
+}
+
+func Test_GetGLM53FlashPricing(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	for _, modelID := range []string{"glm-5.3-flash", "z-ai/glm-5.3-flash"} {
+		t.Run(modelID, func(t *testing.T) {
+			modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+				Provider: "bunker",
+				Model:    modelID,
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, "glm-5.3-flash", modelInfo.ProviderModelID)
+			assert.Equal(t, "z-ai/glm-5.3-flash", modelInfo.Slug)
+			assert.Equal(t, 1_310_720, modelInfo.ContextLength)
+			assert.Equal(t, []types.Modality{
+				types.ModalityText,
+				types.ModalityImage,
+				types.Modality("video"),
+			}, modelInfo.InputModalities)
+			assert.Equal(t, []types.Modality{types.ModalityText}, modelInfo.OutputModalities)
+			assert.Equal(t, 131_072, modelInfo.MaxCompletionTokens)
+			assert.Contains(t, modelInfo.SupportedParameters, "reasoning_effort")
+			assert.Contains(t, modelInfo.SupportedParameters, "tools")
+			assert.Equal(t, "0.00000015", modelInfo.Pricing.Prompt)
+			assert.Equal(t, "0.0000005", modelInfo.Pricing.Completion)
+			assert.Equal(t, "0.00000005", modelInfo.Pricing.InputCacheRead)
+		})
+	}
+}
+
+func Test_GetClaude5Pricing(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	tests := []struct {
+		modelID         string
+		slug            string
+		prompt          string
+		completion      string
+		inputCacheRead  string
+		inputCacheWrite string
+	}{
+		{"claude-fable-5", "anthropic/claude-fable-5", "0.00001", "0.00005", "0.000001", "0.0000125"},
+		{"claude-fable-5-1", "anthropic/claude-fable-5.1", "0.00001", "0.00005", "0.00000025", "0.0000125"},
+		{"claude-opus-5", "anthropic/claude-opus-5", "0.000005", "0.000025", "0.0000005", "0.00000625"},
+		{"claude-opus-5-5", "anthropic/claude-opus-5.5", "0.000004", "0.00002", "0.0000002", "0.000005"},
+		{"claude-sonnet-5", "anthropic/claude-sonnet-5", "0.000002", "0.00001", "0.0000002", "0.0000025"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.modelID, func(t *testing.T) {
+			modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+				Provider: "anthropic",
+				Model:    tt.modelID,
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.modelID, modelInfo.ProviderModelID)
+			assert.Equal(t, tt.slug, modelInfo.Slug)
+			assert.Equal(t, 1_000_000, modelInfo.ContextLength)
+			assert.Equal(t, 128_000, modelInfo.MaxCompletionTokens)
+			assert.Equal(t, []types.Modality{types.ModalityText, types.ModalityImage, types.Modality("file")}, modelInfo.InputModalities)
+			assert.Equal(t, []types.Modality{types.ModalityText}, modelInfo.OutputModalities)
+			assert.True(t, modelInfo.SupportsReasoning)
+			assert.Contains(t, modelInfo.SupportedParameters, "reasoning_effort")
+			assert.Equal(t, tt.prompt, modelInfo.Pricing.Prompt)
+			assert.Equal(t, tt.completion, modelInfo.Pricing.Completion)
+			assert.Equal(t, tt.inputCacheRead, modelInfo.Pricing.InputCacheRead)
+			assert.Equal(t, tt.inputCacheWrite, modelInfo.Pricing.InputCacheWrite)
+		})
+	}
 }
 
 func Test_GetHaiku35(t *testing.T) {
@@ -258,7 +392,7 @@ func Test_GetAnthropicSubscriptionAliases(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.Equal(t, "anthropic", mi.ProviderSlug)
-			assert.Contains(t, mi.ProviderModelID, "claude-opus-")
+			assert.Equal(t, "claude-opus-5-5", mi.ProviderModelID)
 			assert.NotEmpty(t, mi.Pricing.Prompt)
 		})
 	}
@@ -284,6 +418,45 @@ func TestGPT56Family_SupportsNoneReasoningEffort(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, info.SupportedReasoningEfforts, "none")
 			assert.True(t, info.SupportsReasoningEffort)
+		})
+	}
+}
+
+func Test_GetGPT6Pricing(t *testing.T) {
+	provider, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	tests := []struct {
+		modelID    string
+		slug       string
+		prompt     string
+		completion string
+		cacheRead  string
+		efforts    []string
+	}{
+		{"gpt-6-astra", "openai/gpt-6-astra", "0.00001", "0.00005", "0.000001", []string{"max", "xhigh", "high", "medium", "low"}},
+		{"gpt-6-sol", "openai/gpt-6-sol", "0.000002", "0.00001", "0.0000002", []string{"max", "xhigh", "high", "medium", "low", "none"}},
+		{"gpt-6-luna", "openai/gpt-6-luna", "0.0000001", "0.0000005", "0.00000001", []string{"max", "xhigh", "high", "medium", "low", "none"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.modelID, func(t *testing.T) {
+			info, err := provider.GetModelInfo(context.Background(), &ModelInfoRequest{
+				BaseURL:  "https://api.openai.com/v1",
+				Provider: "openai",
+				Model:    tt.modelID,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.modelID, info.ProviderModelID)
+			assert.Equal(t, tt.slug, info.Slug)
+			assert.Equal(t, 1_050_000, info.ContextLength)
+			assert.Equal(t, 128_000, info.MaxCompletionTokens)
+			assert.Equal(t, []types.Modality{types.Modality("file"), types.ModalityImage, types.ModalityText}, info.InputModalities)
+			assert.Equal(t, tt.prompt, info.Pricing.Prompt)
+			assert.Equal(t, tt.completion, info.Pricing.Completion)
+			assert.Equal(t, tt.cacheRead, info.Pricing.InputCacheRead)
+			assert.ElementsMatch(t, tt.efforts, info.SupportedReasoningEfforts)
+			assert.Equal(t, "medium", info.DefaultReasoningEffort)
 		})
 	}
 }

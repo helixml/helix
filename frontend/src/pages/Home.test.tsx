@@ -1,13 +1,24 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import {
+  TypesCodeAgentCredentialType,
+  TypesCodeAgentRuntime,
+  TypesSandboxRuntime,
+} from '../api/api'
+import type {
+  TypesCodeAgentExecutionConfig,
+  TypesProject,
+} from '../api/api'
 import Home from './Home'
 
 const mockProjectState = vi.hoisted(() => ({
-  projects: [] as Array<{ id: string; name: string }>,
+  projects: [] as TypesProject[],
+  repositories: [] as { is_external?: boolean; external_url?: string }[],
   loading: false,
 }))
+const mockRouterState = vi.hoisted(() => ({ projectId: '' }))
 const mockOrgNavigate = vi.fn()
 
 vi.mock('../contexts/account', () => ({
@@ -34,7 +45,7 @@ vi.mock('../hooks/useApps', () => ({
 }))
 
 vi.mock('../hooks/useRouter', () => ({
-  default: () => ({ params: {} }),
+  default: () => ({ params: { id: mockRouterState.projectId } }),
 }))
 
 vi.mock('../hooks/useSnackbar', () => ({
@@ -47,10 +58,19 @@ vi.mock('../services', () => ({
     isLoading: mockProjectState.loading,
   }),
   useListProjectSpecTaskAgents: () => ({ data: [] }),
+  useGetProjectRepositories: () => ({ data: mockProjectState.repositories }),
 }))
 
 vi.mock('../services/providersService', () => ({
   useListProviders: () => ({ data: [] }),
+}))
+
+vi.mock('../services/helixOrgService', () => ({
+  useHelixOrgSettings: () => ({ data: { specs: [] }, isLoading: false }),
+}))
+
+vi.mock('../services/userService', () => ({
+  useGetConfig: () => ({ data: {}, isLoading: false }),
 }))
 
 vi.mock('../services/specTaskAttachmentsService', () => ({
@@ -78,11 +98,56 @@ vi.mock('../components/project/ManagedCreateProjectDialog', () => ({
 }))
 
 vi.mock('../components/common/RobustPromptInput', () => ({
-  default: () => <div>Chat prompt</div>,
+  default: ({ leadingActions }: { leadingActions?: React.ReactNode }) => (
+    <div>Chat prompt{leadingActions}</div>
+  ),
 }))
 
 vi.mock('../components/create/AdvancedModelPicker', () => ({
-  default: () => null,
+  default: ({ onSelectModel }: { onSelectModel: (provider: string, model: string) => void }) => (
+    <button onClick={() => onSelectModel('pe_selected', 'selected-model')}>Select model</button>
+  ),
+}))
+
+vi.mock('../components/agent/CodeAgentExecutionControls', () => ({
+  default: ({
+    value,
+    onChange,
+    sandboxResourceOverrides,
+    sandboxRuntime,
+    onSandboxResourceOverridesChange,
+    onSandboxRuntimeChange,
+  }: {
+    value?: TypesCodeAgentExecutionConfig
+    onChange: (value: TypesCodeAgentExecutionConfig, source: 'user') => void
+    sandboxResourceOverrides?: { vcpus?: number; memory_mb?: number }
+    sandboxRuntime?: TypesSandboxRuntime
+    onSandboxResourceOverridesChange?: (resources: { vcpus: number; memory_mb: number }) => void
+    onSandboxRuntimeChange?: (runtime: TypesSandboxRuntime) => void
+  }) => (
+    <>
+      <div data-testid="active-code-agent">{value?.model || 'none'}</div>
+      <div data-testid="active-compute">
+        {sandboxResourceOverrides?.vcpus || 'global'}:{sandboxRuntime || 'unset'}
+      </div>
+      <button onClick={() => onChange({
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+        model: 'manual-model',
+      }, 'user')}>Select coding agent</button>
+      <button onClick={() => onSandboxResourceOverridesChange?.({
+        vcpus: 4,
+        memory_mb: 8192,
+      })}>Select compute size</button>
+      <button onClick={() => onSandboxRuntimeChange?.(
+        TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop,
+      )}>Select compute environment</button>
+    </>
+  ),
+}))
+
+vi.mock('../hooks/useSeedProjectCodeAgentConfig', () => ({
+  useSeedProjectCodeAgentConfig: () => vi.fn(),
 }))
 
 vi.mock('../components/tasks/SpecTaskExecutionControls', () => ({
@@ -100,6 +165,8 @@ function renderHome() {
 describe('Home project empty state', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
+    mockRouterState.projectId = ''
     mockProjectState.projects = []
     mockProjectState.loading = false
   })
@@ -115,10 +182,159 @@ describe('Home project empty state', () => {
   })
 
   it('keeps the chat composer when projects exist', () => {
+    mockRouterState.projectId = 'project-1'
     mockProjectState.projects = [{ id: 'project-1', name: 'Project One' }]
     renderHome()
 
     expect(screen.getByText('Chat prompt')).toBeInTheDocument()
     expect(screen.queryByText('Get started by creating a new project')).not.toBeInTheDocument()
+  })
+})
+
+describe('Home project task mode', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockRouterState.projectId = 'project-1'
+    mockProjectState.projects = [{
+      id: 'project-1',
+      name: 'Project One',
+      code_agent_config: {
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+        model: 'implementation-model',
+      },
+      planning_code_agent_config: {
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+        model: 'planning-model',
+      },
+    }]
+    mockProjectState.loading = false
+  })
+
+  it('restores Plan per project and selects the planning config without overriding later choices', async () => {
+    localStorage.setItem(
+      'helix_project_task_mode:user-1:org-1:project-1',
+      'plan',
+    )
+    renderHome()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Start with planning' })).toBeInTheDocument()
+      expect(screen.getByTestId('active-code-agent')).toHaveTextContent('planning-model')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select coding agent' }))
+    expect(screen.getByTestId('active-code-agent')).toHaveTextContent('manual-model')
+  })
+
+  it('switches phase defaults and remembers the latest mode for this project', async () => {
+    renderHome()
+    await waitFor(() => {
+      expect(screen.getByTestId('active-code-agent')).toHaveTextContent('implementation-model')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start implementation immediately' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Plan/ }))
+    expect(screen.getByTestId('active-code-agent')).toHaveTextContent('planning-model')
+    expect(localStorage.getItem('helix_project_task_mode:user-1:org-1:project-1')).toBe('plan')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start with planning' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Build/ }))
+    expect(screen.getByTestId('active-code-agent')).toHaveTextContent('implementation-model')
+    expect(localStorage.getItem('helix_project_task_mode:user-1:org-1:project-1')).toBe('build')
+  })
+})
+
+describe('Home project compute preference', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockRouterState.projectId = 'project-1'
+    mockProjectState.projects = [{
+      id: 'project-1',
+      name: 'Project One',
+      default_sandbox_runtime: TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
+      default_sandbox_resource_overrides: { vcpus: 8, memory_mb: 16384 },
+    }]
+    mockProjectState.loading = false
+  })
+
+  it('starts from the selected project compute defaults', async () => {
+    renderHome()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-compute'))
+        .toHaveTextContent('8:headless-ubuntu')
+    })
+  })
+
+  it('remembers the last explicit compute choices for that project', async () => {
+    renderHome()
+    await waitFor(() => {
+      expect(screen.getByTestId('active-compute'))
+        .toHaveTextContent('8:headless-ubuntu')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select compute size' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select compute environment' }))
+
+    expect(JSON.parse(
+      localStorage.getItem('helix_spec_task_compute_project-1') || '',
+    )).toEqual({
+      sandbox_resource_overrides: { vcpus: 4, memory_mb: 8192 },
+      sandbox_runtime: TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop,
+    })
+  })
+})
+
+describe('Home PR auto-approval', () => {
+  const project = (autoApprove: boolean): TypesProject => ({
+    id: 'project-1',
+    name: 'Project One',
+    auto_approve_pull_requests: autoApprove,
+    code_agent_config: {
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+      model: 'implementation-model',
+    },
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockRouterState.projectId = 'project-1'
+    mockProjectState.loading = false
+    mockProjectState.repositories = [{ is_external: true, external_url: 'https://github.com/a/b' }]
+  })
+
+  afterEach(() => {
+    mockProjectState.repositories = []
+  })
+
+  it('is ticked when the project auto-approves pull requests', async () => {
+    mockProjectState.projects = [project(true)]
+    renderHome()
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: 'Auto-approve PRs' })).toBeChecked()
+    })
+  })
+
+  it('is unticked when the project asks for approval', async () => {
+    mockProjectState.projects = [project(false)]
+    renderHome()
+    const box = await screen.findByRole('checkbox', { name: 'Auto-approve PRs' })
+    expect(box).not.toBeChecked()
+    fireEvent.click(box)
+    expect(box).toBeChecked()
+  })
+
+  it('is hidden for projects without an external repository', async () => {
+    mockProjectState.projects = [project(true)]
+    mockProjectState.repositories = [{}]
+    renderHome()
+    await screen.findByRole('button', { name: 'Start implementation immediately' })
+    expect(screen.queryByRole('checkbox', { name: 'Auto-approve PRs' })).not.toBeInTheDocument()
   })
 })

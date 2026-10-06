@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/orgstore"
@@ -151,7 +152,39 @@ func (apiServer *HelixAPIServer) authorizeUserToProjectByID(ctx context.Context,
 	return apiServer.authorizeUserToProject(ctx, user, project, action)
 }
 
+// errProjectScopedKey is returned when a project-scoped credential is used
+// against a different project.
+var errProjectScopedKey = errors.New("credential is scoped to another project")
+
+// enforceKeyProjectScope confines a project-scoped credential to its own
+// project.
+//
+// Sandbox agents authenticate with a session key minted for one spec task
+// (services.GetOrCreateSessionAPIKey). That key carries the task's project but
+// belongs to the human who created the task, so plain user RBAC answers "may
+// this user reach that project?" — true for every project they are a member
+// of. Without this check an agent can read and write artifacts, tasks and
+// other project sub-resources belonging to projects it was never dispatched
+// to.
+//
+// Only credentials that carry a project are constrained. Keycloak sessions and
+// ordinary user keys leave User.ProjectID empty and are unaffected, as are
+// session keys minted for work with no project (helix-org workers, plain chat
+// sessions), which keep their existing reach.
+func enforceKeyProjectScope(user *types.User, projectID string) error {
+	if user == nil || user.ProjectID == "" || user.ProjectID == projectID {
+		return nil
+	}
+	return fmt.Errorf("%w: key is scoped to project %s, request targets %s", errProjectScopedKey, user.ProjectID, projectID)
+}
+
 func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, user *types.User, project *types.Project, action types.Action) error {
+	// Scope check first: a project-scoped key must not reach another project
+	// even when its owner would otherwise be authorized.
+	if err := enforceKeyProjectScope(user, project.ID); err != nil {
+		return err
+	}
+
 	// If the organization ID is not set and the user is not the project owner, then error
 	if project.OrganizationID == "" {
 		// This is the old style project logic, where the project is owned by a user and optionally made global

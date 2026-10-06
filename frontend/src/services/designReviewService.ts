@@ -126,7 +126,7 @@ export function useDesignReviewComments(specTaskId: string, reviewId: string, op
 export interface CommentQueueStatus {
   current_comment_id?: string
   queued_comment_ids: string[]
-  agent_session_id?: string
+  planning_session_id?: string
 }
 
 export function useCommentQueueStatus(specTaskId: string, reviewId: string, options?: { enabled?: boolean; refetchInterval?: number }) {
@@ -140,7 +140,7 @@ export function useCommentQueueStatus(specTaskId: string, reviewId: string, opti
       return response.data as CommentQueueStatus
     },
     enabled: options?.enabled !== false && !!specTaskId && !!reviewId,
-    // Poll every second when enabled to pick up current_comment_id and agent_session_id
+    // Poll every second when enabled to pick up current_comment_id and planning_session_id
     // This is critical for WebSocket subscription to work - without polling,
     // the subscription never gets the session ID needed to connect
     refetchInterval: options?.refetchInterval ?? 1000,
@@ -163,6 +163,32 @@ export function useSubmitReview(specTaskId: string, reviewId: string) {
       queryClient.invalidateQueries({ queryKey: designReviewKeys.detail(specTaskId, reviewId) })
       queryClient.invalidateQueries({ queryKey: designReviewKeys.list(specTaskId) })
       // Also invalidate spec task to update status
+      queryClient.invalidateQueries({ queryKey: ['spec-tasks', specTaskId] })
+    },
+  })
+}
+
+export function useUpdateDesignReviewDocument(specTaskId: string, reviewId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (data: {
+      document_type: 'requirements' | 'technical_design' | 'implementation_plan'
+      content: string
+      original_content: string
+    }) => {
+      const response = await apiClient.v1SpecTasksDesignReviewsDocumentUpdate(specTaskId, reviewId, data)
+      return response.data
+    },
+    onSuccess: (updatedReview) => {
+      queryClient.setQueryData<DesignReviewDetailResponse | undefined>(
+        designReviewKeys.detail(specTaskId, reviewId),
+        (current) => current ? { ...current, review: updatedReview as DesignReview } : current,
+      )
+      queryClient.invalidateQueries({ queryKey: designReviewKeys.detail(specTaskId, reviewId) })
+      queryClient.invalidateQueries({ queryKey: designReviewKeys.list(specTaskId) })
       queryClient.invalidateQueries({ queryKey: ['spec-tasks', specTaskId] })
     },
   })

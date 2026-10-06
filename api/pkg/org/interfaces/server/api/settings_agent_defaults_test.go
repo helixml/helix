@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
@@ -75,6 +76,27 @@ func TestSettingDefaultAppliesDeferredAgentBeforeActivation(t *testing.T) {
 		applier.defaults.CodeAgentRuntime != types.CodeAgentRuntimeCodexCLI ||
 		applier.defaults.Model != "gpt-5.6" {
 		t.Fatalf("applied defaults = app %q config %+v", applier.appID, applier.defaults)
+	}
+}
+
+func TestSettingDefaultRejectsInvalidRuntimeConfiguration(t *testing.T) {
+	deps, _, reg := newDeps(t)
+	reg.Register(configregistry.Spec{Key: configregistry.DefaultAgentConfigKey, Type: configregistry.TypeObject})
+	deps.ValidateDefaultAgentConfig = func(_ context.Context, _ string, config types.AssistantConfig) error {
+		if config.Model == "missing-model" {
+			return errors.New("model is not available")
+		}
+		return nil
+	}
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPut, "/settings/"+configregistry.DefaultAgentConfigKey, orgapi.SetSettingRequest{
+		Value: `{"code_agent_runtime":"zed_agent","code_agent_credential_type":"api_key","provider":"helix","model":"missing-model"}`,
+	})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "model is not available") {
+		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if reg.IsConfigured(context.Background(), "org-test", configregistry.DefaultAgentConfigKey) {
+		t.Fatal("invalid default runtime was persisted")
 	}
 }
 

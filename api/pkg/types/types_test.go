@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSandboxInstanceCanHostSandbox(t *testing.T) {
+func TestSandboxInstanceCanHostDesktop(t *testing.T) {
 	cases := []struct {
 		name   string
 		vendor string
@@ -24,8 +24,8 @@ func TestSandboxInstanceCanHostSandbox(t *testing.T) {
 	}
 	for _, tc := range cases {
 		s := &SandboxInstance{GPUVendor: tc.vendor, RenderNode: tc.render}
-		if got := s.CanHostSandbox(); got != tc.want {
-			t.Errorf("%s: CanHostSandbox()=%v want %v", tc.name, got, tc.want)
+		if got := s.CanHostDesktop(); got != tc.want {
+			t.Errorf("%s: CanHostDesktop()=%v want %v", tc.name, got, tc.want)
 		}
 	}
 }

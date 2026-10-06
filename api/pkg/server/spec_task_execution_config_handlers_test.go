@@ -21,7 +21,7 @@ func TestUpdateSpecTaskExecutionConfigStoresSandboxPreset(t *testing.T) {
 	helixStore := store.NewMockStore(ctrl)
 	executor := external_agent.NewMockExecutor(ctrl)
 	server := &HelixAPIServer{Store: helixStore, externalAgentExecutor: executor}
-	task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", AgentSessionID: "ses_1"}
+	task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", PlanningSessionID: "ses_1"}
 	owner := types.User{ID: "user_1"}
 	resources := &types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192}
 
@@ -29,8 +29,8 @@ func TestUpdateSpecTaskExecutionConfigStoresSandboxPreset(t *testing.T) {
 	helixStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{
 		ID: task.ProjectID, UserID: owner.ID,
 	}, nil)
-	executor.EXPECT().HasRunningContainer(gomock.Any(), task.AgentSessionID).Return(true)
-	executor.EXPECT().UpdateDesktopResources(gomock.Any(), task.AgentSessionID, resources).Return(nil)
+	executor.EXPECT().HasRunningContainer(gomock.Any(), task.PlanningSessionID).Return(true)
+	executor.EXPECT().UpdateDesktopResources(gomock.Any(), task.PlanningSessionID, resources).Return(nil)
 	helixStore.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, updated *types.SpecTask) error {
 			require.Equal(t, resources, updated.SandboxResourceOverrides)
@@ -121,7 +121,7 @@ func TestGetSpecTaskExecutionConfigReturnsLegacyPersonalAgentSnapshot(t *testing
 	server.getSpecTaskExecutionConfig(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
-	var response types.SpecTaskExecutionConfig
+	var response types.AgentExecutionConfig
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
 	require.True(t, response.AgentAvailable)
 	require.Equal(t, "Opus 4.5 in Zed Agent (1)", response.AgentName)
@@ -138,7 +138,7 @@ func TestGetSpecTaskExecutionConfigFallsBackToSessionForDeletedAgent(t *testing.
 	owner := types.User{ID: "user_1"}
 	task := &types.SpecTask{
 		ID: "spt_deleted", ProjectID: "prj_1", OrganizationID: "org_1",
-		HelixAppID: "deleted-app", AgentSessionID: "ses_1",
+		HelixAppID: "deleted-app", PlanningSessionID: "ses_1",
 	}
 
 	helixStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
@@ -147,8 +147,8 @@ func TestGetSpecTaskExecutionConfigFallsBackToSessionForDeletedAgent(t *testing.
 	}, nil)
 	helixStore.EXPECT().GetApp(gomock.Any(), task.HelixAppID).Return(nil, store.ErrNotFound)
 	helixStore.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
-	helixStore.EXPECT().GetSession(gomock.Any(), task.AgentSessionID).Return(&types.Session{
-		ID: task.AgentSessionID,
+	helixStore.EXPECT().GetSession(gomock.Any(), task.PlanningSessionID).Return(&types.Session{
+		ID: task.PlanningSessionID,
 		Metadata: types.SessionMetadata{
 			CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
 			ZedAgentName:     "codex",
@@ -163,7 +163,7 @@ func TestGetSpecTaskExecutionConfigFallsBackToSessionForDeletedAgent(t *testing.
 	server.getSpecTaskExecutionConfig(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
-	var response types.SpecTaskExecutionConfig
+	var response types.AgentExecutionConfig
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
 	require.False(t, response.AgentAvailable)
 	require.Equal(t, "deleted-app", response.AgentID)

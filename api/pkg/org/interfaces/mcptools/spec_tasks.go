@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // This file holds the MCP spec-task tools — the surface a helix-org
@@ -39,6 +41,8 @@ type createSpecTaskArgs struct {
 	OriginalPrompt string   `json:"original_prompt,omitempty"`
 	SkipPlanning   bool     `json:"skip_planning,omitempty"`
 	DependsOn      []string `json:"depends_on,omitempty"`
+	SandboxVCPUs   int      `json:"sandbox_vcpus,omitempty"`
+	SandboxRuntime string   `json:"sandbox_runtime,omitempty"`
 }
 
 var createSpecTaskSchema = mustSchema[createSpecTaskArgs]()
@@ -46,11 +50,20 @@ var createSpecTaskSchema = mustSchema[createSpecTaskArgs]()
 func (t *CreateSpecTask) Name() tool.Name                 { return CreateSpecTaskName }
 func (t *CreateSpecTask) InputSchema() *jsonschema.Schema { return createSpecTaskSchema }
 func (t *CreateSpecTask) Description() string {
+	// The ladder is rendered from types.SpecTaskSandboxPresets rather than spelled
+	// out here: a Worker follows this prose literally, so a stale copy makes it
+	// pass a vCPU count the API then rejects.
 	return "Create a new spec task. Provide a short name and a high-level " +
 		"description of the desired outcome. Optional: project_id (a project you manage in " +
 		"your org — omit to use your own project), type (feature|bug|refactor), priority " +
 		"(low|medium|high|critical), skip_planning (go straight to implementation), depends_on " +
-		"(task IDs). The task starts in backlog — call start_spectask_planning to begin work."
+		"(task IDs), sandbox_vcpus (" + types.SpecTaskSandboxVCPUList() +
+		" — memory follows; omit for the project default), " +
+		"sandbox_runtime (headless-ubuntu for agent-only work, ubuntu-desktop when the task " +
+		"needs a GUI; omit for the project default). " +
+		"The task runs on the coding agent and model configured for the project, which is your " +
+		"own — do not try to set one, and do not call the REST API to work around this tool. " +
+		"The task starts in backlog — call start_spectask_planning to begin work."
 }
 func (t *CreateSpecTask) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args createSpecTaskArgs
@@ -65,6 +78,8 @@ func (t *CreateSpecTask) Invoke(ctx context.Context, inv tool.Invocation) (json.
 		OriginalPrompt: args.OriginalPrompt,
 		SkipPlanning:   args.SkipPlanning,
 		DependsOn:      args.DependsOn,
+		SandboxVCPUs:   args.SandboxVCPUs,
+		SandboxRuntime: args.SandboxRuntime,
 	})
 	if err != nil {
 		return nil, err
@@ -221,6 +236,129 @@ func (t *StartSpecTaskPlanning) Invoke(ctx context.Context, inv tool.Invocation)
 	return json.Marshal(view)
 }
 
+// --- send_spectask_agent_message -----------------------------------------
+
+const SendSpecTaskAgentMessageName tool.Name = "send_spectask_agent_message"
+
+type SendSpecTaskAgentMessage struct{ deps Deps }
+
+func NewSendSpecTaskAgentMessage(deps Deps) *SendSpecTaskAgentMessage {
+	return &SendSpecTaskAgentMessage{deps: deps}
+}
+
+type sendSpecTaskAgentMessageArgs struct {
+	ProjectID string `json:"project_id,omitempty"`
+	TaskID    string `json:"task_id"`
+	Content   string `json:"content"`
+	Interrupt bool   `json:"interrupt,omitempty"`
+}
+
+var sendSpecTaskAgentMessageSchema = mustSchema[sendSpecTaskAgentMessageArgs]()
+
+func (t *SendSpecTaskAgentMessage) Name() tool.Name { return SendSpecTaskAgentMessageName }
+func (t *SendSpecTaskAgentMessage) InputSchema() *jsonschema.Schema {
+	return sendSpecTaskAgentMessageSchema
+}
+func (t *SendSpecTaskAgentMessage) Description() string {
+	return "Send a follow-up message to the agent inside a spec task. By default the durable " +
+		"message waits for the current turn to finish; set interrupt=true only when the current " +
+		"turn should be cancelled first. A stopped desktop is started automatically for delivery. " +
+		"Responses appear on the existing spec-task transcript and event stream. Pass project_id " +
+		"for a task in a project you manage in your org; omit it for your own project."
+}
+func (t *SendSpecTaskAgentMessage) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	var args sendSpecTaskAgentMessageArgs
+	if err := json.Unmarshal(inv.Args, &args); err != nil {
+		return nil, fmt.Errorf("parse args: %w", err)
+	}
+	if args.TaskID == "" {
+		return nil, errors.New("task_id is required")
+	}
+	if strings.TrimSpace(args.Content) == "" {
+		return nil, errors.New("content is required")
+	}
+	view, err := t.deps.SpecTasks.SendAgentMessage(ctx, inv.Caller, args.ProjectID, args.TaskID, runtime.SpecTaskMessageInput{
+		Content:   args.Content,
+		Interrupt: args.Interrupt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
+}
+
+// --- list_spectask_agent_messages ----------------------------------------
+
+const ListSpecTaskAgentMessagesName tool.Name = "list_spectask_agent_messages"
+
+type ListSpecTaskAgentMessages struct{ deps Deps }
+
+func NewListSpecTaskAgentMessages(deps Deps) *ListSpecTaskAgentMessages {
+	return &ListSpecTaskAgentMessages{deps: deps}
+}
+
+type listSpecTaskAgentMessagesArgs struct {
+	ProjectID string `json:"project_id,omitempty"`
+	TaskID    string `json:"task_id"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+var listSpecTaskAgentMessagesSchema = mustSchema[listSpecTaskAgentMessagesArgs]()
+
+func (t *ListSpecTaskAgentMessages) Name() tool.Name { return ListSpecTaskAgentMessagesName }
+func (t *ListSpecTaskAgentMessages) InputSchema() *jsonschema.Schema {
+	return listSpecTaskAgentMessagesSchema
+}
+func (t *ListSpecTaskAgentMessages) Description() string {
+	return "Read the latest user and agent turns from a spec task's canonical planning session, " +
+		"returned oldest-to-newest within the selected window. Use this after " +
+		"send_spectask_agent_message to observe the reply. limit defaults to 20 and must be 1-100. " +
+		"Pass project_id for a task in a project you manage in your org."
+}
+func (t *ListSpecTaskAgentMessages) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	var args listSpecTaskAgentMessagesArgs
+	if err := json.Unmarshal(inv.Args, &args); err != nil {
+		return nil, fmt.Errorf("parse args: %w", err)
+	}
+	if args.TaskID == "" {
+		return nil, errors.New("task_id is required")
+	}
+	views, err := t.deps.SpecTasks.ListAgentMessages(ctx, inv.Caller, args.ProjectID, args.TaskID, args.Limit)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(views)
+}
+
+// --- start_spectask_agent -------------------------------------------------
+
+const StartSpecTaskAgentName tool.Name = "start_spectask_agent"
+
+type StartSpecTaskAgent struct{ deps Deps }
+
+func NewStartSpecTaskAgent(deps Deps) *StartSpecTaskAgent { return &StartSpecTaskAgent{deps: deps} }
+
+var startSpecTaskAgentSchema = mustSchema[taskIDArgs]()
+
+func (t *StartSpecTaskAgent) Name() tool.Name                 { return StartSpecTaskAgentName }
+func (t *StartSpecTaskAgent) InputSchema() *jsonschema.Schema { return startSpecTaskAgentSchema }
+func (t *StartSpecTaskAgent) Description() string {
+	return "Resume a stopped spec-task agent desktop while preserving its conversation and " +
+		"workspace. The task must already have a planning session; use start_spectask_planning " +
+		"for a new backlog task. Pass project_id for a task in a project you manage in your org."
+}
+func (t *StartSpecTaskAgent) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	args, err := parseTaskID(inv.Args)
+	if err != nil {
+		return nil, err
+	}
+	view, err := t.deps.SpecTasks.StartAgent(ctx, inv.Caller, args.ProjectID, args.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
+}
+
 // --- stop_spectask_agent --------------------------------------------------
 
 const StopSpecTaskAgentName tool.Name = "stop_spectask_agent"
@@ -243,6 +381,37 @@ func (t *StopSpecTaskAgent) Invoke(ctx context.Context, inv tool.Invocation) (js
 		return nil, err
 	}
 	view, err := t.deps.SpecTasks.StopAgent(ctx, inv.Caller, args.ProjectID, args.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
+}
+
+// --- restart_spectask_agent ----------------------------------------------
+
+const RestartSpecTaskAgentName tool.Name = "restart_spectask_agent"
+
+type RestartSpecTaskAgent struct{ deps Deps }
+
+func NewRestartSpecTaskAgent(deps Deps) *RestartSpecTaskAgent {
+	return &RestartSpecTaskAgent{deps: deps}
+}
+
+var restartSpecTaskAgentSchema = mustSchema[taskIDArgs]()
+
+func (t *RestartSpecTaskAgent) Name() tool.Name                 { return RestartSpecTaskAgentName }
+func (t *RestartSpecTaskAgent) InputSchema() *jsonschema.Schema { return restartSpecTaskAgentSchema }
+func (t *RestartSpecTaskAgent) Description() string {
+	return "Recreate a spec task's agent desktop using the canonical restart path. The workspace " +
+		"and healthy conversation are preserved; a positively wedged agent thread is reset and " +
+		"crashed prompts are queued again. Pass project_id for a task in a project you manage in your org."
+}
+func (t *RestartSpecTaskAgent) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	args, err := parseTaskID(inv.Args)
+	if err != nil {
+		return nil, err
+	}
+	view, err := t.deps.SpecTasks.RestartAgent(ctx, inv.Caller, args.ProjectID, args.TaskID)
 	if err != nil {
 		return nil, err
 	}

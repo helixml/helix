@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -16,6 +17,7 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	updateCmd.Flags().StringP("name", "n", "", "Name of the secret")
 	updateCmd.Flags().StringP("value", "v", "", "New value of the secret")
+	updateCmd.Flags().StringP("project", "p", "", "Project ID or name containing the secret")
 	_ = updateCmd.MarkFlagRequired("name")
 }
 
@@ -26,6 +28,7 @@ var updateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		value, _ := cmd.Flags().GetString("value")
+		projectRef, _ := cmd.Flags().GetString("project")
 
 		name = strings.TrimSpace(name)
 		if name == "" {
@@ -54,8 +57,16 @@ var updateCmd = &cobra.Command{
 
 		var existingSecret types.Secret
 
-		// Fetch the existing secret
-		secrets, err := apiClient.ListSecrets(cmd.Context(), nil)
+		var secrets []*types.Secret
+		if projectRef != "" {
+			project, resolveErr := cli.LookupProject(cmd.Context(), apiClient, projectRef, "")
+			if resolveErr != nil {
+				return resolveErr
+			}
+			secrets, err = apiClient.ListProjectSecrets(cmd.Context(), project.ID)
+		} else {
+			secrets, err = apiClient.ListSecrets(cmd.Context(), nil)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to fetch existing secret: %w", err)
 		}

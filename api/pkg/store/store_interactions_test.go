@@ -9,6 +9,94 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_InteractionQuestionLifecycle() {
+	ctx := context.Background()
+	userID := "user-question-test"
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: userID, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+	question := &types.PendingQuestion{
+		RequestID: "question-1", ThreadID: "thread-1", TurnRequestID: "turn-1", Source: "elicitation",
+		Questions: []types.UserQuestion{{ID: "choice", Question: "Choose one"}},
+	}
+
+	updated, changed, err := suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, 1, question)
+	suite.Require().NoError(err)
+	suite.True(changed)
+	suite.Require().NotNil(updated.PendingQuestion)
+
+	interaction.ResponseMessage = "still working"
+	_, err = suite.db.UpdateInteraction(ctx, interaction)
+	suite.Require().NoError(err)
+	updated, err = suite.db.GetInteraction(ctx, interaction.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(updated.PendingQuestion)
+
+	updated, changed, err = suite.db.ResolveInteractionPendingQuestion(
+		ctx, interaction.ID, 1, question.RequestID, "answered", map[string]string{"choice": "A"},
+	)
+	suite.Require().NoError(err)
+	suite.True(changed)
+	suite.Nil(updated.PendingQuestion)
+	suite.Require().Len(updated.QuestionHistory, 1)
+	suite.Equal("A", updated.QuestionHistory[0].Answers["choice"])
+
+	updated, changed, err = suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, 1, question)
+	suite.Require().NoError(err)
+	suite.False(changed)
+	suite.Nil(updated.PendingQuestion)
+	suite.Len(updated.QuestionHistory, 1)
+
+	_, _, err = suite.db.SetInteractionPendingQuestion(ctx, "missing-interaction", 1, question)
+	suite.ErrorIs(err, ErrNotFound)
+	_, _, err = suite.db.ResolveInteractionPendingQuestion(ctx, "missing-interaction", 1, question.RequestID, "cancelled", nil)
+	suite.ErrorIs(err, ErrNotFound)
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ReapSettlesPendingQuestion() {
+	ctx := context.Background()
+	userID := "user-reap-question-test"
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: userID, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+	_, changed, err := suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, interaction.GenerationID, &types.PendingQuestion{
+		RequestID: "question-reap", ThreadID: "thread-reap", TurnRequestID: "turn-reap", Source: "elicitation",
+		Questions: []types.UserQuestion{{ID: "choice", Question: "Choose one"}},
+	})
+	suite.Require().NoError(err)
+	suite.True(changed)
+
+	reaped, err := suite.db.ReapWaitingInteractions(ctx, session.ID, types.InteractionStateInterrupted, "test reap")
+	suite.Require().NoError(err)
+	suite.Require().Len(reaped, 1)
+	suite.Nil(reaped[0].PendingQuestion)
+	suite.Require().Len(reaped[0].QuestionHistory, 1)
+	suite.Equal("cancelled", reaped[0].QuestionHistory[0].Outcome)
+
+	updated, err := suite.db.GetInteraction(ctx, interaction.ID)
+	suite.Require().NoError(err)
+	suite.Equal(types.InteractionStateInterrupted, updated.State)
+	suite.Nil(updated.PendingQuestion)
+	suite.Require().Len(updated.QuestionHistory, 1)
+	suite.Equal("question-reap", updated.QuestionHistory[0].RequestID)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_GetInteractionsSummary() {
 	userID := "user-summary-test"
 	ctx := context.Background()
@@ -120,6 +208,37 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetInteractionsSummary() 
 		suite.Equal(int64(2), c, "count must be stable across calls (iteration %d)", i)
 		suite.Equal(t3.UTC(), mu.UTC(), "maxUpdated must be stable across calls (iteration %d)", i)
 	}
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_GetLatestInteractionsForSessionsUsesUpdated() {
+	ctx := context.Background()
+	userID := "user-latest-interaction-test"
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: userID, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	base := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	waiting := &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+		Created: base.Add(time.Minute), Updated: base.Add(3 * time.Minute), PromptMessage: "user prompt",
+	}
+	copiedHire := &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+		GenerationID: 1, State: types.InteractionStateComplete, Trigger: "org_hire",
+		Created: base.Add(2 * time.Minute), Updated: base, PromptMessage: "copied hire prompt",
+	}
+	_, err = suite.db.CreateInteraction(ctx, waiting)
+	suite.Require().NoError(err)
+	_, err = suite.db.CreateInteraction(ctx, copiedHire)
+	suite.Require().NoError(err)
+
+	latest, err := suite.db.GetLatestInteractionsForSessions(ctx, []string{session.ID})
+	suite.Require().NoError(err)
+	suite.Require().Contains(latest, session.ID)
+	suite.Equal(types.InteractionStateWaiting, latest[session.ID].State)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_Interactions() {
@@ -287,4 +406,65 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ClearSessionInteractions(
 	// Idempotent: clearing again succeeds.
 	err = suite.db.ClearSessionInteractions(ctx, session.ID)
 	suite.NoError(err)
+}
+
+func (suite *PostgresStoreTestSuite) TestExternalAgentInteractionLifecycleSurvivesAPIRestart() {
+	ctx := context.Background()
+	owner := "external-lifecycle-test"
+	externalSession, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: owner, Created: time.Now(), Updated: time.Now(),
+		Metadata: types.SessionMetadata{AgentType: "zed_external"},
+	})
+	suite.Require().NoError(err)
+	internalSession, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: owner, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(ctx, externalSession.ID)
+		_, _ = suite.db.DeleteSession(ctx, internalSession.ID)
+	})
+
+	external, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: externalSession.ID, UserID: owner,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+	internal, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: internalSession.ID, UserID: owner,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+
+	bound, err := suite.db.BindInteractionExternalAgentRequest(ctx, external.ID, external.GenerationID, "req-durable")
+	suite.NoError(err)
+	suite.True(bound)
+	dispatched, err := suite.db.MarkInteractionExternalAgentDispatched(ctx, external.ID, external.GenerationID, "req-durable")
+	suite.NoError(err)
+	suite.True(dispatched)
+
+	byRequest, err := suite.db.GetInteractionByExternalAgentRequestID(ctx, "req-durable")
+	suite.NoError(err)
+	suite.Equal(external.ID, byRequest.ID)
+	suite.NotNil(byRequest.ExternalAgentDispatchedAt)
+
+	suite.NoError(suite.db.ResetRunningInteractions(ctx))
+	externalAfterRestart, err := suite.db.GetInteraction(ctx, external.ID)
+	suite.NoError(err)
+	suite.Equal(types.InteractionStateWaiting, externalAfterRestart.State,
+		"an API restart must not terminate a runtime that lives in Zed")
+	internalAfterRestart, err := suite.db.GetInteraction(ctx, internal.ID)
+	suite.NoError(err)
+	suite.Equal(types.InteractionStateError, internalAfterRestart.State)
+
+	requested, err := suite.db.RequestInteractionCancellationIfWaiting(ctx, external.ID, external.GenerationID)
+	suite.NoError(err)
+	suite.True(requested)
+	interrupted, err := suite.db.MarkInteractionInterruptedIfWaiting(ctx, external.ID, external.GenerationID)
+	suite.NoError(err)
+	suite.True(interrupted)
+	final, err := suite.db.GetInteraction(ctx, external.ID)
+	suite.NoError(err)
+	suite.Equal(types.InteractionStateInterrupted, final.State)
+	suite.NotNil(final.ExternalAgentCancelRequestedAt)
 }

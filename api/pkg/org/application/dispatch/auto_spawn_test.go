@@ -7,7 +7,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
 // TestDispatchTranscriptEventSpawnsSubscribedWorker pins the auto-
@@ -22,32 +21,27 @@ import (
 // subscriptions refactor (7f3bc73e2). The fan-out path is:
 //
 //	publish on s-transcript-<X>
-//	  → Dispatch lists Subscriptions.ListForTopic
-//	  → resolves each (position, current AI workers in that position)
-//	  → Queue.Enqueue per worker
+//	  → Route lists the attachments to that Trigger
+//	  → Queue.Enqueue per attached worker
 //	  → Spawn callback fires
 //
-// Before the refactor, subscriptions were keyed on a Worker directly,
-// so the wiring was structurally simpler ("sub.WorkerID → spawn"). The
-// refactor inserted the position-hop in between; this test exercises
-// the full chain to catch a regression that drops the spawn at the
-// end of it (e.g. a position with workers but no Enqueue, or a worker
-// resolved via the position-map but skipped before the Enqueue line).
-func TestDispatchTranscriptEventSpawnsSubscribedWorker(t *testing.T) {
+// It exercises the full chain to catch a regression that drops the
+// spawn at the end of it.
+func TestRouteTranscriptEventSpawnsAttachedWorker(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
 
-	// A fresh AI worker w-newhire at its own Position. The activation
-	// topic `s-transcript-w-newhire` is the per-Worker transcript
-	// topic that hire_worker creates in production.
+	// A fresh AI worker w-newhire. The transcript channel
+	// `s-transcript-w-newhire` is the per-Worker Trigger the topology
+	// reconciler creates in production.
 	seedBot(t, s, "w-newhire")
-	topicID := activation.TranscriptID("w-newhire")
-	seedWebhookTopic(t, s, topicID, transport.LocalTransport())
-	// The new worker's OWN position is subscribed to its OWN activation
-	// topic, so any event published to s-transcript-w-newhire fans
-	// out to w-newhire and triggers a Spawn — the desktop auto-starts
-	// without the operator having to click "Open Human Desktop".
-	seedSubscription(t, s, "w-newhire", topicID)
+	transcriptID := activation.TranscriptID("w-newhire")
+	seedTrigger(t, s, transcriptID)
+	// The new worker is attached to its OWN transcript, so any event on
+	// s-transcript-w-newhire fans out to w-newhire and triggers a Spawn
+	// — the desktop auto-starts without the operator having to click
+	// "Open Human Desktop".
+	seedAttachment(t, s, "w-newhire", transcriptID)
 
 	// A publisher in a different position (so the publisher-self-skip
 	// rule doesn't suppress the activation).
@@ -55,7 +49,7 @@ func TestDispatchTranscriptEventSpawnsSubscribedWorker(t *testing.T) {
 
 	e, err := streaming.NewMessageEvent(
 		"e-activation-1",
-		topicID,
+		transcriptID,
 		"w-publisher",
 		streaming.Message{From: "w-publisher", Body: "first turn"},
 		time.Now().UTC(),
@@ -68,7 +62,7 @@ func TestDispatchTranscriptEventSpawnsSubscribedWorker(t *testing.T) {
 		t.Fatalf("append event: %v", err)
 	}
 
-	d.Dispatch(context.Background(), e)
+	routeEvent(t, d, transcriptID, e)
 
 	got := drainActivations(t, rec, 500*time.Millisecond)
 	if len(got) != 1 {
@@ -80,13 +74,13 @@ func TestDispatchTranscriptEventSpawnsSubscribedWorker(t *testing.T) {
 }
 
 // TestDispatchHireEnqueuesSpawn pins the second half of the auto-spawn
-// wiring: a brand-new AI hire (no transcript yet, no subscription to
+// wiring: a brand-new AI hire (no transcript yet, no attachment to
 // itself) still gets a TriggerHire activation from DispatchHire that
 // drives the Spawner to provision the project + open the first
 // session.
 //
-// hire_worker calls Dispatcher.DispatchHire directly (not via a topic
-// publish) so this is the only path that exercises the
+// hire_worker calls Dispatcher.DispatchHire directly (not via a publish)
+// so this is the only path that exercises the
 // `dispatch.DispatchHire → Queue.Enqueue → Spawn` chain at the unit
 // layer. Without it, a newly-hired AI worker would never get its
 // first activation — the operator would have to click "Open Human

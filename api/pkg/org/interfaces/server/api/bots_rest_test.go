@@ -27,6 +27,31 @@ func (failingAgentUpdater) UpdateAgent(context.Context, string, orgapi.AgentConf
 	return errors.New("agent update failed")
 }
 
+type interleavingFailingAgentUpdater struct {
+	nodes store.Nodes
+}
+
+type countingNodeStore struct {
+	store.Nodes
+	updates int
+}
+
+func (s *countingNodeStore) Update(ctx context.Context, bot orgchart.Node) error {
+	s.updates++
+	return s.Nodes.Update(ctx, bot)
+}
+
+func (u interleavingFailingAgentUpdater) UpdateAgent(ctx context.Context, _ string, _ orgapi.AgentConfigPatch, _ *string, _ *string) error {
+	bot, err := u.nodes.Get(ctx, "org-test", "b-agent")
+	if err != nil {
+		return err
+	}
+	if err := u.nodes.Update(ctx, bot.WithTools([]tool.Name{mcptools.ChatName})); err != nil {
+		return err
+	}
+	return errors.New("agent update failed")
+}
+
 type recordingAgentPort struct {
 	profile orgapi.AgentProfile
 	patch   orgapi.AgentConfigPatch
@@ -68,7 +93,7 @@ func (p *recordingAgentPort) UpdateAgent(_ context.Context, _ string, patch orga
 	return nil
 }
 
-func TestRESTAgentResourceIsFlat(t *testing.T) {
+func TestRESTBotResourceUsesBotDetail(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
 	bot, err := orgchart.NewNode("b-agent", "stale", nil, time.Now().UTC(), "org-test")
@@ -89,28 +114,22 @@ func TestRESTAgentResourceIsFlat(t *testing.T) {
 	deps.AgentUpdater = port
 	handler := orgapi.Handler(deps)
 
-	rec := do(t, handler, http.MethodGet, "/agents/b-agent", nil)
+	rec := do(t, handler, http.MethodGet, "/bots/b-agent", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get status = %d; body=%s", rec.Code, rec.Body)
 	}
-	var got map[string]any
+	var got orgapi.BotDetailDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["name"] != "Canonical" || got["content"] != "Canonical instructions" ||
-		got["code_agent_runtime"] != "codex_cli" || got["model"] != "gpt-5" {
-		t.Fatalf("flat agent = %#v", got)
-	}
-	if _, nested := got["bot"]; nested {
-		t.Fatalf("canonical Agent response contains nested bot: %#v", got)
-	}
-	if _, nested := got["agent"]; nested {
-		t.Fatalf("canonical Agent response contains nested agent: %#v", got)
+	if got.Bot.Name != "Canonical" || got.Bot.Content != "Canonical instructions" ||
+		got.Bot.CodeAgentRuntime != types.CodeAgentRuntimeCodexCLI || got.Bot.Model != "gpt-5" {
+		t.Fatalf("bot detail = %#v", got)
 	}
 
 	runtime := types.CodeAgentRuntimeClaudeCode
 	model := "opus"
-	rec = do(t, handler, http.MethodPatch, "/agents/b-agent", orgapi.UpdateBotRequest{
+	rec = do(t, handler, http.MethodPatch, "/bots/b-agent", orgapi.UpdateBotRequest{
 		CodeAgentRuntime: &runtime,
 		Model:            &model,
 	})
@@ -123,7 +142,7 @@ func TestRESTAgentResourceIsFlat(t *testing.T) {
 	}
 }
 
-func TestRESTAgentListKeepsOtherAgentsWhenOneLinkedAppIsInvalid(t *testing.T) {
+func TestRESTBotListKeepsOtherBotsWhenOneLinkedAppIsInvalid(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
 	for _, fixture := range []struct {
@@ -142,7 +161,7 @@ func TestRESTAgentListKeepsOtherAgentsWhenOneLinkedAppIsInvalid(t *testing.T) {
 	}
 	deps.AgentReader = partialAgentReader{}
 
-	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/agents", nil)
+	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/bots", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list status = %d; body=%s", rec.Code, rec.Body)
 	}
@@ -160,7 +179,7 @@ func TestRESTAgentListKeepsOtherAgentsWhenOneLinkedAppIsInvalid(t *testing.T) {
 	}
 }
 
-func TestRESTAgentListReportsOperationalAgentReadFailure(t *testing.T) {
+func TestRESTBotListFallsBackOnOperationalAppReadFailure(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
 	bot, err := orgchart.NewNode("b-agent", "Fallback", nil, time.Now().UTC(), "org-test")
@@ -172,22 +191,133 @@ func TestRESTAgentListReportsOperationalAgentReadFailure(t *testing.T) {
 	}
 	deps.AgentReader = failingAgentReader{}
 
-	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/agents", nil)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("list status = %d, want 500; body=%s", rec.Code, rec.Body)
+	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/bots", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200; body=%s", rec.Code, rec.Body)
 	}
-	if !strings.Contains(rec.Body.String(), "database unavailable") {
-		t.Fatalf("list error = %s", rec.Body)
+	var got []orgapi.BotDTO
+	decode(t, rec, &got)
+	if len(got) != 1 || got[0].ID != "b-agent" || got[0].Content != "Fallback" {
+		t.Fatalf("Bot-owned fallback = %+v", got)
+	}
+}
+
+// An unreadable legacy App must not blank out the execution config: the
+// Bot owns it, so list and detail both have to serve the Bot's own
+// CodeAgentConfig rather than empty runtime/model fields.
+func TestRESTBotServesBotOwnedExecutionConfigWhenAppReadFails(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	bot, err := orgchart.NewNode("b-agent", "Fallback", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot = bot.WithAgentID("app-agent").WithCodeAgentConfig(&types.CodeAgentExecutionConfig{
+		Runtime:         types.CodeAgentRuntimeClaudeCode,
+		CredentialType:  types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:     "anthropic",
+		Model:           "claude-opus-5",
+		ReasoningEffort: "high",
+	})
+	if err := st.Nodes.Create(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+	deps.AgentReader = failingAgentReader{}
+	handler := orgapi.Handler(deps)
+
+	assertConfig := func(t *testing.T, what string, dto orgapi.BotDTO) {
+		t.Helper()
+		if dto.CodeAgentRuntime != types.CodeAgentRuntimeClaudeCode ||
+			dto.CodeAgentCredentialType != types.CodeAgentCredentialTypeAPIKey ||
+			dto.Provider != "anthropic" || dto.Model != "claude-opus-5" || dto.ReasoningEffort != "high" {
+			t.Fatalf("%s Bot-owned execution config = %+v", what, dto)
+		}
+	}
+
+	rec := do(t, handler, http.MethodGet, "/bots", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200; body=%s", rec.Code, rec.Body)
+	}
+	var list []orgapi.BotDTO
+	decode(t, rec, &list)
+	if len(list) != 1 {
+		t.Fatalf("bots = %+v", list)
+	}
+	assertConfig(t, "list", list[0])
+
+	// getBot used to 500 on the same failure the list tolerated.
+	rec = do(t, handler, http.MethodGet, "/bots/b-agent", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detail status = %d, want 200; body=%s", rec.Code, rec.Body)
+	}
+	var detail orgapi.BotDetailDTO
+	decode(t, rec, &detail)
+	assertConfig(t, "detail", detail.Bot)
+}
+
+func TestRESTUpdateAgentRollbackPreservesConcurrentBotMutation(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	bot, err := orgchart.NewNode("b-agent", "old content", []tool.Name{mcptools.ManagersName}, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot = bot.WithAgentID("app-agent").WithName("Old name")
+	if err := st.Nodes.Create(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+	deps.AgentUpdater = interleavingFailingAgentUpdater{nodes: st.Nodes}
+	name := "New name"
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPatch, "/bots/b-agent", orgapi.UpdateBotRequest{Name: &name})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body)
+	}
+	got, err := st.Nodes.Get(ctx, "org-test", "b-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Old name" {
+		t.Fatalf("name = %q, want rolled back value", got.Name)
+	}
+	if !sameNames(got.Tools, []tool.Name{mcptools.ChatName}) {
+		t.Fatalf("concurrent tools mutation was overwritten: %v", got.Tools)
+	}
+}
+
+func TestRESTUpdateBotConfigFailureDoesNotWriteBot(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	bot, err := orgchart.NewNode("b-agent", "content", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Create(ctx, bot.WithAgentID("app-agent")); err != nil {
+		t.Fatal(err)
+	}
+	countingStore := &countingNodeStore{Nodes: st.Nodes}
+	deps.Nodes = nodes.New(nodes.Deps{Nodes: countingStore})
+	deps.AgentUpdater = failingAgentUpdater{}
+	model := "new-model"
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPatch, "/bots/b-agent", orgapi.UpdateBotRequest{Model: &model})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body)
+	}
+	if countingStore.updates != 0 {
+		t.Fatalf("Bot store updates = %d, want 0", countingStore.updates)
 	}
 }
 
 func injectMCPPublishing(cfg *mcptools.Config) {
 	deps := publishing.Deps{
-		Topics:     cfg.Store.Topics,
-		Events:     cfg.Store.Events,
-		Dispatcher: cfg.Dispatcher,
-		Now:        cfg.Now,
-		NewID:      cfg.NewID,
+		Triggers: cfg.Store.Triggers,
+		Events:   cfg.Store.Events,
+		Now:      cfg.Now,
+		NewID:    cfg.NewID,
+	}
+	if cfg.Dispatcher != nil {
+		deps.Router = cfg.Dispatcher
 	}
 	if cfg.Hub != nil {
 		deps.Hub = cfg.Hub
@@ -195,66 +325,17 @@ func injectMCPPublishing(cfg *mcptools.Config) {
 	cfg.Publishing = publishing.New(deps)
 }
 
-func TestRESTUpdateHumanIdentityAuthorization(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		authorize func(context.Context, string, string) error
-		want      int
-	}{
-		{"self", func(_ context.Context, _, humanUserID string) error {
-			if humanUserID != "usr-human" {
-				t.Fatalf("human user id = %q", humanUserID)
-			}
-			return nil
-		}, http.StatusOK},
-		{"owner", func(context.Context, string, string) error { return nil }, http.StatusOK},
-		{"other member", func(context.Context, string, string) error { return errors.New("forbidden") }, http.StatusForbidden},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			deps, st, _ := newDeps(t)
-			if _, err := deps.Nodes.Create(context.Background(), "org-test", nodes.CreateParams{
-				ID: "h-human", Kind: orgchart.NodeKindHuman, HelixUserID: "usr-human", Content: "Human",
-			}); err != nil {
-				t.Fatal(err)
-			}
-			deps.AuthorizeHumanContact = tc.authorize
-			rec := do(t, orgapi.Handler(deps), "PATCH", "/bots/h-human", orgapi.UpdateBotRequest{
-				Identity: map[string]string{"preferred_contact": "helix"},
-			})
-			if rec.Code != tc.want {
-				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.want, rec.Body)
-			}
-			updated, _ := st.Nodes.Get(context.Background(), "org-test", "h-human")
-			if tc.want == http.StatusForbidden && len(updated.Identity) != 0 {
-				t.Fatalf("forbidden update changed identity: %#v", updated.Identity)
-			}
-		})
-	}
-}
-
-func TestRESTUpdateNonHumanIdentityDoesNotRequireHumanAuthorization(t *testing.T) {
-	deps, st, _ := newDeps(t)
-	seedBot(t, st, context.Background(), "b-agent", "Agent")
-	rec := do(t, orgapi.Handler(deps), "PATCH", "/bots/b-agent", orgapi.UpdateBotRequest{
-		Identity: map[string]string{"external": "value"},
-	})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body)
-	}
-}
-
 func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
-	bot, err := orgchart.NewNode("b-agent", "old content", []tool.Name{"old_tool"}, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode("b-agent", "old content", []tool.Name{mcptools.ManagersName}, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	bot = bot.WithAgentID("app-agent").
 		WithName("Old name").
 		WithProjectIDs([]string{"prj-old"}).
-		WithPreserveContext(true).
-		WithIdentity(map[string]string{"old": "value"})
+		WithPreserveContext(true)
 	if err := st.Nodes.Create(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
@@ -265,10 +346,9 @@ func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 	rec := do(t, orgapi.Handler(deps), http.MethodPatch, "/bots/b-agent", orgapi.UpdateBotRequest{
 		Name:            &name,
 		Content:         &content,
-		Tools:           []string{"new_tool"},
+		Tools:           []string{mcptools.ChatName},
 		ProjectIDs:      []string{"prj-new"},
 		PreserveContext: &preserve,
-		Identity:        map[string]string{"new": "value"},
 	})
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body)
@@ -280,7 +360,7 @@ func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 	if got.Name != bot.Name || got.Content != bot.Content || got.PreserveContext != bot.PreserveContext {
 		t.Fatalf("profile was not rolled back: %#v", got)
 	}
-	if !sameNames(got.Tools, bot.Tools) || len(got.ProjectIDs) != 1 || got.ProjectIDs[0] != "prj-old" || got.Identity["old"] != "value" {
+	if !sameNames(got.Tools, bot.Tools) || len(got.ProjectIDs) != 1 || got.ProjectIDs[0] != "prj-old" {
 		t.Fatalf("profile collections were not rolled back: %#v", got)
 	}
 }
@@ -321,6 +401,7 @@ func TestRESTUpdateLinkedAgentRequiresUpdaterBeforeMutation(t *testing.T) {
 func mcpRegistry(t *testing.T, st *store.Store, clock func() time.Time, newID func() string) *mcptools.Registry {
 	t.Helper()
 	deps := mcptools.DefaultDeps(st)
+	deps.AgentCreator = fakeAgentCreator{}
 	deps.Now = clock
 	deps.NewID = newID
 	injectMCPPublishing(&deps)
@@ -355,13 +436,11 @@ func sameNames(a, b []tool.Name) bool {
 	return true
 }
 
-// TestRESTCreateBot_EmptyToolsGetsBaseline pins the bug fix discovered
+// TestRESTCreateBot_EmptyToolsGetsDefaultWorkerSet pins the default granted
 // during the in-browser demo of helixml/helix#2546: the chart UI's "New
-// Bot" dialog only collects ID + content (no tools picker) and posts to
-// POST /bots with an empty tools list. The REST handler unions
-// BaseReadTools the same way the MCP create_bot tool does, so the
-// resulting Bot still has a usable MCP surface.
-func TestRESTCreateBot_EmptyToolsGetsBaseline(t *testing.T) {
+// Bot" dialog may post an empty additions list. The REST handler unions
+// DefaultBotTools the same way the MCP create_bot tool does.
+func TestRESTCreateBot_EmptyToolsGetsDefaultWorkerSet(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
 
@@ -386,15 +465,98 @@ func TestRESTCreateBot_EmptyToolsGetsBaseline(t *testing.T) {
 	for _, name := range bot.Tools {
 		got[name] = true
 	}
-	for _, name := range mcptools.BaseReadTools {
+	for _, name := range mcptools.DefaultBotTools() {
 		if !got[name] {
-			t.Errorf("baseline tool %q missing from REST-created bot; got: %v", name, bot.Tools)
+			t.Errorf("default tool %q missing from REST-created bot; got: %v", name, bot.Tools)
 		}
 	}
 }
 
+func TestRESTCreateBot_MemberCannotGrantManagerTools(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	h := orgapi.Handler(deps)
+
+	standard := doAsRole(t, h, http.MethodPost, "/bots", orgapi.CreateBotRequest{
+		ID:      "b-member-worker",
+		Content: "# Worker",
+	}, types.OrganizationRoleMember, false)
+	if standard.Code != http.StatusCreated {
+		t.Fatalf("standard create status = %d, want 201; body=%s", standard.Code, standard.Body)
+	}
+
+	for _, request := range []orgapi.CreateBotRequest{
+		{ID: "b-owner", Content: "# Owner", Owner: true},
+		{ID: "b-custom", Content: "# Custom", Tools: []string{string(mcptools.CreateBotName)}},
+	} {
+		rec := doAsRole(t, h, http.MethodPost, "/bots", request, types.OrganizationRoleMember, false)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("request %+v status = %d, want 403; body=%s", request, rec.Code, rec.Body)
+		}
+		if _, err := st.Nodes.Get(context.Background(), "org-test", orgchart.NodeID(request.ID)); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("rejected create %s left a bot row: %v", request.ID, err)
+		}
+	}
+}
+
+func TestRESTUpdateBot_MemberCannotGrantManagerTools(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedBot(t, st, ctx, "b-member-worker", "# Worker")
+	h := orgapi.Handler(deps)
+
+	updatedContent := "# Updated worker"
+	contentOnly := doAsRole(t, h, http.MethodPatch, "/bots/b-member-worker", orgapi.UpdateBotRequest{
+		Content: &updatedContent,
+	}, types.OrganizationRoleMember, false)
+	if contentOnly.Code != http.StatusOK {
+		t.Fatalf("content-only update status = %d, want 200; body=%s", contentOnly.Code, contentOnly.Body)
+	}
+
+	rec := doAsRole(t, h, http.MethodPatch, "/bots/b-member-worker", orgapi.UpdateBotRequest{
+		Tools: []string{string(mcptools.ChatName), string(mcptools.CreateBotName)},
+	}, types.OrganizationRoleMember, false)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("privileged tools update status = %d, want 403; body=%s", rec.Code, rec.Body)
+	}
+	bot, err := st.Nodes.Get(ctx, "org-test", "b-member-worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bot.Content != updatedContent {
+		t.Fatalf("content = %q, want prior successful update %q", bot.Content, updatedContent)
+	}
+	for _, name := range bot.Tools {
+		if name == mcptools.CreateBotName {
+			t.Fatal("rejected manager tool was persisted")
+		}
+	}
+
+	seedBot(t, st, ctx, "b-manager", "# Manager")
+	managerTools := mcptools.OwnerBotTools()
+	if _, err := deps.Nodes.Update(ctx, "org-test", "b-manager", nodes.UpdateParams{Tools: &managerTools}); err != nil {
+		t.Fatalf("seed manager tools: %v", err)
+	}
+	defaultsOnly := make([]string, 0, len(mcptools.DefaultBotTools()))
+	for _, name := range mcptools.DefaultBotTools() {
+		defaultsOnly = append(defaultsOnly, string(name))
+	}
+	downgrade := doAsRole(t, h, http.MethodPatch, "/bots/b-manager", orgapi.UpdateBotRequest{
+		Tools: defaultsOnly,
+	}, types.OrganizationRoleMember, false)
+	if downgrade.Code != http.StatusForbidden {
+		t.Fatalf("manager downgrade status = %d, want 403; body=%s", downgrade.Code, downgrade.Body)
+	}
+	manager, err := st.Nodes.Get(ctx, "org-test", "b-manager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mcptools.HasNonDefaultBotTool(manager.Tools) {
+		t.Fatal("rejected downgrade stripped manager tools")
+	}
+}
+
 // TestRESTCreateBot_UnionWithCallerTools pins the union semantics for the
-// REST path — caller-supplied tools are preserved alongside the baseline,
+// REST path — caller-supplied tools are preserved alongside the worker set,
 // deduped.
 func TestRESTCreateBot_UnionWithCallerTools(t *testing.T) {
 	deps, st, _ := newDeps(t)
@@ -403,7 +565,7 @@ func TestRESTCreateBot_UnionWithCallerTools(t *testing.T) {
 	rec := do(t, h, "POST", "/bots", orgapi.CreateBotRequest{
 		ID:      "b-mixed",
 		Content: "# Mixed",
-		Tools:   []string{"publish", "managers", "subscribe"},
+		Tools:   []string{"chat", "managers", "attach_worker"},
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status: got %d, want 201; body=%s", rec.Code, rec.Body)
@@ -425,21 +587,21 @@ func TestRESTCreateBot_UnionWithCallerTools(t *testing.T) {
 	if managersCount != 1 {
 		t.Errorf("managers should appear exactly once after dedup; got %d in %v", managersCount, bot.Tools)
 	}
-	for _, name := range []tool.Name{"publish", "subscribe"} {
+	for _, name := range []tool.Name{"chat", "attach_worker"} {
 		if !got[name] {
 			t.Errorf("caller tool %q missing; got: %v", name, bot.Tools)
 		}
 	}
-	for _, name := range mcptools.BaseReadTools {
+	for _, name := range mcptools.DefaultBotTools() {
 		if !got[name] {
-			t.Errorf("baseline tool %q missing from union; got: %v", name, bot.Tools)
+			t.Errorf("default tool %q missing from union; got: %v", name, bot.Tools)
 		}
 	}
 }
 
 // TestCreateBotParity_RESTvsMCP: the REST POST /bots handler and the MCP
 // create_bot tool both go through lifecycle.Create, so both must produce
-// identical bot rows — same content, same baseline-unioned tools.
+// identical bot rows — same content, same default-unioned tools.
 func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 	clock := func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 	newID := func() string { return "fixed" }
@@ -449,7 +611,7 @@ func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 	rec := do(t, h, "POST", "/bots", orgapi.CreateBotRequest{
 		ID:      "b-qa",
 		Content: "# QA",
-		Tools:   []string{"publish", "subscribe"},
+		Tools:   []string{"chat", "attach_worker"},
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("REST create bot: %d body=%s", rec.Code, rec.Body)
@@ -459,10 +621,10 @@ func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 	reg := mcpRegistry(t, mcpStore, clock, newID)
 	createBot, _ := reg.Get(mcptools.CreateBotName)
 	args, _ := json.Marshal(map[string]any{
-		"id":      "b-qa",
-		"content": "# QA",
-		"tools":   []string{"publish", "subscribe"},
-		"topics":  []string{},
+		"id":       "b-qa",
+		"content":  "# QA",
+		"tools":    []string{"chat", "attach_worker"},
+		"triggers": []string{},
 	})
 	if _, err := createBot.Invoke(context.Background(), tool.Invocation{Caller: ownerCaller(t), Args: args}); err != nil {
 		t.Fatalf("MCP create_bot: %v", err)
@@ -517,5 +679,59 @@ func TestSetBotContentParity_RESTvsMCP(t *testing.T) {
 	}
 	if restBot.Content != "rewritten content" {
 		t.Errorf("content not applied: %q", restBot.Content)
+	}
+}
+
+// TestRESTCreateBot_RejectsUnknownTool: a tool name the registry does not
+// know must fail the create rather than being merged into the baseline
+// and stored. A stored dead name is silently ignored at invoke time, so
+// a typo would leave the operator with a Bot missing a capability they
+// believe it has.
+func TestRESTCreateBot_RejectsUnknownTool(t *testing.T) {
+	deps, st, _ := newDeps(t)
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPost, "/bots", orgapi.CreateBotRequest{
+		ID:      "b-typo",
+		Content: "# Typo",
+		Tools:   []string{mcptools.ChatName, "not_a_real_tool_abc"},
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "not_a_real_tool_abc") {
+		t.Errorf("error should name the offending tool; body=%s", rec.Body)
+	}
+	if _, err := st.Nodes.Get(context.Background(), "org-test", "b-typo"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("rejected create left a bot row: %v", err)
+	}
+}
+
+// TestRESTUpdateBot_RejectsUnknownTool: the same guard on the patch path.
+func TestRESTUpdateBot_RejectsUnknownTool(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	bot, err := orgchart.NewNode("b-eng", "# Eng", []tool.Name{mcptools.ChatName}, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Create(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPatch, "/bots/b-eng", orgapi.UpdateBotRequest{
+		Tools: []string{mcptools.ChatName, "totally_fake_tool_xyz"},
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "totally_fake_tool_xyz") {
+		t.Errorf("error should name the offending tool; body=%s", rec.Body)
+	}
+	got, err := st.Nodes.Get(ctx, "org-test", "b-eng")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameNames(got.Tools, []tool.Name{mcptools.ChatName}) {
+		t.Fatalf("rejected patch mutated the row: %v", got.Tools)
 	}
 }

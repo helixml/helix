@@ -1,0 +1,173 @@
+// Shown when a bot's sandbox is running but still holds the tool list and
+// instructions from before the operator's last save. The MCP tool list is
+// fetched once at agent startup and never refreshed, so the only way to
+// apply those changes is a restart.
+//
+// The restart recreates the current container while preserving the session and
+// healthy ACP thread. It is never automatic because an in-flight turn would be
+// interrupted, so the button is gated while the agent is working.
+
+import { FC, useEffect, useState } from 'react'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogContentText from '@mui/material/DialogContentText'
+import DialogTitle from '@mui/material/DialogTitle'
+import Stack from '@mui/material/Stack'
+import Tooltip from '@mui/material/Tooltip'
+import Typography from '@mui/material/Typography'
+import { alpha, useTheme } from '@mui/material/styles'
+import { RotateCcw } from 'lucide-react'
+
+import { APP_FONT_FAMILY } from '../../styles/typography'
+
+// The banner is a notice, not a toolbar: its buttons sit shorter than the
+// default so the warning strip keeps breathing room above and below them.
+const COMPACT_BUTTON_SX = {
+  minHeight: 24,
+  py: 0.125,
+  px: 1.25,
+  fontSize: '0.75rem',
+  lineHeight: 1.5,
+} as const
+
+export interface AgentRestartRequiredBannerProps {
+  visible: boolean
+  working?: boolean
+  busy?: boolean
+  // Pin the banner to the top of its scrolling ancestor. Only for pages
+  // where the banner is mounted inside scrolling content (so it would
+  // otherwise scroll out of view); leave off wherever the banner already
+  // sits in a non-scrolling header row.
+  sticky?: boolean
+  onRestart: () => void
+}
+
+const AgentRestartRequiredBanner: FC<AgentRestartRequiredBannerProps> = ({
+  visible,
+  working = false,
+  busy = false,
+  sticky = false,
+  onRestart,
+}) => {
+  const theme = useTheme()
+  const [dismissed, setDismissed] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+
+  // Re-arm on a genuine new restart-required cycle. "Not now" is meant to
+  // quiet the banner for the current staleness, not to switch it off for the
+  // life of the page — the parent mounts this component permanently, so
+  // without this the next real config change after a dismissal would be
+  // silently swallowed.
+  useEffect(() => {
+    setDismissed(false)
+  }, [visible])
+
+  if (!visible || dismissed) return null
+
+  const gated = working || busy
+  const gateReason = working
+    ? 'The org bot is working — restart when the current turn finishes'
+    : busy
+      ? 'Another action is in progress'
+      : ''
+
+  const confirm = () => {
+    setConfirming(false)
+    onRestart()
+  }
+
+  const banner = (
+    <Box
+      data-testid="agent-restart-required-banner"
+      role="status"
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1,
+        px: 1.5,
+        py: 0.75,
+        mb: 1,
+        borderRadius: 1,
+        border: `1px solid ${alpha(theme.palette.warning.main, 0.35)}`,
+        backgroundColor: alpha(theme.palette.warning.main, 0.08),
+      }}
+    >
+      <RotateCcw size={16} strokeWidth={1.8} />
+      <Typography
+        variant="body2"
+        sx={{ flexGrow: 1, fontSize: '0.8rem', fontFamily: APP_FONT_FAMILY }}
+      >
+        Restart the org bot to apply latest changes.
+      </Typography>
+      <Stack direction="row" alignItems="center" spacing={0.75}>
+        <Button size="small" sx={COMPACT_BUTTON_SX} onClick={() => setDismissed(true)}>
+          Not now
+        </Button>
+        <Tooltip title={gateReason}>
+          <span>
+            <Button
+              size="small"
+              sx={COMPACT_BUTTON_SX}
+              variant="contained"
+              color="secondary"
+              disabled={gated}
+              onClick={() => setConfirming(true)}
+            >
+              Restart
+            </Button>
+          </span>
+        </Tooltip>
+      </Stack>
+    </Box>
+  )
+
+  return (
+    <>
+      {sticky ? (
+        // Opaque backdrop behind the banner's translucent warning tint —
+        // without it, scrolled content shows through the pinned banner.
+        <Box
+          data-testid="agent-restart-required-banner-sticky-wrapper"
+          sx={{
+            position: 'sticky',
+            top: 0,
+            zIndex: (t) => t.zIndex.appBar - 1,
+            backgroundColor: 'background.default',
+            pt: 1,
+            pb: 0.5,
+          }}
+        >
+          {banner}
+        </Box>
+      ) : banner}
+
+      <Dialog open={confirming} onClose={() => setConfirming(false)}>
+        <DialogTitle>Restart the org bot?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            The org bot container restarts with the latest configuration. The
+            workspace and current conversation are kept.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button data-testid="agent-restart-cancel" onClick={() => setConfirming(false)}>
+            Cancel
+          </Button>
+          <Button
+            data-testid="agent-restart-confirm"
+            variant="contained"
+            color="secondary"
+            onClick={confirm}
+          >
+            Restart
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  )
+}
+
+export default AgentRestartRequiredBanner

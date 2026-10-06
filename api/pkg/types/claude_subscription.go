@@ -21,8 +21,15 @@ type ClaudeSubscription struct {
 	SubscriptionType     string         `json:"subscription_type"`                      // "max", "pro"
 	RateLimitTier        string         `json:"rate_limit_tier"`
 	Scopes               pq.StringArray `json:"scopes" gorm:"type:text[]"`
-	AccessTokenExpiresAt time.Time      `json:"access_token_expires_at"`
-	Status               string         `json:"status"` // "active", "expired", "error"
+	AccessTokenExpiresAt time.Time      `json:"access_token_expires_at,omitzero"`
+	// RefreshTokenExpiresAt is when the login itself dies and the user must
+	// re-authenticate. Refreshing keeps the 8h access token alive but does not
+	// move this, so it is the only honest basis for an expiry warning. Zero for
+	// setup tokens, which carry no refresh token — omitzero so an absent
+	// deadline reaches the client as absent, not as "0001-01-01T00:00:00Z",
+	// which reads as a date 739850 days in the past.
+	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at,omitzero"`
+	Status                string    `json:"status"` // "active", "expired", "error"
 
 	// DelegatedOrgIDs lists the organizations whose agent sessions may
 	// authenticate with this subscription on the owner's behalf, even when the
@@ -34,6 +41,21 @@ type ClaudeSubscription struct {
 	// Empty (the default) means the subscription is only ever used for sessions
 	// its owner owns, which is the pre-existing behaviour.
 	DelegatedOrgIDs pq.StringArray `json:"delegated_org_ids" gorm:"type:text[]"`
+
+	// AccountEmail is the email of the Claude account the stored token
+	// authenticates as, fetched from Anthropic's /api/oauth/profile. It is the
+	// identity that gets billed and can differ from the Helix user/org (OwnerID)
+	// that connected the subscription. Best-effort: empty until a valid probe
+	// has enriched the row.
+	AccountEmail       string `json:"account_email"`
+	AccountDisplayName string `json:"account_display_name"`
+
+	// ClaudeOrganizationID is Anthropic's organization uuid for the credential,
+	// captured from the anthropic-organization-id header on the liveness probe.
+	// Unlike AccountEmail it needs no OAuth scope, so it is populated for setup
+	// tokens too — it is the only *verified* identity a setup token discloses.
+	// Two subscriptions sharing it are the same Claude subscription.
+	ClaudeOrganizationID string `json:"claude_organization_id"`
 
 	LastRefreshedAt *time.Time `json:"last_refreshed_at,omitempty"`
 	LastValidatedAt *time.Time `json:"last_validated_at,omitempty"` // last time the token was liveness-probed against Anthropic
@@ -50,6 +72,10 @@ type ClaudeOAuthCredentials struct {
 	Scopes           []string `json:"scopes"`
 	SubscriptionType string   `json:"subscriptionType"`
 	RateLimitTier    string   `json:"rateLimitTier"`
+	// RefreshTokenExpiresAt is Unix milliseconds. This is the one that matters
+	// for "when must I sign in again": rotation does not extend it, so it is a
+	// hard deadline anchored to the original login.
+	RefreshTokenExpiresAt int64 `json:"refreshTokenExpiresAt"`
 }
 
 // ClaudeSetupTokenCredentials stores a token from `claude setup-token`.
@@ -60,10 +86,17 @@ type ClaudeSetupTokenCredentials struct {
 
 // CreateClaudeSubscriptionRequest is the request body for creating a Claude subscription.
 type CreateClaudeSubscriptionRequest struct {
-	Name        string    `json:"name"`
-	OwnerType   OwnerType `json:"owner_type"`            // "user" or "org"
-	OwnerID     string    `json:"owner_id,omitempty"`    // Required for org-level, auto-set for user
-	SetupToken  string    `json:"setup_token,omitempty"` // From `claude setup-token` (alternative to credentials)
+	Name      string    `json:"name"`
+	OwnerType OwnerType `json:"owner_type"`         // "user" or "org"
+	OwnerID   string    `json:"owner_id,omitempty"` // Required for org-level, auto-set for user
+	// OrganizationID identifies the org whose Claude Code runtime is enabled
+	// after connection. It is independent from subscription ownership.
+	OrganizationID string `json:"organization_id,omitempty"`
+	SetupToken     string `json:"setup_token,omitempty"` // From `claude setup-token` (alternative to credentials)
+	// Account identity is never accepted from the caller. It is derived from
+	// Anthropic: the profile fetch for oauth credentials, and the probe's
+	// organization header for setup tokens. Self-reported identity was
+	// unverifiable free text that rendered next to agents as if authoritative.
 	Credentials struct {
 		ClaudeAiOauth ClaudeOAuthCredentials `json:"claudeAiOauth"`
 	} `json:"credentials"`

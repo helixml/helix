@@ -1,11 +1,13 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorkspaceDiffSurface from "./WorkspaceDiffSurface";
+import { DESKTOP_RECONNECT_GRACE_MS } from "./workspaceReviewService";
 
 const mocks = vi.hoisted(() => ({
   live: vi.fn(),
   turn: vi.fn(),
   refetch: vi.fn(),
+  codeViewProps: undefined as Record<string, any> | undefined,
 }));
 
 vi.mock("../../hooks/useLightTheme", () => ({
@@ -17,9 +19,19 @@ vi.mock("../../hooks/useSnackbar", () => ({
 vi.mock("@pierre/diffs/react", async () => {
   const { forwardRef } = await import("react");
   return {
-    CodeView: forwardRef(({ items }: { items: { id: string }[] }, _ref) => (
-      <div data-testid="code-view">{items.map((item) => item.id).join(",")}</div>
-    )),
+    CodeView: forwardRef((props: Record<string, any>, _ref) => {
+      mocks.codeViewProps = props;
+      return (
+        <div data-testid="code-view">
+          {props.items.map((item: { id: string; annotations?: unknown[] }) => item.id).join(",")}
+          {props.items.flatMap((item: { id: string; annotations?: unknown[] }) =>
+            (item.annotations || []).map((annotation, index) => (
+              <div key={`${item.id}:${index}`}>{props.renderAnnotation?.(annotation, item)}</div>
+            )),
+          )}
+        </div>
+      );
+    }),
   };
 });
 vi.mock("./workspaceReviewService", async (importOriginal) => ({
@@ -57,16 +69,20 @@ const renderSurface = (props = {}) =>
       onOpenFile={vi.fn()}
       onExitTurn={vi.fn()}
       onWorkspaceResolved={vi.fn()}
+      comments={[]}
+      onUpsertComment={vi.fn()}
+      onRemoveComment={vi.fn()}
       {...props}
     />,
   );
 
-const idleQuery = { data: undefined, isLoading: false, isError: false, isFetching: false, refetch: mocks.refetch };
+const idleQuery = { data: undefined, isLoading: false, isError: false, isFetching: false, failureCount: 0, refetch: mocks.refetch };
 
 describe("WorkspaceDiffSurface", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    mocks.codeViewProps = undefined;
     mocks.live.mockReturnValue(idleQuery);
     mocks.turn.mockReturnValue(idleQuery);
   });
@@ -136,7 +152,54 @@ describe("WorkspaceDiffSurface", () => {
     expect(screen.getByTestId("code-view")).toBeInTheDocument();
   });
 
-  it("offers to start the desktop when the sandbox answers 503 mid-poll", () => {
+  it("creates diff comments through the shared workspace comment callback", () => {
+    mocks.live.mockReturnValue({
+      ...idleQuery,
+      data: { workspace: "primary", sources: [source("all")] },
+    });
+    const onUpsertComment = vi.fn();
+    renderSurface({ comments: [], onUpsertComment, onRemoveComment: vi.fn() });
+    mocks.codeViewProps!.items[0].fileDiff.cacheKey = "parsed-after-render";
+    const initialVersion = mocks.codeViewProps!.items[0].version;
+
+    act(() => {
+      mocks.codeViewProps?.options.onLineSelectionEnd(
+        { start: 2, end: 2, side: "additions", endSide: "additions" },
+        { item: mocks.codeViewProps.items[0] },
+      );
+    });
+    expect(mocks.codeViewProps!.items[0].version).not.toBe(initialVersion);
+    const input = screen.getByRole("textbox", { name: "Comment on L2" });
+    fireEvent.change(input, { target: { value: "Keep this." } });
+    fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
+
+    expect(onUpsertComment).toHaveBeenCalledWith(expect.objectContaining({
+      filePath: "src/app.ts",
+      rangeLabel: "L2",
+      text: "Keep this.",
+      contents: "second",
+      side: "additions",
+    }));
+  });
+
+  it("does not rerender the diff while a pointer interaction is in progress", () => {
+    mocks.live.mockReturnValue({
+      ...idleQuery,
+      data: { workspace: "primary", sources: [source("all")] },
+    });
+    renderSurface();
+
+    fireEvent.pointerDown(screen.getByTestId("code-view"));
+
+    expect(mocks.codeViewProps?.onSelectedLinesChange).toBeUndefined();
+    expect(mocks.live.mock.calls).toHaveLength(1);
+    expect(mocks.live.mock.calls[0][5]).toBe(true);
+  });
+
+  it("reads a fresh 503 as a sandbox that is still coming up", () => {
+    // A task launched seconds ago answers 503 until its container registers
+    // the bridge. Telling the reviewer it is stopped — and offering to start
+    // it — is wrong for a task that is already working.
     mocks.live.mockReturnValue({
       ...idleQuery,
       isError: true,
@@ -145,8 +208,29 @@ describe("WorkspaceDiffSurface", () => {
 
     renderSurface({ onStartDesktop: vi.fn() });
 
-    expect(screen.getByText("Desktop not running")).toBeInTheDocument();
-    expect(screen.queryByText("Could not load workspace changes.")).not.toBeInTheDocument();
+    expect(screen.getByText("Connecting to the sandbox")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start desktop" })).not.toBeInTheDocument();
+  });
+
+  it("offers to start the desktop once the 503s have persisted", () => {
+    mocks.live.mockReturnValue({
+      ...idleQuery,
+      isError: true,
+      error: { response: { status: 503 } },
+    });
+
+    vi.useFakeTimers();
+    try {
+      renderSurface({ onStartDesktop: vi.fn() });
+      act(() => {
+        vi.advanceTimersByTime(DESKTOP_RECONNECT_GRACE_MS + 1);
+      });
+
+      expect(screen.getByText("Desktop not running")).toBeInTheDocument();
+      expect(screen.queryByText("Could not load workspace changes.")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("still reports a genuine failure as an error", () => {

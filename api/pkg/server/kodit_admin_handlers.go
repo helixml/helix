@@ -132,12 +132,12 @@ type KoditAdminPendingTaskDTO struct {
 
 // KoditAdminQueueStats holds computed statistics about the queue.
 type KoditAdminQueueStats struct {
-	Total           int64                      `json:"total"`
-	OldestTaskAge   string                     `json:"oldest_task_age,omitempty"`
-	OldestTaskTime  *time.Time                 `json:"oldest_task_time,omitempty"`
-	NewestTaskTime  *time.Time                 `json:"newest_task_time,omitempty"`
-	ByOperation     map[string]int64           `json:"by_operation"`
-	ByPriorityLevel map[string]int64           `json:"by_priority_level"`
+	Total           int64            `json:"total"`
+	OldestTaskAge   string           `json:"oldest_task_age,omitempty"`
+	OldestTaskTime  *time.Time       `json:"oldest_task_time,omitempty"`
+	NewestTaskTime  *time.Time       `json:"newest_task_time,omitempty"`
+	ByOperation     map[string]int64 `json:"by_operation"`
+	ByPriorityLevel map[string]int64 `json:"by_priority_level"`
 }
 
 // KoditAdminActiveTaskDTO represents a task currently being processed.

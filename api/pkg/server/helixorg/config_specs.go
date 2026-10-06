@@ -37,6 +37,16 @@ func RegisterConfigSpecs(r *configregistry.Registry) {
 		Description: "Model ID for the chosen provider or Codex subscription (e.g. `claude-sonnet-4-5`, `gpt-5.6-sol`). Required alongside `worker.provider` whenever inference routes through Helix. For subscription-backed `codex_cli`, selects the Codex default model; ignored for subscription-backed `claude_code`.",
 	})
 	r.Register(configregistry.Spec{
+		Key:         configregistry.DefaultSandboxRuntimeKey,
+		Type:        configregistry.TypeString,
+		Description: "Default sandbox environment for Bots that do not set their own: `ubuntu-desktop` (full streamed desktop) or `headless-ubuntu` (agent toolchain only, no compositor). Unset means ubuntu-desktop. Changing it affects Bots on their next restart.",
+	})
+	r.Register(configregistry.Spec{
+		Key:         configregistry.DefaultSandboxVCPUsKey,
+		Type:        configregistry.TypeInt,
+		Description: "Default sandbox size (vCPU count from the spec-task preset ladder) for Bots that do not set their own. Unset means the standard preset.",
+	})
+	r.Register(configregistry.Spec{
 		Key:         "worker.specs_mandate",
 		Type:        configregistry.TypeString,
 		Description: "Optional full activation mandate override. When empty, every activation embeds the Worker's current role content.",

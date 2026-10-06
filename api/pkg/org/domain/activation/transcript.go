@@ -18,6 +18,6 @@ import (
 // routes through here. (The `s-` prefix marks it as a row in the shared
 // topics substrate, alongside s-team-/s-dm- channels; the `transcript`
 // part is its role.)
-func TranscriptID(workerID orgchart.NodeID) streaming.TopicID {
-	return streaming.TopicID("s-transcript-" + string(workerID))
+func TranscriptID(workerID orgchart.NodeID) streaming.StreamID {
+	return streaming.StreamID("s-transcript-" + string(workerID))
 }

@@ -5,6 +5,7 @@
 import React, { useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { StreamStats, ActiveConnection, QualityMode } from './DesktopStreamViewer.types';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 // An inter-frame interval below this (ms) is physically impossible as a freshly
 // rendered 60Hz frame — it means a queue piled up and then drained (a "burst").
@@ -207,24 +208,10 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
       shouldPollScreenshots,
     );
     try {
-      await navigator.clipboard.writeText(text);
+      await copyTextToClipboard(text);
       setCopyState('copied');
     } catch {
-      // Clipboard API is unavailable on insecure (http) origins; fall back to a
-      // hidden textarea + execCommand so localhost still works.
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand('copy');
-        setCopyState('copied');
-      } catch {
-        setCopyState('failed');
-      }
-      document.body.removeChild(ta);
+      setCopyState('failed');
     }
     setTimeout(() => setCopyState('idle'), 1500);
   };

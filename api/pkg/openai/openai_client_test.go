@@ -272,6 +272,52 @@ func TestListModelsNormalizesCompatibleContextLengthFields(t *testing.T) {
 	assert.Equal(t, 32768, modelsByID["nested-model"].ContextLength, "nested model_info context should be used as a final fallback")
 }
 
+// OpenRouter's /v1/models carries the capability metadata the model picker
+// needs to make a 400-model catalogue navigable: which models take tools, and
+// which accept images. Both live in shapes plain OpenAI-compatible servers
+// don't emit, so decoding them must be additive and must not break a provider
+// that reports `architecture` as something else entirely.
+func TestListModelsDecodesOpenRouterCapabilities(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, err := io.WriteString(w, `{
+			"data": [
+				{
+					"id":"anthropic/claude-opus-5",
+					"name":"Anthropic: Claude Opus 5",
+					"context_length":200000,
+					"architecture":{"input_modalities":["text","image"],"tokenizer":"Claude"},
+					"supported_parameters":["tools","tool_choice","reasoning"]
+				},
+				{"id":"plain/model","context_length":8192},
+				{"id":"odd/architecture","architecture":"dense"}
+			]
+		}`)
+		require.NoError(t, err)
+	}))
+	defer ts.Close()
+
+	client := New("test-api-key", ts.URL, false)
+	models, err := client.ListModels(context.Background())
+	require.NoError(t, err, "an unexpected architecture shape must not fail the whole list")
+	require.Len(t, models, 3)
+
+	byID := make(map[string]types.OpenAIModel, len(models))
+	for _, m := range models {
+		byID[m.ID] = m
+	}
+
+	opus := byID["anthropic/claude-opus-5"]
+	assert.Equal(t, "Anthropic: Claude Opus 5", opus.Name)
+	assert.Equal(t, []string{"tools", "tool_choice", "reasoning"}, opus.SupportedParameters)
+	assert.Equal(t, []string{"text", "image"}, opus.InputModalities)
+
+	// A provider that says nothing leaves both nil — "unknown", not "no".
+	assert.Nil(t, byID["plain/model"].SupportedParameters)
+	assert.Nil(t, byID["plain/model"].InputModalities)
+	assert.Nil(t, byID["odd/architecture"].InputModalities)
+}
+
 // TestOld2525Behavior_WithActualOpenAIClient tests the ACTUAL OpenAI client
 // code path to see if there's a bug in how TLSSkipVerify is applied.
 // This simulates the exact 2.5.25 code to find the real issue.

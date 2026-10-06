@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -30,11 +32,11 @@ const desktopResumeReapStaleThreshold = 3 * time.Minute
 // All must hold to classify as orphaned (any failing → treat as busy, defer):
 //   - latest is state=waiting (nothing else can be actively streaming);
 //   - no live WebSocket to the agent (wsLive=false) — a live turn keeps one;
-//   - the thread is already established (ZedThreadID set) — an empty ZedThreadID
-//     is the very-first-message boot race, which must never be reaped (mirrors
-//     the THREAD-ESTABLISHMENT BARRIER in processPendingPromptsForIdleSessions);
-//   - the turn has been idle past desktopResumeReapStaleThreshold — a freshly
-//     created / mid-boot in-flight turn is protected by the staleness window.
+//   - the sandbox is explicitly stopped; OR the thread is established and the
+//     turn has been idle past desktopResumeReapStaleThreshold. A terminal
+//     lifecycle state is authoritative even before first-thread creation, so a
+//     new message can wake the sandbox immediately. Otherwise an empty
+//     ZedThreadID and the staleness window protect a mid-boot first turn.
 func isOrphanedWaitingInteraction(session *types.Session, latest *types.Interaction, wsLive bool, now time.Time) bool {
 	if session == nil || latest == nil {
 		return false
@@ -44,6 +46,9 @@ func isOrphanedWaitingInteraction(session *types.Session, latest *types.Interact
 	}
 	if wsLive {
 		return false
+	}
+	if session.Metadata.ExternalAgentStatus == "stopped" || session.Metadata.ExternalAgentStatus == "terminated_idle" {
+		return true
 	}
 	if session.Metadata.ZedThreadID == "" {
 		return false
@@ -80,6 +85,21 @@ func (apiServer *HelixAPIServer) syncPromptHistory(_ http.ResponseWriter, req *h
 	if syncReq.SpecTaskID == "" && syncReq.SessionID == "" {
 		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
+
+	// Same check as the list path: the response now carries every owner's rows
+	// for this task/session, so it needs the same authorization.
+	authorizedSessionID, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, syncReq.SpecTaskID, syncReq.SessionID)
+	if httpErr != nil {
+		return nil, httpErr
+	}
+	// And the write side: each entry names the session its prompt will be
+	// dispatched to, which the scope check above does not cover.
+	if httpErr := apiServer.authorizeSyncEntryTargets(ctx, user, syncReq.Entries, authorizedSessionID); httpErr != nil {
+		return nil, httpErr
+	}
+	// Entries that name no session fall back to the authorized one, so a created
+	// row can never be left with an empty session_id (it would never dispatch).
+	syncReq.SessionID = authorizedSessionID
 
 	response, err := apiServer.Store.SyncPromptHistory(ctx, user.ID, &syncReq)
 	if err != nil {
@@ -138,7 +158,7 @@ func (apiServer *HelixAPIServer) markCanonicalSessionStartingForSync(ctx context
 		log.Debug().Err(err).Str("spec_task_id", specTaskID).Msg("[PROMPT-SYNC] cannot resolve spec task for sync-time mark; skipping")
 		return
 	}
-	sessionID := specTask.AgentSessionID
+	sessionID := specTask.PlanningSessionID
 	if sessionID == "" {
 		return
 	}
@@ -187,12 +207,12 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 
 	// Determine the canonical planning session for this spec task.
 	// We only deliver prompts to the session that is the authoritative planning session
-	// (task.AgentSessionID). If a duplicate orphan session was created by a race
+	// (task.PlanningSessionID). If a duplicate orphan session was created by a race
 	// condition (issue #10), we must not deliver prompts to it — that causes duplicate
 	// message sends (issue #2) and confuses the agent (issue #9).
 	var canonicalSessionID string
 	if specTask, taskErr := apiServer.Store.GetSpecTask(ctx, specTaskID); taskErr == nil && specTask != nil {
-		canonicalSessionID = specTask.AgentSessionID
+		canonicalSessionID = specTask.PlanningSessionID
 	}
 
 	// Collect the distinct sessions that have pending prompts, honouring the
@@ -353,11 +373,11 @@ func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Con
 		// Reap ONLY when all three hold, so we never kill a live or mid-boot
 		// turn:
 		//   - no live WebSocket to the external agent (a live turn has one);
-		//   - the thread is already established (ZedThreadID set) — an empty
-		//     ZedThreadID means the very first message is mid-boot, which we
-		//     must not reap (mirrors the THREAD-ESTABLISHMENT BARRIER above);
-		//   - the waiting interaction is stale beyond the reap threshold — a
-		//     freshly-created in-flight turn is protected.
+		//   - the sandbox explicitly reports a terminal state; OR its thread is
+		//     established and the waiting interaction is stale beyond the reap
+		//     threshold. A known-stopped sandbox can be resumed immediately, even
+		//     if it died during first-thread creation. Ambiguous disconnects retain
+		//     the boot barrier and grace period that protect an in-flight turn.
 		latest := interactions[0]
 		_, wsLive := apiServer.externalAgentWSManager.getConnection(sessionID)
 		if isOrphanedWaitingInteraction(session, latest, wsLive, time.Now()) {
@@ -388,6 +408,82 @@ func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Con
 	}
 }
 
+// authorizeUserToPromptQueue checks that user may read the prompt queue
+// identified by specTaskID (preferred) or sessionID.
+//
+// This is load-bearing. The queue read path used to be scoped by user_id, which
+// doubled as its authorization: you could only ever see your own rows. That made
+// a teammate's or a bot's queued prompts invisible even though they were about to
+// run on the session you are looking at — the queue lied about the agent's state.
+// The rows are now returned for the whole task/session, so the check that used to
+// be implicit has to be made explicitly here, or knowing a spec_task_id would be
+// enough to read someone else's queue.
+// Returns the session that the scope authorizes, which the sync path uses as the
+// default target for entries that carry no session of their own.
+func (apiServer *HelixAPIServer) authorizeUserToPromptQueue(ctx context.Context, user *types.User, specTaskID, sessionID string) (string, *system.HTTPError) {
+	if specTaskID != "" {
+		specTask, err := apiServer.Store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			return "", system.NewHTTPError404("spec task not found")
+		}
+		project, err := apiServer.Store.GetProject(ctx, specTask.ProjectID)
+		if err != nil {
+			return "", system.NewHTTPError404("project not found")
+		}
+		if err := apiServer.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+			return "", system.NewHTTPError403(err.Error())
+		}
+		return specTask.PlanningSessionID, nil
+	}
+
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil || session == nil {
+		return "", system.NewHTTPError404("session not found")
+	}
+	if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet); err != nil {
+		return "", system.NewHTTPError403(err.Error())
+	}
+	return session.ID, nil
+}
+
+// authorizeSyncEntryTargets checks that the caller may send to every session the
+// synced entries name.
+//
+// The read scope is NOT sufficient authorization for the write side. A created
+// row's session_id is what the queue drain dispatches to, and it arrives from the
+// client per entry — so without this check any authenticated user could sync an
+// entry naming someone else's session and have their content delivered into that
+// agent's turn. Validating the scope's spec_task_id/session_id alone does not
+// cover it, because the entry carries its own session.
+//
+// Each distinct target is authorized individually rather than being forced to
+// equal the scope's session: a spec-task view legitimately drives more than one
+// session (a desktop tab can host the project's exploratory session, with its own
+// composer), so collapsing them all onto the planning session would silently drop
+// those prompts. ActionUpdate, not ActionGet — this results in a message being
+// delivered to that session's agent.
+func (apiServer *HelixAPIServer) authorizeSyncEntryTargets(ctx context.Context, user *types.User, entries []types.PromptHistoryEntrySync, authorizedSessionID string) *system.HTTPError {
+	checked := make(map[string]struct{}, 1)
+	for _, entry := range entries {
+		if entry.SessionID == "" || entry.SessionID == authorizedSessionID {
+			continue
+		}
+		if _, done := checked[entry.SessionID]; done {
+			continue
+		}
+		checked[entry.SessionID] = struct{}{}
+
+		session, err := apiServer.Store.GetSession(ctx, entry.SessionID)
+		if err != nil || session == nil {
+			return system.NewHTTPError404(fmt.Sprintf("session %s not found", entry.SessionID))
+		}
+		if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+			return system.NewHTTPError403(err.Error())
+		}
+	}
+	return nil
+}
+
 // enqueueAgentMessage is the single server-side entry point for sending a
 // message to an agent. It inserts a pending prompt_history_entries row for the
 // session and nudges the session-scoped poller — the same mechanism the
@@ -412,6 +508,36 @@ func (apiServer *HelixAPIServer) enqueueAgentMessage(ctx context.Context, sessio
 	return promptID, nil
 }
 
+// resolveSpecTaskIDForSession returns the id of the spec task that owns sessionID
+// via its planning_session_id, or "" when the session is a plain (non-spec-task)
+// session such as an org-chat or bot session — an empty spec_task_id is legitimate
+// there. Archived tasks count: their queue must still render.
+//
+// This exists because the prompt-queue UI queries by spec_task_id. A row written
+// with an empty one is invisible even though it is correctly queued and will be
+// dispatched — see design/tasks/003021_queued-agent-messages.
+func (apiServer *HelixAPIServer) resolveSpecTaskIDForSession(ctx context.Context, sessionID string) (string, error) {
+	tasks, err := apiServer.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		PlanningSessionID: sessionID,
+		IncludeArchived:   true,
+		Limit:             2,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve spec task for session %s: %w", sessionID, err)
+	}
+	if len(tasks) == 0 {
+		return "", nil
+	}
+	if len(tasks) > 1 {
+		log.Warn().
+			Str("session_id", sessionID).
+			Int("match_count", len(tasks)).
+			Str("chosen_spec_task_id", tasks[0].ID).
+			Msg("Session is the planning session of more than one spec task; stamping the first")
+	}
+	return tasks[0].ID, nil
+}
+
 // persistQueuedPrompt inserts the pending prompt row synchronously and returns
 // its id, WITHOUT nudging the poller. Callers that must persist a link to the
 // prompt before dispatch runs (the design-review comment path stores
@@ -432,6 +558,16 @@ func (apiServer *HelixAPIServer) persistQueuedPrompt(ctx context.Context, sessio
 	}
 	if session == nil {
 		return "", fmt.Errorf("session %s not found", sessionID)
+	}
+
+	// Callers that already know their spec task pass it explicitly. The generic
+	// session-messages API (the HelixOS path) cannot, so resolve it here — a row
+	// with an empty spec_task_id is invisible in the queue UI.
+	if specTaskID == "" {
+		specTaskID, err = apiServer.resolveSpecTaskIDForSession(ctx, sessionID)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	entry := &types.PromptHistoryEntry{
@@ -500,19 +636,26 @@ func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, ses
 
 	// Cancel the current turn in Zed before sending the interrupt message.
 	// Find the current waiting interaction's request_id and send cancel_current_turn.
-	apiServer.cancelCurrentTurnIfActive(ctx, sessionID)
-
-	// Send the prompt to the session (creates interaction and sends to agent)
-	if err := apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt); err != nil {
-		// Interaction creation failed - revert to 'failed' so it can be retried
-		log.Error().
-			Err(err).
+	if err := apiServer.cancelCurrentTurnIfActive(ctx, sessionID); err != nil {
+		log.Warn().Err(err).
 			Str("session_id", sessionID).
 			Str("prompt_id", nextPrompt.ID).
-			Msg("Failed to create interaction for interrupt prompt - reverting to failed")
-		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID, err.Error()); markErr != nil {
-			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed after interaction creation error")
-		}
+			Msg("[INTERRUPT] Current turn cancellation is not confirmed; deferring interrupt prompt")
+		// An unacknowledged cancellation is a defer, not a failure — the log line
+		// says so. Routing it through the shared classifier keeps it off the retry
+		// budget; a genuine cancel error is still recorded as failed.
+		apiServer.requeueUndispatchedPrompt(ctx, sessionID, nextPrompt, err)
+		return
+	}
+
+	// Send the prompt to the session (creates interaction and sends to agent)
+	//
+	// Interrupts are exempt from the busy check, so a defer here means the
+	// BOOT-RACE exception fired (ZedThreadID not yet set). That is also not a
+	// failure — the interrupt is redelivered into the same thread once the thread
+	// exists — so it must not burn the retry budget either.
+	if err := apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt); err != nil {
+		apiServer.requeueUndispatchedPrompt(ctx, sessionID, nextPrompt, err)
 		return
 	}
 
@@ -524,13 +667,17 @@ func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, ses
 
 // cancelCurrentTurnIfActive finds the current waiting interaction for a session
 // and sends cancel_current_turn to Zed. It waits up to 3 seconds for acknowledgement.
-func (apiServer *HelixAPIServer) cancelCurrentTurnIfActive(ctx context.Context, sessionID string) {
+func (apiServer *HelixAPIServer) cancelCurrentTurnIfActive(ctx context.Context, sessionID string) error {
 	status, err := apiServer.cancelActiveTurn(ctx, sessionID)
 	if err != nil {
-		log.Warn().Err(err).
-			Str("session_id", sessionID).
-			Msg("[INTERRUPT] Cancel timed out or failed — proceeding with interrupt anyway")
-		return
+		return err
+	}
+	if status == "pending" {
+		// Defer-class, not a failure: the agent has not acknowledged the cancel
+		// yet, so nothing was dispatched and the prompt is redelivered when the
+		// ack arrives (handleCancellationAck fires processAnyPendingPrompt).
+		// Wrapped so the queue paths don't charge it to the retry budget.
+		return fmt.Errorf("external agent cancellation is pending acknowledgement: %w", ErrPromptBusyDeferred)
 	}
 
 	if status != "noop" {
@@ -539,120 +686,188 @@ func (apiServer *HelixAPIServer) cancelCurrentTurnIfActive(ctx context.Context, 
 			Str("status", status).
 			Msg("[INTERRUPT] Turn cancelled successfully")
 	}
+	return nil
 }
 
 // cancelActiveTurn interrupts a queued turn before dispatch, or waits for the
 // external agent to acknowledge cancellation of an active turn. A noop means
 // there is no waiting turn.
 func (apiServer *HelixAPIServer) cancelActiveTurn(ctx context.Context, sessionID string) (string, error) {
-	// Find the current waiting interaction
+	defer apiServer.lockCancelTurn(sessionID)()
+
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		return "", fmt.Errorf("get session for cancel: %w", err)
 	}
+	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: sessionID, GenerationID: session.GenerationID, PerPage: 1000, Order: "id DESC",
+	})
+	if err != nil {
+		return "", fmt.Errorf("list interactions for cancel: %w", err)
+	}
 
-	// Find the request_id for the waiting interaction
-	var activeRequestID string
-	apiServer.contextMappingsMutex.RLock()
-	for reqID, sessID := range apiServer.requestToSessionMapping {
-		if sessID == sessionID {
-			// Check if this request_id maps to a waiting interaction
-			if interactionID, ok := apiServer.requestToInteractionMapping[reqID]; ok {
-				interaction, err := apiServer.Store.GetInteraction(ctx, interactionID)
-				if err == nil && interaction.State == types.InteractionStateWaiting {
-					activeRequestID = reqID
-					break
-				}
+	var cancelErrors []error
+	hadCancelled := false
+	hadPending := false
+	// Cancel requests known to be dispatched first. Zed serializes turns on a
+	// thread; once the active request is cancelled, an already-accepted queued
+	// request may immediately become active. Sending its cancellation afterward
+	// catches that transition instead of accepting a premature noop.
+	for phase := 0; phase < 2; phase++ {
+		for _, interaction := range interactions {
+			if interaction.State != types.InteractionStateWaiting {
+				continue
+			}
+			isDispatched := interaction.ExternalAgentDispatchedAt != nil
+			if (phase == 0) != isDispatched {
+				continue
+			}
+			status, cancelErr := apiServer.cancelWaitingInteraction(ctx, session, interaction)
+			if cancelErr != nil {
+				cancelErrors = append(cancelErrors, fmt.Errorf("cancel interaction %s: %w", interaction.ID, cancelErr))
+				continue
+			}
+			switch status {
+			case "cancelled":
+				hadCancelled = true
+			case "pending":
+				hadPending = true
 			}
 		}
 	}
-	apiServer.contextMappingsMutex.RUnlock()
+	if len(cancelErrors) > 0 {
+		return "", errors.Join(cancelErrors...)
+	}
+	if hadPending {
+		return "pending", nil
+	}
+	if hadCancelled {
+		return "cancelled", nil
+	}
+	return "noop", nil
+}
 
-	if activeRequestID == "" {
-		interactions, _, listErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-			SessionID:    sessionID,
-			GenerationID: session.GenerationID,
-			PerPage:      1000,
-		})
-		if listErr != nil {
-			return "", fmt.Errorf("list interactions for cancel: %w", listErr)
-		}
+func (apiServer *HelixAPIServer) cancelWaitingInteraction(ctx context.Context, session *types.Session, waiting *types.Interaction) (string, error) {
+	apiServer.contextMappingsMutex.Lock()
+	current, err := apiServer.Store.GetInteraction(ctx, waiting.ID)
+	if err != nil {
+		apiServer.contextMappingsMutex.Unlock()
+		return "", fmt.Errorf("reload waiting interaction for cancel: %w", err)
+	}
+	if current.State != types.InteractionStateWaiting {
+		apiServer.contextMappingsMutex.Unlock()
+		return "noop", nil
+	}
 
-		var waitingInteraction *types.Interaction
-		for _, interaction := range interactions {
-			if interaction.State == types.InteractionStateWaiting {
-				waitingInteraction = interaction
+	requestID := current.ExternalAgentRequestID
+	requestRecoveredFromMemory := false
+	if requestID == "" {
+		for candidate, interactionID := range apiServer.requestToInteractionMapping {
+			if interactionID == current.ID {
+				requestID = candidate
+				requestRecoveredFromMemory = true
 				break
 			}
 		}
-		if waitingInteraction == nil {
-			log.Debug().Str("session_id", sessionID).Msg("[INTERRUPT] No active turn to cancel")
+	}
+	if requestID == "" {
+		// Recovery and pickup use the interaction ID as their deterministic request
+		// ID. Persist that candidate before cancellation. If the command truly never
+		// reached Zed, the runtime returns noop; if it is queued inside Zed, ordering
+		// cancellation after the active request allows it to be stopped as it starts.
+		requestID = current.ID
+		bound, bindErr := apiServer.Store.BindInteractionExternalAgentRequest(ctx, current.ID, current.GenerationID, requestID)
+		if bindErr != nil || !bound {
+			apiServer.contextMappingsMutex.Unlock()
+			if bindErr != nil {
+				return "", fmt.Errorf("persist cancellation request mapping: %w", bindErr)
+			}
 			return "noop", nil
 		}
-
-		// Serialize against pickupWaitingInteraction. If the turn has not been
-		// dispatched yet, interrupting it in the store prevents it from being
-		// picked up when the agent finishes booting.
-		apiServer.contextMappingsMutex.Lock()
-		for reqID, sessID := range apiServer.requestToSessionMapping {
-			if sessID != sessionID {
-				continue
-			}
-			interactionID, ok := apiServer.requestToInteractionMapping[reqID]
-			if !ok {
-				continue
-			}
-			mappedInteraction, getErr := apiServer.Store.GetInteraction(ctx, interactionID)
-			if getErr == nil && mappedInteraction.State == types.InteractionStateWaiting {
-				activeRequestID = reqID
-				break
-			}
-		}
-		if activeRequestID == "" {
-			current, getErr := apiServer.Store.GetInteraction(ctx, waitingInteraction.ID)
-			if getErr != nil {
-				apiServer.contextMappingsMutex.Unlock()
-				return "", fmt.Errorf("get queued interaction for cancel: %w", getErr)
-			}
-			if current.State != types.InteractionStateWaiting {
-				apiServer.contextMappingsMutex.Unlock()
-				return "noop", nil
-			}
-			current.State = types.InteractionStateInterrupted
-			current.Completed = time.Now()
-			current.Updated = time.Now()
-			if _, updateErr := apiServer.Store.UpdateInteraction(ctx, current); updateErr != nil {
-				apiServer.contextMappingsMutex.Unlock()
-				return "", fmt.Errorf("interrupt queued interaction: %w", updateErr)
-			}
+		current.ExternalAgentRequestID = requestID
+	}
+	if requestRecoveredFromMemory {
+		// A live process created before the durable dispatch fields were deployed
+		// can still know the request ID through its routing cache. Absence of the
+		// new timestamp is ambiguous in that case, so conservatively record the
+		// turn as dispatched and require an agent acknowledgement.
+		updated, markErr := apiServer.Store.MarkInteractionExternalAgentDispatched(ctx, current.ID, current.GenerationID, requestID)
+		if markErr != nil || !updated {
 			apiServer.contextMappingsMutex.Unlock()
-
-			if publishErr := apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, current); publishErr != nil {
-				log.Warn().Err(publishErr).
-					Str("session_id", sessionID).
-					Str("interaction_id", current.ID).
-					Msg("Failed to publish queued turn cancellation")
+			if markErr != nil {
+				return "", fmt.Errorf("persist recovered external-agent dispatch: %w", markErr)
 			}
-			log.Info().
-				Str("session_id", sessionID).
-				Str("interaction_id", current.ID).
-				Msg("[INTERRUPT] Cancelled queued turn before agent dispatch")
-			return "cancelled", nil
+			return "noop", nil
 		}
-		apiServer.contextMappingsMutex.Unlock()
+		now := time.Now()
+		current.ExternalAgentRequestID = requestID
+		current.ExternalAgentDispatchedAt = &now
+	}
+	if requestID != "" {
+		if session.Metadata.ZedThreadID == "" {
+			apiServer.requestToSessionMapping[requestID] = session.ID
+		}
+		apiServer.requestToInteractionMapping[requestID] = current.ID
 	}
 
+	if requestID != "" && apiServer.externalAgentWSManager.cancelQueuedChatMessage(session.ID, requestID) {
+		status, cancelErr := apiServer.interruptWaitingInteraction(ctx, session, current)
+		apiServer.contextMappingsMutex.Unlock()
+		return status, cancelErr
+	}
+	requested, err := apiServer.Store.RequestInteractionCancellationIfWaiting(ctx, current.ID, current.GenerationID)
+	apiServer.contextMappingsMutex.Unlock()
+	if err != nil {
+		return "", fmt.Errorf("persist cancellation intent: %w", err)
+	}
+	if !requested {
+		return "noop", nil
+	}
 	log.Info().
-		Str("session_id", sessionID).
-		Str("request_id", activeRequestID).
+		Str("session_id", session.ID).
+		Str("request_id", requestID).
 		Msg("[INTERRUPT] Cancelling active turn before sending interrupt")
 
-	status, err := apiServer.sendCancelToExternalAgent(sessionID, activeRequestID, 3*time.Second)
+	status, err := apiServer.sendCancelToExternalAgent(session.ID, requestID, 3*time.Second)
 	if err != nil {
-		return "", fmt.Errorf("cancel external agent turn %s: %w", activeRequestID, err)
+		log.Warn().Err(err).
+			Str("session_id", session.ID).
+			Str("interaction_id", current.ID).
+			Str("request_id", requestID).
+			Msg("[INTERRUPT] Cancellation is durable but not yet acknowledged")
+		go apiServer.retryPendingExternalAgentCancellation(session.ID, current.ID, requestID)
+		return "pending", nil
 	}
 
 	return status, nil
+}
+
+func (apiServer *HelixAPIServer) lockCancelTurn(sessionID string) func() {
+	muIface, _ := apiServer.cancelTurnMutexes.LoadOrStore(sessionID, &sync.Mutex{})
+	mu := muIface.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+func (apiServer *HelixAPIServer) interruptWaitingInteraction(ctx context.Context, session *types.Session, interaction *types.Interaction) (string, error) {
+	interrupted, err := apiServer.Store.MarkInteractionInterruptedIfWaiting(ctx, interaction.ID, interaction.GenerationID)
+	if err != nil {
+		return "", fmt.Errorf("interrupt queued interaction: %w", err)
+	}
+	if !interrupted {
+		return "noop", nil
+	}
+	current, err := apiServer.Store.GetInteraction(ctx, interaction.ID)
+	if err != nil {
+		return "", fmt.Errorf("reload interrupted interaction: %w", err)
+	}
+	if err := apiServer.publishInteractionUpdateToFrontend(session.ID, session.Owner, current); err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Str("interaction_id", current.ID).
+			Msg("Failed to publish queued turn cancellation")
+	}
+	log.Info().Str("session_id", session.ID).Str("interaction_id", current.ID).
+		Msg("[INTERRUPT] Cancelled queued turn before external-agent dispatch")
+	return "cancelled", nil
 }
 
 // @Summary List the prompt delivery queue
@@ -688,6 +903,10 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
 
+	if _, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, specTaskID, sessionID); httpErr != nil {
+		return nil, httpErr
+	}
+
 	listReq := &types.PromptHistoryListRequest{
 		SpecTaskID: specTaskID,
 		ProjectID:  query.Get("project_id"),
@@ -710,7 +929,7 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		}
 	}
 
-	response, err := apiServer.Store.ListPromptHistory(ctx, user.ID, listReq)
+	response, err := apiServer.Store.ListPromptHistory(ctx, listReq)
 	if err != nil {
 		log.Error().Err(err).
 			Str("user_id", user.ID).

@@ -51,6 +51,8 @@ function deriveTitle(routeName: string, params: Record<string, string>, nameCach
       return taskName ? `Review: ${truncate(taskName, 34)}` : 'Spec review'
     case 'org_project-specs':
       return 'Project board'
+    case 'org_project-artifacts':
+      return 'Project artifacts'
     case 'org_spec-tasks':
       return 'All tasks'
     case 'org_project-design-doc':

@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	helixstore "github.com/helixml/helix/api/pkg/store"
@@ -40,6 +41,10 @@ func (s *bootstrapHelixStore) GetUser(_ context.Context, _ *helixstore.GetUserQu
 
 func (s *bootstrapHelixStore) CreateAPIKey(_ context.Context, key *types.ApiKey) (*types.ApiKey, error) {
 	return key, nil
+}
+
+func (s *bootstrapHelixStore) GetAPIKey(_ context.Context, key *types.ApiKey) (*types.ApiKey, error) {
+	return &types.ApiKey{Key: key.Key, Owner: "user-owner"}, nil
 }
 
 type failingBootstrapHelixStore struct {
@@ -160,11 +165,71 @@ func newHelixOrgRouteTestHandler(t *testing.T) (http.Handler, *helixOrgScope) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{}}
+	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{role: types.OrganizationRoleOwner}}
 	root := mux.NewRouter()
 	router := root.PathPrefix(APIPrefix).Subrouter()
 	server.registerHelixOrgAuthenticatedRoutes(router, &helixOrgHandlers{api: api, scope: scope})
 	return root, scope
+}
+
+func TestHelixOrgDefaultRuntimeMutationRequiresOwner(t *testing.T) {
+	api := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{role: types.OrganizationRoleMember}}
+	handler := server.withHelixOrgIdentity(api)
+
+	for _, method := range []string{http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/orgs/acme/settings/agent.default", nil)
+		req = mux.SetURLVars(req, map[string]string{"org": "acme"})
+		req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1"}))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s status = %d, want %d", method, rec.Code, http.StatusForbidden)
+		}
+	}
+}
+
+func TestWithHelixOrgIdentityThreadsOrganizationAuthorization(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		role          types.OrganizationRole
+		platformAdmin bool
+		wantManage    bool
+	}{
+		{name: "member", role: types.OrganizationRoleMember, wantManage: false},
+		{name: "owner", role: types.OrganizationRoleOwner, wantManage: true},
+		{name: "platform admin", role: types.OrganizationRoleMember, platformAdmin: true, wantManage: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				auth, ok := helixorgserver.OrgAuthorizationFromContext(r.Context())
+				if !ok {
+					t.Fatal("organization authorization missing from context")
+				}
+				if auth.MembershipRole != tt.role || auth.PlatformAdmin != tt.platformAdmin {
+					t.Fatalf("authorization = %+v, want role=%q admin=%v", auth, tt.role, tt.platformAdmin)
+				}
+				if got := helixorgserver.CanManageOrganization(r.Context()); got != tt.wantManage {
+					t.Fatalf("CanManageOrganization() = %v, want %v", got, tt.wantManage)
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})
+			server := &HelixAPIServer{Store: &helixOrgRouteTestStore{role: tt.role}}
+			handler := server.withHelixOrgIdentity(api)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/orgs/acme/bots", nil)
+			req = mux.SetURLVars(req, map[string]string{"org": "acme"})
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1", Admin: tt.platformAdmin}))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want 204", rec.Code)
+			}
+		})
+	}
 }
 
 func helixOrgRouteRequest(handler http.Handler, method, path string) *httptest.ResponseRecorder {
@@ -338,7 +403,7 @@ func TestHelixOrgAssetsAPIIntegrationRBAC(t *testing.T) {
 	ownerStore := &helixOrgRouteTestStore{role: types.OrganizationRoleOwner}
 	ownerHandler := newAssetRBACIntegrationHandler(t, ownerStore)
 	response = assetRBACRequest(t, ownerHandler, &owner, http.MethodPost, "/api/v1/orgs/acme/assets", orgapi.CreateAssetRequest{
-		Name: "production", NotesForAgents: "Deploy only after draining traffic.", Kind: asset.KindServer,
+		Name: "production", NotesForBots: "Deploy only after draining traffic.", Kind: asset.KindServer,
 		Server: &orgapi.ServerAssetWriteRequest{Address: "10.0.0.8", User: "ubuntu", AuthType: asset.AuthSSHKey},
 	})
 	if response.Code != http.StatusCreated {
@@ -449,7 +514,7 @@ func TestEnsureBootstrapProvisionsServiceKeyBeforeGraphSeed(t *testing.T) {
 	configs.Register(configregistry.Spec{Key: "helix.api_key", Type: configregistry.TypeString})
 	scope := newHelixOrgScope(configs, orgStore, &bootstrapHelixStore{}, nil, nil, nil)
 	seeded := false
-	scope.humanReconcile = func(ctx context.Context, orgID string) error {
+	scope.botBootstrap = func(ctx context.Context, orgID string) error {
 		key, err := configs.GetString(ctx, orgID, "helix.api_key")
 		if err != nil {
 			return err
@@ -483,7 +548,32 @@ func TestEnsureBootstrapRetriesAfterServiceKeyFailure(t *testing.T) {
 	}
 }
 
-func TestRepairNeverActivatedBotsSkipsHumansAndActivatedBots(t *testing.T) {
+func TestEnsureBootstrapStaysUsableAfterBotBootstrapFailure(t *testing.T) {
+	t.Parallel()
+	orgStore := orgmemory.New()
+	configs := configregistry.New(orgStore.Configs)
+	configs.Register(configregistry.Spec{Key: "helix.api_key", Type: configregistry.TypeString})
+	scope := newHelixOrgScope(configs, orgStore, &bootstrapHelixStore{}, nil, nil, nil)
+	attempts := 0
+	scope.botBootstrap = func(context.Context, string) error {
+		attempts++
+		return errors.New("list Bots failed")
+	}
+
+	for range 2 {
+		if err := scope.ensureBootstrap(context.Background(), "org-retry"); err != nil {
+			t.Fatalf("a failed Bot bootstrap must not fail the request: %v", err)
+		}
+	}
+	if attempts != 2 {
+		t.Fatalf("Bot bootstrap attempts = %d, want 2", attempts)
+	}
+	if scope.bootstrapped["org-retry"] {
+		t.Fatal("failed Bot bootstrap must remain retryable")
+	}
+}
+
+func TestRepairNeverActivatedBotsSkipsActivatedBots(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	st := orgmemory.New()
@@ -491,10 +581,9 @@ func TestRepairNeverActivatedBotsSkipsHumansAndActivatedBots(t *testing.T) {
 	configs.Register(configregistry.Spec{Key: configregistry.DefaultAgentConfigKey, Type: configregistry.TypeObject})
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 	for _, b := range []orgchart.Node{
-		mustBot(t, "bot-legacy-a", "", now).WithAgentID("app-legacy-a"),
-		mustBot(t, "bot-legacy-b", "", now),
-		mustBot(t, "bot-created", "", now),
-		mustBot(t, "human-owner", orgchart.NodeKindHuman, now),
+		mustBot(t, "bot-legacy-a", now).WithAgentID("app-legacy-a"),
+		mustBot(t, "bot-legacy-b", now),
+		mustBot(t, "bot-created", now),
 	} {
 		if err := st.Nodes.Create(ctx, b); err != nil {
 			t.Fatal(err)
@@ -566,11 +655,103 @@ func TestRepairNeverActivatedBotsSkipsHumansAndActivatedBots(t *testing.T) {
 	}
 }
 
-func mustBot(t *testing.T, id string, kind orgchart.NodeKind, now time.Time) orgchart.Node {
+func mustBot(t *testing.T, id string, now time.Time) orgchart.Node {
 	t.Helper()
 	b, err := orgchart.NewNode(orgchart.NodeID(id), "test bot", nil, now, "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return b.WithKind(kind)
+	return b
+}
+
+// contextCapturingProjectService is a minimal ProjectService stub that
+// records the context passed to GetAppConfig so we can assert orgID is
+// stamped on it. Only GetAppConfig and UpdateAppConfig need real behaviour
+// for removeLegacyHelixOrgMCPs.
+type contextCapturingProjectService struct {
+	runtimehelix.ProjectService // embed to satisfy the full interface
+
+	capturedCtx context.Context
+	cfg         types.AppConfig
+}
+
+func (f *contextCapturingProjectService) GetAppConfig(ctx context.Context, _ string) (types.AppConfig, error) {
+	f.capturedCtx = ctx
+	return f.cfg, nil
+}
+
+func (f *contextCapturingProjectService) UpdateAppConfig(_ context.Context, _ string, _ types.AppConfig) error {
+	return nil
+}
+
+func (f *contextCapturingProjectService) GetApp(_ context.Context, _ string) (*types.App, error) {
+	return nil, helixstore.ErrNotFound
+}
+
+// TestRemoveLegacyHelixOrgMCPsStampsOrgIDOnContext verifies the fix for
+// issue #3072: orgID must be stamped onto the context before the inproc
+// ProjectService is called, otherwise the inproc client cannot resolve
+// the caller's identity and returns "no user or organization on context".
+func TestRemoveLegacyHelixOrgMCPsStampsOrgIDOnContext(t *testing.T) {
+	t.Parallel()
+	const orgID = "org-target"
+	ctx := context.Background() // bare context -- no orgID, no user
+
+	st := orgmemory.New()
+	now := time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)
+	// Add a bot with an AgentID so removeLegacyHelixOrgMCPs calls GetAppConfig.
+	// Create directly (not via mustBot) to use the correct org ID.
+	bot, err := orgchart.NewNode("bot-with-agent", "test bot", nil, now, orgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot = bot.WithAgentID("app-agent-1")
+	if err := st.Nodes.Create(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := &contextCapturingProjectService{
+		cfg: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				// No legacy helix-org MCP entry -- RemoveHelixOrgMCP will
+				// call GetAppConfig and return early without UpdateAppConfig.
+				Assistants: []types.AssistantConfig{{Name: "main"}},
+			},
+		},
+	}
+
+	if err := removeLegacyHelixOrgMCPs(ctx, orgID, st, svc); err != nil {
+		t.Fatalf("removeLegacyHelixOrgMCPs: %v", err)
+	}
+	if svc.capturedCtx == nil {
+		t.Fatal("GetAppConfig was never called -- bot with AgentID should trigger it")
+	}
+	got := helixorgserver.OrgIDFromContext(svc.capturedCtx)
+	if got != orgID {
+		t.Fatalf("orgID on context = %q, want %q", got, orgID)
+	}
+}
+
+func TestHelixOrgPrivilegedMutation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		method string
+		path   string
+		want   bool
+	}{
+		{http.MethodPut, "/api/v1/orgs/test/bots/b-1/secrets/GH_TOKEN", true},
+		{http.MethodDelete, "/api/v1/orgs/test/bots/b-1/secrets/GH_TOKEN", true},
+		{http.MethodGet, "/api/v1/orgs/test/bots/b-1/secrets", false},
+		{http.MethodGet, "/api/v1/orgs/test/bots/b-1/available-secrets", false},
+		{http.MethodPatch, "/api/v1/orgs/test/assets/a-1", true},
+		{http.MethodPatch, "/api/v1/orgs/test/bots/b-1", false},
+		{http.MethodPut, "/api/v1/orgs/test/agents/b-1/secrets/GH_TOKEN", false},
+	}
+	for _, tt := range tests {
+		req := httptest.NewRequest(tt.method, tt.path, nil)
+		req = mux.SetURLVars(req, map[string]string{"org": "test"})
+		if got := isHelixOrgPrivilegedMutation(req); got != tt.want {
+			t.Errorf("%s %s = %v, want %v", tt.method, tt.path, got, tt.want)
+		}
+	}
 }

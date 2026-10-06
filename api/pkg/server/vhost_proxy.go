@@ -2,7 +2,10 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +13,9 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/hydra"
@@ -23,6 +29,17 @@ import (
 // ErrorHandler serves the branded holding page instead of leaking hydra's 502
 // body (which carries the internal container IP) to the public.
 var errUpstreamUnavailable = errors.New("web service upstream unavailable")
+
+const sandboxBrowserBridgeJavaScript = `(()=>{const send=(navigationType)=>window.parent.postMessage({type:'helix:sandbox-browser:navigate',href:window.location.href,navigationType},'*');const pushState=history.pushState;history.pushState=function(...args){const result=pushState.apply(this,args);send('push');return result};const replaceState=history.replaceState;history.replaceState=function(...args){const result=replaceState.apply(this,args);send('replace');return result};addEventListener('popstate',()=>send('pop'));addEventListener('hashchange',()=>send('push'));addEventListener('pageshow',()=>send('load'));send('load')})()`
+
+const sandboxBrowserBridgeScript = "<script>" + sandboxBrowserBridgeJavaScript + "</script>"
+
+const maxSandboxBrowserHTMLSize = 8 << 20
+
+var (
+	htmlHeadPattern = regexp.MustCompile(`(?i)<head(?:\s[^>]*)?>`)
+	htmlOpenPattern = regexp.MustCompile(`(?i)<html(?:\s[^>]*)?>`)
+)
 
 // proxyToContainer forwards an HTTP request to a port inside a sandbox
 // container via the hydra dev-container proxy, reached over RevDial.
@@ -48,6 +65,9 @@ func (apiServer *HelixAPIServer) proxyToContainer(
 	// state-aware ("starting up" vs "temporarily unavailable"). Empty for
 	// sandbox previews, which always get the optimistic starting-up page.
 	projectID string,
+	// browserBridge injects navigation reporting into sandbox-preview HTML so
+	// the cross-origin SandboxBrowser iframe can keep its address bar in sync.
+	browserBridge bool,
 ) {
 	if sandboxID == "" {
 		http.Error(w, "no sandbox associated with route", http.StatusServiceUnavailable)
@@ -75,6 +95,12 @@ func (apiServer *HelixAPIServer) proxyToContainer(
 		req.URL.Path = hydraPath
 		req.URL.RawPath = ""
 		req.URL.RawQuery = r.URL.RawQuery
+		if browserBridge {
+			// The response bridge rewrites HTML, so ask the upstream for an
+			// identity body. If it still compresses the response, the modifier
+			// safely leaves that response untouched.
+			req.Header.Del("Accept-Encoding")
+		}
 	}
 
 	proxy.Transport = &revdialTransport{
@@ -90,6 +116,9 @@ func (apiServer *HelixAPIServer) proxyToContainer(
 		if resp.Header.Get("X-Helix-Upstream-Unavailable") != "" {
 			_ = resp.Body.Close()
 			return errUpstreamUnavailable
+		}
+		if browserBridge {
+			return injectSandboxBrowserBridge(resp)
 		}
 		return nil
 	}
@@ -109,6 +138,83 @@ func (apiServer *HelixAPIServer) proxyToContainer(
 	}
 
 	proxy.ServeHTTP(w, r)
+}
+
+func injectSandboxBrowserBridge(resp *http.Response) error {
+	contentEncoding := strings.TrimSpace(resp.Header.Get("Content-Encoding"))
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotModified ||
+		!strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") ||
+		(contentEncoding != "" && !strings.EqualFold(contentEncoding, "identity")) ||
+		(resp.Request != nil && resp.Request.Method == http.MethodHead) {
+		return nil
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSandboxBrowserHTMLSize+1))
+	if err != nil {
+		return fmt.Errorf("read sandbox preview HTML: %w", err)
+	}
+	if len(body) > maxSandboxBrowserHTMLSize {
+		resp.Body = &readerWithCloser{
+			Reader: io.MultiReader(bytes.NewReader(body), resp.Body),
+			Closer: resp.Body,
+		}
+		return nil
+	}
+	if err := resp.Body.Close(); err != nil {
+		return fmt.Errorf("close sandbox preview HTML: %w", err)
+	}
+
+	match := htmlHeadPattern.FindIndex(body)
+	insertAt := 0
+	if match != nil {
+		insertAt = match[1]
+	} else if match = htmlOpenPattern.FindIndex(body); match != nil {
+		insertAt = match[1]
+	}
+	rewritten := make([]byte, 0, len(body)+len(sandboxBrowserBridgeScript))
+	rewritten = append(rewritten, body[:insertAt]...)
+	rewritten = append(rewritten, sandboxBrowserBridgeScript...)
+	rewritten = append(rewritten, body[insertAt:]...)
+
+	resp.Body = io.NopCloser(bytes.NewReader(rewritten))
+	resp.ContentLength = int64(len(rewritten))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(rewritten)))
+	resp.Header.Del("Content-MD5")
+	resp.Header.Del("ETag")
+	allowSandboxBrowserBridgeInCSP(resp.Header)
+	return nil
+}
+
+func allowSandboxBrowserBridgeInCSP(header http.Header) {
+	policies := header.Values("Content-Security-Policy")
+	if len(policies) == 0 {
+		return
+	}
+	bridgeHash := sha256.Sum256([]byte(sandboxBrowserBridgeJavaScript))
+	hashSource := "'sha256-" + base64.StdEncoding.EncodeToString(bridgeHash[:]) + "'"
+	header.Del("Content-Security-Policy")
+	for _, policy := range policies {
+		header.Add("Content-Security-Policy", appendCSPSource(policy, hashSource))
+	}
+}
+
+func appendCSPSource(policy, source string) string {
+	directives := strings.Split(policy, ";")
+	for _, directiveName := range []string{"script-src-elem", "script-src", "default-src"} {
+		for index, directive := range directives {
+			fields := strings.Fields(directive)
+			if len(fields) > 0 && strings.EqualFold(fields[0], directiveName) {
+				directives[index] = strings.TrimSpace(directive) + " " + source
+				return strings.Join(directives, ";")
+			}
+		}
+	}
+	return strings.TrimSuffix(policy, ";") + "; script-src " + source
+}
+
+type readerWithCloser struct {
+	io.Reader
+	io.Closer
 }
 
 // writeStartingUpPage serves a branded, auto-refreshing holding page when the

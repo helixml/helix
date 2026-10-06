@@ -71,7 +71,11 @@ func (n *Nats) ConsumeDurable(ctx context.Context, streamName, consumerName, sub
 				}
 				return
 			}
-			if err := handler(&Message{Data: msg.Data(), Header: msg.Headers(), msg: msg}); err != nil {
+			numDelivered := uint64(1)
+			if metadata, err := msg.Metadata(); err == nil {
+				numDelivered = metadata.NumDelivered
+			}
+			if err := handler(&Message{Data: msg.Data(), Header: msg.Headers(), NumDelivered: numDelivered, msg: msg}); err != nil {
 				log.Error().Err(err).Str("consumer", consumerName).Msg("durable consumer handler failed")
 			}
 		}

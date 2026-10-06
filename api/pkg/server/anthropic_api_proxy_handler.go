@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/anthropic"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
@@ -97,14 +99,23 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 		// OK
 	}
 
+	usageAttribution, err := s.resolveProxyUsageAttribution(r.Context(), user, "n/a")
+	if err != nil {
+		logger.Error().Err(err).Str("user_id", user.ID).Msg("failed to resolve proxy usage attribution")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
-		OwnerID:         user.ID,
-		SessionID:       "n/a",
-		InteractionID:   "n/a",
-		OriginalRequest: bts,
-		ProjectID:       user.ProjectID,
-		SpecTaskID:      user.SpecTaskID,
+		OwnerID:          user.ID,
+		SessionID:        usageAttribution.SessionID,
+		InteractionID:    "n/a",
+		OriginalRequest:  bts,
+		ProjectID:        user.ProjectID,
+		SpecTaskID:       user.SpecTaskID,
+		CodeAgentRuntime: usageAttribution.CodeAgentRuntime,
 	})
+	ctx = oai.SetContextAppID(ctx, usageAttribution.AppID)
 
 	// Restore the buffer
 	r.Body = io.NopCloser(bytes.NewBuffer(bts))
@@ -217,6 +228,23 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 	// This allows Zed and other Anthropic SDK clients to work without setting X-Provider header
 
 	provider := "anthropic"
+	if user.SessionID != "" {
+		selection, err := s.codeAgentProviderSelection(ctx, user)
+		if err != nil && !errors.Is(err, errNoCodeAgentProviderContext) {
+			return nil, err
+		}
+		if err == nil {
+			endpoint, err := s.resolveCodeAgentProviderEndpoint(ctx, user, selection.ProviderRef)
+			if err != nil {
+				return nil, err
+			}
+			if selection.Runtime == types.CodeAgentRuntimeClaudeCode &&
+				!external_agent.CodeAgentRuntimeAllowsProvider(selection.Runtime, endpoint.Name) {
+				return nil, fmt.Errorf("Claude Code API-key mode requires the anthropic provider; provider %q is not compatible", endpoint.Name)
+			}
+			return endpoint, nil
+		}
+	}
 
 	// Helix agent
 	if user.ProjectID != "" {

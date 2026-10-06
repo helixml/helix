@@ -326,7 +326,7 @@ func Test_isAnthropicCompatible(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "empty endpoint is not anthropic compatible",
+			name:     "empty endpoint is not anthropic compatible",
 			endpoint: &types.ProviderEndpoint{},
 			want:     false,
 		},

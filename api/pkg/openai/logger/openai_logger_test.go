@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/toolcall"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -82,6 +83,121 @@ func TestAppendChunkAcceptsFinalOnlyUsage(t *testing.T) {
 	assert.Equal(t, 42, resp.Usage.TotalTokens)
 }
 
+func TestAppendChunkMergesToolCallDeltasByIndex(t *testing.T) {
+	resp := &openai.ChatCompletionResponse{}
+	idx0, idx1 := 0, 1
+
+	// First fragment carries id/type/name + start of arguments.
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				Role: "assistant",
+				ToolCalls: []openai.ToolCall{{
+					Index:    &idx0,
+					ID:       "call_1",
+					Type:     openai.ToolTypeFunction,
+					Function: openai.FunctionCall{Name: "get_weather", Arguments: `{"loc`},
+				}},
+			},
+		}},
+	})
+	// Subsequent fragments carry only argument pieces.
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				ToolCalls: []openai.ToolCall{{
+					Index:    &idx0,
+					Function: openai.FunctionCall{Arguments: `ation":"London"}`},
+				}},
+			},
+		}},
+	})
+	// A second tool call at index 1.
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				ToolCalls: []openai.ToolCall{{
+					Index:    &idx1,
+					ID:       "call_2",
+					Type:     openai.ToolTypeFunction,
+					Function: openai.FunctionCall{Name: "get_time", Arguments: `{}`},
+				}},
+			},
+		}},
+	})
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			FinishReason: openai.FinishReasonToolCalls,
+		}},
+	})
+
+	require.Len(t, resp.Choices[0].Message.ToolCalls, 2)
+	tc0 := resp.Choices[0].Message.ToolCalls[0]
+	assert.Equal(t, "call_1", tc0.ID)
+	assert.Equal(t, openai.ToolTypeFunction, tc0.Type)
+	assert.Equal(t, "get_weather", tc0.Function.Name)
+	assert.Equal(t, `{"location":"London"}`, tc0.Function.Arguments)
+	tc1 := resp.Choices[0].Message.ToolCalls[1]
+	assert.Equal(t, "call_2", tc1.ID)
+	assert.Equal(t, "get_time", tc1.Function.Name)
+	assert.Equal(t, `{}`, tc1.Function.Arguments)
+	assert.Equal(t, openai.FinishReasonToolCalls, resp.Choices[0].FinishReason)
+	assert.Equal(t, "chat.completion", resp.Object)
+}
+
+func TestAppendChunkMergesToolCallDeltasWithoutIndex(t *testing.T) {
+	resp := &openai.ChatCompletionResponse{}
+
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				ToolCalls: []openai.ToolCall{{
+					ID:       "call_1",
+					Type:     openai.ToolTypeFunction,
+					Function: openai.FunctionCall{Name: "run", Arguments: `{"a":`},
+				}},
+			},
+		}},
+	})
+	// Providers that omit index: fragments merge into the last tool call.
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				ToolCalls: []openai.ToolCall{{
+					Function: openai.FunctionCall{Arguments: `1}`},
+				}},
+			},
+		}},
+	})
+
+	require.Len(t, resp.Choices[0].Message.ToolCalls, 1)
+	assert.Equal(t, "call_1", resp.Choices[0].Message.ToolCalls[0].ID)
+	assert.Equal(t, `{"a":1}`, resp.Choices[0].Message.ToolCalls[0].Function.Arguments)
+}
+
+func TestAppendChunkAccumulatesFunctionCallArguments(t *testing.T) {
+	resp := &openai.ChatCompletionResponse{}
+
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				FunctionCall: &openai.FunctionCall{Name: "run", Arguments: `{"a":`},
+			},
+		}},
+	})
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				FunctionCall: &openai.FunctionCall{Arguments: `1}`},
+			},
+		}},
+	})
+
+	require.NotNil(t, resp.Choices[0].Message.FunctionCall)
+	assert.Equal(t, "run", resp.Choices[0].Message.FunctionCall.Name)
+	assert.Equal(t, `{"a":1}`, resp.Choices[0].Message.FunctionCall.Arguments)
+}
+
 func TestCreateChatCompletionStreamLogsLatestUsageSnapshot(t *testing.T) {
 	chunks := []openai.ChatCompletionStreamResponse{
 		{
@@ -124,7 +240,9 @@ func TestCreateChatCompletionStreamLogsLatestUsageSnapshot(t *testing.T) {
 	}
 	streamBody.WriteString("data: [DONE]\n\n")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	requestIDs := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestIDs <- r.Header.Get(types.RequestIDHeader)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(streamBody.String()))
 	}))
@@ -157,6 +275,9 @@ func TestCreateChatCompletionStreamLogsLatestUsageSnapshot(t *testing.T) {
 
 	require.Equal(t, 1, len(captured.calls))
 	call := <-captured.calls
+	requestID := <-requestIDs
+	assert.True(t, strings.HasPrefix(requestID, "req_"))
+	assert.Equal(t, requestID, call.RequestID)
 	assert.Equal(t, int64(100), call.PromptTokens)
 	assert.Equal(t, int64(2), call.CompletionTokens)
 	assert.Equal(t, int64(102), call.TotalTokens)
@@ -269,7 +390,7 @@ func Test_logLLMCall_WithoutBillingLogger(t *testing.T) {
 	mw.client = mockClient
 	mw.billingLogger = nil // Explicitly set to nil
 
-	mockClient.EXPECT().CreateChatCompletion(ctx, *req).Return(*resp, nil)
+	mockClient.EXPECT().CreateChatCompletion(gomock.Any(), *req).Return(*resp, nil)
 
 	mockClient.EXPECT().BaseURL().Return("https://api.openai.com/v1")
 
@@ -338,7 +459,7 @@ func Test_logLLMCall_WithBillingLogger_User(t *testing.T) {
 
 	// Create a mock model info provider
 
-	mockClient.EXPECT().CreateChatCompletion(ctx, *req).Return(*resp, nil)
+	mockClient.EXPECT().CreateChatCompletion(gomock.Any(), *req).Return(*resp, nil)
 
 	mockClient.EXPECT().BaseURL().Return("https://api.openai.com/v1")
 
@@ -434,7 +555,7 @@ func Test_logLLMCall_WithBillingLogger_Org(t *testing.T) {
 
 	// Create a mock model info provider
 
-	mockClient.EXPECT().CreateChatCompletion(ctx, *req).Return(*resp, nil)
+	mockClient.EXPECT().CreateChatCompletion(gomock.Any(), *req).Return(*resp, nil)
 
 	mockClient.EXPECT().BaseURL().Return("https://api.openai.com/v1")
 
@@ -471,4 +592,70 @@ func Test_logLLMCall_WithBillingLogger_Org(t *testing.T) {
 
 	// Wait for the goroutine to complete
 	mw.wg.Wait()
+}
+
+func TestValidateToolCalls(t *testing.T) {
+	req := &openai.ChatCompletionRequest{
+		Tools: []openai.Tool{{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name: "get_weather",
+				Parameters: map[string]any{
+					"type":                 "object",
+					"properties":           map[string]any{"city": map[string]any{"type": "string"}},
+					"required":             []string{"city"},
+					"additionalProperties": false,
+				},
+			},
+		}},
+	}
+
+	respWith := func(calls ...openai.ToolCall) *openai.ChatCompletionResponse {
+		return &openai.ChatCompletionResponse{
+			Choices: []openai.ChatCompletionChoice{{
+				Message:      openai.ChatCompletionMessage{ToolCalls: calls},
+				FinishReason: openai.FinishReasonToolCalls,
+			}},
+		}
+	}
+	call := func(name, args string) openai.ToolCall {
+		return openai.ToolCall{Function: openai.FunctionCall{Name: name, Arguments: args}}
+	}
+
+	t.Run("valid call", func(t *testing.T) {
+		result := validateToolCalls(req, respWith(call("get_weather", `{"city":"Vilnius"}`)))
+		assert.Equal(t, 1, result.ToolsOffered)
+		assert.Equal(t, 1, result.Calls)
+		assert.Equal(t, 0, result.Errors)
+	})
+
+	t.Run("arguments miss the schema", func(t *testing.T) {
+		result := validateToolCalls(req, respWith(call("get_weather", `{"town":"Vilnius"}`)))
+		assert.Equal(t, 1, result.Errors)
+		assert.Equal(t, toolcall.KindSchemaMismatch, result.KindsString())
+	})
+
+	t.Run("tool was never offered", func(t *testing.T) {
+		result := validateToolCalls(req, respWith(call("get_forecast", `{"city":"Vilnius"}`)))
+		assert.Equal(t, 1, result.Errors)
+		assert.Equal(t, toolcall.KindUnknownName, result.KindsString())
+	})
+
+	t.Run("a turn without tool calls is not counted", func(t *testing.T) {
+		result := validateToolCalls(req, respWith())
+		assert.Equal(t, 0, result.Calls)
+		assert.False(t, result.Errored())
+	})
+
+	t.Run("a failed request has nothing to validate", func(t *testing.T) {
+		assert.False(t, validateToolCalls(req, nil).Errored())
+	})
+}
+
+func TestFinishReason(t *testing.T) {
+	assert.Equal(t, "", finishReason(nil))
+	assert.Equal(t, "", finishReason(&openai.ChatCompletionResponse{}))
+	assert.Equal(t, "tool_calls", finishReason(&openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{{FinishReason: openai.FinishReasonToolCalls}},
+	}))
 }

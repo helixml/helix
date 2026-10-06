@@ -42,10 +42,11 @@ type DurableConsumer struct {
 }
 
 type Message struct {
-	Type   string
-	Reply  string
-	Data   []byte
-	Header nats.Header
+	Type         string
+	Reply        string
+	Data         []byte
+	Header       nats.Header
+	NumDelivered uint64
 
 	msg acker
 }

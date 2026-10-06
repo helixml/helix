@@ -14,7 +14,9 @@ import (
 // DetachTool removes one or more tools from a Bot — the counterpart to
 // attach_tool. It refuses to remove a universal read-baseline tool (the
 // service enforces this): those are mandatory and would be re-added by
-// the reconciler anyway. Owner-only.
+// the reconciler anyway. A name the registry doesn't know is rejected up
+// front — DetachTools itself treats it as a no-op, so without the check a
+// typo would look like it worked. Owner-only.
 type DetachTool struct {
 	deps Deps
 }
@@ -50,7 +52,7 @@ func (t *DetachTool) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	if len(args.Tools) == 0 {
 		return nil, fmt.Errorf("tools must contain at least one tool name")
 	}
-	if err := validateRegisteredTools(args.Tools, t.deps.ToolNames); err != nil {
+	if err := t.deps.Nodes.ValidateTools(args.Tools); err != nil {
 		return nil, err
 	}
 	orgID := inv.Caller.OrganizationID()

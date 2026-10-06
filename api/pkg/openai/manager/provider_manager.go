@@ -20,9 +20,10 @@ import (
 )
 
 type GetClientRequest struct {
-	Provider string
-	Owner    string
-	AppID    string
+	Provider  string
+	Owner     string
+	OwnerType types.OwnerType
+	AppID     string
 }
 
 // RunnerControllerStatus defines the minimum interface needed to check runner status
@@ -38,13 +39,16 @@ type ProviderManager interface {
 	GetClient(ctx context.Context, req *GetClientRequest) (openai.Client, error)
 	// ListProviders returns a list of providers that are available
 	ListProviders(ctx context.Context, owner string) ([]types.Provider, error)
+	ListProvidersForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]types.Provider, error)
 	// ListProviderEndpoints returns the full provider records visible to the
-	// owner: synthetic entries for env-baked global providers (ID="",
+	// owner: synthetic entries for env-baked global providers (ID="global/<name>",
 	// Name=canonical) plus DB-backed user/org provider records. Used by
 	// agent-config code paths that need to resolve an agent's stored
 	// provider reference (an immutable ID for DB-backed, the canonical name
 	// for globals) to the current canonical name.
 	ListProviderEndpoints(ctx context.Context, owner string) ([]*types.ProviderEndpoint, error)
+	ListProviderEndpointsForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]*types.ProviderEndpoint, error)
+	OpenAIResponsesLogStores() ([]logger.LogStore, logger.LogStore)
 	// SetRunnerController sets the runner controller for checking runner availability
 	SetRunnerController(controller RunnerControllerStatus)
 }
@@ -185,6 +189,13 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 	return mcm
 }
 
+// OpenAIResponsesLogStores exposes the same logging and billing pipeline used
+// by OpenAI-compatible chat clients so protocol adapters do not create a
+// second billing cache or diverge from the server's logging configuration.
+func (m *MultiClientManager) OpenAIResponsesLogStores() ([]logger.LogStore, logger.LogStore) {
+	return append([]logger.LogStore(nil), m.logStores...), m.billingLogger
+}
+
 func (m *MultiClientManager) StartRefresh(ctx context.Context) {
 	if m.cfg.Providers.OpenAI.APIKeyFromFile != "" {
 		err := m.watchAndUpdateClient(ctx, types.ProviderOpenAI, m.cfg.Providers.OpenAI.APIKeyRefreshInterval, m.cfg.Providers.OpenAI.BaseURL, m.cfg.Providers.OpenAI.APIKeyFromFile)
@@ -311,6 +322,10 @@ func (m *MultiClientManager) SetRunnerController(_ RunnerControllerStatus) {
 }
 
 func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([]types.Provider, error) {
+	return m.ListProvidersForOwner(ctx, owner, types.OwnerTypeUser)
+}
+
+func (m *MultiClientManager) ListProvidersForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]types.Provider, error) {
 	m.globalClientsMu.RLock()
 	defer m.globalClientsMu.RUnlock()
 
@@ -327,6 +342,7 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 
 	userProviders, err := m.store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      owner,
+		OwnerType:  ownerType,
 		WithGlobal: true,
 	})
 	if err != nil {
@@ -342,12 +358,16 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 
 // ListProviderEndpoints returns full provider records visible to the owner.
 // Env-baked globals are returned as synthetic *ProviderEndpoint values with
-// ID="" and Name=canonical; DB-backed user/org providers are returned with
+// ID="global/<name>" and Name=canonical; DB-backed user/org providers are returned with
 // their real ID and current admin-set Name. Use this when callers need to
 // resolve an agent's stored provider reference to its current canonical name
 // — the agent record stores the immutable ID, settings.json carries the
 // current name. Renames flow into running sessions on the next sync poll.
 func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner string) ([]*types.ProviderEndpoint, error) {
+	return m.ListProviderEndpointsForOwner(ctx, owner, types.OwnerTypeUser)
+}
+
+func (m *MultiClientManager) ListProviderEndpointsForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]*types.ProviderEndpoint, error) {
 	// Always list global providers including Helix — runner availability is
 	// checked by the inferencerouter at request-routing time post sandbox-
 	// absorbs-runner pivot, not at provider-listing time. Matches
@@ -356,6 +376,7 @@ func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner st
 	endpoints := make([]*types.ProviderEndpoint, 0, len(m.globalClients))
 	for provider := range m.globalClients {
 		endpoints = append(endpoints, &types.ProviderEndpoint{
+			ID:           types.GlobalProviderID(string(provider)),
 			Name:         string(provider),
 			EndpointType: types.ProviderEndpointTypeGlobal,
 		})
@@ -368,6 +389,7 @@ func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner st
 
 	userProviders, err := m.store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      owner,
+		OwnerType:  ownerType,
 		WithGlobal: true,
 	})
 	if err != nil {
@@ -377,7 +399,7 @@ func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner st
 	return endpoints, nil
 }
 
-func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest) (openai.Client, error) {
+func (m *MultiClientManager) GetClient(ctx context.Context, req *GetClientRequest) (openai.Client, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -392,26 +414,49 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 			Str("owner", req.Owner).
 			Msg("TRACE: Provider manager GetClient called with app ID")
 	}
+	if types.IsGlobalProviderID(req.Provider) {
+		m.globalClientsMu.RLock()
+		client, ok := m.globalClients[types.Provider(types.CanonicalProviderName(req.Provider))]
+		m.globalClientsMu.RUnlock()
+		if ok {
+			return client.client, nil
+		}
+		return nil, fmt.Errorf("no client found for provider: %s", req.Provider)
+	}
+
+	var userProviders []*types.ProviderEndpoint
+	loadStoredClient := func() (openai.Client, bool, error) {
+		var err error
+		userProviders, err = m.store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+			Owner:      req.Owner,
+			OwnerType:  req.OwnerType,
+			WithGlobal: true,
+		})
+		if err != nil {
+			return nil, false, err
+		}
+		provider := selectProviderEndpoint(userProviders, req.Provider, req.OwnerType)
+		if provider == nil {
+			return nil, false, nil
+		}
+		client, err := m.initializeClient(provider)
+		return client, true, err
+	}
+	if req.Owner != "" {
+		if client, found, err := loadStoredClient(); err != nil || found {
+			return client, err
+		}
+	}
 
 	m.globalClientsMu.RLock()
-	defer m.globalClientsMu.RUnlock()
-
 	client, ok := m.globalClients[types.Provider(req.Provider)]
+	m.globalClientsMu.RUnlock()
 	if ok {
 		return client.client, nil
 	}
-
-	userProviders, err := m.store.ListProviderEndpoints(context.Background(), &store.ListProviderEndpointsQuery{
-		Owner:      req.Owner,
-		WithGlobal: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	for _, provider := range userProviders {
-		if provider.Name == req.Provider || provider.ID == req.Provider {
-			return m.initializeClient(provider)
+	if req.Owner == "" {
+		if client, found, err := loadStoredClient(); err != nil || found {
+			return client, err
 		}
 	}
 
@@ -424,6 +469,28 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 		availableProviders = append(availableProviders, provider.Name)
 	}
 	return nil, fmt.Errorf("no client found for provider: %s, available providers: [%s]", req.Provider, strings.Join(availableProviders, ", "))
+}
+
+func selectProviderEndpoint(endpoints []*types.ProviderEndpoint, providerRef string, ownerType types.OwnerType) *types.ProviderEndpoint {
+	for _, endpoint := range endpoints {
+		if endpoint.ID == providerRef {
+			return endpoint
+		}
+	}
+	var selected *types.ProviderEndpoint
+	for _, endpoint := range endpoints {
+		if types.CanonicalProviderName(endpoint.Name) != types.CanonicalProviderName(providerRef) {
+			continue
+		}
+		ownerEndpointType := types.ProviderEndpointTypeUser
+		if ownerType == types.OwnerTypeOrg {
+			ownerEndpointType = types.ProviderEndpointTypeOrg
+		}
+		if selected == nil || endpoint.EndpointType == ownerEndpointType {
+			selected = endpoint
+		}
+	}
+	return selected
 }
 
 // isAnthropicAPIEndpoint reports whether a DB/UI-configured provider endpoint
@@ -439,7 +506,7 @@ func isAnthropicAPIEndpoint(endpoint *types.ProviderEndpoint) bool {
 	if endpoint.VertexProjectID != "" {
 		return false
 	}
-	if strings.EqualFold(endpoint.Name, string(types.ProviderAnthropic)) {
+	if types.CanonicalProviderName(endpoint.Name) == string(types.ProviderAnthropic) {
 		return true
 	}
 	// Host-exact match so a lookalike like api.anthropic.com.proxy.evil.com

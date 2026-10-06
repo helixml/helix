@@ -8,6 +8,7 @@ import XaiLogo from './logos/xai';
 import NvidiaLogo from './logos/nvidia';
 import CustomLogo from './logos/custom';
 import DeepSeekLogo from './logos/deepseek';
+import OpenRouterLogo from './logos/openrouter';
 
 // Direct image imports
 import togetheraiLogo from '../../../assets/img/together-logo.png'
@@ -23,6 +24,7 @@ export interface Provider {
   logo: string | React.ComponentType<React.SVGProps<SVGSVGElement>> | React.ComponentType<any>;
   
   base_url: string;
+  endpoint_name?: string;
   configurable_base_url?: boolean;
 
   optional_api_key?: boolean; // If provider doesn't need an API key
@@ -39,6 +41,16 @@ export interface Provider {
 }
 
 export const PROVIDERS: Provider[] = [
+  {
+    id: 'user/openrouter',
+    alias: ['openrouter', 'openrouter-api'],
+    name: 'OpenRouter',
+    description: 'One API key for models from OpenAI, Anthropic, Google, Meta and more.',
+    logo: OpenRouterLogo,
+    base_url: "https://openrouter.ai/api/v1",
+    setup_instructions: "Get your API key from https://openrouter.ai/settings/keys",
+    api_key_url: "https://openrouter.ai/settings/keys"
+  },
   {
     id: 'user/openai',
     alias: ['openai', 'openai-api'],
@@ -62,6 +74,7 @@ export const PROVIDERS: Provider[] = [
   },
   {
     id: 'user/anthropic',
+    endpoint_name: 'anthropic',
     alias: ['anthropic', 'anthropic-api'],
     name: 'Anthropic',
     description: 'Access Anthropic Claude models for advanced language tasks.',

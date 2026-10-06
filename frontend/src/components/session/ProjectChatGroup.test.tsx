@@ -7,6 +7,7 @@ import ProjectChatGroup from './ProjectChatGroup'
 
 const mocks = vi.hoisted(() => ({
   emptySessions: false,
+  isPhone: false,
   tasks: [] as SpecTask[],
   sessionOptions: [] as any[],
   taskOptions: [] as any[],
@@ -21,6 +22,10 @@ vi.mock('../../hooks/useLightTheme', () => ({
   default: () => ({ isLight: false }),
 }))
 
+vi.mock('../../hooks/useIsPhone', () => ({
+  default: () => mocks.isPhone,
+}))
+
 vi.mock('../../services/sessionService', () => ({
   useListSessions: (...args: unknown[]) => {
     const pageSize = args[4] as number
@@ -29,6 +34,7 @@ vi.mock('../../services/sessionService', () => ({
       ? []
       : Array.from({ length: pageSize }, (_, index) => ({
         session_id: `session-${index + 1}`,
+        metadata: { project_id: args[2] },
         name: `Session ${index + 1}`,
         updated: new Date(Date.UTC(2026, 7, 6, 12, 0, -index)).toISOString(),
       }))
@@ -59,6 +65,7 @@ vi.mock('../../services/projectService', () => ({
 
 afterEach(() => {
   mocks.emptySessions = false
+  mocks.isPhone = false
   mocks.tasks = []
   mocks.sessionOptions = []
   mocks.taskOptions = []
@@ -84,30 +91,66 @@ const renderEmptyProject = (collapsed = false) => render(
   />,
 )
 
+const renderAccessibleEmptyProject = (archived = false) => render(
+  <ProjectChatGroup
+    orgId="org-one"
+    project={{ id: 'project-one', name: 'Accessible empty project', user_id: 'project-owner' }}
+    collapsed={false}
+    query=""
+    activeItemId=""
+    relativeTimeNow={Date.now()}
+    enabled
+    participantIds={[]}
+    organizationMembers={[]}
+    currentUser={{ id: 'project-member' }}
+    archived={archived}
+    archivingItemId={null}
+    onToggle={vi.fn()}
+    onNewTask={vi.fn()}
+    onOpenItem={vi.fn()}
+    onOpenItemContextMenu={vi.fn()}
+    onArchiveItem={vi.fn()}
+  />,
+)
+
 describe('ProjectChatGroup', () => {
-  it('renders an expanded project with no tasks', () => {
+  it('shows an expanded empty project the user can access', async () => {
     mocks.emptySessions = true
     renderEmptyProject()
 
-    expect(screen.getByText('Empty project')).toBeInTheDocument()
-    expect(screen.getByText('No tasks yet')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Empty project')).toBeInTheDocument())
   })
 
-  it('keeps an empty collapsed project visible without the empty-state row', () => {
+  it('shows a collapsed empty project after probing its visible items', async () => {
     mocks.emptySessions = true
     renderEmptyProject(true)
 
-    expect(screen.getByText('Empty project')).toBeInTheDocument()
-    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Empty project')).toBeInTheDocument())
+    expect(mocks.sessionOptions.at(-1)?.enabled).toBe(true)
+    expect(mocks.taskOptions.at(-1)?.enabled).toBe(true)
   })
 
-  // One group renders per project, so leaving collapsed groups enabled costs a
-  // task request per project on every poll for rows nobody can see.
-  it('does not query or poll while collapsed', () => {
+  it('shows an empty project owned by another user when the current user has access', async () => {
+    mocks.emptySessions = true
+    renderAccessibleEmptyProject()
+
+    await waitFor(() => expect(screen.getByText('Accessible empty project')).toBeInTheDocument())
+  })
+
+  it('hides a project with no archived sessions or tasks in the archived view', async () => {
+    mocks.emptySessions = true
+    renderAccessibleEmptyProject(true)
+
+    await waitFor(() => expect(screen.queryByText('Accessible empty project')).not.toBeInTheDocument())
+  })
+
+  it('stops querying after a collapsed group proves it has visible items', async () => {
     renderEmptyProject(true)
 
-    expect(mocks.sessionOptions.every((options) => options.enabled === false)).toBe(true)
-    expect(mocks.taskOptions.every((options) => options.enabled === false)).toBe(true)
+    expect(mocks.sessionOptions.some((options) => options.enabled === true)).toBe(true)
+    expect(mocks.taskOptions.some((options) => options.enabled === true)).toBe(true)
+    await waitFor(() => expect(mocks.sessionOptions.at(-1)?.enabled).toBe(false))
+    expect(mocks.taskOptions.at(-1)?.enabled).toBe(false)
   })
 
   it('queries once expanded', () => {
@@ -130,6 +173,7 @@ describe('ProjectChatGroup', () => {
     render(
       <ProjectChatGroup
         orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
         collapsed={false}
         query=""
         activeItemId=""
@@ -179,7 +223,7 @@ describe('ProjectChatGroup', () => {
       />,
     )
 
-    fireEvent.contextMenu(screen.getByRole('button', { name: /Project Test/ }))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Project Test' }))
 
     expect(onOpenProjectContextMenu).toHaveBeenCalledWith(
       expect.anything(),
@@ -188,10 +232,165 @@ describe('ProjectChatGroup', () => {
     expect(onToggle).not.toHaveBeenCalled()
   })
 
+  it('starts a new chat when the project name is clicked, rather than collapsing', () => {
+    const onToggle = vi.fn()
+    const onNewTask = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={onToggle}
+        onNewTask={onNewTask}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'New task in Project Test' }))
+
+    expect(onNewTask).toHaveBeenCalled()
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  it('always shows the new chat affordance', () => {
+    renderEmptyProject()
+
+    expect(screen.getByText('New')).toHaveStyle({ opacity: '1' })
+  })
+
+  it('opens project actions without starting a chat or collapsing', () => {
+    const onToggle = vi.fn()
+    const onNewTask = vi.fn()
+    const onOpenProjectContextMenu = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={onToggle}
+        onNewTask={onNewTask}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onOpenProjectContextMenu={onOpenProjectContextMenu}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Project Test' }))
+
+    expect(onOpenProjectContextMenu).toHaveBeenCalledOnce()
+    expect(onNewTask).not.toHaveBeenCalled()
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  it('opens project actions from the mobile three-dots button', () => {
+    mocks.isPhone = true
+    const onOpenProjectContextMenu = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
+        collapsed
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={vi.fn()}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onOpenProjectContextMenu={onOpenProjectContextMenu}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Project Test' }))
+
+    expect(onOpenProjectContextMenu).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'project-test' }),
+    )
+  })
+
+  it('collapses from the chevron, and only from the chevron', () => {
+    const onToggle = vi.fn()
+    const onNewTask = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={onToggle}
+        onNewTask={onNewTask}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Project Test' }))
+
+    expect(onToggle).toHaveBeenCalledTimes(1)
+    expect(onNewTask).not.toHaveBeenCalled()
+  })
+
+  it('keeps the name collapsing an archived group, which has no new task', () => {
+    const onToggle = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        archived
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={onToggle}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project Test' }))
+
+    expect(onToggle).toHaveBeenCalledTimes(1)
+  })
+
   it('shows a pin indicator next to a pinned chat', () => {
     render(
       <ProjectChatGroup
         orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
         collapsed={false}
         query=""
         activeItemId=""
@@ -202,6 +401,7 @@ describe('ProjectChatGroup', () => {
         pinnedChats={[{
           id: 'session-1',
           kind: 'session',
+          project_id: 'project-test',
           pinned_at: '2026-08-06T11:00:00Z',
         }]}
         archivingItemId={null}
@@ -263,6 +463,7 @@ describe('ProjectChatGroup pagination', () => {
     render(
       <ProjectChatGroup
         orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
         collapsed={false}
         query=""
         activeItemId=""

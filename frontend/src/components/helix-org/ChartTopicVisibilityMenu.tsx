@@ -7,15 +7,18 @@ import ChartVisibilityMenu from './ChartVisibilityMenu'
 const ChartTopicVisibilityMenu: FC<{
   selected: ChartTopicFilter[]
   onChange: (selected: ChartTopicFilter[]) => void
-}> = ({ selected, onChange }) => {
+  // Triggers shown / Triggers that exist — not filter categories ticked.
+  counts: { shown: number; total: number }
+}> = ({ selected, onChange, counts }) => {
   return (
     <ChartVisibilityMenu
-      label="Topics"
+      label="Triggers"
       icon={<FilterListIcon />}
       options={CHART_TOPIC_FILTERS}
       selected={selected}
       onChange={(filters) => onChange(filters as ChartTopicFilter[])}
-      allLabel="All topic types"
+      allLabel="All trigger types"
+      counts={counts}
     />
   )
 }

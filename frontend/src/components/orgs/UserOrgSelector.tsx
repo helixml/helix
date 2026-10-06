@@ -11,7 +11,6 @@ import Button from '@mui/material/Button'
 import {
   Bot,
   Clock,
-  Container,
   Settings,
   ChevronsUp,
   ChevronsDown,
@@ -24,7 +23,6 @@ import {
   HelpCircle,
   MessageCircle,
   Kanban,
-  Network,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
 
@@ -34,6 +32,7 @@ import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
+import useIsPhone from '../../hooks/useIsPhone'
 import TokenUsageDisplay from '../system/TokenUsageDisplay'
 import LowCreditsDisplay from '../system/LowCreditsDisplay'
 import SubscriptionStatusBanner from '../subscription/SubscriptionStatusBanner'
@@ -42,7 +41,7 @@ import { styled, keyframes } from '@mui/material/styles'
 import LoginRegisterDialog from './LoginRegisterDialog'
 import { TypesAuthProvider } from '../../api/api'
 import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
-import { orgLandingRoute } from '../../utils/organizations'
+import { CHIEF_OF_STAFF_BOT_ID, orgLandingParams, orgLandingRoute } from '../../utils/organizations'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
 import {
@@ -178,6 +177,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const lightTheme = useLightTheme()
   const themeConfig = useThemeConfig()
   const isBigScreen = useIsBigScreen()
+  const isPhone = useIsPhone()
   const settingsDialog = useSettingsDialog()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
@@ -286,13 +286,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     if (!firstAccessibleOrg) return
     const firstOrgSlug = firstAccessibleOrg.name
     localStorage.setItem(SELECTED_ORG_STORAGE_KEY, firstOrgSlug)
-    router.navigate(orgLandingRoute(), { org_id: firstOrgSlug })
+    router.navigate(orgLandingRoute(), orgLandingParams(firstOrgSlug))
   }, [listOrgs, account.user])
 
   // Handle org select, also remember the last org user has been in
   const handleOrgSelect = (orgSlug: string) => {
     localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgSlug)
-    router.navigate(orgLandingRoute(), { org_id: orgSlug })
+    router.navigate(orgLandingRoute(), orgLandingParams(orgSlug))
     setDialogOpen(false)
   }
 
@@ -330,14 +330,18 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
   }
 
-  const handleHelixOrgClick = () => {
-    if (currentOrgSlug) {
-      router.navigate('helix_org_chart', { org_id: currentOrgSlug })
-    }
-  }
-
   const postNavigateTo = () => {
     account.setMobileMenuOpen(false)
+  }
+
+  const chatRoutes = ['project-new', 'chat-task', 'session', 'bot_session']
+
+  const handleChatClick = () => {
+    if (isPhone && isActive(chatRoutes)) {
+      account.setMobileMenuOpen(true)
+      return
+    }
+    account.orgNavigate('bot_session', { bot_id: CHIEF_OF_STAFF_BOT_ID, intro: '1' })
   }
 
   const orgNavigateTo = (path: string, params: Record<string, any> = {}) => {
@@ -391,8 +395,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       {
         icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
         tooltip: "AI chat assistant",
-        isActive: isActive(['chat', 'session']),
-        onClick: () => orgNavigateTo('chat'),
+        isActive: isActive(chatRoutes),
+        onClick: handleChatClick,
         label: "Chat",
       },
       {
@@ -401,13 +405,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         isActive: !isOrgProjectSettings && isActive(['spec-tasks', 'projects', 'project']),
         onClick: handleProjectsClick,
         label: "Projects",
-      },
-      {
-        icon: <Network size={NAV_BUTTON_SIZE} />,
-        tooltip: "View org chart",
-        isActive: router.name.startsWith('helix_org'),
-        onClick: handleHelixOrgClick,
-        label: "Chart",
       },
       {
         icon: <Bot size={NAV_BUTTON_SIZE} />,
@@ -425,13 +422,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         onClick: () => orgNavigateTo('tasks'),
         label: "Tasks",
       },
-      {
-        icon: <Container size={NAV_BUTTON_SIZE} />,
-        tooltip: "View sandboxes",
-        isActive: isActive(['sandboxes', 'sandbox_detail']),
-        onClick: () => orgNavigateTo('sandboxes'),
-        label: "Sandbox",
-      },
       // TODO: re-enable once we have the files editor working
       // {
       //   icon: <FileText size={NAV_BUTTON_SIZE} />,
@@ -442,8 +432,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       // },
     ]
 
-    // Providers is intentionally omitted from the rail: the same page is
-    // reachable from Settings (OrgSidebar -> org_providers).
+    // Providers, Org Chart and Sandboxes are intentionally omitted from the
+    // rail: they are reachable from Settings (OrgSidebar -> org_providers,
+    // helix_org_chart, org_sandboxes).
 
     // Add org settings button when we have an org context.
     // Highlights for any of the grouped admin pages (general, members,
@@ -464,6 +455,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             'org_api_keys',
             'org_providers',
             'org_provider_detail',
+            'org_sandboxes',
+            'org_sandbox_detail',
+            'helix_org_chart',
           ]),
           onClick: () => orgNavigateTo('org_general', { org_id: currentOrgSlug }),
           label: "Settings",
@@ -472,7 +466,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-  }, [isActive, isOrgProjectSettings, currentOrgSlug, router.name])
+  }, [isActive, isOrgProjectSettings, currentOrgSlug, router.name, isPhone])
 
   const isAccountSettingsActive = settingsDialog.activeDialog === 'account'
 
@@ -714,6 +708,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     return (
       <Box
         data-compact-user-menu
+        // The element `useUserMenuHeight` measures, so the sidebar's scroll
+        // column stops exactly where this menu starts. Marked explicitly rather
+        // than found by walking ancestors — see that hook. It is this box and
+        // not the wrapper above it, because in the expanded (non-compact) mode
+        // the wrapper is static and an absolutely-positioned child contributes
+        // nothing to its height.
+        data-user-menu-overlay
         sx={{
           position: 'absolute',
           left: 0,

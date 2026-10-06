@@ -11,11 +11,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -23,15 +26,16 @@ import (
 // orgRowTypes is the canonical list of org-* tables. Kept in one
 // place so the FK installation loop stays in sync with AutoMigrate.
 var orgRowTypes = []any{
-	&nodeRow{},
+	&OrgBot{},
 	&reportingLineRow{},
 	&nodeRuntimeStateRow{},
-	&topicRow{},
-	&subscriptionRow{},
 	&eventRow{},
 	&configRow{},
 	&activationRow{},
 	&processorRow{},
+	&triggerRow{},
+	&attachmentRow{},
+	&workerSecretBindingRow{},
 	&asset.Asset{},
 	&asset.Link{},
 	&chartPositionRow{},
@@ -49,12 +53,13 @@ var orgTableNames = []string{
 	"org_bots",
 	"org_reporting_lines",
 	"org_bot_runtime_state",
-	"org_topics",
-	"org_subscriptions",
 	"org_events",
 	"org_configs",
 	"org_activations",
 	"org_processors",
+	"org_triggers",
+	"org_worker_attachments",
+	"org_worker_secret_bindings",
 	"org_assets",
 	"org_asset_links",
 	"org_chart_positions",
@@ -97,6 +102,9 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if err := db.AutoMigrate(orgRowTypes...); err != nil {
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
+	if err := migrateProcessorOutputIDs(db); err != nil {
+		return nil, fmt.Errorf("migrate processor output ids: %w", err)
+	}
 
 	// Drop tables for aggregates removed from the model. AutoMigrate never
 	// drops, so a DB migrated before an aggregate was deleted keeps the
@@ -125,26 +133,132 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if err := installAssetLinkFKs(db); err != nil {
 		return nil, fmt.Errorf("install asset-link FKs: %w", err)
 	}
+	if err := installAttachmentConstraints(db); err != nil {
+		return nil, fmt.Errorf("install attachment constraints: %w", err)
+	}
+	if err := installWorkerSecretConstraints(db); err != nil {
+		return nil, fmt.Errorf("install worker secret constraints: %w", err)
+	}
+
+	// Drop the legacy human placeholder rows only once the ON DELETE
+	// CASCADE FKs above exist, so the DB removes their reporting lines,
+	// asset links, attachments and secret bindings with them. Deleting
+	// first on a DB that predates those constraints would orphan the
+	// child rows and the ADD CONSTRAINT statements would then fail
+	// validation, aborting startup.
+	if err := removeLegacyHumanBots(db); err != nil {
+		return nil, fmt.Errorf("remove legacy human bots: %w", err)
+	}
 	if err := installAgentAppLinks(db); err != nil {
 		return nil, fmt.Errorf("install agent app links: %w", err)
 	}
 
 	bots := newNodesRepo(db)
 	return &store.Store{
-		Nodes:            bots,
-		ReportingLines:   newReportingLinesRepo(db),
-		NodeRuntimeState: newNodeRuntimeStateRepo(db),
-		Topics:           newTopicsRepo(db),
-		Subscriptions:    newSubscriptionsRepo(db),
-		Events:           newEventsRepo(db, bots),
-		Configs:          newConfigsRepo(db),
-		Activations:      newActivationsRepo(db),
-		Processors:       newProcessorsRepo(db),
-		Assets:           newAssetsRepo(db),
-		AssetLinks:       newAssetLinksRepo(db),
-		ChartPositions:   newChartPositionsRepo(db),
-		DomainEvents:     newDomainEventsRepo(db),
+		Nodes:                bots,
+		ReportingLines:       newReportingLinesRepo(db),
+		NodeRuntimeState:     newNodeRuntimeStateRepo(db),
+		Events:               newEventsRepo(db),
+		Configs:              newConfigsRepo(db),
+		Activations:          newActivationsRepo(db),
+		Processors:           newProcessorsRepo(db),
+		Triggers:             newTriggersRepo(db),
+		WorkerAttachments:    newAttachmentsRepo(db),
+		WorkerSecretBindings: &workerSecretBindingsRepo{db: db},
+		Assets:               newAssetsRepo(db),
+		AssetLinks:           newAssetLinksRepo(db),
+		ChartPositions:       newChartPositionsRepo(db),
+		DomainEvents:         newDomainEventsRepo(db),
+
+		RetiredTopics:          newRetiredReader(db),
+		RetiredSubscriptions:   newRetiredSubscriptionReader(db),
+		RetiredProcessorInputs: newRetiredProcessorInputReader(db),
 	}, nil
+}
+
+func installWorkerSecretConstraints(db *gorm.DB) error {
+	if !db.Migrator().HasTable("org_worker_secret_bindings") || db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	statements := []string{`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='chk_worker_secret_source') THEN ALTER TABLE org_worker_secret_bindings ADD CONSTRAINT chk_worker_secret_source CHECK ((source_kind='helix_secret' AND secret_id<>'' AND account_id='' AND export_key='') OR (source_kind='connected_account' AND secret_id='' AND account_id<>'' AND export_key<>'')); END IF; END $$;`}
+	if db.Migrator().HasTable("org_bots") {
+		statements = append(statements, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_worker_secret_worker') THEN ALTER TABLE org_worker_secret_bindings ADD CONSTRAINT fk_worker_secret_worker FOREIGN KEY (org_id,worker_id) REFERENCES org_bots(org_id,id) ON DELETE CASCADE; END IF; END $$;`)
+	}
+	for _, stmt := range statements {
+		if err := db.Exec(stmt).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func installAttachmentConstraints(db *gorm.DB) error {
+	if !db.Migrator().HasTable("org_worker_attachments") {
+		return nil
+	}
+	statements := []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_attachment_trigger ON org_worker_attachments (org_id, worker_id, trigger_id) WHERE trigger_id IS NOT NULL`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_attachment_processor_output ON org_worker_attachments (org_id, worker_id, processor_id, output_id) WHERE processor_id IS NOT NULL`,
+	}
+	if db.Dialector.Name() != "postgres" {
+		for _, stmt := range statements {
+			if err := db.Exec(stmt).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	statements = append(statements, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_attachment_source') THEN ALTER TABLE org_worker_attachments ADD CONSTRAINT chk_attachment_source CHECK ((trigger_id IS NOT NULL AND processor_id IS NULL AND output_id IS NULL) OR (trigger_id IS NULL AND processor_id IS NOT NULL AND output_id IS NOT NULL)); END IF; END $$;`)
+	if db.Migrator().HasTable("org_bots") {
+		statements = append(statements, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_attachment_worker') THEN ALTER TABLE org_worker_attachments ADD CONSTRAINT fk_attachment_worker FOREIGN KEY (org_id, worker_id) REFERENCES org_bots(org_id, id) ON DELETE CASCADE; END IF; END $$;`)
+	}
+	if db.Migrator().HasTable("org_triggers") {
+		statements = append(statements, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_attachment_trigger') THEN ALTER TABLE org_worker_attachments ADD CONSTRAINT fk_attachment_trigger FOREIGN KEY (org_id, trigger_id) REFERENCES org_triggers(org_id, id) ON DELETE CASCADE; END IF; END $$;`)
+	}
+	for _, stmt := range statements {
+		if err := db.Exec(stmt).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateProcessorOutputIDs(db *gorm.DB) error {
+	var rows []processorRow
+	if err := db.Where(`outputs NOT LIKE ?`, `%"id":%`).Find(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		var outputs []processor.Output
+		if err := json.Unmarshal([]byte(row.Outputs), &outputs); err != nil {
+			return fmt.Errorf("processor %q outputs: %w", row.ID, err)
+		}
+		changed := false
+		seen := map[string]struct{}{}
+		for i := range outputs {
+			if outputs[i].ID == "" {
+				if outputs[i].StreamID == "" {
+					return fmt.Errorf("processor %q output %d has no topic id", row.ID, i)
+				}
+				outputs[i].ID = processor.LegacyOutputID(outputs[i].StreamID)
+				changed = true
+			}
+			if _, ok := seen[outputs[i].ID]; ok {
+				return fmt.Errorf("processor %q has duplicate output id %q", row.ID, outputs[i].ID)
+			}
+			seen[outputs[i].ID] = struct{}{}
+		}
+		if changed {
+			encoded, err := json.Marshal(outputs)
+			if err != nil {
+				return err
+			}
+			if err := db.Model(&processorRow{}).Where("org_id = ? AND id = ?", row.OrgID, row.ID).Update("outputs", string(encoded)).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func renameLegacyAssetLinkAgentColumn(db *gorm.DB) error {
@@ -204,6 +318,9 @@ func installAgentAppLinks(db *gorm.DB) error {
 			return err
 		}
 	}
+	if err := repairDuplicateAgentAppLinks(db); err != nil {
+		return err
+	}
 	if err := db.Exec(`
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_org_bots_agent_app
 		ON org_bots (org_id, agent_app_id)
@@ -236,7 +353,70 @@ func installAgentAppLinks(db *gorm.DB) error {
 		WHERE bot.agent_app_id = app.id
 		  AND bot.agent_app_id IS NOT NULL
 	`, types.AgentKindOrg).Error; err != nil {
-		return fmt.Errorf("backfill org agent kinds: %w", err)
+		return fmt.Errorf("backfill Org Bot App kinds: %w", err)
+	}
+	return nil
+}
+
+func repairDuplicateAgentAppLinks(db *gorm.DB) error {
+	type duplicate struct {
+		OrgID string
+		AppID string
+	}
+	type linkedBot struct {
+		ID string
+	}
+	type repair struct {
+		duplicate
+		Winner string
+		Losers []string
+	}
+
+	var duplicates []duplicate
+	if err := db.Table("org_bots").
+		Select("org_id, agent_app_id AS app_id").
+		Where("agent_app_id IS NOT NULL").
+		Group("org_id, agent_app_id").
+		Having("COUNT(*) > 1").
+		Scan(&duplicates).Error; err != nil {
+		return fmt.Errorf("list duplicate legacy App links: %w", err)
+	}
+
+	repairs := make([]repair, 0, len(duplicates))
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		for _, duplicate := range duplicates {
+			var bots []linkedBot
+			if err := tx.Table("org_bots").Select("id").
+				Where("org_id = ? AND agent_app_id = ?", duplicate.OrgID, duplicate.AppID).
+				Order("created_at ASC, id ASC").Scan(&bots).Error; err != nil {
+				return fmt.Errorf("list Bots linked to App %s: %w", duplicate.AppID, err)
+			}
+			if len(bots) < 2 {
+				continue
+			}
+			losers := make([]string, 0, len(bots)-1)
+			for _, bot := range bots[1:] {
+				losers = append(losers, bot.ID)
+			}
+			// Keep the oldest Bot on the shared legacy App. Detached Bots are
+			// provisioned their own App by the next bootstrap reconciliation.
+			if err := tx.Table("org_bots").
+				Where("org_id = ? AND id IN ?", duplicate.OrgID, losers).
+				Updates(map[string]any{"agent_app_id": nil, "code_agent_config": nil}).Error; err != nil {
+				return fmt.Errorf("clear duplicate legacy App %s links: %w", duplicate.AppID, err)
+			}
+			repairs = append(repairs, repair{duplicate: duplicate, Winner: bots[0].ID, Losers: losers})
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, repaired := range repairs {
+		slog.Warn("org Bot migration: cleared duplicate legacy App links",
+			"org", repaired.OrgID,
+			"app", repaired.AppID,
+			"kept_bot", repaired.Winner,
+			"cleared_bots", repaired.Losers)
 	}
 	return nil
 }
@@ -259,8 +439,7 @@ func backfillAgentAppLinks(db *gorm.DB) error {
 		JOIN apps AS a
 		  ON a.id = state.value
 		 AND a.organization_id = state.org_id
-		WHERE bot.kind <> 'human'
-		  AND bot.agent_app_id IS NULL
+		WHERE bot.agent_app_id IS NULL
 		  AND state.backend = 'helix'
 		  AND state.key = 'agent_app_id'
 		  AND state.value <> ''
@@ -451,6 +630,11 @@ var renamedIndexes = []struct{ table, from, to string }{
 	{table: "org_topics", from: "idx_stream_org_name", to: "idx_topic_org_name"},
 }
 
+// The org_topics / org_subscriptions rename entries above still apply:
+// the tables are no longer AutoMigrated, but the conversion in
+// application/cutover reads them, and an upgrade from a pre-rename
+// release must still find its data under the current names.
+
 // renameLegacyTables applies renamedTables, renamedColumns and
 // renamedIndexes before AutoMigrate. Each step is guarded so the whole
 // function is idempotent: a no-op on a fresh DB (old names absent) and
@@ -493,6 +677,41 @@ func dropRemovedTables(db *gorm.DB) error {
 	for _, t := range removedTables {
 		if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", t)).Error; err != nil {
 			return fmt.Errorf("drop %s: %w", t, err)
+		}
+	}
+	return nil
+}
+
+// removeLegacyHumanBots removes the abandoned person-placeholder variant of
+// org_bots and its discriminator/contact columns. People are users joined to
+// organizations through organization_memberships; org_bots now has one shape.
+func removeLegacyHumanBots(db *gorm.DB) error {
+	m := db.Migrator()
+	if !m.HasTable("org_bots") {
+		return nil
+	}
+	if m.HasColumn("org_bots", "kind") {
+		// org_chart_positions has no FK back to org_bots, so its rows
+		// for the human placeholders have to go explicitly or they
+		// linger forever as canvas coordinates for nodes that no
+		// longer exist.
+		if m.HasTable("org_chart_positions") {
+			if err := db.Exec(
+				"DELETE FROM org_chart_positions WHERE kind = ? AND (org_id, id) IN (SELECT org_id, id FROM org_bots WHERE kind = ?)",
+				orgchart.ChartNodeKindBot, "human",
+			).Error; err != nil {
+				return fmt.Errorf("delete human placeholder chart positions: %w", err)
+			}
+		}
+		if err := db.Exec("DELETE FROM org_bots WHERE kind = ?", "human").Error; err != nil {
+			return fmt.Errorf("delete human placeholder rows: %w", err)
+		}
+	}
+	for _, column := range []string{"identity", "helix_user_id", "kind"} {
+		if m.HasColumn("org_bots", column) {
+			if err := db.Exec("ALTER TABLE org_bots DROP COLUMN " + column).Error; err != nil {
+				return fmt.Errorf("drop org_bots.%s: %w", column, err)
+			}
 		}
 	}
 	return nil

@@ -23,12 +23,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
@@ -56,26 +56,26 @@ func NewInProcHelixClient(s *HelixAPIServer, configs ...*configregistry.Registry
 	return client
 }
 
-func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instructions string, config lifecycle.AgentConfig) (string, error) {
+func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instructions string, config lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
 	user, err := c.resolveUser(ctx)
 	if err != nil {
 		org, orgErr := c.server.lookupOrg(ctx, orgID)
 		if orgErr != nil {
-			return "", fmt.Errorf("resolve organization %s: %w", orgID, orgErr)
+			return lifecycle.CreatedAgent{}, fmt.Errorf("resolve organization %s: %w", orgID, orgErr)
 		}
 		user, err = c.server.Store.GetUser(ctx, &store.GetUserQuery{ID: org.Owner})
 		if err != nil {
-			return "", fmt.Errorf("resolve owner %s for organization %s: %w", org.Owner, org.ID, err)
+			return lifecycle.CreatedAgent{}, fmt.Errorf("resolve owner %s for organization %s: %w", org.Owner, org.ID, err)
 		}
 		if user == nil {
-			return "", fmt.Errorf("resolve owner %s for organization %s: user not found", org.Owner, org.ID)
+			return lifecycle.CreatedAgent{}, fmt.Errorf("resolve owner %s for organization %s: user not found", org.Owner, org.ID)
 		}
 	}
 	if user.ID == "" {
-		return "", errors.New("create agent: user is missing")
+		return lifecycle.CreatedAgent{}, errors.New("create agent: user is missing")
 	}
 	if name == "" {
-		return "", errors.New("create agent: name is missing")
+		return lifecycle.CreatedAgent{}, errors.New("create agent: name is missing")
 	}
 	assistant := types.AssistantConfig{
 		Name:             name,
@@ -86,7 +86,7 @@ func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instru
 	if c.configs != nil && c.configs.IsDefaultAgentConfigured(ctx, orgID) {
 		defaults, configErr := c.configs.GetDefaultAgentConfig(ctx, orgID)
 		if configErr != nil {
-			return "", fmt.Errorf("read default agent config: %w", configErr)
+			return lifecycle.CreatedAgent{}, fmt.Errorf("read default agent config: %w", configErr)
 		}
 		applyResolvedAgentDefaults(&assistant, defaults)
 	}
@@ -100,7 +100,7 @@ func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instru
 		})
 	}
 	if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
-		return "", fmt.Errorf("create agent: %w", err)
+		return lifecycle.CreatedAgent{}, fmt.Errorf("create agent: %w", err)
 	}
 	app, err := c.server.Store.CreateApp(ctx, &types.App{
 		Owner:          user.ID,
@@ -115,9 +115,21 @@ func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instru
 		}},
 	})
 	if err != nil {
-		return "", err
+		return lifecycle.CreatedAgent{}, err
 	}
-	return app.ID, nil
+	executionConfig, err := external_agent.MaterializeCodeAgentConfig(app, nil)
+	if err != nil {
+		return lifecycle.CreatedAgent{}, fmt.Errorf("materialize Org Bot execution config: %w", err)
+	}
+	return lifecycle.CreatedAgent{LegacyAppID: app.ID, CodeAgentConfig: executionConfig}, nil
+}
+
+func (c *inProcHelixClient) ReadAgentExecutionConfig(ctx context.Context, legacyAppID string) (*types.CodeAgentExecutionConfig, error) {
+	app, err := c.server.Store.GetApp(ctx, legacyAppID)
+	if err != nil {
+		return nil, err
+	}
+	return external_agent.MaterializeCodeAgentConfig(app, nil)
 }
 
 func (c *inProcHelixClient) ApplyAgentDefaults(ctx context.Context, appID string, defaults types.AssistantConfig) error {
@@ -132,12 +144,26 @@ func (c *inProcHelixClient) ApplyAgentDefaults(ctx context.Context, appID string
 	if !isDeferredAgentScaffold(*assistant) {
 		return nil
 	}
+	previous := *app
+	previous.Config.Helix.Assistants = append([]types.AssistantConfig(nil), app.Config.Helix.Assistants...)
 	applyResolvedAgentDefaults(assistant, defaults)
 	if err := types.ValidateCodeAgentModelCompatibility(*assistant); err != nil {
 		return fmt.Errorf("apply agent defaults: %w", err)
 	}
-	_, err = c.server.Store.UpdateApp(ctx, app)
-	return err
+	updated, err := c.server.Store.UpdateApp(ctx, app)
+	if err != nil {
+		return err
+	}
+	if c.server.helixOrg == nil {
+		return nil
+	}
+	if err := c.server.syncOrgAgentProjectCodeAgentConfig(ctx, updated); err != nil {
+		if _, rollbackErr := c.server.Store.UpdateApp(context.WithoutCancel(ctx), &previous); rollbackErr != nil {
+			return fmt.Errorf("sync Org Bot execution config: %v; restore legacy App: %w", err, rollbackErr)
+		}
+		return fmt.Errorf("sync Org Bot execution config: %w", err)
+	}
+	return nil
 }
 
 func isDeferredAgentScaffold(assistant types.AssistantConfig) bool {
@@ -189,14 +215,6 @@ func (c *inProcHelixClient) UpdateAgent(ctx context.Context, appID string, patch
 	if err != nil {
 		return err
 	}
-	priorJSON, err := json.Marshal(existing)
-	if err != nil {
-		return fmt.Errorf("snapshot agent app: %w", err)
-	}
-	var prior types.App
-	if err := json.Unmarshal(priorJSON, &prior); err != nil {
-		return fmt.Errorf("snapshot agent app: %w", err)
-	}
 	if err := c.server.authorizeUserToApp(ctx, user, existing, types.ActionUpdate); err != nil {
 		return err
 	}
@@ -241,11 +259,6 @@ func (c *inProcHelixClient) UpdateAgent(ctx context.Context, appID string, patch
 		return err
 	}
 	if _, herr := c.server.updateAgent(nil, r); herr != nil {
-		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		if _, rollbackErr := c.server.Store.UpdateApp(rollbackCtx, &prior); rollbackErr != nil {
-			return fmt.Errorf("%s; restore agent app: %w", herr.Error(), rollbackErr)
-		}
 		return errors.New(herr.Error())
 	}
 	return nil
@@ -413,7 +426,7 @@ func (c *inProcHelixClient) markAgentAppAsOrgKind(ctx context.Context, appID str
 	}
 	app.AgentKind = types.AgentKindOrg
 	if _, err := c.server.Store.UpdateApp(ctx, app); err != nil {
-		return fmt.Errorf("classify agent app %s as org agent: %w", appID, err)
+		return fmt.Errorf("classify legacy App %s as Org Bot backing App: %w", appID, err)
 	}
 	return nil
 }
@@ -573,6 +586,24 @@ func (c *inProcHelixClient) ListProjectSecrets(ctx context.Context, projectID st
 		return nil, err
 	}
 	return parseEnvVarsToMap(envVars), nil
+}
+
+func (c *inProcHelixClient) ListProjectSecretRecords(ctx context.Context, projectID string) ([]types.Secret, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/projects/"+projectID+"/secrets", nil, map[string]string{"id": projectID})
+	if err != nil {
+		return nil, err
+	}
+	rows, herr := c.server.listProjectSecrets(nil, req)
+	if herr != nil {
+		return nil, fmt.Errorf("list project secrets: %s", herr.Error())
+	}
+	out := make([]types.Secret, 0, len(rows))
+	for _, row := range rows {
+		if row != nil {
+			out = append(out, *row)
+		}
+	}
+	return out, nil
 }
 
 // parseEnvVarsToMap splits `KEY=value` env-var strings back into a map.
@@ -756,16 +787,20 @@ func (s *HelixAPIServer) publishAgentToolChange(ctx context.Context, appID strin
 	}
 }
 
-// DeleteProject soft-deletes a Helix project and stops any sessions
-// currently running against it. Used by the fire-worker cascade. A
-// 404 from the underlying handler is mapped to ErrProjectNotFound so
-// callers can treat already-gone projects as success.
+// DeleteProject tears down a bot-owned Helix project: it destroys every
+// desktop, spec-task workspace, sandbox, and golden Docker cache the project
+// holds on sandbox hosts, then soft-deletes the project. Used only by the bot
+// delete cascade. A 404 from the underlying handler is mapped to
+// ErrProjectNotFound so callers can treat already-gone projects as success.
 func (c *inProcHelixClient) DeleteProject(ctx context.Context, id string) error {
 	project, err := c.server.Store.GetProject(ctx, id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) || errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("%w: project %s", runtimehelix.ErrProjectNotFound, id)
 		}
+		return err
+	}
+	if err := c.destroyProjectRuntime(ctx, project); err != nil {
 		return err
 	}
 	deleteCtx := ctx
@@ -793,6 +828,89 @@ func (c *inProcHelixClient) DeleteProject(ctx context.Context, id string) error 
 	return nil
 }
 
+type projectRuntimeSession struct {
+	ID         string
+	SpecTaskID string
+}
+
+// destroyProjectRuntime removes what a bot's project accumulates on sandbox
+// hosts. Soft-deleting the project alone only stops the newest desktop and
+// leaves workspaces, inner Docker data, and sandboxes behind. Host teardown is
+// best-effort so an offline sandbox host cannot make a bot undeletable; the
+// orphan reaper treats sessions and tasks of deleted projects as dead, so it
+// removes whatever this pass could not reach.
+func (c *inProcHelixClient) destroyProjectRuntime(ctx context.Context, project *types.Project) error {
+	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
+	if !ok {
+		return fmt.Errorf("destroy project runtime: store %T has no shared database", c.server.Store)
+	}
+	db := accessor.GormDB().WithContext(ctx)
+	var taskIDs []string
+	if err := db.Model(&types.SpecTask{}).Where("project_id = ?", project.ID).Pluck("id", &taskIDs).Error; err != nil {
+		return fmt.Errorf("list project spec tasks: %w", err)
+	}
+	projectTasks := make(map[string]bool, len(taskIDs))
+	for _, taskID := range taskIDs {
+		projectTasks[taskID] = true
+	}
+	// Desktop sessions of the project's org only. Spec-task sessions do not
+	// always carry the task's project_id, so also match them through the task.
+	// Soft-deleted sessions still own host data.
+	var sessions []projectRuntimeSession
+	match := "project_id = ?"
+	args := []any{project.ID}
+	if len(taskIDs) > 0 {
+		match = "(project_id = ? OR config->>'spec_task_id' IN ?)"
+		args = append(args, taskIDs)
+	}
+	query := db.Unscoped().Model(&types.Session{}).
+		Select("id, config->>'spec_task_id' AS spec_task_id").
+		Where("organization_id = ?", project.OrganizationID).
+		Where("(model_name = ? OR config->>'agent_type' = ?)", "external_agent", "zed_external").
+		Where(match, args...)
+	if err := query.Scan(&sessions).Error; err != nil {
+		return fmt.Errorf("list project sessions: %w", err)
+	}
+
+	if executor := c.server.externalAgentExecutor; executor != nil {
+		for _, session := range sessions {
+			specTaskID := ""
+			if projectTasks[session.SpecTaskID] {
+				specTaskID = session.SpecTaskID
+			}
+			if err := executor.DestroyDesktop(ctx, session.ID, specTaskID); err != nil {
+				return fmt.Errorf("destroy project desktop %s: %w", session.ID, err)
+			}
+		}
+	}
+
+	if c.server.sandboxController != nil {
+		sandboxes, err := c.server.sandboxController.List(ctx, project.OrganizationID, project.ID)
+		if err != nil {
+			return fmt.Errorf("list project sandboxes: %w", err)
+		}
+		for _, sandbox := range sandboxes {
+			if err := c.server.sandboxController.Delete(ctx, sandbox.ID); err != nil {
+				log.Warn().Err(err).
+					Str("project_id", project.ID).
+					Str("sandbox_id", sandbox.ID).
+					Msg("failed to delete project sandbox")
+			}
+		}
+	}
+
+	if builds, err := c.server.Store.ListGoldenBuilds(ctx, &store.ListGoldenBuildsQuery{ProjectID: project.ID}); err != nil {
+		return fmt.Errorf("list project golden builds: %w", err)
+	} else if len(builds) > 0 {
+		if _, failures, err := c.server.deleteGoldenCacheFromSandboxes(ctx, project.ID); err != nil {
+			log.Warn().Err(err).Str("project_id", project.ID).Msg("failed to delete project golden cache")
+		} else if len(failures) > 0 {
+			log.Warn().Strs("failures", failures).Str("project_id", project.ID).Msg("failed to delete project golden cache on some sandboxes")
+		}
+	}
+	return nil
+}
+
 // DeleteApp removes a Helix App. Used by the fire-worker cascade to
 // clean up the per-Worker agent app that ApplyProject auto-
 // provisioned. 404 maps to ErrProjectNotFound (the same "already
@@ -809,19 +927,11 @@ func (c *inProcHelixClient) DeleteApp(ctx context.Context, id string) error {
 }
 
 func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID, sessionID string) error {
-	if sessionID != "" {
-		// Best-effort: stopping the desktop is a courtesy teardown, not a
-		// precondition for deleting the bot. stopExternalAgentSession 404s on an
-		// already-deleted session, 400s when the session isn't zed_external, and
-		// 500s when hydra is unreachable — none of which should leave the bot
-		// permanently undeletable. The container is reaped by its own lifecycle
-		// either way.
-		if err := c.StopExternalAgent(ctx, sessionID); err != nil {
-			log.Warn().
-				Err(err).
-				Str("session_id", sessionID).
-				Str("bot_id", string(botID)).
-				Msg("failed to stop linked agent session; continuing with delete")
+	if sessionID != "" && c.server.externalAgentExecutor != nil {
+		// DeleteProject already destroyed this session when it belongs to the
+		// bot's project; this covers a session outside it.
+		if err := c.server.externalAgentExecutor.DestroyDesktop(ctx, sessionID, ""); err != nil {
+			return fmt.Errorf("destroy linked agent desktop %s: %w", sessionID, err)
 		}
 	}
 	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
@@ -829,8 +939,8 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 		return fmt.Errorf("delete linked agent: store %T has no shared database", c.server.Store)
 	}
 	return accessor.GormDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Projects outlive org agents. Clear only the deleted app's default-agent
-		// link; repositories, tasks, secrets, and all other project state remain.
+		// The lifecycle archives the runtime-owned project first. Detach the app
+		// from any other configured projects without touching their repositories.
 		if err := tx.Model(&types.Project{}).
 			Where("default_helix_app_id = ?", appID).
 			Update("default_helix_app_id", "").Error; err != nil {
@@ -848,12 +958,6 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 			orgID, string(botID),
 		).Error; err != nil {
 			return fmt.Errorf("delete runtime state: %w", err)
-		}
-		if err := tx.Exec(
-			"DELETE FROM org_subscriptions WHERE org_id = ? AND bot_id = ?",
-			orgID, string(botID),
-		).Error; err != nil {
-			return fmt.Errorf("delete subscriptions: %w", err)
 		}
 		result := tx.Exec(
 			"DELETE FROM org_bots WHERE org_id = ? AND id = ? AND agent_app_id = ?",
@@ -874,18 +978,27 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 
 // ---- runtimehelix.SpawnerClient ----
 
-// ServerStatus returns the desktop-quota slice of /api/v1/config. We
-// read directly from the same sources as
-// HelixAPIServer.getConfig — the Free-tier quota env value and the
-// in-memory active-desktop count.
+// ServerStatus returns the desktop quota for the activation's organization.
 func (c *inProcHelixClient) ServerStatus(ctx context.Context) (runtimehelix.ServerStatus, error) {
-	st := runtimehelix.ServerStatus{
-		MaxConcurrentDesktops: c.server.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops,
+	req := &types.QuotaRequest{OrganizationID: helixorgserver.OrgIDFromContext(ctx)}
+	if req.OrganizationID == "" {
+		req.OrganizationID = runtimehelix.OrganizationIDFromContext(ctx)
 	}
-	if c.server.externalAgentExecutor != nil {
-		st.ActiveConcurrentDesktops = len(c.server.externalAgentExecutor.ListSessions())
+	if req.OrganizationID == "" {
+		user, err := c.resolveUser(ctx)
+		if err != nil {
+			return runtimehelix.ServerStatus{}, err
+		}
+		req.UserID = user.ID
 	}
-	return st, nil
+	quotas, err := c.server.quotaManager.GetQuotas(ctx, req)
+	if err != nil {
+		return runtimehelix.ServerStatus{}, err
+	}
+	return runtimehelix.ServerStatus{
+		MaxConcurrentDesktops:    quotas.MaxConcurrentDesktops,
+		ActiveConcurrentDesktops: quotas.ActiveConcurrentDesktops,
+	}, nil
 }
 
 // GetOutput returns the latest output snapshot for a session.
@@ -962,6 +1075,13 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 		AutoRestartOnCrash:  true,
 		OrgWorkerID:         params.WorkerID,
 		RuntimeInstructions: params.Instructions,
+		InteractionTrigger:  params.InteractionTrigger,
+		SessionName:         params.Name,
+		SandboxRuntime:      params.Launch.SandboxRuntime,
+		SandboxResourceOverrides: &types.SandboxResourceOverrides{
+			VCPUs:    params.Launch.SandboxResources.VCPUs,
+			MemoryMB: params.Launch.SandboxResources.MemoryMB,
+		},
 		Messages: []*types.Message{{
 			Role:    "user",
 			Content: types.MessageContent{Parts: []any{params.Prompt}},
@@ -970,12 +1090,6 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 	session, err := c.server.StartExternalAgentSession(ctx, req, user.ID)
 	if err != nil {
 		return "", fmt.Errorf("start external agent session: %w", err)
-	}
-	if params.Name != "" && session.Name != params.Name {
-		session.Name = params.Name
-		if _, err := c.server.Store.UpdateSession(ctx, *session); err != nil {
-			return "", fmt.Errorf("name external agent session: %w", err)
-		}
 	}
 	return session.ID, nil
 }
@@ -1023,7 +1137,7 @@ func (c *inProcHelixClient) ClearSession(ctx context.Context, sessionID string) 
 // SyncAgentProfile refreshes the display name on every existing session and
 // the instruction files read natively by Codex and Claude on running desktops.
 // The spawner calls this before clearing the existing ACP thread.
-func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string) error {
+func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string, launch runtimehelix.SessionLaunchConfig) error {
 	if sessionID == "" {
 		return errors.New("SyncAgentProfile: sessionID is required")
 	}
@@ -1039,6 +1153,22 @@ func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, ses
 	if session.Metadata.OrgWorkerID != workerID || session.Metadata.RuntimeInstructions != instructions {
 		session.Metadata.OrgWorkerID = workerID
 		session.Metadata.RuntimeInstructions = instructions
+		changed = true
+	}
+	// The Bot's sandbox runtime/size is session state for the same reason the
+	// instructions are: every container start path rebuilds the DesktopAgent
+	// from the session, so a changed Bot config must land here before the
+	// next start — including the auto-start a queued message triggers.
+	resources := session.Metadata.SandboxResourceOverrides
+	if session.Metadata.SandboxRuntime != launch.SandboxRuntime ||
+		resources == nil ||
+		resources.VCPUs != launch.SandboxResources.VCPUs ||
+		resources.MemoryMB != launch.SandboxResources.MemoryMB {
+		session.Metadata.SandboxRuntime = launch.SandboxRuntime
+		session.Metadata.SandboxResourceOverrides = &types.SandboxResourceOverrides{
+			VCPUs:    launch.SandboxResources.VCPUs,
+			MemoryMB: launch.SandboxResources.MemoryMB,
+		}
 		changed = true
 	}
 	if session.ParentApp != "" {

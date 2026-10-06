@@ -61,13 +61,24 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		}
 
 		if result.RowsAffected == 0 {
+			// The row's session_id is what the queue drain dispatches to, so it is
+			// security-relevant. The handler has authorized the caller against every
+			// distinct session named by these entries (authorizeSyncEntryTargets);
+			// an entry that names none falls back to the authorized scope session
+			// rather than being created with an empty session_id, which would never
+			// dispatch. Do not relax this to trust entry.SessionID unchecked.
+			sessionID := entry.SessionID
+			if sessionID == "" {
+				sessionID = req.SessionID
+			}
+
 			// Entry doesn't exist - create it with all frontend fields
 			dbEntry := &types.PromptHistoryEntry{
 				ID:            entry.ID,
 				UserID:        userID,
 				ProjectID:     req.ProjectID,
 				SpecTaskID:    req.SpecTaskID,
-				SessionID:     entry.SessionID,
+				SessionID:     sessionID,
 				Content:       entry.Content,
 				Status:        entry.Status,
 				Interrupt:     interrupt,
@@ -81,6 +92,14 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 			}
 			synced++
 		} else {
+			// Now that the queue is readable by every viewer of the task, a client
+			// caches other people's entries too and would push them straight back.
+			// Someone else's prompt is read-only to us: skip it rather than let one
+			// viewer rewrite another's queued content or ordering.
+			if existingEntry.UserID != userID {
+				continue
+			}
+
 			// Entry exists - only update frontend-owned fields
 			// Preserve backend-owned fields: status, retryCount, nextRetryAt
 			updateFields := map[string]interface{}{
@@ -103,8 +122,13 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 	// Return all non-deleted entries so the client can merge. Scope by spec_task
 	// (spec-task queue) or by session (org-chat / bot session queue with no spec
 	// task) depending on which the request carries.
+	//
+	// NOT scoped by user_id, deliberately and necessarily: this set must match
+	// what ListPromptHistory returns. usePromptHistory treats a locally-known
+	// entry that is absent from the authoritative list as failed, so if the two
+	// disagree the client marks other people's live prompts failed.
 	scoped := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND deleted_at IS NULL", userID)
+		Where("deleted_at IS NULL")
 	if req.SpecTaskID != "" {
 		scoped = scoped.Where("spec_task_id = ?", req.SpecTaskID)
 	} else {
@@ -314,23 +338,14 @@ func (s *PostgresStore) ClaimPromptForSending(ctx context.Context, promptID stri
 	return result.RowsAffected > 0, nil
 }
 
-// RequeueBouncedPrompt finds the most recent in-flight prompt for a session
-// (status 'sent' or 'sending') and marks it as "failed" so the retry mechanism
-// picks it up.
-//
-// Both statuses are considered: under the deferred-mark-sent flow, dispatched
-// prompts stay in 'sending' until Zed actually starts streaming. A bounce
-// before Zed's first message_added arrives leaves the prompt 'sending'. Older
-// flows marked sent on dispatch, leaving bounced prompts 'sent'. Either way,
-// the most recent in-flight prompt for the session is the one to requeue.
-func (s *PostgresStore) RequeueBouncedPrompt(ctx context.Context, sessionID string) error {
+// RequeueBouncedPrompt marks an exact in-flight prompt as failed so the retry
+// mechanism picks it up.
+func (s *PostgresStore) RequeueBouncedPrompt(ctx context.Context, promptID string) error {
 	var prompt types.PromptHistoryEntry
-	err := s.gdb.WithContext(ctx).
-		Where("session_id = ? AND status IN ('sent', 'sending')", sessionID).
-		Order("created_at DESC").
-		First(&prompt).Error
-	if err != nil {
-		return err // no matching prompt found (e.g. Zed user message, not from queue)
+	if err := s.gdb.WithContext(ctx).
+		Where("id = ? AND status IN ('sent', 'sending')", promptID).
+		First(&prompt).Error; err != nil {
+		return err
 	}
 	return s.MarkPromptAsFailed(ctx, prompt.ID, "agent returned an empty response (bounce); requeueing for retry")
 }
@@ -377,6 +392,29 @@ func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string,
 			"retry_count":   newRetryCount,
 			"next_retry_at": nextRetry,
 			"error_message": errorMsg,
+		}).
+		Error
+}
+
+// RevertPromptToPending returns a claimed prompt to the queue after a defer that
+// is NOT a failure — the session was mid-turn, so the prompt was never dispatched
+// and nothing went wrong. Clears next_retry_at (a stale backoff from an earlier
+// genuine failure would otherwise gate re-selection) and error_message (so the UI
+// stops showing "Failed - retrying" for a prompt that is merely waiting).
+//
+// retry_count is deliberately left untouched: it bounds genuine failures, and a
+// defer must neither charge nor forgive that budget. Charging it is how a queued
+// message used to be silently dropped forever — every user interrupt fires
+// processAnyPendingPrompt, each busy-defer burnt one of the 20 retries, and at 20
+// the selectors stop seeing the row. See design/tasks/003021_queued-agent-messages.
+func (s *PostgresStore) RevertPromptToPending(ctx context.Context, promptID string) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.PromptHistoryEntry{}).
+		Where("id = ?", promptID).
+		Updates(map[string]interface{}{
+			"status":        "pending",
+			"next_retry_at": nil,
+			"error_message": "",
 		}).
 		Error
 }
@@ -505,10 +543,30 @@ func (s *PostgresStore) ResetCrashedPromptsForSession(ctx context.Context, sessi
 	return int(result.RowsAffected), nil
 }
 
-// ListPromptHistory returns prompt history entries for a user
-func (s *PostgresStore) ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error) {
+// ListPromptHistory returns prompt history entries for a spec task or session.
+//
+// The queue belongs to the AGENT, not to whoever typed the message: a prompt
+// queued by a teammate or by an org bot under a different account is still going
+// to run on this session, so it must be visible. Callers therefore scope by
+// spec task / session and authorize the caller against THAT, and only set
+// req.UserID when they deliberately want one user's rows.
+func (s *PostgresStore) ListPromptHistory(ctx context.Context, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error) {
+	// Refuse to run unscoped: without this an empty request would return every
+	// prompt in the table. The handler already requires spec_task_id or
+	// session_id; this is the backstop for any future caller.
+	if req.SpecTaskID == "" && req.SessionID == "" && req.UserID == "" {
+		return nil, fmt.Errorf("ListPromptHistory: one of SpecTaskID, SessionID or UserID is required")
+	}
+
+	// Soft-deleted prompts must stay deleted — matches ListPromptHistoryBySpecTask
+	// and ListPromptHistoryBySession. Applied before the count so Total agrees.
 	query := s.gdb.WithContext(ctx).
-		Where("user_id = ?", userID)
+		Where("deleted_at IS NULL")
+
+	// Filter by owner only when the caller explicitly asks for it.
+	if req.UserID != "" {
+		query = query.Where("user_id = ?", req.UserID)
+	}
 
 	// Filter by spec task (required - history is per-spec-task)
 	if req.SpecTaskID != "" {

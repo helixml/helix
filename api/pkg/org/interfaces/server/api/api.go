@@ -9,20 +9,21 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/assets"
+	"github.com/helixml/helix/api/pkg/org/application/attachments"
 	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/instances"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/messages"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
-	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
-	"github.com/helixml/helix/api/pkg/org/application/topics"
+	triggerapp "github.com/helixml/helix/api/pkg/org/application/triggers"
+	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
@@ -42,12 +43,11 @@ func resolveOrgID(r *http.Request) (string, error) {
 	return "", errors.New("helix-org scope missing — request did not pass through /orgs/{org} middleware")
 }
 
-// Dispatcher is the dispatcher port the publish handler invokes when
-// a client posts an event into a topic. Defined here (rather than
-// imported from server.go's sibling) to keep the import edge
-// one-directional — server/api is below server, not next to it.
+// Dispatcher is the dispatcher port the REST adapter invokes to wake a
+// Worker. Defined here (rather than imported from server.go's sibling)
+// to keep the import edge one-directional — server/api is below server,
+// not next to it.
 type Dispatcher interface {
-	Dispatch(ctx context.Context, ev streaming.Event)
 	// DispatchManual enqueues an operator-driven activation for the
 	// given Bot. Called by activateBot after the synchronous
 	// ensureProject step. activationID is the pre-allocated audit-row
@@ -64,6 +64,10 @@ type ProjectEnsurer interface {
 	Ensure(ctx context.Context, orgID string, botID orgchart.NodeID) (projectID, agentAppID, repoID string, err error)
 }
 
+type BotConfigApplier interface {
+	ApplyConfig(ctx context.Context, orgID string, botID orgchart.NodeID) error
+}
+
 // Deps is the JSON API's wiring.
 //
 // PublicURL / DBPath / EnvsDir are the operational state the settings
@@ -75,17 +79,17 @@ type Deps struct {
 	// helper). The api package holds NO store.* repository, so the
 	// compiler now forbids any handler reaching past a service into the
 	// store (the Phase-D enforcement gate).
-	Topics   *topics.Topics
+	Triggers *triggerapp.Service
 	Messages *messages.Messages
 	// Nodes is the merged role+worker mutation service: content/tools
 	// updates (PATCH /bots/{id}) and reporting-line edges
 	// (AddParent/RemoveParent). Creation/deletion go through Lifecycle.
-	Nodes         *nodes.Nodes
-	Subscriptions *subscriptions.Subscriptions
-	Publishing    *publishing.Publishing
-	Activations   *activations.Activations
-	Assets        *assets.Service
-	AssetHealth   func(ctx context.Context, orgID, idOrName string) AssetHealthDTO
+	Nodes       *nodes.Nodes
+	Attachments *attachments.Service
+	Publishing  *publishing.Publishing
+	Activations *activations.Activations
+	Assets      *assets.Service
+	AssetHealth func(ctx context.Context, orgID, idOrName string) AssetHealthDTO
 	// Processors owns the processor CRUD + preview use cases. nil →
 	// the /processors routes return 503 (test wirings that skip it).
 	Processors *processors.Processors
@@ -95,11 +99,13 @@ type Deps struct {
 	// Queries is the read facade for every projection the read handlers
 	// render. One service spanning several repos (reads carry no
 	// invariants to split on).
-	Queries *queries.Queries
+	Queries       *queries.Queries
+	WorkerSecrets *workersecrets.Service
 
-	Configs    *configregistry.Registry
-	Hub        *wakebus.Bus
-	Dispatcher Dispatcher
+	Configs                    *configregistry.Registry
+	Hub                        *wakebus.Bus
+	Dispatcher                 Dispatcher
+	ValidateDefaultAgentConfig func(context.Context, string, types.AssistantConfig) error
 
 	// BotRuntime reads a Bot's runtime-state sidecar (project /
 	// agent-app / session ids). A small port so the bot-detail and
@@ -117,9 +123,13 @@ type Deps struct {
 	// BotDesktopStopper stops the desktop only (session + transcript kept).
 	// nil → stopBotAgent returns 501.
 	BotDesktopStopper BotDesktopStopper
+	BotConfigApplier  BotConfigApplier
+	// BotInstances manages Bot instances. nil → the /instances routes
+	// return 501.
+	BotInstances instances.Manager
 
 	// GitHubInbound builds the inbound GitHub-webhook handler for an org
-	// (the transport reads matching topics + appends events). Built at
+	// (the transport reads matching triggers + appends events). Built at
 	// the composition root so the api adapter never holds the store. nil
 	// → POST /github/webhook returns 503.
 	GitHubInbound func(orgID string) http.Handler
@@ -196,10 +206,6 @@ type Deps struct {
 	// disables the "Create the Helix app" path.
 	GitHubManifestStart func(ctx context.Context, orgID, githubOrg, origin string) (GitHubManifestStartResponse, error)
 
-	// AuthorizeHumanContact allows only the person themself or an org owner
-	// to mutate a human node's identity map.
-	AuthorizeHumanContact func(ctx context.Context, orgID, humanUserID string) error
-
 	// PublicServerURL is the operator-configured external base URL
 	// (e.g. https://helix.example.com) that auto-installed GitHub
 	// webhooks should POST back to. Falls back to localhost when
@@ -252,10 +258,27 @@ type BotRuntimeInfo struct {
 	SessionID string
 	Runtime   string
 	Model     string
-	// AgentStatus is "running" when the bot's exploratory-session
+	// Status is "running" when the bot's exploratory-session
 	// desktop is online (external_agent_status == running), else
 	// "stopped". Empty when the status could not be resolved.
-	AgentStatus string
+	Status string
+	// AgentWorkState is "working" only when the running session's latest
+	// interaction is waiting for its external agent.
+	AgentWorkState types.AgentWorkState
+	// RestartRequired is true when the bot's sandbox is running but is
+	// still serving config from before the operator's last save: tools,
+	// instructions, or the agent's model/provider/runtime/effort, all of
+	// which the sandbox bakes in at start.
+	RestartRequired bool
+	// EffectiveSandboxRuntime / EffectiveSandboxResources are the resolved
+	// launch config (bot → org default → global default). SandboxID /
+	// SandboxStatus / SandboxStatusMessage mirror the session-backed
+	// sandboxes row; empty when the bot has never started a container.
+	EffectiveSandboxRuntime   types.SandboxRuntime
+	EffectiveSandboxResources *types.SandboxResourceOverrides
+	SandboxID                 string
+	SandboxStatus             string
+	SandboxStatusMessage      string
 }
 
 // BotRuntime resolves a Bot's runtime-state sidecar. Declared here
@@ -326,44 +349,36 @@ func Routes(deps Deps) []Route {
 		{Pattern: "DELETE /bots/{id}", Handler: http.HandlerFunc(a.deleteBot)},
 		// Subscriptions are bot-anchored — the Bot Detail page edits the
 		// bot's subscription set through these endpoints.
-		{Pattern: "GET /bots/{id}/subscriptions", Handler: http.HandlerFunc(a.listBotSubscriptions)},
-		{Pattern: "POST /bots/{id}/subscriptions", Handler: http.HandlerFunc(a.subscribeBot)},
-		{Pattern: "DELETE /bots/{id}/subscriptions/{topic_id}", Handler: http.HandlerFunc(a.unsubscribeBot)},
 		{Pattern: "POST /bots/{id}/chat", Handler: http.HandlerFunc(a.ensureBotChat)},
 		{Pattern: "POST /bots/{id}/activate", Handler: http.HandlerFunc(a.activateBot)},
-		{Pattern: "POST /bots/{id}/stop-agent", Handler: http.HandlerFunc(a.stopBotAgent)},
-		{Pattern: "POST /bots/{id}/restart-agent", Handler: http.HandlerFunc(a.restartBotAgent)},
+		{Pattern: "POST /bots/{id}/stop", Handler: http.HandlerFunc(a.stopBot)},
+		{Pattern: "POST /bots/{id}/restart", Handler: http.HandlerFunc(a.restartBot)},
+		{Pattern: "POST /bots/{id}/apply-config", Handler: http.HandlerFunc(a.applyBotConfig)},
+		{Pattern: "GET /bots/{id}/instances", Handler: http.HandlerFunc(a.listBotInstances)},
+		{Pattern: "POST /bots/{id}/instances", Handler: http.HandlerFunc(a.createBotInstance)},
+		{Pattern: "DELETE /bots/{id}/instances/{session_id}", Handler: http.HandlerFunc(a.deleteBotInstance)},
 		// Reporting lines are many-to-many — add/remove individual
 		// manager edges rather than replacing a single parent.
 		{Pattern: "POST /bots/{id}/parents", Handler: http.HandlerFunc(a.addBotParent)},
 		{Pattern: "DELETE /bots/{id}/parents/{parent_id}", Handler: http.HandlerFunc(a.removeBotParent)},
-		{Pattern: "GET /agents", Handler: http.HandlerFunc(a.listAgents)},
-		{Pattern: "POST /agents", Handler: http.HandlerFunc(a.createAgent)},
-		{Pattern: "GET /agents/{id}", Handler: http.HandlerFunc(a.getAgent)},
-		{Pattern: "PATCH /agents/{id}", Handler: http.HandlerFunc(a.updateAgent)},
-		{Pattern: "DELETE /agents/{id}", Handler: http.HandlerFunc(a.deleteAgent)},
-		{Pattern: "GET /agents/{id}/subscriptions", Handler: http.HandlerFunc(a.listAgentSubscriptions)},
-		{Pattern: "POST /agents/{id}/subscriptions", Handler: http.HandlerFunc(a.subscribeAgent)},
-		{Pattern: "DELETE /agents/{id}/subscriptions/{topic_id}", Handler: http.HandlerFunc(a.unsubscribeAgent)},
-		{Pattern: "POST /agents/{id}/chat", Handler: http.HandlerFunc(a.ensureAgentChat)},
-		{Pattern: "POST /agents/{id}/activate", Handler: http.HandlerFunc(a.activateAgent)},
-		{Pattern: "POST /agents/{id}/stop-agent", Handler: http.HandlerFunc(a.stopAgent)},
-		{Pattern: "POST /agents/{id}/restart-agent", Handler: http.HandlerFunc(a.restartAgent)},
-		{Pattern: "POST /agents/{id}/parents", Handler: http.HandlerFunc(a.addAgentParent)},
-		{Pattern: "DELETE /agents/{id}/parents/{parent_id}", Handler: http.HandlerFunc(a.removeAgentParent)},
+		{Pattern: "GET /bots/{id}/secrets", Handler: http.HandlerFunc(a.listWorkerSecrets)},
+		{Pattern: "GET /bots/{id}/available-secrets", Handler: http.HandlerFunc(a.listAvailableWorkerSecrets)},
+		{Pattern: "PUT /bots/{id}/secrets/{name}", Handler: http.HandlerFunc(a.putWorkerSecret)},
+		{Pattern: "DELETE /bots/{id}/secrets/{name}", Handler: http.HandlerFunc(a.deleteWorkerSecret)},
 		{Pattern: "GET /tools", Handler: http.HandlerFunc(a.listTools)},
 		{Pattern: "GET /settings", Handler: http.HandlerFunc(a.listSettings)},
 		{Pattern: "PUT /settings/{key}", Handler: http.HandlerFunc(a.setSetting)},
 		{Pattern: "DELETE /settings/{key}", Handler: http.HandlerFunc(a.deleteSetting)},
-		{Pattern: "GET /topics", Handler: http.HandlerFunc(a.listTopics)},
-		{Pattern: "POST /topics", Handler: http.HandlerFunc(a.createTopic)},
-		{Pattern: "GET /topics/{id}", Handler: http.HandlerFunc(a.getTopic)},
-		{Pattern: "PUT /topics/{id}", Handler: http.HandlerFunc(a.updateTopic)},
-		{Pattern: "DELETE /topics/{id}", Handler: http.HandlerFunc(a.deleteTopic)},
-		{Pattern: "GET /topics/{id}/events", Handler: http.HandlerFunc(a.topicEventsSSE)},
-		{Pattern: "GET /topics/{id}/messages", Handler: http.HandlerFunc(a.listTopicMessages)},
-		{Pattern: "DELETE /topics/{id}/messages", Handler: http.HandlerFunc(a.clearTopicMessages)},
-		{Pattern: "POST /topics/{id}/publish", Handler: http.HandlerFunc(a.publishToTopic)},
+		{Pattern: "GET /trigger-kinds", Handler: http.HandlerFunc(a.listTriggerKinds)},
+		{Pattern: "GET /triggers", Handler: http.HandlerFunc(a.listTriggers)},
+		{Pattern: "POST /triggers", Handler: http.HandlerFunc(a.createTrigger)},
+		{Pattern: "GET /triggers/{id}", Handler: http.HandlerFunc(a.getTrigger)},
+		{Pattern: "PUT /triggers/{id}", Handler: http.HandlerFunc(a.updateTrigger)},
+		{Pattern: "DELETE /triggers/{id}", Handler: http.HandlerFunc(a.deleteTrigger)},
+		{Pattern: "GET /triggers/{id}/events", Handler: http.HandlerFunc(a.listTriggerEvents)},
+		{Pattern: "GET /bots/{id}/attachments", Handler: http.HandlerFunc(a.listBotAttachments)},
+		{Pattern: "POST /bots/{id}/attachments", Handler: http.HandlerFunc(a.createBotAttachment)},
+		{Pattern: "DELETE /bots/{id}/attachments/{attachment_id}", Handler: http.HandlerFunc(a.deleteBotAttachment)},
 		// Processors — JSON:API CRUD.
 		{Pattern: "GET /processors", Handler: http.HandlerFunc(a.listProcessors)},
 		{Pattern: "POST /processors", Handler: http.HandlerFunc(a.createProcessor)},
@@ -378,8 +393,8 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /assets/{id}/health", Handler: http.HandlerFunc(a.assetHealth)},
 		{Pattern: "GET /assets/{id}/links", Handler: http.HandlerFunc(a.listAssetLinks)},
 		{Pattern: "POST /assets/{id}/links", Handler: http.HandlerFunc(a.linkAsset)},
-		{Pattern: "DELETE /assets/{id}/links/{agent_id}", Handler: http.HandlerFunc(a.unlinkAsset)},
-		// Chart free-placed layout (bots / topics / processors).
+		{Pattern: "DELETE /assets/{id}/links/{bot_id}", Handler: http.HandlerFunc(a.unlinkAsset)},
+		// Chart free-placed layout (bots / triggers / processors).
 		{Pattern: "GET /chart/positions", Handler: http.HandlerFunc(a.getChartPositions)},
 		{Pattern: "PUT /chart/positions", Handler: http.HandlerFunc(a.putChartPositions)},
 		{Pattern: "DELETE /chart/positions", Handler: http.HandlerFunc(a.deleteChartPositions)},
@@ -398,10 +413,10 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /github/repos", Handler: http.HandlerFunc(a.listGitHubRepos)},
 		{Pattern: "GET /github/app-installation", Handler: http.HandlerFunc(a.getGitHubAppInstallation)},
 		{Pattern: "POST /github/app-manifest", Handler: http.HandlerFunc(a.startGitHubAppManifest)},
-		{Pattern: "POST /topics/{id}/github/install-webhook", Handler: http.HandlerFunc(a.installGitHubWebhook)},
-		{Pattern: "GET /topics/{id}/github/webhook-status", Handler: http.HandlerFunc(a.getGitHubWebhookStatus)},
-		{Pattern: "POST /topics/{id}/gitlab/install-webhook", Handler: http.HandlerFunc(a.installGitLabWebhook)},
-		{Pattern: "GET /topics/{id}/gitlab/webhook-status", Handler: http.HandlerFunc(a.getGitLabWebhookStatus)},
+		{Pattern: "POST /triggers/{id}/github/install-webhook", Handler: http.HandlerFunc(a.installGitHubWebhook)},
+		{Pattern: "GET /triggers/{id}/github/webhook-status", Handler: http.HandlerFunc(a.getGitHubWebhookStatus)},
+		{Pattern: "POST /triggers/{id}/gitlab/install-webhook", Handler: http.HandlerFunc(a.installGitLabWebhook)},
+		{Pattern: "GET /triggers/{id}/gitlab/webhook-status", Handler: http.HandlerFunc(a.getGitLabWebhookStatus)},
 	}
 }
 
@@ -452,6 +467,10 @@ func errStatus(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, store.ErrConflict):
 		return http.StatusConflict
+	case errors.Is(err, nodes.ErrUnknownTool), errors.Is(err, nodes.ErrInvalidInstanceProfile), errors.Is(err, instances.ErrInvalidRequest):
+		return http.StatusBadRequest
+	case errors.Is(err, instances.ErrForbidden):
+		return http.StatusForbidden
 	default:
 		return http.StatusInternalServerError
 	}

@@ -79,6 +79,21 @@ type Interaction struct {
 	// current message's portion during streaming updates, preserving earlier messages.
 	LastZedMessageOffset int `json:"last_zed_message_offset,omitempty"`
 
+	// ExternalAgentRequestID is the durable correlation ID sent with the
+	// external agent's chat_message command. The in-memory request maps are
+	// caches only; cancellation and restart recovery use this persisted value.
+	ExternalAgentRequestID string `json:"-" gorm:"index"`
+
+	// ExternalAgentDispatchedAt distinguishes an interaction that only exists in
+	// the durable queue from one that has been handed to the external agent.
+	// It is set before the command is enqueued and cleared if enqueueing fails.
+	ExternalAgentDispatchedAt *time.Time `json:"-"`
+
+	// ExternalAgentCancelRequestedAt makes cancellation intent durable. If the
+	// WebSocket is temporarily unavailable, reconnect recovery sends the cancel
+	// before it considers re-delivering the waiting chat message.
+	ExternalAgentCancelRequestedAt *time.Time `json:"-"`
+
 	// ResponseEntries holds the structured response as an ordered list of typed entries.
 	// Each entry is "text" (assistant prose), "tool_call" (tool invocation), or
 	// "plan" (the latest structured plan snapshot),
@@ -86,6 +101,9 @@ type Interaction struct {
 	// This is populated on completion alongside ResponseMessage (flat string, backward compat).
 	// The frontend uses this to render entries with the correct component in the correct order.
 	ResponseEntries datatypes.JSON `json:"response_entries,omitempty" gorm:"type:jsonb"`
+
+	PendingQuestion *PendingQuestion   `json:"pending_question,omitempty" gorm:"type:jsonb;serializer:json"`
+	QuestionHistory []ResolvedQuestion `json:"question_history,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// CodeChanges is the immutable before/after workspace checkpoint summary for
 	// this turn. The full patch remains in hidden Git checkpoint refs.
@@ -99,9 +117,9 @@ type Interaction struct {
 	Usage Usage `json:"usage" gorm:"type:jsonb;serializer:json"`
 
 	// CodeAgentConfigSnapshot records the effective coding configuration that
-	// executed this turn. SpecTask overrides can change while the Helix session
-	// stays the same, so usage attribution cannot be reconstructed from the
-	// session or task after the fact.
+	// executed this turn. A task or session config can change while the Helix
+	// session stays the same, so usage attribution cannot be reconstructed from
+	// current state after the fact.
 	CodeAgentConfigSnapshot *InteractionCodeAgentConfigSnapshot `json:"-" gorm:"type:jsonb;serializer:json"`
 
 	Feedback        Feedback `json:"feedback" gorm:"index"`
@@ -148,6 +166,11 @@ const (
 // not user-initiated (those use the default empty string or app-trigger
 // names like "slack", "crisp"). Used by the fork-and-pause flow.
 const (
+	// InteractionTriggerOrgHire marks the internal prompt that starts a newly
+	// hired organization worker. The prompt is sent to the agent but is not a
+	// human-authored chat message.
+	InteractionTriggerOrgHire = "org_hire"
+
 	// InteractionTriggerForkSeed marks the single synthetic divider
 	// interaction created on a forked child, carrying lineage metadata
 	// and (for the agent prepend path) a serialized blob of the parent
@@ -441,10 +464,23 @@ type SessionMetadata struct {
 	// project and SpecTask sessions leave both fields empty.
 	OrgWorkerID         string `json:"org_worker_id,omitempty"`
 	RuntimeInstructions string `json:"runtime_instructions,omitempty"`
-	HelixVersion        string `json:"helix_version"`
-	Stream              bool   `json:"stream"`
-	AgentType           string `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
-	SystemSession       bool   `json:"system_session,omitempty"` // True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops
+	// BotInstance is set on org bot instance sessions (SessionRole
+	// SessionRoleOrgBotInstance): the bot's instance profile as of the last
+	// sync, which shapes the instance's MCP servers, org tools and skills.
+	BotInstance *BotInstanceProfile `json:"bot_instance,omitempty"`
+	// BotInstanceSecrets names the project development secrets explicitly
+	// granted when this instance was created. Empty means no project secrets.
+	BotInstanceSecrets []string `json:"bot_instance_secrets,omitempty"`
+	// BotInstanceDiskSizeGB is the hard capacity of the instance's persistent
+	// home filesystem. BotInstanceAllowSudo is the requested opt-out from the
+	// default no-new-privileges policy. Read both through BotInstanceDiskSize
+	// and BotInstanceSudo, which apply defaults and runtime rules.
+	BotInstanceDiskSizeGB int    `json:"bot_instance_disk_size_gb,omitempty"`
+	BotInstanceAllowSudo  bool   `json:"bot_instance_allow_sudo,omitempty"`
+	HelixVersion          string `json:"helix_version"`
+	Stream                bool   `json:"stream"`
+	AgentType             string `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
+	SystemSession         bool   `json:"system_session,omitempty"` // True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops
 
 	// Autonomous crash recovery. Set true at session creation for surfaces with
 	// no human present to click the in-chat Restart button (spec tasks, org
@@ -482,14 +518,48 @@ type SessionMetadata struct {
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
+	// ExternalAgentConnected reports whether the agent currently holds a live
+	// sync WebSocket — i.e. whether a message sent now would actually reach it.
+	//
+	// SEPARATE FROM ExternalAgentStatus ON PURPOSE. That field is "running" as
+	// soon as the CONTAINER is up, which is not the same thing: a container can
+	// be running for hours with Zed never having dialled home (helixml/helix#2397).
+	// Anything embedding a session — Find AI presented a chat box to candidates
+	// on this basis — needs to know it can send, not merely that a machine
+	// exists. Computed per request, never stored.
+	ExternalAgentConnected  bool                 `json:"external_agent_connected"`
 	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
+	GoldenBuild             bool                 `json:"golden_build,omitempty"`              // Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
 	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
 	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
 	CodeAgentRuntime        CodeAgentRuntime     `json:"code_agent_runtime,omitempty"`        // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
 	StatusMessage           string               `json:"status_message,omitempty"`            // Transient status message shown during startup (e.g., "Unpacking build cache (2.1/7.0 GB)")
+
+	// CodeAgentOverrides customizes the coding model for THIS session without
+	// mutating its Agent. Set from the chat composer's execution controls on
+	// sessions that own their configuration (org bot chat, project chat).
+	// SpecTask sessions leave this nil — SpecTask.CodeAgentConfig is
+	// authoritative there, so there is exactly one source of truth per session.
+	CodeAgentOverrides *CodeAgentOverrides `json:"code_agent_overrides,omitempty"`
+
+	// CodeAgentConfig is the complete coding runtime selected for a general
+	// external-agent session. ParentApp remains the Helix Agent identity and
+	// supplies instructions/tools; this value owns runtime, credentials, model,
+	// and reasoning. SpecTask sessions keep this nil and read the task instead.
+	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+
+	// SandboxRuntime and SandboxResourceOverrides are the container runtime and
+	// size for an org-worker session. The org spawner writes them from the Bot
+	// on every activation and StartDesktop reads them on every launch path
+	// (fresh start, message auto-start, resume, auto-wake, reconciler), so a
+	// headless bot never comes back as a desktop. SpecTask sessions leave both
+	// empty — the task is authoritative there, as with CodeAgentConfig.
+	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty"`
+	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+
 	// Container fields (Hydra executor)
 	ContainerName string `json:"container_name,omitempty"` // Docker container name
 	ContainerID   string `json:"container_id,omitempty"`   // Docker container ID
@@ -539,6 +609,20 @@ type SessionMetadata struct {
 	// THIS session, so maybePrependTranscript seeds the new Zed thread even
 	// though ParentSessionID is empty (the session continues from itself).
 	AgentSwitchedAt time.Time `json:"agent_switched_at,omitempty"`
+
+	// AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop
+	// settings-sync daemon's /agent-config-applied callback for the most recent
+	// in-place switch. They are the explicit "the fast hot-reload path worked"
+	// signal that agentSwitchRestartFallback consults instead of deciding purely
+	// on a timer — without them a confirmed-applied config was still restarted
+	// 5s later, killing Zed mid-new_session().
+	//
+	// AgentHandoffDeliveredAt is only set when the handoff actually reached a
+	// live connection; a callback with nothing delivered is not evidence the
+	// turn is moving. Persisted (not an in-memory map) so it is correct when the
+	// callback lands on a different API replica than the fallback goroutine.
+	AgentConfigAppliedAt    time.Time `json:"agent_config_applied_at,omitempty"`
+	AgentHandoffDeliveredAt time.Time `json:"agent_handoff_delivered_at,omitempty"`
 
 	// Pause state — sessions cannot accept new messages while paused.
 	// PausedReason is the only producer in v1: "forked_to:<child_id>".
@@ -594,6 +678,16 @@ type SessionChatRequest struct {
 	// a Worker's identity.
 	OrgWorkerID         string `json:"-"`
 	RuntimeInstructions string `json:"-"`
+	InteractionTrigger  string `json:"-"`
+	// SessionName, when set, names a freshly created session up front so the
+	// container start that follows (and the sandbox row it opens) sees the
+	// final name rather than the placeholder derived from the first prompt.
+	SessionName string `json:"-"`
+	// SandboxRuntime / SandboxResourceOverrides are the org worker's resolved
+	// container runtime and size, persisted onto the session metadata. Internal
+	// for the same reason as OrgWorkerID.
+	SandboxRuntime           SandboxRuntime            `json:"-"`
+	SandboxResourceOverrides *SandboxResourceOverrides `json:"-"`
 }
 
 // ExternalAgentConfig holds display configuration for external agent sessions
@@ -1010,14 +1104,17 @@ type WebsocketEvent struct {
 // applies the same patch logic as the flat content patch, but scoped to a
 // single ResponseEntry's content.
 type EntryPatch struct {
-	Index       int    `json:"index"`                  // Position in the entries array
-	MessageID   string `json:"message_id"`             // Zed message_id for this entry
-	Type        string `json:"type"`                   // "text", "tool_call", or "plan"
-	Patch       string `json:"patch,omitempty"`        // Content delta from PatchOffset onwards
-	PatchOffset int    `json:"patch_offset,omitempty"` // UTF-16 offset of first change in this entry
-	TotalLength int    `json:"total_length,omitempty"` // Final content length of this entry after patch
-	ToolName    string `json:"tool_name,omitempty"`    // For tool_call: the tool label
-	ToolStatus  string `json:"tool_status,omitempty"`  // For tool_call: "Completed", "In Progress", etc.
+	Index        int    `json:"index"`                    // Position in the entries array
+	MessageID    string `json:"message_id"`               // Zed message_id for this entry
+	Type         string `json:"type"`                     // "text", "tool_call", or "plan"
+	Patch        string `json:"patch,omitempty"`          // Content delta from PatchOffset onwards
+	PatchOffset  int    `json:"patch_offset,omitempty"`   // UTF-16 offset of first change in this entry
+	TotalLength  int    `json:"total_length,omitempty"`   // Final content length of this entry after patch
+	ToolName     string `json:"tool_name,omitempty"`      // For tool_call: the tool label
+	ToolStatus   string `json:"tool_status,omitempty"`    // For tool_call: "Completed", "In Progress", etc.
+	ToolCallID   string `json:"tool_call_id,omitempty"`   // Stable ACP tool-call id
+	ToolCallName string `json:"tool_call_name,omitempty"` // Provider tool name, e.g. "spawn_agent"
+	SubagentID   string `json:"subagent_id,omitempty"`    // Stable ACP child session id
 }
 
 type StepInfoType string
@@ -1136,10 +1233,13 @@ type RunnerTaskResponse struct {
 }
 
 type Usage struct {
-	PromptTokens     int   `json:"prompt_tokens"`
-	CompletionTokens int   `json:"completion_tokens"`
-	TotalTokens      int   `json:"total_tokens"`
-	DurationMs       int64 `json:"duration_ms"` // How long the request took in milliseconds
+	PromptTokens         int   `json:"prompt_tokens"`
+	CompletionTokens     int   `json:"completion_tokens"`
+	TotalTokens          int   `json:"total_tokens"`
+	TotalProcessedTokens int   `json:"total_processed_tokens"`
+	DurationMs           int64 `json:"duration_ms"` // How long the request took in milliseconds
+	ContextTokens        int   `json:"context_tokens"`
+	ContextLength        int   `json:"context_length"`
 }
 
 // this is returned by the api server so that clients can see what
@@ -1155,6 +1255,7 @@ type ServerConfigForFrontend struct {
 	FilestorePrefix                        string       `json:"filestore_prefix"`
 	StripeEnabled                          bool         `json:"stripe_enabled"`              // Stripe top-ups enabled
 	BillingEnabled                         bool         `json:"billing_enabled"`             // Charging for usage
+	MinimumInferenceBalance                float64      `json:"minimum_inference_balance"`   // Minimum wallet balance required for inference
 	RequireActiveSubscription              bool         `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
 	SentryDSNFrontend                      string       `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string       `json:"google_analytics_frontend"`
@@ -1175,10 +1276,23 @@ type ServerConfigForFrontend struct {
 	// Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
 	MaxConcurrentDesktops int    `json:"max_concurrent_desktops"`
 	Edition               string `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
+	// DefaultSpecTaskSandbox is the sandbox size a new spec task gets when it
+	// specifies none. It is operator-configurable
+	// (HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS/_MEMORY_MB), so the UI has to read
+	// it from here rather than hardcode a copy — otherwise an operator who moves
+	// the default gets a task selector that marks the wrong rung "Default" while
+	// containers come up at the configured size.
+	DefaultSpecTaskSandbox SandboxResourceOverrides `json:"default_spec_task_sandbox"`
 	// DefaultChatSystemPrompt is the system prompt the platform applies to
 	// direct model chats when the user has not customised one. Surfaced to
 	// the frontend so the chat-settings page can prefill the textbox.
 	DefaultChatSystemPrompt string `json:"default_chat_system_prompt"`
+	// Operator-selected default for the Helix-credits path through onboarding.
+	// Provider references and model IDs are identifiers, not credentials, and
+	// are safe to expose through the public frontend configuration endpoint.
+	OnboardingHelixModelProvider string `json:"onboarding_helix_model_provider,omitempty"`
+	OnboardingHelixModel         string `json:"onboarding_helix_model,omitempty"`
+	OnboardingHelixModelEffort   string `json:"onboarding_helix_model_effort,omitempty"`
 	// ServerURL is the operator-configured public origin for this helix
 	// instance (env SERVER_URL → WebServer.URL). Empty when not
 	// configured; the frontend then falls back to
@@ -1619,7 +1733,7 @@ type AssistantConfig struct {
 	// CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
 	// which the claude-agent-acp package reads (resolveModelPreference) to pick the
 	// model — otherwise Claude Code defaults to Sonnet. Empty means
-	// "claude-opus-5" (the current 1M-context Opus model).
+	// "claude-opus-5-5" (the current 1M-context Opus model).
 	ClaudeSubscriptionModel string `json:"claude_subscription_model,omitempty" yaml:"claude_subscription_model,omitempty"`
 
 	// GooseRecipeRepoURL is the external git URL of the attached repository
@@ -1877,8 +1991,8 @@ type CronTrigger struct {
 	// authenticates as the person it acts for, exactly as CreateTaskRequest does
 	// for a run dispatched by hand. Credential resolution only: the task is still
 	// created by, owned by, and attributed to the trigger's app owner, and the
-	// named user must have delegated their subscription to this organization or it
-	// is ignored. Currently honoured by the spec_task action.
+	// named user must have delegated their subscription to this organization or
+	// credential resolution fails closed. Currently honoured by the spec_task action.
 	CredentialOwnerID string `json:"credential_owner_id,omitempty" yaml:"credential_owner_id,omitempty"`
 
 	// JustDoItMode makes the spec_task action skip spec generation and go straight
@@ -2016,6 +2130,15 @@ type KeyPair struct {
 // for an app, run which script with what input?
 
 // DesktopAgent represents a Zed editor instance configuration
+// GoldenBuildTimeout bounds a single golden build's wall-clock duration. A cold
+// `build-zed release` + `build-sandbox` under heavy CPU contention can take
+// hours (especially after a zed bump invalidates the cargo cache), so this
+// ceiling is deliberately generous. It is the single source of truth for both
+// the API (golden_build_service) and Hydra (monitorGoldenBuild): if Hydra gave
+// up earlier than the API, a cold build could never finish and the cache would
+// never refresh.
+const GoldenBuildTimeout = 6 * time.Hour
+
 type DesktopAgent struct {
 	OrganizationID string `json:"organization_id"` // Organization ID
 	// Session ID - the Helix session this desktop agent serves
@@ -2041,6 +2164,25 @@ type DesktopAgent struct {
 	ProjectID           string   `json:"project_id,omitempty"`            // Project ID for exploratory sessions (when no SpecTask)
 	RepositoryIDs       []string `json:"repository_ids,omitempty"`        // Git repository IDs to checkout
 	PrimaryRepositoryID string   `json:"primary_repository_id,omitempty"` // Primary git repository (opened in Zed by default)
+	// OrgWorkerID / OrgWorkerName identify a helix-org bot session. Filled from
+	// the session metadata by the executor's bootstrap step; they name and link
+	// the sandbox billing row to the bot. Never accepted from callers.
+	OrgWorkerID   string `json:"-"`
+	OrgWorkerName string `json:"-"`
+	// RestrictProjectSecrets limits project-secret injection to
+	// ProjectSecretNames (org bot instances, which may be granted none).
+	// Otherwise every dev-scoped project secret is injected.
+	RestrictProjectSecrets bool     `json:"-"`
+	ProjectSecretNames     []string `json:"-"`
+	// NoContainerEngine runs the sandbox unprivileged with no Docker or
+	// Podman inside. Set for org bot instances, which serve untrusted users
+	// and never build or run containers. Never accepted from callers.
+	NoContainerEngine bool `json:"-"`
+	// Instance-only resource and privilege controls, restored from session
+	// metadata on every launch path.
+	DiskSizeGB      int   `json:"-"`
+	PidsLimit       int64 `json:"-"`
+	NoNewPrivileges bool  `json:"-"`
 
 	// Branch configuration (for starting on correct branch)
 	BranchMode    string `json:"branch_mode,omitempty"`    // "new" or "existing"
@@ -2070,6 +2212,10 @@ type DesktopAgent struct {
 
 	// Golden build mode: session builds a golden Docker cache snapshot
 	GoldenBuild bool `json:"golden_build,omitempty"`
+	// GoldenBuildTimeoutSeconds is the API's deadline for this golden build.
+	// Hydra's result monitor uses it so it never kills a build the API is
+	// still waiting on. 0 = GoldenBuildTimeout.
+	GoldenBuildTimeoutSeconds int `json:"golden_build_timeout_seconds,omitempty"`
 
 	// Optional task-level resource limits. SpecTask launchers resolve zero values
 	// to the task default; non-task desktop sessions remain unchanged.
@@ -2482,6 +2628,11 @@ type CodeAgentConfig struct {
 	// MaxOutputTokens is the model's max completion tokens
 	// Looked up from model_info.json, 0 if not found
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
+	// InputModalities and OutputModalities describe the model's accepted input
+	// and generated output types. They are omitted when the capability is
+	// unknown; code-agent runtimes must not assume attachment support.
+	InputModalities  []Modality `json:"input_modalities,omitempty"`
+	OutputModalities []Modality `json:"output_modalities,omitempty"`
 
 	// GooseRecipes lists project-declared Goose recipes with absolute paths
 	// resolved inside the desktop container. Only set when Runtime is
@@ -2497,6 +2648,38 @@ type CodeAgentConfig struct {
 	// writes it to disk and registers a single slash_command so an initial
 	// "/<slug>" prompt fires the recipe.
 	GooseBakedRecipe *CodeAgentBakedRecipe `json:"goose_baked_recipe,omitempty"`
+
+	// OpenCodeBinary, when set, pins the opencode build the container must run
+	// instead of the one baked into the desktop image. It is only populated
+	// when an admin has set SystemSettings.OpenCodeVersion to a version newer
+	// than the baked floor. The API resolves the artifact (URL + digest) so
+	// the container never has to know the release URL scheme — that keeps the
+	// mirror decision in one place for air-gapped installs.
+	OpenCodeBinary *CodeAgentBinary `json:"opencode_binary,omitempty"`
+}
+
+// CodeAgentBinary is a resolved, integrity-checked agent binary release. The
+// daemon refuses to run an artifact whose SHA256 does not match, and refuses
+// to start the agent at all rather than falling back to the baked binary — a
+// silent downgrade would make an admin believe a rollout landed when it did
+// not.
+//
+// Artifacts is keyed by GOARCH ("amd64", "arm64") and carries every platform
+// the release publishes. The API does not know which architecture the sandbox
+// host runs, so the daemon selects its own.
+type CodeAgentBinary struct {
+	// Version is the semver of the pinned release (no leading "v").
+	Version string `json:"version"`
+	// Artifacts maps GOARCH to the downloadable archive for that platform.
+	Artifacts map[string]CodeAgentBinaryArtifact `json:"artifacts"`
+}
+
+// CodeAgentBinaryArtifact is one platform's archive plus its digest.
+type CodeAgentBinaryArtifact struct {
+	// URL is the archive to download (tar.gz containing a single binary).
+	URL string `json:"url"`
+	// SHA256 is the hex digest of the archive, as published by the release.
+	SHA256 string `json:"sha256"`
 }
 
 // CodeAgentGooseRecipe is the daemon-facing view of a project-declared
@@ -2519,7 +2702,8 @@ type RunnerLLMInferenceRequest struct {
 	// RequestID is generated when a new request
 	// is received on the internal Helix OpenAI client
 	// to generate a chat completions call
-	RequestID string
+	RequestID      string
+	HelixRequestID string
 
 	CreatedAt time.Time
 
@@ -2572,23 +2756,25 @@ const (
 // LLMCall used to store the request and response of LLM calls
 // done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
-	ID              string         `json:"id" gorm:"primaryKey"`
-	AppID           string         `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
-	OrganizationID  string         `json:"organization_id" gorm:"index"`
-	UserID          string         `json:"user_id" gorm:"index"`
-	Created         time.Time      `json:"created"`
-	Updated         time.Time      `json:"updated"`
-	SessionID       string         `json:"session_id" gorm:"index"`
-	InteractionID   string         `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
-	ProjectID       string         `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
-	SpecTaskID      string         `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
-	Model           string         `json:"model"`
-	Provider        string         `json:"provider"`
-	Step            LLMCallStep    `json:"step" gorm:"index"`
-	OriginalRequest datatypes.JSON `json:"original_request" gorm:"type:jsonb"`
-	Request         datatypes.JSON `json:"request" gorm:"type:jsonb"`
-	Response        datatypes.JSON `json:"response" gorm:"type:jsonb"`
-	DurationMs      int64          `json:"duration_ms"`
+	ID               string           `json:"id" gorm:"primaryKey"`
+	RequestID        string           `json:"request_id"`
+	AppID            string           `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
+	OrganizationID   string           `json:"organization_id" gorm:"index"`
+	UserID           string           `json:"user_id" gorm:"index"`
+	Created          time.Time        `json:"created"`
+	Updated          time.Time        `json:"updated"`
+	SessionID        string           `json:"session_id" gorm:"index"`
+	CodeAgentRuntime CodeAgentRuntime `json:"code_agent_runtime" gorm:"index"`
+	InteractionID    string           `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
+	ProjectID        string           `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
+	SpecTaskID       string           `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
+	Model            string           `json:"model"`
+	Provider         string           `json:"provider"`
+	Step             LLMCallStep      `json:"step" gorm:"index"`
+	OriginalRequest  datatypes.JSON   `json:"original_request" gorm:"type:jsonb"`
+	Request          datatypes.JSON   `json:"request" gorm:"type:jsonb"`
+	Response         datatypes.JSON   `json:"response" gorm:"type:jsonb"`
+	DurationMs       int64            `json:"duration_ms"`
 	// TimeToFirstTokenMs is the wall time from request start to the first
 	// streamed chunk. It isolates provider prefill / cold-start latency from
 	// generation time (a cold or overloaded provider shows a large TTFT while
@@ -2608,6 +2794,20 @@ type LLMCall struct {
 	TotalCost          float64 `json:"total_cost"` // Prompt + completion + cache read + cache write
 	Stream             bool    `json:"stream"`
 	Error              string  `json:"error"`
+	// FinishReason is the provider's reason for stopping ("stop", "tool_calls",
+	// "length", ...). Anthropic's stop_reason is normalised onto the same
+	// vocabulary so the two proxies stay comparable.
+	FinishReason string `json:"finish_reason"`
+	// Tool call validity. ToolsOffered is how many tools the request carried,
+	// ToolCallsReturned how many calls came back, ToolCallErrors how many of
+	// those were structurally unusable, and ToolCallErrorKinds which buckets
+	// they fell into (see api/pkg/toolcall). Tools offered with no calls
+	// returned is not an error — it is a turn the model chose to answer in
+	// prose.
+	ToolsOffered       int    `json:"tools_offered"`
+	ToolCallsReturned  int    `json:"tool_calls_returned"`
+	ToolCallErrors     int    `json:"tool_call_errors"`
+	ToolCallErrorKinds string `json:"tool_call_error_kinds"`
 }
 
 // SecretScope controls which environment a project secret is injected into.
@@ -2807,6 +3007,8 @@ type UsageMetric struct {
 	AppID             string            `json:"app_id" gorm:"index:idx_app_time,priority:1"`
 	OrganizationID    string            `json:"organization_id" gorm:"index:idx_org_created,priority:1"`
 	InteractionID     string            `json:"interaction_id" gorm:"index"`
+	SessionID         string            `json:"session_id" gorm:"index"`
+	CodeAgentRuntime  CodeAgentRuntime  `json:"code_agent_runtime" gorm:"index"`
 	ProjectID         string            `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
 	SpecTaskID        string            `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
 	UserID            string            `json:"user_id" gorm:"index"`
@@ -2828,6 +3030,15 @@ type UsageMetric struct {
 	DurationMs        int               `json:"duration_ms"`
 	RequestSizeBytes  int               `json:"request_size_bytes"`
 	ResponseSizeBytes int               `json:"response_size_bytes"`
+	// ToolCallRequests counts requests that returned at least one tool call,
+	// ToolCallErrorRequests how many of those returned at least one
+	// structurally invalid call. Stored as counters rather than a ratio so the
+	// daily/provider/model rollups can sum them — a stored ratio would have to
+	// be averaged, weighting a quiet day the same as a busy one. Sources with
+	// no request body (subscription/ACP usage) leave both at zero and so drop
+	// out of the denominator instead of diluting it.
+	ToolCallRequests      int `json:"tool_call_requests"`
+	ToolCallErrorRequests int `json:"tool_call_error_requests"`
 }
 
 type UsersAggregatedUsageMetric struct {
@@ -2878,6 +3089,9 @@ type AggregatedUsageMetric struct {
 	RequestSizeBytes  int     `json:"request_size_bytes"`
 	ResponseSizeBytes int     `json:"response_size_bytes"`
 	TotalRequests     int     `json:"total_requests"`
+
+	ToolCallRequests      int `json:"tool_call_requests"`
+	ToolCallErrorRequests int `json:"tool_call_error_requests"`
 }
 
 // UsageComputeDailyPoint is one day of sandbox compute spend, split by
@@ -2923,36 +3137,40 @@ type OrgComputeUsage struct {
 }
 
 type UsageBreakdownRow struct {
-	ID                string     `json:"id"`
-	Name              string     `json:"name"`
-	Email             string     `json:"email,omitempty"`
-	Username          string     `json:"username,omitempty"`
-	Provider          string     `json:"provider,omitempty"`
-	Model             string     `json:"model,omitempty"`
-	SessionID         string     `json:"session_id,omitempty"`
-	InteractionID     string     `json:"interaction_id,omitempty"`
-	PromptTokens      int        `json:"prompt_tokens"`
-	CompletionTokens  int        `json:"completion_tokens"`
-	TotalTokens       int        `json:"total_tokens"`
-	CacheReadTokens   int        `json:"cache_read_tokens"`
-	CacheWriteTokens  int        `json:"cache_write_tokens"`
-	PromptCost        float64    `json:"prompt_cost"`
-	CompletionCost    float64    `json:"completion_cost"`
-	CacheReadCost     float64    `json:"cache_read_cost"`
-	CacheWriteCost    float64    `json:"cache_write_cost"`
-	TotalCost         float64    `json:"total_cost"`
-	LatencyMs         float64    `json:"latency_ms"`
-	RequestSizeBytes  int        `json:"request_size_bytes"`
-	ResponseSizeBytes int        `json:"response_size_bytes"`
-	TotalRequests     int        `json:"total_requests"`
-	SessionCount      int        `json:"session_count"`
-	UniqueUsers       int        `json:"unique_users"`
-	UniqueSessions    int        `json:"unique_sessions"`
-	UniqueProjects    int        `json:"unique_projects"`
-	UniqueApps        int        `json:"unique_apps"`
-	StartedAt         *time.Time `json:"started_at,omitempty"`
-	EndedAt           *time.Time `json:"ended_at,omitempty"`
-	LastActivityAt    *time.Time `json:"last_activity_at,omitempty"`
+	ID                string  `json:"id"`
+	Name              string  `json:"name"`
+	Email             string  `json:"email,omitempty"`
+	Username          string  `json:"username,omitempty"`
+	Provider          string  `json:"provider,omitempty"`
+	Model             string  `json:"model,omitempty"`
+	SessionID         string  `json:"session_id,omitempty"`
+	InteractionID     string  `json:"interaction_id,omitempty"`
+	PromptTokens      int     `json:"prompt_tokens"`
+	CompletionTokens  int     `json:"completion_tokens"`
+	TotalTokens       int     `json:"total_tokens"`
+	CacheReadTokens   int     `json:"cache_read_tokens"`
+	CacheWriteTokens  int     `json:"cache_write_tokens"`
+	PromptCost        float64 `json:"prompt_cost"`
+	CompletionCost    float64 `json:"completion_cost"`
+	CacheReadCost     float64 `json:"cache_read_cost"`
+	CacheWriteCost    float64 `json:"cache_write_cost"`
+	TotalCost         float64 `json:"total_cost"`
+	LatencyMs         float64 `json:"latency_ms"`
+	RequestSizeBytes  int     `json:"request_size_bytes"`
+	ResponseSizeBytes int     `json:"response_size_bytes"`
+	TotalRequests     int     `json:"total_requests"`
+
+	ToolCallRequests      int `json:"tool_call_requests"`
+	ToolCallErrorRequests int `json:"tool_call_error_requests"`
+
+	SessionCount   int        `json:"session_count"`
+	UniqueUsers    int        `json:"unique_users"`
+	UniqueSessions int        `json:"unique_sessions"`
+	UniqueProjects int        `json:"unique_projects"`
+	UniqueApps     int        `json:"unique_apps"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	EndedAt        *time.Time `json:"ended_at,omitempty"`
+	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
 }
 
 type UsageModelTimeSeries struct {
@@ -3000,6 +3218,9 @@ type UsageCostBreakdownRow struct {
 	// and diverge from the provider breakdown whenever model info remaps it.
 	DurationMs    float64 `json:"-"`
 	TotalRequests int     `json:"-"`
+
+	ToolCallRequests      int `json:"-"`
+	ToolCallErrorRequests int `json:"-"`
 }
 
 type UsageFilterOption struct {
@@ -3035,6 +3256,7 @@ type OrgUsageSummaryResponse struct {
 	FilterUsers            []UsageFilterOption           `json:"filter_users"`
 	FilterProjects         []UsageFilterOption           `json:"filter_projects"`
 	FilterApps             []UsageFilterOption           `json:"filter_apps"`
+	FilterTasks            []UsageFilterOption           `json:"filter_tasks"`
 	FilterModels           []UsageFilterOption           `json:"filter_models"`
 	ExportProjects         []UsageBreakdownRow           `json:"export_projects"`
 	ExportApps             []UsageBreakdownRow           `json:"export_apps"`
@@ -3046,11 +3268,11 @@ type OrgUsageSummaryResponse struct {
 	SubscriptionSavings    float64                       `json:"subscription_savings"`
 	CacheSavings           float64                       `json:"cache_savings"`
 	HelixCredits           float64                       `json:"helix_credits"`
-	// Compute is sandbox runtime spend. It answers the date range and the
-	// project filter; the token-shaped filters (model, provider, session)
+	// Compute is sandbox runtime spend. It answers the date range, project, and
+	// task filters; the token-shaped filters (model, provider, session)
 	// don't apply to a container and leave it untouched.
-	Compute *OrgComputeUsage `json:"compute,omitempty"`
-	CostBreakdown          []UsageCostBreakdownRow       `json:"-" swaggerignore:"true"`
+	Compute       *OrgComputeUsage        `json:"compute,omitempty"`
+	CostBreakdown []UsageCostBreakdownRow `json:"-" swaggerignore:"true"`
 }
 
 // Response for the user access endpoint
@@ -3329,11 +3551,12 @@ type ListMemoryRequest struct {
 
 // ForkSimpleProjectRequest represents request to fork a simple sample project
 type ForkSimpleProjectRequest struct {
-	SampleProjectID string `json:"sample_project_id"`
-	ProjectName     string `json:"project_name"`
-	Description     string `json:"description,omitempty"`
-	OrganizationID  string `json:"organization_id,omitempty"` // Optional: if empty, project is personal
-	HelixAppID      string `json:"helix_app_id,omitempty"`    // Optional: agent app to use for spec tasks (uses default if empty)
+	SampleProjectID string                    `json:"sample_project_id"`
+	ProjectName     string                    `json:"project_name"`
+	Description     string                    `json:"description,omitempty"`
+	OrganizationID  string                    `json:"organization_id,omitempty"` // Optional: if empty, project is personal
+	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	HelixAppID      string                    `json:"helix_app_id,omitempty" swaggerignore:"true"` // Rejected legacy field
 
 	// GitHub OAuth connection ID for authenticated cloning
 	// Required for sample projects with RequiresGitHubAuth=true
@@ -3542,14 +3765,18 @@ func (SandboxInstance) TableName() string {
 	return "sandbox_instances"
 }
 
-// CanHostSandbox reports whether this host can run a sandbox (desktop or
-// headless dev container). Sandboxes need display/encode hardware, so we
-// exclude the accelerators that lack it: AWS Inferentia/Trainium
-// (GPUVendor "neuron") has no /dev/dri render node - its desktop startup
-// FATALs - and "none" is a CPU-only host. A SOFTWARE render node has no
-// hardware encoder for streaming. Everything else (nvidia / amd / intel,
-// and not-yet-reported hosts) is treated as capable.
-func (s *SandboxInstance) CanHostSandbox() bool {
+// CanHostDesktop reports whether this host can run a *streamed desktop*
+// container. Desktops need display and encode hardware, so we exclude the
+// hosts that lack it: AWS Inferentia/Trainium (GPUVendor "neuron") has no
+// /dev/dri render node - its desktop startup FATALs - and "none" is a
+// CPU-only host. A SOFTWARE render node has no hardware encoder for
+// streaming. Everything else (nvidia / amd / intel, and not-yet-reported
+// hosts) is treated as capable.
+//
+// This gates desktop placement and desktop capacity accounting ONLY.
+// Headless containers run no compositor and no encoder, so they place on any
+// online host regardless of what this returns - see pickHostForSandbox.
+func (s *SandboxInstance) CanHostDesktop() bool {
 	switch s.GPUVendor {
 	case "neuron", "none":
 		return false

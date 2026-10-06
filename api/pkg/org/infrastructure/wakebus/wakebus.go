@@ -1,5 +1,5 @@
 // Package wakebus is a small wake-only facade over api/pkg/pubsub
-// that preserves the typed streaming.TopicID API the helix-org call sites used
+// that preserves the typed streaming.StreamID API the helix-org call sites used
 // when they spoke to api/pkg/org/broadcast.
 //
 // Helix already runs a NATS pubsub (real in production, in-memory in
@@ -51,7 +51,7 @@ const topicPrefix = "helix-org.topic-updates"
 
 // topicFor returns the NATS subject this org's topic publishes wake
 // notifications to.
-func topicFor(orgID string, sid streaming.TopicID) string {
+func topicFor(orgID string, sid streaming.StreamID) string {
 	return topicPrefix + "." + orgID + "." + string(sid)
 }
 
@@ -106,7 +106,7 @@ func signal(ch chan struct{}) {
 // they are done, typically via defer. Subscribing with an empty list
 // returns a never-woken channel — equivalent to the broadcast
 // behaviour.
-func (h *Bus) Subscribe(orgID string, topicIDs []streaming.TopicID) chan struct{} {
+func (h *Bus) Subscribe(orgID string, topicIDs []streaming.StreamID) chan struct{} {
 	ch := make(chan struct{}, 1)
 	if len(topicIDs) == 0 {
 		// Track the channel so Unsubscribe is still a no-op (rather
@@ -159,7 +159,7 @@ func (h *Bus) Subscribe(orgID string, topicIDs []streaming.TopicID) chan struct{
 //     behaviour is unchanged. (Tracking per-topic pubsub subs would
 //     add bookkeeping with no observable benefit; revisit if a caller
 //     ever wants partial-unsubscribe.)
-func (h *Bus) Unsubscribe(topicIDs []streaming.TopicID, ch chan struct{}) {
+func (h *Bus) Unsubscribe(topicIDs []streaming.StreamID, ch chan struct{}) {
 	if len(topicIDs) == 0 {
 		return
 	}
@@ -222,7 +222,7 @@ func (h *Bus) UnsubscribeAll(ch chan struct{}) {
 // the wake handler uses select/default, so a subscriber whose channel
 // buffer is full simply drops the signal (coalesced — the subscriber
 // is expected to re-query after waking).
-func (h *Bus) Notify(orgID string, topicID streaming.TopicID) {
+func (h *Bus) Notify(orgID string, topicID streaming.StreamID) {
 	// Publish payload is nil — this is a pure wake signal. Ignoring
 	// publish errors matches broadcast's contract: Notify was a
 	// best-effort wake-only call with no return value.

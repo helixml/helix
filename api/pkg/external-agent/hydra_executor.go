@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,11 @@ type QuotaManager interface {
 // can inject them on every container start without each caller remembering.
 type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
 
+// agentBinaryCacheDir is the sandbox-host directory holding admin-pinned agent
+// binaries. Shared by trusted non-Bot containers on the host and keyed by
+// version, so a pinned release is downloaded once rather than once per session.
+const agentBinaryCacheDir = "/data/agent-cache"
+
 // HydraExecutor implements the Executor interface using Hydra for dev container management.
 //
 // Architecture: Helix API -> Hydra -> Docker -> Dev Container
@@ -41,7 +47,6 @@ type HydraExecutor struct {
 	mutex    sync.RWMutex
 
 	// API configuration
-	helixAPIURL   string
 	helixAPIToken string
 
 	// Workspace path configuration
@@ -105,7 +110,6 @@ type connmanInterface interface {
 type HydraExecutorConfig struct {
 	Store                         store.Store
 	QuotaManager                  QuotaManager
-	HelixAPIURL                   string
 	HelixAPIToken                 string
 	WorkspaceBasePathForContainer string
 	WorkspaceBasePathForCloning   string
@@ -121,7 +125,6 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 		store:                         cfg.Store,
 		quotaManager:                  cfg.QuotaManager,
 		sessions:                      make(map[string]*ZedSession),
-		helixAPIURL:                   cfg.HelixAPIURL,
 		helixAPIToken:                 cfg.HelixAPIToken,
 		workspaceBasePathForContainer: cfg.WorkspaceBasePathForContainer,
 		workspaceBasePathForCloning:   cfg.WorkspaceBasePathForCloning,
@@ -180,24 +183,45 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		return nil, err
 	}
 
-	// Check if session already exists and is running
-	h.mutex.RLock()
-	existingSession, exists := h.sessions[agent.SessionID]
-	h.mutex.RUnlock()
+	// Check if session already exists and is genuinely running.
+	//
+	// The in-memory map is NOT trustworthy on its own here. A phantom entry —
+	// one whose container is long gone — turns this early return into a silent
+	// no-op: resume answers 200 with an empty DevContainerID, the UI reports
+	// "Desktop started", and no container is ever created. HasRunningContainer
+	// probes hydra for the authoritative status and evicts the entry when the
+	// container is gone, so a phantom degrades into a real (re)create rather
+	// than a lie. It falls back to the map's own status when there is no
+	// connection manager, preserving the previous behaviour offline.
+	if h.HasRunningContainer(ctx, agent.SessionID) {
+		h.mutex.RLock()
+		existingSession := h.sessions[agent.SessionID]
+		h.mutex.RUnlock()
 
-	if exists && existingSession.Status == "running" {
 		log.Info().
 			Str("session_id", agent.SessionID).
 			Msg("Dev container already running, returning existing session")
-		return &types.DesktopAgentResponse{
+		resp := &types.DesktopAgentResponse{
 			SessionID:     agent.SessionID,
 			ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
 			StreamURL:     fmt.Sprintf("/api/v1/sessions/%s/stream", agent.SessionID),
 			Status:        "running",
-		}, nil
+		}
+		// Report the container we are reusing. Callers persist this onto the
+		// session and log it; leaving it empty made a reused container
+		// indistinguishable from the phantom no-op in the logs.
+		if existingSession != nil {
+			resp.DevContainerID = existingSession.ContainerID
+		}
+		return resp, nil
 	}
 
-	// Inject project secrets onto agent.Env so every fresh container picks up
+	// Org-worker identity is session state, not project state. Load it before
+	// project secrets so the system identity wins duplicate-key resolution.
+	if err := h.attachSessionBootstrap(ctx, agent); err != nil {
+		return nil, err
+	}
+	// Inject project secrets onto agent environments so every fresh container picks up
 	// the project's secrets without each call site (spec task launch, exploratory
 	// session, resume, etc.) having to remember to load them.
 	//
@@ -206,23 +230,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// ...) appear later in agent.Env and therefore win duplicate-key resolution
 	// in Docker. This preserves the long-standing invariant that a user-defined
 	// project secret can't shadow the system-injected agent API tokens.
-	if h.getProjectSecrets != nil && agent.ProjectID != "" {
-		projectSecrets, err := h.getProjectSecrets(ctx, agent.ProjectID)
-		if err != nil {
-			log.Warn().Err(err).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Failed to load project secrets, continuing without them")
-		} else if len(projectSecrets) > 0 {
-			before := len(agent.Env)
-			agent.Env = appendProjectSecrets(agent.Env, projectSecrets)
-			injected := len(agent.Env) - before
-			log.Info().Int("secret_count", injected).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
-		}
-	}
-
-	// Org-worker identity is session state, not project state: SpecTask and
-	// human exploratory sessions can share the same project and must not inherit
-	// it. Materialize both agent-native instruction files before the container
-	// starts; the workspace bind mount persists them across desktop restarts.
-	if err := h.attachSessionBootstrap(ctx, agent); err != nil {
+	if err := h.injectProjectSecrets(ctx, agent); err != nil {
 		return nil, err
 	}
 
@@ -235,23 +243,21 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	// Check limits for the user/org
+	// Resolve immutable task launch settings before quota checks and placement.
+	// Resume, fork, and design-review paths rebuild DesktopAgent from session
+	// metadata, so the owning task remains the source of truth.
+	if err := h.resolveSpecTaskLaunchConfig(ctx, agent); err != nil {
+		return nil, err
+	}
+
+	// Check legacy external-agent desktop limits for full desktops. Headless
+	// tasks are enforced by the headless sandbox limit in beginSandboxMetering.
 	limitReached, err := h.checkLimits(ctx, agent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check limits: %w", err)
 	}
 	if limitReached != nil && limitReached.LimitReached {
 		return nil, fmt.Errorf("desktop limit reached (%d). Stop some of the existing sessions or upgrade your plan", limitReached.Limit)
-	}
-
-	// A spec task owns a sandbox size the user picked. Only the three launch
-	// paths in spec_driven_task_service set it on the agent; resume, fork and
-	// design-review rebuild the agent from the session and would otherwise
-	// start the desktop uncapped — running bigger than the user asked for and
-	// billing at the default. Resolve it here so every spec-task desktop honours
-	// the task's preset.
-	if err := h.resolveSpecTaskResources(ctx, agent); err != nil {
-		return nil, err
 	}
 
 	// Open the sandbox row that bills and quota-checks this desktop. This
@@ -283,8 +289,18 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// Determine sandbox ID - use agent's preference or find an available one
 	sandboxID := agent.SandboxID
 	if sandboxID == "" {
-		// Find an available sandbox with the required desktop image
-		sandbox, err := h.store.FindAvailableSandboxInstance(ctx, containerType)
+		// Headless agents use the helix-ubuntu toolchain image, so placement must
+		// select a host advertising that image even though the created container
+		// itself has no compositor or display devices.
+		placementImage := containerType
+		requiresDisplay := true
+		if containerType == "headless" {
+			placementImage = "ubuntu"
+			// No compositor, no encoder — a CPU-only host is fine, it just
+			// has to advertise the toolchain image.
+			requiresDisplay = false
+		}
+		sandbox, err := h.store.FindAvailableSandboxInstance(ctx, placementImage, requiresDisplay)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find available sandbox: %w", err)
 		}
@@ -295,11 +311,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 				Str("container_type", containerType).
 				Msg("Auto-selected available sandbox")
 		} else {
-			// Fallback to "local" if no sandbox found (for backwards compatibility)
-			sandboxID = "local"
-			log.Warn().
-				Str("container_type", containerType).
-				Msg("No available sandbox found, falling back to 'local'")
+			return nil, fmt.Errorf("no eligible sandbox runner available for container type %q (required image %q); check runner status, heartbeat, and advertised desktop image versions", containerType, placementImage)
 		}
 	}
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
@@ -420,41 +432,45 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	// Docker-in-desktop mode: the desktop container runs its own dockerd with a
-	// volume-backed /var/lib/docker. No per-session sibling dockerd or network
-	// bridging needed. This is simpler and supports arbitrary DinD nesting.
-	//
-	// The init script 17-start-dockerd.sh inside the desktop container detects
-	// the volume mount and starts dockerd automatically.
+	isolation := externalAgentIsolation(containerType, agent.NoContainerEngine)
 	log.Info().
 		Str("session_id", agent.SessionID).
-		Msg("Docker-in-desktop mode: desktop will run its own dockerd")
+		Bool("privileged", isolation.privileged).
+		Bool("rootless_container_engine", isolation.rootlessContainerEngine).
+		Bool("browser_sandbox", isolation.browserSandbox).
+		Msg("Configuring per-session container engine")
 
 	// Build mounts - includes Docker volume for /var/lib/docker
 	mounts := h.buildMounts(agent, workspaceDir, containerType)
 
 	// Create dev container request
 	// NOTE: GPUVendor is empty - Hydra reads it from its own GPU_VENDOR env var
-	// Privileged mode is required for the inner dockerd (overlay2 needs it)
 	req := &hydra.CreateDevContainerRequest{
-		SessionID:      agent.SessionID,
-		Image:          image,
-		ContainerName:  containerName,
-		Hostname:       containerName,
-		Env:            env,
-		Mounts:         mounts,
-		WorkspaceFiles: agent.WorkspaceFiles,
-		DisplayWidth:   agent.DisplayWidth,
-		DisplayHeight:  agent.DisplayHeight,
-		DisplayFPS:     agent.DisplayRefreshRate,
-		ContainerType:  hydra.DevContainerType(containerType),
-		UserID:         agent.UserID,
-		Network:        "bridge",
-		Privileged:     true, // Required for inner dockerd (docker-in-desktop mode)
-		ProjectID:      agent.ProjectID,
-		GoldenBuild:    agent.GoldenBuild,
-		VCPUs:          agent.VCPUs,
-		MemoryMB:       agent.MemoryMB,
+		SessionID:               agent.SessionID,
+		Image:                   image,
+		ContainerName:           containerName,
+		Hostname:                containerName,
+		Env:                     env,
+		Mounts:                  mounts,
+		WorkspaceFiles:          agent.WorkspaceFiles,
+		DisplayWidth:            agent.DisplayWidth,
+		DisplayHeight:           agent.DisplayHeight,
+		DisplayFPS:              agent.DisplayRefreshRate,
+		ContainerType:           hydra.DevContainerType(containerType),
+		UserID:                  agent.UserID,
+		Network:                 "bridge",
+		Privileged:              isolation.privileged,
+		RootlessContainerEngine: isolation.rootlessContainerEngine,
+		BrowserSandbox:          isolation.browserSandbox,
+		ProjectID:               agent.ProjectID,
+		GoldenBuild:             agent.GoldenBuild,
+		// Hydra's golden build monitor uses the API's deadline.
+		GoldenBuildTimeoutSeconds: agent.GoldenBuildTimeoutSeconds,
+		VCPUs:                   agent.VCPUs,
+		MemoryMB:                agent.MemoryMB,
+		DiskSizeGB:              agent.DiskSizeGB,
+		PidsLimit:               agent.PidsLimit,
+		NoNewPrivileges:         agent.NoNewPrivileges,
 	}
 
 	// Create dev container via Hydra
@@ -544,8 +560,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// No bridging needed - desktop runs its own dockerd, so all containers
 	// are on the same Docker network inside the desktop container.
 
-	// Wait for desktop-bridge to be ready before returning.
-	// Desktop-bridge takes time to start: waits for D-Bus, Wayland, portal, GStreamer init.
+	// Wait for the container bridge to be ready before returning. Desktop
+	// runtimes initialize D-Bus, Wayland, portals, and GStreamer first; headless
+	// runtimes expose only the workspace API from the same bridge binary.
 	// Uses RevDial for health check since container IP is inside sandbox's DinD network.
 	//
 	// IMPORTANT: use an independent context here (issue #1 from ZFS deployment).
@@ -557,9 +574,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	if err := h.waitForDesktopBridge(bridgeCtx, agent.SessionID); err != nil {
 		log.Warn().Err(err).
 			Str("session_id", agent.SessionID).
-			Msg("Desktop bridge not ready (continuing anyway, frontend may need to retry)")
-		// Don't fail - container is running, just not fully ready yet.
-		// Frontend should handle this gracefully with retry logic.
+			Msg("Container bridge not ready (continuing anyway, frontend may need to retry)")
+		// Don't fail - the container is running, just not fully ready yet.
+		// Frontend callers retry once the service becomes reachable.
 	}
 
 	// Track session
@@ -655,20 +672,25 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	}, nil
 }
 
-// resolveSpecTaskResources fills in the sandbox size from the owning spec task
-// when the caller didn't supply one. A caller that set resources explicitly
-// wins — it already knows what it wants.
-func (h *HydraExecutor) resolveSpecTaskResources(ctx context.Context, agent *types.DesktopAgent) error {
-	if agent.SpecTaskID == "" || (agent.VCPUs > 0 && agent.MemoryMB > 0) {
+// resolveSpecTaskLaunchConfig applies the immutable runtime and fills a missing
+// resource preset from the owning task. It is deliberately centralized here so
+// every start path, including forks and reconciler resumes, behaves identically.
+func (h *HydraExecutor) resolveSpecTaskLaunchConfig(ctx context.Context, agent *types.DesktopAgent) error {
+	if agent.SpecTaskID == "" {
 		return nil
 	}
 	task, err := h.store.GetSpecTask(ctx, agent.SpecTaskID)
 	if err != nil {
-		return fmt.Errorf("load spec task %s for sandbox sizing: %w", agent.SpecTaskID, err)
+		return fmt.Errorf("load spec task %s for sandbox configuration: %w", agent.SpecTaskID, err)
 	}
-	resources := types.EffectiveSpecTaskSandboxResources(task.SandboxResourceOverrides)
-	agent.VCPUs = resources.VCPUs
-	agent.MemoryMB = resources.MemoryMB
+	if agent.VCPUs <= 0 || agent.MemoryMB <= 0 {
+		resources := types.EffectiveSpecTaskSandboxResources(task.SandboxResourceOverrides)
+		agent.VCPUs = resources.VCPUs
+		agent.MemoryMB = resources.MemoryMB
+	}
+	if types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime) == types.SandboxRuntimeHeadlessUbuntu {
+		agent.DesktopType = "headless"
+	}
 	return nil
 }
 
@@ -680,14 +702,19 @@ func (h *HydraExecutor) beginSandboxMetering(ctx context.Context, agent *types.D
 		return false, nil
 	}
 	vcpus, memoryMB := desktopBillingResources(agent)
+	runtime := types.SandboxRuntimeUbuntuDesktop
+	if h.parseContainerType(agent.DesktopType) == "headless" {
+		runtime = types.SandboxRuntimeHeadlessUbuntu
+	}
 	sb, err := h.sandboxMeter.BeginSession(ctx, &types.BeginSandboxSessionRequest{
 		SessionID:      agent.SessionID,
 		OrganizationID: agent.OrganizationID,
 		Owner:          agent.UserID,
 		ProjectID:      agent.ProjectID,
 		SpecTaskID:     agent.SpecTaskID,
+		OrgBotID:       agent.OrgWorkerID,
 		Name:           h.desktopSandboxName(ctx, agent),
-		Runtime:        types.SandboxRuntimeUbuntuDesktop,
+		Runtime:        runtime,
 		VCPUs:          vcpus,
 		MemoryMB:       memoryMB,
 		DisplayWidth:   agent.DisplayWidth,
@@ -723,6 +750,12 @@ func (h *HydraExecutor) desktopSandboxName(ctx context.Context, agent *types.Des
 			return task.Name
 		}
 		return agent.SpecTaskID
+	}
+	if agent.OrgWorkerID != "" {
+		if agent.OrgWorkerName != "" {
+			return agent.OrgWorkerName
+		}
+		return agent.OrgWorkerID
 	}
 	return fmt.Sprintf("Session %s", strings.TrimPrefix(agent.SessionID, "ses_"))
 }
@@ -784,9 +817,23 @@ func (h *HydraExecutor) attachSessionBootstrap(ctx context.Context, agent *types
 	if err != nil {
 		return fmt.Errorf("load session bootstrap state for %s: %w", agent.SessionID, err)
 	}
-	return applySessionBootstrap(session.Metadata, agent)
+	if err := applySessionBootstrap(session.Metadata, agent); err != nil {
+		return err
+	}
+	if agent.OrgWorkerID != "" {
+		// The org spawner names the session after the Bot; that is the label
+		// the sandbox billing row gets so the Sandboxes list reads as bots.
+		agent.OrgWorkerName = session.Name
+	}
+	return nil
 }
 
+// applySessionBootstrap turns an org worker's session state into launch
+// inputs: identity env + instruction files, and the sandbox runtime/size the
+// Bot was configured with. It is the org-worker counterpart of
+// resolveSpecTaskLaunchConfig — the session is the source of truth on every
+// path that rebuilds a DesktopAgent (resume, auto-start, auto-wake,
+// reconcile), so a headless Bot can never come back as a desktop.
 func applySessionBootstrap(metadata types.SessionMetadata, agent *types.DesktopAgent) error {
 	workerID := metadata.OrgWorkerID
 	instructions := metadata.RuntimeInstructions
@@ -796,7 +843,30 @@ func applySessionBootstrap(metadata types.SessionMetadata, agent *types.DesktopA
 	if workerID == "" || instructions == "" {
 		return fmt.Errorf("incomplete org-worker bootstrap state for session %s", agent.SessionID)
 	}
+	agent.OrgWorkerID = workerID
+	if types.EffectiveSpecTaskSandboxRuntime(metadata.SandboxRuntime) == types.SandboxRuntimeHeadlessUbuntu {
+		agent.DesktopType = "headless"
+	}
+	if agent.VCPUs <= 0 || agent.MemoryMB <= 0 {
+		resources := types.EffectiveSpecTaskSandboxResources(metadata.SandboxResourceOverrides)
+		agent.VCPUs = resources.VCPUs
+		agent.MemoryMB = resources.MemoryMB
+	}
 	agent.Env = append(agent.Env, "HELIX_WORKER_ID="+workerID)
+	if metadata.BotInstance != nil {
+		agent.NoContainerEngine = true
+		agent.DiskSizeGB = metadata.BotInstanceDiskSize()
+		agent.PidsLimit = types.DefaultBotInstancePidsLimit
+		agent.NoNewPrivileges = !metadata.BotInstanceSudo()
+		agent.RestrictProjectSecrets = true
+		agent.ProjectSecretNames = slices.Clone(metadata.BotInstanceSecrets)
+	}
+	if metadata.BotInstance != nil && !metadata.BotInstance.HelixSkills {
+		// helix-workspace-setup.sh links the default helix-* skills when
+		// HELIX_SKILLS is empty; "none" links none and skips their refresh.
+		// The project repo's own skills are linked either way.
+		agent.Env = append(agent.Env, "HELIX_SKILLS=none")
+	}
 	if agent.WorkspaceFiles == nil {
 		agent.WorkspaceFiles = make(map[string][]byte, 2)
 	}
@@ -818,8 +888,74 @@ func appendProjectSecrets(env, secrets []string) []string {
 	return env
 }
 
+func (h *HydraExecutor) injectProjectSecrets(ctx context.Context, agent *types.DesktopAgent) error {
+	if h.getProjectSecrets == nil || agent.ProjectID == "" {
+		return nil
+	}
+	if agent.RestrictProjectSecrets && len(agent.ProjectSecretNames) == 0 {
+		return nil
+	}
+	projectSecrets, err := h.getProjectSecrets(ctx, agent.ProjectID)
+	if err != nil {
+		if agent.RestrictProjectSecrets {
+			return fmt.Errorf("load granted project secrets: %w", err)
+		}
+		log.Warn().Err(err).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Failed to load project secrets, continuing without them")
+		return nil
+	}
+	if agent.RestrictProjectSecrets {
+		if projectSecrets, err = selectProjectSecrets(projectSecrets, agent.ProjectSecretNames); err != nil {
+			return err
+		}
+	}
+	if len(projectSecrets) == 0 {
+		return nil
+	}
+	before := len(agent.Env)
+	agent.Env = appendProjectSecrets(agent.Env, projectSecrets)
+	log.Info().Int("secret_count", len(agent.Env)-before).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
+	return nil
+}
+
+// selectProjectSecrets keeps the named `KEY=value` secrets. A granted secret
+// that no longer exists fails the start rather than silently running without it.
+func selectProjectSecrets(secrets, names []string) ([]string, error) {
+	selected := make([]string, 0, len(names))
+	var missing []string
+	for _, name := range names {
+		i := slices.IndexFunc(secrets, func(secret string) bool { return strings.HasPrefix(secret, name+"=") })
+		if i < 0 {
+			missing = append(missing, name)
+			continue
+		}
+		selected = append(selected, secrets[i])
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("granted project secrets are unavailable: %s", strings.Join(missing, ", "))
+	}
+	return selected, nil
+}
+
 // StopDesktop stops a dev container using Hydra
 func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error {
+	return h.teardownDesktop(ctx, sessionID, nil)
+}
+
+// desktopDestroy selects destroy semantics for teardownDesktop.
+type desktopDestroy struct {
+	specTaskID string
+}
+
+// DestroyDesktop removes a desktop for good. Unlike StopDesktop, which keeps
+// the session's workspace and inner Docker data for a warm restart, it deletes
+// every on-host resource the session owns plus its paused screenshot.
+// specTaskID, when set, also deletes that task's workspace; pass it only when
+// the task is gone. Returns an error when hydra could not destroy the desktop.
+func (h *HydraExecutor) DestroyDesktop(ctx context.Context, sessionID, specTaskID string) error {
+	return h.teardownDesktop(ctx, sessionID, &desktopDestroy{specTaskID: specTaskID})
+}
+
+func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, destroy *desktopDestroy) error {
 	if sessionID == "" {
 		return fmt.Errorf("session ID is required to stop desktop")
 	}
@@ -849,7 +985,6 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	if sessionWasTracked {
 		sandboxID = session.SandboxID
 		sessionGoldenBuild = session.GoldenBuild
-		delete(h.sessions, sessionID)
 	}
 	h.mutex.Unlock()
 
@@ -881,37 +1016,45 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 
 	// Capture a screenshot before tearing down the container so stopped desktops
 	// can still show their last state in the Kanban card and session viewer.
-	screenshotPath := h.capturePausedScreenshot(ctx, sessionID)
+	// A destroyed desktop has no last state to show.
+	var screenshotPath string
+	if destroy == nil {
+		screenshotPath = h.capturePausedScreenshot(ctx, sessionID)
+	}
 
 	// Delete dev container via Hydra
-	resp, err := hydraClient.DeleteDevContainer(ctx, sessionID)
-	deleteSucceeded := err == nil
-	if err != nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to delete dev container (may already be stopped)")
-		// Don't return error - container might already be gone. We
-		// also do NOT decrement here: if the delete failed but the
-		// container is actually still alive on the host, decrementing
-		// would create a phantom "free slot" that the dispatcher
-		// would place new work onto. Operator visibility (a counter
-		// stuck high) is the lesser harm. The periodic reconcile via
-		// DiscoverContainersFromSandbox is the corrective path - it
-		// SETs the counter to the actual container count.
+	var resp *hydra.DevContainerResponse
+	var err error
+	if destroy == nil {
+		resp, err = hydraClient.DeleteDevContainer(ctx, sessionID)
 	} else {
-		log.Info().
-			Str("session_id", sessionID).
-			Str("container_id", resp.ContainerID).
-			Msg("Dev container stopped successfully via Hydra")
+		resp, err = hydraClient.DestroyDevContainer(ctx, sessionID, destroy.specTaskID)
 	}
+	if err != nil {
+		return fmt.Errorf("teardown dev container %s: %w", sessionID, err)
+	}
+	if destroy != nil {
+		if err := os.Remove(h.pausedScreenshotPath(sessionID)); err != nil && !os.IsNotExist(err) {
+			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to remove paused screenshot")
+		}
+	}
+
+	h.mutex.Lock()
+	delete(h.sessions, sessionID)
+	h.mutex.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("container_id", resp.ContainerID).
+		Msg("Dev container stopped successfully via Hydra")
 
 	// Decrement gated on TWO conditions:
 	//   1. The session was actually in h.sessions when stop started
 	//      (so the matching increment fired earlier; double-stop and
 	//      stop-of-untracked-session both have exists=false here).
-	//   2. The delete actually succeeded (so the container is really
-	//      gone; on failure we keep the counter high to avoid phantom
-	//      free slots, see comment above).
+	//   2. The delete succeeded (failures return above with tracking intact).
 	// Skip the "local" sentinel (no Runner row to decrement).
-	if exists && deleteSucceeded && sandboxID != "" && sandboxID != "local" {
+	if exists && sandboxID != "" && sandboxID != "local" {
 		if decErr := h.store.DecrementSandboxContainerCount(ctx, sandboxID); decErr != nil {
 			log.Warn().
 				Err(decErr).
@@ -942,10 +1085,16 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	// sessions which is bounded.
 
 	// Clear external_agent_status and persist the paused screenshot path together.
+	//
+	// Preserve an existing "restarting" marker because its caller owns the boot
+	// that follows this stop. Other statuses are cleared normally.
 	if dbSession, err := h.store.GetSession(ctx, sessionID); err == nil {
-		dbSession.Metadata.ExternalAgentStatus = ""
+		restarting := dbSession.Metadata.ExternalAgentStatus == "restarting"
+		if !restarting {
+			dbSession.Metadata.ExternalAgentStatus = ""
+			dbSession.Metadata.StatusMessage = ""
+		}
 		dbSession.Metadata.PausedScreenshotPath = screenshotPath
-		dbSession.Metadata.StatusMessage = ""
 		if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
 			log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update session after stop")
 		}
@@ -1158,6 +1307,29 @@ func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID strin
 	return session.Status == "running"
 }
 
+// GoldenBuildContainerRunning asks the sandbox's Hydra directly whether the
+// golden build container for sessionID is running. Unlike HasRunningContainer
+// it does not depend on the in-memory sessions map (empty after an API
+// restart). A non-nil error means Hydra could not be asked — the sandbox is
+// disconnected or restarting — so nothing can be concluded about the build.
+func (h *HydraExecutor) GoldenBuildContainerRunning(ctx context.Context, sandboxID, sessionID string) (bool, error) {
+	if h.connman == nil {
+		return false, fmt.Errorf("connection manager not available")
+	}
+	if sandboxID == "" {
+		sandboxID = "local"
+	}
+	hydraClient := hydra.NewRevDialClient(h.connman, fmt.Sprintf("hydra-%s", sandboxID))
+	container, err := hydraClient.GetDevContainer(ctx, sessionID)
+	if err != nil {
+		if strings.Contains(err.Error(), "status 404") {
+			return false, nil
+		}
+		return false, err
+	}
+	return container.Status == hydra.DevContainerStatusRunning, nil
+}
+
 // Helper methods
 
 // GetGoldenBuildResult queries a specific sandbox for the latest golden build result.
@@ -1236,20 +1408,23 @@ func (h *HydraExecutor) capturePausedScreenshot(ctx context.Context, sessionID s
 		return ""
 	}
 
-	filestoreRoot := h.filestoreLocalPath
-	if filestoreRoot == "" {
-		filestoreRoot = "/filestore"
-	}
-	dir := filepath.Join(filestoreRoot, "workspaces", "paused-screenshots")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	path := h.pausedScreenshotPath(sessionID)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return ""
 	}
-	path := filepath.Join(dir, sessionID+".jpg")
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return ""
 	}
 	log.Info().Str("session_id", sessionID).Str("path", path).Msg("Saved paused screenshot")
 	return path
+}
+
+func (h *HydraExecutor) pausedScreenshotPath(sessionID string) string {
+	filestoreRoot := h.filestoreLocalPath
+	if filestoreRoot == "" {
+		filestoreRoot = "/filestore"
+	}
+	return filepath.Join(filestoreRoot, "workspaces", "paused-screenshots", sessionID+".jpg")
 }
 
 func (h *HydraExecutor) setExternalAgentStatus(ctx context.Context, sessionID, status string) {
@@ -1293,6 +1468,11 @@ func (h *HydraExecutor) getContainerImage(ctx context.Context, containerType str
 	case "ubuntu":
 		imageName = "helix-ubuntu"
 		versionKey = "ubuntu"
+	case "headless":
+		// Headless spec tasks still need the Helix agent toolchain baked into
+		// helix-ubuntu; the container type suppresses the compositor and GPU path.
+		imageName = "helix-ubuntu"
+		versionKey = "ubuntu"
 	default:
 		imageName = "helix-sway"
 		versionKey = "sway"
@@ -1329,17 +1509,22 @@ func (h *HydraExecutor) getContainerImage(ctx context.Context, containerType str
 
 // buildEnvVars builds environment variables for the container
 func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, workspaceDir string) []string {
-	// Build GPU devices string
-	gpuDevices := "/dev/dri/card*:/dev/dri/renderD*:/dev/uinput:/dev/input/event*:/dev/input/js*:/dev/input/mice"
+	// Every session container reaches the Helix API through the canonical,
+	// deployment-independent sandbox proxy URL. Emitting it here (rather than the
+	// deployment-specific control-plane address) is what lets hydra and the
+	// settings daemon skip all downstream address rewriting. The isolated bridge
+	// rejects any other route to the control plane, so this is the ONLY reachable
+	// Helix API address from inside the sandbox.
+	sandboxAPIURL := hydra.SandboxAPIProxyURL
 
 	// Determine Helix URL for Zed's WebSocket connection
-	zedHelixURL := strings.TrimPrefix(h.helixAPIURL, "https://")
+	zedHelixURL := strings.TrimPrefix(sandboxAPIURL, "https://")
 	zedHelixURL = strings.TrimPrefix(zedHelixURL, "http://")
-	zedHelixTLS := strings.HasPrefix(h.helixAPIURL, "https://")
+	zedHelixTLS := strings.HasPrefix(sandboxAPIURL, "https://")
 
 	env := []string{
 		// Core Helix env vars
-		fmt.Sprintf("HELIX_API_URL=%s", h.helixAPIURL),
+		fmt.Sprintf("HELIX_API_URL=%s", sandboxAPIURL),
 		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
 		fmt.Sprintf("HELIX_WORKSPACE_DIR=%s", h.workspaceBasePathForContainer),
 		// WORKSPACE_DIR is the actual sandbox path (e.g., /data/workspaces/spec-tasks/spt_xxx)
@@ -1352,27 +1537,24 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		// Override default UMASK=000 which causes permission issues
 		"UMASK=022",
 		// RevDial connection - startup-app.sh expects these specific names
-		fmt.Sprintf("HELIX_API_BASE_URL=%s", h.helixAPIURL),
-
-		// GPU/input device passthrough
-		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
+		fmt.Sprintf("HELIX_API_BASE_URL=%s", sandboxAPIURL),
 
 		// LLM proxy configuration for Zed's built-in agents
 		// SECURITY: ANTHROPIC_API_KEY, OPENAI_API_KEY are set via agent.Env with session-scoped token
 		// (see addUserAPITokenToAgent). Only set the base URLs here - NOT the runner token.
-		fmt.Sprintf("ANTHROPIC_BASE_URL=%s", h.helixAPIURL),
-		fmt.Sprintf("OPENAI_BASE_URL=%s/v1", h.helixAPIURL),
+		// claude_code subscription mode overrides ANTHROPIC_BASE_URL to api.anthropic.com
+		// later (external_agent_handlers.go); that external egress is allowed.
+		fmt.Sprintf("ANTHROPIC_BASE_URL=%s", sandboxAPIURL),
+		fmt.Sprintf("OPENAI_BASE_URL=%s/v1", sandboxAPIURL),
 
 		// Zed sync configuration
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
-		"ZED_ALLOW_EMULATED_GPU=1", // Allow software rendering with llvmpipe
 		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
 		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
 		"ZED_HELIX_SKIP_TLS_VERIFY=true", // Enterprise internal CAs
 
 		// Debug logging
-		"RUST_LOG=info,gst_wayland_display=debug",
-		"GST_DEBUG=vsockenc:5", // TODO: Remove after fixing vsockenc receive thread
+		"RUST_LOG=info",
 		"SHOW_ACP_DEBUG_LOGS=true",
 
 		// Settings sync daemon port
@@ -1439,12 +1621,19 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	if agent.ProjectID != "" {
 		env = append(env, fmt.Sprintf("HELIX_PROJECT_ID=%s", agent.ProjectID))
 	}
+	if agent.OrganizationID != "" {
+		env = append(env, fmt.Sprintf("HELIX_ORGANIZATION_ID=%s", agent.OrganizationID))
+	}
 	// NOTE: HELIX_PRIMARY_REPO_NAME is set in StartDesktop after fetching actual repo name
 
 	// Display settings for non-headless containers
 	if containerType != "headless" {
 		width, height, refreshRate := agent.GetEffectiveResolution()
+		env = setContainerEnv(env, "RUST_LOG", "info,gst_wayland_display=debug")
 		env = append(env,
+			"GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*:/dev/uinput:/dev/input/event*:/dev/input/js*:/dev/input/mice",
+			"GST_DEBUG=vsockenc:5",
+			"ZED_ALLOW_EMULATED_GPU=1",
 			fmt.Sprintf("GAMESCOPE_WIDTH=%d", width),
 			fmt.Sprintf("GAMESCOPE_HEIGHT=%d", height),
 			fmt.Sprintf("GAMESCOPE_REFRESH=%d", refreshRate),
@@ -1462,22 +1651,19 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		if agent.DisplayScale > 0 {
 			env = append(env, fmt.Sprintf("HELIX_DISPLAY_SCALE=%d", agent.DisplayScale))
 		}
-	}
 
-	// Add GPU-specific environment variables
-	switch h.gpuVendor {
-	case "nvidia":
-		env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
-		// Use explicit capabilities instead of "all" for GKE/cloud compatibility
-		env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
-	case "amd":
-		env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
-	case "intel":
-		env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
+		// Add GPU-specific environment variables.
+		switch h.gpuVendor {
+		case "nvidia":
+			env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
+			// Use explicit capabilities instead of "all" for GKE/cloud compatibility
+			env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
+		case "amd":
+			env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
+		case "intel":
+			env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
+		}
 	}
-
-	// NOTE: BUILDKIT_HOST env var is injected by Hydra server side (devcontainer.go buildEnv)
-	// which runs inside the sandbox where it can query the helix-buildkit container IP.
 
 	// Forward desktop-bridge tunables from the controlplane env into dev
 	// containers. The desktop-bridge binary reads these inside the container,
@@ -1490,15 +1676,17 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	//                       explicitly for the macOS QEMU virtio-gpu path.
 	//   HELIX_GOP_SIZE    - GOP size in frames (default 120 = 2s at 60fps)
 	//   HELIX_RENDER_NODE - VA-API render device (e.g. /dev/dri/renderD129)
-	for _, name := range []string{"HELIX_ENCODER", "HELIX_VIDEO_MODE", "HELIX_GOP_SIZE", "HELIX_RENDER_NODE"} {
-		val := os.Getenv(name)
-		if val == "" {
-			continue
+	if containerType != "headless" {
+		for _, name := range []string{"HELIX_ENCODER", "HELIX_VIDEO_MODE", "HELIX_GOP_SIZE", "HELIX_RENDER_NODE"} {
+			val := os.Getenv(name)
+			if val == "" {
+				continue
+			}
+			if name == "HELIX_VIDEO_MODE" && val == "scanout" {
+				continue
+			}
+			env = append(env, fmt.Sprintf("%s=%s", name, val))
 		}
-		if name == "HELIX_VIDEO_MODE" && val == "scanout" {
-			continue
-		}
-		env = append(env, fmt.Sprintf("%s=%s", name, val))
 	}
 
 	// These come LAST so they can override defaults (e.g., use user's token instead of runner token)
@@ -1516,8 +1704,47 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		Msg("buildEnvVars: Appending agent.Env (USER_API_TOKEN should be present for RevDial)")
 
 	env = append(env, agent.Env...)
+	if containerType == "headless" {
+		env = setContainerEnv(env, "HELIX_HEADLESS", "1")
+	}
+	if agent.NoContainerEngine {
+		env = setContainerEnv(env, "HELIX_CONTAINER_ENGINE", "none")
+		if !agent.NoNewPrivileges {
+			env = setContainerEnv(env, "HELIX_ALLOW_SUDO", "1")
+		}
+	}
 
 	return env
+}
+
+type containerIsolation struct {
+	privileged              bool
+	rootlessContainerEngine bool
+	browserSandbox          bool
+}
+
+// externalAgentIsolation decides the per-session container engine. Without
+// one the container is unprivileged, runs no engine, and may only create the
+// namespaces Chrome's renderer sandbox needs.
+func externalAgentIsolation(containerType string, noContainerEngine bool) containerIsolation {
+	if noContainerEngine {
+		return containerIsolation{browserSandbox: true}
+	}
+	if containerType == "headless" {
+		return containerIsolation{rootlessContainerEngine: true}
+	}
+	return containerIsolation{privileged: true}
+}
+
+func setContainerEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }
 
 // buildMounts builds volume mounts for the container.
@@ -1552,18 +1779,28 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		},
 	}
 
-	// Docker-in-desktop: mount a named volume for the inner dockerd's data.
-	// The desktop's 17-start-dockerd.sh init script detects this mountpoint
-	// and starts dockerd automatically. No docker.sock mount needed.
-	mounts = append(mounts, hydra.MountConfig{
-		Source:      fmt.Sprintf("docker-data-%s", agent.SessionID),
-		Destination: "/var/lib/docker",
-		Type:        "volume", // Docker named volume, backed by host ext4
-	})
+	if !agent.NoContainerEngine {
+		containerDataDestination := "/var/lib/docker"
+		if containerType == "headless" {
+			containerDataDestination = "/home/retro/.local/share/containers"
+		}
+		mounts = append(mounts, hydra.MountConfig{
+			Source:      fmt.Sprintf("docker-data-%s", agent.SessionID),
+			Destination: containerDataDestination,
+			Type:        "volume",
+		})
+	}
 
-	// NOTE: Shared BuildKit cache mount (/buildkit-cache) and BUILDKIT_HOST env var
-	// are injected by the Hydra server side (devcontainer.go buildMounts/buildEnv)
-	// which runs inside the sandbox where it can access the correct paths.
+	// Org Bot sandboxes execute untrusted input and must not share writable
+	// executable state with any other tenant. A pinned override, if needed, is
+	// installed into that container's own writable layer.
+	if agent.OrgWorkerID == "" {
+		mounts = append(mounts, hydra.MountConfig{
+			Source:      agentBinaryCacheDir,
+			Destination: "/opt/helix/agent-cache",
+			ReadOnly:    false,
+		})
+	}
 
 	// For Ubuntu/GNOME containers, create a per-session pipewire directory
 	// and mount it to /run/user/1000 where PipeWire daemon creates its socket
@@ -1589,9 +1826,9 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 	return mounts
 }
 
-// waitForDesktopBridge polls the desktop-bridge health endpoint via RevDial until it's ready.
-// Desktop-bridge startup includes: D-Bus wait, Wayland socket wait, portal wait, GStreamer init.
-// This can take 10-30 seconds depending on the compositor and GPU.
+// waitForDesktopBridge polls the bridge health endpoint via RevDial until it's ready.
+// Desktop startup includes D-Bus, Wayland, portal, and GStreamer initialization;
+// headless startup serves the workspace APIs without those dependencies.
 // Uses RevDial connection because the container IP is inside the sandbox's DinD network
 // and not directly reachable from the API container.
 func (h *HydraExecutor) waitForDesktopBridge(ctx context.Context, sessionID string) error {
@@ -1721,28 +1958,36 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 		}
 	}
 
+	runningContainers := filterRunningContainers(containerList.Containers)
+	if exited := len(containerList.Containers) - len(runningContainers); exited > 0 {
+		log.Info().
+			Str("sandbox_id", sandboxID).
+			Int("exited_containers", exited).
+			Msg("Sandbox reports containers that are no longer running; excluding them from the live set")
+	}
+
 	// Reconcile the inverse of discovery: any session this control-plane still
-	// believes is "running" on this sandbox but that hydra no longer reports is
-	// stale (e.g. a CD redeploy restarted the sandbox and destroyed its dev
-	// containers). Mark those sessions stopped so the Kanban / task page stop
-	// showing a dead container as running. This MUST run even when hydra reports
-	// zero containers (the full-wipe case), so it sits before the empty-list
-	// early return below.
-	liveSessionIDs := make(map[string]bool, len(containerList.Containers))
-	for _, container := range containerList.Containers {
+	// believes is "running" on this sandbox but that hydra no longer reports as
+	// running is stale (e.g. a CD redeploy destroyed its dev containers, or the
+	// container's entrypoint exited on its own). Mark those sessions stopped so
+	// the Kanban / task page stop showing a dead container as running. This MUST
+	// run even when hydra reports zero running containers (the full-wipe case),
+	// so it sits before the empty-list early return below.
+	liveSessionIDs := make(map[string]bool, len(runningContainers))
+	for _, container := range runningContainers {
 		if container.SessionID != "" {
 			liveSessionIDs[container.SessionID] = true
 		}
 	}
 	h.markMissingSessionsStopped(ctx, sandboxID, liveSessionIDs, hydraClient)
 
-	if len(containerList.Containers) == 0 {
+	if len(runningContainers) == 0 {
 		return nil
 	}
 
 	log.Info().
 		Str("sandbox_id", sandboxID).
-		Int("container_count", len(containerList.Containers)).
+		Int("container_count", len(runningContainers)).
 		Msg("Discovered running containers from sandbox")
 
 	// Collect containers that need to be added to our map
@@ -1758,7 +2003,7 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 
 	// Phase 1: Check which containers we don't have tracked (short lock)
 	h.mutex.RLock()
-	for _, container := range containerList.Containers {
+	for _, container := range runningContainers {
 		sessionID := container.SessionID
 		if _, exists := h.sessions[sessionID]; !exists {
 			containerType := "ubuntu" // Default to Ubuntu
@@ -1801,6 +2046,27 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 		h.mutex.RUnlock()
 
 		if alreadyTracked {
+			sessionLock.Unlock()
+			continue
+		}
+
+		// Re-probe liveness under the per-session lock. The ListDevContainers
+		// snapshot above may pre-date a concurrent StopDesktop that already
+		// deleted this container from the sandbox. Trusting the stale snapshot
+		// resurrects a dead session as "running": a later StartDesktop then
+		// short-circuits on the phantom entry and never recreates the container,
+		// so every resume hangs until the API process restarts (#3067). A live
+		// GetDevContainer probe is the source of truth here, mirroring
+		// markMissingSessionsStopped. On any error or non-running status we skip
+		// — a genuinely-alive container whose probe transiently fails is simply
+		// re-discovered on the next sweep.
+		probed, probeErr := hydraClient.GetDevContainer(ctx, sessionID)
+		if probeErr != nil || probed == nil || probed.Status != hydra.DevContainerStatusRunning {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("container_id", container.containerID).
+				Err(probeErr).
+				Msg("Skipping discovery resurrection: container not confirmed running")
 			sessionLock.Unlock()
 			continue
 		}
@@ -1850,6 +2116,7 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 			ContainerIP:    container.containerIP,
 			SandboxID:      sandboxID,
 			LastAccess:     time.Now(),
+			GoldenBuild:    dbSession.Metadata.GoldenBuild,
 		}
 		h.mutex.Unlock()
 
@@ -1867,16 +2134,59 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 	return nil
 }
 
-// markMissingSessionsStopped downgrades sessions on the given sandbox that this
-// control-plane still marks "running" but that are absent from hydra's live set
-// (liveSessionIDs). For each candidate it authoritatively confirms the container
-// is gone with a per-session GetDevContainer probe — taken under the session's
-// creation lock so a concurrent StartDesktop that (re)created the container after
-// hydra's snapshot can't be wrongly torn down. Confirmed-dead sessions have their
-// container metadata cleared, status set to "stopped", and their stale in-memory
-// entry evicted, so the derived SandboxState becomes "absent" instead of showing
-// a dead container as running.
-func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxID string, liveSessionIDs map[string]bool, hydraClient *hydra.RevDialClient) {
+// filterRunningContainers keeps only the containers Docker currently reports as
+// running.
+//
+// hydra tracks a container until it is explicitly removed, so its list includes
+// containers that have exited (workspace-setup FATAL, OOM kill, crashed
+// compositor). Everything downstream of discovery — the "did this session die"
+// reconcile, the recovery of untracked containers into the in-memory map, the
+// `external_agent_status = "running"` DB write — keys off this set. Treating
+// "hydra still tracks it" as "alive" is what left dead sessions showing a green
+// "Sandbox running" dot indefinitely, and what let a reconnect resurrect a
+// session whose container had already exited.
+func filterRunningContainers(containers []hydra.DevContainerResponse) []hydra.DevContainerResponse {
+	running := make([]hydra.DevContainerResponse, 0, len(containers))
+	for _, container := range containers {
+		if container.Status == hydra.DevContainerStatusRunning {
+			running = append(running, container)
+		}
+	}
+	return running
+}
+
+// devContainerProber is the slice of the hydra client that
+// markMissingSessionsStopped needs: an authoritative, per-session liveness
+// check. Narrowing it to an interface lets the reconcile tests exercise the
+// "hydra still tracks the container but Docker says it exited" case, which is
+// exactly the state a crashed sandbox leaves behind.
+type devContainerProber interface {
+	GetDevContainer(ctx context.Context, sessionID string) (*hydra.DevContainerResponse, error)
+}
+
+// markMissingSessionsStopped reconciles sessions on the given sandbox that this
+// control-plane still believes are running but that are absent from hydra's live
+// set (liveSessionIDs — containers Docker currently reports as running). For each
+// candidate it authoritatively confirms the container is not running with a
+// per-session GetDevContainer probe — taken under the session's creation lock so
+// a concurrent StartDesktop that (re)created the container after hydra's snapshot
+// can't be wrongly torn down. Confirmed-dead sessions have their stale in-memory
+// entry evicted and, when the DB row still claims to be running, their container
+// metadata cleared and status set to "stopped", so the derived SandboxState
+// becomes "absent" instead of showing a dead container as running.
+//
+// "Believes it is running" deliberately spans BOTH sources of truth, because
+// they can disagree. StopDesktop evicts the in-memory entry and the caller writes
+// a terminal DB status, but a discovery sweep racing that stop re-adds the entry
+// (the container is still in hydra's snapshot for the few seconds Docker takes to
+// stop it) while the terminal DB write lands last. The session is then "stopped"
+// or "terminated_idle" in the DB and "running" in the map — and each half hides
+// the other: a DB-only candidate scan skips the session every sweep, so the
+// phantom entry is never evicted, while StartDesktop keeps short-circuiting on
+// that entry and refuses to create a container. Resume answers 200 and does
+// nothing, permanently, until the process restarts. Walking the in-memory map as
+// well as the DB is what makes that state reachable and self-healing.
+func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxID string, liveSessionIDs map[string]bool, prober devContainerProber) {
 	// Unlike the active_sandboxes counter (a multi-tenant autoscaler concern that
 	// skips "local"), session-status reconciliation applies to every sandbox
 	// including the single-node "local" one — a self-hosted CD redeploy destroys
@@ -1891,48 +2201,67 @@ func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxI
 		return
 	}
 
-	for _, session := range sessions {
-		if liveSessionIDs[session.ID] {
-			continue // hydra confirms this container is alive
-		}
-		// Only downgrade sessions we believe are actively running with a
-		// container. Skip "starting" (StartDesktop may be mid-flight and not yet
-		// visible to hydra) and already-terminal states.
-		if session.Metadata.ExternalAgentStatus != "running" || session.Metadata.ContainerName == "" {
-			continue
-		}
+	candidates := h.staleReconcileCandidates(sessions, sandboxID, liveSessionIDs)
 
+	for _, sessionID := range candidates {
 		// Serialize against StartDesktop for this session before making a
-		// decision, so the probe + downgrade is atomic wrt a concurrent start.
+		// decision, so the probe + remediation is atomic wrt a concurrent start.
 		h.creationLocksMutex.Lock()
-		sessionLock, exists := h.creationLocks[session.ID]
+		sessionLock, exists := h.creationLocks[sessionID]
 		if !exists {
 			sessionLock = &sync.Mutex{}
-			h.creationLocks[session.ID] = sessionLock
+			h.creationLocks[sessionID] = sessionLock
 		}
 		h.creationLocksMutex.Unlock()
 
 		sessionLock.Lock()
 
 		// Re-read under the lock: StartDesktop may have just (re)created it.
-		current, err := h.store.GetSession(ctx, session.ID)
+		current, err := h.store.GetSession(ctx, sessionID)
 		if err != nil {
 			sessionLock.Unlock()
 			continue
 		}
-		if current.Metadata.ExternalAgentStatus != "running" || current.Metadata.ContainerName == "" {
-			sessionLock.Unlock()
-			continue
-		}
 
-		// Authoritatively confirm the container is gone before downgrading.
+		// Authoritatively confirm the container is not running before acting.
 		// hydra's list snapshot may pre-date a just-started container, so a
 		// direct live probe is the source of truth for the decision.
-		if hydraClient != nil {
-			if _, err := hydraClient.GetDevContainer(ctx, session.ID); err == nil {
+		//
+		// The probe must check the reported status, not merely that the call
+		// succeeded: GetDevContainer returns a container hydra still tracks even
+		// when Docker reports it exited, so an `err == nil` check here treated a
+		// dead container as alive and skipped the downgrade forever.
+		if prober != nil {
+			if container, err := prober.GetDevContainer(ctx, sessionID); err == nil &&
+				container != nil && container.Status == hydra.DevContainerStatusRunning {
 				sessionLock.Unlock()
-				continue // container actually exists; snapshot was just stale
+				continue // container really is running; snapshot was just stale
 			}
+		}
+
+		// Evict the stale in-memory entry so GetSession/HasRunningContainer and
+		// StartDesktop agree with the probe. Unconditional: a phantom entry has
+		// to go even when the DB row is already terminal and needs no downgrade,
+		// because the entry on its own is enough to make StartDesktop refuse to
+		// create a container.
+		h.mutex.Lock()
+		_, wasTracked := h.sessions[sessionID]
+		delete(h.sessions, sessionID)
+		h.mutex.Unlock()
+
+		// The DB downgrade applies only to rows that still claim to be running.
+		// A terminal row is already correct, and rewriting "terminated_idle" to
+		// "stopped" would lose why the desktop went away.
+		if current.Metadata.ExternalAgentStatus != "running" || current.Metadata.ContainerName == "" {
+			if wasTracked {
+				log.Info().
+					Str("session_id", sessionID).
+					Str("sandbox_id", sandboxID).
+					Str("db_status", current.Metadata.ExternalAgentStatus).
+					Msg("Evicted phantom in-memory session whose container is not running")
+			}
+			sessionLock.Unlock()
+			continue
 		}
 
 		current.Metadata.ContainerName = ""
@@ -1943,35 +2272,80 @@ func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxI
 
 		if _, err := h.store.UpdateSession(ctx, *current); err != nil {
 			log.Warn().Err(err).
-				Str("session_id", session.ID).
+				Str("session_id", sessionID).
 				Str("sandbox_id", sandboxID).
 				Msg("Failed to mark stale dev container session stopped during discovery")
 			sessionLock.Unlock()
 			continue
 		}
 
-		// Evict the stale in-memory entry so GetSession/HasRunningContainer agree.
-		h.mutex.Lock()
-		delete(h.sessions, session.ID)
-		h.mutex.Unlock()
-
 		// Close the billing row too. Without this, a container destroyed
 		// outside StopDesktop (host redeploy, OOM kill, manual docker rm)
 		// leaves a row in `running` and the reaper keeps charging the org
 		// every minute for a container that no longer exists.
 		if h.sandboxMeter != nil {
-			if err := h.sandboxMeter.MarkSessionStopped(ctx, session.ID); err != nil {
-				log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to close sandbox billing row for stale container")
+			if err := h.sandboxMeter.MarkSessionStopped(ctx, sessionID); err != nil {
+				log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to close sandbox billing row for stale container")
 			}
 		}
 
 		log.Info().
-			Str("session_id", session.ID).
+			Str("session_id", sessionID).
 			Str("sandbox_id", sandboxID).
 			Msg("Marked stale dev container session stopped (not reported by hydra after reconnect)")
 
 		sessionLock.Unlock()
 	}
+}
+
+// staleReconcileCandidates returns the session ids on sandboxID that hydra does
+// not report as running but that one of the two state stores still believes is
+// running, deduplicated.
+//
+// The DB contributes only rows that claim to be running with a container:
+// "starting" is skipped because StartDesktop may be mid-flight and not yet
+// visible to hydra, terminal rows need no downgrade, and scanning every historic
+// session on the sandbox would mean a hydra probe per row.
+//
+// The in-memory map contributes every entry pinned to this sandbox. Those are
+// bounded by the number of live containers plus phantoms, so probing them is
+// cheap — and they are the only way to reach a session whose DB row already went
+// terminal while its map entry stayed "running".
+func (h *HydraExecutor) staleReconcileCandidates(sessions []*types.Session, sandboxID string, liveSessionIDs map[string]bool) []string {
+	candidates := make([]string, 0, len(sessions))
+	seen := make(map[string]bool, len(sessions))
+
+	add := func(sessionID string) {
+		if sessionID == "" || liveSessionIDs[sessionID] || seen[sessionID] {
+			return
+		}
+		seen[sessionID] = true
+		candidates = append(candidates, sessionID)
+	}
+
+	for _, session := range sessions {
+		if session.Metadata.ExternalAgentStatus != "running" || session.Metadata.ContainerName == "" {
+			continue
+		}
+		add(session.ID)
+	}
+
+	h.mutex.RLock()
+	for sessionID, tracked := range h.sessions {
+		// An unset SandboxID means the single-node "local" sandbox, matching the
+		// fallback StopDesktop and HasRunningContainer use when routing RevDial.
+		trackedSandboxID := tracked.SandboxID
+		if trackedSandboxID == "" {
+			trackedSandboxID = "local"
+		}
+		if trackedSandboxID != sandboxID {
+			continue
+		}
+		add(sessionID)
+	}
+	h.mutex.RUnlock()
+
+	return candidates
 }
 
 // ReconcileSandboxResources posts the DB-derived live-set to a connected
@@ -1992,6 +2366,9 @@ func (h *HydraExecutor) ReconcileSandboxResources(ctx context.Context, sandboxID
 
 // checkLimits checks desktop limits for the user/org
 func (h *HydraExecutor) checkLimits(ctx context.Context, agent *types.DesktopAgent) (*types.QuotaLimitReachedResponse, error) {
+	if h.parseContainerType(agent.DesktopType) == "headless" {
+		return &types.QuotaLimitReachedResponse{LimitReached: false}, nil
+	}
 	// Get system settings
 	systemSettings, err := h.store.GetSystemSettings(ctx)
 	if err != nil {

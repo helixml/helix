@@ -34,6 +34,7 @@ interface Props {
   running: boolean
   fillContainer?: boolean
   onRequestClose?: () => void
+  onCopyToChat?: (text: string) => void
 }
 
 const terminalSelectionStorageKey = (sessionId: string) =>
@@ -88,6 +89,7 @@ interface TerminalTreeProps {
   activePaneName: string | null
   onActivate: (sessionName: string) => void
   onExit: (sessionName: string) => void
+  onCopyToChat?: (text: string) => void
 }
 
 const TerminalTree: FC<TerminalTreeProps> = ({
@@ -96,6 +98,7 @@ const TerminalTree: FC<TerminalTreeProps> = ({
   activePaneName,
   onActivate,
   onExit,
+  onCopyToChat,
 }) => {
   if (node.type === 'pane') {
     return (
@@ -104,6 +107,7 @@ const TerminalTree: FC<TerminalTreeProps> = ({
         active={node.sessionName === activePaneName}
         onActivate={() => onActivate(node.sessionName)}
         onExit={() => onExit(node.sessionName)}
+        onCopyToChat={onCopyToChat}
       />
     )
   }
@@ -132,6 +136,7 @@ const TerminalTree: FC<TerminalTreeProps> = ({
             activePaneName={activePaneName}
             onActivate={onActivate}
             onExit={onExit}
+            onCopyToChat={onCopyToChat}
           />
         </Box>
       ))}
@@ -144,6 +149,7 @@ const SessionTerminal: FC<Props> = ({
   running,
   fillContainer = false,
   onRequestClose,
+  onCopyToChat,
 }) => {
   const [layout, setLayout] = useState<TerminalLayoutState>(() =>
     readStoredLayout(sessionId),
@@ -352,6 +358,7 @@ const SessionTerminal: FC<Props> = ({
               activePaneName: terminalSessionName,
             }))}
             onExit={removePane}
+            onCopyToChat={onCopyToChat}
           />
         ) : (
           <Box sx={{ display: 'grid', placeItems: 'center', height: '100%' }}>

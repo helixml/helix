@@ -8,6 +8,7 @@ package memorystore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -32,9 +33,12 @@ type MemoryStore struct {
 	apps         map[string]*types.App
 	projects     map[string]*types.Project
 	specTasks    map[string]*types.SpecTask
+	workSessions map[string]*types.SpecTaskWorkSession
+	zedThreads   map[string]*types.SpecTaskZedThread
 	prompts      map[string]*types.PromptHistoryEntry // prompt_history_entries by id
+	goldenBuilds map[string]*types.SandboxCacheState  // golden_builds by projectID/sandboxID
 	// planningSessionClaims tracks the atomic claim set by
-	// SetAgentSessionIDIfEmpty; keyed by taskID, value is the winning
+	// SetPlanningSessionIDIfEmpty; keyed by taskID, value is the winning
 	// sessionID. Allocated lazily.
 	planningSessionClaims map[string]string
 	mu                    sync.RWMutex
@@ -52,7 +56,10 @@ func New() *MemoryStore {
 		apps:         make(map[string]*types.App),
 		projects:     make(map[string]*types.Project),
 		specTasks:    make(map[string]*types.SpecTask),
+		workSessions: make(map[string]*types.SpecTaskWorkSession),
+		zedThreads:   make(map[string]*types.SpecTaskZedThread),
 		prompts:      make(map[string]*types.PromptHistoryEntry),
+		goldenBuilds: make(map[string]*types.SandboxCacheState),
 	}
 }
 
@@ -134,11 +141,28 @@ func (m *MemoryStore) TouchSession(_ context.Context, sessionID string) error {
 	return nil
 }
 
+func (m *MemoryStore) ClaimSessionAutoRestart(_ context.Context, sessionID string, restartedAt, before time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return false, store.ErrNotFound
+	}
+	if !session.Metadata.LastAutoRestartAt.IsZero() && !session.Metadata.LastAutoRestartAt.Before(before) {
+		return false, nil
+	}
+	session.Metadata.LastAutoRestartAt = restartedAt
+	return true, nil
+}
+
 func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQuery) ([]*types.Session, int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	result := make([]*types.Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
+		if query.RestrictToProjects && !containsString(query.ProjectIDs, s.ProjectID) {
+			continue
+		}
 		cp := *s
 		if query.SortBy == "last_message" {
 			for _, interaction := range m.interactions {
@@ -254,6 +278,10 @@ func (m *MemoryStore) CreateInteraction(_ context.Context, interaction *types.In
 		interaction.Updated = time.Now()
 	}
 	cp := *interaction
+	if existing, ok := m.interactions[interaction.ID]; ok {
+		cp.PendingQuestion = existing.PendingQuestion
+		cp.QuestionHistory = existing.QuestionHistory
+	}
 	m.interactions[interaction.ID] = &cp
 	return &cp, nil
 }
@@ -261,6 +289,10 @@ func (m *MemoryStore) CreateInteraction(_ context.Context, interaction *types.In
 func (m *MemoryStore) UpdateInteraction(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 	m.mu.Lock()
 	cp := *interaction
+	if existing, ok := m.interactions[interaction.ID]; ok {
+		cp.PendingQuestion = existing.PendingQuestion
+		cp.QuestionHistory = existing.QuestionHistory
+	}
 	m.interactions[interaction.ID] = &cp
 	cb := m.OnInteractionUpdated
 	m.mu.Unlock()
@@ -295,6 +327,153 @@ func (m *MemoryStore) UpdateInteractionStreamingFields(_ context.Context, intera
 		cb(&cp)
 	}
 	return nil
+}
+
+func (m *MemoryStore) SetInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error) {
+	if interactionID == "" || question == nil || question.RequestID == "" {
+		return nil, false, errors.New("interaction_id and question request_id are required")
+	}
+	m.mu.Lock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		m.mu.Unlock()
+		return nil, false, store.ErrNotFound
+	}
+	if existing.State != types.InteractionStateWaiting || existing.PendingQuestion != nil {
+		cp := *existing
+		m.mu.Unlock()
+		return &cp, false, nil
+	}
+	for _, resolved := range existing.QuestionHistory {
+		if resolved.RequestID == question.RequestID {
+			cp := *existing
+			m.mu.Unlock()
+			return &cp, false, nil
+		}
+	}
+	questionCopy := *question
+	if questionCopy.AskedAt.IsZero() {
+		questionCopy.AskedAt = time.Now()
+	}
+	existing.PendingQuestion = &questionCopy
+	existing.Updated = time.Now()
+	cp := *existing
+	cb := m.OnInteractionUpdated
+	m.mu.Unlock()
+	if cb != nil {
+		cb(&cp)
+	}
+	return &cp, true, nil
+}
+
+func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error) {
+	m.mu.Lock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		m.mu.Unlock()
+		return nil, false, store.ErrNotFound
+	}
+	if existing.PendingQuestion == nil || existing.PendingQuestion.RequestID != requestID {
+		cp := *existing
+		m.mu.Unlock()
+		return &cp, false, nil
+	}
+	existing.QuestionHistory = append(existing.QuestionHistory, types.ResolvedQuestion{
+		PendingQuestion: *existing.PendingQuestion,
+		Outcome:         outcome,
+		Answers:         answers,
+		ResolvedAt:      time.Now(),
+	})
+	existing.PendingQuestion = nil
+	existing.Updated = time.Now()
+	cp := *existing
+	cb := m.OnInteractionUpdated
+	m.mu.Unlock()
+	if cb != nil {
+		cb(&cp)
+	}
+	return &cp, true, nil
+}
+
+func (m *MemoryStore) BindInteractionExternalAgentRequest(_ context.Context, interactionID string, generationID int, requestID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID || existing.State != types.InteractionStateWaiting {
+		return false, nil
+	}
+	existing.ExternalAgentRequestID = requestID
+	return true, nil
+}
+
+func (m *MemoryStore) MarkInteractionExternalAgentDispatched(_ context.Context, interactionID string, generationID int, requestID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID || existing.State != types.InteractionStateWaiting {
+		return false, nil
+	}
+	now := time.Now()
+	existing.ExternalAgentRequestID = requestID
+	existing.ExternalAgentDispatchedAt = &now
+	existing.Updated = now
+	return true, nil
+}
+
+func (m *MemoryStore) ClearInteractionExternalAgentDispatched(_ context.Context, interactionID string, generationID int, requestID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if ok && existing.GenerationID == generationID && existing.State == types.InteractionStateWaiting && existing.ExternalAgentRequestID == requestID {
+		existing.ExternalAgentDispatchedAt = nil
+	}
+	return nil
+}
+
+func (m *MemoryStore) RequestInteractionCancellationIfWaiting(_ context.Context, interactionID string, generationID int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID || existing.State != types.InteractionStateWaiting {
+		return false, nil
+	}
+	now := time.Now()
+	existing.ExternalAgentCancelRequestedAt = &now
+	existing.Updated = now
+	return true, nil
+}
+
+func (m *MemoryStore) MarkInteractionInterruptedIfWaiting(_ context.Context, interactionID string, generationID int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID || existing.State != types.InteractionStateWaiting {
+		return false, nil
+	}
+	now := time.Now()
+	existing.State = types.InteractionStateInterrupted
+	existing.Completed = now
+	existing.Updated = now
+	return true, nil
+}
+
+func (m *MemoryStore) GetInteractionByExternalAgentRequestID(_ context.Context, requestID string) (*types.Interaction, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var latest *types.Interaction
+	for _, interaction := range m.interactions {
+		if interaction.ExternalAgentRequestID != requestID {
+			continue
+		}
+		if latest == nil || interaction.Created.After(latest.Created) {
+			cp := *interaction
+			latest = &cp
+		}
+	}
+	if latest == nil {
+		return nil, store.ErrNotFound
+	}
+	return latest, nil
 }
 
 // MarkInteractionCompleteIfWaiting transitions Waiting → Complete atomically.
@@ -406,7 +585,7 @@ func (m *MemoryStore) UpdateSpecTaskDesignReviewComment(_ context.Context, _ *ty
 }
 
 // Pending comments — always return nil (no comments queued)
-func (m *MemoryStore) GetPendingCommentByAgentSessionID(_ context.Context, _ string) (*types.SpecTaskDesignReviewComment, error) {
+func (m *MemoryStore) GetPendingCommentByPlanningSessionID(_ context.Context, _ string) (*types.SpecTaskDesignReviewComment, error) {
 	return nil, nil
 }
 
@@ -513,6 +692,23 @@ func (m *MemoryStore) MarkPromptAsPending(_ context.Context, id string) error {
 	m.setPromptStatus(id, "pending")
 	return nil
 }
+
+// RevertPromptToPending mirrors the Postgres store: back to pending with
+// next_retry_at and error_message cleared, and crucially without touching
+// RetryCount (a busy-defer is not a failure). The field clearing matters for
+// parity — a stale NextRetryAt would gate re-selection, and a stale
+// ErrorMessage would keep the UI showing "Failed - retrying" for a prompt that
+// is merely waiting.
+func (m *MemoryStore) RevertPromptToPending(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if p, ok := m.prompts[id]; ok {
+		p.Status = "pending"
+		p.NextRetryAt = nil
+		p.ErrorMessage = ""
+	}
+	return nil
+}
 func (m *MemoryStore) MarkPromptAsSent(_ context.Context, id string) error {
 	m.setPromptStatus(id, "sent")
 	return nil
@@ -544,7 +740,7 @@ func (m *MemoryStore) ClaimPromptForSending(_ context.Context, _ string) (bool, 
 
 // SpecTask methods — minimal in-memory implementation. Earlier versions
 // returned ErrNotFound for everything; the fork-and-pause path needs
-// real CRUD because it re-points a SpecTask's AgentSessionID at the
+// real CRUD because it re-points a SpecTask's PlanningSessionID at the
 // child after a fork (see HelixAPIServer.repointSpecTasksToChild).
 func (m *MemoryStore) GetSpecTask(_ context.Context, id string) (*types.SpecTask, error) {
 	m.mu.RLock()
@@ -558,7 +754,7 @@ func (m *MemoryStore) GetSpecTask(_ context.Context, id string) (*types.SpecTask
 }
 
 // ListSpecTasks supports the filter shapes the fork path uses today —
-// notably AgentSessionID for the reverse lookup from session → task.
+// notably PlanningSessionID for the reverse lookup from session → task.
 // Other filters are wired in as needed; everything not handled here is
 // effectively "no filter".
 func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
@@ -566,8 +762,22 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 	defer m.mu.RUnlock()
 	out := make([]*types.SpecTask, 0, len(m.specTasks))
 	for _, t := range m.specTasks {
-		if filters != nil && filters.AgentSessionID != "" && t.AgentSessionID != filters.AgentSessionID {
+		if filters != nil && containsSpecTaskStatus(filters.ExcludeStatuses, t.Status) {
 			continue
+		}
+		if filters != nil && filters.PlanningSessionID != "" && t.PlanningSessionID != filters.PlanningSessionID {
+			continue
+		}
+		if filters != nil && filters.CreatedByOrgBot != "" && t.CreatedByOrgBot != filters.CreatedByOrgBot {
+			continue
+		}
+		if filters != nil && filters.FilterProjectIDs && !containsString(filters.ProjectIDs, t.ProjectID) {
+			continue
+		}
+		if filters != nil && filters.ExcludeDeletedProjects {
+			if project := m.projects[t.ProjectID]; project != nil && project.DeletedAt.Valid {
+				continue
+			}
 		}
 		if filters != nil && filters.FilterParticipants {
 			matchesParticipant := false
@@ -581,10 +791,22 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 				continue
 			}
 		}
+		if filters != nil && filters.PRMatch != nil {
+			matched := false
+			for _, repoPR := range t.RepoPullRequests {
+				if repoPR.RepositoryID == filters.PRMatch.RepositoryID && repoPR.PRNumber == filters.PRMatch.PRNumber {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
 		cp := *t
 		if filters != nil && filters.SortBy == "last_message" {
 			for _, interaction := range m.interactions {
-				if interaction.SessionID != t.AgentSessionID {
+				if interaction.SessionID != t.PlanningSessionID {
 					continue
 				}
 				if cp.LastMessageAt == nil || interaction.Created.After(*cp.LastMessageAt) {
@@ -623,6 +845,15 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 	return out, nil
 }
 
+func containsSpecTaskStatus(statuses []types.SpecTaskStatus, status types.SpecTaskStatus) bool {
+	for _, candidate := range statuses {
+		if candidate == status {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *MemoryStore) UpdateSpecTask(_ context.Context, task *types.SpecTask) error {
 	if task == nil || task.ID == "" {
 		return fmt.Errorf("task ID is required")
@@ -634,6 +865,32 @@ func (m *MemoryStore) UpdateSpecTask(_ context.Context, task *types.SpecTask) er
 	}
 	cp := *task
 	m.specTasks[task.ID] = &cp
+	return nil
+}
+
+func (m *MemoryStore) UpdateSpecTaskFields(_ context.Context, taskID string, updates map[string]any) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	task, ok := m.specTasks[taskID]
+	if !ok {
+		return store.ErrNotFound
+	}
+	for field, value := range updates {
+		switch field {
+		case "metadata":
+			task.Metadata, _ = value.(map[string]interface{})
+		case "requirements_spec":
+			task.RequirementsSpec, _ = value.(string)
+		case "technical_design":
+			task.TechnicalDesign, _ = value.(string)
+		case "implementation_plan":
+			task.ImplementationPlan, _ = value.(string)
+		case "name":
+			task.Name, _ = value.(string)
+		case "updated_at":
+			task.UpdatedAt, _ = value.(time.Time)
+		}
+	}
 	return nil
 }
 
@@ -654,31 +911,14 @@ func (m *MemoryStore) ListGitRepositories(_ context.Context, _ *types.ListGitRep
 	return nil, nil
 }
 
-// SpecTaskProposal stubs — no-op for in-memory tests
-func (m *MemoryStore) CreateSpecTaskProposal(_ context.Context, _ *types.SpecTaskProposal) error {
-	return nil
-}
-
-func (m *MemoryStore) GetSpecTaskProposal(_ context.Context, _ string) (*types.SpecTaskProposal, error) {
-	return nil, store.ErrNotFound
-}
-
-func (m *MemoryStore) ListSpecTaskProposals(_ context.Context, _ *types.SpecTaskProposalFilters) ([]*types.SpecTaskProposal, error) {
-	return nil, nil
-}
-
-func (m *MemoryStore) UpdateSpecTaskProposal(_ context.Context, _ *types.SpecTaskProposal) error {
-	return nil
-}
-
 func (m *MemoryStore) TransitionSpecTaskStatus(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, _ map[string]any) (bool, error) {
 	return false, nil
 }
 
-// SetAgentSessionIDIfEmpty mirrors the postgres CAS — first caller wins, rest
+// SetPlanningSessionIDIfEmpty mirrors the postgres CAS — first caller wins, rest
 // lose. No persistence; just a per-task atomic gate keyed by taskID so tests can
 // exercise the race without a real DB.
-func (m *MemoryStore) SetAgentSessionIDIfEmpty(_ context.Context, taskID string, sessionID string) (bool, error) {
+func (m *MemoryStore) SetPlanningSessionIDIfEmpty(_ context.Context, taskID string, sessionID string) (bool, error) {
 	if taskID == "" || sessionID == "" {
 		return false, nil
 	}
@@ -694,8 +934,104 @@ func (m *MemoryStore) SetAgentSessionIDIfEmpty(_ context.Context, taskID string,
 	return true, nil
 }
 
-func (m *MemoryStore) GetSpecTaskZedThreadByZedThreadID(_ context.Context, _ string) (*types.SpecTaskZedThread, error) {
+func (m *MemoryStore) CreateSpecTaskWorkSession(_ context.Context, workSession *types.SpecTaskWorkSession) error {
+	if workSession.SpecTaskID == "" {
+		return fmt.Errorf("spec_task_id is required")
+	}
+	if workSession.HelixSessionID == "" {
+		return fmt.Errorf("helix_session_id is required")
+	}
+	if workSession.ID == "" {
+		workSession.ID = types.GenerateSpecTaskWorkSessionID()
+	}
+	if workSession.Phase == "" {
+		workSession.Phase = types.SpecTaskPhaseImplementation
+	}
+	if workSession.Status == "" {
+		workSession.Status = types.SpecTaskWorkSessionStatusPending
+	}
+	now := time.Now()
+	workSession.CreatedAt = now
+	workSession.UpdatedAt = now
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *workSession
+	m.workSessions[workSession.ID] = &cp
+	return nil
+}
+
+func (m *MemoryStore) ListWorkSessionsBySpecTask(_ context.Context, specTaskID string, phase *types.SpecTaskPhase) ([]*types.SpecTaskWorkSession, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]*types.SpecTaskWorkSession, 0)
+	for _, workSession := range m.workSessions {
+		if workSession.SpecTaskID != specTaskID || phase != nil && workSession.Phase != *phase {
+			continue
+		}
+		cp := *workSession
+		for _, zedThread := range m.zedThreads {
+			if zedThread.WorkSessionID == workSession.ID {
+				zedThreadCopy := *zedThread
+				cp.ZedThread = &zedThreadCopy
+				break
+			}
+		}
+		result = append(result, &cp)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result, nil
+}
+
+func (m *MemoryStore) CreateSpecTaskZedThread(_ context.Context, zedThread *types.SpecTaskZedThread) error {
+	if zedThread.WorkSessionID == "" {
+		return fmt.Errorf("work_session_id is required")
+	}
+	if zedThread.SpecTaskID == "" {
+		return fmt.Errorf("spec_task_id is required")
+	}
+	if zedThread.ZedThreadID == "" {
+		return fmt.Errorf("zed_thread_id is required")
+	}
+	if zedThread.ID == "" {
+		zedThread.ID = types.GenerateSpecTaskZedThreadID()
+	}
+	if zedThread.Status == "" {
+		zedThread.Status = types.SpecTaskZedStatusPending
+	}
+	now := time.Now()
+	zedThread.CreatedAt = now
+	zedThread.UpdatedAt = now
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *zedThread
+	m.zedThreads[zedThread.ID] = &cp
+	return nil
+}
+
+func (m *MemoryStore) GetSpecTaskZedThreadByZedThreadID(_ context.Context, zedThreadID string) (*types.SpecTaskZedThread, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, zedThread := range m.zedThreads {
+		if zedThread.ZedThreadID != zedThreadID {
+			continue
+		}
+		cp := *zedThread
+		if workSession := m.workSessions[zedThread.WorkSessionID]; workSession != nil {
+			workSessionCopy := *workSession
+			cp.WorkSession = &workSessionCopy
+		}
+		return &cp, nil
+	}
 	return nil, store.ErrNotFound
+}
+
+func (m *MemoryStore) UpdateSpecTaskZedThread(_ context.Context, zedThread *types.SpecTaskZedThread) error {
+	zedThread.UpdatedAt = time.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *zedThread
+	m.zedThreads[zedThread.ID] = &cp
+	return nil
 }
 
 func (m *MemoryStore) GetSpecTaskExternalAgent(_ context.Context, _ string) (*types.SpecTaskExternalAgent, error) {
@@ -763,6 +1099,85 @@ func (m *MemoryStore) SeedProject(p *types.Project) {
 	m.projects[p.ID] = &cp
 }
 
+// --- Golden builds (golden_builds) ---
+
+func goldenBuildKey(projectID, sandboxID string) string {
+	return projectID + "/" + sandboxID
+}
+
+func (m *MemoryStore) ListGoldenBuilds(_ context.Context, q *store.ListGoldenBuildsQuery) ([]*types.SandboxCacheState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []*types.SandboxCacheState
+	for _, b := range m.goldenBuilds {
+		if q != nil {
+			if q.ProjectID != "" && b.ProjectID != q.ProjectID {
+				continue
+			}
+			if q.SandboxID != "" && b.SandboxID != q.SandboxID {
+				continue
+			}
+			if q.ActiveOnly && !b.Active() {
+				continue
+			}
+		}
+		cp := *b
+		out = append(out, &cp)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return goldenBuildKey(out[i].ProjectID, out[i].SandboxID) < goldenBuildKey(out[j].ProjectID, out[j].SandboxID)
+	})
+	return out, nil
+}
+
+func (m *MemoryStore) GetGoldenBuild(_ context.Context, projectID, sandboxID string) (*types.SandboxCacheState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	b, ok := m.goldenBuilds[goldenBuildKey(projectID, sandboxID)]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	cp := *b
+	return &cp, nil
+}
+
+func (m *MemoryStore) UpdateGoldenBuild(_ context.Context, projectID, sandboxID string, update func(*types.SandboxCacheState) bool) (*types.SandboxCacheState, error) {
+	if projectID == "" || sandboxID == "" {
+		return nil, fmt.Errorf("project ID and sandbox ID are required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := goldenBuildKey(projectID, sandboxID)
+	b, ok := m.goldenBuilds[key]
+	if !ok {
+		b = &types.SandboxCacheState{ProjectID: projectID, SandboxID: sandboxID, Status: types.GoldenBuildStatusNone, Updated: time.Now()}
+		m.goldenBuilds[key] = b
+	}
+	cp := *b
+	if update(&cp) {
+		cp.Updated = time.Now()
+		saved := cp
+		m.goldenBuilds[key] = &saved
+		return &cp, nil
+	}
+	out := *b
+	return &out, nil
+}
+
+func (m *MemoryStore) DeleteGoldenBuilds(_ context.Context, projectID string) error {
+	if projectID == "" {
+		return fmt.Errorf("project ID is required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, b := range m.goldenBuilds {
+		if b.ProjectID == projectID {
+			delete(m.goldenBuilds, key)
+		}
+	}
+	return nil
+}
+
 // Zed settings override — always return "not found"
 func (m *MemoryStore) GetZedSettingsOverride(_ context.Context, _ string) (*types.ZedSettingsOverride, error) {
 	return nil, store.ErrNotFound
@@ -777,4 +1192,13 @@ func (m *MemoryStore) GetZedSettingsOverride(_ context.Context, _ string) (*type
 // connection mid-turn and turning any error-path test into a timeout.
 func (m *MemoryStore) FinishTriggerExecution(_ context.Context, _ string, _ types.TriggerExecutionStatus, _ string) (*types.TriggerExecution, error) {
 	return nil, store.ErrNotFound
+}
+
+func containsString(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
 }

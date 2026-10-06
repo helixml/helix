@@ -16,7 +16,6 @@ import {
   InputAdornment,
   IconButton,
   MenuItem,
-  Select,
   Switch,
   Table,
   TableBody,
@@ -25,7 +24,6 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Tooltip,
   Typography,
   Alert,
   CircularProgress,
@@ -59,6 +57,8 @@ const SystemSettingsTable: FC = () => {
   const [sandboxHeadlessLimitValue, setSandboxHeadlessLimitValue] = useState('')
   const [editingSandboxDesktopLimit, setEditingSandboxDesktopLimit] = useState(false)
   const [sandboxDesktopLimitValue, setSandboxDesktopLimitValue] = useState('')
+  const [editingOpenCodeVersion, setEditingOpenCodeVersion] = useState(false)
+  const [openCodeVersionValue, setOpenCodeVersionValue] = useState('')
 
   const saving = updateSettings.isPending
 
@@ -95,6 +95,29 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
+  // The API validates the version and resolves it against the opencode release
+  // index before saving, so a typo or an unreachable index surfaces here as a
+  // 400 rather than as sessions that later refuse to start an agent.
+  const handleSaveOpenCodeVersion = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        opencode_version: openCodeVersionValue.trim(),
+      })
+      setEditingOpenCodeVersion(false)
+      snackbar.success(
+        openCodeVersionValue.trim()
+          ? `opencode pinned to ${openCodeVersionValue.trim()} — new sessions will install it`
+          : 'opencode override cleared — new sessions use the bundled build',
+      )
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(err.response?.data || `Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
   const handleSelectKoditModel = async (provider: string, model: string) => {
     try {
       await updateSettings.mutateAsync({
@@ -108,52 +131,6 @@ const SystemSettingsTable: FC = () => {
       } else {
         snackbar.error(`Failed to update settings: ${err.message}`)
       }
-    }
-  }
-
-  const handleSelectDefaultProjectAgentModel = async (provider: string, model: string) => {
-    try {
-      await updateSettings.mutateAsync({
-        default_new_project_agent_provider: provider,
-        default_new_project_agent_model: model,
-        default_new_project_agent_reasoning_effort:
-          settings?.default_new_project_agent_reasoning_effort || 'none',
-      })
-      snackbar.success(`Default project agent model set to ${provider}/${model}`)
-    } catch (err: any) {
-      if (err.response?.status === 403) {
-        snackbar.error('Access denied: Admin privileges required')
-      } else {
-        snackbar.error(`Failed to update settings: ${err.message}`)
-      }
-    }
-  }
-
-  const handleSetDefaultProjectAgentEffort = async (effort: string) => {
-    try {
-      await updateSettings.mutateAsync({
-        default_new_project_agent_reasoning_effort: effort,
-      })
-      snackbar.success(`Default project agent reasoning effort set to ${effort}`)
-    } catch (err: any) {
-      if (err.response?.status === 403) {
-        snackbar.error('Access denied: Admin privileges required')
-      } else {
-        snackbar.error(`Failed to update settings: ${err.message}`)
-      }
-    }
-  }
-
-  const handleClearDefaultProjectAgentModel = async () => {
-    try {
-      await updateSettings.mutateAsync({
-        default_new_project_agent_provider: '',
-        default_new_project_agent_model: '',
-        default_new_project_agent_reasoning_effort: 'none',
-      })
-      snackbar.success('Default project agent model configuration cleared')
-    } catch (err: any) {
-      snackbar.error(`Failed to clear settings: ${err.message}`)
     }
   }
 
@@ -323,6 +300,40 @@ const SystemSettingsTable: FC = () => {
         kodit_vision_embedding_model: '',
       })
       snackbar.success('Code Intelligence Vision Embedding configuration cleared. Kodit is re-initialising on the built-in local model; repositories will be re-indexed automatically in the background.')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectOnboardingHelixModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        onboarding_helix_model_provider: provider,
+        onboarding_helix_model: model,
+      })
+      snackbar.success(`Onboarding Helix model set to ${provider}/${model}`)
+    } catch (err: any) {
+      snackbar.error(`Failed to update settings: ${err.message}`)
+    }
+  }
+
+  const handleSetOnboardingHelixEffort = async (effort: string) => {
+    try {
+      await updateSettings.mutateAsync({ onboarding_helix_model_effort: effort })
+      snackbar.success(`Onboarding reasoning effort set to ${effort}`)
+    } catch (err: any) {
+      snackbar.error(`Failed to update settings: ${err.message}`)
+    }
+  }
+
+  const handleClearOnboardingHelixModel = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        onboarding_helix_model_provider: '',
+        onboarding_helix_model: '',
+        onboarding_helix_model_effort: '',
+      })
+      snackbar.success('Onboarding Helix model configuration cleared')
     } catch (err: any) {
       snackbar.error(`Failed to clear settings: ${err.message}`)
     }
@@ -559,94 +570,6 @@ const SystemSettingsTable: FC = () => {
                         >
                           Clear
                         </Button>
-                      )}
-                    </Box>
-                  </TableCell>
-                </TableRow>
-
-                <TableRow>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="medium">
-                      Default New Project Agent
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Provider, model, and reasoning effort assigned when a project creates its coding agent in the background
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={settings?.default_new_project_agent_provider && settings?.default_new_project_agent_model ? 'Configured' : 'Not Set'}
-                      color={settings?.default_new_project_agent_provider && settings?.default_new_project_agent_model ? 'success' : 'default'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {settings?.default_new_project_agent_provider && settings?.default_new_project_agent_model ? (
-                      <>
-                        <Typography variant="body2" fontWeight={500}>
-                          {settings.default_new_project_agent_model}
-                        </Typography>
-                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
-                          {settings.default_new_project_agent_reasoning_effort === 'none'
-                            ? 'No reasoning effort'
-                            : `${settings.default_new_project_agent_reasoning_effort || 'No'} reasoning effort`}
-                        </Typography>
-                      </>
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">
-                        Required for projects using Helix credits
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Box display="flex" gap={1} alignItems="center">
-                      <AdvancedModelPicker
-                        selectedProvider={settings?.default_new_project_agent_provider}
-                        selectedModelId={settings?.default_new_project_agent_model}
-                        onSelectModel={handleSelectDefaultProjectAgentModel}
-                        currentType="chat"
-                        buttonVariant="outlined"
-                        disabled={saving}
-                        hint="Select the provider and model assigned to coding agents created with new projects."
-                        autoSelectFirst={false}
-                      />
-                      <FormControl size="small" sx={{ minWidth: 112 }} disabled={saving}>
-                        <Tooltip title="Default reasoning effort">
-                          <Select
-                            value={settings?.default_new_project_agent_reasoning_effort || 'none'}
-                            inputProps={{ 'aria-label': 'Reasoning effort' }}
-                            onChange={(event) => handleSetDefaultProjectAgentEffort(event.target.value)}
-                            sx={{
-                              height: 32,
-                              borderRadius: 2,
-                              fontSize: '0.875rem',
-                              '& .MuiSelect-select': {
-                                py: 0.5,
-                                pl: 1.25,
-                              },
-                            }}
-                          >
-                            <MenuItem value="none">None</MenuItem>
-                            <MenuItem value="low">Low</MenuItem>
-                            <MenuItem value="medium">Medium</MenuItem>
-                            <MenuItem value="high">High</MenuItem>
-                          </Select>
-                        </Tooltip>
-                      </FormControl>
-                      {settings?.default_new_project_agent_provider && settings?.default_new_project_agent_model && (
-                        <Tooltip title="Clear default project agent model">
-                          <span>
-                            <IconButton
-                              aria-label="Clear default project agent model"
-                              onClick={handleClearDefaultProjectAgentModel}
-                              size="small"
-                              disabled={saving}
-                              sx={{ width: 32, height: 32, color: 'text.secondary' }}
-                            >
-                              <ClearIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
                       )}
                     </Box>
                   </TableCell>
@@ -1185,9 +1108,128 @@ const SystemSettingsTable: FC = () => {
                     </Box>
                   </TableCell>
                 </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      opencode Version
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Pin a newer opencode release than the one bundled in the desktop image
+                      {settings?.opencode_bundled_version
+                        ? ` (bundled: ${settings.opencode_bundled_version})`
+                        : ''}
+                      . Leave blank to use the bundled build.
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.opencode_version ? 'Pinned' : 'Bundled'}
+                      color={settings?.opencode_version ? 'primary' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.opencode_version || settings?.opencode_bundled_version || '—'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingOpenCodeVersion ? (
+                        <>
+                          <TextField
+                            size="small"
+                            placeholder={settings?.opencode_bundled_version || '1.18.18'}
+                            value={openCodeVersionValue}
+                            onChange={(e) => setOpenCodeVersionValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={handleSaveOpenCodeVersion}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingOpenCodeVersion(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setOpenCodeVersionValue(settings?.opencode_version || '')
+                            setEditingOpenCodeVersion(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
               </TableBody>
             </Table>
           </TableContainer>
+        </CardContent>
+      </Card>
+
+      <Card sx={{ mt: 3 }}>
+        <CardHeader title="Onboarding Helix Model" />
+        <CardContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Choose the Helix provider, model, and effort new users receive automatically during onboarding.
+          </Typography>
+          <Box display="flex" gap={2} alignItems="center" flexWrap="wrap">
+            <AdvancedModelPicker
+              selectedProvider={settings?.onboarding_helix_model_provider}
+              selectedModelId={settings?.onboarding_helix_model}
+              onSelectModel={handleSelectOnboardingHelixModel}
+              currentType="chat"
+              buttonVariant="outlined"
+              disabled={saving}
+              hint="Select the default Helix model used for onboarding."
+              autoSelectFirst={false}
+            />
+            <TextField
+              select
+              size="small"
+              label="Reasoning effort"
+              value={settings?.onboarding_helix_model_effort || 'none'}
+              onChange={(event) => handleSetOnboardingHelixEffort(event.target.value)}
+              disabled={saving}
+              sx={{ minWidth: 170 }}
+            >
+              {['none', 'low', 'medium', 'high'].map((effort) => (
+                <MenuItem key={effort} value={effort}>{effort}</MenuItem>
+              ))}
+            </TextField>
+            {(settings?.onboarding_helix_model_provider || settings?.onboarding_helix_model) && (
+              <Button
+                startIcon={<ClearIcon />}
+                onClick={handleClearOnboardingHelixModel}
+                size="small"
+                color="warning"
+                disabled={saving}
+              >
+                Clear
+              </Button>
+            )}
+          </Box>
+          {(settings?.onboarding_helix_model_provider && settings?.onboarding_helix_model) && (
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+              {settings.onboarding_helix_model_provider}/{settings.onboarding_helix_model}
+            </Typography>
+          )}
         </CardContent>
       </Card>
 

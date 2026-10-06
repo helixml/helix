@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
@@ -23,9 +24,16 @@ func bulkTestEnv(t *testing.T) (*store.Store, *Registry, botCaller) {
 	st := orggorm.GetOrgTestDB(t)
 	deps := DefaultDeps(st)
 	deps.Now = func() time.Time { return time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC) }
-	deps.NewID = func() string { return "fixed" }
+	n := 0
+	deps.NewID = func() string {
+		n++
+		return fmt.Sprintf("fixed-%d", n)
+	}
 	injectTestPublishing(&deps)
 	reg := NewRegistry()
+	// The catalogue is read lazily, so wiring it before RegisterBuiltins
+	// is what the composition root does too.
+	deps.KnownTools = Catalogue(reg)
 	if err := RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -60,16 +68,27 @@ func seedBotRow(t *testing.T, st *store.Store, id string) {
 	}
 }
 
-func seedTopicRow(t *testing.T, st *store.Store, id string) {
+func seedTriggerRow(t *testing.T, st *store.Store, id string) {
 	t.Helper()
-	tp, err := streaming.NewTopic(streaming.TopicID(id), id, "", "b-owner",
-		time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC), transport.LocalTransport(), "org-test")
+	row, err := trigger.New(id, "org-test", id, "", transport.KindLocal, nil, "b-owner",
+		time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC))
 	if err != nil {
-		t.Fatalf("new topic %q: %v", id, err)
+		t.Fatalf("new trigger %q: %v", id, err)
 	}
-	if err := st.Topics.Create(context.Background(), tp); err != nil {
-		t.Fatalf("create topic %q: %v", id, err)
+	if err := st.Triggers.Create(context.Background(), row); err != nil {
+		t.Fatalf("create trigger %q: %v", id, err)
 	}
+}
+
+// attached reports whether the Worker has an attachment to the Trigger.
+func attached(t *testing.T, st *store.Store, worker orgchart.NodeID, triggerID string) bool {
+	t.Helper()
+	rows, err := st.WorkerAttachments.Find(context.Background(), store.WithOrg("org-test"),
+		store.WithWorkerID(worker), store.WithTriggerID(triggerID), store.WithLimit(1))
+	if err != nil {
+		t.Fatalf("find attachment: %v", err)
+	}
+	return len(rows) > 0
 }
 
 func toolSet(b orgchart.Node) map[tool.Name]bool {
@@ -90,34 +109,34 @@ func TestAttachDetachTools(t *testing.T) {
 
 	// Attach a multi-tool array.
 	if _, err := invoke(t, reg, caller, AttachToolName, map[string]any{
-		"botId": "b-eng", "tools": []string{PublishName, SubscribeName},
+		"botId": "b-eng", "tools": []string{ChatName, AttachWorkerName},
 	}); err != nil {
 		t.Fatalf("attach: %v", err)
 	}
 	got, _ := st.Nodes.Get(ctx, "org-test", "b-eng")
 	ts := toolSet(got)
-	if !ts[PublishName] || !ts[SubscribeName] {
+	if !ts[ChatName] || !ts[AttachWorkerName] {
 		t.Fatalf("attach did not add tools: %v", got.Tools)
 	}
 
 	// Idempotent re-attach: same tool set, no error.
 	if _, err := invoke(t, reg, caller, AttachToolName, map[string]any{
-		"botId": "b-eng", "tools": []string{PublishName},
+		"botId": "b-eng", "tools": []string{ChatName},
 	}); err != nil {
 		t.Fatalf("re-attach: %v", err)
 	}
 
 	// Detach a subset.
 	if _, err := invoke(t, reg, caller, DetachToolName, map[string]any{
-		"botId": "b-eng", "tools": []string{PublishName},
+		"botId": "b-eng", "tools": []string{ChatName},
 	}); err != nil {
 		t.Fatalf("detach: %v", err)
 	}
 	got, _ = st.Nodes.Get(ctx, "org-test", "b-eng")
-	if toolSet(got)[PublishName] {
+	if toolSet(got)[ChatName] {
 		t.Fatalf("detach did not remove publish: %v", got.Tools)
 	}
-	if !toolSet(got)[SubscribeName] {
+	if !toolSet(got)[AttachWorkerName] {
 		t.Fatalf("detach removed too much: %v", got.Tools)
 	}
 
@@ -151,7 +170,7 @@ func TestToolChangeNotifiesLinkedAgentOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := deps.Build().Nodes.AttachTools(context.Background(), "org-test", "b-eng", []tool.Name{PublishName}); err != nil {
+	if _, err := deps.Build().Nodes.AttachTools(context.Background(), "org-test", "b-eng", []tool.Name{ChatName}); err != nil {
 		t.Fatal(err)
 	}
 	if len(notified) != 1 || notified[0] != "app-eng" {
@@ -159,33 +178,33 @@ func TestToolChangeNotifiesLinkedAgentOnce(t *testing.T) {
 	}
 }
 
-// TestCreateBotSubscribesToTopics pins the "fewest steps" behavior: topics
-// listed at creation become real subscription rows, and an unknown topic
-// fails the whole create with no partial bot.
-func TestCreateBotSubscribesToTopics(t *testing.T) {
+// TestCreateBotAttachesToTriggers pins the "fewest steps" behavior:
+// Triggers listed at creation become real attachment rows, and an
+// unknown Trigger fails the whole create with no partial bot.
+func TestCreateBotAttachesToTriggers(t *testing.T) {
 	t.Parallel()
 	st, reg, caller := bulkTestEnv(t)
 	ctx := context.Background()
-	seedTopicRow(t, st, "s-a")
-	seedTopicRow(t, st, "s-b")
+	seedTriggerRow(t, st, "s-a")
+	seedTriggerRow(t, st, "s-b")
 
 	if _, err := invoke(t, reg, caller, CreateBotName, map[string]any{
 		"id": "b-ceo", "content": "# CEO",
-		"tools": []string{PublishName}, "topics": []string{"s-a", "s-b"},
+		"tools": []string{ChatName}, "triggers": []string{"s-a", "s-b"},
 	}); err != nil {
 		t.Fatalf("create_bot: %v", err)
 	}
-	for _, tid := range []streaming.TopicID{"s-a", "s-b"} {
-		if _, err := st.Subscriptions.Find(ctx, "org-test", "b-ceo", tid); err != nil {
-			t.Fatalf("expected subscription (b-ceo, %s): %v", tid, err)
+	for _, tid := range []string{"s-a", "s-b"} {
+		if !attached(t, st, "b-ceo", tid) {
+			t.Fatalf("expected attachment (b-ceo, %s)", tid)
 		}
 	}
 
-	// Unknown topic -> error and no bot row created (validated up front).
+	// Unknown Trigger -> error and no bot row created.
 	if _, err := invoke(t, reg, caller, CreateBotName, map[string]any{
-		"id": "b-ghost", "content": "# Ghost", "tools": []string{}, "topics": []string{"s-nope"},
+		"id": "b-ghost", "content": "# Ghost", "tools": []string{}, "triggers": []string{"s-nope"},
 	}); err == nil {
-		t.Fatalf("create with unknown topic should error")
+		t.Fatalf("create with unknown trigger should error")
 	}
 	if _, err := st.Nodes.Get(ctx, "org-test", "b-ghost"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("failed create left a partial bot row: %v", err)
@@ -193,26 +212,24 @@ func TestCreateBotSubscribesToTopics(t *testing.T) {
 
 	// Unknown tool name rejected.
 	if _, err := invoke(t, reg, caller, CreateBotName, map[string]any{
-		"id": "b-x", "content": "# X", "tools": []string{"no_such_tool"}, "topics": []string{},
+		"id": "b-x", "content": "# X", "tools": []string{"no_such_tool"}, "triggers": []string{},
 	}); err == nil {
 		t.Fatalf("create with unknown tool should error")
 	}
 }
 
 // TestDeleteBotCascades verifies delete_bot removes the bot and its
-// subscriptions, and errors on an absent bot.
+// attachments, and errors on an absent bot.
 func TestDeleteBotCascades(t *testing.T) {
 	t.Parallel()
 	st, reg, caller := bulkTestEnv(t)
 	ctx := context.Background()
-	seedTopicRow(t, st, "s-a")
+	seedTriggerRow(t, st, "s-a")
 	seedBotRow(t, st, "b-eng")
-	sub, err := streaming.NewSubscription("b-eng", "s-a", time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC), "org-test")
-	if err != nil {
-		t.Fatalf("new subscription: %v", err)
-	}
-	if err := st.Subscriptions.Create(ctx, sub); err != nil {
-		t.Fatalf("seed subscription: %v", err)
+	if _, err := invoke(t, reg, caller, AttachWorkerName, map[string]any{
+		"botId": "b-eng", "triggerIds": []string{"s-a"},
+	}); err != nil {
+		t.Fatalf("seed attachment: %v", err)
 	}
 
 	if _, err := invoke(t, reg, caller, DeleteBotName, map[string]any{"botId": "b-eng"}); err != nil {
@@ -221,8 +238,8 @@ func TestDeleteBotCascades(t *testing.T) {
 	if _, err := st.Nodes.Get(ctx, "org-test", "b-eng"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("bot still present after delete: %v", err)
 	}
-	if _, err := st.Subscriptions.Find(ctx, "org-test", "b-eng", "s-a"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("subscription not cascaded on delete: %v", err)
+	if attached(t, st, "b-eng", "s-a") {
+		t.Fatal("attachment not cascaded on delete")
 	}
 
 	// Absent bot -> error.
@@ -238,7 +255,7 @@ func TestBulkToolSchemas(t *testing.T) {
 	t.Parallel()
 	_, reg, _ := bulkTestEnv(t)
 
-	assertArrayProp := func(name tool.Name, prop string, wantEnum bool) {
+	assertArrayProp := func(name tool.Name, prop string, wantEnum, wantRequired bool) {
 		tl, err := reg.Get(name)
 		if err != nil {
 			t.Fatalf("get %q: %v", name, err)
@@ -266,17 +283,21 @@ func TestBulkToolSchemas(t *testing.T) {
 				found = true
 			}
 		}
-		if !found {
-			t.Fatalf("%s.%s: not in required %v", name, prop, s.Required)
+		if found != wantRequired {
+			t.Fatalf("%s.%s: required=%v, want %v (required=%v)", name, prop, found, wantRequired, s.Required)
 		}
 	}
 
-	assertArrayProp(AttachToolName, "tools", true)
-	assertArrayProp(DetachToolName, "tools", true)
-	assertArrayProp(CreateBotName, "tools", true)
-	assertArrayProp(CreateBotName, "topics", false)
-	assertArrayProp(SubscribeName, "topicIds", false)
-	assertArrayProp(UnsubscribeName, "topicIds", false)
+	assertArrayProp(AttachToolName, "tools", true, true)
+	assertArrayProp(DetachToolName, "tools", true, true)
+	assertArrayProp(CreateBotName, "tools", true, true)
+	assertArrayProp(CreateBotName, "triggers", false, true)
+	// attach/detach take either triggerIds or processorOutputs, so
+	// neither is individually required — the tool rejects "both empty".
+	assertArrayProp(AttachWorkerName, "triggerIds", false, false)
+	assertArrayProp(AttachWorkerName, "processorOutputs", false, false)
+	assertArrayProp(DetachWorkerName, "triggerIds", false, false)
+	assertArrayProp(DetachWorkerName, "processorOutputs", false, false)
 
 	// The create_bot tools enum reflects the live registry (create_bot itself
 	// is registered, so it must appear among the valid names).

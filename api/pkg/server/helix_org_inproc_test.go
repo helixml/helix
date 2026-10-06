@@ -7,18 +7,24 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/stripe/stripe-go/v76"
 	"go.uber.org/mock/gomock"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/server/helixorg"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
@@ -60,6 +66,42 @@ func newInProcTestSetup(t *testing.T) (*HelixAPIServer, *memorystore.MemoryStore
 	return server, store, client, user, ctx
 }
 
+func TestInProcClient_ServerStatusUsesOrganizationQuota(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := helixstore.NewMockStore(ctrl)
+	executor := external_agent.NewMockExecutor(ctrl)
+	cfg := &config.ServerConfig{}
+	cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops = 2
+	cfg.SubscriptionQuotas.Projects.Pro.MaxConcurrentDesktops = 30
+	orgID := "org_trialing"
+
+	st.EXPECT().GetWalletByOrg(gomock.Any(), orgID).Return(&types.Wallet{
+		OrgID:                orgID,
+		StripeSubscriptionID: "sub_trialing",
+		SubscriptionStatus:   stripe.SubscriptionStatusTrialing,
+	}, nil)
+	st.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{EnforceQuotas: true}, nil)
+	executor.EXPECT().ListSessions().Return([]*external_agent.ZedSession{
+		{OrganizationID: "org_other_1"},
+		{OrganizationID: "org_other_2"},
+	})
+	st.EXPECT().GetProjectsCount(gomock.Any(), &helixstore.GetProjectsCountQuery{OrganizationID: orgID}).Return(int64(0), nil)
+	st.EXPECT().GetRepositoriesCount(gomock.Any(), &helixstore.GetRepositoriesCountQuery{OrganizationID: orgID}).Return(int64(0), nil)
+	st.EXPECT().GetSpecTasksCount(gomock.Any(), &helixstore.GetSpecTasksCountQuery{OrganizationID: orgID}).Return(int64(0), nil)
+	st.EXPECT().ListSandboxes(gomock.Any(), &helixstore.ListSandboxesQuery{OrganizationID: orgID}).Return(nil, nil)
+
+	server := &HelixAPIServer{Cfg: cfg, Store: st, externalAgentExecutor: executor}
+	server.quotaManager = quota.NewDefaultQuotaManager(st, cfg, executor)
+	client := NewInProcHelixClient(server)
+	ctx := helixorgserver.WithOrgID(context.Background(), orgID)
+
+	status, err := client.ServerStatus(ctx)
+
+	require.NoError(t, err)
+	require.Equal(t, 30, status.MaxConcurrentDesktops)
+	require.Zero(t, status.ActiveConcurrentDesktops)
+}
+
 func TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentID(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -69,7 +111,6 @@ func TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentI
 	require.NoError(t, db.AutoMigrate(&types.Project{}, &types.App{}, &types.Knowledge{}, &types.KnowledgeVersion{}))
 	for _, statement := range []string{
 		`CREATE TABLE org_bot_runtime_state (org_id TEXT, bot_id TEXT)`,
-		`CREATE TABLE org_subscriptions (org_id TEXT, bot_id TEXT)`,
 		`CREATE TABLE org_bots (org_id TEXT, id TEXT, agent_app_id TEXT)`,
 	} {
 		require.NoError(t, db.Exec(statement).Error)
@@ -124,11 +165,8 @@ func TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentI
 	require.Equal(t, replacement.ID, preserved.DefaultHelixAppID)
 }
 
-// A failure to stop the bot's desktop session must not abort the delete
-// cascade. stopExternalAgentSession 404s on an already-gone session, 400s on a
-// non-zed_external session and 500s when hydra is down; treating any of those
-// as fatal left the bot permanently undeletable.
-func TestInProcClient_DeleteLinkedAgentContinuesWhenSessionStopFails(t *testing.T) {
+// A failed desktop destroy must preserve the bot and app for a later retry.
+func TestInProcClient_DeleteLinkedAgentPreservesRowsWhenDesktopDestroyFails(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
@@ -137,7 +175,6 @@ func TestInProcClient_DeleteLinkedAgentContinuesWhenSessionStopFails(t *testing.
 	require.NoError(t, db.AutoMigrate(&types.Project{}, &types.App{}, &types.Knowledge{}, &types.KnowledgeVersion{}))
 	for _, statement := range []string{
 		`CREATE TABLE org_bot_runtime_state (org_id TEXT, bot_id TEXT)`,
-		`CREATE TABLE org_subscriptions (org_id TEXT, bot_id TEXT)`,
 		`CREATE TABLE org_bots (org_id TEXT, id TEXT, agent_app_id TEXT)`,
 	} {
 		require.NoError(t, db.Exec(statement).Error)
@@ -149,18 +186,56 @@ func TestInProcClient_DeleteLinkedAgentContinuesWhenSessionStopFails(t *testing.
 		"org-test", "b-agent", app.ID,
 	).Error)
 
-	// memorystore has no session seeded, so StopExternalAgent resolves to a 404.
+	executor := external_agent.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_missing", "").Return(errors.New("hydra unreachable"))
 	store := &gormBackedInProcStore{Store: memorystore.New(), db: db}
-	client := NewInProcHelixClient(&HelixAPIServer{Store: store})
+	client := NewInProcHelixClient(&HelixAPIServer{Store: store, externalAgentExecutor: executor})
 	ctx := runtimehelix.WithUser(context.Background(), &types.User{ID: "usr_request"})
 
-	require.NoError(t, client.DeleteLinkedAgent(ctx, "org-test", "b-agent", app.ID, "ses_missing"))
+	require.ErrorContains(t, client.DeleteLinkedAgent(ctx, "org-test", "b-agent", app.ID, "ses_missing"), "destroy linked agent desktop")
 
 	var appCount, botCount int64
 	require.NoError(t, db.Model(&types.App{}).Where("id = ?", app.ID).Count(&appCount).Error)
 	require.NoError(t, db.Table("org_bots").Where("org_id = ? AND id = ?", "org-test", "b-agent").Count(&botCount).Error)
-	require.Zero(t, appCount)
-	require.Zero(t, botCount)
+	require.EqualValues(t, 1, appCount)
+	require.EqualValues(t, 1, botCount)
+}
+
+// Deleting a bot's project must destroy every desktop the project ever ran,
+// including soft-deleted sessions and task sessions that lack the project id,
+// delete a spec task's workspace only for tasks the project owns, and leave
+// chat sessions and other orgs' sessions alone.
+func TestInProcClient_DestroyProjectRuntimeDestroysEveryProjectDesktop(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&types.Session{}, &types.SpecTask{}))
+
+	require.NoError(t, db.Create(&types.SpecTask{ID: "spt_owned", ProjectID: "prj_bot"}).Error)
+	require.NoError(t, db.Create(&types.SpecTask{ID: "spt_other", ProjectID: "prj_other"}).Error)
+	desktop := types.SessionMetadata{AgentType: "zed_external"}
+	for _, session := range []*types.Session{
+		{ID: "ses_bot", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop},
+		{ID: "ses_task_no_project", OrganizationID: "org-test", ModelName: "external_agent", Metadata: types.SessionMetadata{SpecTaskID: "spt_owned"}},
+		{ID: "ses_foreign_task", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "external_agent", Metadata: types.SessionMetadata{SpecTaskID: "spt_other"}},
+		{ID: "ses_deleted", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop, DeletedAt: gorm.DeletedAt{Time: time.Now(), Valid: true}},
+		{ID: "ses_chat", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5"},
+		{ID: "ses_other_org", OrganizationID: "org-other", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop},
+		{ID: "ses_unrelated", OrganizationID: "org-test", ProjectID: "prj_other", ModelName: "glm-5", Metadata: desktop},
+	} {
+		require.NoError(t, db.Create(session).Error)
+	}
+
+	executor := external_agent.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_bot", "").Return(nil)
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_task_no_project", "spt_owned").Return(nil)
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_foreign_task", "").Return(nil)
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_deleted", "").Return(errors.New("hydra unreachable"))
+
+	client := NewInProcHelixClient(&HelixAPIServer{Store: &gormBackedInProcStore{db: db}, externalAgentExecutor: executor})
+	require.ErrorContains(t, client.destroyProjectRuntime(context.Background(), &types.Project{ID: "prj_bot", OrganizationID: "org-test"}), "destroy project desktop ses_deleted")
 }
 
 // The org runtime — not the shared apply handler — is what classifies a bot's
@@ -254,10 +329,11 @@ func TestInProcClient_CreateAgentUsesOrganizationOwnerWithoutRequestUser(t *test
 	)
 
 	client := NewInProcHelixClient(&HelixAPIServer{Store: st})
-	appID, err := client.CreateAgent(context.Background(), "org_test", "Chief of Staff", "Lead", lifecycle.AgentConfig{})
+	created, err := client.CreateAgent(context.Background(), "org_test", "Chief of Staff", "Lead", lifecycle.AgentConfig{})
 
 	require.NoError(t, err)
-	require.Equal(t, "app_test", appID)
+	require.Equal(t, "app_test", created.LegacyAppID)
+	require.Equal(t, types.CodeAgentRuntimeZedAgent, created.CodeAgentConfig.Runtime)
 }
 
 func TestInProcClient_CreateAgentUsesConfiguredOrgDefaults(t *testing.T) {
@@ -373,6 +449,43 @@ func TestInProcClient_DeferredDefaultsApplyOnlyToUntouchedScaffold(t *testing.T)
 	require.Equal(t, "user-selected", app.Config.Helix.Assistants[0].Model)
 }
 
+func TestInProcClient_ApplyAgentDefaultsSyncsOrgBotConfig(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := helixstore.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+	ctx := context.Background()
+	app := &types.App{
+		ID: "app-deferred", OrganizationID: "org-test", AgentKind: types.AgentKindOrg,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			Name: "Bot", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime: types.CodeAgentRuntimeZedAgent, ReasoningEffort: types.ReasoningEffortNone,
+		}}}},
+	}
+	node, err := orgchart.NewNode("b-bot", "Build", nil, time.Now().UTC(), app.OrganizationID)
+	require.NoError(t, err)
+	require.NoError(t, orgStore.Nodes.Create(ctx, node.WithAgentID(app.ID)))
+	helixStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+	helixStore.EXPECT().UpdateApp(gomock.Any(), app).Return(app, nil)
+	helixStore.EXPECT().ListProjects(gomock.Any(), &helixstore.ListProjectsQuery{OrganizationID: app.OrganizationID}).Return(nil, nil)
+	client := NewInProcHelixClient(&HelixAPIServer{
+		Store:    helixStore,
+		helixOrg: &helixOrgHandlers{store: orgStore},
+	})
+	defaults := types.AssistantConfig{
+		CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+		CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+		Provider:                "openai",
+		Model:                   "gpt-5.6",
+		ReasoningEffort:         "high",
+	}
+
+	require.NoError(t, client.ApplyAgentDefaults(ctx, app.ID, defaults))
+	stored, err := orgStore.Nodes.Get(ctx, app.OrganizationID, node.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.CodeAgentRuntimeCodexCLI, stored.CodeAgentConfig.Runtime)
+	require.Equal(t, "gpt-5.6", stored.CodeAgentConfig.Model)
+}
+
 func TestInProcClient_DeleteProjectNormalizesGormNotFound(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	st := helixstore.NewMockStore(ctrl)
@@ -400,7 +513,12 @@ func TestInProcClient_UpdateAgentRestoresAppAfterPostSaveFailure(t *testing.T) {
 			}},
 		}},
 	}
-	st.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil).Times(2)
+	handlerExisting := *existing
+	handlerExisting.Config.Helix.Assistants = append([]types.AssistantConfig(nil), existing.Config.Helix.Assistants...)
+	gomock.InOrder(
+		st.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil),
+		st.EXPECT().GetApp(gomock.Any(), existing.ID).Return(&handlerExisting, nil),
+	)
 	var savedPrompt, restoredPrompt string
 	st.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, app *types.App) (*types.App, error) {
@@ -591,13 +709,23 @@ func TestInProcSpawnerClient_SyncAgentProfileRenamesStoppedSession(t *testing.T)
 	_, err := store.CreateSession(ctx, types.Session{ID: "ses_profile", Name: "You are Bot old"})
 	require.NoError(t, err)
 
-	err = client.SyncAgentProfile(ctx, "ses_profile", "Build Engineer", "w-build", "instructions")
+	launch := runtimehelix.SessionLaunchConfig{
+		SandboxRuntime:   types.SandboxRuntimeHeadlessUbuntu,
+		SandboxResources: types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192},
+	}
+	err = client.SyncAgentProfile(ctx, "ses_profile", "Build Engineer", "w-build", "instructions", launch)
 	require.ErrorContains(t, err, "external agent executor is not configured")
 
 	got, err := store.GetSession(ctx, "ses_profile")
 	require.NoError(t, err)
 	require.Equal(t, "Build Engineer", got.Name)
 	require.Equal(t, "w-build", got.Metadata.OrgWorkerID)
+	// The Bot's sandbox config must land on the session so the next
+	// container start (any path) launches headless at the chosen preset.
+	require.Equal(t, types.SandboxRuntimeHeadlessUbuntu, got.Metadata.SandboxRuntime)
+	require.NotNil(t, got.Metadata.SandboxResourceOverrides)
+	require.Equal(t, 4, got.Metadata.SandboxResourceOverrides.VCPUs)
+	require.Equal(t, 8192, got.Metadata.SandboxResourceOverrides.MemoryMB)
 	require.Equal(t, "instructions", got.Metadata.RuntimeInstructions)
 }
 

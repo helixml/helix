@@ -111,6 +111,53 @@ const (
 	SpecTaskPhaseValidation     SpecTaskPhase = "validation"
 )
 
+// SpecTaskPhaseForStatus returns the execution phase that owns the next agent
+// turn. Queued implementation statuses already use the implementation config.
+func SpecTaskPhaseForStatus(status SpecTaskStatus) SpecTaskPhase {
+	switch status {
+	case TaskStatusQueuedImplementation,
+		TaskStatusImplementationQueued,
+		TaskStatusImplementation,
+		TaskStatusImplementationReview,
+		TaskStatusPullRequest,
+		TaskStatusDone,
+		TaskStatusImplementationFailed:
+		return SpecTaskPhaseImplementation
+	default:
+		return SpecTaskPhasePlanning
+	}
+}
+
+// CodeAgentConfigForPhase resolves a task's phase-owned configuration. The
+// fallback keeps historical rows usable until start-time materialization saves
+// an explicit planning snapshot.
+func (s *SpecTask) CodeAgentConfigForPhase(phase SpecTaskPhase) *CodeAgentExecutionConfig {
+	if s == nil {
+		return nil
+	}
+	if phase == SpecTaskPhasePlanning && s.PlanningCodeAgentConfig != nil {
+		return s.PlanningCodeAgentConfig
+	}
+	return s.CodeAgentConfig
+}
+
+func (s *SpecTask) ActiveCodeAgentConfig() *CodeAgentExecutionConfig {
+	if s == nil {
+		return nil
+	}
+	return s.CodeAgentConfigForPhase(SpecTaskPhaseForStatus(s.Status))
+}
+
+func (s *SpecTask) GooseRecipeForPhase(phase SpecTaskPhase) (string, map[string]string) {
+	if s == nil {
+		return "", nil
+	}
+	if phase == SpecTaskPhasePlanning && s.PlanningCodeAgentConfig != nil {
+		return s.PlanningGooseRecipeName, s.PlanningGooseRecipeParams
+	}
+	return s.GooseRecipeName, s.GooseRecipeParams
+}
+
 type SpecTaskWorkSessionStatus string
 
 const (

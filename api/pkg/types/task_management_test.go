@@ -13,12 +13,15 @@ func TestValidateCodeAgentModelCompatibility(t *testing.T) {
 		wantError string
 	}{
 		{name: "codex current model", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeCodexCLI, Model: "gpt-5.6-sol"}},
+		{name: "codex gpt 6 sol", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeCodexCLI, Model: "gpt-6-sol"}},
+		{name: "codex future model", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeCodexCLI, Model: "gpt-42-orion"}},
 		{name: "codex provider-prefixed model", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeCodexCLI, GenerationModel: "openai/gpt-5.3-codex-spark"}},
 		{name: "codex legacy model", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeCodexCLI, Model: "codex-mini-latest"}},
 		{name: "codex default model", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeCodexCLI}},
 		{name: "codex rejects claude", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeCodexCLI, Model: "claude-opus-4-8"}, wantError: "requires a Codex model"},
 		{name: "codex rejects generic model", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeCodexCLI, Model: "llama-4"}, wantError: "requires a Codex model"},
 		{name: "claude current model", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeClaudeCode, Model: "claude-opus-5"}},
+		{name: "claude future model", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeClaudeCode, Model: "claude-opus-12"}},
 		{name: "claude fable model", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeClaudeCode, Model: "claude-fable-5"}},
 		{name: "claude provider-prefixed model", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeClaudeCode, GenerationModel: "anthropic/claude-sonnet-4-6"}},
 		{name: "claude bedrock model", assistant: AssistantConfig{CodeAgentRuntime: CodeAgentRuntimeClaudeCode, Model: "us.anthropic.claude-opus-4-6-v1"}},

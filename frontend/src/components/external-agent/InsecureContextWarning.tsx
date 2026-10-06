@@ -9,6 +9,7 @@
 import React, { useState } from 'react';
 import { Box, Typography, Alert, Collapse, IconButton } from '@mui/material';
 import { ExpandMore, ExpandLess, Warning, ContentCopy, Check } from '@mui/icons-material';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface BrowserInstructions {
   name: string;
@@ -96,21 +97,11 @@ const InsecureContextWarning: React.FC = () => {
 
   const handleCopy = async (value: string) => {
     try {
-      await navigator.clipboard.writeText(value);
+      await copyTextToClipboard(value);
       setCopiedValue(value);
       setTimeout(() => setCopiedValue(null), 2000);
-    } catch {
-      // Fallback for when clipboard API fails (we're in insecure context after all!)
-      const textArea = document.createElement('textarea');
-      textArea.value = value;
-      textArea.style.position = 'fixed';
-      textArea.style.left = '-9999px';
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setCopiedValue(value);
-      setTimeout(() => setCopiedValue(null), 2000);
+    } catch (error) {
+      console.error('Failed to copy text', error);
     }
   };
 

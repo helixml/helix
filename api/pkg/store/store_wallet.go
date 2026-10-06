@@ -136,7 +136,7 @@ func (s *PostgresStore) ListWallets(ctx context.Context, q *ListWalletsQuery) ([
 	return wallets, nil
 }
 
-// UpdateWallet updates subscription ID, status (does not update balance, for that use dedicated method)
+// UpdateWallet updates subscription and plan fields (does not update balance, for that use dedicated method)
 func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error) {
 	if wallet.ID == "" {
 		return nil, fmt.Errorf("id not specified")
@@ -147,6 +147,7 @@ func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) 
 	err := s.gdb.WithContext(ctx).Model(&types.Wallet{}).Where("id = ?", wallet.ID).Updates(
 		map[string]interface{}{
 			"updated_at":                        wallet.UpdatedAt,
+			"plan_override":                     wallet.PlanOverride,
 			"stripe_subscription_id":            wallet.StripeSubscriptionID,
 			"subscription_status":               wallet.SubscriptionStatus,
 			"subscription_current_period_start": wallet.SubscriptionCurrentPeriodStart,
@@ -174,13 +175,15 @@ func (s *PostgresStore) DeleteWallet(ctx context.Context, id string) error {
 	return nil
 }
 
-// UpdateWalletBalance safely updates the wallet balance using a database transaction
+// UpdateWalletBalance safely updates the wallet balance using a database transaction.
+// It returns nil, nil when a Stripe top-up was already processed.
 func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error) {
 	if walletID == "" {
 		return nil, fmt.Errorf("wallet_id not specified")
 	}
 
 	var wallet types.Wallet
+	balanceUpdated := false
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ?", walletID).
@@ -203,7 +206,7 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 
 		currentBalance := wallet.Balance
 		if currentBalance+amount < 0 {
-			return fmt.Errorf("insufficient balance: current balance %.2f, attempted to deduct %.2f",
+			return fmt.Errorf("%s: current balance %.2f, attempted to deduct %.2f", types.ErrorInsufficientBalance,
 				currentBalance, -amount)
 		}
 
@@ -220,6 +223,7 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 		if result.RowsAffected == 0 {
 			return ErrNotFound
 		}
+		balanceUpdated = true
 
 		transaction := &types.Transaction{
 			ID:                 system.GenerateTransactionID(),
@@ -269,6 +273,9 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 
 	if err != nil {
 		return nil, err
+	}
+	if !balanceUpdated {
+		return nil, nil
 	}
 
 	return &wallet, nil

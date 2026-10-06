@@ -10,6 +10,8 @@ import {
   Plug,
   GitBranch,
   FileText,
+  Network,
+  Container,
 } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
@@ -54,6 +56,13 @@ const OrgSidebar: FC = () => {
           onClick: () => handleNavigationClick('org_teams'),
         },
         {
+          id: 'org_chart',
+          label: 'Org Chart',
+          icon: <Network size={20} />,
+          isActive: currentRouteName === 'helix_org_chart' || currentRouteName === 'helix_org_root',
+          onClick: () => handleNavigationClick('helix_org_chart'),
+        },
+        {
           id: 'repositories',
           label: 'Repositories',
           icon: <GitBranch size={20} />,
@@ -94,6 +103,13 @@ const OrgSidebar: FC = () => {
           icon: <Plug size={20} />,
           isActive: currentRouteName === 'org_providers' || currentRouteName === 'org_provider_detail',
           onClick: () => handleNavigationClick('org_providers'),
+        },
+        {
+          id: 'sandboxes',
+          label: 'Sandboxes',
+          icon: <Container size={20} />,
+          isActive: currentRouteName === 'org_sandboxes' || currentRouteName === 'org_sandbox_detail',
+          onClick: () => handleNavigationClick('org_sandboxes'),
         },
       ],
     },

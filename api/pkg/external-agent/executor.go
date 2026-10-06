@@ -15,6 +15,9 @@ type Executor interface {
 	// Desktop session methods
 	StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error)
 	StopDesktop(ctx context.Context, sessionID string) error
+	// DestroyDesktop stops the desktop and deletes every on-host resource the
+	// session owns. specTaskID, when set, also deletes that task's workspace.
+	DestroyDesktop(ctx context.Context, sessionID, specTaskID string) error
 	GetSession(sessionID string) (*ZedSession, error)
 	CleanupExpiredSessions(ctx context.Context, timeout time.Duration)
 	ListSessions() []*ZedSession
@@ -29,7 +32,8 @@ type Executor interface {
 	// Container discovery from sandbox
 	DiscoverContainersFromSandbox(ctx context.Context, sandboxID string) error
 
-	// Golden build result from sandbox
+	// Golden build container liveness and result from sandbox
+	GoldenBuildContainerRunning(ctx context.Context, sandboxID, sessionID string) (bool, error)
 	GetGoldenBuildResult(ctx context.Context, sandboxID, projectID string) (*hydra.GoldenBuildResult, error)
 
 	// ReconcileSandboxResources fans a DB-driven GC reconcile request out to a

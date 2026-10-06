@@ -6,12 +6,15 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func init() {
 	rootCmd.AddCommand(deleteCmd)
 	deleteCmd.Flags().StringP("name", "n", "", "Name of the secret to delete")
+	deleteCmd.Flags().StringP("project", "p", "", "Project ID or name containing the secret")
 }
 
 var deleteCmd = &cobra.Command{
@@ -22,6 +25,7 @@ var deleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Look for either name or first arg
 		name, _ := cmd.Flags().GetString("name")
+		projectRef, _ := cmd.Flags().GetString("project")
 		if name == "" {
 			if len(args) > 0 {
 				name = args[0]
@@ -38,8 +42,16 @@ var deleteCmd = &cobra.Command{
 			return err
 		}
 
-		// Fetch the list of secrets
-		secrets, err := apiClient.ListSecrets(cmd.Context(), nil)
+		var secrets []*types.Secret
+		if projectRef != "" {
+			project, resolveErr := cli.LookupProject(cmd.Context(), apiClient, projectRef, "")
+			if resolveErr != nil {
+				return resolveErr
+			}
+			secrets, err = apiClient.ListProjectSecrets(cmd.Context(), project.ID)
+		} else {
+			secrets, err = apiClient.ListSecrets(cmd.Context(), nil)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to fetch secrets: %w", err)
 		}

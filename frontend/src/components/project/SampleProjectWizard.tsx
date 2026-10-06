@@ -37,6 +37,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 import useOAuthFlow, { GITHUB_VCS_SCOPES } from '../../hooks/useOAuthFlow'
 import {
   TypesCheckSampleProjectAccessResponse,
+  TypesCodeAgentExecutionConfig,
   TypesRepositoryAccessCheck,
   TypesGitRepository,
   ServerSimpleSampleProject,
@@ -49,7 +50,7 @@ interface SampleProjectWizardProps {
   onComplete: (projectId: string) => void
   sampleProject: ServerSimpleSampleProject | null
   organizationId?: string
-  selectedAgentId?: string
+  codeAgentConfig?: TypesCodeAgentExecutionConfig
 }
 
 type Step = 'github-check' | 'access-check' | 'configure-skills' | 'creating' | 'cloning'
@@ -60,7 +61,7 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
   onComplete,
   sampleProject,
   organizationId,
-  selectedAgentId,
+  codeAgentConfig,
 }) => {
   const api = useApi()
   const apiClient = api.getApiClient()
@@ -236,7 +237,7 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
         sample_project_id: sampleProject.id || '',
         project_name: sampleProject.name || '',
         organization_id: organizationId,
-        helix_app_id: selectedAgentId,
+        code_agent_config: codeAgentConfig,
         github_connection_id: selectedConnectionId,
         repository_decisions: repoDecisions,
       })
@@ -282,7 +283,7 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
         sample_project_id: sampleProject.id || '',
         project_name: sampleProject.name || '',
         organization_id: organizationId,
-        helix_app_id: selectedAgentId,
+        code_agent_config: codeAgentConfig,
         github_connection_id: selectedConnectionId,
         repository_decisions: repoDecisions,
         configured_skill_env_vars: configuredEnvVars,

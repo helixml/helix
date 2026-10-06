@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,18 +20,25 @@ import (
 // fakeTransport records calls made by zedACPBackend so tests can assert on them
 // without a live WebSocket connection.
 type fakeTransport struct {
-	cancelled    []string
-	commandsSent []types.ExternalAgentCommand
-	sendErr      error
+	cancelled     []string
+	commandsSent  []types.ExternalAgentCommand
+	closedThreads []string
+	sendErr       error
+	cancelErr     error
 }
 
-func (f *fakeTransport) cancelCurrentTurnIfActive(_ context.Context, sessionID string) {
+func (f *fakeTransport) cancelCurrentTurnIfActive(_ context.Context, sessionID string) error {
 	f.cancelled = append(f.cancelled, sessionID)
+	return f.cancelErr
 }
 
 func (f *fakeTransport) sendCommandToExternalAgent(_ string, command types.ExternalAgentCommand) error {
 	f.commandsSent = append(f.commandsSent, command)
 	return f.sendErr
+}
+
+func (f *fakeTransport) closeDiscardedZedThread(_ string, acpThreadID string) {
+	f.closedThreads = append(f.closedThreads, acpThreadID)
 }
 
 type SessionClearSuite struct {
@@ -50,7 +58,8 @@ func (suite *SessionClearSuite) SetupTest() {
 	suite.ctx = context.Background()
 	suite.store = store.NewMockStore(suite.ctrl)
 	suite.apiServer = &HelixAPIServer{
-		Store: suite.store,
+		Store:                  suite.store,
+		externalAgentWSManager: NewExternalAgentWSManager(),
 	}
 }
 
@@ -110,6 +119,13 @@ func (suite *SessionClearSuite) TestZedBackend_ResetsThreadAndCancels() {
 
 	suite.NoError(b.Clear(suite.ctx, "ses_zed"))
 	suite.Equal([]string{"ses_zed"}, transport.cancelled, "in-flight turn should be cancelled")
+	suite.Equal([]string{"thread-abc"}, transport.closedThreads, "the discarded thread should be closed in Zed")
+}
+
+// Without a live connection there is nothing to close, and closing must not
+// wake the stopped sandbox the way sendCommandToExternalAgent does.
+func (suite *SessionClearSuite) TestCloseDiscardedZedThread_NoConnectionIsNoOp() {
+	suite.apiServer.closeDiscardedZedThread("ses_zed", "thread-abc")
 }
 
 func (suite *SessionClearSuite) TestZedBackend_AlreadyFreshThread_NoPersist() {
@@ -125,6 +141,18 @@ func (suite *SessionClearSuite) TestZedBackend_AlreadyFreshThread_NoPersist() {
 
 	suite.NoError(b.Clear(suite.ctx, "ses_zed"))
 	suite.Equal([]string{"ses_zed"}, transport.cancelled)
+	suite.Empty(transport.closedThreads, "a fresh thread has nothing to close")
+}
+
+func (suite *SessionClearSuite) TestZedBackend_DoesNotResetThreadBeforeCancellationIsConfirmed() {
+	transport := &fakeTransport{cancelErr: errors.New("cancellation pending")}
+	b := &zedACPBackend{store: suite.store, transport: transport}
+
+	err := b.Clear(suite.ctx, "ses_zed")
+	suite.ErrorContains(err, "cancellation pending")
+	suite.Equal([]string{"ses_zed"}, transport.cancelled)
+	// No session read or metadata update is expected: the existing thread must
+	// remain authoritative until its active turn is definitely stopped.
 }
 
 // --- backendFor dispatch ---
@@ -231,4 +259,3 @@ func (suite *SessionClearSuite) TestHandler_Unauthorized() {
 	suite.Require().NotNil(herr)
 	suite.Equal(http.StatusForbidden, herr.StatusCode)
 }
-

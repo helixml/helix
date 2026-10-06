@@ -22,6 +22,7 @@ import { generateYamlFilename } from '../../utils/format';
 import useSnackbar from '../../hooks/useSnackbar';
 import useLightTheme from '../../hooks/useLightTheme';
 import { useSettingsDialog } from '../../contexts/settingsDialog';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface TestsEditorProps {
   app: IAppFlatState;
@@ -97,7 +98,7 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
   };
 
   const handleCopyCommand = (command: string) => {
-    navigator.clipboard.writeText(command)
+    copyTextToClipboard(command)
       .then(() => {
         setTestCopied(true);
         setTimeout(() => setTestCopied(false), 2000);
@@ -110,7 +111,7 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
   };
 
   const handleCopyConfig = (config: string, setCopied: (value: boolean) => void, configType: string) => {
-    navigator.clipboard.writeText(config)
+    copyTextToClipboard(config)
       .then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
@@ -477,4 +478,4 @@ comment_job:
   );
 };
 
-export default TestsEditor; 
+export default TestsEditor;

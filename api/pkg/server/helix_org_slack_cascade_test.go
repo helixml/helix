@@ -2,10 +2,10 @@ package server
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/org/application/triggers"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	"github.com/helixml/helix/api/pkg/store"
@@ -38,22 +38,25 @@ func (f *fakeServiceConnStore) DeleteServiceConnection(_ context.Context, id str
 
 // newSlackCascadeServer wires a HelixAPIServer with just enough to run the
 // slack_app delete cascade: a stateful service-connection store and the
-// per-workspace Topic reconciler over a real in-memory org Topics store.
+// per-workspace Trigger reconciler over a real in-memory org store.
 // slackSocket stays nil — kickSlackSocket is nil-safe.
-func newSlackCascadeServer() (*HelixAPIServer, *fakeServiceConnStore, helixorgstore.Topics) {
+func newSlackCascadeServer() (*HelixAPIServer, *fakeServiceConnStore, helixorgstore.Triggers) {
 	fake := &fakeServiceConnStore{conns: map[string]*types.ServiceConnection{}}
 	orgStore := orgmemory.New()
+	triggerSvc := triggers.New(triggers.Deps{
+		Triggers: orgStore.Triggers, Attachments: orgStore.WorkerAttachments, Events: orgStore.Events,
+	})
 	s := &HelixAPIServer{
 		Store: fake,
 		helixOrg: &helixOrgHandlers{
-			slackTopics: &slackWorkspaceTopics{topics: orgStore.Topics, logger: slog.Default()},
+			slackTopics: &slackWorkspaceTopics{triggers: triggerSvc, logger: slog.Default()},
 		},
 	}
-	return s, fake, orgStore.Topics
+	return s, fake, orgStore.Triggers
 }
 
 // seedWSConn adds a slack_workspace connection installed from appConnID,
-// plus its auto-managed Topic (via the same reconciler production uses).
+// plus its auto-managed Trigger (via the same reconciler production uses).
 func seedWSConn(t *testing.T, s *HelixAPIServer, fake *fakeServiceConnStore, connID, orgID, appConnID string) {
 	t.Helper()
 	fake.conns[connID] = &types.ServiceConnection{
@@ -65,34 +68,30 @@ func seedWSConn(t *testing.T, s *HelixAPIServer, fake *fakeServiceConnStore, con
 	s.helixOrg.slackTopics.ensure(context.Background(), orgID, connID, "ws-"+connID, "app")
 }
 
-func wsTopicExists(t *testing.T, topics helixorgstore.Topics, orgID, connID string) bool {
+func wsTriggerExists(t *testing.T, repo helixorgstore.Triggers, orgID, connID string) bool {
 	t.Helper()
-	_, err := topics.Get(context.Background(), orgID, slackWorkspaceTopicID(connID))
-	switch {
-	case err == nil:
-		return true
-	case errors.Is(err, helixorgstore.ErrNotFound):
-		return false
-	default:
-		t.Fatalf("Topics.Get: %v", err)
-		return false
+	rows, err := repo.Find(context.Background(), helixorgstore.WithOrg(orgID),
+		helixorgstore.WithID(slackWorkspaceTriggerID(connID)), helixorgstore.WithLimit(1))
+	if err != nil {
+		t.Fatalf("Triggers.Find: %v", err)
 	}
+	return len(rows) > 0
 }
 
 // Deleting a global slack_app removes every workspace install made from it
-// — and each install's auto-managed Topic — across all orgs, while an
+// — and each install's auto-managed Trigger — across all orgs, while an
 // install from a different app is left untouched. Driven through the
 // registered observer hook (reactToServiceConnectionChange), the same seam
 // the service-connection delete handler fires.
-func TestSlackApp_DeleteCascadesWorkspacesAndTopics(t *testing.T) {
-	s, fake, topics := newSlackCascadeServer()
+func TestSlackApp_DeleteCascadesWorkspacesAndTriggers(t *testing.T) {
+	s, fake, triggerRepo := newSlackCascadeServer()
 	seedWSConn(t, s, fake, "ws-a", "orgA", "app1")
 	seedWSConn(t, s, fake, "ws-b", "orgB", "app1") // same app, different org
 	seedWSConn(t, s, fake, "ws-c", "orgC", "app2") // a different app — must survive
 
 	for _, w := range []struct{ org, conn string }{{"orgA", "ws-a"}, {"orgB", "ws-b"}, {"orgC", "ws-c"}} {
-		if !wsTopicExists(t, topics, w.org, w.conn) {
-			t.Fatalf("precondition: topic for %s missing", w.conn)
+		if !wsTriggerExists(t, triggerRepo, w.org, w.conn) {
+			t.Fatalf("precondition: trigger for %s missing", w.conn)
 		}
 	}
 
@@ -103,22 +102,22 @@ func TestSlackApp_DeleteCascadesWorkspacesAndTopics(t *testing.T) {
 		if _, ok := fake.conns[w.conn]; ok {
 			t.Errorf("workspace %s should be deleted", w.conn)
 		}
-		if wsTopicExists(t, topics, w.org, w.conn) {
-			t.Errorf("topic for %s should be deleted", w.conn)
+		if wsTriggerExists(t, triggerRepo, w.org, w.conn) {
+			t.Errorf("trigger for %s should be deleted", w.conn)
 		}
 	}
 	if _, ok := fake.conns["ws-c"]; !ok {
 		t.Error("ws-c (different app) must not be deleted")
 	}
-	if !wsTopicExists(t, topics, "orgC", "ws-c") {
-		t.Error("ws-c topic (different app) must survive")
+	if !wsTriggerExists(t, triggerRepo, "orgC", "ws-c") {
+		t.Error("ws-c trigger (different app) must survive")
 	}
 }
 
 // The hook reacts only to slack_app: deleting a github_app leaves slack
-// workspace installs (and their topics) untouched.
+// workspace installs (and their Triggers) untouched.
 func TestServiceConnectionChange_IgnoresNonSlackApp(t *testing.T) {
-	s, fake, topics := newSlackCascadeServer()
+	s, fake, triggerRepo := newSlackCascadeServer()
 	seedWSConn(t, s, fake, "ws-a", "orgA", "app1")
 
 	gh := &types.ServiceConnection{ID: "gh1", Type: types.ServiceConnectionTypeGitHubApp}
@@ -127,15 +126,15 @@ func TestServiceConnectionChange_IgnoresNonSlackApp(t *testing.T) {
 	if _, ok := fake.conns["ws-a"]; !ok {
 		t.Error("a github_app delete must not cascade slack workspaces")
 	}
-	if !wsTopicExists(t, topics, "orgA", "ws-a") {
-		t.Error("slack topic must survive a github_app delete")
+	if !wsTriggerExists(t, triggerRepo, "orgA", "ws-a") {
+		t.Error("slack trigger must survive a github_app delete")
 	}
 }
 
 // A slack_app create/edit (deleted=false) reconciles Socket Mode but must
 // NOT cascade-delete workspace installs.
 func TestSlackApp_NonDeleteDoesNotCascade(t *testing.T) {
-	s, fake, topics := newSlackCascadeServer()
+	s, fake, triggerRepo := newSlackCascadeServer()
 	seedWSConn(t, s, fake, "ws-a", "orgA", "app1")
 
 	app := &types.ServiceConnection{ID: "app1", Type: types.ServiceConnectionTypeSlackApp}
@@ -144,7 +143,7 @@ func TestSlackApp_NonDeleteDoesNotCascade(t *testing.T) {
 	if _, ok := fake.conns["ws-a"]; !ok {
 		t.Error("a slack_app edit must not delete workspace installs")
 	}
-	if !wsTopicExists(t, topics, "orgA", "ws-a") {
-		t.Error("a slack_app edit must not delete topics")
+	if !wsTriggerExists(t, triggerRepo, "orgA", "ws-a") {
+		t.Error("a slack_app edit must not delete triggers")
 	}
 }

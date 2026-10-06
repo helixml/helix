@@ -39,11 +39,11 @@ type SandboxInstanceInfo struct {
 
 	// Inference profile state — populated from the heartbeat. Empty for
 	// pure-agent sandboxes with no profile assigned.
-	ActiveProfileID string                                       `json:"active_profile_id,omitempty"`
-	ProfileStatus   string                                       `json:"profile_status,omitempty"`
-	ProfileError    string                                       `json:"profile_error,omitempty"`
-	ServiceHealth   map[string]string                            `json:"service_health,omitempty"`
-	ProfileProgress map[string]types.ServiceDownloadProgress     `json:"profile_progress,omitempty"`
+	ActiveProfileID string                                   `json:"active_profile_id,omitempty"`
+	ProfileStatus   string                                   `json:"profile_status,omitempty"`
+	ProfileError    string                                   `json:"profile_error,omitempty"`
+	ServiceHealth   map[string]string                        `json:"service_health,omitempty"`
+	ProfileProgress map[string]types.ServiceDownloadProgress `json:"profile_progress,omitempty"`
 
 	// Hardware reported by the sandbox heartbeat — drives the admin UI's
 	// per-runner architecture display so an operator can pick a compatible
@@ -57,6 +57,7 @@ type SandboxInstanceInfo struct {
 type DevContainerWithClients struct {
 	hydra.DevContainerResponse
 	SandboxID        string               `json:"sandbox_id"`
+	Purpose          string               `json:"purpose,omitempty"`
 	Clients          []ClientInfo         `json:"clients,omitempty"`
 	VideoStats       *VideoStreamingStats `json:"video_stats,omitempty"`
 	SessionName      string               `json:"session_name,omitempty"`
@@ -126,6 +127,17 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("Failed to list sandboxes: %v", err), http.StatusInternalServerError)
 		return
+	}
+	sandboxRows, err := apiServer.Store.ListSandboxes(ctx, &store.ListSandboxesQuery{IncludeDeleted: true})
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("Failed to list sandbox rows: %v", err), http.StatusInternalServerError)
+		return
+	}
+	sandboxByID := make(map[string]*types.Sandbox, len(sandboxRows))
+	for _, sb := range sandboxRows {
+		if sb != nil {
+			sandboxByID[sb.ID] = sb
+		}
 	}
 
 	// Convert to response format
@@ -208,51 +220,46 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 		}
 	}
 
-	// Enrich containers with session details (name, age, owner) and spec task info
+	// Enrich containers with session or sandbox details.
 	for i := range allDevContainers {
-		dc := &allDevContainers[i]
-		if dc.SessionID == "" {
-			continue
-		}
+		apiServer.enrichDevContainer(ctx, &allDevContainers[i], sandboxByID)
+	}
+
+	response := &AgentSandboxesDebugResponse{
+		Message:       "Hydra-based sandbox infrastructure",
+		Sandboxes:     sandboxInfos,
+		GPUs:          allGPUs,
+		DevContainers: allDevContainers,
+	}
+
+	writeResponse(rw, response, http.StatusOK)
+}
+
+func (apiServer *HelixAPIServer) enrichDevContainer(ctx context.Context, dc *DevContainerWithClients, sandboxByID map[string]*types.Sandbox) {
+	if dc.SessionID == "" {
+		return
+	}
+
+	var owner, organizationID, projectID string
+	sandboxRow := sandboxByID[dc.SessionID]
+	if sandboxRow != nil {
+		dc.Purpose = sandboxRow.Purpose
+		dc.SessionName = sandboxRow.Name
+		dc.SessionAge = formatDuration(time.Since(sandboxRow.CreatedAt))
+		owner = sandboxRow.Owner
+		organizationID = sandboxRow.OrganizationID
+		projectID = sandboxRow.ProjectID
+	} else {
 		session, err := apiServer.Store.GetSession(ctx, dc.SessionID)
 		if err != nil {
-			continue
+			return
 		}
 		dc.SessionName = session.Name
 		dc.SessionAge = formatDuration(time.Since(session.Created))
+		owner = session.Owner
+		organizationID = session.OrganizationID
+		projectID = session.ProjectID
 
-		if session.Owner != "" {
-			user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: session.Owner})
-			if err == nil && user != nil {
-				if user.FullName != "" {
-					dc.OwnerName = user.FullName
-				} else {
-					dc.OwnerName = user.Username
-				}
-			}
-		}
-
-		// Look up org and project names
-		if session.OrganizationID != "" {
-			dc.OrganizationID = session.OrganizationID
-			org, err := apiServer.Store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: session.OrganizationID})
-			if err == nil && org != nil {
-				if org.DisplayName != "" {
-					dc.OrganizationName = org.DisplayName
-				} else {
-					dc.OrganizationName = org.Name
-				}
-			}
-		}
-		if session.ProjectID != "" {
-			dc.ProjectID = session.ProjectID
-			project, err := apiServer.Store.GetProject(ctx, session.ProjectID)
-			if err == nil && project != nil {
-				dc.ProjectName = project.Name
-			}
-		}
-
-		// Look up spec task: try work session first, then planning session fallback
 		specTask := apiServer.findSpecTaskForSession(ctx, dc.SessionID)
 		if specTask != nil {
 			dc.TaskID = specTask.ID
@@ -268,14 +275,41 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 		}
 	}
 
-	response := &AgentSandboxesDebugResponse{
-		Message:       "Hydra-based sandbox infrastructure",
-		Sandboxes:     sandboxInfos,
-		GPUs:          allGPUs,
-		DevContainers: allDevContainers,
+	if owner != "" {
+		user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: owner})
+		if err == nil && user != nil {
+			if user.FullName != "" {
+				dc.OwnerName = user.FullName
+			} else {
+				dc.OwnerName = user.Username
+			}
+		}
 	}
-
-	writeResponse(rw, response, http.StatusOK)
+	if organizationID != "" {
+		dc.OrganizationID = organizationID
+		org, err := apiServer.Store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: organizationID})
+		if err == nil && org != nil {
+			if org.DisplayName != "" {
+				dc.OrganizationName = org.DisplayName
+			} else {
+				dc.OrganizationName = org.Name
+			}
+		}
+	}
+	if projectID != "" {
+		dc.ProjectID = projectID
+		project, err := apiServer.Store.GetProject(ctx, projectID)
+		if err == nil && project != nil {
+			dc.ProjectName = project.Name
+		}
+	}
+	if sandboxRow != nil && sandboxRow.Purpose == types.SandboxPurposeWebService {
+		name := dc.ProjectName
+		if name == "" {
+			name = sandboxRow.Name
+		}
+		dc.SessionName = "Web service: " + name
+	}
 }
 
 // queryDesktopClients queries the desktop server's /clients endpoint via Hydra proxy
@@ -340,7 +374,7 @@ func (apiServer *HelixAPIServer) queryVideoStats(ctx context.Context, hydraClien
 
 // findSpecTaskForSession resolves a helix session ID to its parent SpecTask.
 // Tries the work session path first (implementation sessions), then falls back
-// to checking AgentSessionID (planning/spec-generation sessions).
+// to checking PlanningSessionID (planning/spec-generation sessions).
 func (apiServer *HelixAPIServer) findSpecTaskForSession(ctx context.Context, sessionID string) *types.SpecTask {
 	// Path 1: session → work session → spec task (covers implementation sessions)
 	workSession, err := apiServer.Store.GetSpecTaskWorkSessionByHelixSession(ctx, sessionID)
@@ -353,7 +387,7 @@ func (apiServer *HelixAPIServer) findSpecTaskForSession(ctx context.Context, ses
 
 	// Path 2: session is the planning session on the spec task itself
 	tasks, err := apiServer.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-		AgentSessionID: sessionID,
+		PlanningSessionID: sessionID,
 		Limit:             1,
 	})
 	if err == nil && len(tasks) > 0 {

@@ -57,18 +57,33 @@ func (mr *MockContainerExecutorMockRecorder) GetGoldenBuildResult(ctx, sandboxID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGoldenBuildResult", reflect.TypeOf((*MockContainerExecutor)(nil).GetGoldenBuildResult), ctx, sandboxID, projectID)
 }
 
-// HasRunningContainer mocks base method.
-func (m *MockContainerExecutor) HasRunningContainer(ctx context.Context, sessionID string) bool {
+// DestroyDesktop mocks base method.
+func (m *MockContainerExecutor) DestroyDesktop(ctx context.Context, sessionID, specTaskID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HasRunningContainer", ctx, sessionID)
-	ret0, _ := ret[0].(bool)
+	ret := m.ctrl.Call(m, "DestroyDesktop", ctx, sessionID, specTaskID)
+	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// HasRunningContainer indicates an expected call of HasRunningContainer.
-func (mr *MockContainerExecutorMockRecorder) HasRunningContainer(ctx, sessionID any) *gomock.Call {
+// DestroyDesktop indicates an expected call of DestroyDesktop.
+func (mr *MockContainerExecutorMockRecorder) DestroyDesktop(ctx, sessionID, specTaskID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasRunningContainer", reflect.TypeOf((*MockContainerExecutor)(nil).HasRunningContainer), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyDesktop", reflect.TypeOf((*MockContainerExecutor)(nil).DestroyDesktop), ctx, sessionID, specTaskID)
+}
+
+// GoldenBuildContainerRunning mocks base method.
+func (m *MockContainerExecutor) GoldenBuildContainerRunning(ctx context.Context, sandboxID, sessionID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GoldenBuildContainerRunning", ctx, sandboxID, sessionID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GoldenBuildContainerRunning indicates an expected call of GoldenBuildContainerRunning.
+func (mr *MockContainerExecutorMockRecorder) GoldenBuildContainerRunning(ctx, sandboxID, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GoldenBuildContainerRunning", reflect.TypeOf((*MockContainerExecutor)(nil).GoldenBuildContainerRunning), ctx, sandboxID, sessionID)
 }
 
 // StartDesktop mocks base method.
@@ -152,51 +167,6 @@ func (m *MockGitService) GetPullRequest(ctx context.Context, repoID, prID string
 func (mr *MockGitServiceMockRecorder) GetPullRequest(ctx, repoID, prID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPullRequest", reflect.TypeOf((*MockGitService)(nil).GetPullRequest), ctx, repoID, prID)
-}
-
-// GetRepository mocks base method.
-func (m *MockGitService) GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetRepository", ctx, repoID)
-	ret0, _ := ret[0].(*types.GitRepository)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetRepository indicates an expected call of GetRepository.
-func (mr *MockGitServiceMockRecorder) GetRepository(ctx, repoID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRepository", reflect.TypeOf((*MockGitService)(nil).GetRepository), ctx, repoID)
-}
-
-// IsBranchMerged mocks base method.
-func (m *MockGitService) IsBranchMerged(ctx context.Context, repoID, branchName, targetBranch string) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsBranchMerged", ctx, repoID, branchName, targetBranch)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// IsBranchMerged indicates an expected call of IsBranchMerged.
-func (mr *MockGitServiceMockRecorder) IsBranchMerged(ctx, repoID, branchName, targetBranch any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsBranchMerged", reflect.TypeOf((*MockGitService)(nil).IsBranchMerged), ctx, repoID, branchName, targetBranch)
-}
-
-// IsCommitInBranch mocks base method.
-func (m *MockGitService) IsCommitInBranch(ctx context.Context, repoID, commitSHA, targetBranch string) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsCommitInBranch", ctx, repoID, commitSHA, targetBranch)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// IsCommitInBranch indicates an expected call of IsCommitInBranch.
-func (mr *MockGitServiceMockRecorder) IsCommitInBranch(ctx, repoID, commitSHA, targetBranch any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsCommitInBranch", reflect.TypeOf((*MockGitService)(nil).IsCommitInBranch), ctx, repoID, commitSHA, targetBranch)
 }
 
 // ListPullRequests mocks base method.

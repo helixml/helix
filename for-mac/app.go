@@ -866,7 +866,7 @@ func (a *App) StartCombinedUpdate() error {
 // ApplyCombinedUpdate applies both the staged VM and cached DMG.
 // Refuses to proceed if the VM is not staged (safety check).
 func (a *App) ApplyCombinedUpdate() error {
-	if !IsVMUpdateStaged() {
+	if !vmReadyForVersion(a.settings, a.updater.GetInfo().LatestVersion) {
 		return fmt.Errorf("VM update not staged — cannot apply combined update")
 	}
 	return a.updater.ApplyAppUpdate(a.ctx, a.downloader)
@@ -950,6 +950,14 @@ func (a *App) checkVMVersionOnStartup() {
 		sentinelVersion := strings.TrimSpace(string(sentinelData))
 		log.Printf("Startup: combined update sentinel found (v%s)", sentinelVersion)
 
+		// The sentinel is for the new app. If this is still the old app (the
+		// user quit before "Restart and Update"), leave the staged disk and DMG
+		// in place; performUpdateCheck re-offers the restart.
+		if sentinelVersion != Version {
+			log.Printf("Startup: running v%s, not v%s — leaving combined update staged", Version, sentinelVersion)
+			return
+		}
+
 		if IsVMUpdateStaged() {
 			stagedVersion := GetStagedVMVersion()
 			m, _ := a.downloader.LoadManifest()
@@ -1018,6 +1026,10 @@ func (a *App) performUpdateCheck() {
 	if info.Available {
 		log.Printf("Update available: %s → %s", info.CurrentVersion, info.LatestVersion)
 		wailsRuntime.EventsEmit(a.ctx, "update:available", info)
+		if IsCombinedUpdateStaged(a.settings, info.LatestVersion) {
+			log.Printf("Combined update v%s already staged, awaiting restart", info.LatestVersion)
+			wailsRuntime.EventsEmit(a.ctx, "update:combined-ready")
+		}
 	}
 
 	// When an app update is available, the combined flow handles both app + VM.

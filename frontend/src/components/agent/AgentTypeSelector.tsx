@@ -125,7 +125,6 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
         </RadioGroup>
       </FormControl>
 
-      {/* External Agent Configuration - settings are now in AppSettings.tsx Display Settings */}
     </Box>
   );
 };

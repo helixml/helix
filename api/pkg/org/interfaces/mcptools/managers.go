@@ -11,7 +11,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
@@ -32,8 +31,8 @@ var managersSchema = mustSchema[managersArgs]()
 type managersArgs struct{}
 
 type managerView struct {
-	ID        orgchart.NodeID   `json:"id"`
-	DMTopicID streaming.TopicID `json:"dmTopicId"`
+	ID          orgchart.NodeID `json:"id"`
+	DMChannelID string          `json:"dmChannelId"`
 }
 
 type managersResult struct {
@@ -45,11 +44,11 @@ func (t *Managers) InputSchema() *jsonschema.Schema { return managersSchema }
 func (t *Managers) Description() string {
 	return "List the managers you report to — your escalation targets. Takes no " +
 		"arguments; resolves your own reporting lines live. Each manager comes with " +
-		"the deterministic DM topic id you escalate on. When you are blocked on a " +
+		"the deterministic DM channel id you escalate on. When you are blocked on a " +
 		"decision above your authority, call this, then `dm` one manager with the " +
 		"decision needed + options + your recommendation, and `read_events` (with " +
-		"wait) on that dmTopicId for the reply. You already receive your managers' " +
-		"team-topic briefings without asking — those arrive via your subscriptions."
+		"wait) on that dmChannelId for the reply. You already receive your managers' " +
+		"team-chat briefings without asking — those arrive via your attachments."
 }
 
 func (t *Managers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
@@ -77,8 +76,8 @@ func (t *Managers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 			return nil, fmt.Errorf("get manager %q: %w", m, err)
 		}
 		out = append(out, managerView{
-			ID:        b.ID,
-			DMTopicID: channels.DMTopicID(caller, m),
+			ID:          b.ID,
+			DMChannelID: channels.DMTriggerID(caller, m),
 		})
 	}
 	return json.Marshal(managersResult{Managers: out})

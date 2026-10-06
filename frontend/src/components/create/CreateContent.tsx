@@ -12,7 +12,6 @@ import SessionTypeButton from './SessionTypeButton'
 import Toolbar from './Toolbar'
 import FileDrawer from '../finetune/FileDrawer'
 import Cell from '../widgets/Cell'
-import Disclaimer from '../widgets/Disclaimer'
 import Row from '../widgets/Row'
 import UploadingOverlay from '../widgets/UploadingOverlay'
 import useAccount from '../../hooks/useAccount'
@@ -402,9 +401,6 @@ const CreateContent: FC<CreateContentProps> = ({
                   </Box>
                 </Cell>
               </Row>
-              <Box sx={{ mt: 2 }}>
-                <Disclaimer />
-              </Box>
             </Box>
           </Container>
         </Box>

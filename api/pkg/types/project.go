@@ -228,14 +228,31 @@ type Project struct {
 
 	// Automation settings
 	AutoStartBacklogTasks bool `json:"auto_start_backlog_tasks"` // Automatically move backlog tasks to planning when capacity available
+	// Archive automation, reconciled by the spec task orchestrator
+	AutoArchiveCompletedTasks bool `json:"auto_archive_completed_tasks" gorm:"default:false"` // Archive tasks immediately when they enter Done
+	ArchiveStaleTasksEnabled  bool `json:"archive_stale_tasks_enabled" gorm:"default:false"`  // Archive tasks idle for ArchiveStaleTasksDays
+	ArchiveStaleTasksDays     int  `json:"archive_stale_tasks_days" gorm:"default:6"`         // Idle days before a stale task is archived
 
 	// StartupScriptFromYAML indicates the startup script was set via project YAML
 	// When true, the UI should show the script as read-only
 	StartupScriptFromYAML bool `json:"startup_script_from_yaml" gorm:"default:false"`
 
-	// Default agent for spec tasks in this project (App ID)
-	// New spec tasks inherit this agent; can be overridden per-task
+	// Legacy coding-App migration source. Coding projects clear this after
+	// materializing CodeAgentConfig. Org Worker projects retain it as their Bot
+	// identity link until that separate overload is removed.
 	DefaultHelixAppID string `json:"default_helix_app_id"`
+	// CodeAgentConfig is the project default copied into each new SpecTask.
+	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty" gorm:"type:jsonb;serializer:json"`
+	// PlanningCodeAgentConfig is the planning-phase default copied into each new
+	// SpecTask. Nil preserves the historical behaviour by using CodeAgentConfig.
+	PlanningCodeAgentConfig *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty" gorm:"type:jsonb;serializer:json"`
+	// Default sandbox environment for new spec tasks. Empty values from legacy
+	// projects resolve to the full desktop runtime.
+	DefaultSandboxRuntime SandboxRuntime `json:"default_sandbox_runtime,omitempty" gorm:"size:64"`
+	// Default sandbox resources copied into each new SpecTask. Nil means the
+	// project expresses no preference and the task resolves the global default at
+	// container-create time.
+	DefaultSandboxResourceOverrides *SandboxResourceOverrides `json:"default_sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	ProjectManagerHelixAppID string `json:"project_manager_helix_app_id"`
 
@@ -243,12 +260,21 @@ type Project struct {
 	PullRequestReviewsEnabled     bool   `json:"pull_request_reviews_enabled"`
 	KoditEnabled                  bool   `json:"kodit_enabled" gorm:"default:true"`
 
+	// AutoApprovePullRequests is the default for new spec tasks: their agents'
+	// pull request proposals are approved without asking. Each task keeps its
+	// own setting, so changing this does not affect existing tasks.
+	AutoApprovePullRequests bool `json:"auto_approve_pull_requests" gorm:"default:false"`
+
 	// Guidelines for AI agents - project-specific style guides, conventions, and instructions
 	// Combined with organization guidelines when constructing prompts
 	Guidelines          string    `json:"guidelines"`
 	GuidelinesVersion   int       `json:"guidelines_version"`    // Incremented on each update
 	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"` // When guidelines were last updated
 	GuidelinesUpdatedBy string    `json:"guidelines_updated_by"` // User ID who last updated guidelines
+
+	// AgentTools is the Helix MCP tool allowlist every spec task in this
+	// project inherits. Empty means no Helix MCP surface at all.
+	AgentTools []string `json:"agent_tools,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Project-level skills - these overlay on top of agent skills
 	// Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
@@ -363,38 +389,77 @@ type ProjectTasksResponse struct {
 
 // ProjectCreateRequest represents a request to create a new project
 type ProjectCreateRequest struct {
-	OrganizationID    string           `json:"organization_id"`
-	Name              string           `json:"name"`
-	Description       string           `json:"description"`
-	GitHubRepoURL     string           `json:"github_repo_url,omitempty"`
-	DefaultBranch     string           `json:"default_branch,omitempty"`
-	Technologies      []string         `json:"technologies,omitempty"`
-	DefaultRepoID     string           `json:"default_repo_id,omitempty"`
-	StartupScript     string           `json:"startup_script,omitempty"`
-	DefaultHelixAppID string           `json:"default_helix_app_id,omitempty"` // Default agent for spec tasks
-	Guidelines        string           `json:"guidelines,omitempty"`           // Project-specific AI agent guidelines
-	Skills            *AssistantSkills `json:"skills,omitempty"`               // Project-level skills
+	OrganizationID                  string                    `json:"organization_id"`
+	Name                            string                    `json:"name"`
+	Description                     string                    `json:"description"`
+	GitHubRepoURL                   string                    `json:"github_repo_url,omitempty"`
+	DefaultBranch                   string                    `json:"default_branch,omitempty"`
+	Technologies                    []string                  `json:"technologies,omitempty"`
+	DefaultRepoID                   string                    `json:"default_repo_id,omitempty"`
+	StartupScript                   string                    `json:"startup_script,omitempty"`
+	DefaultHelixAppID               string                    `json:"default_helix_app_id,omitempty"` // Org-agent identity only; coding projects use CodeAgentConfig
+	CodeAgentConfig                 *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	PlanningCodeAgentConfig         *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty"`
+	DefaultSandboxRuntime           SandboxRuntime            `json:"default_sandbox_runtime,omitempty"`            // Default sandbox environment for spec tasks
+	DefaultSandboxResourceOverrides *SandboxResourceOverrides `json:"default_sandbox_resource_overrides,omitempty"` // Default sandbox resources for spec tasks
+	Guidelines                      string                    `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
+	Skills                          *AssistantSkills          `json:"skills,omitempty"`                             // Project-level skills
 }
 
 // ProjectUpdateRequest represents a request to update a project
 type ProjectUpdateRequest struct {
-	Name                          *string          `json:"name,omitempty"`
-	Description                   *string          `json:"description,omitempty"`
-	GitHubRepoURL                 *string          `json:"github_repo_url,omitempty"`
-	DefaultBranch                 *string          `json:"default_branch,omitempty"`
-	Technologies                  []string         `json:"technologies,omitempty"`
-	Status                        *string          `json:"status,omitempty"`
-	DefaultRepoID                 *string          `json:"default_repo_id,omitempty"`
-	StartupScript                 *string          `json:"startup_script,omitempty"`
-	AutoStartBacklogTasks         *bool            `json:"auto_start_backlog_tasks,omitempty"`
-	DefaultHelixAppID             *string          `json:"default_helix_app_id,omitempty"`               // Default agent for spec tasks
-	ProjectManagerHelixAppID      *string          `json:"project_manager_helix_app_id,omitempty"`       // Project manager agent
-	PullRequestReviewerHelixAppID *string          `json:"pull_request_reviewer_helix_app_id,omitempty"` // Pull request reviewer agent
-	PullRequestReviewsEnabled     *bool            `json:"pull_request_reviews_enabled,omitempty"`       // Whether pull request reviews are enabled
-	KoditEnabled                  *bool            `json:"kodit_enabled,omitempty"`                      // Whether Kodit code intelligence is enabled
-	Guidelines                    *string          `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
-	Skills                        *AssistantSkills `json:"skills,omitempty"`                             // Project-level skills
-	Metadata                      *ProjectMetadata `json:"metadata,omitempty"`
+	Name                            *string                   `json:"name,omitempty"`
+	Description                     *string                   `json:"description,omitempty"`
+	GitHubRepoURL                   *string                   `json:"github_repo_url,omitempty"`
+	DefaultBranch                   *string                   `json:"default_branch,omitempty"`
+	Technologies                    []string                  `json:"technologies,omitempty"`
+	Status                          *string                   `json:"status,omitempty"`
+	DefaultRepoID                   *string                   `json:"default_repo_id,omitempty"`
+	StartupScript                   *string                   `json:"startup_script,omitempty"`
+	AutoStartBacklogTasks           *bool                     `json:"auto_start_backlog_tasks,omitempty"`
+	AutoArchiveCompletedTasks       *bool                     `json:"auto_archive_completed_tasks,omitempty"` // Archive tasks immediately when they enter Done
+	ArchiveStaleTasksEnabled        *bool                     `json:"archive_stale_tasks_enabled,omitempty"`  // Archive tasks idle for ArchiveStaleTasksDays
+	ArchiveStaleTasksDays           *int                      `json:"archive_stale_tasks_days,omitempty"`     // Idle days before a stale task is archived (1-365)
+	DefaultHelixAppID               *string                   `json:"default_helix_app_id,omitempty"`         // Org-agent identity only; coding projects use CodeAgentConfig
+	CodeAgentConfig                 *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	PlanningCodeAgentConfig         *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty"`
+	DefaultSandboxRuntime           *SandboxRuntime           `json:"default_sandbox_runtime,omitempty"`            // Default sandbox environment for spec tasks
+	DefaultSandboxResourceOverrides *SandboxResourceOverrides `json:"default_sandbox_resource_overrides,omitempty"` // Default sandbox resources for spec tasks
+	ProjectManagerHelixAppID        *string                   `json:"project_manager_helix_app_id,omitempty"`       // Project manager agent
+	PullRequestReviewerHelixAppID   *string                   `json:"pull_request_reviewer_helix_app_id,omitempty"` // Pull request reviewer agent
+	PullRequestReviewsEnabled       *bool                     `json:"pull_request_reviews_enabled,omitempty"`       // Whether pull request reviews are enabled
+	AutoApprovePullRequests         *bool                     `json:"auto_approve_pull_requests,omitempty"`         // Default for new spec tasks: auto-approve agent PR proposals
+	KoditEnabled                    *bool                     `json:"kodit_enabled,omitempty"`                      // Whether Kodit code intelligence is enabled
+	Guidelines                      *string                   `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
+	Skills                          *AssistantSkills          `json:"skills,omitempty"`                             // Project-level skills
+	AgentTools                      *[]string                 `json:"agent_tools,omitempty"`                        // Helix MCP tools granted to every spec task
+	Metadata                        *ProjectMetadataUpdate    `json:"metadata,omitempty"`
+}
+
+// ProjectMetadataUpdate is the partial-update form of ProjectMetadata used by
+// PUT /api/v1/projects/{id}. Every field is optional: nil means "don't change".
+// DockerCacheStatus is deliberately absent — it is managed exclusively by
+// GoldenBuildService and must never be overwritten from an API request.
+type ProjectMetadataUpdate struct {
+	BoardSettings       *BoardSettings `json:"board_settings,omitempty"`
+	AutoWarmDockerCache *bool          `json:"auto_warm_docker_cache,omitempty"`
+	OrgMembersAccess    *bool          `json:"org_members_access,omitempty"`
+}
+
+// ApplyTo merges the non-nil fields of the update into metadata.
+func (u *ProjectMetadataUpdate) ApplyTo(metadata *ProjectMetadata) {
+	if u == nil || metadata == nil {
+		return
+	}
+	if u.BoardSettings != nil {
+		metadata.BoardSettings = u.BoardSettings
+	}
+	if u.AutoWarmDockerCache != nil {
+		metadata.AutoWarmDockerCache = *u.AutoWarmDockerCache
+	}
+	if u.OrgMembersAccess != nil {
+		metadata.OrgMembersAccess = *u.OrgMembersAccess
+	}
 }
 
 // MoveProjectRequest represents a request to move a project to an organization
@@ -458,19 +523,19 @@ type SampleProjectTask struct {
 type ProjectMetadata struct {
 	BoardSettings       *BoardSettings    `json:"board_settings,omitempty"`
 	AutoWarmDockerCache bool              `json:"auto_warm_docker_cache,omitempty"`
-	DockerCacheStatus   *DockerCacheState `json:"docker_cache_status,omitempty"`
+	DockerCacheStatus   *DockerCacheState `json:"docker_cache_status,omitempty"` // Computed from golden_builds on read
 	OrgMembersAccess    bool              `json:"org_members_access,omitempty"`
 }
 
-// DockerCacheState tracks the current state of the golden Docker cache for a project,
-// per sandbox. Each sandbox has its own cache state since golden caches are local
-// to the sandbox's filesystem.
+// DockerCacheState is the API view of a project's golden Docker cache, per
+// sandbox. Golden caches are local to each sandbox's filesystem. It is built
+// from the golden_builds table on read; it is not stored in ProjectMetadata.
 type DockerCacheState struct {
 	Sandboxes map[string]*SandboxCacheState `json:"sandboxes,omitempty"`
 }
 
 // OverallStatus returns an aggregate status across all sandboxes:
-// "building" if any sandbox is building, "ready" if all are ready,
+// "building" if any sandbox is building or retrying, "ready" if all are ready,
 // "failed" if any failed (and none building), "none" otherwise.
 func (d *DockerCacheState) OverallStatus() string {
 	if d == nil || len(d.Sandboxes) == 0 {
@@ -481,38 +546,87 @@ func (d *DockerCacheState) OverallStatus() string {
 	allReady := true
 	for _, s := range d.Sandboxes {
 		switch s.Status {
-		case "building":
+		case GoldenBuildStatusBuilding, GoldenBuildStatusRetrying:
 			anyBuilding = true
 			allReady = false
-		case "failed":
+		case GoldenBuildStatusFailed:
 			anyFailed = true
 			allReady = false
-		case "ready":
+		case GoldenBuildStatusReady:
 			// ok
 		default:
 			allReady = false
 		}
 	}
 	if anyBuilding {
-		return "building"
+		return GoldenBuildStatusBuilding
 	}
 	if allReady && len(d.Sandboxes) > 0 {
-		return "ready"
+		return GoldenBuildStatusReady
 	}
 	if anyFailed {
-		return "failed"
+		return GoldenBuildStatusFailed
 	}
-	return "none"
+	return GoldenBuildStatusNone
 }
 
-// SandboxCacheState tracks the golden Docker cache state for a single sandbox.
+// Golden build statuses (SandboxCacheState.Status).
+const (
+	GoldenBuildStatusNone     = "none"
+	GoldenBuildStatusBuilding = "building"
+	// GoldenBuildStatusRetrying: the last attempt was interrupted (sandbox,
+	// Hydra or API went away mid-build); a new attempt starts at NextRetryAt
+	// once the sandbox is connected.
+	GoldenBuildStatusRetrying = "retrying"
+	GoldenBuildStatusReady    = "ready"
+	GoldenBuildStatusFailed   = "failed"
+)
+
+// GoldenBuildMaxAttempts bounds how many times one trigger (a merge to main or
+// a manual build) is attempted when builds keep getting interrupted, so a
+// startup that reliably kills its own container can't loop forever.
+const GoldenBuildMaxAttempts = 3
+
+// SandboxCacheState is the persisted state of a project's golden Docker cache
+// on one sandbox (table golden_builds). It is the single source of truth for
+// the golden build lifecycle: GoldenBuildService reads and writes it
+// transactionally, the API serves it as-is, and startup/reconnect
+// reconciliation resumes from it after an API restart.
 type SandboxCacheState struct {
+	ProjectID string `json:"project_id" gorm:"primaryKey"`
+	SandboxID string `json:"sandbox_id" gorm:"primaryKey"`
+
 	Status         string     `json:"status"`
 	SizeBytes      int64      `json:"size_bytes,omitempty"`
-	LastBuildAt    *time.Time `json:"last_build_at,omitempty"`
+	LastBuildAt    *time.Time `json:"last_build_at,omitempty"` // when the current/last attempt started
 	LastReadyAt    *time.Time `json:"last_ready_at,omitempty"`
 	BuildSessionID string     `json:"build_session_id,omitempty"`
 	Error          string     `json:"error,omitempty"`
+
+	// Attempt is the 1-based attempt number for the current trigger.
+	Attempt int `json:"attempt,omitempty"`
+	// MaxAttempts is GoldenBuildMaxAttempts, exposed for the UI.
+	MaxAttempts int `json:"max_attempts,omitempty" gorm:"-"`
+	// TriggeredAt identifies the trigger (merge or manual build) the attempts
+	// belong to. A new trigger resets Attempt and the retry budget.
+	TriggeredAt *time.Time `json:"triggered_at,omitempty"`
+	// PendingRebuild: a trigger arrived while a build was running; build again
+	// as soon as it finishes.
+	PendingRebuild bool `json:"pending_rebuild,omitempty"`
+	// InterruptReason is why the last attempt ended without a result.
+	InterruptReason string `json:"interrupt_reason,omitempty"`
+	// NextRetryAt is when the retry of an interrupted build may start.
+	NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
+
+	Updated time.Time `json:"updated"`
+}
+
+// TableName keeps the table name stable regardless of the Go type name.
+func (SandboxCacheState) TableName() string { return "golden_builds" }
+
+// Active reports whether a build is in flight or scheduled to retry.
+func (s *SandboxCacheState) Active() bool {
+	return s.Status == GoldenBuildStatusBuilding || s.Status == GoldenBuildStatusRetrying
 }
 
 // ZFSTree is the full ZFS snapshot/clone tree for a project's golden cache.

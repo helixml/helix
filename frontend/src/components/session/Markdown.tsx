@@ -12,9 +12,9 @@ import Box from "@mui/material/Box";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import type { PluggableList } from "unified";
 import { TypesSession } from "../../api/api";
-
-import DOMPurify from "dompurify";
 
 // Import the new Citation component
 import Citation, { Excerpt } from "./Citation";
@@ -23,7 +23,7 @@ import ThinkingWidget from "./ThinkingWidget";
 
 // Import chat stats collector for performance monitoring
 import { getGlobalStatsCollector } from "./ChatStatsOverlay";
-import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
+import { APP_MONO_FONT_FAMILY, TYPOGRAPHY } from "../../styles/typography";
 import { getChatColors } from "./chatStyles";
 import MarkdownTable from "./MarkdownTable";
 import MarkdownCodeBlock from "./MarkdownCodeBlock";
@@ -91,9 +91,6 @@ export class MessageProcessor {
     if (this.options.isStreaming) {
       processedMessage = this.removeTrailingTripleDash(processedMessage);
     }
-
-    // Sanitize HTML
-    processedMessage = this.sanitizeHtml(processedMessage);
 
     // Note: Blinker is now rendered as a separate React component (StreamingIndicator)
     // instead of being injected into the markdown content. This fixes issues where
@@ -477,101 +474,6 @@ export class MessageProcessor {
     return message.replace(/\n---\s*$/, "");
   }
 
-  private sanitizeHtml(message: string): string {
-    // Temporarily replace code blocks to protect them from sanitization
-    const codeBlocks: string[] = [];
-    let processedMessage = message.replace(
-      /```(?:[\w]*)\n([\s\S]*?)```/g,
-      (match, codeContent) => {
-        codeBlocks.push(match);
-        return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
-      },
-    );
-
-    // Also protect inline code spans
-    const inlineCode: string[] = [];
-    processedMessage = processedMessage.replace(/`([^`]+)`/g, (match) => {
-      inlineCode.push(match);
-      return `__INLINE_CODE_${inlineCode.length - 1}__`;
-    });
-
-    // Escape HTML-like tags that aren't in our allowlist BEFORE DOMPurify
-    // This prevents malformed tags like <svg xmlns="... from breaking rendering
-    const ALLOWED_TAG_NAMES = [
-      "a",
-      "p",
-      "br",
-      "strong",
-      "em",
-      "div",
-      "span",
-      "h1",
-      "h2",
-      "h3",
-      "h4",
-      "h5",
-      "h6",
-      "ul",
-      "ol",
-      "li",
-      "code",
-      "pre",
-      "blockquote",
-      "details",
-      "summary",
-      "table",
-      "thead",
-      "tbody",
-      "tr",
-      "th",
-      "td",
-    ];
-    processedMessage = processedMessage.replace(
-      /<(\/?)([\w-]+)/g,
-      (match, slash, tagName) => {
-        if (ALLOWED_TAG_NAMES.includes(tagName.toLowerCase())) {
-          return match; // Keep allowed tags
-        }
-        return `&lt;${slash}${tagName}`; // Escape disallowed tags
-      },
-    );
-
-    // Use DOMPurify to sanitize HTML while preserving safe tags and attributes
-    processedMessage = DOMPurify.sanitize(processedMessage, {
-      ALLOWED_TAGS: ALLOWED_TAG_NAMES,
-      ALLOWED_ATTR: [
-        "href",
-        "target",
-        "class",
-        "style",
-        "title",
-        "id",
-        "aria-hidden",
-        "aria-label",
-        "role",
-      ],
-      ADD_ATTR: ["target"],
-    });
-
-    // Restore inline code
-    inlineCode.forEach((code, index) => {
-      processedMessage = processedMessage.replace(
-        `__INLINE_CODE_${index}__`,
-        code,
-      );
-    });
-
-    // Restore code blocks
-    codeBlocks.forEach((codeBlock, index) => {
-      processedMessage = processedMessage.replace(
-        `__CODE_BLOCK_${index}__`,
-        codeBlock,
-      );
-    });
-
-    return processedMessage;
-  }
-
   private addCitationData(message: string): string {
     // Add citation data as a special marker that can be picked up by React component
     const citationJson = JSON.stringify(this.citationData);
@@ -754,10 +656,10 @@ export class MessageProcessor {
 
 export interface InteractionMarkdownProps {
   text: string;
-  session: TypesSession;
-  getFileURL: (filename: string) => string;
+  session?: TypesSession | null;
+  getFileURL?: (filename: string) => string;
   showBlinker?: boolean;
-  isStreaming: boolean;
+  isStreaming?: boolean;
   onFilterDocument?: (docId: string) => void;
   compactThinking?: boolean;
   renderThinkingWidget?: boolean;
@@ -954,8 +856,8 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
         data-chat-markdown
         data-chat-markdown-visible={hasVisibleContent ? "true" : undefined}
         sx={{
-          fontSize: "0.875rem",
-          lineHeight: 1.625,
+          fontSize: TYPOGRAPHY.chatFontSize,
+          lineHeight: TYPOGRAPHY.chatLineHeight,
           "& .interactionMessage > *": {
             marginTop: 0,
             marginBottom: 0,
@@ -980,8 +882,22 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           },
           "& code": {
             backgroundColor: "transparent",
-            fontSize: "0.875rem",
+            fontSize: TYPOGRAPHY.chatFontSize,
             fontFamily: APP_MONO_FONT_FAMILY,
+          },
+          // Highlighted code owns its own surface — the block chrome lives on
+          // the wrapper, so the inner pre/code stay flat and unpadded.
+          "& [data-chat-code-block] pre": {
+            margin: 0,
+            border: "none",
+            borderRadius: 0,
+            background: "transparent",
+          },
+          "& pre > code": {
+            border: "none",
+            background: "transparent",
+            padding: 0,
+            fontSize: "inherit",
           },
           "& :not(pre) > code": {
             backgroundColor: chatColors.inlineCodeSurface,
@@ -989,10 +905,22 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             border: `1px solid ${chatColors.inlineCodeBorder}`,
             padding: "0.1rem 0.35rem",
             borderRadius: "0.375rem",
-            fontSize: "0.75rem",
+            fontSize: TYPOGRAPHY.inlineCodeFontSize,
           },
           "& a": {
             color: theme.palette.mode === "light" ? "#333" : "inherit",
+          },
+          "& blockquote": {
+            margin: "1rem 0",
+            padding: "0.125rem 0 0.125rem 1rem",
+            borderLeft: `3px solid ${chatColors.borderStrong}`,
+            color: chatColors.muted,
+          },
+          "& blockquote > :first-of-type": {
+            marginTop: 0,
+          },
+          "& blockquote > :last-child": {
+            marginBottom: 0,
           },
 
           "& .doc-citation": {
@@ -1204,7 +1132,13 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
 
     // Memoize plugins arrays to prevent unnecessary re-renders
     const remarkPluginsArray = useMemo(() => [remarkGfm], []);
-    const rehypePluginsArray = useMemo(() => [rehypeRaw], []);
+    const rehypePluginsArray = useMemo(
+      (): PluggableList => [
+        rehypeRaw,
+        [rehypeSanitize, CHAT_MARKDOWN_SANITIZE_SCHEMA],
+      ],
+      [],
+    );
 
     return (
       <Markdown
@@ -1240,7 +1174,7 @@ const WorkspaceFileReference: FC<{ path: string; label: string }> = ({ path, lab
         bgcolor: colors.inlineCodeSurface,
         color: colors.inlineCodeForeground,
         fontFamily: APP_MONO_FONT_FAMILY,
-        fontSize: "0.75rem",
+        fontSize: TYPOGRAPHY.inlineCodeFontSize,
         lineHeight: 1.5,
         verticalAlign: "text-bottom",
       }}
@@ -1253,8 +1187,20 @@ const WorkspaceFileReference: FC<{ path: string; label: string }> = ({ path, lab
   );
 };
 
+const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    a: [
+      ...(defaultSchema.attributes?.a || []),
+      ["className", "doc-citation", "filter-mention", "doc-group-link"],
+      "target",
+      "title",
+    ],
+  },
+};
+
 function processBasicContent(text: string): string {
-  // Implement basic processing logic here
   return text;
 }
 

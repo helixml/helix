@@ -1,7 +1,6 @@
 import React, { FC, useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
 import ChatOutlinedIcon from '@mui/icons-material/ChatOutlined'
@@ -39,8 +38,9 @@ import OrgAgentSettings from '../components/app/OrgAgentSettings'
 import FocusedAgentDetails from '../components/app/FocusedAgentDetails'
 import MemoriesManagement from '../components/app/MemoriesManagement'
 import HelixOrgTopNav from '../components/helix-org/HelixOrgTopNav'
+import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
 import {
-  useActivateBot,
+  useApplyBotConfig,
   useListHelixOrgBotDetails,
   useListHelixOrgBots,
 } from '../services/helixOrgService'
@@ -65,12 +65,17 @@ const App: FC = () => {
     { enabled: appIsOrgAgent },
   )
   const linkedOrgAgentDetail = orgAgentDetails.find(
-    (detail) => (detail?.agent_id ?? detail?.agent_app_id) === params.app_id,
+    (detail) => detail?.legacy_app_id === params.app_id,
   )
   const linkedOrgAgent = linkedOrgAgentDetail?.bot
   const orgAgentDetailLoading = orgAgentsLoading
     || (orgAgents.length > 0 && orgAgentDetails.some((detail) => !detail))
-  const activateOrgAgent = useActivateBot()
+  // The Bot backing this App, resolved for the restart-required banner.
+  // There is no direct App->Bot lookup endpoint, so match the org's Bot
+  // list (already fetched above for appIsOrgAgent) on agent_id, which is
+  // the Node's AgentID — the App's own id.
+  const restartBannerBot = orgAgents.find((bot) => bot.legacy_app_id === params.app_id)
+  const applyBotConfig = useApplyBotConfig()
   // Get user access information from appTools
   const { userAccess } = appTools
 
@@ -116,25 +121,16 @@ const App: FC = () => {
   const isReadOnly = appTools.isReadOnly || !appTools.isSafeToSave
   const appIsFocusedAgent = usesFocusedAgentDetails(appTools.app)
 
-  const openChat = async () => {
+  const openChat = () => {
     if (!linkedOrgAgent?.id) {
       account.orgNavigate('new', { app_id: appTools.id, resource_type: 'apps' })
       return
     }
     if (!params.org_id) return
-    try {
-      const result = await activateOrgAgent.mutateAsync(linkedOrgAgent.id)
-      let sessionID = result.session_id
-      if (!sessionID) {
-        if (!result.project_id) throw new Error('failed to open agent chat')
-        const response = await api.getApiClient().v1ProjectsExploratorySessionCreate(result.project_id)
-        sessionID = response.data?.id
-      }
-      if (!sessionID) throw new Error('failed to open agent chat')
-      router.navigate('org_session', { org_id: params.org_id, session_id: sessionID })
-    } catch (error: any) {
-      snackbar.error(error?.response?.data?.error ?? error?.message ?? 'failed to open agent chat')
-    }
+    router.navigate('org_bot_session', {
+      org_id: params.org_id,
+      bot_id: linkedOrgAgent.id,
+    })
   }
 
   return (
@@ -155,9 +151,9 @@ const App: FC = () => {
           <Button
             variant="contained"
             color="secondary"
-            startIcon={activateOrgAgent.isPending ? <CircularProgress size={16} /> : <ChatOutlinedIcon />}
-            onClick={() => void openChat()}
-            disabled={activateOrgAgent.isPending || (appIsOrgAgent && !linkedOrgAgent)}
+            startIcon={<ChatOutlinedIcon />}
+            onClick={openChat}
+            disabled={appIsOrgAgent && !linkedOrgAgent}
           >
             Open chat
           </Button>
@@ -172,6 +168,14 @@ const App: FC = () => {
         }}
       >
         <Box sx={{ width: '100%', pl: 2, pr: 2, mt: 2 }}>
+          <AgentRestartRequiredBanner
+            key={restartBannerBot?.id}
+            visible={!!restartBannerBot?.restart_required}
+            working={false}
+            busy={applyBotConfig.isPending}
+            sticky
+            onRestart={() => { if (restartBannerBot?.id) void applyBotConfig.mutateAsync(restartBannerBot.id) }}
+          />
           <Grid container>
             <Grid item xs={12} sx={{
               p: 0,

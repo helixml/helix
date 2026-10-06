@@ -93,6 +93,18 @@ var (
 	// osMkdirAll creates directories. Override in tests.
 	osMkdirAll = os.MkdirAll
 
+	// statZvolDevice stats a /dev/zvol path, following the udev symlink.
+	// Override in tests.
+	statZvolDevice = os.Stat
+
+	// zvolDeviceWaitTimeout bounds how long waitForZvolDevice waits for udev
+	// to (re)create /dev/zvol/<name> after a zfs create/clone/rename. Generous
+	// because udev lags well behind under heavy host load.
+	zvolDeviceWaitTimeout = 2 * time.Minute
+
+	// zvolDevicePollInterval is how often waitForZvolDevice re-checks.
+	zvolDevicePollInterval = 100 * time.Millisecond
+
 	// goldenBaseDirOverride overrides goldenBaseDir for tests.
 	// When non-empty, goldenDir() and GCMigratedGoldenDirs() use this instead.
 	goldenBaseDirOverride string
@@ -480,15 +492,6 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 		return "", fmt.Errorf("zfs clone %s → %s failed: %w", snapshot, cloneName, err)
 	}
 
-	// Wait for device node to appear (kernel creates /dev/zvol/... asynchronously)
-	devPath := zvolDevPath(cloneName)
-	for i := 0; i < 30; i++ {
-		if _, err := os.Stat(devPath); err == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
 	// Mount the clone with -o nouuid. XFS refuses to mount two filesystems
 	// with the same UUID, and clones inherit the golden's UUID. We can't use
 	// xfs_admin -U generate because the clone's XFS log may have unplayed
@@ -562,14 +565,23 @@ func CleanupSessionZvol(sessionID string) error {
 	return nil
 }
 
+// goldenPendingPromotionProp marks a zvol whose promotion to golden has
+// started but whose @genN snapshot hasn't been taken yet. Value is
+// "<generation>,<sessionID>". ZFS user properties survive promote and rename,
+// so if promotion dies after the rename (e.g. the golden fails to mount) the
+// golden still records what is left to do and
+// finishPendingGoldenPromotionLocked completes it.
+const goldenPendingPromotionProp = "helix:pending-promotion"
+
 // PromoteSessionToGoldenZvol takes a session's Docker data and creates/updates
 // the project's golden zvol from it.
 //
 // This is called after a golden build completes. The session was running on a
 // cloned zvol (or a fresh one for the first golden build). We:
-// 1. Unmount the session clone
-// 2. Promote the clone to replace the golden zvol
-// 3. Take a new snapshot for future clones
+// 1. Finish any previously interrupted promotion
+// 2. Unmount the session clone and mark it pending promotion
+// 3. Promote the clone to replace the golden zvol
+// 4. Purge, version and snapshot it for future clones, then clear the mark
 func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
 	cloneName := sessionZvolName(sessionID)
 	goldenName := goldenZvolName(projectID)
@@ -579,6 +591,13 @@ func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
 	lock := getGoldenLock(projectID)
 	lock.Lock()
 	defer lock.Unlock()
+
+	// A previous promotion that got as far as the rename left the golden
+	// unsnapshotted. Finish it first so generations stay monotonic and the
+	// rebuild path below sees a normal golden.
+	if _, err := finishPendingGoldenPromotionLocked(projectID); err != nil {
+		return fmt.Errorf("failed to finish previous golden promotion: %w", err)
+	}
 
 	// Read current generation
 	nextGeneration := 1
@@ -599,6 +618,11 @@ func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
 		if err := runCmd("umount", mountPath); err != nil {
 			return fmt.Errorf("failed to unmount session clone %s: %w", mountPath, err)
 		}
+	}
+
+	if err := runCmd("zfs", "set",
+		fmt.Sprintf("%s=%d,%s", goldenPendingPromotionProp, nextGeneration, sessionID), cloneName); err != nil {
+		return fmt.Errorf("failed to mark %s pending promotion: %w", cloneName, err)
 	}
 
 	if zfsDatasetExists(goldenName) {
@@ -636,44 +660,101 @@ func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
 		}
 	}
 
-	// Mount golden, purge containers, write version, unmount
-	goldenMount := filepath.Join(zvolMountBase, "golden-"+projectID)
-	if err := mountZvol(goldenName, goldenMount); err != nil {
-		return fmt.Errorf("failed to mount golden for purge: %w", err)
+	return completeGoldenPromotionLocked(projectID, nextGeneration, sessionID)
+}
+
+// pendingGoldenPromotion reads the pending-promotion mark from a zvol.
+func pendingGoldenPromotion(dataset string) (generation int, sessionID string, ok bool, err error) {
+	out, err := execCmdOutput("zfs", "get", "-H", "-s", "local", "-o", "value", goldenPendingPromotionProp, dataset)
+	if err != nil {
+		return 0, "", false, fmt.Errorf("zfs get %s %s: %w", goldenPendingPromotionProp, dataset, err)
+	}
+	value := strings.TrimSpace(string(out))
+	if value == "" || value == "-" {
+		return 0, "", false, nil
+	}
+	genStr, sessionID, _ := strings.Cut(value, ",")
+	generation, err = strconv.Atoi(genStr)
+	if err != nil || generation < 1 {
+		return 0, "", false, fmt.Errorf("invalid %s=%q on %s", goldenPendingPromotionProp, value, dataset)
+	}
+	return generation, sessionID, true, nil
+}
+
+// finishPendingGoldenPromotionLocked completes an interrupted promotion of the
+// project's golden zvol, if there is one. Caller must hold the golden write lock.
+func finishPendingGoldenPromotionLocked(projectID string) (finished bool, err error) {
+	goldenName := goldenZvolName(projectID)
+	if !zfsDatasetExists(goldenName) {
+		return false, nil
+	}
+	generation, sessionID, ok, err := pendingGoldenPromotion(goldenName)
+	if err != nil || !ok {
+		return false, err
+	}
+	log.Warn().
+		Str("project_id", projectID).
+		Str("golden", goldenName).
+		Int("generation", generation).
+		Msg("Golden zvol has an unfinished promotion, completing it")
+	if err := completeGoldenPromotionLocked(projectID, generation, sessionID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ReconcilePendingGoldenPromotions completes every interrupted golden
+// promotion on this host. Returns the number completed.
+func ReconcilePendingGoldenPromotions() int {
+	if zfsParentDataset == "" {
+		return 0
+	}
+	out, err := execCmdOutput("zfs", "get", "-H", "-r", "-t", "volume", "-s", "local",
+		"-o", "name", goldenPendingPromotionProp, zfsParentDataset)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to list pending golden promotions")
+		return 0
+	}
+	goldenPrefix := zfsParentDataset + "/golden-"
+	completed := 0
+	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if !strings.HasPrefix(name, goldenPrefix) {
+			continue // session clones that never reached the rename are reaped by GC
+		}
+		projectID := strings.TrimPrefix(name, goldenPrefix)
+		lock := getGoldenLock(projectID)
+		lock.Lock()
+		finished, err := finishPendingGoldenPromotionLocked(projectID)
+		lock.Unlock()
+		if err != nil {
+			log.Error().Err(err).Str("project_id", projectID).Msg("Failed to complete pending golden promotion")
+			continue
+		}
+		if finished {
+			completed++
+		}
+	}
+	return completed
+}
+
+// completeGoldenPromotionLocked turns the freshly renamed golden zvol into a
+// clonable generation: purge container state, write golden-version.json and
+// take @gen<generation>, then clear the pending-promotion mark. Idempotent —
+// safe to re-run after a failure at any step. Caller must hold the golden
+// write lock.
+func completeGoldenPromotionLocked(projectID string, generation int, sessionID string) error {
+	goldenName := goldenZvolName(projectID)
+	snapName := fmt.Sprintf("%s@gen%d", goldenName, generation)
+
+	if !zfsSnapshotExists(snapName) {
+		if err := snapshotGoldenLocked(projectID, generation, sessionID); err != nil {
+			return err
+		}
 	}
 
-	// Purge container-specific state
-	purgeContainerDirs(goldenMount)
-
-	// Write golden version info
-	info := GoldenVersionInfo{
-		Generation: nextGeneration,
-		CreatedAt:  time.Now(),
-		SessionID:  sessionID,
-		ProjectID:  projectID,
+	if err := runCmd("zfs", "inherit", goldenPendingPromotionProp, goldenName); err != nil {
+		return fmt.Errorf("failed to clear pending promotion mark on %s: %w", goldenName, err)
 	}
-	data, _ := json.MarshalIndent(info, "", "  ")
-	_ = os.WriteFile(filepath.Join(goldenMount, "golden-version.json"), data, 0644)
-
-	// Flush XFS journal before snapshot — ensures clones mount instantly
-	// (no journal replay needed). Without this, every clone pays ~2.3s
-	// of journal replay on mount.
-	_ = runCmd("sync")
-	_ = runCmd("xfs_freeze", "-f", goldenMount)
-
-	// Take snapshot while filesystem is frozen (clean journal)
-	snapName := fmt.Sprintf("%s@gen%d", goldenName, nextGeneration)
-	if err := runCmd("zfs", "snapshot", snapName); err != nil {
-		_ = runCmd("xfs_freeze", "-u", goldenMount)
-		_ = runCmd("umount", goldenMount)
-		_ = os.Remove(goldenMount)
-		return fmt.Errorf("zfs snapshot %s failed: %w", snapName, err)
-	}
-
-	// Thaw and unmount
-	_ = runCmd("xfs_freeze", "-u", goldenMount)
-	_ = runCmd("umount", goldenMount)
-	_ = os.Remove(goldenMount)
 
 	// Ensure golden ends up a true root dataset. `zfs promote` above only
 	// detaches one level, so without this golden stays a clone of the original
@@ -689,9 +770,54 @@ func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
 		Str("project_id", projectID).
 		Str("golden", goldenName).
 		Str("snapshot", snapName).
-		Int("generation", nextGeneration).
+		Int("generation", generation).
 		Msg("Promoted session to golden zvol")
 
+	return nil
+}
+
+// snapshotGoldenLocked mounts the golden, purges container state, writes
+// golden-version.json and takes @gen<generation> with the filesystem frozen.
+func snapshotGoldenLocked(projectID string, generation int, sessionID string) error {
+	goldenName := goldenZvolName(projectID)
+	goldenMount := filepath.Join(zvolMountBase, "golden-"+projectID)
+
+	// A crash mid-promotion can leave it mounted
+	if !isMounted(goldenMount) {
+		if err := mountZvol(goldenName, goldenMount); err != nil {
+			return fmt.Errorf("failed to mount golden for purge: %w", err)
+		}
+	}
+	defer func() {
+		_ = runCmd("umount", goldenMount)
+		_ = os.Remove(goldenMount)
+	}()
+
+	// Purge container-specific state
+	purgeContainerDirs(goldenMount)
+
+	// Write golden version info
+	info := GoldenVersionInfo{
+		Generation: generation,
+		CreatedAt:  time.Now(),
+		SessionID:  sessionID,
+		ProjectID:  projectID,
+	}
+	data, _ := json.MarshalIndent(info, "", "  ")
+	_ = os.WriteFile(filepath.Join(goldenMount, "golden-version.json"), data, 0644)
+
+	// Flush XFS journal before snapshot — ensures clones mount instantly
+	// (no journal replay needed). Without this, every clone pays ~2.3s
+	// of journal replay on mount.
+	_ = runCmd("sync")
+	_ = runCmd("xfs_freeze", "-f", goldenMount)
+	defer func() { _ = runCmd("xfs_freeze", "-u", goldenMount) }()
+
+	// Take snapshot while filesystem is frozen (clean journal)
+	snapName := fmt.Sprintf("%s@gen%d", goldenName, generation)
+	if err := runCmd("zfs", "snapshot", snapName); err != nil {
+		return fmt.Errorf("zfs snapshot %s failed: %w", snapName, err)
+	}
 	return nil
 }
 
@@ -713,13 +839,10 @@ func CreateGoldenZvol(projectID string) (string, error) {
 		return "", fmt.Errorf("zfs create %s failed: %w", zvolName, err)
 	}
 
-	// Wait for device to appear
 	devPath := zvolDevPath(zvolName)
-	for i := 0; i < 10; i++ {
-		if _, err := os.Stat(devPath); err == nil {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
+	if err := waitForZvolDevice(zvolName); err != nil {
+		_ = runCmd("zfs", "destroy", zvolName)
+		return "", err
 	}
 
 	// Format as XFS
@@ -768,13 +891,10 @@ func CreateSessionZvol(sessionID string) (string, error) {
 		return "", fmt.Errorf("zfs create %s failed: %w", zvolName, err)
 	}
 
-	// Wait for device
 	devPath := zvolDevPath(zvolName)
-	for i := 0; i < 10; i++ {
-		if _, err := os.Stat(devPath); err == nil {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
+	if err := waitForZvolDevice(zvolName); err != nil {
+		_ = runCmd("zfs", "destroy", zvolName)
+		return "", err
 	}
 
 	// Format as XFS
@@ -1286,9 +1406,12 @@ func MigrateGoldenToZvol(projectID string) error {
 
 	goldenName := goldenZvolName(projectID)
 
-	// Create the golden zvol
+	// A golden with no snapshot is either an interrupted promotion (finish it —
+	// it holds the newest build) or a partial previous migration (destroy and retry).
+	if finished, err := finishPendingGoldenPromotionLocked(projectID); err != nil || finished {
+		return err
+	}
 	if zfsDatasetExists(goldenName) {
-		// Zvol exists but no snapshot (partial previous migration?) — destroy and retry
 		_ = runCmd("zfs", "destroy", "-r", goldenName)
 	}
 
@@ -1299,13 +1422,10 @@ func MigrateGoldenToZvol(projectID string) error {
 		return fmt.Errorf("zfs create %s failed: %w", goldenName, err)
 	}
 
-	// Wait for device
 	devPath := zvolDevPath(goldenName)
-	for i := 0; i < 10; i++ {
-		if _, err := os.Stat(devPath); err == nil {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
+	if err := waitForZvolDevice(goldenName); err != nil {
+		_ = runCmd("zfs", "destroy", goldenName)
+		return err
 	}
 
 	// Format as XFS
@@ -1388,18 +1508,6 @@ func GCMigratedGoldenDirs() {
 	}
 }
 
-// purgeContainerDirs removes container-specific state from a mounted Docker data dir.
-// Same logic as PurgeContainersFromGolden but operates on an arbitrary mount path.
-func purgeContainerDirs(dockerDir string) {
-	for _, dir := range []string{"containers", "network", "containerd", "buildx", "volumes"} {
-		os.RemoveAll(filepath.Join(dockerDir, dir))
-	}
-	os.Remove(filepath.Join(dockerDir, ".golden-build-result"))
-
-	// Prune unreferenced overlay2 layers left behind by previous image builds.
-	pruneUnreferencedOverlay2Layers(dockerDir)
-}
-
 const seedCompleteMarker = ".zvol-seed-complete"
 
 // seedZvolFromGoldenDir copies the contents of the old file-based golden dir
@@ -1463,6 +1571,39 @@ func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
 	return nil
 }
 
+// waitForZvolDevice waits until /dev/zvol/<zvolName> resolves to a block
+// device. udev creates (and, after `zfs rename`, recreates) that symlink
+// asynchronously, so mounting or formatting straight after zfs
+// create/clone/rename can fail with "special device does not exist".
+func waitForZvolDevice(zvolName string) error {
+	devPath := zvolDevPath(zvolName)
+	if isBlockDevice(devPath) {
+		return nil
+	}
+	start := time.Now()
+	// Drain the udev event queue first; the poll below is what we rely on
+	// (udevadm may be missing or unable to reach udevd from a container).
+	if out, err := execCmdCombinedOutput("udevadm", "settle", "--timeout=30"); err != nil {
+		log.Debug().Err(err).Str("output", strings.TrimSpace(string(out))).Msg("udevadm settle failed, polling for zvol device")
+	}
+	for !isBlockDevice(devPath) {
+		if time.Since(start) >= zvolDeviceWaitTimeout {
+			return fmt.Errorf("zvol device %s did not appear within %s", devPath, zvolDeviceWaitTimeout)
+		}
+		time.Sleep(zvolDevicePollInterval)
+	}
+	log.Info().
+		Str("device", devPath).
+		Dur("waited", time.Since(start)).
+		Msg("Waited for zvol device node")
+	return nil
+}
+
+func isBlockDevice(path string) bool {
+	fi, err := statZvolDevice(path)
+	return err == nil && fi.Mode()&os.ModeDevice != 0 && fi.Mode()&os.ModeCharDevice == 0
+}
+
 // mountZvol mounts a zvol at the given path. Mounts with "discard" so that
 // blocks freed inside the XFS filesystem are TRIMmed back to the ZFS pool —
 // without it, XFS-on-zvol never returns deleted space and the zvol grows
@@ -1477,6 +1618,9 @@ func mountZvol(zvolName, mountPath string) error {
 func mountZvolWithOptions(zvolName, mountPath, options string) error {
 	if err := osMkdirAll(mountPath, 0755); err != nil {
 		return fmt.Errorf("failed to create mount point %s: %w", mountPath, err)
+	}
+	if err := waitForZvolDevice(zvolName); err != nil {
+		return err
 	}
 	devPath := zvolDevPath(zvolName)
 	if options != "" {

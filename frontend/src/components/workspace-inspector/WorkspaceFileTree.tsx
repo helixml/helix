@@ -1,6 +1,6 @@
 import React, { FC, useEffect, useMemo, useRef, useState } from "react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
-import type { ContextMenuItem, ContextMenuOpenContext } from "@pierre/trees";
+import type { ContextMenuItem, ContextMenuOpenContext, GitStatusEntry } from "@pierre/trees";
 import {
   Box,
   CircularProgress,
@@ -13,21 +13,43 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { ClipboardCopy, Copy, RefreshCw, Search, X } from "lucide-react";
-import type { TypesWorkspaceFileEntry } from "../../api/api";
+import { ClipboardCopy, Copy, Download, RefreshCw, Search, X } from "lucide-react";
+import axios from "axios";
+import type { TypesInteractionCodeChangeFile, TypesWorkspaceFileEntry } from "../../api/api";
 import useSnackbar from "../../hooks/useSnackbar";
 import { matchesAllTokens } from "../../utils/searchUtils";
 import { copyTextToClipboard, workspaceFilePath } from "./clipboard";
 import { TREE_UNSAFE_CSS } from "./pierreStyles";
-import { useWorkspaceFile, useWorkspaceFiles } from "./workspaceReviewService";
+import { useWorkspaceFile, useWorkspaceFiles, useWorkspaceReview } from "./workspaceReviewService";
 
 interface WorkspaceFileTreeProps {
   sessionId: string;
   workspace?: string;
   workspacePath?: string;
+  baseBranch?: string;
+  pollInterval: number;
   selectedPath: string | null;
   revealPath: string | null;
   onOpenFile: (path: string) => void;
+}
+
+export function changedFileGitStatus(
+  files: readonly TypesInteractionCodeChangeFile[],
+): GitStatusEntry[] {
+  return files.flatMap((file): GitStatusEntry[] => {
+    if (!file.path) return [];
+    switch (file.kind) {
+      case "added":
+      case "deleted":
+      case "modified":
+      case "renamed":
+        return [{ path: file.path, status: file.kind }];
+      case "copied":
+        return [{ path: file.path, status: "added" }];
+      default:
+        return [{ path: file.path, status: "modified" }];
+    }
+  });
 }
 
 function treePath(entry: TypesWorkspaceFileEntry): string | null {
@@ -122,6 +144,29 @@ const WorkspaceFileContextMenu: FC<WorkspaceFileContextMenuProps> = ({
     }
   };
 
+  const downloadFile = async () => {
+    try {
+      const params = new URLSearchParams({ path: item.path });
+      if (workspace) params.set("workspace", workspace);
+      const response = await axios.get(
+        `/api/v1/external-agents/${encodeURIComponent(sessionId)}/workspace-file/download?${params}`,
+        { responseType: "blob" },
+      );
+      const objectURL = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = objectURL;
+      link.download = item.path.split("/").pop() || "download";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectURL), 0);
+    } catch {
+      snackbar.error("Could not download file");
+    } finally {
+      context.close();
+    }
+  };
+
   const contentsLabel = fileQuery.isLoading
     ? "Loading contents…"
     : fileQuery.isError
@@ -149,6 +194,12 @@ const WorkspaceFileContextMenu: FC<WorkspaceFileContextMenuProps> = ({
         {workspacePath ? "Copy full path" : "Workspace path unavailable"}
       </MenuItem>
       {item.kind === "file" && (
+        <MenuItem onClick={downloadFile}>
+          <ListItemIcon><Download size={15} /></ListItemIcon>
+          Download
+        </MenuItem>
+      )}
+      {item.kind === "file" && (
         <MenuItem
           onClick={copyContents}
           disabled={fileQuery.isLoading || fileQuery.isError || fileQuery.data?.binary || fileQuery.data?.truncated}
@@ -167,11 +218,14 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
   sessionId,
   workspace,
   workspacePath,
+  baseBranch,
+  pollInterval,
   selectedPath,
   revealPath,
   onOpenFile,
 }) => {
   const filesQuery = useWorkspaceFiles(sessionId, workspace);
+  const reviewQuery = useWorkspaceReview(sessionId, workspace, baseBranch, false, pollInterval);
   const [query, setQuery] = useState("");
   const syncingSelection = useRef(false);
   const entries = filesQuery.data?.entries || [];
@@ -191,6 +245,12 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
     [entriesFingerprint, query],
   );
   const pathsFingerprint = paths.join("\0");
+  const gitStatus = useMemo(
+    () => changedFileGitStatus(
+      reviewQuery.data?.sources?.find((source) => source.id === "all")?.files || [],
+    ),
+    [reviewQuery.data],
+  );
   const { model } = useFileTree({
     paths: [],
     density: "compact",
@@ -216,6 +276,10 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
       }
     }
   }, [pathsFingerprint, query]);
+
+  useEffect(() => {
+    model.setGitStatus(gitStatus);
+  }, [gitStatus, model]);
 
   useEffect(() => {
     if (!selectedPath || !entryKinds.has(selectedPath)) return;

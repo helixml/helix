@@ -46,6 +46,7 @@ import {
 } from '../../utils/apps';
 
 import { TypesInteractionState, TypesSession } from '../../api/api';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface PreviewPanelProps {
   appId: string;
@@ -287,8 +288,9 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
   const handleCopyContent = () => {
     if (selectedChunk) {
-      navigator.clipboard.writeText(selectedChunk.content);
-      snackbar.success('Content copied to clipboard');
+      void copyTextToClipboard(selectedChunk.content)
+        .then(() => snackbar.success('Content copied to clipboard'))
+        .catch(() => snackbar.error('Failed to copy content'));
     }
   };
 

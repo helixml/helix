@@ -18,6 +18,7 @@ import (
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/toolcall"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -221,6 +222,30 @@ func TestStreamingProxyLogsCumulativeUsageSnapshot(t *testing.T) {
 	assert.EqualValues(t, 20, call.CacheWriteTokens)
 }
 
+func TestLogLLMCallSkipsVertexErrorResponse(t *testing.T) {
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	logStore := &captureAnthropicLogStore{calls: make(chan *types.LLMCall, 1)}
+	proxy := New(&config.ServerConfig{}, nil, modelInfoProvider, logStore)
+
+	req, err := http.NewRequest(http.MethodPost, "https://localhost/v1/messages", nil)
+	require.NoError(t, err)
+	req = SetRequestProviderEndpoint(req, &types.ProviderEndpoint{
+		ID:      "vertex-endpoint",
+		Name:    "anthropic",
+		BaseURL: "https://us-east5-aiplatform.googleapis.com",
+	})
+
+	proxy.logLLMCall(req.Context(), time.Now(), []byte(`[{"error":{"code":403,"message":"Vertex AI API is disabled","status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"SERVICE_DISABLED","domain":"googleapis.com"}]}}]`), nil, false, 0)
+
+	select {
+	case <-logStore.calls:
+		t.Fatal("Vertex error response was logged as an LLM call")
+	default:
+	}
+}
+
 func Test_stripDateFromModelName(t *testing.T) {
 	tests := []struct {
 		name      string // description of this test case
@@ -369,4 +394,51 @@ func Test_stripDateFromModelName(t *testing.T) {
 			assert.Equal(t, tt.want, got, "stripDateFromModelName() = %v, want %v", got, tt.want)
 		})
 	}
+}
+
+func TestValidateToolCallsAnthropic(t *testing.T) {
+	request := []byte(`{
+		"model": "claude-opus-5",
+		"tools": [
+			{"name": "edit_file", "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"], "additionalProperties": false}},
+			{"type": "bash_20250124", "name": "bash"}
+		]
+	}`)
+
+	message := func(blocks string) *anthropic.Message {
+		var msg anthropic.Message
+		require.NoError(t, msg.UnmarshalJSON([]byte(`{"content": `+blocks+`}`)))
+		return &msg
+	}
+
+	t.Run("valid tool_use block", func(t *testing.T) {
+		result := validateToolCalls(request, message(`[{"type": "tool_use", "name": "edit_file", "input": {"path": "a.go"}}]`))
+		assert.Equal(t, 2, result.ToolsOffered)
+		assert.Equal(t, 1, result.Calls)
+		assert.Equal(t, 0, result.Errors)
+	})
+
+	t.Run("input misses the schema", func(t *testing.T) {
+		result := validateToolCalls(request, message(`[{"type": "tool_use", "name": "edit_file", "input": {"file": "a.go"}}]`))
+		assert.Equal(t, 1, result.Errors)
+		assert.Equal(t, toolcall.KindSchemaMismatch, result.KindsString())
+	})
+
+	t.Run("server tools carry no schema and are unconstrained", func(t *testing.T) {
+		result := validateToolCalls(request, message(`[{"type": "tool_use", "name": "bash", "input": {"command": "ls"}}]`))
+		assert.Equal(t, 0, result.Errors)
+	})
+
+	t.Run("text blocks are not tool calls", func(t *testing.T) {
+		result := validateToolCalls(request, message(`[{"type": "text", "text": "hello"}]`))
+		assert.Equal(t, 0, result.Calls)
+		assert.False(t, result.Errored())
+	})
+}
+
+func TestNormalizeStopReason(t *testing.T) {
+	assert.Equal(t, "tool_calls", normalizeStopReason(anthropic.StopReasonToolUse))
+	assert.Equal(t, "stop", normalizeStopReason(anthropic.StopReasonEndTurn))
+	assert.Equal(t, "length", normalizeStopReason(anthropic.StopReasonMaxTokens))
+	assert.Equal(t, "pause_turn", normalizeStopReason(anthropic.StopReason("pause_turn")))
 }

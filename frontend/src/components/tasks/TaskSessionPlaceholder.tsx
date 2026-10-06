@@ -2,7 +2,11 @@ import React, { FC, ReactNode } from "react";
 import { Box, Button, CircularProgress, Typography } from "@mui/material";
 import { CircleCheck, CircleSlash, LogIn, MonitorPlay, Play } from "lucide-react";
 
-export type TaskSessionPlaceholderTone = "finished" | "archived" | "paused";
+export type TaskSessionPlaceholderTone =
+  | "finished"
+  | "archived"
+  | "paused"
+  | "connecting";
 
 interface TaskSessionPlaceholderProps {
   tone: TaskSessionPlaceholderTone;
@@ -35,6 +39,9 @@ const TONE_ICONS: Record<TaskSessionPlaceholderTone, ReactNode> = {
   finished: <CircleCheck size={22} />,
   archived: <CircleSlash size={22} />,
   paused: <MonitorPlay size={22} />,
+  // A sandbox that is still registering its bridge is on its way to working,
+  // so it gets progress rather than a stopped-looking icon.
+  connecting: <CircularProgress size={20} color="inherit" />,
 };
 
 /**

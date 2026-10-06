@@ -2,8 +2,24 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
+
+func TestReadMacRelease(t *testing.T) {
+	release, err := readMacRelease(strings.NewReader(`{"version":"2.12.19","dmg_url":"https://dl.helix.ml/desktop/2.12.19/Helix-for-Mac.dmg"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if release.Version != "2.12.19" || release.DMGURL != "https://dl.helix.ml/desktop/2.12.19/Helix-for-Mac.dmg" {
+		t.Fatalf("unexpected release: %+v", release)
+	}
+
+	_, err = readMacRelease(strings.NewReader(`{"version":"2.12.19","dmg_url":"https://example.com/Helix-for-Mac.dmg"}`))
+	if err == nil {
+		t.Fatal("expected untrusted DMG URL to be rejected")
+	}
+}
 
 func TestParseSemVer(t *testing.T) {
 	tests := []struct {

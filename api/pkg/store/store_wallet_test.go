@@ -268,6 +268,7 @@ func (suite *WalletTestSuite) TestUpdateWallet() {
 
 	updatedWallet := &types.Wallet{
 		ID:                             createdWallet.ID,
+		PlanOverride:                   types.PlanOverridePro,
 		StripeSubscriptionID:           subscriptionID,
 		SubscriptionStatus:             subscriptionStatus,
 		SubscriptionCurrentPeriodStart: periodStart,
@@ -287,6 +288,12 @@ func (suite *WalletTestSuite) TestUpdateWallet() {
 	suite.Equal(periodEnd, result.SubscriptionCurrentPeriodEnd)
 	suite.Equal(subscriptionCreated, result.SubscriptionCreated)
 	suite.Equal(cancelAtPeriodEnd, result.SubscriptionCancelAtPeriodEnd)
+	suite.Equal(types.PlanOverridePro, result.PlanOverride)
+
+	result.PlanOverride = ""
+	result, err = suite.db.UpdateWallet(suite.ctx, result)
+	suite.NoError(err)
+	suite.Empty(result.PlanOverride)
 
 	// Verify balance was NOT changed (UpdateWallet should not update balance)
 	suite.Equal(100.0, result.Balance)
@@ -473,17 +480,19 @@ func (suite *WalletTestSuite) TestUpdateWalletBalance_TopUpIdempotency() {
 	})
 	suite.NoError(err)
 
-	_, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
+	duplicateWallet, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
 		TransactionType:         types.TransactionTypeTopUp,
 		StripeCheckoutSessionID: checkoutSessionID,
 	})
 	suite.NoError(err)
+	suite.Nil(duplicateWallet)
 
-	_, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
+	duplicateWallet, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
 		TransactionType:       types.TransactionTypeTopUp,
 		StripePaymentIntentID: paymentIntentID,
 	})
 	suite.NoError(err)
+	suite.Nil(duplicateWallet)
 
 	finalWallet, err := suite.db.GetWallet(suite.ctx, createdWallet.ID)
 	suite.NoError(err)

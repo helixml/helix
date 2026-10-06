@@ -9,7 +9,7 @@ import SendIcon from '@mui/icons-material/Send'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
-import Disclaimer from '../components/widgets/Disclaimer'
+import { isSandboxOffline } from '../components/external-agent/sandboxState'
 import SessionToolbar from '../components/session/SessionToolbar'
 
 import Window from '../components/widgets/Window'
@@ -17,12 +17,19 @@ import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 
 import useSnackbar from '../hooks/useSnackbar'
+import useCodeAgentConfigChange from '../hooks/useCodeAgentConfigChange'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import { useTheme } from '@mui/material/styles'
 import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
-import { useGetSession, useUpdateSession, useGetSessionIdleStatus } from '../services/sessionService'
+import {
+  useGetSession,
+  useUpdateSession,
+  useGetSessionIdleStatus,
+  useGetSessionExecutionConfig,
+  useUpdateSessionExecutionConfig,
+} from '../services/sessionService'
 
 import {
   INTERACTION_STATE_EDITING,
@@ -33,16 +40,19 @@ import {
   IShareSessionInstructions,
 } from '../types'
 
-import { TypesAgentType, TypesMessageContentType, TypesMessage, TypesStepInfo, TypesSession, TypesInteractionState } from '../api/api'
+import { TypesAgentType, TypesCodeAgentExecutionConfig, TypesMessageContentType, TypesMessage, TypesStepInfo, TypesSession, TypesInteractionState } from '../api/api'
+import { lastSuccessfulInteractionIndex } from '../utils/interactionRecovery'
 
 import { useStreaming } from '../contexts/streaming'
 
 import { getAssistant } from '../utils/apps'
+import CodeAgentExecutionControls from '../components/agent/CodeAgentExecutionControls'
 import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
 import useSubscriptionGate from '../hooks/useSubscriptionGate'
 import Paywall from '../components/subscription/Paywall'
+import AgentChat from '../components/session/AgentChat'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
 import { useGetConfig } from '../services/userService'
@@ -57,6 +67,11 @@ import {
 } from '../components/session/ChatTurnNavigator.logic'
 import { splitSystemPrefix } from '../components/session/CollapsibleSystemPrefix'
 import OrgAgentSessionWorkspace from '../components/helix-org/OrgAgentSessionWorkspace'
+import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
+import { useActivateBot, useApplyBotConfig, useHelixOrgBot, useRestartBotAgent, useStopBotAgent } from '../services/helixOrgService'
+import { isBotInstanceSessionMetadata } from '../components/session/ProjectChatSidebar.logic'
+import { mergeStreamingInteraction } from '../components/session/subagentActivity'
+import { deriveSandboxState } from '../components/external-agent/sandboxState'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -101,6 +116,7 @@ interface MemoizedInteractionProps {
   session_id: string;
   onRegenerate?: (interactionID: string, message: string) => void;
   sessionSteps: TypesStepInfo[];
+  recoveredLater?: boolean;
 }
 
 // Create a memoized version of the Interaction component
@@ -113,6 +129,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       serverConfig={props.serverConfig}
       interaction={props.interaction}
       nextInteraction={props.nextInteraction}
+      recoveredLater={props.recoveredLater}
       session={props.session}
       highlightAllFiles={props.highlightAllFiles}
       onReloadSession={props.onReloadSession}
@@ -131,6 +148,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
           session_id={props.session_id}
           interaction={props.interaction}
           session={props.session}
+          agentOffline={isSandboxOffline(props.session.config)}
           serverConfig={props.serverConfig}
           onMessageUpdate={props.isLastInteraction ? props.scrollToBottom : undefined}
           onFilterDocument={props.appID ? props.onHandleFilterDocument : undefined}
@@ -154,6 +172,11 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
 
     // Check for differences in error state
     prevProps.interaction.error !== nextProps.interaction.error ||
+
+    prevProps.interaction.pending_question?.request_id !==
+      nextProps.interaction.pending_question?.request_id ||
+    prevProps.interaction.question_history?.length !==
+      nextProps.interaction.question_history?.length ||
 
     // Structured entries can change without output/state changing. Plans in
     // particular overwrite one stable entry as progress advances.
@@ -212,9 +235,10 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
 interface SessionProps {
   previewMode?: boolean;
   orgChatView?: boolean;
+  sessionId?: string;
 }
 
-const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false }) => {
+const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, sessionId }) => {
   const snackbar = useSnackbar()
   const api = useApi()
   const router = useRouter()
@@ -223,7 +247,10 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   const { data: serverConfigData } = useGetConfig()
   const isCloud = serverConfigData?.edition === 'cloud'
 
-  let sessionID = router.params.session_id
+  const sessionID = sessionId
+    || router.params.session_id
+    || new URLSearchParams(window.location.search).get('sessionID')
+    || ''
 
   const { mutate: updateSession } = useUpdateSession(sessionID)
 
@@ -234,7 +261,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   const { data: sessionProject } = useGetProject(sessionProjectID, orgChatView && !!sessionProjectID)
 
   const theme = useTheme()
-  const { NewInference, setCurrentSessionId } = useStreaming()
+  const { NewInference, setCurrentSessionId, currentResponses } = useStreaming()
   const apps = useApps()
   const isBigScreen = useMediaQuery(theme.breakpoints.up('md'))
   const lightTheme = useLightTheme()
@@ -246,12 +273,6 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
   const isOwner = account.user?.id == session?.data?.owner
 
-  // If params sessionID is not set, try to get it from URL query param sessionId=
-  if (!sessionID) {
-    const urlParams = new URLSearchParams(window.location.search)
-    sessionID = urlParams.get('sessionID') || ''
-  }
-
   const containerRef = useRef<HTMLDivElement>(null)
   const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null)
   const setScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
@@ -260,6 +281,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   }, [])
   const observerRef = useRef<IntersectionObserver | null>(null)
   const lastScrollTimeRef = useRef<number>(0)
+  const shouldFollowLatestRef = useRef(true)
 
   const [highlightAllFiles, setHighlightAllFiles] = useState(false)
   const [showCloneWindow, setShowCloneWindow] = useState(false)
@@ -271,8 +293,78 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   const [appID, setAppID] = useState<string | null>(null)
   const [assistantID, setAssistantID] = useState<string | null>(null)
   const [filterMap, setFilterMap] = useState<Record<string, string>>({})
+  const [isCancelling, setIsCancelling] = useState(false)
 
   const isExternalAgent = session?.data?.config?.agent_type === TypesAgentType.AgentTypeZedExternal
+
+  // A helix-org bot session carries its bot id on the session config. Only
+  // this org chat surface needs it — other Session mounts (spec tasks,
+  // ordinary project chat) leave org_worker_id empty, so the lookup and
+  // restart-required banner stay inert there.
+  // A bot instance is its own session with its own sandbox: it gets the plain
+  // external-agent controls, not the bot's (which act on the bot's main
+  // session).
+  const isBotInstance = isBotInstanceSessionMetadata(session?.data?.config)
+  const orgWorkerId = (orgChatView && !isBotInstance && (
+    router.params.bot_id || session?.data?.config?.org_worker_id
+  )) || ''
+
+  useEffect(() => {
+    const orgID = router.params.org_id || ''
+    const botID = session?.data?.config?.org_worker_id || ''
+    if (!orgChatView || router.name !== 'org_session' || !orgID || !botID || isBotInstance) return
+    router.navigateReplace('org_bot_session', {
+      org_id: orgID,
+      bot_id: botID,
+    })
+  }, [orgChatView, router.name, router.params.org_id, session?.data?.config?.org_worker_id, isBotInstance]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Polled: the workspace gates Diff, Files, Browser and the terminal on the
+  // agent's sandbox status, which changes underneath an open page whenever the
+  // agent starts, stops or is restarted.
+  const { data: orgBotDetail } = useHelixOrgBot(orgWorkerId || undefined, {
+    enabled: !!orgWorkerId,
+    refetchInterval: 5000,
+  })
+  const orgBot = orgBotDetail?.bot
+  // An instance's Settings view shows the bot it belongs to.
+  const instanceBotId = isBotInstance ? session?.data?.config?.org_worker_id || '' : ''
+  const { data: instanceBotDetail } = useHelixOrgBot(instanceBotId || undefined, { enabled: !!instanceBotId })
+
+  // A bot instance controls its own sandbox through the session endpoints.
+  const instanceSandboxState = isBotInstance ? deriveSandboxState(session?.data?.config).sandboxState : undefined
+  const instanceSandbox = isBotInstance && instanceSandboxState ? {
+    runtime: session?.data?.config?.sandbox_runtime,
+    state: instanceSandboxState === 'absent' ? 'stopped' as const
+      : instanceSandboxState === 'running' ? 'running' as const : 'starting' as const,
+  } : undefined
+  const [instanceLifecycleBusy, setInstanceLifecycleBusy] = useState(false)
+  const setInstanceSandboxRunning = async (running: boolean) => {
+    const id = session?.data?.id
+    if (!id) return
+    setInstanceLifecycleBusy(true)
+    try {
+      if (running) await api.getApiClient().v1SessionsResumeCreate(id)
+      else await api.getApiClient().v1SessionsStopExternalAgentDelete(id)
+      await refetchSession()
+    } catch (error: any) {
+      snackbar.error(error?.response?.data?.message || error?.message || `Failed to ${running ? 'start' : 'stop'} the sandbox`)
+    } finally {
+      setInstanceLifecycleBusy(false)
+    }
+  }
+  const restartOrgBotAgent = useRestartBotAgent()
+  const applyBotConfig = useApplyBotConfig()
+  const activateOrgBotAgent = useActivateBot()
+  const stopOrgBotAgent = useStopBotAgent()
+  const orgBotLifecycleBusy = restartOrgBotAgent.isPending || activateOrgBotAgent.isPending || stopOrgBotAgent.isPending
+  // Terminal "copy to chat" appends to the composer; the sequence suffix makes
+  // repeated copies of the same text distinct, as on the spec task page.
+  const chatAppendSequence = useRef(0)
+  const appendToChat = useCallback((text: string) => {
+    chatAppendSequence.current += 1
+    setPromptAppendText(`${text}#${chatAppendSequence.current}`)
+  }, [])
 
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
@@ -290,6 +382,45 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
   // Add ref to store current scroll position
   const scrollPositionRef = useRef<number>(0)
+
+  // External coding-agent sessions (org bot chat, project chat) get the same
+  // composer controls as a spec task: model/provider, reasoning, harness — and
+  // a stop button, because their turns are long-running.
+  const { data: executionConfig } = useGetSessionExecutionConfig(sessionID, isExternalAgent)
+  const updateExecutionConfig = useUpdateSessionExecutionConfig(sessionID)
+  const selectedCodeAgentConfig: TypesCodeAgentExecutionConfig | undefined =
+    executionConfig?.code_agent_config
+    || (executionConfig?.runtime && executionConfig?.model
+      ? {
+          runtime: executionConfig.runtime,
+          credential_type: executionConfig.credential_type,
+          provider_ref: executionConfig.provider_ref,
+          model: executionConfig.model,
+          reasoning_effort: executionConfig.reasoning_effort,
+          service_tier: executionConfig.service_tier,
+        }
+      : undefined)
+
+  const handleAgentModelChange = useCodeAgentConfigChange(updateExecutionConfig.mutateAsync)
+
+  const handleCancelTurn = useCallback(async () => {
+    if (isCancelling) return
+    setIsCancelling(true)
+    try {
+      const response = await api.getApiClient().v1SessionsCancelCreate(sessionID)
+      if (response.data?.status === 'noop') {
+        snackbar.info('The agent is no longer running a turn')
+      } else if (response.data?.status === 'pending') {
+        snackbar.info('Cancellation queued; waiting for the agent to reconnect and acknowledge it')
+      }
+      await refetchSession()
+    } catch (error: any) {
+      snackbar.error(error?.message || 'Failed to interrupt current turn')
+    } finally {
+      setIsCancelling(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionID, isCancelling])
 
   // Callback to handle model changes from AdvancedModelPicker
   const handleModelChange = useCallback((provider: string, modelName: string) => {
@@ -456,18 +587,17 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
   // Save scroll position unconditionally before any state changes
   useEffect(() => {
+    if (!scrollContainerEl) return
+
     const saveScrollOnScroll = () => {
-      if (containerRef.current) {
-        scrollPositionRef.current = containerRef.current.scrollTop;
-      }
+      scrollPositionRef.current = scrollContainerEl.scrollTop;
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerEl
+      shouldFollowLatestRef.current = scrollTop + clientHeight >= scrollHeight - 20
     };
 
-    const container = containerRef.current;
-    if (container) {
-      container.addEventListener('scroll', saveScrollOnScroll);
-      return () => container.removeEventListener('scroll', saveScrollOnScroll);
-    }
-  }, []);
+    scrollContainerEl.addEventListener('scroll', saveScrollOnScroll);
+    return () => scrollContainerEl.removeEventListener('scroll', saveScrollOnScroll);
+  }, [scrollContainerEl]);
 
   // Add scroll handler to update visible blocks
   useEffect(() => {
@@ -538,8 +668,9 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   }, [session, saveScrollPosition, restoreScrollPosition]);
 
   // Function to scroll to bottom immediately without animation to prevent jumpiness
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((force = false) => {
     if (!containerRef.current) return
+    if (!force && !shouldFollowLatestRef.current) return
 
     const now = Date.now()
     const timeSinceLastScroll = now - lastScrollTimeRef.current
@@ -551,16 +682,19 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
         top: containerRef.current.scrollHeight,
         behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness
       })
+      shouldFollowLatestRef.current = true
       lastScrollTimeRef.current = now
     } else {
       // Wait for the remaining time before scrolling
       const waitTime = SCROLL_DEBOUNCE - timeSinceLastScroll
       setTimeout(() => {
         if (!containerRef.current) return
+        if (!force && !shouldFollowLatestRef.current) return
         containerRef.current.scrollTo({
           top: containerRef.current.scrollHeight,
           behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness
         })
+        shouldFollowLatestRef.current = true
         lastScrollTimeRef.current = Date.now()
       }, waitTime)
     }
@@ -577,14 +711,11 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
     // Wait for the bottom bar and final content to render
     const timer = setTimeout(() => {
       if (!containerRef.current) return
-      containerRef.current.scrollTo({
-        top: containerRef.current.scrollHeight,
-        behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness
-      })
+      scrollToBottom()
     }, 200)
 
     return () => clearTimeout(timer)
-  }, [isStreaming])
+  }, [isStreaming, scrollToBottom])
 
   // Add new effect for handling streaming state transitions
   useEffect(() => {
@@ -639,7 +770,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
       setFilterMap({})
       // Scroll to bottom immediately after submitting to show progress
-      scrollToBottom()
+      scrollToBottom(true)
 
       newSession = await NewInference({
         message: actualPrompt,
@@ -660,7 +791,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
       setFilterMap({})
       // Scroll to bottom immediately after submitting to show progress
-      scrollToBottom()
+      scrollToBottom(true)
 
       newSession = await api.put(`/api/v1/sessions/${session?.data?.id}`, formData)
     }
@@ -672,7 +803,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
     // Give the DOM time to update, then scroll to bottom again
     setTimeout(() => {
-      scrollToBottom()
+      scrollToBottom(true)
     }, 100)
 
     return true
@@ -757,7 +888,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
 
       // Scroll to bottom immediately after submitting to show progress
-      scrollToBottom()
+      scrollToBottom(true)
 
       newSession = await NewInference({
         regenerate: true,
@@ -777,7 +908,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
       formData.set('model_name', session?.data?.model_name || '')
 
       // Scroll to bottom immediately after submitting to show progress
-      scrollToBottom()
+      scrollToBottom(true)
 
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }
@@ -789,7 +920,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
     // Give the DOM time to update, then scroll to bottom again
     setTimeout(() => {
-      scrollToBottom()
+      scrollToBottom(true)
     }, 100)
 
   }, [
@@ -921,6 +1052,14 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
     session?.data?.interactions?.map(i => `${i.id}:${i.state}`).join(',')
   ]);
 
+  // Index of the last interaction that finished cleanly. Anything errored
+  // before it has been overtaken by work that succeeded afterwards, so its
+  // alarm and Retry button are stale.
+  const lastSuccessIndex = useMemo(
+    () => lastSuccessfulInteractionIndex(memoizedInteractions),
+    [memoizedInteractions],
+  );
+
   // Function to add blocks above when scrolling up
   const addBlocksAbove = useCallback(() => {
     if (!session?.data?.interactions) return
@@ -987,7 +1126,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
   const navigatorItems = useMemo<ChatTurnNavigatorItem[]>(() => {
     return navigatorInteractions.flatMap((interaction) => {
-      if (!interaction.id || interaction.trigger === 'fork_seed' || interaction.trigger === 'fork_handoff') return []
+      if (!interaction.id || interaction.trigger === 'fork_seed' || interaction.trigger === 'fork_handoff' || interaction.trigger === 'org_hire') return []
       const contentText = interaction.prompt_message_content?.parts?.find(
         (part): part is { text: string } =>
           typeof part === 'object' &&
@@ -1147,6 +1286,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
                       serverConfig={account.serverConfig}
                       interaction={interaction}
                       nextInteraction={memoizedInteractions[absoluteIndex + 1]}
+                      recoveredLater={absoluteIndex < lastSuccessIndex}
                       session={sessionData}
                       highlightAllFiles={highlightAllFiles}
                       onReloadSession={safeReloadSession}
@@ -1235,6 +1375,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   useEffect(() => {
     lastLoadScrollPositionRef.current = 0
     lastScrollHeightRef.current = 0
+    shouldFollowLatestRef.current = true
     setIsLoadingBlock(false)
   }, [sessionID])
 
@@ -1340,6 +1481,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
           >
             <Box
               ref={setScrollContainerRef}
+              data-session-scroll-container
               sx={{
                 height: '100%',
                 display: 'flex',
@@ -1379,6 +1521,17 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
                     onHeightChange={scrollToBottom}
                     autoFocus
                     isAgentBusy={loading}
+                    onCancel={isExternalAgent ? handleCancelTurn : undefined}
+                    isCancelling={isCancelling}
+                    showContextUsage
+                    leadingActions={isExternalAgent ? (
+                      <CodeAgentExecutionControls
+                        value={selectedCodeAgentConfig}
+                        onChange={(config) => handleAgentModelChange('', {}, config)}
+                        disabled={updateExecutionConfig.isPending}
+                        compact
+                      />
+                    ) : undefined}
                     placeholder={
                       session.data.type === SESSION_TYPE_TEXT
                         ? session.data.parent_app
@@ -1399,12 +1552,6 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
                     ) : undefined}
                   />
                 </Box>
-                {/* Only show disclaimer if not in preview mode */}
-                {!previewMode && (
-                  <Box sx={{ mt: 2 }}>
-                    <Disclaimer />
-                  </Box>
-                )}
               </Box>
             </Container>
           </Box>
@@ -1498,7 +1645,9 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
   if (!orgChatView) return sessionContent
 
-  const breadcrumbs = sessionProject
+  const breadcrumbs = orgWorkerId
+    ? []
+    : sessionProject
     ? [
         { title: 'Projects', routeName: 'projects' },
         {
@@ -1509,6 +1658,46 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
       ]
     : [{ title: 'Chat', routeName: 'chat' }]
 
+  // External-agent sessions (org bots, project chat) use the same chat surface
+  // as spec tasks — AgentChat — so composer behaviour (sandbox file/image
+  // attachments, prompt queue, plan progress, cancel) is one implementation
+  // and every fix lands on both. The legacy renderer below stays for plain
+  // model chats only.
+  const externalAgentChat = isExternalAgent ? (
+    <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
+      <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {!orgChatView && !previewMode && (isOwner || account.admin) && (
+          <Box sx={{ flexShrink: 0, borderBottom: lightTheme.border, py: 1, px: 2 }}>
+            <SessionToolbar
+              session={session.data}
+              onReload={safeReloadSession}
+              onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
+            />
+          </Box>
+        )}
+        <AgentChat
+          sessionId={session.data.id || sessionID}
+          projectId={sessionProjectID || undefined}
+          enableInteractionDebugCopy
+          showSessionPromptQueue
+          appendText={promptAppendText}
+          leadingActions={(
+            <CodeAgentExecutionControls
+              value={selectedCodeAgentConfig}
+              onChange={(config) => handleAgentModelChange('', {}, config)}
+              disabled={updateExecutionConfig.isPending}
+              compact
+            />
+          )}
+          placeholder={session.data.config?.paused
+            ? 'This session is paused — open the forked child to keep chatting'
+            : `Chat with ${orgBot?.name || apps.app?.config.helix.name || 'agent'}…`}
+          disabled={!!session.data.config?.paused}
+        />
+      </Box>
+    </Paywall>
+  ) : null
+
   return (
     <Page
       breadcrumbs={breadcrumbs}
@@ -1517,12 +1706,35 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
       showDrawerButton={true}
       disableContentScroll={true}
     >
+      <AgentRestartRequiredBanner
+        key={orgWorkerId}
+        visible={!!orgBot?.restart_required}
+        working={!!sessionID && isStreaming}
+        busy={restartOrgBotAgent.isPending || applyBotConfig.isPending}
+        onRestart={() => { if (orgWorkerId) void applyBotConfig.mutateAsync(orgWorkerId) }}
+      />
       {isExternalAgent ? (
         <OrgAgentSessionWorkspace
           sessionId={session.data.id || sessionID}
           organizationId={(router.params.org_id as string) || session.data.organization_id || ''}
+          bot={orgBot}
+          onStart={orgWorkerId
+            ? () => { void activateOrgBotAgent.mutateAsync(orgWorkerId) }
+            : instanceSandbox ? () => { void setInstanceSandboxRunning(true) } : undefined}
+          onStop={orgWorkerId
+            ? () => { void stopOrgBotAgent.mutateAsync(orgWorkerId) }
+            : instanceSandbox ? () => { void setInstanceSandboxRunning(false) } : undefined}
+          onRestart={orgWorkerId ? () => { void restartOrgBotAgent.mutateAsync(orgWorkerId) } : undefined}
+          lifecycleBusy={orgBotLifecycleBusy || instanceLifecycleBusy}
+          sessionSandbox={instanceSandbox}
+          instanceOf={instanceBotDetail?.bot}
+          subagentInteractions={mergeStreamingInteraction(
+            session.data.interactions || [],
+            currentResponses.get(session.data.id || sessionID),
+          )}
+          onAppendToChat={appendToChat}
         >
-          {sessionContent}
+          {externalAgentChat}
         </OrgAgentSessionWorkspace>
       ) : sessionContent}
     </Page>

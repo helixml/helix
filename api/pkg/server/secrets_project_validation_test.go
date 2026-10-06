@@ -1,0 +1,112 @@
+package server
+
+import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+)
+
+func TestCreateSecretRejectsUnknownProject(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	mockStore.EXPECT().GetProject(gomock.Any(), "prj_missing").Return(nil, store.ErrNotFound)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/secrets", bytes.NewBufferString(
+		`{"name":"TOKEN","value":"secret","project_id":"prj_missing"}`,
+	))
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_test"}))
+	_, httpErr := server.createSecret(httptest.NewRecorder(), req)
+	require.NotNil(t, httpErr)
+	require.Equal(t, http.StatusNotFound, httpErr.StatusCode)
+}
+
+func TestCreateProjectSecretReturnsConflictForDuplicate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	mockStore.EXPECT().GetProject(gomock.Any(), "prj_test").Return(&types.Project{
+		ID: "prj_test", UserID: "user_test",
+	}, nil)
+	mockStore.EXPECT().CreateSecret(gomock.Any(), gomock.Any()).Return(nil, store.ErrConflict)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/prj_test/secrets", bytes.NewBufferString(
+		`{"name":"TOKEN","value":"secret"}`,
+	))
+	req = mux.SetURLVars(req, map[string]string{"id": "prj_test"})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_test"}))
+	_, httpErr := server.createProjectSecret(httptest.NewRecorder(), req)
+	require.NotNil(t, httpErr)
+	require.Equal(t, http.StatusConflict, httpErr.StatusCode)
+	require.Equal(t, "A secret with this name already exists in the selected environment", httpErr.Message)
+}
+
+func TestUpdateSecretRejectsOrphanedProjectScope(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	secret := &types.Secret{ID: "sec_test", Name: "TOKEN", Owner: "user_test", ProjectID: "prj_missing"}
+	mockStore.EXPECT().GetSecret(gomock.Any(), secret.ID).Return(secret, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), secret.ProjectID).Return(nil, store.ErrNotFound)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/secrets/sec_test", bytes.NewBufferString(
+		`{"name":"TOKEN","value":"rotated"}`,
+	))
+	req = mux.SetURLVars(req, map[string]string{"id": secret.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_test"}))
+	_, httpErr := server.updateSecret(httptest.NewRecorder(), req)
+	require.NotNil(t, httpErr)
+	require.Equal(t, http.StatusNotFound, httpErr.StatusCode)
+}
+
+func TestProjectSecretRoutesNameMissingProject(t *testing.T) {
+	const projectKey = "cpt-02-post-remediation-verification"
+	wantMessage := "project not found: " + projectKey + " (did you mean the prj_... ID?)"
+
+	tests := []struct {
+		name string
+		call func(*HelixAPIServer, *http.Request) *system.HTTPError
+	}{
+		{
+			name: "list",
+			call: func(server *HelixAPIServer, req *http.Request) *system.HTTPError {
+				_, httpErr := server.listProjectSecrets(httptest.NewRecorder(), req)
+				return httpErr
+			},
+		},
+		{
+			name: "create",
+			call: func(server *HelixAPIServer, req *http.Request) *system.HTTPError {
+				_, httpErr := server.createProjectSecret(httptest.NewRecorder(), req)
+				return httpErr
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			server := &HelixAPIServer{Store: mockStore}
+			mockStore.EXPECT().GetProject(gomock.Any(), projectKey).Return(nil, store.ErrNotFound)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectKey+"/secrets", nil)
+			req = mux.SetURLVars(req, map[string]string{"id": projectKey})
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_test"}))
+
+			httpErr := test.call(server, req)
+			require.NotNil(t, httpErr)
+			require.Equal(t, http.StatusNotFound, httpErr.StatusCode)
+			require.Equal(t, wantMessage, httpErr.Message)
+			require.NotContains(t, httpErr.Message, "Access denied")
+		})
+	}
+}

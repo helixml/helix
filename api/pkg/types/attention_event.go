@@ -24,11 +24,11 @@ type AttentionEvent struct {
 	// RepliedAt is set when the user answers an org_message inline from the
 	// notification bell. It keeps replied messages visible (marked "Replied")
 	// so the user has a record the message came through and was answered.
-	RepliedAt      *time.Time         `json:"replied_at,omitempty"`
-	DismissedAt    *time.Time         `json:"dismissed_at,omitempty" gorm:"index"`
-	SnoozedUntil   *time.Time         `json:"snoozed_until,omitempty"`
-	IdempotencyKey string             `json:"idempotency_key,omitempty" gorm:"size:500;uniqueIndex"`
-	Metadata       datatypes.JSON     `json:"metadata,omitempty" gorm:"type:jsonb"`
+	RepliedAt      *time.Time     `json:"replied_at,omitempty"`
+	DismissedAt    *time.Time     `json:"dismissed_at,omitempty" gorm:"index"`
+	SnoozedUntil   *time.Time     `json:"snoozed_until,omitempty"`
+	IdempotencyKey string         `json:"idempotency_key,omitempty" gorm:"size:500;uniqueIndex"`
+	Metadata       datatypes.JSON `json:"metadata,omitempty" gorm:"type:jsonb"`
 
 	// Denormalized for display without joins
 	ProjectName         string `json:"project_name,omitempty" gorm:"size:255"`
@@ -44,12 +44,14 @@ const (
 	AttentionEventSpecFailed                AttentionEventType = "spec_failed"
 	AttentionEventImplementationFailed      AttentionEventType = "implementation_failed"
 	AttentionEventPRReady                   AttentionEventType = "pr_ready"
-	// AttentionEventOrgMessage is a helix-org bot messaging a person (the
-	// "ask_human" in-app inbox). It has no spec task / project — ProjectID
-	// and SpecTaskID are empty.
+	// AttentionEventPRProposal asks the user to approve or reject an agent's
+	// request to push a branch and open a pull request from it.
+	AttentionEventPRProposal AttentionEventType = "pr_proposal"
+	// AttentionEventOrgMessage is an informational Org Bot message for an org
+	// member. It has no spec task / project — ProjectID and SpecTaskID are empty.
 	AttentionEventOrgMessage AttentionEventType = "org_message"
-	AttentionEventCIPassed                  AttentionEventType = "ci_passed"
-	AttentionEventCIFailed                  AttentionEventType = "ci_failed"
+	AttentionEventCIPassed   AttentionEventType = "ci_passed"
+	AttentionEventCIFailed   AttentionEventType = "ci_failed"
 )
 
 // AttentionEventFilters controls optional filtering when listing attention events.
@@ -63,7 +65,7 @@ type AttentionEventFilters struct {
 // AttentionEventUpdateRequest is the request body for updating an attention event
 // (acknowledge, dismiss, or snooze).
 type AttentionEventUpdateRequest struct {
-	Acknowledge  bool       `json:"acknowledge,omitempty"`
+	Acknowledge bool `json:"acknowledge,omitempty"`
 	// Reply marks an org_message answered — sets replied_at (and acknowledges),
 	// keeping it visible as "Replied" instead of dismissing it.
 	Reply        bool       `json:"reply,omitempty"`

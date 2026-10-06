@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	dockertypes "github.com/docker/docker/api/types"
+	"github.com/stretchr/testify/require"
 )
 
 func TestImageTag(t *testing.T) {
@@ -44,6 +46,279 @@ func TestSandboxResourceLimits(t *testing.T) {
 	if memorySwap != wantMemory*2 {
 		t.Fatalf("MemorySwap = %d, want %d", memorySwap, wantMemory*2)
 	}
+}
+
+// Docker refuses a NanoCPUs above the host CPU count outright, so an unclamped
+// default larger than a small host fails container creation rather than degrade.
+func TestSandboxResourceLimitsClampsVCPUsToHost(t *testing.T) {
+	hostCPUs := runtime.NumCPU()
+
+	nanoCPUs, _, _ := sandboxResourceLimits(hostCPUs*2, 1024)
+	if want := int64(hostCPUs) * 1_000_000_000; nanoCPUs != want {
+		t.Fatalf("NanoCPUs = %d, want %d (clamped to host)", nanoCPUs, want)
+	}
+
+	// Memory is deliberately NOT clamped: Docker accepts a limit above host RAM,
+	// and an unreachable ceiling beats one that OOM-kills the desktop.
+	_, memory, _ := sandboxResourceLimits(1, 1024*1024)
+	if want := int64(1024*1024) * 1024 * 1024; memory != want {
+		t.Fatalf("Memory = %d, want %d (unclamped)", memory, want)
+	}
+}
+
+func TestBuildEnvHeadlessOmitsDisplayAndGPU(t *testing.T) {
+	t.Setenv("HELIX_FRAME_EXPORT_PORT", "19000")
+	gpuIndex := 0
+	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeHeadless,
+		DisplayWidth:  1920,
+		DisplayHeight: 1080,
+		DisplayFPS:    60,
+		GPUVendor:     "nvidia",
+		GPUIndex:      &gpuIndex,
+	})
+
+	for _, entry := range env {
+		for _, prefix := range []string{
+			"GAMESCOPE_",
+			"NVIDIA_",
+			"GPU_VENDOR=",
+			"GST_DEBUG=",
+			"CUDA_VISIBLE_DEVICES=",
+			"HELIX_GPU_INDEX=",
+			"HELIX_SCANOUT_MODE=",
+			"HELIX_VIDEO_MODE=",
+			"HELIX_FRAME_EXPORT_PORT=",
+		} {
+			if strings.HasPrefix(entry, prefix) {
+				t.Fatalf("headless environment contains display/GPU setting %q", entry)
+			}
+		}
+	}
+}
+
+func TestBuildHostConfigHeadlessUsesDockerSecurityDefaults(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeHeadless,
+		Privileged:    false,
+	})
+	require.NoError(t, err)
+	require.False(t, hostConfig.Privileged)
+	require.Empty(t, hostConfig.CapAdd)
+	require.Equal(t, []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}, []string(hostConfig.CapDrop))
+	require.Empty(t, hostConfig.SecurityOpt)
+	require.Empty(t, hostConfig.IpcMode)
+	require.Zero(t, hostConfig.ShmSize)
+	require.Empty(t, hostConfig.Resources.Devices)
+}
+
+func TestBuildHostConfigUntrustedInstanceLimits(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:   DevContainerTypeHeadless,
+		BrowserSandbox:  true,
+		DiskSizeGB:      10,
+		PidsLimit:       512,
+		NoNewPrivileges: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, hostConfig.Resources.PidsLimit)
+	require.Equal(t, int64(512), *hostConfig.Resources.PidsLimit)
+	require.Contains(t, hostConfig.SecurityOpt, "no-new-privileges")
+	require.Contains(t, hostConfig.SecurityOpt, "seccomp="+mustBrowserSandboxSeccomp(t))
+	require.Equal(t, "rw,nosuid,nodev,size=256m,mode=1777", hostConfig.Tmpfs["/tmp"])
+	require.Equal(t, "rw,nosuid,nodev,size=64m,mode=1777", hostConfig.Tmpfs["/var/tmp"])
+}
+
+func mustBrowserSandboxSeccomp(t *testing.T) string {
+	t.Helper()
+	profile, err := browserSandboxSeccomp()
+	require.NoError(t, err)
+	return profile
+}
+
+func TestBuildHostConfigRootlessContainerEngine(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:           DevContainerTypeHeadless,
+		RootlessContainerEngine: true,
+	})
+	require.NoError(t, err)
+	require.False(t, hostConfig.Privileged)
+	require.Equal(t, []string{"SYS_ADMIN"}, []string(hostConfig.CapAdd))
+	require.Equal(t, []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}, []string(hostConfig.CapDrop))
+	require.Equal(t, []string{"seccomp=unconfined"}, hostConfig.SecurityOpt)
+	require.NotNil(t, hostConfig.MaskedPaths)
+	require.Empty(t, hostConfig.MaskedPaths)
+	require.NotNil(t, hostConfig.ReadonlyPaths)
+	require.Empty(t, hostConfig.ReadonlyPaths)
+	require.Empty(t, hostConfig.IpcMode)
+	require.Zero(t, hostConfig.ShmSize)
+	require.Len(t, hostConfig.Resources.Devices, 2)
+	require.Equal(t, "/dev/fuse", hostConfig.Resources.Devices[0].PathOnHost)
+	require.Equal(t, "/dev/fuse", hostConfig.Resources.Devices[0].PathInContainer)
+	require.Equal(t, "rwm", hostConfig.Resources.Devices[0].CgroupPermissions)
+	require.Equal(t, "/dev/net/tun", hostConfig.Resources.Devices[1].PathOnHost)
+	require.Equal(t, "/dev/net/tun", hostConfig.Resources.Devices[1].PathInContainer)
+	require.Equal(t, "rwm", hostConfig.Resources.Devices[1].CgroupPermissions)
+}
+
+func TestBuildHostConfigRejectsInvalidRootlessContainerEngineModes(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	_, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:           DevContainerTypeUbuntu,
+		RootlessContainerEngine: true,
+	})
+	require.EqualError(t, err, "rootless container engine requires a headless container")
+
+	_, err = dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:           DevContainerTypeHeadless,
+		Privileged:              true,
+		RootlessContainerEngine: true,
+	})
+	require.EqualError(t, err, "rootless container engine cannot run in privileged mode")
+}
+
+func TestBuildEnvRootlessContainerEngine(t *testing.T) {
+	t.Setenv("BUILDKIT_HOST", "tcp://buildkit:1234")
+	t.Setenv("HELIX_REGISTRY", "registry:5000")
+
+	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
+		ContainerType:           DevContainerTypeHeadless,
+		RootlessContainerEngine: true,
+		Env: []string{
+			"DOCKER_HOST=tcp://attacker:2375",
+			"CONTAINER_HOST=tcp://attacker:2375",
+			"DOCKER_BUILDKIT=1",
+			"BUILDX_BUILDER=attacker",
+			"BUILDKIT_HOST=tcp://attacker:1234",
+			"HELIX_REGISTRY=attacker:5000",
+		},
+	})
+
+	require.Equal(t, 1, countEnvVar(env, "HELIX_ROOTLESS_CONTAINER_ENGINE"))
+	require.Contains(t, env, "HELIX_ROOTLESS_CONTAINER_ENGINE=1")
+	require.Equal(t, 1, countEnvVar(env, "DOCKER_HOST"))
+	require.Contains(t, env, "DOCKER_HOST=unix:///run/user/1000/podman/podman.sock")
+	require.Equal(t, 1, countEnvVar(env, "CONTAINER_HOST"))
+	require.Contains(t, env, "CONTAINER_HOST=unix:///run/user/1000/podman/podman.sock")
+	require.Equal(t, 1, countEnvVar(env, "DOCKER_BUILDKIT"))
+	require.Contains(t, env, "DOCKER_BUILDKIT=0")
+	require.Equal(t, 1, countEnvVar(env, "BUILDX_BUILDER"))
+	require.Contains(t, env, "BUILDX_BUILDER=helix-rootless")
+	require.Zero(t, countEnvVar(env, "BUILDKIT_HOST"))
+	require.Zero(t, countEnvVar(env, "HELIX_REGISTRY"))
+}
+
+// The control plane emits canonical helix-api.internal:18080 URLs directly (see
+// external-agent buildEnvVars and hydra.SandboxAPIProxyURL), so hydra's buildEnv
+// no longer rewrites control-plane addresses. It passes the API URL env through
+// untouched and only strips the shared build-service vars.
+func TestBuildEnvOmitsSharedBuildServicesAndPassesURLsThrough(t *testing.T) {
+	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeUbuntu,
+		Network:       "bridge",
+		Env: []string{
+			"HELIX_API_URL=" + SandboxAPIProxyURL,
+			"HELIX_API_BASE_URL=" + SandboxAPIProxyURL,
+			"ANTHROPIC_BASE_URL=" + SandboxAPIProxyURL,
+			"OPENAI_BASE_URL=" + SandboxAPIProxyURL + "/v1",
+			"BUILDKIT_HOST=tcp://attacker:1234",
+			"HELIX_REGISTRY=attacker:5000",
+		},
+	})
+
+	require.Contains(t, env, "HELIX_API_URL="+SandboxAPIProxyURL)
+	require.Contains(t, env, "HELIX_API_BASE_URL="+SandboxAPIProxyURL)
+	require.Contains(t, env, "ANTHROPIC_BASE_URL="+SandboxAPIProxyURL)
+	require.Contains(t, env, "OPENAI_BASE_URL="+SandboxAPIProxyURL+"/v1")
+	require.Zero(t, countEnvVar(env, "BUILDKIT_HOST"))
+	require.Zero(t, countEnvVar(env, "HELIX_REGISTRY"))
+}
+
+// Subscription-mode / BYO external endpoints are set by the control plane and
+// must survive untouched — hydra no longer inspects or rewrites them.
+func TestBuildEnvPreservesExternalProviderEndpoints(t *testing.T) {
+	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeHeadless,
+		Network:       "bridge",
+		Env: []string{
+			"OPENAI_BASE_URL=https://llm.internal.example/v1",
+			"ANTHROPIC_BASE_URL=https://api.anthropic.com",
+		},
+	})
+
+	require.Contains(t, env, "OPENAI_BASE_URL=https://llm.internal.example/v1")
+	require.Contains(t, env, "ANTHROPIC_BASE_URL=https://api.anthropic.com")
+}
+
+func TestBuildMountsOmitSharedBuildKitCache(t *testing.T) {
+	dataDir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dataDir, "buildkit-cache"), 0o755))
+	dm := &DevContainerManager{manager: &Manager{dataDir: dataDir}}
+
+	mounts, err := dm.buildMounts(&CreateDevContainerRequest{})
+	require.NoError(t, err)
+	for _, item := range mounts {
+		require.NotEqual(t, "/buildkit-cache", item.Target)
+	}
+}
+
+func TestBuildHostConfigDesktopUsesPrivateIPC(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeUbuntu,
+		Privileged:    true,
+	})
+	require.NoError(t, err)
+	require.True(t, hostConfig.Privileged)
+	require.Empty(t, hostConfig.CapAdd)
+	require.Empty(t, hostConfig.CapDrop)
+	require.Equal(t, []string{"seccomp=unconfined", "apparmor=unconfined"}, hostConfig.SecurityOpt)
+	require.Equal(t, "private", string(hostConfig.IpcMode))
+	require.EqualValues(t, desktopShmSizeBytes, hostConfig.ShmSize)
+	require.Equal(t, SandboxNetworkName, string(hostConfig.NetworkMode))
+	require.Equal(t, []string{"10.213.0.1"}, hostConfig.DNS)
+	require.Equal(t, []string{
+		SandboxAPIProxyHostname + ":" + SandboxNetworkGateway,
+		SandboxLegacyAPIProxyHostname + ":" + SandboxNetworkGateway,
+	}, hostConfig.ExtraHosts)
+}
+
+func TestBuildHostConfigUsesDepthAwareDNSProxy(t *testing.T) {
+	t.Setenv("HELIX_DOCKER_DEPTH", "2")
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{Network: "bridge"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"10.214.0.1"}, hostConfig.DNS)
+}
+
+func TestBuildHostConfigRejectsCustomNetwork(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	_, err := dm.buildHostConfig(&CreateDevContainerRequest{Network: "host"})
+	require.EqualError(t, err, `unsupported sandbox network "host"`)
+}
+
+func TestShouldMigrateContainerNetwork(t *testing.T) {
+	require.True(t, shouldMigrateContainerNetwork("bridge", SandboxNetworkName))
+	require.False(t, shouldMigrateContainerNetwork(SandboxNetworkName, SandboxNetworkName))
+	require.False(t, shouldRecreateForNetworkMigration("bridge", SandboxNetworkName, true))
+	require.True(t, shouldRecreateForNetworkMigration("bridge", SandboxNetworkName, false))
+}
+
+func countEnvVar(env []string, key string) int {
+	count := 0
+	for _, entry := range env {
+		if strings.HasPrefix(entry, key+"=") {
+			count++
+		}
+	}
+	return count
 }
 
 func TestResolveRegistryImage(t *testing.T) {

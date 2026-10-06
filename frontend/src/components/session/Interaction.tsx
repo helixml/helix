@@ -2,7 +2,6 @@ import React, { FC, useMemo } from "react";
 import InteractionContainer from "./InteractionContainer";
 import InteractionInference from "./InteractionInference";
 import Box from "@mui/material/Box";
-import Stack from "@mui/material/Stack";
 import Alert from "@mui/material/Alert";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
@@ -14,7 +13,7 @@ import CollapsibleSystemPrefix, {
 } from "./CollapsibleSystemPrefix";
 import ChangedFilesCard from "./ChangedFilesCard";
 import { parseMessageWithAttachments } from "../common/chatAttachments";
-import { resolveChatTurnAssistantPreview } from "./ChatTurnNavigator.logic";
+import { workspaceReviewMessageCopyText } from "./workspaceReviewMessage";
 
 import useAccount from "../../hooks/useAccount";
 
@@ -42,8 +41,8 @@ const getInteractionUserMessage = (interaction?: TypesInteraction) => {
 
 /**
  * Inline divider rendered in place of a normal user/assistant turn for
- * synthetic fork_seed interactions. The disclosure keeps both the seeded
- * transcript and its associated synthetic handoff out of the normal chat.
+ * synthetic fork_seed interactions. The seeded transcript stays behind a
+ * disclosure, while the associated handoff renders as normal agent activity.
  */
 const ForkSeedDivider: FC<{
   interaction: TypesInteraction;
@@ -54,15 +53,17 @@ const ForkSeedDivider: FC<{
 }) => {
   const [expanded, setExpanded] = React.useState(false);
   const transcript = interaction.response_message || "";
-  const isAgentSwitch = interaction.prompt_message?.startsWith("Agent switched to ")
-    && handoffInteraction?.trigger === "fork_handoff";
-  const dividerLabel = interaction.prompt_message || "Forked from prior session";
-  const handoffResponse = handoffInteraction
-    ? resolveChatTurnAssistantPreview(
-        handoffInteraction.response_message,
-        (handoffInteraction as any).response_entries,
-      )
-    : null;
+  const hasHandoff = handoffInteraction?.trigger === "fork_handoff";
+  const isImplementationTransition = hasHandoff &&
+    handoffInteraction.prompt_message?.includes("## CURRENT PHASE: IMPLEMENTATION");
+  const isAgentSwitch = hasHandoff && (
+    interaction.prompt_message?.startsWith("Agent switched to ") ||
+    interaction.prompt_message === "Switching to implementation harness configuration" ||
+    isImplementationTransition
+  );
+  const dividerLabel = isImplementationTransition
+    ? "Switching to implementation harness configuration"
+    : interaction.prompt_message || "Forked from prior session";
   return (
     <Box sx={{ my: 3 }}>
       <Box
@@ -84,10 +85,7 @@ const ForkSeedDivider: FC<{
           }}
         >
           <Box
-            component={isAgentSwitch ? "button" : "div"}
-            type={isAgentSwitch ? "button" : undefined}
-            aria-expanded={isAgentSwitch ? expanded : undefined}
-            onClick={isAgentSwitch ? () => setExpanded((value) => !value) : undefined}
+            component="div"
             sx={{
               background: "transparent",
               border: "none",
@@ -97,8 +95,6 @@ const ForkSeedDivider: FC<{
               textTransform: "uppercase",
               letterSpacing: 0.5,
               p: 0,
-              cursor: isAgentSwitch ? "pointer" : "default",
-              "&:hover": isAgentSwitch ? { color: "text.primary" } : undefined,
             }}
           >
             {dividerLabel}
@@ -124,35 +120,6 @@ const ForkSeedDivider: FC<{
         </Box>
         <Box sx={{ flex: 1, borderTop: "1px dashed", borderColor: "divider" }} />
       </Box>
-      {expanded && handoffInteraction && (
-        <Stack spacing={1} sx={{ mt: 1 }}>
-          <Box
-            sx={{
-              p: 1.5,
-              borderRadius: 1,
-              backgroundColor: "action.hover",
-              fontSize: "0.8rem",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}
-          >
-            {handoffInteraction.prompt_message}
-          </Box>
-          <Box
-            sx={{
-              p: 1.5,
-              border: "1px solid",
-              borderColor: "divider",
-              borderRadius: 1,
-              fontSize: "0.8rem",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}
-          >
-            {handoffResponse || "Waiting for the agent response…"}
-          </Box>
-        </Stack>
-      )}
       {!isAgentSwitch && expanded && transcript && (
         <Box
           sx={{
@@ -180,6 +147,13 @@ const ForkSeedDivider: FC<{
 // Prop comparison function for React.memo
 const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
   if (prevProps.enableDebugCopy !== nextProps.enableDebugCopy) {
+    return false;
+  }
+
+  // In practice this is fixed for the life of an interaction, but it decides
+  // whether a system prompt is on screen — too consequential to leave to a
+  // comparator that happens not to look at it.
+  if (prevProps.hidePrompt !== nextProps.hidePrompt) {
     return false;
   }
 
@@ -227,6 +201,10 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     prevProps.interaction?.completed !== nextProps.interaction?.completed ||
     prevProps.interaction?.error !== nextProps.interaction?.error ||
     prevProps.interaction?.state !== nextProps.interaction?.state ||
+    prevProps.interaction?.pending_question?.request_id !==
+      nextProps.interaction?.pending_question?.request_id ||
+    prevProps.interaction?.question_history?.length !==
+      nextProps.interaction?.question_history?.length ||
     prevProps.interaction?.code_changes?.status !==
       nextProps.interaction?.code_changes?.status ||
     prevProps.interaction?.code_changes?.patch_hash !==
@@ -245,7 +223,10 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
   }
 
   // Compare other props
-  if (prevProps.highlightAllFiles !== nextProps.highlightAllFiles) {
+  if (
+    prevProps.highlightAllFiles !== nextProps.highlightAllFiles ||
+    prevProps.recoveredLater !== nextProps.recoveredLater
+  ) {
     return false;
   }
 
@@ -283,6 +264,21 @@ interface InteractionProps {
   sessionSteps?: any[];
   enableDebugCopy?: boolean;
   nextInteraction?: TypesInteraction;
+  /**
+   * A later interaction in this session completed successfully, so any error on
+   * THIS one has been overtaken by events. See lastSuccessfulInteractionIndex.
+   */
+  recoveredLater?: boolean;
+  /**
+   * Suppress the user-prompt bubble, keeping the agent's reply.
+   *
+   * For customer-facing embeds, where the opening "user" turn is not something
+   * the customer said — it is the agent's own briefing, sent as the session's
+   * first prompt. Rendering it verbatim showed a candidate on the job board the
+   * whole system prompt, its tool list, and the sandbox scaffolding
+   * (repository paths, the branch to push to) before they had said a word.
+   */
+  hidePrompt?: boolean;
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -297,6 +293,8 @@ export const Interaction: FC<InteractionProps> = ({
   sessionSteps = [],
   enableDebugCopy = false,
   nextInteraction,
+  recoveredLater = false,
+  hidePrompt = false,
 }) => {
   // Memoize computed values
   const displayData = useMemo(() => {
@@ -360,6 +358,7 @@ export const Interaction: FC<InteractionProps> = ({
   // bubble has nothing to show. The CollapsibleSystemPrefix carries the
   // entire message and replaces the bubble.
   const isPureSystemMessage = !!systemPrefix && userMessageBody.length === 0;
+  const workspaceReviewCopyText = workspaceReviewMessageCopyText(userMessageBody);
 
   const [isEditing, setIsEditing] = React.useState(false);
   const [editedMessage, setEditedMessage] = React.useState(userMessage || "");
@@ -377,7 +376,13 @@ export const Interaction: FC<InteractionProps> = ({
       TypesInteractionState.InteractionStateComplete &&
     !nextInteraction.error &&
     nextInteractionPrompt === userMessage;
+  // A retry of the SAME prompt succeeded, so the work got done and the failed
+  // attempt is moot — drop it entirely.
   const visibleError = retrySucceeded ? undefined : interaction.error;
+  // A LATER, different turn succeeded. The session recovered, but this turn's
+  // work really was abandoned, so the error still belongs on screen — as
+  // history, not as an actionable alarm. No red alert, no Retry button.
+  const errorIsHistorical = !retrySucceeded && !!interaction.error && recoveredLater;
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null;
 
@@ -407,10 +412,6 @@ export const Interaction: FC<InteractionProps> = ({
       />
     );
   }
-  if (interaction.trigger === "fork_handoff") {
-    return null;
-  }
-
   return (
     <Box
       data-chat-turn={interaction.id}
@@ -424,7 +425,10 @@ export const Interaction: FC<InteractionProps> = ({
       onMouseLeave={() => setIsHovering(false)}
     >
       {/* User Message Container */}
-      {userMessage && (
+      {userMessage &&
+        !hidePrompt &&
+        interaction.trigger !== "org_hire" &&
+        interaction.trigger !== "fork_handoff" && (
         <Box
           sx={{
             display: "flex",
@@ -533,24 +537,29 @@ export const Interaction: FC<InteractionProps> = ({
                     />
                   )}
                   <CopyButtonWithCheck
-                    text={systemPrefix ? userMessageBody : userMessage}
+                    text={
+                      workspaceReviewCopyText ||
+                      (systemPrefix ? userMessageBody : userMessage)
+                    }
                     alwaysVisible={isHovering}
                   />
-                  <Tooltip title="Edit">
-                    <IconButton
-                      onClick={handleEditClick}
-                      size="small"
-                      sx={(theme) => ({
-                        color: theme.palette.mode === "light" ? "#888" : "#bbb",
-                        "&:hover": {
-                          color: theme.palette.mode === "light" ? "#000" : "#fff",
-                        },
-                      })}
-                      aria-label="edit"
-                    >
-                      <EditIcon sx={{ fontSize: 20 }} />
-                    </IconButton>
-                  </Tooltip>
+                  {!workspaceReviewCopyText && (
+                    <Tooltip title="Edit">
+                      <IconButton
+                        onClick={handleEditClick}
+                        size="small"
+                        sx={(theme) => ({
+                          color: theme.palette.mode === "light" ? "#888" : "#bbb",
+                          "&:hover": {
+                            color: theme.palette.mode === "light" ? "#000" : "#fff",
+                          },
+                        })}
+                        aria-label="edit"
+                      >
+                        <EditIcon sx={{ fontSize: 20 }} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                 </Box>
               )}
             </>
@@ -561,6 +570,7 @@ export const Interaction: FC<InteractionProps> = ({
       {/* Assistant Response Container */}
       {(assistantMessage ||
         (interaction as any)?.response_entries?.length > 0 ||
+        (interaction.question_history?.length ?? 0) > 0 ||
         isLive ||
         visibleError) && (
         <Box
@@ -590,6 +600,7 @@ export const Interaction: FC<InteractionProps> = ({
                   imageURLs={[]}
                   message={assistantMessage}
                   error={visibleError}
+                  errorIsHistorical={errorIsHistorical}
                   isFromAssistant={true}
                   onFilterDocument={onFilterDocument}
                   onRegenerate={onRegenerate}

@@ -67,11 +67,11 @@ func TestChiefOfStaffManagesServerAssetLifecycle(t *testing.T) {
 	caller := assetCallerIdentity{agentID: "chief-of-staff", orgID: "org-1"}
 
 	raw := invokeManagedAssetTool(t, &CreateServerAsset{deps: deps}, caller,
-		`{"name":"production","description":"Primary API","notes_for_agents":"Check the runbook","address":"10.0.0.8","user":"ubuntu"}`)
+		`{"name":"production","description":"Primary API","notes_for_bots":"Check the runbook","address":"10.0.0.8","user":"ubuntu"}`)
 	var created managedAssetResult
 	require.NoError(t, json.Unmarshal(raw, &created))
 	assert.Equal(t, "production", created.Asset.Name)
-	assert.Equal(t, []string{"chief-of-staff"}, created.Asset.AgentIDs)
+	assert.Equal(t, []string{"chief-of-staff"}, created.Asset.BotIDs)
 	require.NotNil(t, created.Setup)
 	assert.Equal(t, "ssh-ed25519 AAAA-helix-public", created.Setup.PublicKey)
 	assert.Contains(t, created.Setup.InstallCommand, "authorized_keys")
@@ -87,12 +87,12 @@ func TestChiefOfStaffManagesServerAssetLifecycle(t *testing.T) {
 	}
 
 	invokeManagedAssetTool(t, &LinkAsset{deps: deps}, caller,
-		`{"asset":"production","agent_id":"b-operator"}`)
+		`{"asset":"production","bot_id":"b-operator"}`)
 	raw = invokeManagedAssetTool(t, &ListAssetLinks{deps: deps}, caller,
 		`{"asset":"production"}`)
 	var links assetLinksResult
 	require.NoError(t, json.Unmarshal(raw, &links))
-	assert.ElementsMatch(t, []string{"chief-of-staff", "b-operator"}, links.AgentIDs)
+	assert.ElementsMatch(t, []string{"chief-of-staff", "b-operator"}, links.BotIDs)
 
 	raw = invokeManagedAssetTool(t, &UpdateServerAsset{deps: deps}, caller,
 		`{"asset":"production","description":"Primary production API","address":"10.0.0.9"}`)
@@ -135,7 +135,7 @@ func TestChiefOfStaffManagesServerAssetLifecycle(t *testing.T) {
 	assert.Equal(t, assetID, listed.Assets[0].ID)
 
 	invokeManagedAssetTool(t, &UnlinkAsset{deps: deps}, caller,
-		`{"asset":"production","agent_id":"b-operator"}`)
+		`{"asset":"production","bot_id":"b-operator"}`)
 	invokeManagedAssetTool(t, &DeleteAsset{deps: deps}, caller,
 		`{"asset":"production"}`)
 	_, err = service.Get(ctx, "org-1", assetID)
@@ -147,7 +147,7 @@ func TestChiefOfStaffManagesServerAssetLifecycle(t *testing.T) {
 		`{"name":"production","address":"10.0.0.10","user":"ubuntu"}`)
 	require.NoError(t, json.Unmarshal(raw, &created))
 	assert.Equal(t, "production", created.Asset.Name)
-	assert.Equal(t, []string{"chief-of-staff"}, created.Asset.AgentIDs)
+	assert.Equal(t, []string{"chief-of-staff"}, created.Asset.BotIDs)
 }
 
 func TestCreateServerAssetRollsBackWhenLinkFails(t *testing.T) {
@@ -156,10 +156,10 @@ func TestCreateServerAssetRollsBackWhenLinkFails(t *testing.T) {
 	caller := assetCallerIdentity{agentID: "chief-of-staff", orgID: "org-1"}
 	_, err := (&CreateServerAsset{deps: deps}).Invoke(context.Background(), tool.Invocation{
 		Caller: caller,
-		Args:   json.RawMessage(`{"name":"broken","address":"10.0.0.20","user":"ubuntu","agent_ids":["missing-agent"]}`),
+		Args:   json.RawMessage(`{"name":"broken","address":"10.0.0.20","user":"ubuntu","bot_ids":["missing-bot"]}`),
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing-agent")
+	assert.Contains(t, err.Error(), "missing-bot")
 	values, listErr := service.List(context.Background(), "org-1")
 	require.NoError(t, listErr)
 	assert.Empty(t, values)

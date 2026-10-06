@@ -37,6 +37,10 @@ func (o *SpecTaskOrchestrator) pollCIStatusForPR(
 	prevHead := repoPR.CIHeadSHA
 	mutated := false
 
+	if prevHead == headSHA && (prevState == CIStatusPassed || prevState == CIStatusFailed) {
+		return false
+	}
+
 	// New commit → reset prevState so we don't suppress a transition
 	// notification when the next commit's CI lands. Persist the SHA
 	// reset even if we fail to fetch the new verdict.
@@ -60,6 +64,24 @@ func (o *SpecTaskOrchestrator) pollCIStatusForPR(
 	}
 	if status == nil {
 		return mutated
+	}
+
+	// Establish that CI was green before this PR before asking the agent to
+	// repair a failure. A red (or unverifiable) target commit makes the failure
+	// pre-existing and outside the task's implied scope.
+	if pr.BaseSHA != "" && (repoPR.CIBaseSHA != pr.BaseSHA || repoPR.CIBaseStatus == "") {
+		baseStatus, baseErr := o.gitService.GetCIStatus(ctx, repoPR.RepositoryID, repoPR.PRID, pr.BaseSHA)
+		if baseErr != nil {
+			log.Debug().Err(baseErr).
+				Str("task_id", task.ID).
+				Str("repo_id", repoPR.RepositoryID).
+				Str("base_sha", pr.BaseSHA).
+				Msg("Failed to fetch base CI status")
+		} else if baseStatus != nil {
+			repoPR.CIBaseSHA = pr.BaseSHA
+			repoPR.CIBaseStatus = baseStatus.State
+			mutated = true
+		}
 	}
 
 	if status.State != prevState || repoPR.CIURL != status.URL || repoPR.CIHeadSHA != headSHA {
@@ -88,6 +110,15 @@ func (o *SpecTaskOrchestrator) handleCIStatusTransition(
 		return
 	}
 	if newState != CIStatusPassed && newState != CIStatusFailed {
+		return
+	}
+	if newState == CIStatusFailed && repoPR.CIBaseStatus != CIStatusPassed {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("repo_id", repoPR.RepositoryID).
+			Str("pr_id", repoPR.PRID).
+			Str("base_ci_state", repoPR.CIBaseStatus).
+			Msg("Suppressing CI failure notification because base CI was not verified passing")
 		return
 	}
 

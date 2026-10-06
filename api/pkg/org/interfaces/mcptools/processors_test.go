@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 )
@@ -19,15 +20,14 @@ type procCaller struct{ id, orgID string }
 func (c procCaller) ID() string             { return c.id }
 func (c procCaller) OrganizationID() string { return c.orgID }
 
-func seedTopic(t *testing.T, deps mcptools.Config, orgID, topicID string) {
+func seedTrigger(t *testing.T, deps mcptools.Config, orgID, triggerID string) {
 	t.Helper()
-	top, err := streaming.NewTopic(streaming.TopicID(topicID), "in", "", "w-owner",
-		time.Now().UTC(), transport.Transport{Kind: transport.KindLocal}, orgID)
+	row, err := trigger.New(triggerID, orgID, "in", "", transport.KindLocal, nil, "w-owner", time.Now().UTC())
 	if err != nil {
-		t.Fatalf("NewTopic: %v", err)
+		t.Fatalf("trigger.New: %v", err)
 	}
-	if err := deps.Store.Topics.Create(context.Background(), top); err != nil {
-		t.Fatalf("create topic: %v", err)
+	if err := deps.Store.Triggers.Create(context.Background(), row); err != nil {
+		t.Fatalf("create trigger: %v", err)
 	}
 }
 
@@ -41,15 +41,15 @@ func TestCreateListGetUpdateDeleteProcessor_JS(t *testing.T) {
 	caller := procCaller{id: "w-owner", orgID: "org-proc"}
 	ctx := context.Background()
 
-	seedTopic(t, deps, "org-proc", "s-in")
+	seedTrigger(t, deps, "org-proc", "s-in")
 
 	code := `function process(event) { event.body = "JS:" + event.body; return event; }`
 	cfg, _ := json.Marshal(map[string]string{"code": code})
 	createArgs, _ := json.Marshal(map[string]any{
-		"name":         "Enrich",
-		"inputTopicId": "s-in",
-		"kind":         "js",
-		"config":       json.RawMessage(cfg),
+		"name":           "Enrich",
+		"inputTriggerId": "s-in",
+		"kind":           "js",
+		"config":         json.RawMessage(cfg),
 	})
 
 	reg := mcptools.NewRegistry()
@@ -69,8 +69,8 @@ func TestCreateListGetUpdateDeleteProcessor_JS(t *testing.T) {
 		ID      string `json:"id"`
 		Kind    string `json:"kind"`
 		Outputs []struct {
-			TopicID string `json:"topicId"`
-			Owned   bool   `json:"owned"`
+			ID     string `json:"id"`
+			Source string `json:"source"`
 		} `json:"outputs"`
 	}
 	if err := json.Unmarshal(raw, &created); err != nil {
@@ -79,7 +79,7 @@ func TestCreateListGetUpdateDeleteProcessor_JS(t *testing.T) {
 	if created.ID == "" || created.Kind != "js" {
 		t.Fatalf("created = %+v", created)
 	}
-	if len(created.Outputs) != 1 || !created.Outputs[0].Owned || created.Outputs[0].TopicID == "" {
+	if len(created.Outputs) != 1 || created.Outputs[0].ID == "" || created.Outputs[0].Source == "" {
 		t.Fatalf("outputs = %+v", created.Outputs)
 	}
 
@@ -109,13 +109,13 @@ func TestCreateListGetUpdateDeleteProcessor_JS(t *testing.T) {
 		t.Fatalf("get_processor: %v", err)
 	}
 	var got struct {
-		Name         string `json:"name"`
-		InputTopicID string `json:"inputTopicId"`
+		Name        string `json:"name"`
+		InputSource string `json:"inputSource"`
 	}
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("decode get: %v", err)
 	}
-	if got.Name != "Enrich" || got.InputTopicID != "s-in" {
+	if got.Name != "Enrich" || got.InputSource != "trigger:s-in" {
 		t.Fatalf("got = %+v", got)
 	}
 

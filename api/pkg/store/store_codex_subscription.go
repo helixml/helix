@@ -59,6 +59,28 @@ func (s *PostgresStore) UpdateCodexSubscription(ctx context.Context, sub *types.
 	return s.GetCodexSubscription(ctx, sub.ID)
 }
 
+// UpdateCodexSubscriptionIdentity writes only the identity columns derived from
+// a verified id_token. It must not be a whole-row Save: the backfill that calls
+// it runs from a list handler, and the row it holds can be seconds stale, so a
+// full write would revert credentials a container refreshed in the meantime —
+// defeating UpdateCodexSubscriptionCredentialsIfNewer below.
+func (s *PostgresStore) UpdateCodexSubscriptionIdentity(ctx context.Context, id, accountEmail, accountDisplayName, planType, accountID string) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+	updates := map[string]interface{}{
+		"account_email":        accountEmail,
+		"account_display_name": accountDisplayName,
+		"plan_type":            planType,
+		"updated":              time.Now(),
+	}
+	if accountID != "" {
+		updates["account_id"] = accountID
+	}
+	return s.gdb.WithContext(ctx).Model(&types.CodexSubscription{}).
+		Where("id = ?", id).Updates(updates).Error
+}
+
 func (s *PostgresStore) UpdateCodexSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials, accountID string, refreshedAt time.Time) (bool, error) {
 	result := s.gdb.WithContext(ctx).Model(&types.CodexSubscription{}).
 		Where("id = ? AND (last_refreshed_at IS NULL OR last_refreshed_at < ?)", id, refreshedAt).

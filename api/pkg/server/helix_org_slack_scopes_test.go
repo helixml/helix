@@ -2,7 +2,7 @@ package server
 
 import "testing"
 
-func TestDefaultSlackBotScopesSupportHumanDelivery(t *testing.T) {
+func TestDefaultSlackBotScopesSupportOrgRouting(t *testing.T) {
 	scopes := make(map[string]bool, len(defaultSlackBotScopes))
 	for _, scope := range defaultSlackBotScopes {
 		scopes[scope] = true

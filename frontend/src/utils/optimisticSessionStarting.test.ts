@@ -144,3 +144,41 @@ describe('optimisticallyMarkSessionStarting', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 })
+
+// The restart button clicks while the desktop is RUNNING, so the default idle
+// guard would make the optimistic write a no-op and the spinner would not
+// appear until the next 3s poll — exactly the gap the user sees as "restart
+// looks broken".
+describe('optimisticallyMarkSessionStarting — restart (force + status)', () => {
+  it('writes "restarting" over a running session when force is set', () => {
+    const qc = new QueryClient()
+    seed(qc, 'running', 'full')
+    seed(qc, 'running', 'skip')
+    optimisticallyMarkSessionStarting(qc, SESSION_ID, { status: 'restarting', force: true })
+    for (const key of [fullKey, skipKey]) {
+      const cfg = (qc.getQueryData(key) as { data: { config: { external_agent_status: string; status_message: string } } }).data.config
+      expect(cfg.external_agent_status).toBe('restarting')
+      expect(cfg.status_message).toBe('Restarting desktop...')
+    }
+  })
+
+  it('without force, a running session is left alone (existing callers unchanged)', () => {
+    const qc = new QueryClient()
+    seed(qc, 'running', 'full')
+    optimisticallyMarkSessionStarting(qc, SESSION_ID, { status: 'restarting' })
+    expect(
+      (qc.getQueryData(fullKey) as { data: { config: { external_agent_status: string } } }).data.config.external_agent_status,
+    ).toBe('running')
+  })
+
+  it('a forced write replaces a stale status_message rather than keeping it', () => {
+    const qc = new QueryClient()
+    qc.setQueryData(fullKey, {
+      data: { id: SESSION_ID, config: { external_agent_status: 'running', status_message: 'Agent ready' } },
+    })
+    optimisticallyMarkSessionStarting(qc, SESSION_ID, { status: 'restarting', force: true })
+    expect(
+      (qc.getQueryData(fullKey) as { data: { config: { status_message: string } } }).data.config.status_message,
+    ).toBe('Restarting desktop...')
+  })
+})

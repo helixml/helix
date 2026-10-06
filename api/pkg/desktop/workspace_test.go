@@ -2,7 +2,13 @@ package desktop
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -73,6 +80,10 @@ func newDesktopTestServer(t *testing.T, workspaceDir string) *Server {
 	return &Server{}
 }
 
+func TestDesktopHTTPAddressUsesLoopback(t *testing.T) {
+	require.Equal(t, "127.0.0.1:9876", desktopHTTPAddress("9876"))
+}
+
 func TestHandleWorkspacesIncludesAgentPath(t *testing.T) {
 	workspaceDir, _, _ := setupTestRepoWithRemote(t, "testproj", false)
 	s := newDesktopTestServer(t, workspaceDir)
@@ -89,6 +100,79 @@ func TestHandleWorkspacesIncludesAgentPath(t *testing.T) {
 	assert.Equal(t, "/home/retro/work/testproj", resp.Workspaces[0].AgentPath)
 	assert.Contains(t, rec.Body.String(), `"path":`)
 	assert.NotContains(t, rec.Body.String(), workspaceDir)
+}
+
+// TestWorkspaceOnlyServerServesFilesAndDiffsWithoutDesktop proves the headless
+// runtime can browse its live workspace without starting any compositor,
+// streaming, or input services.
+func TestWorkspaceOnlyServerServesFilesAndDiffsWithoutDesktop(t *testing.T) {
+	workspaceDir, _, _ := setupTestRepoWithRemote(t, "testproj", true)
+	t.Setenv("WORKSPACE_DIR", workspaceDir)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	server := NewServer(Config{
+		HTTPPort:      fmt.Sprintf("%d", port),
+		SessionID:     "ses_headless",
+		WorkspaceOnly: true,
+	}, slog.Default())
+	errCh := make(chan error, 1)
+	go func() { errCh <- server.Run(ctx) }()
+
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	require.Eventually(t, func() bool {
+		response, requestErr := http.Get(baseURL + "/health")
+		if requestErr != nil {
+			return false
+		}
+		_ = response.Body.Close()
+		return response.StatusCode == http.StatusOK
+	}, 2*time.Second, 20*time.Millisecond)
+
+	for _, path := range []string{
+		"/workspaces",
+		"/workspace/files",
+		"/workspace/review?base=main",
+	} {
+		response, requestErr := http.Get(baseURL + path)
+		require.NoError(t, requestErr)
+		_ = response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode, path)
+	}
+
+	response, err := http.Get(baseURL + "/screenshot")
+	require.NoError(t, err)
+	_ = response.Body.Close()
+	require.Equal(t, http.StatusNotFound, response.StatusCode)
+
+	// /exec is served headless because terminal workflows and server setup both
+	// need the same command surface as desktop sessions.
+	response, err = http.Post(baseURL+"/exec", "application/json", strings.NewReader(`{"command":["sh","-c","printf headless-ready"]}`))
+	require.NoError(t, err)
+	body, readErr := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	require.NoError(t, readErr)
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	assert.JSONEq(t, `{"success":true,"output":"headless-ready","exit_code":0}`, string(body))
+
+	cancel()
+	require.ErrorIs(t, <-errCh, context.Canceled)
+}
+
+func TestWorkspaceOnlyServerAllowsExecForServerSetup(t *testing.T) {
+	server := NewServer(Config{WorkspaceOnly: true}, slog.Default())
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/exec", strings.NewReader(`{"command":["echo","ready"]}`))
+	server.workspaceHTTPHandler().ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	assert.JSONEq(t, `{"success":true,"output":"ready","exit_code":0}`, recorder.Body.String())
 }
 
 // TestHandleWorkspaceStatus_Dirty covers the happy path of the modal-
@@ -471,4 +555,47 @@ fi
 	assert.Equal(t, "failed", resp.Repos[0].Action)
 	assert.Contains(t, resp.Repos[0].Error, "git commit",
 		"the error must mention git commit so the fork handler's wrapped message stays diagnostic")
+}
+
+// TestWorkspaceOnlyServerAcceptsChatAttachments proves a headless task can
+// receive a pasted/dropped chat attachment and serve it back. These routes
+// used to be registered on the desktop-only handler, so every upload to a
+// headless session came back as a bare 404 from the bridge.
+func TestWorkspaceOnlyServerAcceptsChatAttachments(t *testing.T) {
+	dir := t.TempDir()
+	original := incomingDir
+	incomingDir = filepath.Join(dir, "incoming")
+	t.Cleanup(func() { incomingDir = original })
+
+	server := NewServer(Config{WorkspaceOnly: true}, slog.Default())
+	handler := server.workspaceHTTPHandler()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreateFormFile("file", "screenshot.png")
+	require.NoError(t, err)
+	_, err = part.Write([]byte("fake-png-bytes"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/upload?open_file_manager=false", body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	handler.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	var uploaded struct {
+		Path     string `json:"path"`
+		Size     int64  `json:"size"`
+		Filename string `json:"filename"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &uploaded))
+	assert.Equal(t, "screenshot.png", uploaded.Filename)
+	assert.Equal(t, int64(len("fake-png-bytes")), uploaded.Size)
+	assert.Equal(t, filepath.Join(incomingDir, "screenshot.png"), uploaded.Path)
+
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/file?name=screenshot.png", nil))
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	assert.Equal(t, "fake-png-bytes", recorder.Body.String())
 }

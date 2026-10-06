@@ -28,13 +28,22 @@ const containerSessionIDLabel = "helix.session_id"
 // boot-time stopped-container reaper skips them and they survive a reboot.
 const containerPersistentLabel = "helix.persistent"
 
+// Golden build containers carry these labels so a restarted Hydra can resume
+// monitorGoldenBuild for a build whose container survived the restart, and
+// still detect, promote and report its result.
+const (
+	containerGoldenBuildLabel    = "helix.golden_build" // "true"
+	containerProjectIDLabel      = "helix.project_id"
+	containerGoldenDeadlineLabel = "helix.golden_build_deadline" // RFC3339
+)
+
 // DevContainerType represents the type of dev container
 type DevContainerType string
 
 const (
 	DevContainerTypeSway     DevContainerType = "sway"     // Sway compositor with Zed
 	DevContainerTypeUbuntu   DevContainerType = "ubuntu"   // GNOME with Zed
-	DevContainerTypeHeadless DevContainerType = "headless" // No GUI, just agent (future)
+	DevContainerTypeHeadless DevContainerType = "headless" // No GUI, agent-only runtime
 )
 
 // DevContainerStatus represents the current status of a dev container
@@ -101,11 +110,31 @@ type CreateDevContainerRequest struct {
 	// User ID for SSH key mounting and ownership
 	UserID string `json:"user_id,omitempty"`
 
-	// Network to attach to (defaults to bridge)
+	// Network to attach to. Empty, "bridge", or "helix-sandboxes" maps to the
+	// host-enforced isolated sandbox network. Other networks are rejected.
 	Network string `json:"network,omitempty"`
 
 	// Privileged mode (required for docker-in-desktop: inner dockerd needs it)
 	Privileged bool `json:"privileged,omitempty"`
+
+	// RootlessContainerEngine enables the rootless Podman service used by
+	// unprivileged headless agents. Hydra supplies only the user-namespace
+	// devices and environment required by that service; desktop dockerd keeps
+	// using Privileged instead.
+	RootlessContainerEngine bool `json:"rootless_container_engine,omitempty"`
+
+	// BrowserSandbox lets an unprivileged container without a container
+	// engine create the user namespaces Chrome's renderer sandbox needs
+	// (Docker's default seccomp profile plus namespace creation). Used by org
+	// bot instances, which browse untrusted pages.
+	BrowserSandbox bool `json:"browser_sandbox,omitempty"`
+
+	// Untrusted instance controls. DiskSizeGB provisions a capacity-limited,
+	// persistent /home/retro filesystem. PidsLimit is enforced by the pids
+	// cgroup. NoNewPrivileges blocks setuid/setgid privilege escalation.
+	DiskSizeGB      int   `json:"disk_size_gb,omitempty"`
+	PidsLimit       int64 `json:"pids_limit,omitempty"`
+	NoNewPrivileges bool  `json:"no_new_privileges,omitempty"`
 
 	// ProjectID for golden Docker cache lookup (per-project overlayfs)
 	ProjectID string `json:"project_id,omitempty"`
@@ -114,6 +143,11 @@ type CreateDevContainerRequest struct {
 	// Golden build sessions use a plain directory (not overlay) for Docker data,
 	// and the data is promoted to golden when the container exits with code 0.
 	GoldenBuild bool `json:"golden_build,omitempty"`
+
+	// GoldenBuildTimeoutSeconds is how long monitorGoldenBuild waits for the
+	// result file before killing the build. Sent by the API so both sides use
+	// the same deadline; 0 (older API) = types.GoldenBuildTimeout.
+	GoldenBuildTimeoutSeconds int `json:"golden_build_timeout_seconds,omitempty"`
 
 	// VCPUs caps the number of CPUs the container can use. 0 = no cap.
 	VCPUs int `json:"vcpus,omitempty"`
@@ -189,6 +223,10 @@ type DevContainer struct {
 	// Golden build fields
 	IsGoldenBuild bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
 	ProjectID     string `json:"project_id,omitempty"`      // Project ID for golden promotion
+
+	// GoldenBuildDeadline is when monitorGoldenBuild gives up waiting for the
+	// result file. Stored on the container as a label so it survives restarts.
+	GoldenBuildDeadline time.Time `json:"-"`
 }
 
 // ListDevContainersResponse is the response listing all dev containers
@@ -254,12 +292,16 @@ type GCSkip struct {
 // GCReconcileResponse is hydra's report of what it reaped (or would reap, in
 // dry-run mode) and what it deliberately skipped.
 type GCReconcileResponse struct {
-	ZvolsReaped         []string `json:"zvols_reaped"`
-	ZvolsSkipped        []GCSkip `json:"zvols_skipped"`
-	WorkspacesReaped    []string `json:"workspaces_reaped"`
-	WorkspacesSkipped   []GCSkip `json:"workspaces_skipped"`
-	FileCopyDirsReaped  []string `json:"file_copy_dirs_reaped"`
-	FileCopyDirsSkipped []GCSkip `json:"file_copy_dirs_skipped"`
-	GoldensFlattened    []string `json:"goldens_flattened"`
-	BytesFreed          int64    `json:"bytes_freed"`
+	ZvolsReaped          []string `json:"zvols_reaped"`
+	ZvolsSkipped         []GCSkip `json:"zvols_skipped"`
+	WorkspacesReaped     []string `json:"workspaces_reaped"`
+	WorkspacesSkipped    []GCSkip `json:"workspaces_skipped"`
+	FileCopyDirsReaped   []string `json:"file_copy_dirs_reaped"`
+	FileCopyDirsSkipped  []GCSkip `json:"file_copy_dirs_skipped"`
+	InstanceDisksReaped  []string `json:"instance_disks_reaped"`
+	InstanceDisksSkipped []GCSkip `json:"instance_disks_skipped"`
+	ContainersReaped     []string `json:"containers_reaped"`
+	VolumesReaped        []string `json:"volumes_reaped"`
+	GoldensFlattened     []string `json:"goldens_flattened"`
+	BytesFreed           int64    `json:"bytes_freed"`
 }

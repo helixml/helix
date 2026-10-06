@@ -17,7 +17,7 @@ func newAssetsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "assets",
 		Aliases: []string{"asset"},
-		Short:   "Manage helix-org assets and agent access",
+		Short:   "Manage helix-org assets and Bot access",
 	}
 	cmd.AddCommand(newAssetsListCmd())
 	cmd.AddCommand(newAssetsGetCmd())
@@ -67,13 +67,13 @@ func newAssetsListCmd() *cobra.Command {
 			if jsonOut {
 				return printJSON(response)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%-38s %-20s %-10s %-28s %s\n", "ID", "NAME", "KIND", "ENDPOINT", "AGENTS")
+			fmt.Fprintf(cmd.OutOrStdout(), "%-38s %-20s %-10s %-28s %s\n", "ID", "NAME", "KIND", "ENDPOINT", "BOTS")
 			for _, value := range response.Assets {
 				endpoint := "-"
 				if value.Server != nil {
 					endpoint = fmt.Sprintf("%s@%s:%d", value.Server.User, value.Server.Address, value.Server.Port)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%-38s %-20s %-10s %-28s %d\n", value.ID, truncate(value.Name, 20), value.Kind, truncate(endpoint, 28), len(value.AgentIDs))
+				fmt.Fprintf(cmd.OutOrStdout(), "%-38s %-20s %-10s %-28s %d\n", value.ID, truncate(value.Name, 20), value.Kind, truncate(endpoint, 28), len(value.BotIDs))
 			}
 			if len(response.Assets) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "(none)")
@@ -136,7 +136,7 @@ func newAssetsCreateServerCmd() *cobra.Command {
 				return err
 			}
 			request := orgapi.CreateAssetRequest{
-				Name: args[0], Description: description, NotesForAgents: notes, Kind: asset.KindServer,
+				Name: args[0], Description: description, NotesForBots: notes, Kind: asset.KindServer,
 				Server: &orgapi.ServerAssetWriteRequest{
 					Address: address, Port: port, User: user, AuthType: authType,
 					Password: password, HostKey: hostKey,
@@ -164,7 +164,7 @@ func newAssetsCreateServerCmd() *cobra.Command {
 	cmd.Flags().StringVar(&auth, "auth", "ssh-key", "Authentication: ssh-key or password")
 	cmd.Flags().BoolVar(&passwordStdin, "password-stdin", false, "Read the server password from stdin")
 	cmd.Flags().StringVar(&description, "description", "", "Asset description")
-	cmd.Flags().StringVar(&notes, "notes-for-agents", "", "Operational notes visible to linked agents")
+	cmd.Flags().StringVar(&notes, "notes-for-bots", "", "Operational notes visible to linked Bots")
 	cmd.Flags().StringVar(&hostKey, "host-key", "", "Expected OpenSSH host public key")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "JSON output")
 	_ = cmd.MarkFlagRequired("address")
@@ -190,8 +190,8 @@ func newAssetsUpdateCmd() *cobra.Command {
 			if cmd.Flags().Changed("description") {
 				request.Description = &description
 			}
-			if cmd.Flags().Changed("notes-for-agents") {
-				request.NotesForAgents = &notes
+			if cmd.Flags().Changed("notes-for-bots") {
+				request.NotesForBots = &notes
 			}
 			if cmd.Flags().Changed("address") {
 				server.Address, serverChanged = &address, true
@@ -224,7 +224,7 @@ func newAssetsUpdateCmd() *cobra.Command {
 			if serverChanged {
 				request.Server = &server
 			}
-			if request.Name == nil && request.Description == nil && request.NotesForAgents == nil && request.Server == nil {
+			if request.Name == nil && request.Description == nil && request.NotesForBots == nil && request.Server == nil {
 				return fmt.Errorf("at least one update flag is required")
 			}
 			c, orgID, err := resolveAssetOrg(cmd, orgFlag)
@@ -249,7 +249,7 @@ func newAssetsUpdateCmd() *cobra.Command {
 	addOrgFlag(cmd, &orgFlag)
 	cmd.Flags().StringVar(&name, "name", "", "Asset name")
 	cmd.Flags().StringVar(&description, "description", "", "Asset description")
-	cmd.Flags().StringVar(&notes, "notes-for-agents", "", "Operational notes visible to linked agents")
+	cmd.Flags().StringVar(&notes, "notes-for-bots", "", "Operational notes visible to linked Bots")
 	cmd.Flags().StringVar(&address, "address", "", "Server IP address or hostname")
 	cmd.Flags().Uint16Var(&port, "port", 0, "SSH port")
 	cmd.Flags().StringVar(&user, "user", "", "SSH username")
@@ -285,13 +285,13 @@ func newAssetsHealthCmd() *cobra.Command {
 func newAssetsLinkCmd(unlink bool) *cobra.Command {
 	var orgFlag string
 	verb := "link"
-	short := "Allow an agent to use an asset"
+	short := "Allow a Bot to use an asset"
 	method := http.MethodPost
 	if unlink {
-		verb, short, method = "unlink", "Revoke an agent's access to an asset", http.MethodDelete
+		verb, short, method = "unlink", "Revoke a Bot's access to an asset", http.MethodDelete
 	}
 	cmd := &cobra.Command{
-		Use:   verb + " <asset-id> <agent-id>",
+		Use:   verb + " <asset-id> <bot-id>",
 		Short: short,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -300,7 +300,7 @@ func newAssetsLinkCmd(unlink bool) *cobra.Command {
 				return err
 			}
 			path := fmt.Sprintf("/orgs/%s/assets/%s/links", orgID, args[0])
-			var body any = orgapi.AssetLinkRequest{AgentID: args[1]}
+			var body any = orgapi.AssetLinkRequest{BotID: args[1]}
 			if unlink {
 				path += "/" + args[1]
 				body = nil
@@ -309,9 +309,9 @@ func newAssetsLinkCmd(unlink bool) *cobra.Command {
 				return err
 			}
 			if unlink {
-				fmt.Fprintf(cmd.OutOrStdout(), "Unlinked asset %s from agent %s\n", args[0], args[1])
+				fmt.Fprintf(cmd.OutOrStdout(), "Unlinked asset %s from Bot %s\n", args[0], args[1])
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Linked asset %s to agent %s\n", args[0], args[1])
+				fmt.Fprintf(cmd.OutOrStdout(), "Linked asset %s to Bot %s\n", args[0], args[1])
 			}
 			return nil
 		},
@@ -325,7 +325,7 @@ func newAssetsDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "delete <asset-id>",
 		Aliases: []string{"rm"},
-		Short:   "Delete an asset and revoke all agent access",
+		Short:   "Delete an asset and revoke all Bot access",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, orgID, err := resolveAssetOrg(cmd, orgFlag)

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, fireEvent, waitFor, screen } from '@testing-library/react'
+import { act, render, fireEvent, waitFor, screen } from '@testing-library/react'
 import { PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import RobustPromptInput from './RobustPromptInput'
+import { buildWorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
+import { QUEUE_DISPATCH_GRACE_MS } from '../../utils/promptQueueVisibility'
 
 const updateInterrupt = vi.fn()
 const saveToHistory = vi.fn()
@@ -45,6 +47,67 @@ const mkEntry = (id: string, ts: number, overrides: Partial<PromptHistoryEntry> 
   status: 'pending',
   interrupt: false,
   ...overrides,
+})
+
+describe('RobustPromptInput responsive actions', () => {
+  it('collapses leading actions when the composer is narrow', async () => {
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 320,
+      height: 0,
+      top: 0,
+      right: 320,
+      bottom: 0,
+      left: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+
+    try {
+      render(
+        <RobustPromptInput
+          sessionId="ses_test"
+          onSend={vi.fn()}
+          leadingActions={<button type="button">Agent controls</button>}
+        />,
+      )
+
+      const settings = await screen.findByRole('button', { name: 'Execution settings' })
+      expect(screen.queryByRole('button', { name: 'Agent controls' })).not.toBeInTheDocument()
+
+      fireEvent.click(settings)
+      expect(screen.getByRole('button', { name: 'Agent controls' })).toBeInTheDocument()
+    } finally {
+      bounds.mockRestore()
+    }
+  })
+})
+
+describe('RobustPromptInput autofocus', () => {
+  it('returns focus to the composer when the selected session changes', async () => {
+    const view = render(
+      <>
+        <button type="button">Outside</button>
+        <RobustPromptInput sessionId="ses_one" onSend={vi.fn()} autoFocus />
+      </>,
+    )
+
+    const composer = view.container.querySelector('textarea')
+    expect(composer).toBeTruthy()
+    await waitFor(() => expect(composer).toHaveFocus())
+
+    act(() => screen.getByRole('button', { name: 'Outside' }).focus())
+    expect(screen.getByRole('button', { name: 'Outside' })).toHaveFocus()
+
+    view.rerender(
+      <>
+        <button type="button">Outside</button>
+        <RobustPromptInput sessionId="ses_two" onSend={vi.fn()} autoFocus />
+      </>,
+    )
+
+    await waitFor(() => expect(view.container.querySelector('textarea')).toHaveFocus())
+  })
 })
 
 describe('RobustPromptInput empty-Enter promotes oldest queued to interrupt', () => {
@@ -210,6 +273,82 @@ describe('RobustPromptInput active-turn controls', () => {
 
     expect(screen.getByText('1 queued')).toBeInTheDocument()
     expect(screen.queryByText(/saved locally/i)).not.toBeInTheDocument()
+  })
+})
+
+// The queue panel claims a message is waiting. A prompt handed to an idle agent
+// is not waiting — the backend dispatches it within milliseconds — so showing
+// "1 queued" for it is wrong, even briefly.
+describe('RobustPromptInput queue panel only appears for genuinely queued prompts', () => {
+  beforeEach(() => {
+    pendingPrompts = []
+  })
+
+  const renderQueued = (props: Record<string, unknown> = {}) =>
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        specTaskId="task_1"
+        projectId="prj_1"
+        apiClient={{} as any}
+        onSend={vi.fn()}
+        {...props}
+      />
+    )
+
+  it('stays hidden for a prompt just submitted to an idle agent', () => {
+    pendingPrompts = [mkEntry('a', Date.now())]
+    renderQueued()
+    expect(screen.queryByText(/queued/)).not.toBeInTheDocument()
+  })
+
+  it('shows a prompt submitted while the agent is mid-turn', () => {
+    pendingPrompts = [mkEntry('a', Date.now())]
+    renderQueued({ isAgentBusy: true })
+    expect(screen.getByText('1 queued')).toBeInTheDocument()
+  })
+
+  it('shows a backlog even when the agent is idle', () => {
+    pendingPrompts = [mkEntry('a', Date.now()), mkEntry('b', Date.now())]
+    renderQueued()
+    expect(screen.getByText('2 queued')).toBeInTheDocument()
+  })
+
+  it('reveals an undispatched prompt once the grace window elapses', async () => {
+    pendingPrompts = [mkEntry('a', Date.now() - (QUEUE_DISPATCH_GRACE_MS - 150))]
+    renderQueued()
+    expect(screen.queryByText(/queued/)).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('1 queued')).toBeInTheDocument())
+  })
+})
+
+describe('RobustPromptInput workspace review comments', () => {
+  it('shows file comments as chips and serializes them into the queued prompt', () => {
+    const comment = buildWorkspaceReviewComment({
+      id: 'comment-1',
+      filePath: 'demos/jobvacancy.go',
+      startLine: 20,
+      endLine: 20,
+      text: 'Use a clearer name',
+      fileContents: Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join('\n'),
+    })
+    const onCommentsSent = vi.fn()
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        onSend={vi.fn()}
+        reviewComments={[comment]}
+        onReviewCommentsSent={onCommentsSent}
+      />,
+    )
+
+    expect(screen.getByText('demos/jobvacancy.go L20')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(saveToHistory).toHaveBeenCalledWith(expect.stringContaining(
+      '<review_comment sectionId="file:demos/jobvacancy.go"'), false)
+    expect(saveToHistory).toHaveBeenCalledWith(expect.stringContaining('```go\nline 20\n```'), false)
+    expect(onCommentsSent).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -94,6 +94,60 @@ describe('AgentDropdown', () => {
     expect(onChange).toHaveBeenCalledWith('app_claude')
   })
 
+  it('shows the placeholder when nothing is selected', () => {
+    // MUI skips renderValue for an empty value unless displayEmpty is set, which
+    // left an unset picker rendering as a blank box.
+    render(<AgentDropdown value="" onChange={vi.fn()} agents={CODING_AGENTS} />)
+
+    expect(screen.getByText('Select Agent')).toBeInTheDocument()
+  })
+
+  it('offers non-external agents when picking a helix agent', () => {
+    // The project manager and PR reviewer roles run a plain inference session,
+    // so they need a conversational agent — the coding-agent list was empty for
+    // them and made a configured project manager look unset.
+    render(
+      <AgentDropdown
+        value=""
+        onChange={vi.fn()}
+        kind="helix"
+        agents={[
+          ...CODING_AGENTS,
+          makeApp('app_bot', 'chief-of-staff', 'zed_agent', AGENT_KIND_ORG),
+          makeApp('app_optimus', 'Optimus', '', AGENT_KIND_HELIX),
+        ]}
+      />,
+    )
+
+    fireEvent.mouseDown(screen.getByRole('combobox'))
+    const options = screen.getAllByRole('option')
+    expect(options).toHaveLength(1)
+    expect(within(options[0]).getByText('Optimus')).toBeInTheDocument()
+  })
+
+  it('does not label a helix agent with a harness it does not have', () => {
+    // getAgentHarnessRuntime falls back to zed_agent when none is set, which
+    // would print "Zed Agent" beside every conversational agent.
+    render(
+      <AgentDropdown
+        value="app_optimus"
+        onChange={vi.fn()}
+        kind="helix"
+        agents={[makeApp('app_optimus', 'Optimus', '', AGENT_KIND_HELIX)]}
+      />,
+    )
+
+    expect(screen.getByText('Optimus')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'Zed Agent' })).not.toBeInTheDocument()
+  })
+
+  it('flags a stored agent that is not selectable instead of showing the placeholder', () => {
+    render(<AgentDropdown value="app_chat" onChange={vi.fn()} agents={CODING_AGENTS} />)
+
+    expect(screen.getByText('Unavailable agent')).toBeInTheDocument()
+    expect(screen.queryByText('Select Agent')).not.toBeInTheDocument()
+  })
+
   it('shows an empty state when no coding agent exists', () => {
     render(
       <AgentDropdown

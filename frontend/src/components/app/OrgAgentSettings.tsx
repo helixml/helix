@@ -1,4 +1,4 @@
-import { FC, Key, useEffect, useMemo, useState } from 'react'
+import { FC, Key, useEffect, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -12,20 +12,19 @@ import { Pencil, Square, SquareCheck } from 'lucide-react'
 
 import ToolPickerDialog from '../helix-org/ToolPickerDialog'
 import AgentConfigForm, { AgentConfigValue } from '../helix-org/BotRuntimeForm'
+import BotSandboxForm, { BotSandboxValue } from '../helix-org/BotSandboxForm'
 import MonacoEditor from '../widgets/MonacoEditor'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useListProjects } from '../../services/projectService'
 import {
   ToolDTO,
   BotDetailDTO,
-  useListBotSubscriptions,
-  useListHelixOrgTopics,
+  useListHelixOrgProcessors,
   useListHelixOrgTools,
-  useSubscribeBot,
-  useUnsubscribeBot,
   useUpdateBot,
   UpdateBotRequest,
 } from '../../services/helixOrgService'
+import { useBotAttachments, useCreateBotAttachment, useDeleteBotAttachment, useTriggers } from '../../services/triggerService'
 
 const OrgAgentSettings: FC<{
   agentID: string
@@ -40,10 +39,11 @@ const OrgAgentSettings: FC<{
   const agent = detail?.bot
   const { data: projects = [] } = useListProjects(agent?.organization_id, { enabled: section === 'access' && !!agent?.organization_id })
   const { data: catalogue = [] } = useListHelixOrgTools({ enabled: section === 'tools' && !!agent })
-  const { data: topicsData, isLoading: topicsLoading } = useListHelixOrgTopics({ enabled: section === 'subscriptions' && !!agent })
-  const { data: subscriptionsData, isLoading: subscriptionsLoading } = useListBotSubscriptions(agent?.id, { enabled: section === 'subscriptions' && !!agent })
-  const subscribe = useSubscribeBot(agent?.id)
-  const unsubscribe = useUnsubscribeBot(agent?.id)
+  const { data: triggers = [], isLoading: triggersLoading } = useTriggers()
+  const { data: processors = [], isLoading: processorsLoading } = useListHelixOrgProcessors({ enabled: section === 'subscriptions' && !!agent })
+  const { data: attachments = [], isLoading: attachmentsLoading } = useBotAttachments(agent?.id)
+  const attach = useCreateBotAttachment(agent?.id)
+  const detach = useDeleteBotAttachment(agent?.id)
   const [editingTools, setEditingTools] = useState(false)
 
   const projectID = detail?.project_id
@@ -66,6 +66,18 @@ const OrgAgentSettings: FC<{
     reasoning_effort: 'none',
   })
 
+  const [sandbox, setSandbox] = useState<BotSandboxValue>({ runtime: '', vcpus: 0 })
+  useEffect(() => {
+    setSandbox({
+      runtime: agent?.sandbox_runtime ?? '',
+      vcpus: agent?.sandbox_resource_overrides?.vcpus ?? 0,
+    })
+  }, [agent?.sandbox_runtime, agent?.sandbox_resource_overrides?.vcpus])
+  const sandboxDirty = !!agent && (
+    sandbox.runtime !== (agent.sandbox_runtime ?? '')
+    || sandbox.vcpus !== (agent.sandbox_resource_overrides?.vcpus ?? 0)
+  )
+
   useEffect(() => {
     setName(agent?.name ?? '')
     setContent(agent?.content ?? '')
@@ -78,68 +90,77 @@ const OrgAgentSettings: FC<{
     })
   }, [agent?.name, agent?.content, agent?.code_agent_runtime, agent?.code_agent_credential_type, agent?.provider, agent?.model, agent?.reasoning_effort])
 
-  const basicsDirty = useMemo(() => {
-    if (!agent) return false
-    return name !== (agent.name ?? '')
-      || runtimeConfig.runtime !== (agent.code_agent_runtime ?? '')
-      || runtimeConfig.credentials !== (agent.code_agent_credential_type ?? 'api_key')
-      || runtimeConfig.provider !== (agent.provider ?? '')
-      || runtimeConfig.model !== (agent.model ?? '')
-      || (runtimeConfig.reasoning_effort ?? 'none') !== (agent.reasoning_effort ?? 'none')
-  }, [agent, name, runtimeConfig])
-
   if (!agent?.id) return null
 
   const update = async (patch: UpdateBotRequest) => {
     try {
       await updateAgent.mutateAsync({ id: agent.id ?? '', ...patch })
       await onCanonicalUpdate?.()
-      snackbar.success('Org agent updated')
+      snackbar.success('Org bot updated')
     } catch (error: any) {
       snackbar.error(error?.response?.data?.error ?? error?.message ?? 'update failed')
     }
   }
 
   if (section === 'basics') {
+    // No save button: harness, model and effort persist the moment they change,
+    // the name when its field loses focus. A config change carries an
+    // uncommitted name with it, so the refetch that follows cannot discard it.
+    const nameDirty = !!name.trim() && name.trim() !== (agent.name ?? '')
+    const saveBasics = (config: AgentConfigValue, nextName?: string) => {
+      if (!config.runtime) return
+      void update({
+        ...(nextName ? { name: nextName } : {}),
+        code_agent_runtime: config.runtime as NonNullable<typeof agent.code_agent_runtime>,
+        code_agent_credential_type: config.credentials as NonNullable<typeof agent.code_agent_credential_type>,
+        provider: config.provider,
+        model: config.model,
+        reasoning_effort: config.reasoning_effort ?? 'none',
+      })
+    }
+    const commitName = () => {
+      // A config save disables the field, which blurs it; that patch already
+      // carried the name, so don't PATCH it a second time.
+      if (readOnly || updateAgent.isPending) return
+      // An emptied field is a mistake, not a request to clear the name.
+      if (!name.trim()) {
+        setName(agent.name ?? '')
+        return
+      }
+      if (!nameDirty) return
+      void update({ name: name.trim() })
+    }
     return (
       <Box sx={{ mb: embedded ? 0 : 3 }}>
         {!embedded && (<>
-        <Typography variant="h5" sx={{ mb: 0.5 }}>Basics</Typography>
+        <Typography variant="h5" sx={{ mb: 0.5 }}>Org Bot</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Configure the org agent's name, coding harness, model, and reasoning effort.
+          The org bot's name, coding harness, model, and reasoning effort. Changes save as you make them.
         </Typography>
         </>)}
         <Stack spacing={3}>
           <TextField
-            label="Agent name"
+            label="Org bot name"
             value={name}
             onChange={(event) => setName(event.target.value)}
+            onBlur={commitName}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+            }}
             disabled={readOnly || updateAgent.isPending}
-            helperText="Use a name that makes this agent easy to identify."
+            helperText="Use a name that makes this org bot easy to identify. Saved when you click away."
             fullWidth
           />
           <AgentConfigForm
             value={runtimeConfig}
-            onChange={(patch) => setRuntimeConfig((current) => ({ ...current, ...patch }))}
+            onChange={(patch) => {
+              const next = { ...runtimeConfig, ...patch }
+              setRuntimeConfig(next)
+              saveBasics(next, nameDirty ? name.trim() : undefined)
+            }}
             showReasoningEffort
             disabled={readOnly || updateAgent.isPending}
           />
-          <Box>
-            <Button
-              variant="contained"
-              disabled={readOnly || updateAgent.isPending || !basicsDirty || !name.trim() || !runtimeConfig.runtime}
-              onClick={() => void update({
-                name: name.trim(),
-                code_agent_runtime: runtimeConfig.runtime as NonNullable<typeof agent.code_agent_runtime>,
-                code_agent_credential_type: runtimeConfig.credentials as NonNullable<typeof agent.code_agent_credential_type>,
-                provider: runtimeConfig.provider,
-                model: runtimeConfig.model,
-                reasoning_effort: runtimeConfig.reasoning_effort ?? 'none',
-              })}
-            >
-              Save basics
-            </Button>
-          </Box>
         </Stack>
       </Box>
     )
@@ -152,7 +173,7 @@ const OrgAgentSettings: FC<{
         {!embedded && (<>
           <Typography variant="h5">Instructions</Typography>
           <Typography variant="body2" color="text.secondary">
-            Markdown instructions applied to every org-agent interaction.
+            Markdown instructions applied to every org bot interaction.
           </Typography>
         </>)}
         <MonacoEditor
@@ -183,7 +204,7 @@ const OrgAgentSettings: FC<{
             disabled={readOnly || updateAgent.isPending || !instructionsDirty}
             onClick={() => void update({ content })}
           >
-            Save instructions
+            Save
           </Button>
         </Stack>
       </Stack>
@@ -193,6 +214,35 @@ const OrgAgentSettings: FC<{
   if (section === 'runtime') {
     return (
       <Box sx={{ mt: embedded ? 0 : 3 }}>
+        {!embedded && <Typography variant="subtitle1">Sandbox</Typography>}
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          The container this org bot runs in. Changes apply the next time the bot starts;
+          a running sandbox shows a restart prompt.
+        </Typography>
+        <BotSandboxForm
+          value={sandbox}
+          onChange={(patch) => setSandbox((current) => ({ ...current, ...patch }))}
+          disabled={readOnly || updateAgent.isPending}
+          inheritLabel="Org default"
+          effective={{
+            runtime: agent.effective_sandbox_runtime,
+            vcpus: agent.effective_sandbox_resource_overrides?.vcpus,
+            memory_mb: agent.effective_sandbox_resource_overrides?.memory_mb,
+          }}
+        />
+        <Box sx={{ mt: 2, mb: 3 }}>
+          <Button
+            variant="contained"
+            size="small"
+            disabled={readOnly || updateAgent.isPending || !sandboxDirty}
+            onClick={() => void update({
+              sandbox_runtime: sandbox.runtime as NonNullable<typeof agent.sandbox_runtime>,
+              sandbox_resource_overrides: { vcpus: sandbox.vcpus },
+            })}
+          >
+            Save
+          </Button>
+        </Box>
         {!embedded && <Typography variant="subtitle1">Context</Typography>}
         <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
           <Typography variant="body1">Preserve context</Typography>
@@ -204,7 +254,7 @@ const OrgAgentSettings: FC<{
           />
         </Stack>
         <Typography variant="body2" color="text.secondary">
-          Keep this org agent's conversation context between triggered runs.
+          Keep this org bot's conversation context between triggered runs.
         </Typography>
       </Box>
     )
@@ -219,7 +269,7 @@ const OrgAgentSettings: FC<{
             {!embedded && <Box>
               <Typography variant="subtitle1">Org tools</Typography>
               <Typography variant="caption" color="text.secondary">
-                Helix organization capabilities available to this org agent.
+                Helix organization capabilities available to this org bot.
               </Typography>
             </Box>}
             <Button
@@ -256,44 +306,49 @@ const OrgAgentSettings: FC<{
   }
 
   if (section === 'subscriptions') {
-    const topics = topicsData?.topics ?? []
-    const subscribedIDs = new Set((subscriptionsData?.subscriptions ?? []).map((subscription) => subscription.topic_id))
-    const subscribedTopics = topics.filter((topic) => subscribedIDs.has(topic.id))
-    const updating = subscribe.isPending || unsubscribe.isPending
+    type SourceOption = { key: string; label: string; description: string; source: { kind: string; trigger_id?: string; processor_id?: string; output_id?: string } }
+    const options: SourceOption[] = [
+      ...triggers.map((trigger) => ({ key: `trigger:${trigger.id}`, label: trigger.name || trigger.id!, description: `Trigger · ${trigger.kind}`, source: { kind: 'trigger', trigger_id: trigger.id } })),
+      ...processors.flatMap((processor) => processor.outputs.map((output) => ({ key: `processor_output:${processor.id}:${output.id}`, label: `${processor.name} · ${output.label || output.id}`, description: `Processed event · ${output.id}`, source: { kind: 'processor_output', processor_id: processor.id, output_id: output.id } }))),
+    ]
+    const sourceKey = (source: { kind?: string; trigger_id?: string; processor_id?: string; output_id?: string }) => source.kind === 'trigger' ? `trigger:${source.trigger_id}` : `processor_output:${source.processor_id}:${source.output_id}`
+    const attachedKeys = new Set(attachments.map((item) => sourceKey(item.source ?? {})))
+    const selected = options.filter((option) => attachedKeys.has(option.key))
+    const updating = attach.isPending || detach.isPending
 
     return (
       <Box sx={{ mb: embedded ? 0 : 3 }}>
         {!embedded && (<>
-        <Typography variant="h6" sx={{ mb: 0.5 }}>Topic subscriptions</Typography>
+        <Typography variant="h6" sx={{ mb: 0.5 }}>Triggers</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Topics that trigger this org agent.
+          Choose what starts this org bot. You can use a Trigger directly or the result of a Processor.
         </Typography>
         </>)}
         <Autocomplete
           multiple
           disableCloseOnSelect
           disabled={readOnly || updating}
-          loading={topicsLoading || subscriptionsLoading}
-          options={topics}
-          value={subscribedTopics}
+          loading={triggersLoading || processorsLoading || attachmentsLoading}
+          options={options}
+          value={selected}
           onChange={async (_event, value) => {
-            const nextIDs = new Set(value.map((topic) => topic.id))
-            const toAdd = value.filter((topic) => !subscribedIDs.has(topic.id))
-            const toRemove = (subscriptionsData?.subscriptions ?? []).filter((subscription) => !nextIDs.has(subscription.topic_id))
+            const nextKeys = new Set(value.map((source) => source.key))
+            const toAdd = value.filter((source) => !attachedKeys.has(source.key))
+            const toRemove = attachments.filter((item) => !nextKeys.has(sourceKey(item.source ?? {})))
             try {
-              for (const topic of toAdd) await subscribe.mutateAsync(topic.id)
-              for (const subscription of toRemove) await unsubscribe.mutateAsync(subscription.topic_id)
-              if (toAdd.length || toRemove.length) snackbar.success('Topic subscriptions updated')
+              for (const source of toAdd) await attach.mutateAsync({ source: source.source })
+              for (const item of toRemove) await detach.mutateAsync(item.id!)
+              if (toAdd.length || toRemove.length) snackbar.success('Triggers updated')
             } catch (error: any) {
-              snackbar.error(error?.response?.data?.error ?? error?.message ?? 'subscription update failed')
+              snackbar.error(error?.response?.data?.summary ?? error?.message ?? 'Could not update triggers')
             }
           }}
-          getOptionLabel={(topic) => topic.id}
-          isOptionEqualToValue={(a, b) => a.id === b.id}
+          getOptionLabel={(source) => source.label}
+          isOptionEqualToValue={(a, b) => a.key === b.key}
           renderOption={(props, option, { selected }) => {
             const { key, ...liProps } = props as typeof props & { key?: Key }
             return (
-              <li key={key ?? option.id} {...liProps}>
+              <li key={key ?? option.key} {...liProps}>
                 <Checkbox
                   icon={<Square size={18} />}
                   checkedIcon={<SquareCheck size={18} />}
@@ -301,10 +356,8 @@ const OrgAgentSettings: FC<{
                   checked={selected}
                 />
                 <Box>
-                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{option.id}</Typography>
-                  {option.description && (
-                    <Typography variant="caption" color="text.secondary">{option.description}</Typography>
-                  )}
+                  <Typography variant="body2">{option.label}</Typography>
+                  <Typography variant="caption" color="text.secondary">{option.description}</Typography>
                 </Box>
               </li>
             )
@@ -313,15 +366,14 @@ const OrgAgentSettings: FC<{
             const { key, ...tagProps } = getTagProps({ index })
             return (
               <Chip
-                key={key ?? option.id}
+                key={key ?? option.key}
                 {...tagProps}
-                label={option.id}
+                label={option.label}
                 size="small"
-                sx={{ fontFamily: 'monospace' }}
               />
             )
           })}
-          renderInput={(params) => <TextField {...params} label="Topics" placeholder="Select topics" />}
+          renderInput={(params) => <TextField {...params} label="Starts when" placeholder="Choose triggers or processed events" />}
         />
       </Box>
     )
@@ -332,7 +384,7 @@ const OrgAgentSettings: FC<{
       {!embedded && (<>
       <Typography variant="h6" sx={{ mb: 0.5 }}>Project access</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Projects this org agent can use through its organization tools.
+        Projects this org bot can use through its organization tools.
       </Typography>
       </>)}
       <Autocomplete

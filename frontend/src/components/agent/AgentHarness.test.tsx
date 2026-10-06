@@ -22,6 +22,8 @@ describe('AgentHarness', () => {
     ['zed_agent', 'Zed Agent'],
     ['qwen_code', 'Qwen Code'],
     ['goose_code', 'Goose'],
+    ['opencode', 'opencode'],
+    ['deepseek_harness', 'DeepSeek Runtime'],
   ])('renders the official %s harness mark', (runtime, label) => {
     render(<AgentHarness runtime={runtime} variant="short" />)
 
@@ -30,7 +32,7 @@ describe('AgentHarness', () => {
   })
 
   it('uses a readable label for unknown runtimes', () => {
-    expect(getAgentHarnessLabel('future_harness')).toBe('Future Harness')
+    expect(getAgentHarnessLabel('future_harness')).toBe('Future Runtime')
   })
 
   it('resolves the runtime from an agent and defaults to Zed', () => {

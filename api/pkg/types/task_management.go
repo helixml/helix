@@ -132,8 +132,8 @@ func ValidateCodeAgentModelCompatibility(assistant AssistantConfig) error {
 
 		switch assistant.CodeAgentRuntime {
 		case CodeAgentRuntimeCodexCLI:
-			if !strings.HasPrefix(model, "gpt-5") && !strings.HasPrefix(model, "codex-") {
-				return fmt.Errorf("codex_cli requires a Codex model (gpt-5* or codex-*), got %q", model)
+			if !strings.HasPrefix(model, "gpt-") && !strings.HasPrefix(model, "codex-") {
+				return fmt.Errorf("codex_cli requires a Codex model (gpt-* or codex-*), got %q", model)
 			}
 		case CodeAgentRuntimeClaudeCode:
 			isClaudeAlias := model == "opus" || strings.HasPrefix(model, "opus[") || strings.HasPrefix(model, "opus-") ||
@@ -203,6 +203,25 @@ const (
 	// *_BASE_URL env vars passed to the goose command.
 	// Zed agent name: "goose"
 	CodeAgentRuntimeGooseCode CodeAgentRuntime = "goose_code"
+
+	// CodeAgentRuntimeOpenCode uses the opencode CLI as a custom agent_server.
+	// Requires the opencode binary to be installed in the container (baked by
+	// Dockerfile.ubuntu-helix, optionally overridden per-deployment via the
+	// admin OpenCodeVersion setting). The LLM is configured entirely through
+	// the OPENCODE_CONFIG_CONTENT env var, which declares a single
+	// OpenAI-compatible provider pointing at the Helix proxy.
+	// Zed agent name: "opencode"
+	CodeAgentRuntimeOpenCode CodeAgentRuntime = "opencode"
+
+	// CodeAgentRuntimeDeepSeekHarness uses DeepSeek Harness (`dsh`) as a custom
+	// agent_server. Unlike every other runtime here, upstream ships no ACP
+	// subcommand on its product CLI: the ACP server is a separate cordis
+	// composition, so Dockerfile.ubuntu-helix installs it under /opt/helix/dsh
+	// and exposes it as /usr/local/bin/dsh-acp. The LLM is configured through
+	// that composition's env-driven llm-pi-ai route, which points at the Helix
+	// OpenAI-compatible proxy.
+	// Zed agent name: "dsh"
+	CodeAgentRuntimeDeepSeekHarness CodeAgentRuntime = "deepseek_harness"
 )
 
 // CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.
@@ -236,6 +255,12 @@ func (r CodeAgentRuntime) ZedAgentName() string {
 		return "gemini"
 	case CodeAgentRuntimeCodexCLI:
 		return "codex"
+	case CodeAgentRuntimeOpenCode:
+		return "opencode"
+	case CodeAgentRuntimeDeepSeekHarness:
+		return "dsh"
+	case CodeAgentRuntimeGooseCode:
+		return "goose"
 	default: // CodeAgentRuntimeZedAgent or empty
 		return "zed-agent"
 	}

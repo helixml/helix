@@ -89,6 +89,7 @@ import SettingsTab from '../components/git/SettingsTab'
 import PullRequests from '../components/git/PullRequests'
 import CreateProjectDialog from '../components/project/CreateProjectDialog'
 import { TypesExternalRepositoryType, TypesAzureDevOps, TypesGitRepository } from '../api/api'
+import { copyTextToClipboard } from '../utils/clipboard'
 
 const TAB_NAMES = ['code', 'wiki', 'search', 'changelog', 'connect', 'settings', 'access', 'commits', 'pull-requests'] as const
 type TabName = typeof TAB_NAMES[number]
@@ -407,17 +408,23 @@ const GitRepoDetail: FC = () => {
   }
 
   const handleCopyCloneCommand = (command: string) => {
-    navigator.clipboard.writeText(command)
-    setCopiedClone(true)
-    snackbar.success('Clone URL copied to clipboard')
-    setTimeout(() => setCopiedClone(false), 2000)
+    void copyTextToClipboard(command)
+      .then(() => {
+        setCopiedClone(true)
+        snackbar.success('Clone URL copied to clipboard')
+        setTimeout(() => setCopiedClone(false), 2000)
+      })
+      .catch(() => snackbar.error('Failed to copy clone URL'))
   }
 
   const handleCopySha = (sha: string) => {
-    navigator.clipboard.writeText(sha)
-    setCopiedSha(sha)
-    snackbar.success('SHA copied to clipboard')
-    setTimeout(() => setCopiedSha(null), 2000)
+    void copyTextToClipboard(sha)
+      .then(() => {
+        setCopiedSha(sha)
+        snackbar.success('SHA copied to clipboard')
+        setTimeout(() => setCopiedSha(null), 2000)
+      })
+      .catch(() => snackbar.error('Failed to copy SHA'))
   }
 
   const handleViewEnrichments = (commitSha: string) => {

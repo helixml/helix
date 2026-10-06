@@ -1,0 +1,77 @@
+package api_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"testing"
+
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
+	"github.com/helixml/helix/api/pkg/types"
+)
+
+type chatSurfaceBotRuntime struct {
+	projectID string
+	sessionID string
+}
+
+type failingChatSurfaceBotRuntime struct{}
+
+func (failingChatSurfaceBotRuntime) State(context.Context, string, orgchart.NodeID) (orgapi.BotRuntimeInfo, error) {
+	return orgapi.BotRuntimeInfo{}, errors.New("runtime state unavailable")
+}
+
+func (f chatSurfaceBotRuntime) State(_ context.Context, _ string, _ orgchart.NodeID) (orgapi.BotRuntimeInfo, error) {
+	return orgapi.BotRuntimeInfo{
+		ProjectID: f.projectID, SessionID: f.sessionID, Status: "running",
+		AgentWorkState: types.AgentWorkStateWorking,
+	}, nil
+}
+
+// The chat sidebar lists bots as top-level entries and opens their session
+// directly, so the list endpoint must carry the bot's own project and session
+// rather than making the sidebar fetch every bot's detail.
+func TestRESTBotListCarriesProjectAndSession(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedBot(t, st, ctx, "b-alice", "# Alice")
+	deps.BotRuntime = chatSurfaceBotRuntime{projectID: "prj_alice", sessionID: "ses_alice"}
+
+	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/bots", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body)
+	}
+	var got []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	var alice map[string]any
+	for _, bot := range got {
+		if bot["id"] == "b-alice" {
+			alice = bot
+		}
+	}
+	if alice == nil {
+		t.Fatalf("b-alice missing from list: %#v", got)
+	}
+	if alice["project_id"] != "prj_alice" || alice["session_id"] != "ses_alice" ||
+		alice["status"] != "running" || alice["agent_work_state"] != "working" {
+		t.Fatalf("list row = %#v", alice)
+	}
+}
+
+func TestRESTBotReadsFailWhenRuntimeStateIsUnavailable(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	seedBot(t, st, context.Background(), "b-alice", "# Alice")
+	deps.BotRuntime = failingChatSurfaceBotRuntime{}
+	h := orgapi.Handler(deps)
+
+	for _, path := range []string{"/bots", "/bots/b-alice"} {
+		rec := do(t, h, http.MethodGet, path, nil)
+		if rec.Code != http.StatusInternalServerError {
+			t.Errorf("GET %s: status = %d, want 500; body=%s", path, rec.Code, rec.Body)
+		}
+	}
+}

@@ -2,49 +2,44 @@ import type { FC, ReactElement } from 'react'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { BrainCircuit, FolderGit2, GitBranch } from 'lucide-react'
+import { BrainCircuit, Cpu, Folder, FolderGit2, GitBranch, Monitor, SquareTerminal } from 'lucide-react'
 
 import useApps from '../../hooks/useApps'
-import AgentHarness, { getAgentHarnessModel, getAgentHarnessRuntime } from '../agent/AgentHarness'
+import { TYPOGRAPHY } from '../../styles/typography'
+import AgentHarness from '../agent/AgentHarness'
+import { getProjectChatItemDetails } from './projectChatItemDetails'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 
 type ProjectChatItemTooltipProps = {
   item: SidebarItem
   repository?: string
   branch?: string
+  /** The project a row belongs to, for lists that span projects. */
+  projectName?: string
+  /**
+   * Phones show the same facts on the row's second line, so the tooltip would
+   * be a duplicate they cannot dismiss.
+   */
+  disabled?: boolean
   children: ReactElement
-}
-
-const runtimeLabel = (runtime?: string): string => {
-  switch (runtime) {
-    case 'claude_code': return 'Claude Code'
-    case 'codex_cli': return 'Codex'
-    case 'qwen_code': return 'Qwen Code'
-    case 'goose_code': return 'Goose'
-    case 'zed_agent': return 'Zed Agent'
-    case 'zed_external': return 'External Agent'
-    case 'helix': return 'Helix'
-    default: return runtime || ''
-  }
 }
 
 const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
   item,
   repository,
   branch,
+  projectName,
+  disabled = false,
   children,
 }) => {
   const { apps } = useApps()
-  const configuredAppID = item.task?.helix_app_id || item.session?.app_id
-  const configuredApp = apps.find((app) => app.id === configuredAppID)
-  const runtime = configuredApp
-    ? getAgentHarnessRuntime(configuredApp)
-    : item.session?.metadata?.code_agent_runtime || item.session?.metadata?.agent_type
-  const harness = runtimeLabel(runtime)
-  const model = configuredApp
-    ? getAgentHarnessModel(configuredApp)
-    : item.session?.model_name
+  const details = getProjectChatItemDetails({ item, apps, repository, branch })
+  const { harness, model, compute, environment, runtime } = details
+
+  if (disabled) return children
+
   const rows = [
+    projectName && { icon: <Folder size={13} />, value: projectName },
     repository && { icon: <FolderGit2 size={13} />, value: repository },
     branch && { icon: <GitBranch size={13} />, value: branch },
     harness && {
@@ -54,6 +49,11 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
       value: harness,
     },
     model && { icon: <BrainCircuit size={13} />, value: model },
+    compute && { icon: <Cpu size={13} />, value: compute },
+    environment && {
+      icon: environment === 'Headless' ? <SquareTerminal size={13} /> : <Monitor size={13} />,
+      value: environment,
+    },
   ].filter(Boolean) as Array<{ icon: ReactElement; value: string }>
 
   return (
@@ -80,7 +80,14 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
       }}
       title={(
         <Box sx={{ minWidth: 170 }}>
-          <Typography sx={{ mb: rows.length ? 0.75 : 0, fontSize: '12px', fontWeight: 600, lineHeight: 1.35 }}>
+          <Typography
+            sx={{
+              mb: rows.length ? 0.75 : 0,
+              fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+              fontWeight: 600,
+              lineHeight: 1.35,
+            }}
+          >
             {item.title}
           </Typography>
           {rows.map((row) => (
@@ -88,7 +95,16 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
               <Box sx={{ width: 14, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 {row.icon}
               </Box>
-              <Typography sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '11px', lineHeight: 1.35 }}>
+              <Typography
+                sx={{
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontSize: TYPOGRAPHY.sidebar.statusFontSize,
+                  lineHeight: 1.35,
+                }}
+              >
                 {row.value}
               </Typography>
             </Box>

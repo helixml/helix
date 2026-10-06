@@ -49,10 +49,15 @@ type UpdateProgress struct {
 }
 
 const (
-	latestVersionURL = "https://get.helix.ml/latest.txt"
+	latestReleaseURL = "https://dl.helix.ml/desktop/latest.json"
 	dmgURLTemplate   = "https://dl.helix.ml/desktop/%s/Helix-for-Mac.dmg"
 	vmManifestURLTpl = "https://dl.helix.ml/vm/%s/manifest.json"
 )
+
+type macRelease struct {
+	Version string `json:"version"`
+	DMGURL  string `json:"dmg_url"`
+}
 
 var semverRegex = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$`)
 
@@ -166,14 +171,29 @@ func isDevMode() bool {
 	return Version == "dev"
 }
 
-// CheckForUpdate fetches the latest version from the CDN and compares.
+func readMacRelease(r io.Reader) (macRelease, error) {
+	var release macRelease
+	if err := json.NewDecoder(io.LimitReader(r, 4096)).Decode(&release); err != nil {
+		return macRelease{}, fmt.Errorf("failed to read latest Mac release: %w", err)
+	}
+	if ParseSemVer(release.Version) == nil {
+		return macRelease{}, fmt.Errorf("invalid latest Mac version %q", release.Version)
+	}
+	expectedURL := fmt.Sprintf(dmgURLTemplate, release.Version)
+	if release.DMGURL != expectedURL {
+		return macRelease{}, fmt.Errorf("unexpected latest Mac DMG URL %q", release.DMGURL)
+	}
+	return release, nil
+}
+
+// CheckForUpdate fetches the latest successful Mac release from the CDN and compares.
 func (u *Updater) CheckForUpdate() (UpdateInfo, error) {
 	if isDevMode() {
 		return UpdateInfo{CurrentVersion: Version}, nil
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(latestVersionURL)
+	resp, err := client.Get(latestReleaseURL)
 	if err != nil {
 		return UpdateInfo{}, fmt.Errorf("failed to check for updates: %w", err)
 	}
@@ -183,22 +203,20 @@ func (u *Updater) CheckForUpdate() (UpdateInfo, error) {
 		return UpdateInfo{}, fmt.Errorf("update check returned HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 256))
+	release, err := readMacRelease(resp.Body)
 	if err != nil {
-		return UpdateInfo{}, fmt.Errorf("failed to read latest version: %w", err)
+		return UpdateInfo{}, err
 	}
-
-	latest := strings.TrimSpace(string(body))
 
 	info := UpdateInfo{
 		CurrentVersion: Version,
-		LatestVersion:  latest,
-		Available:      IsNewer(Version, latest),
+		LatestVersion:  release.Version,
+		Available:      IsNewer(Version, release.Version),
 	}
 
 	if info.Available {
-		info.DMGURL = fmt.Sprintf(dmgURLTemplate, latest)
-		info.VMManifestURL = fmt.Sprintf(vmManifestURLTpl, latest)
+		info.DMGURL = release.DMGURL
+		info.VMManifestURL = fmt.Sprintf(vmManifestURLTpl, release.Version)
 	}
 
 	u.mu.Lock()
@@ -337,10 +355,10 @@ func (u *Updater) StartCombinedUpdate(settings *SettingsManager, downloader *VMD
 		return fmt.Errorf("update failed: %w", vmErr)
 	}
 
-	// Defense-in-depth: verify the staged disk was actually created before
-	// proceeding to download the DMG and write the sentinel.
-	if !IsVMUpdateStaged() {
-		log.Printf("BUG: DownloadVMUpdate returned nil but disk.qcow2.staged does not exist for v%s", info.LatestVersion)
+	// The VM disk is either staged for this version, or was already installed
+	// (an earlier combined update applied the VM but the app was never replaced).
+	if !vmReadyForVersion(settings, info.LatestVersion) {
+		log.Printf("BUG: DownloadVMUpdate returned nil but no VM disk is staged or installed for v%s", info.LatestVersion)
 		return fmt.Errorf("system update could not be prepared — please try again later")
 	}
 
@@ -773,6 +791,28 @@ func (u *Updater) ApplyVMUpdate(vm *VMManager, settings *SettingsManager) error 
 
 	log.Printf("VM disk updated to version %s", stagedVersion)
 	return nil
+}
+
+// vmReadyForVersion reports whether the VM half of a combined update to
+// version is done: a disk for it is staged, or it is already installed.
+func vmReadyForVersion(settings *SettingsManager, version string) bool {
+	if IsVMUpdateStaged() && GetStagedVMVersion() == version {
+		return true
+	}
+	return settings.Get().InstalledVMVersion == version
+}
+
+// IsCombinedUpdateStaged reports whether a combined update to version has been
+// fully downloaded and is waiting for the user to restart into the new app.
+func IsCombinedUpdateStaged(settings *SettingsManager, version string) bool {
+	sentinel, err := os.ReadFile(combinedUpdateSentinelPath())
+	if err != nil || strings.TrimSpace(string(sentinel)) != version {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(getHelixDataDir(), "updates", "Helix-for-Mac.dmg")); err != nil {
+		return false
+	}
+	return vmReadyForVersion(settings, version)
 }
 
 // IsVMUpdateStaged returns true if a staged VM disk exists.

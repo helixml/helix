@@ -25,6 +25,10 @@ ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:92906d87596d63
 # upstream `download_cli.sh` install path.
 ARG GOOSE_COMMIT=ca26f01d3acd9871691fa8981f05d19aed9a3b82
 
+# Rootless BuildKit binaries used by headless sessions. Pin the multi-platform
+# image index so amd64 and arm64 builds resolve reproducibly.
+FROM moby/buildkit:v0.27.1-rootless@sha256:5616ed4e78a3552f3575864c8ab585c882b892c4e93b6a7b6ac8afbc98bd2f7a AS rootless-buildkit
+
 # ====================================================================
 # Go build stage for Helix binaries
 # ====================================================================
@@ -60,6 +64,7 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Building Go binaries..." && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix . && \
     CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /logind-stub ./cmd/logind-stub && \
@@ -112,8 +117,13 @@ RUN apt-get update && apt-get install -y \
     libgbm-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.87.0
+# Install Rust. Download to a file so a network failure cannot be hidden by a
+# successful shell at the end of a pipeline and cached as a valid toolchain.
+RUN curl --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors -fsS \
+        https://sh.rustup.rs -o /tmp/rustup-init.sh && \
+    sh /tmp/rustup-init.sh -y --default-toolchain 1.87.0 && \
+    rm /tmp/rustup-init.sh && \
+    /root/.cargo/bin/rustc --version
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Copy all plugin sources (needed for both architectures)
@@ -131,17 +141,17 @@ set -e
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Building ARM64 plugins ==="
     # Build vsockenc (delegates encoding to host VideoToolbox)
-    cd /build/gst-vsockenc && \
-        meson setup builddir --prefix=/usr --libdir=lib && \
-        meson compile -C builddir && \
-        meson install -C builddir --destdir=/install
+    cd /build/gst-vsockenc
+    meson setup builddir --prefix=/usr --libdir=lib
+    meson compile -C builddir
+    meson install -C builddir --destdir=/install
     find /install -name "libgstvsockenc.so" -exec cp {} /libgstvsockenc.so \;
     echo "vsockenc built"
 
     # Build pipewirezerocopysrc (DMA-BUF passthrough for virtio-gpu)
-    cd /build/gst-pipewire-zerocopy && \
-        nice -n 19 cargo build --locked --release && \
-        cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
+    cd /build/gst-pipewire-zerocopy
+    nice -n 19 cargo build --locked --release
+    cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
     echo "pipewirezerocopysrc built"
 else
     echo "=== Building amd64 plugins ==="
@@ -152,9 +162,9 @@ else
     fi
 
     # Build pipewirezerocopysrc with CUDA support
-    cd /build/gst-pipewire-zerocopy && \
-        nice -n 19 cargo build --locked --release && \
-        cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
+    cd /build/gst-pipewire-zerocopy
+    nice -n 19 cargo build --locked --release
+    cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
     echo "pipewirezerocopysrc built (amd64)"
 
     # No vsockenc on amd64 — create placeholder
@@ -230,6 +240,48 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     nice -n 19 cargo build --release -p goose-cli --bin goose && \
     cp target/release/goose /goose-binary && \
     strip /goose-binary
+
+# ====================================================================
+# DeepSeek Harness (dsh) ACP server
+# ====================================================================
+# Upstream's `dsh` launcher serves ACP on stdio as its shipped `acp` profile
+# (dsh-base + dsh-acp-app); desktop/shared/dsh/helix.patch.yml layers the Helix
+# LLM route and sandbox policy on top. This stage installs the launcher with
+# every plugin the shipped profiles name, and the runtime copies the tree
+# wholesale.
+#
+# The stage's Node major must match the runtime image's (Node 24, installed
+# from nodesource below): native modules built or selected for one
+# NODE_MODULE_VERSION will not load under another.
+#
+# Version pinning is a committed lockfile, not a version string: plugins
+# depend on each other by range, so a newly published rc would otherwise
+# drift in underneath the pin. desktop/shared/dsh/package.json +
+# package-lock.json pin the whole tree and `npm ci` installs it byte-for-byte
+# or fails.
+#
+# To move dsh: edit the version in package.json, run `npm install` in that
+# directory to refresh the lock, check `dsh --profile acp --patch
+# helix.patch.yml --dump-config`, and verify a live turn with MCP tools.
+# Upstream is in developer preview and states there WILL be
+# compatibility-breaking changes.
+FROM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS dsh-build
+WORKDIR /opt/helix/dsh
+# node-pty (the bash executor's process plumbing) may need compiling when no
+# prebuild matches, so the toolchain lives in this stage and only the resulting
+# node_modules tree is copied out.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential python3 && \
+    rm -rf /var/lib/apt/lists/*
+COPY desktop/shared/dsh/package.json desktop/shared/dsh/package-lock.json ./
+RUN <<_INSTALL_DSH
+set -eu
+echo "=== Installing DeepSeek Harness ==="
+npm ci --no-audit --no-fund --omit=dev
+npm cache clean --force > /dev/null 2>&1 || true
+node -p "'dsh ' + require('@deepseek-ai/dsh/package.json').version" > version
+cat version
+_INSTALL_DSH
 
 # ====================================================================
 # Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
@@ -431,6 +483,53 @@ RUN mkdir -p /etc/pipewire/pipewire.conf.d && \
     echo '}' >> /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf
 
 # ====================================================================
+# Headless document extraction - read a document without opening it
+# ====================================================================
+# The office editors installed below are GUI applications. They let an agent
+# OPEN and EDIT a document on the desktop, which is a different job from
+# reading one: a great deal of agent work is "a user uploaded a file, extract
+# the text", and driving a GUI to do that is slow, flaky and needs a display.
+#
+# There was no headless path for it, and the gap was arch-dependent and
+# therefore easy to miss: the arm64 branch below installs LibreOffice, which
+# brings `soffice --headless --convert-to`, while the amd64 branch installs
+# OnlyOffice Desktop Editors, which does not ship a supported conversion CLI.
+# So .docx extraction worked on an arm64 laptop and not on an amd64 server.
+#
+# Found via Find AI (we-find.ai), where candidates upload CVs for an agent to
+# read. PDFs worked, because the agent's own Read tool renders PDF pages for
+# the model; Word CVs — the commonest format in recruitment — silently could
+# not be read at all, since a .docx is a ZIP of XML and there was no unzip
+# either.
+#
+# These three are the small, boring, deterministic tools for the job:
+#   pandoc        .docx/.odt/.rtf/.epub/.html → text or markdown. One binary,
+#                 no GUI, no Java — unlike headless LibreOffice, which is slow
+#                 to start and unreliable in a container.
+#   antiword      legacy binary .doc, which pandoc does not handle.
+#   poppler-utils pdftotext/pdfimages, as a cheap deterministic fallback when
+#                 a PDF is long enough that reading it page-by-page as images
+#                 is wasteful, or when exact text is wanted.
+#   unzip         a .docx is a ZIP of XML, and there was no unzip either.
+#
+# SIZE: ~238MB installed, of which pandoc is ~191MB (it is Haskell). That is
+# not cheap and was weighed: the 47MB alternative (docx2txt instead of pandoc)
+# extracts a plain CV just as well, but flattens the two-column layouts and
+# skills tables that real CVs are full of, and handles neither .odt nor .rtf.
+# Extraction quality is the point of having these at all, so pandoc stays.
+#
+# Identical on both architectures — so a document that extracts in development
+# extracts in production, which was not previously true.
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    pandoc \
+    antiword \
+    poppler-utils \
+    unzip \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
 # OnlyOffice Desktop Editors - Office document support
 # ====================================================================
 # Enables AI agents to open and edit Word, Excel, and PowerPoint documents.
@@ -564,6 +663,11 @@ _USER_INIT
 # 2. Create udev rule for Mutter primary GPU selection on multi-GPU systems
 COPY <<'_GPU_INIT' /etc/cont-init.d/15-detect-gpu.sh
 #!/bin/bash
+if [ "${HELIX_HEADLESS}" = "1" ]; then
+    echo "Headless mode: skipping GPU detection and udev setup"
+    return 0
+fi
+
 echo "**** Fixing GPU device permissions ****"
 # In Docker-in-Docker setups, GPU devices may be mounted as root:root
 # We need to make them accessible to non-root users for Vulkan/CUDA/EGL
@@ -619,6 +723,47 @@ if [ "$(id -u)" = "0" ]; then
         source "${init_script}"
     done
 fi
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+    if [ -f /zed-build/zed ] && [ ! -e /usr/local/bin/zed ]; then
+        ln -sf /zed-build/zed /usr/local/bin/zed
+    fi
+    if [ -n "${WORKSPACE_DIR:-}" ] && [ -d "${WORKSPACE_DIR}" ] && [ -d /home/retro/work ]; then
+        chown "${UNAME}:${UNAME}" "${WORKSPACE_DIR}" /home/retro/work
+    fi
+    drop_privileges=(setpriv --bounding-set=-sys_admin --nnp --)
+    if [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+        # util-linux mountpoint exits 32 for "not a mount point" and 1 for
+        # errors; any error keeps the lockdown below.
+        home_mount=0
+        mountpoint -q /home/retro || home_mount=$?
+        if [ "${HELIX_ALLOW_SUDO:-0}" = "1" ]; then
+            drop_privileges=()
+        elif [ "${home_mount}" = "32" ]; then
+            # A control plane or Hydra that predates quota-backed homes leaves
+            # the home on the root filesystem; closing it would lock the agent
+            # out of its own home.
+            gow_log "WARNING: /home/retro is not a quota-backed mount; leaving the root filesystem writable"
+        else
+            # An untrusted instance keeps all writable state on its
+            # quota-backed home disk and bounded tmpfs mounts. Close every
+            # other path on the root filesystem to the agent user, so it
+            # cannot fill the host disk through the container's writable
+            # layer. Mount points are pruned: they are the allowed storage.
+            prune=()
+            while read -r _ _ _ _ mount_point _; do
+                [ "${mount_point}" = "/" ] || prune+=(-path "$(printf '%b' "${mount_point}")" -o)
+            done < /proc/self/mountinfo
+            find / -xdev \( "${prune[@]}" -false \) -prune -o ! -type l \
+                \( \( -user "${UNAME}" -exec chown root:root {} + \) , \( -perm /0022 -exec chmod go-w {} + \) \)
+        fi
+    fi
+    if [ -n "${@:-}" ]; then
+        exec "${drop_privileges[@]}" gosu "${UNAME}" /bin/bash -c "$@"
+    fi
+    gow_log "Launching the container's startup script as user '${UNAME}'"
+    chmod +x /opt/gow/startup.sh 2>/dev/null || true
+    exec "${drop_privileges[@]}" gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
+fi
 if [ -n "${@:-}" ]; then
     /bin/bash -c "$@"
     exit $?
@@ -659,7 +804,11 @@ ENV LANG=en_US.UTF-8 \
 # GOW dbus init script
 COPY <<_DBUS_INIT /etc/cont-init.d/99-startdbus.sh
 #!/bin/bash
-service dbus start 2>/dev/null || true
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+    setpriv --bounding-set=-sys_admin --nnp -- service dbus start 2>/dev/null || true
+else
+    service dbus start 2>/dev/null || true
+fi
 _DBUS_INIT
 RUN chmod 755 /etc/cont-init.d/99-startdbus.sh
 
@@ -698,7 +847,16 @@ RUN apt-get update \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin \
+        podman crun uidmap fuse-overlayfs passt slirp4netns \
+    && { grep -q '^retro:' /etc/subuid || echo 'retro:100000:65536' >> /etc/subuid; } \
+    && { grep -q '^retro:' /etc/subgid || echo 'retro:100000:65536' >> /etc/subgid; } \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=rootless-buildkit \
+    /usr/bin/buildkitd \
+    /usr/bin/buildctl \
+    /usr/local/bin/
+COPY --from=rootless-buildkit /usr/bin/rootlesskit /usr/bin/rootlesskit
 
 # NVIDIA Container Toolkit (enables GPU passthrough in inner containers)
 # This allows the desktop's dockerd to run containers with --runtime=nvidia
@@ -754,12 +912,22 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /usr/share/backgrounds && \
     wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
 
-# Node.js 20 (for Qwen Code and chrome-devtools-mcp)
+# Node.js 24 — the active LTS line, and the runtime for every Node consumer in
+# this image: Qwen Code, chrome-devtools-mcp, the GitHub MCP server, the Drone
+# CI MCP server, the DeepSeek Harness ACP server, and the Claude Code / Codex
+# ACP wrappers Zed bootstraps through npm at session start.
+#
+# Node 20 left maintenance in 2026 and is below DeepSeek Harness's supported
+# floor (^22.19.0 || >=24.0.0). Qwen Code is still *built* against node:20-slim
+# (Dockerfile.qwen-code-build) but runs on this interpreter; its three bundled
+# native modules (@rollup/rollup-linux-x64-gnu, @lydell/node-pty-linux-x64,
+# @teddyzhu/clipboard-linux-x64-gnu) are all N-API, so they are ABI-independent
+# and load unchanged here.
 RUN apt-get update && \
     apt-get install -y ca-certificates curl gnupg git && \
     mkdir -p /etc/apt/keyrings && \
     curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
     apt-get update && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
@@ -954,9 +1122,14 @@ RUN mkdir -p /etc/skel/.config/google-chrome && \
 # logs then show `chrome-devtools context server failed to start: Context
 # server request timeout` (180s). Going via the global binary avoids npx
 # entirely and removes the contention.
-RUN npm install -g \
+#
+# HOME is /home/retro here, so root-run npm would leave a root-owned
+# ~/.npm cache and every later `npm install` by the agent fails with EACCES.
+# Build-time installs use a throwaway cache instead.
+RUN npm_config_cache=/tmp/npm-build-cache npm install -g \
         chrome-devtools-mcp@0.25.0 \
         @modelcontextprotocol/server-github@2025.4.8 \
+    && rm -rf /tmp/npm-build-cache \
     && fc-cache -f -v
 
 # URL capture script for Claude Code OAuth login flow.
@@ -964,7 +1137,6 @@ RUN npm install -g \
 # the OAuth URL to a file instead of opening a browser. The Helix frontend polls
 # for this file and opens the URL in the user's native browser.
 COPY desktop/shared/helix-capture-browser.sh /usr/local/bin/helix-capture-browser
-COPY desktop/shared/helix-claude-auth-wrapper.sh /usr/local/bin/helix-claude-auth-wrapper
 COPY desktop/shared/helix-codex-auth-wrapper.sh /usr/local/bin/helix-codex-auth-wrapper
 # helix-npx — installed as /usr/local/bin/npx so it shadows the system
 # /usr/bin/npx via PATH order. Gives each `npx <pkg>` invocation its own
@@ -974,21 +1146,30 @@ COPY desktop/shared/helix-codex-auth-wrapper.sh /usr/local/bin/helix-codex-auth-
 # Zed's own ACP-wrapper bootstrapping calls npm via absolute path so it
 # bypasses this shim.
 COPY desktop/shared/helix-npx.sh /usr/local/bin/npx
-RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper /usr/local/bin/helix-codex-auth-wrapper /usr/local/bin/npx
+RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-codex-auth-wrapper /usr/local/bin/npx
 
 # Install drone-ci-mcp (Helix's Drone CI MCP server for build log navigation)
 # Build and pack the package, then install globally from the tarball
 COPY mcp-servers/drone-ci/package.json mcp-servers/drone-ci/package-lock.json mcp-servers/drone-ci/tsconfig.json /tmp/drone-ci-mcp/
 COPY mcp-servers/drone-ci/src /tmp/drone-ci-mcp/src/
-RUN cd /tmp/drone-ci-mcp && npm install && npm run build && npm pack && npm install -g helix-drone-ci-mcp-*.tgz && rm -rf /tmp/drone-ci-mcp
+RUN export npm_config_cache=/tmp/npm-build-cache && cd /tmp/drone-ci-mcp && npm install && npm run build && npm pack && npm install -g helix-drone-ci-mcp-*.tgz && rm -rf /tmp/drone-ci-mcp /tmp/npm-build-cache
 
 # Chrome MCP server configuration for headless mode
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
     CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
 
-# Start dockerd inside desktop container if /var/lib/docker is volume-mounted
+# CPU tiers: agent work (Zed's shell children, inner dockerd) runs in an
+# idle-class cgroup so the display path keeps the CPU during builds.
+ADD desktop/shared/16-cpu-tiers.sh /etc/cont-init.d/16-cpu-tiers.sh
+ADD desktop/shared/agent-tier-bash.sh /usr/local/libexec/helix/agent-tier/bash
+RUN chmod 755 /etc/cont-init.d/16-cpu-tiers.sh /usr/local/libexec/helix/agent-tier/bash
+
+# Start the per-session container engine: rootful Docker for desktops and
+# rootless Podman for unprivileged headless agents.
 ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
-RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
+ADD desktop/shared/headless-containers.conf /opt/helix/headless-containers.conf
+ADD desktop/shared/helix-buildkit-cache-stats.sh /usr/local/bin/helix-buildkit-cache-stats
+RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh /usr/local/bin/helix-buildkit-cache-stats
 
 # Workspace README
 RUN mkdir -p /opt/helix
@@ -1069,12 +1250,18 @@ fi
 rm -f /tmp/zerocopy.so /tmp/vsockenc.so /tmp/libnvrtc*.so*
 _INSTALL_PLUGINS
 
-# AI agent privacy configs
+# AI agent privacy configs.
+# chown: these run after the `chown -R retro:retro /home/retro` above, so
+# without it the agent user owns its home but not these two directories, and
+# anything writing into them at runtime (skill links, agent state) fails with
+# EACCES. Dockerfile.sway-helix already chowns .qwen for the same reason.
 RUN mkdir -p /home/retro/.qwen && \
-    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.qwen/settings.json
+    echo '{"privacy":{"usageStatisticsEnabled":false},"telemetry":{"enabled":false},"general":{"enableAutoUpdate":false}}' > /home/retro/.qwen/settings.json && \
+    chown -R retro:retro /home/retro/.qwen
 
 RUN mkdir -p /home/retro/.gemini && \
-    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
+    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json && \
+    chown -R retro:retro /home/retro/.gemini
 
 
 
@@ -1235,11 +1422,12 @@ _INSTALL_CURSOR_THEME
 # means changes here don't invalidate cached layers for stable components
 # like OnlyOffice, Chrome, Ghostty, cursor theme, etc.
 
-# Qwen Code
+# Qwen Code (version recorded in /opt/qwen-code/version).
 WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
-RUN chmod +x dist/cli.js && \
-    ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
+RUN test -x bin/qwen && \
+    ln -sf /opt/qwen-code/bin/qwen /usr/local/bin/qwen && \
+    qwen --version
 
 # Goose CLI (built from $GOOSE_COMMIT in goose-build stage above).
 # Telemetry: OTEL_SDK_DISABLED=true is set in the ENV block above
@@ -1250,6 +1438,136 @@ RUN chmod +x dist/cli.js && \
 # user-triggered update would be overwritten by the next image build.
 COPY --from=goose-build /goose-binary /usr/local/bin/goose
 RUN chmod +x /usr/local/bin/goose
+
+# opencode CLI (ACP agent, `opencode acp`).
+#
+# Downloaded from the upstream release rather than built: opencode ships a
+# single self-contained binary per platform, and the release digests are
+# published in the ACP registry manifest so we can verify what we install.
+#
+# The version is recorded at /opt/helix/opencode.version. settings-sync-daemon
+# reads that file to decide whether an admin-pinned override (system settings →
+# opencode_version) differs from what ships here; if it does, it downloads the
+# pinned release into the shared cache below instead of using this binary.
+# Keep OPENCODE_VERSION, OPENCODE_SHA256_* , sandbox-versions.txt and
+# pkg/opencode.BakedVersion in sync.
+COPY --chown=root:root --chmod=0644 desktop/shared/opencode-plugins/helix-media-budget.mjs /opt/helix/opencode-plugins/helix-media-budget.mjs
+ARG OPENCODE_VERSION=1.18.18
+ARG OPENCODE_SHA256_AMD64=0cddc222418b8553669905a8980c0cda7088f00da24d83d6ac76b01c9fdb2aaf
+ARG OPENCODE_SHA256_ARM64=dcb1b5ec5687b43f87749560021f9203f3809e0ce5ae44ff9be8ae17083fe4ba
+RUN <<_INSTALL_OPENCODE
+set -eu
+case "${TARGETARCH}" in
+  amd64) OC_ASSET="opencode-linux-x64.tar.gz";   OC_SHA="${OPENCODE_SHA256_AMD64}" ;;
+  arm64) OC_ASSET="opencode-linux-arm64.tar.gz"; OC_SHA="${OPENCODE_SHA256_ARM64}" ;;
+  *) echo "unsupported TARGETARCH=${TARGETARCH} for opencode" >&2; exit 1 ;;
+esac
+echo "=== Installing opencode ${OPENCODE_VERSION} (${OC_ASSET}) ==="
+curl -fsSL -o /tmp/opencode.tar.gz \
+  "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/${OC_ASSET}"
+echo "${OC_SHA}  /tmp/opencode.tar.gz" | sha256sum -c -
+# --no-same-owner: the archive carries uid 1000, which is `retro` in this
+# image. Without it the agent user would own its own runtime binary and could
+# overwrite it — the thing autoupdate=false is there to prevent.
+tar -xzf /tmp/opencode.tar.gz --no-same-owner -C /usr/local/bin opencode
+rm -f /tmp/opencode.tar.gz
+chown root:root /usr/local/bin/opencode
+chmod 755 /usr/local/bin/opencode
+mkdir -p /opt/helix
+echo "${OPENCODE_VERSION}" > /opt/helix/opencode.version
+# Shared cache for admin-pinned releases. Bind-mounted from the sandbox host
+# so one download serves every container on that host; the empty directory
+# here is the mountpoint and the fallback when no mount is present.
+mkdir -p /opt/helix/agent-cache/opencode
+chown -R retro:retro /opt/helix/agent-cache
+# Keep the build-time smoke check out of the runtime user's home. Even
+# `--version` initialises opencode's data directories; running it with the
+# image's HOME would leave /home/retro/.local root-owned and prevent desktop
+# startup from creating Zed's state symlink there.
+OPENCODE_SMOKE_HOME="$(mktemp -d)"
+HOME="${OPENCODE_SMOKE_HOME}" /usr/local/bin/opencode --version
+rm -r "${OPENCODE_SMOKE_HOME}"
+# On first start opencode npm-installs its plugin SDK (@opencode-ai/plugin,
+# pinned to its own version) into its config directory: a ~10s registry
+# download every fresh sandbox paid before its first turn, and one that
+# cannot succeed air-gapped. Install it here into the config home
+# settings-sync-daemon points opencode at (OpenCodeConfigHome), as the agent
+# user, so first start finds it and skips the install. Data, cache, state and
+# npm's own cache go to a throwaway directory so nothing else lands in ~.
+OPENCODE_PREWARM="$(mktemp -d)"
+chown retro:retro "${OPENCODE_PREWARM}"
+runuser -u retro -- env HOME=/home/retro \
+  XDG_CONFIG_HOME=/home/retro/.config/helix-opencode \
+  XDG_DATA_HOME="${OPENCODE_PREWARM}/data" \
+  XDG_CACHE_HOME="${OPENCODE_PREWARM}/cache" \
+  XDG_STATE_HOME="${OPENCODE_PREWARM}/state" \
+  npm_config_cache="${OPENCODE_PREWARM}/npm" \
+  OPENCODE_CONFIG_CONTENT='{"autoupdate":false,"plugin":["file:///opt/helix/opencode-plugins/helix-media-budget.mjs"]}' \
+  /usr/local/bin/opencode debug config > /dev/null
+test -f "/home/retro/.config/helix-opencode/opencode/node_modules/@opencode-ai/plugin/package.json"
+rm -r "${OPENCODE_PREWARM}"
+_INSTALL_OPENCODE
+
+# DeepSeek Harness (dsh) ACP agent server, built in the dsh-build stage above.
+# Installed root-owned for the same reason as opencode: the agent user must not
+# be able to overwrite its own runtime. The patch and the wrapper are repo
+# files rather than heredocs so they are reviewable and testable outside the
+# image.
+COPY --from=dsh-build --chown=root:root /opt/helix/dsh /opt/helix/dsh
+ADD --chown=root:root desktop/shared/dsh/helix.patch.yml /opt/helix/dsh/helix.patch.yml
+ADD --chown=root:root desktop/shared/dsh/dsh-acp /usr/local/bin/dsh-acp
+RUN <<_INSTALL_DSH_RUNTIME
+set -eu
+chmod 755 /usr/local/bin/dsh-acp
+# $DSH_HOME (profile, skills, credentials) and the JSONL session log are written at
+# runtime under paths settings-sync-daemon owns; nothing under /opt/helix/dsh
+# is written to after this point.
+chmod -R go-w /opt/helix/dsh
+echo "=== DeepSeek Harness $(cat /opt/helix/dsh/version) on $(node --version) ==="
+# Fails the build if the runtime Node cannot load the natively-compiled
+# node-pty from the build stage — the one thing a Node major bump would break.
+node -e "require('/opt/helix/dsh/node_modules/node-pty'); console.log('node-pty OK')"
+# Fails the build if the Helix patch no longer composes over the shipped
+# profile (a row id renamed or removed by a dsh bump). --dump-config reports
+# an unmatched entry on stderr but still exits 0, so stderr is the verdict.
+DSH_SMOKE_HOME="$(mktemp -d)"
+DSH_SMOKE_ERR="$(DSH_HOME="${DSH_SMOKE_HOME}" node /opt/helix/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js \
+  --profile acp --patch /opt/helix/dsh/helix.patch.yml --dump-config 2>&1 > /dev/null)"
+rm -r "${DSH_SMOKE_HOME}"
+if [ -n "${DSH_SMOKE_ERR}" ]; then echo "${DSH_SMOKE_ERR}" >&2; exit 1; fi
+_INSTALL_DSH_RUNTIME
+
+# Helix agent skills (github.com/helixml/skills).
+#
+# A shallow clone pinned at SKILLS_COMMIT is baked in as the seed, so an
+# offline or air-gapped deployment still gets the skills. On every container
+# start helix-workspace-setup.sh copies it into persistent workspace storage,
+# refreshes it from upstream (HELIX_SKILLS_REF, default main) when the network
+# allows, and links the selected skills (HELIX_SKILLS, default all) into each
+# harness's discovery directory. The clone keeps its .git so that refresh is a
+# plain `git fetch`. Linking cannot happen here: that script replaces ~/.claude
+# with a symlink to persistent storage, dropping anything this stage wrote.
+#
+# SKILLS_COMMIT is read from sandbox-versions.txt by `./stack build-desktop`
+# and .drone.yml. There is deliberately no default so the pin cannot drift.
+ARG SKILLS_COMMIT
+RUN <<_INSTALL_SKILLS
+set -eu
+if [ -z "${SKILLS_COMMIT:-}" ]; then
+  echo "ERROR: SKILLS_COMMIT build-arg is required (see sandbox-versions.txt)" >&2
+  exit 1
+fi
+echo "=== Installing Helix agent skills @ ${SKILLS_COMMIT} ==="
+git init -q /opt/helix/skills
+git -C /opt/helix/skills remote add origin https://github.com/helixml/skills.git
+git -C /opt/helix/skills fetch -q --depth 1 origin "${SKILLS_COMMIT}"
+git -C /opt/helix/skills checkout -q --detach FETCH_HEAD
+# Fail the build rather than ship an empty skill set.
+ls -d /opt/helix/skills/skills/*/SKILL.md >/dev/null
+chown -R root:root /opt/helix/skills
+chmod -R a+rX,go-w /opt/helix/skills
+ls /opt/helix/skills/skills
+_INSTALL_SKILLS
 
 WORKDIR /
 
@@ -1262,9 +1580,12 @@ ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridg
 ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+ADD desktop/shared/helix-chrome-devtools-mcp.sh /usr/local/bin/helix-chrome-devtools-mcp
 ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
+ADD desktop/shared/start-headless-workspace-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
+ADD desktop/shared/start-zed-headless.sh /usr/local/bin/start-zed-headless.sh
 # D-Bus policy for logind-stub (macOS ARM scanout mode)
 ADD desktop/shared/helix-logind.conf /etc/dbus-1/system.d/helix-logind.conf
 # Scanout mode init script (starts system D-Bus for logind-stub)
@@ -1274,9 +1595,11 @@ ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
 ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
 RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridge.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
-    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
-    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
-    /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
+    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-chrome-devtools-mcp \
+    /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh \
+    /usr/local/bin/start-settings-sync-daemon.sh \
+    /usr/local/bin/start-zed-headless.sh /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
 
 # Ubuntu desktop theming (includes cursor-size=48 for fingerprinting)
 ADD desktop/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
@@ -1306,6 +1629,7 @@ RUN set -e && \
 
 # Helix Go binaries - at the very end since they're the lightest to rebuild
 COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
+COPY --from=go-build-env /helix /usr/local/bin/helix
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /logind-stub /usr/local/bin/logind-stub
 COPY --from=go-build-env /mutter-lease-launcher /usr/local/bin/mutter-lease-launcher

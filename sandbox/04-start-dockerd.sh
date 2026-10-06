@@ -19,6 +19,16 @@ fi
 export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
 echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
 
+# The dockerd lifecycle owns the sandbox network boundary. Loading the policy
+# here lets the restart loop install a fail-closed guard before dockerd restores
+# persistent containers, then replace it with the full policy once ready.
+# shellcheck source=/usr/local/lib/helix-sandbox-network-policy.sh
+source /usr/local/lib/helix-sandbox-network-policy.sh
+# shellcheck source=/usr/local/lib/helix-desktop-image-gc.sh
+source /usr/local/lib/helix-desktop-image-gc.sh
+# shellcheck source=/usr/local/lib/helix-desktop-image-metadata.sh
+source /usr/local/lib/helix-desktop-image-metadata.sh
+
 # ================================================================================
 # Configure dockerd with DNS and optional NVIDIA runtime
 # With docker-in-desktop mode, per-session dockerds no longer run in the sandbox.
@@ -140,14 +150,58 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
     # abort it the moment dockerd crashes, leaving it dead and the runner wedged
     # (same class of bug that took a runner offline via hydra — see 10-start-hydra).
     set +e
-    while true; do
+    # Stop supervising once the graceful shutdown (helix-sandbox-shutdown) has
+    # started, so the dockerd it stops is not restarted under it.
+    while [ ! -e /run/helix-sandbox-stopping ]; do
+        rm -f "$HELIX_NETWORK_READY_FILE"
+
         # Clean up stale PID files before each restart attempt
         rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
 
+        if ! helix_install_sandbox_bootstrap_guard; then
+            echo "[$(date -Iseconds)] ❌ Failed to install sandbox bootstrap firewall; retrying in 2s..."
+            sleep 2
+            continue
+        fi
+
         echo "[$(date -Iseconds)] Starting dockerd..."
         dockerd --config-file /etc/docker/daemon.json \
-            --host=unix:///var/run/docker.sock
+            --host=unix:///var/run/docker.sock &
+        DOCKERD_PID=$!
+
+        DOCKERD_READY=false
+        for _ in $(seq 1 30); do
+            if docker info >/dev/null 2>&1; then
+                DOCKERD_READY=true
+                break
+            fi
+            if ! kill -0 "$DOCKERD_PID" 2>/dev/null; then
+                break
+            fi
+            sleep 1
+        done
+
+        if [ "$DOCKERD_READY" != "true" ]; then
+            echo "[$(date -Iseconds)] ❌ dockerd did not become ready; restarting in 2s..."
+            kill -TERM "$DOCKERD_PID" 2>/dev/null || true
+            wait "$DOCKERD_PID" 2>/dev/null
+            sleep 2
+            continue
+        fi
+
+        # Docker's forwarding default is too restrictive for nested session
+        # containers. The sandbox-specific chains remain fail-closed.
+        if ! iptables -w 10 -P FORWARD ACCEPT || ! helix_apply_sandbox_network_policy; then
+            echo "[$(date -Iseconds)] ❌ Failed to install sandbox network policy; restarting dockerd in 2s..."
+            kill -TERM "$DOCKERD_PID" 2>/dev/null || true
+            wait "$DOCKERD_PID" 2>/dev/null
+            sleep 2
+            continue
+        fi
+
+        wait "$DOCKERD_PID"
         EXIT_CODE=$?
+        [ -e /run/helix-sandbox-stopping ] && break
         echo "[$(date -Iseconds)] ⚠️  dockerd exited with code $EXIT_CODE, restarting in 2s..."
         sleep 2
     done
@@ -156,10 +210,10 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
 DOCKERD_WRAPPER_PID=$!
 echo "Started dockerd with auto-restart (wrapper PID: $DOCKERD_WRAPPER_PID)"
 
-# Wait for dockerd to be ready (initial startup)
-TIMEOUT=30
+# Wait for dockerd and its fail-closed network policy to be ready.
+TIMEOUT=60
 ELAPSED=0
-until docker info >/dev/null 2>&1; do
+until docker info >/dev/null 2>&1 && [ -f "$HELIX_NETWORK_READY_FILE" ]; do
     if [ $ELAPSED -ge $TIMEOUT ]; then
         echo "❌ ERROR: dockerd failed to start within $TIMEOUT seconds"
         echo "Check dockerd logs above for details"
@@ -176,10 +230,6 @@ docker info 2>&1 | head -5
 # Create /tmp/sockets for runc console sockets (required for docker exec -ti)
 mkdir -p /tmp/sockets
 echo "✅ Created /tmp/sockets for docker exec -ti support"
-
-# Enable forwarding for nested containers
-iptables -P FORWARD ACCEPT
-echo "✅ iptables FORWARD policy set to ACCEPT"
 
 # Function to ensure a desktop image is available in sandbox's dockerd
 # Supports two sources:
@@ -201,20 +251,24 @@ load_desktop_image() {
     local NAME="$1"
     local REQUIRED="${2:-false}"
     local IMAGE_NAME="helix-${NAME}"
-    local REF_FILE="/opt/images/${IMAGE_NAME}.ref"
-    local VERSION_FILE="/opt/images/${IMAGE_NAME}.version"
+    local IMAGE_DIR="${HELIX_DESKTOP_IMAGE_DIR:-/opt/images}"
+    local LOCAL_REGISTRY="${HELIX_LOCAL_DESKTOP_REGISTRY:-registry:5000}"
+    local REF_FILE="${IMAGE_DIR}/${IMAGE_NAME}.ref"
+    local VERSION_FILE="${IMAGE_DIR}/${IMAGE_NAME}.version"
 
     # Read expected version from .version file
-    if [ ! -f "$VERSION_FILE" ]; then
+    if ! desktop_metadata_file_has_value "$VERSION_FILE" && ! recover_missing_desktop_version "$NAME"; then
         if [ "$REQUIRED" = "true" ]; then
             echo "⚠️  ${IMAGE_NAME} version file missing: ${VERSION_FILE}"
+            diagnose_desktop_image_failure "$NAME"
             return 1
         else
             echo "ℹ️  ${IMAGE_NAME} not configured (no version file)"
             return 0  # OK for optional images
         fi
     fi
-    local VERSION=$(cat "$VERSION_FILE")
+    local VERSION
+    VERSION=$(awk 'NF { print $1; exit }' "$VERSION_FILE")
 
     # Check if the EXACT version already exists
     # We only skip the pull if the specific version tag exists.
@@ -229,7 +283,7 @@ load_desktop_image() {
     # cache and the image sometimes ends up as registry:5000/IMAGE:VERSION
     # without the local IMAGE:VERSION tag that Hydra needs. The root cause
     # isn't fully understood yet, but re-tagging is a cheap fix.
-    local REGISTRY_PREFIXED="registry:5000/${IMAGE_NAME}:${VERSION}"
+    local REGISTRY_PREFIXED="${LOCAL_REGISTRY}/${IMAGE_NAME}:${VERSION}"
     local PREFIXED_ID=$(docker images "${REGISTRY_PREFIXED}" --format '{{.ID}}' 2>/dev/null || echo "")
     if [ -n "$PREFIXED_ID" ]; then
         echo "🔄 Found ${REGISTRY_PREFIXED} without local tag — re-tagging as ${IMAGE_NAME}:${VERSION}"
@@ -257,7 +311,7 @@ load_desktop_image() {
         local IMAGE_ID=$(docker images "$REGISTRY_REF" --format '{{.ID}}' 2>/dev/null || echo "")
         if [ -n "$IMAGE_ID" ]; then
             echo "✅ ${REGISTRY_REF} already pulled (ID: ${IMAGE_ID})"
-            echo "$REGISTRY_REF" > "/opt/images/${IMAGE_NAME}.runtime-ref"
+            echo "$REGISTRY_REF" > "${IMAGE_DIR}/${IMAGE_NAME}.runtime-ref"
             return 0
         fi
 
@@ -265,7 +319,7 @@ load_desktop_image() {
         echo "🔄 Pulling ${REGISTRY_REF} from registry..."
         if docker pull "$REGISTRY_REF" 2>&1; then
             echo "✅ ${REGISTRY_REF} pulled successfully"
-            echo "$REGISTRY_REF" > "/opt/images/${IMAGE_NAME}.runtime-ref"
+            echo "$REGISTRY_REF" > "${IMAGE_DIR}/${IMAGE_NAME}.runtime-ref"
             # Tag as local name for Hydra compatibility
             docker tag "$REGISTRY_REF" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
             return 0
@@ -280,7 +334,7 @@ load_desktop_image() {
     # container restart mid-transfer). Pull it directly instead of crash-looping
     # the whole sandbox host. Harmless in prod: registry:5000 won't resolve / be
     # populated, so this falls through to the FATAL below.
-    local LOCAL_REGISTRY_REF="registry:5000/${IMAGE_NAME}:${VERSION}"
+    local LOCAL_REGISTRY_REF="${LOCAL_REGISTRY}/${IMAGE_NAME}:${VERSION}"
     echo "🔄 Local fallback: trying ${LOCAL_REGISTRY_REF} ..."
     if docker pull "$LOCAL_REGISTRY_REF" 2>&1; then
         docker tag "$LOCAL_REGISTRY_REF" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
@@ -292,6 +346,7 @@ load_desktop_image() {
     # Image not available
     if [ "$REQUIRED" = "true" ]; then
         echo "❌ FATAL: ${IMAGE_NAME} is a REQUIRED production desktop image and is not available."
+        diagnose_desktop_image_failure "$NAME"
         echo "   In development: Run './stack build-${NAME}' to build and transfer"
         echo "   In production: Check .ref file, registry access, and free disk space."
         echo "   Boot will abort so the operator can fix this rather than silently"
@@ -302,6 +357,14 @@ load_desktop_image() {
     echo "ℹ️  ${IMAGE_NAME} not configured (optional)"
     return 0
 }
+
+restore_desktop_image_metadata
+
+# Reclaim obsolete, unreferenced versions before pulling. This is what lets a
+# nearly-full deployment upgrade into the release containing the GC fix. The
+# current configured version, :latest, one previous version by default, and
+# every image referenced by a container remain protected.
+cleanup_desktop_images "pre-pull"
 
 # Load desktop images.
 #
@@ -349,8 +412,8 @@ done
 #
 # Cleanup logic:
 # - Read expected version from .version files
-# - Read registry refs from .runtime-ref files (written by load_desktop_image)
-# - Keep images matching expected version, :latest, or registry refs
+# - Read registry refs from .runtime-ref files for operator-visible diagnostics
+# - Keep tags matching the expected version or :latest
 # - Remove all other versions (old image hashes)
 # ================================================================================
 echo ""
@@ -378,115 +441,21 @@ if [ -n "$STOPPED_TO_REMOVE" ]; then
     docker rm -f $STOPPED_TO_REMOVE >/dev/null 2>&1 || true
 fi
 
-# Build a list of expected versions and registry refs
-declare -A EXPECTED_VERSIONS
-declare -A REGISTRY_REFS
-DESKTOP_NAMES=""
-for version_file in /opt/images/helix-*.version; do
-    if [ -f "$version_file" ]; then
-        IMAGE_NAME=$(basename "$version_file" .version)
-        EXPECTED_VERSIONS[$IMAGE_NAME]=$(cat "$version_file")
-        echo "   Expected version for $IMAGE_NAME: ${EXPECTED_VERSIONS[$IMAGE_NAME]}"
-
-        # Check for registry ref (written during registry pull)
-        REF_FILE="/opt/images/${IMAGE_NAME}.runtime-ref"
-        if [ -f "$REF_FILE" ]; then
-            REGISTRY_REFS[$IMAGE_NAME]=$(cat "$REF_FILE")
-            echo "   Registry ref for $IMAGE_NAME: ${REGISTRY_REFS[$IMAGE_NAME]}"
-        fi
-
-        DESKTOP_NAME="${IMAGE_NAME#helix-}"
-        if [ -z "$DESKTOP_NAMES" ]; then
-            DESKTOP_NAMES="$DESKTOP_NAME"
-        else
-            DESKTOP_NAMES="$DESKTOP_NAMES|$DESKTOP_NAME"
-        fi
-    fi
-done
-
-# Skip cleanup if no version files found (nothing to clean)
-if [ -z "$DESKTOP_NAMES" ]; then
-    echo "   No desktop version files found - skipping cleanup"
-else
-    # Get all helix-* desktop images matching known desktop types
-    # Pattern is built dynamically from .version files (e.g., "sway|ubuntu|kde")
-    ALL_DESKTOP_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E "^helix-($DESKTOP_NAMES):" | sort -u)
-
-    REMOVED_COUNT=0
-    KEPT_COUNT=0
-
-    for image in $ALL_DESKTOP_IMAGES; do
-        # Skip images with <none> tags
-        if [[ "$image" == *":<none>"* ]]; then
-            continue
-        fi
-
-        # Parse image name and tag
-        IMAGE_NAME=$(echo "$image" | cut -d: -f1)
-        IMAGE_TAG=$(echo "$image" | cut -d: -f2)
-
-        # Get expected version for this desktop type
-        EXPECTED_VERSION="${EXPECTED_VERSIONS[$IMAGE_NAME]:-}"
-
-        # Safety: skip if we don't know the expected version for this desktop
-        if [ -z "$EXPECTED_VERSION" ]; then
-            KEPT_COUNT=$((KEPT_COUNT + 1))
-            continue
-        fi
-
-        # Keep images matching the expected version from .version file OR tagged as :latest
-        # Remove everything else (old versions)
-        if [ "$IMAGE_TAG" = "$EXPECTED_VERSION" ] || [ "$IMAGE_TAG" = "latest" ]; then
-            KEPT_COUNT=$((KEPT_COUNT + 1))
-        else
-            echo "   Removing old image: $image (expected version: $EXPECTED_VERSION)"
-            if docker rmi "$image" 2>/dev/null; then
-                REMOVED_COUNT=$((REMOVED_COUNT + 1))
-            else
-                echo "   ⚠️  Failed to remove $image (may still be in use)"
-            fi
-        fi
-    done
-
-    if [ "$REMOVED_COUNT" -gt 0 ]; then
-        echo "✅ Cleaned up $REMOVED_COUNT old desktop image(s), kept $KEPT_COUNT current image(s)"
-    else
-        if [ "$KEPT_COUNT" -gt 0 ]; then
-            echo "   No old desktop images to clean up (all $KEPT_COUNT images are current)"
-        else
-            echo "   No desktop images found to clean up"
-        fi
-    fi
-fi
-
-echo "✅ Desktop image cleanup complete"
+cleanup_desktop_images "post-pull"
 
 # ================================================================================
-# Clean up dangling images and build cache
-# This removes:
-# - Dangling images (untagged <none> images from failed builds)
-# - Build cache (accumulated from docker build operations)
-# - Unused networks (orphaned from stopped containers)
-# NOTE: We do NOT prune volumes - those contain user data
+# Clean up only dangling images. Broad system pruning also removes an empty
+# session bridge after the firewall creates it but before Hydra binds its API
+# listener, and can discard valuable build cache.
 # ================================================================================
 echo ""
-echo "🧹 Pruning dangling images and build cache..."
+echo "🧹 Pruning dangling images..."
 
 # Remove dangling images first (faster, targeted cleanup)
 DANGLING_COUNT=$(docker images -f "dangling=true" -q 2>/dev/null | wc -l)
 if [ "$DANGLING_COUNT" -gt 0 ]; then
     echo "   Removing $DANGLING_COUNT dangling image(s)..."
     docker image prune -f >/dev/null 2>&1 || true
-fi
-
-# Run system prune to clean build cache and unused networks
-# This does NOT remove volumes (no --volumes flag)
-PRUNE_OUTPUT=$(docker system prune -f 2>&1) || true
-if echo "$PRUNE_OUTPUT" | grep -q "reclaimed"; then
-    RECLAIMED=$(echo "$PRUNE_OUTPUT" | grep "reclaimed" | tail -1)
-    echo "   $RECLAIMED"
-else
-    echo "   No additional space to reclaim"
 fi
 
 echo "✅ Docker cleanup complete"

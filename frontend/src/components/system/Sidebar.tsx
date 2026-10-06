@@ -109,7 +109,7 @@ const SidebarContentInner: React.FC<{
   const account = useAccount()
   const appTools = useApp(params.app_id)
   const snackbar = useSnackbar()
-  const isConversationRoute = ['org_chat', 'org_chat-task', 'org_session', 'org_new'].includes(router.name)
+  const isConversationRoute = ['org_project-new', 'org_chat-task', 'org_session', 'org_bot_session', 'org_new'].includes(router.name)
 
   // New file menu state
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
@@ -127,7 +127,7 @@ const SidebarContentInner: React.FC<{
   // Handle create a new chat
   const handleCreateNew = () => {
     if (!appTools.app) {
-      account.orgNavigate('chat')
+      account.orgNavigate('projects')
       return
     }
     // If we are in the app details view, we need to create a new chat

@@ -2,7 +2,9 @@ package types
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gorm.io/datatypes"
@@ -34,6 +36,11 @@ type RepoPR struct {
 	PRNumber       int    `json:"pr_number"`
 	PRURL          string `json:"pr_url"`
 	PRState        string `json:"pr_state"` // "open", "closed", "merged"
+	// HeadBranch is the branch the PR was opened from. ProposalID links PRs
+	// opened from an approved SpecTaskPRProposal; their title and body come from
+	// the approved proposal rather than the helix-specs pull_request*.md files.
+	HeadBranch string `json:"head_branch,omitempty"`
+	ProposalID string `json:"proposal_id,omitempty"`
 
 	// CI status, populated by the spec task orchestrator's PR poll loop.
 	// CIStatus is one of: "" (not yet evaluated), "running", "passed",
@@ -41,10 +48,12 @@ type RepoPR struct {
 	// CIHeadSHA is the head commit we last evaluated; it lets the poller
 	// detect a new push and reset CIStatus so a stale "passed" doesn't
 	// suppress a fresh notification when the next commit fails.
-	CIStatus    string    `json:"ci_status,omitempty"`
-	CIURL       string    `json:"ci_url,omitempty"`
-	CIUpdatedAt time.Time `json:"ci_updated_at,omitempty"`
-	CIHeadSHA   string    `json:"ci_head_sha,omitempty"`
+	CIStatus     string    `json:"ci_status,omitempty"`
+	CIURL        string    `json:"ci_url,omitempty"`
+	CIUpdatedAt  time.Time `json:"ci_updated_at,omitempty"`
+	CIHeadSHA    string    `json:"ci_head_sha,omitempty"`
+	CIBaseSHA    string    `json:"ci_base_sha,omitempty"`
+	CIBaseStatus string    `json:"ci_base_status,omitempty"`
 }
 
 // GetFirstOpenPR returns the first open PR from RepoPullRequests, or nil if none.
@@ -82,19 +91,41 @@ type StartPlanningOptions struct {
 	Timezone string `json:"timezone,omitempty"`
 }
 
-// CodeAgentOverrides customizes the coding model for one SpecTask without
-// mutating the reusable Agent configuration it was created from.
-type CodeAgentOverrides struct {
-	ProviderRef     string `json:"provider_ref,omitempty"`
-	Model           string `json:"model,omitempty"`
-	ReasoningEffort string `json:"reasoning_effort,omitempty"`
-	ServiceTier     string `json:"service_tier,omitempty"`
-}
-
+// Compile-time fallback for the spec task sandbox size. Config overrides it at
+// startup via SetDefaultSpecTaskSandboxResources; this is what a binary with no
+// configuration does, so it has to be a correct answer on its own.
+//
+// 12 vCPU / 24 GB is the size measured to fix the 2026-08-24 streaming outage:
+// the 4 vCPU / 8 GB predecessor left desktop containers at 99.999% of memory.max
+// with CFS throttling on 80% of periods, which stretched GStreamer's
+// set_state(PLAYING) from under a second to 43-100s. Real steady-state demand of
+// an uncapped desktop runs 2-30 GiB.
 const (
-	DefaultSpecTaskSandboxVCPUs    = 4
-	DefaultSpecTaskSandboxMemoryMB = 8192
+	DefaultSpecTaskSandboxVCPUs    = 12
+	DefaultSpecTaskSandboxMemoryMB = 24576
 )
+
+// configuredSpecTaskSandboxDefault holds the operator-configured default. Nil
+// until SetDefaultSpecTaskSandboxResources runs, so a binary that never
+// configures one keeps the compile-time constants above.
+var configuredSpecTaskSandboxDefault atomic.Pointer[SandboxResourceOverrides]
+
+// SetDefaultSpecTaskSandboxResources installs the operator-configured default
+// sandbox size. Call it once from startup, before anything serves — it is read
+// without synchronisation on every task start and is not meant to change under a
+// running server.
+//
+// It rejects a pair that is not a valid preset rather than accepting a size the
+// UI cannot represent and a failed resize cannot roll back to.
+func SetDefaultSpecTaskSandboxResources(r SandboxResourceOverrides) error {
+	if !r.ValidPreset() {
+		return fmt.Errorf(
+			"default spec task sandbox %d vCPU / %d MB is not a valid preset (vCPUs must be one of %s, with memory following)",
+			r.VCPUs, r.MemoryMB, specTaskSandboxVCPUList())
+	}
+	configuredSpecTaskSandboxDefault.Store(&r)
+	return nil
+}
 
 // SandboxResourceOverrides is the desired CPU and memory limit for the single
 // desktop container owned by a SpecTask. A nil value resolves to the SpecTask
@@ -104,7 +135,29 @@ type SandboxResourceOverrides struct {
 	MemoryMB int `json:"memory_mb,omitempty"`
 }
 
+// SpecTaskSandboxPresets is the ladder of selectable sandbox sizes, ordered
+// smallest first. vCPU is the key: memory is never independently selectable, so
+// every rung must have a distinct vCPU count. Adding a rung here extends both
+// SpecTaskSandboxPresetForVCPUs and ValidPreset; keep it in step with
+// frontend/src/constants/sandboxPresets.ts, which mirrors it for the UI.
+//
+// Existing rungs must stay valid: a stored value that stops being a preset is
+// rejected by every ValidPreset() call site the next time the row is updated.
+var SpecTaskSandboxPresets = []SandboxResourceOverrides{
+	{VCPUs: 1, MemoryMB: 2048},
+	{VCPUs: 4, MemoryMB: 8192},
+	{VCPUs: 8, MemoryMB: 16384},
+	{VCPUs: 12, MemoryMB: 24576},
+	{VCPUs: 16, MemoryMB: 32768},
+}
+
+// DefaultSpecTaskSandboxResources returns the operator-configured default, or
+// the compile-time constants when nothing configured one.
 func DefaultSpecTaskSandboxResources() *SandboxResourceOverrides {
+	if configured := configuredSpecTaskSandboxDefault.Load(); configured != nil {
+		resources := *configured
+		return &resources
+	}
 	return &SandboxResourceOverrides{
 		VCPUs:    DefaultSpecTaskSandboxVCPUs,
 		MemoryMB: DefaultSpecTaskSandboxMemoryMB,
@@ -118,14 +171,55 @@ func EffectiveSpecTaskSandboxResources(resources *SandboxResourceOverrides) Sand
 	return *resources
 }
 
+// SpecTaskSandboxPresetForVCPUs maps a vCPU count to its full preset. Memory is
+// not independently selectable — ValidPreset rejects any other pairing — so
+// callers that take only a vCPU count (the org MCP create tool, for one) resolve
+// the memory here rather than each restating the table and risking a combination
+// ValidPreset refuses.
+//
+// Returns false for a vCPU count that has no preset.
+func SpecTaskSandboxPresetForVCPUs(vcpus int) (*SandboxResourceOverrides, bool) {
+	for _, preset := range SpecTaskSandboxPresets {
+		if preset.VCPUs == vcpus {
+			return &preset, true
+		}
+	}
+	return nil, false
+}
+
 func (r SandboxResourceOverrides) ValidPreset() bool {
-	switch r.VCPUs {
-	case 1:
-		return r.MemoryMB == 2048
-	case 4:
-		return r.MemoryMB == 8192
-	case 8:
-		return r.MemoryMB == 16384
+	preset, ok := SpecTaskSandboxPresetForVCPUs(r.VCPUs)
+	return ok && preset.MemoryMB == r.MemoryMB
+}
+
+// specTaskSandboxVCPUList renders the selectable vCPU counts for an error
+// message, so the ladder is stated in one place rather than hand-copied into
+// every validation failure.
+func specTaskSandboxVCPUList() string {
+	counts := make([]string, 0, len(SpecTaskSandboxPresets))
+	for _, preset := range SpecTaskSandboxPresets {
+		counts = append(counts, strconv.Itoa(preset.VCPUs))
+	}
+	return strings.Join(counts, ", ")
+}
+
+// SpecTaskSandboxVCPUList is the selectable vCPU counts as a human-readable
+// list, for tool descriptions and validation errors.
+func SpecTaskSandboxVCPUList() string { return specTaskSandboxVCPUList() }
+
+// EffectiveSpecTaskSandboxRuntime keeps legacy tasks on the full desktop while
+// allowing newly-created tasks to opt into the headless agent runtime.
+func EffectiveSpecTaskSandboxRuntime(runtime SandboxRuntime) SandboxRuntime {
+	if runtime == "" {
+		return SandboxRuntimeUbuntuDesktop
+	}
+	return runtime
+}
+
+func ValidSpecTaskSandboxRuntime(runtime SandboxRuntime) bool {
+	switch runtime {
+	case "", SandboxRuntimeUbuntuDesktop, SandboxRuntimeHeadlessUbuntu:
+		return true
 	default:
 		return false
 	}
@@ -136,25 +230,38 @@ type CreateTaskRequest struct {
 	ProjectID string `json:"project_id"`
 	Prompt    string `json:"prompt"`
 	// Name is the task title. Empty means derive it from the prompt.
-	Name         string           `json:"name,omitempty"`
-	Type         string           `json:"type"`
-	Priority     SpecTaskPriority `json:"priority"`
-	UserID       string           `json:"user_id"`
-	UserEmail    string           `json:"user_email,omitempty"`  // Optional: User email for audit trail
-	AppID        string           `json:"app_id"`                // Optional: Helix agent to use for spec generation
-	JustDoItMode bool             `json:"just_do_it_mode"`       // Optional: Skip spec planning, go straight to implementation
-	AutoStart    bool             `json:"auto_start"`            // Optional: Skip backlog and start immediately, regardless of project auto-start setting
-	DependsOn    []string         `json:"depends_on"`            // Optional: IDs of tasks this task depends on
-	AssigneeID   string           `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
+	Name      string           `json:"name,omitempty"`
+	Type      string           `json:"type"`
+	Priority  SpecTaskPriority `json:"priority"`
+	UserID    string           `json:"user_id"`
+	UserEmail string           `json:"user_email,omitempty"` // Optional: User email for audit trail
+	// CreatedByOrgBot is set by the server when the caller is an Org Bot's
+	// session (its API key names a session with org_worker_id). Never
+	// accepted from the client.
+	CreatedByOrgBot string `json:"-"`
+	// AppID is accepted only so the API can return an explicit migration error
+	// to old clients. New tasks must provide CodeAgentConfig or inherit the
+	// project's materialized configuration.
+	AppID        string `json:"app_id,omitempty" swaggerignore:"true"`
+	JustDoItMode bool   `json:"just_do_it_mode"` // Optional: Skip spec planning, go straight to implementation
+	AutoStart    bool   `json:"auto_start"`      // Optional: Skip backlog and start immediately, regardless of project auto-start setting
+	// Optional: approve the agent's pull request proposals without asking.
+	// Unset takes the project's auto_approve_pull_requests default.
+	AutoApprovePullRequests *bool    `json:"auto_approve_pull_requests,omitempty"`
+	DependsOn               []string `json:"depends_on"`            // Optional: IDs of tasks this task depends on
+	AssigneeID              string   `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
 
-	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty"`
+	CodeAgentConfig          *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	PlanningCodeAgentConfig  *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty"`
+	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" swaggerignore:"true"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty"`
 
 	// CredentialOwnerID optionally names the user whose Claude subscription should
 	// authenticate this task's agent, for orchestrators dispatching work on a
 	// human's behalf under one service API key. Credential resolution only — the
-	// task is still created by, owned by, and attributed to the caller. Ignored
-	// unless that user has delegated their subscription to this organization.
+	// task is still created by, owned by, and attributed to the caller. Resolution
+	// fails closed unless that user has delegated to this organization.
 	CredentialOwnerID string `json:"credential_owner_id,omitempty"`
 
 	// Branch configuration
@@ -168,10 +275,22 @@ type CreateTaskRequest struct {
 	// recipes; GooseRecipeParams are substituted into the recipe at session
 	// start. Recipes declared on the agent but not selected here are still
 	// available as runtime slash-commands inside the desktop.
-	GooseRecipeName   string            `json:"goose_recipe_name,omitempty"`
-	GooseRecipeParams map[string]string `json:"goose_recipe_params,omitempty"`
+	GooseRecipeName           string            `json:"goose_recipe_name,omitempty"`
+	GooseRecipeParams         map[string]string `json:"goose_recipe_params,omitempty"`
+	PlanningGooseRecipeName   string            `json:"planning_goose_recipe_name,omitempty"`
+	PlanningGooseRecipeParams map[string]string `json:"planning_goose_recipe_params,omitempty"`
+	// Attachments are validated and stored before the task is exposed to dispatchers.
+	Attachments []SpecTaskInlineAttachment `json:"attachments,omitempty"`
 
 	// Git repositories are now managed at the project level - no task-level repo selection needed
+}
+
+// SpecTaskInlineAttachment is attachment content submitted with CreateTaskRequest.
+// The API validates and stores it through the same path as multipart attachments.
+type SpecTaskInlineAttachment struct {
+	Name          string `json:"name" validate:"required"`           // Filename visible in the task workspace.
+	ContentBase64 string `json:"content_base64" validate:"required"` // Standard base64-encoded file bytes.
+	Caption       string `json:"caption,omitempty"`
 }
 
 // SpecTask represents a task following Kiro's actual spec-driven approach
@@ -202,18 +321,31 @@ type SpecTask struct {
 	TechnicalDesign    string `json:"technical_design" gorm:"type:text"`    // Design document (markdown)
 	ImplementationPlan string `json:"implementation_plan" gorm:"type:text"` // Discrete tasks breakdown (markdown)
 
-	// NEW: Single Helix Agent for entire workflow (App type in code)
+	// Legacy migration source. New API writes are rejected and task start clears
+	// this after materializing CodeAgentConfig. Remove the column after the
+	// migration window.
 	HelixAppID string `json:"helix_app_id,omitempty" gorm:"size:255;index"`
 
+	// AgentTools are Helix MCP tools granted to this task on top of the
+	// project's list. The effective surface is the union of the two.
+	AgentTools []string `json:"agent_tools,omitempty" gorm:"type:jsonb;serializer:json"`
+
+	// CodeAgentConfig is the implementation-phase execution configuration.
+	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty" gorm:"type:jsonb;serializer:json"`
+	// PlanningCodeAgentConfig is independently snapshotted when the task is
+	// created so project-default changes cannot alter an existing planning run.
+	PlanningCodeAgentConfig *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty" gorm:"type:jsonb;serializer:json"`
+	// Legacy migration source; cleared together with HelixAppID on task start.
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
+	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty" gorm:"size:64"`
 
 	// Git repository attachments: REMOVED - now inherited from parent Project
 	// Repos are managed at the project level. Access via project.DefaultRepoID and GetProjectRepositories(project_id)
 
-	// AgentSessionID is the single Helix session backing the agent for this spec task.
-	// One agent, one session for the whole lifecycle (planning + implementation phases).
-	AgentSessionID string `json:"agent_session_id,omitempty" gorm:"column:agent_session_id;size:255;index"`
+	// Session tracking (single Helix session for entire workflow - planning + implementation)
+	// The same external agent/session is reused throughout the entire SpecTask lifecycle
+	PlanningSessionID string `json:"planning_session_id,omitempty" gorm:"size:255;index"`
 
 	// External agent tracking (single agent per SpecTask, spans entire workflow)
 	ExternalAgentID string `json:"external_agent_id,omitempty" gorm:"size:255;index"`
@@ -231,7 +363,8 @@ type SpecTask struct {
 	DesignDocPath string `json:"design_doc_path,omitempty" gorm:"size:255"`
 
 	// Multi-repo PR tracking: list of PRs across all project repositories
-	RepoPullRequests []RepoPR `json:"repo_pull_requests,omitempty" gorm:"type:jsonb;serializer:json"`
+	RepoPullRequests       []RepoPR `json:"repo_pull_requests,omitempty" gorm:"type:jsonb;serializer:json"`
+	RepoPullRequestHistory []RepoPR `json:"repo_pull_request_history,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Agent activity tracking (computed from session/activity data, not stored)
 	LastMessageAt        *time.Time     `json:"last_message_at,omitempty" gorm:"->;-:migration"` // Newest conversation interaction, selected for last-message sorting
@@ -297,18 +430,28 @@ type SpecTask struct {
 	CredentialOwnerID string `json:"credential_owner_id,omitempty" gorm:"size:255;index"`
 
 	// Metadata
-	CreatedBy string                 `json:"created_by"`
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
-	Archived  bool                   `json:"archived" gorm:"default:false;index"` // Archive to hide from main view
-	Labels    []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
+	CreatedBy string `json:"created_by"`
+	// CreatedByOrgBot is the Org Bot handle that created this task. CreatedBy
+	// stays the person the Bot acts for; this records the Bot so its work can be
+	// listed under it.
+	CreatedByOrgBot string                 `json:"created_by_org_bot,omitempty" gorm:"column:created_by_org_agent;size:255;index"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+	Archived        bool                   `json:"archived" gorm:"default:false;index"` // Archive to hide from main view
+	Labels          []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Public sharing
 	PublicDesignDocs bool `json:"public_design_docs" gorm:"default:false"` // Allow viewing design docs without login
 
 	// Keep alive — prevent auto-idle-shutdown of desktop container
 	KeepAlive bool `json:"keep_alive" gorm:"default:false"`
+
+	// AutoApprovePullRequests approves the agent's PR proposals without asking.
+	// They are approved as AutoApprovePullRequestsBy, whose provider
+	// credentials push and open the PR; it is the user who turned this on.
+	AutoApprovePullRequests   bool   `json:"auto_approve_pull_requests" gorm:"default:false"`
+	AutoApprovePullRequestsBy string `json:"auto_approve_pull_requests_by,omitempty" gorm:"size:255"`
 
 	// Goose recipe binding (Phase 2b). When the parent project's agent uses
 	// the goose_code runtime and the user picked a recipe at task-creation
@@ -317,17 +460,15 @@ type SpecTask struct {
 	// API bakes these into a CodeAgentBakedRecipe and pushes it to the
 	// settings-sync-daemon, which writes a single slash_command pointing at
 	// the substituted recipe YAML. Empty when no recipe was selected.
-	GooseRecipeName   string            `json:"goose_recipe_name,omitempty" gorm:"size:255"`
-	GooseRecipeParams map[string]string `json:"goose_recipe_params,omitempty" gorm:"type:jsonb;serializer:json"`
+	GooseRecipeName           string            `json:"goose_recipe_name,omitempty" gorm:"size:255"`
+	GooseRecipeParams         map[string]string `json:"goose_recipe_params,omitempty" gorm:"type:jsonb;serializer:json"`
+	PlanningGooseRecipeName   string            `json:"planning_goose_recipe_name,omitempty" gorm:"size:255"`
+	PlanningGooseRecipeParams map[string]string `json:"planning_goose_recipe_params,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Clone tracking
 	ClonedFromID        string `json:"cloned_from_id,omitempty" gorm:"size:255;index"`         // Original task this was cloned from
 	ClonedFromProjectID string `json:"cloned_from_project_id,omitempty" gorm:"size:255;index"` // Original project
 	CloneGroupID        string `json:"clone_group_id,omitempty" gorm:"size:255;index"`         // Groups tasks from same clone operation
-
-	// Parent task tracking — set when this task was spawned via an approved
-	// SpecTaskProposal of kind=spec_task. Enables UI lineage display.
-	ParentTaskID string `json:"parent_task_id,omitempty" gorm:"size:255;index"`
 
 	// Relationships (loaded via joins, not stored in database)
 	// NOTE: Use GORM preloading to load these when needed:
@@ -429,61 +570,66 @@ type SpecGeneration struct {
 
 // SpecTaskFilters for filtering spec tasks in queries
 type SpecTaskFilters struct {
-	ProjectID          string         `json:"project_id,omitempty"`
-	Status             SpecTaskStatus `json:"status,omitempty"`
-	UserID             string         `json:"user_id,omitempty"`
-	FilterParticipants bool           `json:"filter_participants,omitempty"`
-	ParticipantIDs     []string       `json:"participant_ids,omitempty"` // Created by or assigned to any selected user
-	Type               string         `json:"type,omitempty"`
-	Priority           string         `json:"priority,omitempty"`
-	Limit              int            `json:"limit,omitempty"`
-	Offset             int            `json:"offset,omitempty"`
-	SortBy             string         `json:"sort_by,omitempty"`
-	WithDependsOn      bool           `json:"with_depends_on,omitempty"`
-	IncludeArchived    bool           `json:"include_archived,omitempty"` // If true, include both archived and non-archived
-	ArchivedOnly       bool           `json:"archived_only,omitempty"`    // If true, show only archived tasks
-	DesignDocPath      string         `json:"design_doc_path,omitempty"`  // Filter by exact DesignDocPath (for git push detection)
-	BranchName         string         `json:"branch_name,omitempty"`      // Filter by exact BranchName (for uniqueness check)
-	AgentSessionID     string         `json:"agent_session_id,omitempty"` // Filter by AgentSessionID (reverse lookup)
-	Labels             []string       `json:"labels,omitempty"`           // Filter tasks that have ALL of these labels (AND semantics)
+	ProjectID          string           `json:"project_id,omitempty"`
+	Status             SpecTaskStatus   `json:"status,omitempty"`
+	ExcludeStatuses    []SpecTaskStatus `json:"exclude_statuses,omitempty"`
+	UserID             string           `json:"user_id,omitempty"`
+	FilterParticipants bool             `json:"filter_participants,omitempty"`
+	ParticipantIDs     []string         `json:"participant_ids,omitempty"` // Created by or assigned to any selected user
+	FilterProjectIDs   bool             `json:"filter_project_ids,omitempty"`
+	ProjectIDs         []string         `json:"project_ids,omitempty"` // Any of these projects; empty matches nothing when FilterProjectIDs is set
+	CreatedByOrgBot    string           `json:"created_by_org_bot,omitempty"`
+	Type               string           `json:"type,omitempty"`
+	Priority           string           `json:"priority,omitempty"`
+	Limit              int              `json:"limit,omitempty"`
+	Offset             int              `json:"offset,omitempty"`
+	SortBy             string           `json:"sort_by,omitempty"`
+	WithDependsOn      bool             `json:"with_depends_on,omitempty"`
+	IncludeArchived    bool             `json:"include_archived,omitempty"`    // If true, include both archived and non-archived
+	ArchivedOnly       bool             `json:"archived_only,omitempty"`       // If true, show only archived tasks
+	DesignDocPath      string           `json:"design_doc_path,omitempty"`     // Filter by exact DesignDocPath (for git push detection)
+	BranchName         string           `json:"branch_name,omitempty"`         // Filter by exact BranchName (for uniqueness check)
+	PlanningSessionID  string           `json:"planning_session_id,omitempty"` // Filter by PlanningSessionID (reverse lookup)
+	Labels             []string         `json:"labels,omitempty"`              // Filter tasks that have ALL of these labels (AND semantics)
+	PRMatch            *SpecTaskPRMatch `json:"pr_match,omitempty"`            // Filter tasks tracking this repo + PR (webhook correlation)
+	// ExcludeDeletedProjects drops tasks whose project is soft-deleted.
+	ExcludeDeletedProjects bool `json:"exclude_deleted_projects,omitempty"`
+}
+
+// SpecTaskPRMatch selects tasks whose RepoPullRequests contain an entry with
+// this repository id and PR number. Used by the GitHub review webhook to
+// correlate an inbound PR event to spec tasks; the repository row's org
+// ownership is the tenant boundary.
+type SpecTaskPRMatch struct {
+	RepositoryID string
+	PRNumber     int
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
 type SpecTaskUpdateRequest struct {
-	Status           SpecTaskStatus   `json:"status,omitempty"`
-	Priority         SpecTaskPriority `json:"priority,omitempty"`
-	Name             string           `json:"name,omitempty"`
-	Description      string           `json:"description,omitempty"`
-	JustDoItMode     *bool            `json:"just_do_it_mode,omitempty"`    // Pointer to allow explicit false
-	HelixAppID       string           `json:"helix_app_id,omitempty"`       // Agent to use for this task
-	UserShortTitle   *string          `json:"user_short_title,omitempty"`   // User override for tab title (pointer to allow clearing with empty string)
-	PublicDesignDocs *bool            `json:"public_design_docs,omitempty"` // Pointer to allow explicit false
-	KeepAlive        *bool            `json:"keep_alive,omitempty"`         // Pointer to allow explicit false — prevent auto-idle-shutdown
-	DependsOn        []string         `json:"depends_on"`                   // IDs of tasks this task depends on
-	AssigneeID       *string          `json:"assignee_id,omitempty"`        // Pointer to allow clearing (set to empty string to unassign)
+	Status                  SpecTaskStatus   `json:"status,omitempty"`
+	Priority                SpecTaskPriority `json:"priority,omitempty"`
+	Name                    string           `json:"name,omitempty"`
+	Description             string           `json:"description,omitempty"`
+	JustDoItMode            *bool            `json:"just_do_it_mode,omitempty"`                   // Pointer to allow explicit false
+	HelixAppID              string           `json:"helix_app_id,omitempty" swaggerignore:"true"` // Rejected legacy field
+	UserShortTitle          *string          `json:"user_short_title,omitempty"`                  // User override for tab title (pointer to allow clearing with empty string)
+	PublicDesignDocs        *bool            `json:"public_design_docs,omitempty"`                // Pointer to allow explicit false
+	KeepAlive               *bool            `json:"keep_alive,omitempty"`                        // Pointer to allow explicit false — prevent auto-idle-shutdown
+	AutoApprovePullRequests *bool            `json:"auto_approve_pull_requests,omitempty"`        // Approve the agent's PR proposals without asking, as the updating user
+	DependsOn               []string         `json:"depends_on"`                                  // IDs of tasks this task depends on
+	AssigneeID              *string          `json:"assignee_id,omitempty"`                       // Pointer to allow clearing (set to empty string to unassign)
+	AgentTools              *[]string        `json:"agent_tools,omitempty"`                       // Extra Helix MCP tools for this task, on top of the project's
 }
 
-// SpecTaskExecutionConfigUpdateRequest replaces either task-level execution
-// override. Omitted fields are left unchanged.
+// SpecTaskExecutionConfigUpdateRequest replaces either the task's complete
+// code-agent config or its sandbox resource preset.
 type SpecTaskExecutionConfigUpdateRequest struct {
-	AgentID                  string                    `json:"agent_id,omitempty"`
-	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty"`
+	AgentID                  string                    `json:"agent_id,omitempty" swaggerignore:"true"` // Rejected legacy field
+	Phase                    SpecTaskPhase             `json:"phase,omitempty" validate:"omitempty,oneof=planning implementation"`
+	CodeAgentConfig          *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" swaggerignore:"true"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
-}
-
-// SpecTaskExecutionConfig describes the task's current coding identity without
-// exposing the reusable Agent or its secrets. AgentAvailable is false when a
-// legacy task points at an Agent that has since been deleted.
-type SpecTaskExecutionConfig struct {
-	AgentID         string                  `json:"agent_id,omitempty"`
-	AgentName       string                  `json:"agent_name,omitempty"`
-	AgentAvailable  bool                    `json:"agent_available"`
-	Runtime         CodeAgentRuntime        `json:"runtime,omitempty"`
-	CredentialType  CodeAgentCredentialType `json:"credential_type,omitempty"`
-	ProviderRef     string                  `json:"provider_ref,omitempty"`
-	Model           string                  `json:"model,omitempty"`
-	ReasoningEffort string                  `json:"reasoning_effort,omitempty"`
-	ServiceTier     string                  `json:"service_tier,omitempty"`
 }
 
 type SpecTaskExecutionConfigUpdateResponse struct {
@@ -501,7 +647,8 @@ func (s SpecTaskStatus) String() string {
 // Two-phase workflow status constants
 const (
 	// Phase 1: Specification Generation (Helix Agent)
-	TaskStatusBacklog SpecTaskStatus = "backlog" // Initial state, waiting for spec generation
+	TaskStatusPreparing SpecTaskStatus = "preparing" // Internal intake state; never dispatched
+	TaskStatusBacklog   SpecTaskStatus = "backlog"   // Initial state, waiting for spec generation
 
 	TaskStatusQueuedImplementation SpecTaskStatus = "queued_implementation"  // Transitional state, waiting for the orchestrator to pick it up
 	TaskStatusQueuedSpecGeneration SpecTaskStatus = "queued_spec_generation" // Transitional state, waiting for the orchestrator to pick it up
@@ -522,6 +669,12 @@ const (
 	// Error states
 	TaskStatusSpecFailed           SpecTaskStatus = "spec_failed"           // Spec generation failed
 	TaskStatusImplementationFailed SpecTaskStatus = "implementation_failed" // Implementation failed
+)
+
+// Agent specialization types
+const (
+	AgentTypeSpecGeneration = "spec_generation" // Helix agents for planning/specs
+	AgentTypeImplementation = "implementation"  // Zed agents for coding
 )
 
 // SpecApprovalRequest represents a request for human spec approval
@@ -569,8 +722,16 @@ func (SpecTaskAttachment) TableName() string {
 
 // SpecTask attachment limits
 const (
-	SpecTaskAttachmentMaxBytes   = 100 * 1024 * 1024 // 100 MB per file
-	SpecTaskAttachmentMaxPerTask = 500               // 500 files per task
+	SpecTaskAttachmentMaxBytes        = 100 * 1024 * 1024 // 100 MB per file
+	SpecTaskAttachmentMaxPerTask      = 500               // 500 files per task
+	SpecTaskInlineAttachmentsMaxBytes = 100 * 1024 * 1024 // 100 MB total per JSON request
+	SpecTaskAttachmentCaptionMaxRunes = 1024
+	// Filestore objects use "<30-byte attachment ID>__<filename>" as one path
+	// component. Keep that component within the common NAME_MAX of 255 bytes.
+	SpecTaskAttachmentStorageNameMaxBytes    = 255
+	SpecTaskAttachmentStoragePrefixBytes     = 32
+	SpecTaskAttachmentFilenameMaxBytes       = SpecTaskAttachmentStorageNameMaxBytes - SpecTaskAttachmentStoragePrefixBytes
+	SpecTaskInlineAttachmentIngestionTimeout = 10 * time.Minute
 )
 
 // SpecTaskAttachmentAllowedMimeTypes is the allowlist of MIME types accepted for upload.

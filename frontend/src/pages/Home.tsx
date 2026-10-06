@@ -2,7 +2,9 @@ import React, { FC, useEffect, useState } from 'react'
 import {
   Box,
   Button,
+  Checkbox,
   CircularProgress,
+  FormControlLabel,
   ListItemIcon,
   ListItemText,
   Menu,
@@ -10,27 +12,28 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import { ChevronDown, Folder, FolderPlus, Hammer, ListTodo, MessageCircle } from 'lucide-react'
+import { ChevronDown, Folder, FolderPlus, Hammer, ListTodo } from 'lucide-react'
 
 import {
-  TypesCodeAgentOverrides,
+  TypesCodeAgentExecutionConfig,
   TypesSandboxResourceOverrides,
+  TypesSandboxRuntime,
 } from '../api/api'
-import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import RobustPromptInput from '../components/common/RobustPromptInput'
-import SpecTaskExecutionControls from '../components/tasks/SpecTaskExecutionControls'
+import ChatWelcome, { WELCOME_FONT_FAMILY } from '../components/session/ChatWelcome'
+import CodeAgentExecutionControls from '../components/agent/CodeAgentExecutionControls'
+import { useSeedProjectCodeAgentConfig } from '../hooks/useSeedProjectCodeAgentConfig'
+import { CodeAgentConfigChangeSource } from '../utils/codeAgentExecutionConfig'
 import ManagedCreateProjectDialog from '../components/project/ManagedCreateProjectDialog'
 import Page from '../components/system/Page'
 import { useAccount } from '../contexts/account'
-import { useStreaming } from '../contexts/streaming'
 import { getBrowserLocale } from '../hooks/useBrowserLocale'
+import useIsPhone from '../hooks/useIsPhone'
 import useLightTheme from '../hooks/useLightTheme'
-import useApps from '../hooks/useApps'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
-import { useListProjectSpecTaskAgents, useListProjects } from '../services'
-import { useListProviders } from '../services/providersService'
-import { invalidateSessionsQuery } from '../services/sessionService'
+import { useGetProjectRepositories, useListProjects } from '../services'
+import { projectHasPullRequests } from '../services/specTaskPRProposalService'
 import {
   SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
   SPEC_TASK_ATTACHMENT_MAX_BYTES,
@@ -41,21 +44,21 @@ import {
   useCreateSpecTaskFromPrompt,
   useStartSpecTaskPlanning,
 } from '../services/specTaskService'
-import { SESSION_TYPE_TEXT } from '../types'
-import { useQueryClient } from '@tanstack/react-query'
 import {
   buildNewChatTaskRequest,
-  chooseProjectChatAgentId,
-  modelSupportsReasoningEffort,
-  NEW_CHAT_REASONING_EFFORT_OPTIONS,
   newChatHeading,
-  NewChatReasoningEffort,
+  newChatTaskModeStorageKey,
   NewChatTaskMode,
-  projectChatAgentStorageKey,
-  readNewChatReasoningEffort,
+  readNewChatTaskMode,
 } from './newChatLogic'
+import {
+  preferredSpecTaskSandboxResources,
+  preferredSpecTaskSandboxRuntime,
+  saveSpecTaskSandboxResourcesPreference,
+  saveSpecTaskSandboxRuntimePreference,
+} from '../utils/specTaskSandboxRuntime'
 
-const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
+const T3_FONT_FAMILY = WELCOME_FONT_FAMILY
 const TASK_ATTACHMENT_ACCEPT = Object.entries(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME)
   .flatMap(([mime, extensions]) => [mime, ...extensions])
   .join(',')
@@ -101,45 +104,46 @@ function errorMessage(error: any, fallback: string): string {
 
 const Home: FC = () => {
   const account = useAccount()
+  const isPhone = useIsPhone()
   const lightTheme = useLightTheme()
   const router = useRouter()
   const snackbar = useSnackbar()
-  const queryClient = useQueryClient()
-  const apps = useApps()
-  const { NewInference } = useStreaming()
   const orgId = account.organizationTools.organization?.id || ''
-  const requestedProjectId = router.params.project_id || ''
+  const requestedProjectId = router.params.id || ''
   const userId = account.user?.id || ''
 
   const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
     enabled: !!userId && !!orgId,
   })
-  const { data: providers = [] } = useListProviders({
-    loadModels: true,
-    orgId,
-    enabled: !!userId && !!orgId,
-  })
   const selectedProject = projects.find((project) => project.id === requestedProjectId)
   const selectedProjectId = selectedProject?.id || ''
-  const { data: codingAgents = [] } = useListProjectSpecTaskAgents(
-    selectedProjectId,
-    !!userId && !!selectedProjectId,
-  )
 
-  const [selectedProvider, setSelectedProvider] = useState(() => localStorage.getItem('helix_provider') || '')
-  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem('helix_model') || '')
-  const [reasoningEffort, setReasoningEffort] = useState<NewChatReasoningEffort>(() => (
-    readNewChatReasoningEffort(localStorage.getItem('helix_reasoning_effort'))
-  ))
-  const [selectedAgentId, setSelectedAgentId] = useState('')
-  const [taskCodeAgentOverrides, setTaskCodeAgentOverrides] = useState<TypesCodeAgentOverrides>({})
-  const [taskSandboxResources, setTaskSandboxResources] = useState<TypesSandboxResourceOverrides>({
-    vcpus: 4,
-    memory_mb: 8192,
-  })
+  useEffect(() => {
+    if (!projectsLoading && projects.length > 0 && !selectedProject) account.orgNavigate('projects')
+  }, [account, projectsLoading, projects.length, selectedProject])
+
+  const [taskCodeAgentConfig, setTaskCodeAgentConfig] = useState<TypesCodeAgentExecutionConfig>()
+  // Synced below from the per-project preference or project default. It remains
+  // undefined when neither exists so the server can resolve its live default.
+  const [taskSandboxResources, setTaskSandboxResources] =
+    useState<TypesSandboxResourceOverrides | undefined>()
+  const [taskSandboxRuntime, setTaskSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
+    preferredSpecTaskSandboxRuntime(requestedProjectId),
+  )
   const [taskMode, setTaskMode] = useState<NewChatTaskMode>('build')
+  // PR auto-approval only applies to projects with an external repository,
+  // and starts from the project's default every time the project changes.
+  const { data: projectRepositories = [] } = useGetProjectRepositories(
+    selectedProjectId,
+    !!selectedProjectId,
+  )
+  const showAutoApprovePRs = projectHasPullRequests(projectRepositories)
+  const projectAutoApprovesPRs = !!selectedProject?.auto_approve_pull_requests
+  const [autoApprovePRs, setAutoApprovePRs] = useState(projectAutoApprovesPRs)
+  useEffect(() => {
+    setAutoApprovePRs(projectAutoApprovesPRs)
+  }, [selectedProjectId, projectAutoApprovesPRs])
   const [modeMenuAnchor, setModeMenuAnchor] = useState<HTMLElement | null>(null)
-  const [effortMenuAnchor, setEffortMenuAnchor] = useState<HTMLElement | null>(null)
   const [projectMenuAnchor, setProjectMenuAnchor] = useState<HTMLElement | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
@@ -148,85 +152,88 @@ const Home: FC = () => {
   const uploadTaskAttachments = useUploadSpecTaskAttachments()
   const startTask = useStartSpecTaskPlanning()
 
-  useEffect(() => {
-    if (!selectedProvider || !selectedModel) return
-    localStorage.setItem('helix_provider', selectedProvider)
-    localStorage.setItem('helix_model', selectedModel)
-  }, [selectedProvider, selectedModel])
-
-  useEffect(() => {
-    localStorage.setItem('helix_reasoning_effort', reasoningEffort)
-  }, [reasoningEffort])
-
-  const codingAgentIds = codingAgents.flatMap((agent) => agent.id ? [agent.id] : []).join(',')
-  const agentStorageKey = projectChatAgentStorageKey(orgId)
-
-  useEffect(() => {
-    const availableIds = codingAgentIds ? codingAgentIds.split(',') : []
-    setSelectedAgentId(chooseProjectChatAgentId(
-      availableIds,
-      orgId ? localStorage.getItem(agentStorageKey) : null,
-    ))
-  }, [agentStorageKey, codingAgentIds, orgId])
-
-  useEffect(() => {
-    if (!orgId || !selectedAgentId) return
-    const availableIds = codingAgentIds ? codingAgentIds.split(',') : []
-    if (!availableIds.includes(selectedAgentId)) return
-    localStorage.setItem(agentStorageKey, selectedAgentId)
-  }, [agentStorageKey, codingAgentIds, orgId, selectedAgentId])
-
-  useEffect(() => {
-    setTaskCodeAgentOverrides({})
-    setTaskSandboxResources({ vcpus: 4, memory_mb: 8192 })
-  }, [selectedProjectId])
-
-  const taskAgents = codingAgents.flatMap((summary) => {
-    const app = apps.apps.find((candidate) => candidate.id === summary.id)
-    return app ? [app] : []
-  })
-  const isProjectContext = !!selectedProjectId
-  const supportsReasoningEffort = modelSupportsReasoningEffort(
-    providers,
-    selectedProvider,
-    selectedModel,
+  const projectCodeAgentConfigKey = JSON.stringify(selectedProject?.code_agent_config ?? null)
+  const projectPlanningCodeAgentConfigKey = JSON.stringify(
+    selectedProject?.planning_code_agent_config ?? selectedProject?.code_agent_config ?? null,
   )
 
-  const openProject = (projectId?: string) => {
-    setProjectMenuAnchor(null)
-    if (projectId) account.orgNavigate('chat', {}, { project_id: projectId })
-    else account.orgNavigate('chat')
+  useEffect(() => {
+    if (!userId || !orgId || !selectedProjectId) return
+    const rememberedMode = readNewChatTaskMode(localStorage.getItem(
+      newChatTaskModeStorageKey(userId, orgId, selectedProjectId),
+    ))
+    setTaskMode(rememberedMode)
+    setTaskCodeAgentConfig(
+      rememberedMode === 'plan'
+        ? selectedProject?.planning_code_agent_config || selectedProject?.code_agent_config
+        : selectedProject?.code_agent_config,
+    )
+  }, [
+    userId,
+    orgId,
+    selectedProjectId,
+    projectCodeAgentConfigKey,
+    projectPlanningCodeAgentConfigKey,
+  ])
+
+  // Compute is remembered per project. A project with no explicit user choice
+  // starts from its saved defaults; an absent size remains undefined so the
+  // server can resolve its live global default when the task starts.
+  useEffect(() => {
+    setTaskSandboxResources(preferredSpecTaskSandboxResources(
+      selectedProjectId,
+      selectedProject?.default_sandbox_resource_overrides,
+    ))
+    setTaskSandboxRuntime(preferredSpecTaskSandboxRuntime(
+      selectedProjectId,
+      selectedProject?.default_sandbox_runtime,
+    ))
+  }, [
+    selectedProjectId,
+    selectedProject?.default_sandbox_resource_overrides?.vcpus,
+    selectedProject?.default_sandbox_resource_overrides?.memory_mb,
+    selectedProject?.default_sandbox_runtime,
+  ])
+
+  const handleTaskSandboxResourcesChange = (resources: TypesSandboxResourceOverrides) => {
+    setTaskSandboxResources(resources)
+    saveSpecTaskSandboxResourcesPreference(selectedProjectId, resources)
   }
 
-  const handleNormalChat = async (message: string, _interrupt?: boolean, attachments: File[] = []) => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return false
-    }
+  const handleTaskSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
+    setTaskSandboxRuntime(runtime)
+    saveSpecTaskSandboxRuntimePreference(selectedProjectId, runtime)
+  }
 
-    setSubmitting(true)
-    try {
-      const session = await NewInference({
-        regenerate: false,
-        type: SESSION_TYPE_TEXT,
-        message,
-        messages: [],
-        provider: selectedProvider,
-        modelName: selectedModel,
-        reasoningEffort: supportsReasoningEffort ? reasoningEffort : undefined,
-        attachedImages: attachments,
-        orgId,
-      })
-      if (!session?.id) return false
-      invalidateSessionsQuery(queryClient)
-      account.orgNavigate('session', { session_id: session.id })
-      return true
-    } catch (error) {
-      snackbar.error(errorMessage(error, 'Failed to start chat'))
-      return false
-    } finally {
-      setSubmitting(false)
+  const seedProjectCodeAgentConfig = useSeedProjectCodeAgentConfig(selectedProject)
+
+  const handleTaskCodeAgentConfigChange = (
+    next: TypesCodeAgentExecutionConfig,
+    source: CodeAgentConfigChangeSource,
+  ) => {
+    setTaskCodeAgentConfig(next)
+    if (taskMode === 'build') seedProjectCodeAgentConfig(next, source)
+  }
+
+  const handleTaskModeChange = (mode: NewChatTaskMode) => {
+    setTaskMode(mode)
+    setTaskCodeAgentConfig(
+      mode === 'plan'
+        ? selectedProject?.planning_code_agent_config || selectedProject?.code_agent_config
+        : selectedProject?.code_agent_config,
+    )
+    if (userId && orgId && selectedProjectId) {
+      localStorage.setItem(
+        newChatTaskModeStorageKey(userId, orgId, selectedProjectId),
+        mode,
+      )
     }
+    setModeMenuAnchor(null)
+  }
+
+  const openProject = (projectId: string) => {
+    setProjectMenuAnchor(null)
+    account.orgNavigate('project-new', { id: projectId })
   }
 
   const handleProjectTask = async (message: string, _interrupt?: boolean, attachments: File[] = []) => {
@@ -235,8 +242,8 @@ const Home: FC = () => {
       return false
     }
     if (!selectedProjectId) return false
-    if (!selectedAgentId) {
-      snackbar.error('Select a coding agent before starting this task')
+    if (!taskCodeAgentConfig?.model) {
+      snackbar.error('Select a coding runtime and model before starting this task')
       return false
     }
 
@@ -244,12 +251,13 @@ const Home: FC = () => {
     let taskId = ''
     try {
       const task = await createTask.mutateAsync(buildNewChatTaskRequest({
-        appId: selectedAgentId,
         mode: taskMode,
         projectId: selectedProjectId,
         prompt: message,
-        codeAgentOverrides: taskCodeAgentOverrides,
+        codeAgentConfig: taskCodeAgentConfig,
         sandboxResourceOverrides: taskSandboxResources,
+        sandboxRuntime: taskSandboxRuntime,
+        autoApprovePullRequests: showAutoApprovePRs ? autoApprovePRs : undefined,
       }))
       taskId = task?.id || ''
       if (!taskId) throw new Error('Task creation returned no task ID')
@@ -303,20 +311,14 @@ const Home: FC = () => {
       >
         <MenuItem
           selected={taskMode === 'plan'}
-          onClick={() => {
-            setTaskMode('plan')
-            setModeMenuAnchor(null)
-          }}
+          onClick={() => handleTaskModeChange('plan')}
         >
           <ListItemIcon><ListTodo size={16} /></ListItemIcon>
           <ListItemText primary="Plan" secondary="Create specifications first" />
         </MenuItem>
         <MenuItem
           selected={taskMode === 'build'}
-          onClick={() => {
-            setTaskMode('build')
-            setModeMenuAnchor(null)
-          }}
+          onClick={() => handleTaskModeChange('build')}
         >
           <ListItemIcon><Hammer size={16} /></ListItemIcon>
           <ListItemText primary="Build" secondary="Go directly to implementation" />
@@ -327,17 +329,15 @@ const Home: FC = () => {
 
   const projectActions = (
     <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, overflow: 'hidden' }}>
-      <SpecTaskExecutionControls
-        agents={taskAgents}
-        selectedAgentId={selectedAgentId}
-        codeAgentOverrides={taskCodeAgentOverrides}
+      <CodeAgentExecutionControls
+        value={taskCodeAgentConfig}
         sandboxResourceOverrides={taskSandboxResources}
-        onAgentModelChange={(agentId, overrides) => {
-          setSelectedAgentId(agentId)
-          setTaskCodeAgentOverrides(overrides)
-        }}
-        onSandboxResourceOverridesChange={setTaskSandboxResources}
+        sandboxRuntime={taskSandboxRuntime}
+        onChange={handleTaskCodeAgentConfigChange}
+        onSandboxResourceOverridesChange={handleTaskSandboxResourcesChange}
+        onSandboxRuntimeChange={handleTaskSandboxRuntimeChange}
         disabled={submitting}
+        autoSelectDefault
         compact
       />
       <Box
@@ -352,67 +352,22 @@ const Home: FC = () => {
         }}
       />
       {modeSelector}
-    </Box>
-  )
-
-  const modelSelector = (
-    <AdvancedModelPicker
-      selectedProvider={selectedProvider}
-      selectedModelId={selectedModel}
-      onSelectModel={(provider, model) => {
-        setSelectedProvider(provider)
-        setSelectedModel(model)
-      }}
-      currentType={SESSION_TYPE_TEXT}
-      displayMode="short"
-      buttonVariant="text"
-    />
-  )
-
-  const effortSelector = supportsReasoningEffort ? (
-    <>
-      <Tooltip title={`Reasoning effort: ${reasoningEffort}`}>
-        <Button
-          disabled={submitting}
-          endIcon={<ChevronDown size={13} />}
-          onClick={(event) => setEffortMenuAnchor(event.currentTarget)}
-          sx={selectorButtonSx}
-        >
-          {NEW_CHAT_REASONING_EFFORT_OPTIONS.find((option) => option.value === reasoningEffort)?.label}
-        </Button>
-      </Tooltip>
-      <Menu
-        anchorEl={effortMenuAnchor}
-        open={!!effortMenuAnchor}
-        onClose={() => setEffortMenuAnchor(null)}
-      >
-        {NEW_CHAT_REASONING_EFFORT_OPTIONS.map((option) => (
-          <MenuItem
-            key={option.value}
-            selected={option.value === reasoningEffort}
-            onClick={() => {
-              setReasoningEffort(option.value)
-              setEffortMenuAnchor(null)
-            }}
-          >
-            <ListItemText primary={option.label} />
-          </MenuItem>
-        ))}
-      </Menu>
-    </>
-  ) : null
-
-  const modelActions = (
-    <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-      {modelSelector}
-      {effortSelector && (
-        <>
-          <Box
-            aria-hidden="true"
-            sx={{ width: '1px', height: 16, mx: 0.5, flexShrink: 0, bgcolor: 'divider', opacity: 0.65 }}
+      {showAutoApprovePRs && (
+        <Tooltip describeChild title="Approve this task's pull requests without asking. You can change it later in the task's details.">
+          <FormControlLabel
+            disabled={submitting}
+            control={
+              <Checkbox
+                size="small"
+                checked={autoApprovePRs}
+                onChange={(event) => setAutoApprovePRs(event.target.checked)}
+                sx={{ p: 0.5 }}
+              />
+            }
+            label={<Typography variant="caption" color="text.secondary" noWrap>Auto-approve PRs</Typography>}
+            sx={{ ml: 0.5, mr: 0, flexShrink: 0 }}
           />
-          {effortSelector}
-        </>
+        </Tooltip>
       )}
     </Box>
   )
@@ -420,8 +375,8 @@ const Home: FC = () => {
   if (projectsLoading) {
     return (
       <Page
-        breadcrumbs={[{ title: 'None' }]}
-        breadcrumbTitle="New thread"
+        breadcrumbs={[{ title: 'Projects' }]}
+        breadcrumbTitle="New task"
         breadcrumbShowHome={false}
         disableContentScroll
         px={2}
@@ -492,106 +447,74 @@ const Home: FC = () => {
           onClose={() => setCreateProjectOpen(false)}
           onSuccess={(projectId) => {
             setCreateProjectOpen(false)
-            account.orgNavigate('chat', {}, { project_id: projectId })
+            account.orgNavigate('project-new', { id: projectId })
           }}
         />
       </>
     )
   }
 
+  if (!selectedProject) return null
+
   return (
     <Page
-      breadcrumbs={[{ title: selectedProject?.name || 'None' }]}
-      breadcrumbTitle={isProjectContext ? 'New Task' : 'New thread'}
+      breadcrumbs={[{ title: selectedProject?.name || 'Untitled project' }]}
+      breadcrumbTitle="New task"
       breadcrumbShowHome={false}
       disableContentScroll
       px={2}
     >
-      <Box
-        sx={{
-          height: '100%',
-          minHeight: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          px: { xs: 2, sm: 3 },
-          pb: { xs: 4, md: 12 },
-          backgroundColor: lightTheme.isLight ? '#f7f7f8' : '#080808',
-          fontFamily: T3_FONT_FAMILY,
-          '& .MuiTypography-root, & .MuiButton-root': { fontFamily: 'inherit' },
-        }}
-      >
-        <Box sx={{ width: '100%', maxWidth: 768 }}>
-          <Typography
-            component="h1"
-            sx={{
-              mb: 3.5,
-              color: 'text.primary',
-              fontSize: { xs: '1.65rem', sm: '1.9rem' },
-              fontWeight: 560,
-              lineHeight: 1.2,
-              letterSpacing: '-0.025em',
-              textAlign: 'center',
-            }}
-          >
-            {newChatHeading(selectedProject?.name)}
-          </Typography>
-
+      <ChatWelcome heading={newChatHeading(selectedProject?.name)} footer={(
+        <>
+              <Button
+                startIcon={<Folder size={14} />}
+                endIcon={<ChevronDown size={12} />}
+                onClick={(event) => setProjectMenuAnchor(event.currentTarget)}
+                sx={{ ...selectorButtonSx, fontSize: isPhone ? '0.8rem' : '0.7rem' }}
+              >
+                {selectedProject?.name || 'Untitled project'}
+              </Button>
+              <Menu
+                anchorEl={projectMenuAnchor}
+                open={!!projectMenuAnchor}
+                onClose={() => setProjectMenuAnchor(null)}
+              >
+                {projects.map((project) => (
+                  <MenuItem
+                    key={project.id}
+                    selected={project.id === selectedProjectId}
+                    onClick={() => openProject(project.id)}
+                  >
+                    <ListItemIcon><Folder size={16} /></ListItemIcon>
+                    <ListItemText primary={project.name || 'Untitled project'} />
+                  </MenuItem>
+                ))}
+              </Menu>
+        </>
+      )}>
           {requestedProjectId && projectsLoading ? (
             <Box sx={{ height: 150, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <CircularProgress size={22} />
             </Box>
           ) : (
             <RobustPromptInput
-              key={selectedProjectId || 'none'}
-              sessionId={`new-thread:${selectedProjectId || 'none'}`}
+              key={selectedProjectId}
+              sessionId={`new-thread:${selectedProjectId}`}
               sendMode="direct"
               autoFocus
-              disabled={submitting || (isProjectContext && !selectedAgentId)}
-              placeholder={isProjectContext ? 'Describe what you want to build' : 'Ask anything'}
-              inlineImageAttachments={!isProjectContext}
-              deferredFileAttachments={isProjectContext}
-              attachmentAccept={isProjectContext ? TASK_ATTACHMENT_ACCEPT : undefined}
-              attachmentMaxBytes={isProjectContext ? SPEC_TASK_ATTACHMENT_MAX_BYTES : undefined}
-              attachmentMaxCount={isProjectContext ? SPEC_TASK_ATTACHMENT_MAX_PER_TASK : undefined}
-              validateAttachment={isProjectContext ? taskAttachmentValidation : undefined}
-              leadingActions={isProjectContext ? projectActions : modelActions}
-              onSend={isProjectContext ? handleProjectTask : handleNormalChat}
+              fill={isPhone}
+              disabled={submitting || !taskCodeAgentConfig?.model}
+              placeholder="Describe what you want to build"
+              deferredFileAttachments
+              attachmentAccept={TASK_ATTACHMENT_ACCEPT}
+              attachmentMaxBytes={SPEC_TASK_ATTACHMENT_MAX_BYTES}
+              attachmentMaxCount={SPEC_TASK_ATTACHMENT_MAX_PER_TASK}
+              validateAttachment={taskAttachmentValidation}
+              leadingActions={projectActions}
+              onSend={handleProjectTask}
             />
           )}
-
-          <Box sx={{ mt: 1, px: 2 }}>
-            <Button
-              startIcon={isProjectContext ? <Folder size={14} /> : <MessageCircle size={14} />}
-              endIcon={<ChevronDown size={12} />}
-              onClick={(event) => setProjectMenuAnchor(event.currentTarget)}
-              sx={{ ...selectorButtonSx, fontSize: '0.7rem' }}
-            >
-              {selectedProject?.name || 'None'}
-            </Button>
-            <Menu
-              anchorEl={projectMenuAnchor}
-              open={!!projectMenuAnchor}
-              onClose={() => setProjectMenuAnchor(null)}
-            >
-              <MenuItem selected={!isProjectContext} onClick={() => openProject()}>
-                <ListItemIcon><MessageCircle size={16} /></ListItemIcon>
-                <ListItemText primary="None" secondary="Start a normal chat" />
-              </MenuItem>
-              {projects.map((project) => (
-                <MenuItem
-                  key={project.id}
-                  selected={project.id === selectedProjectId}
-                  onClick={() => openProject(project.id)}
-                >
-                  <ListItemIcon><Folder size={16} /></ListItemIcon>
-                  <ListItemText primary={project.name || 'Untitled project'} />
-                </MenuItem>
-              ))}
-            </Menu>
-          </Box>
-        </Box>
-      </Box>
+      </ChatWelcome>
     </Page>
   )
 }

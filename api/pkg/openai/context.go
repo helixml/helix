@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -35,12 +36,14 @@ type Step struct {
 }
 
 type ContextValues struct {
-	OwnerID         string
-	SessionID       string
-	InteractionID   string
-	ProjectID       string
-	SpecTaskID      string
-	OriginalRequest []byte
+	OwnerID          string
+	RequestID        string
+	SessionID        string
+	InteractionID    string
+	ProjectID        string
+	SpecTaskID       string
+	CodeAgentRuntime types.CodeAgentRuntime
+	OriginalRequest  []byte
 }
 
 func SetContextAppID(ctx context.Context, appID string) context.Context {
@@ -76,6 +79,9 @@ func SetContextValues(ctx context.Context, vals *ContextValues) context.Context 
 	existingValues, ok := GetContextValues(ctx)
 	if ok {
 		vals.OriginalRequest = existingValues.OriginalRequest
+		if vals.RequestID == "" {
+			vals.RequestID = existingValues.RequestID
+		}
 	}
 
 	return context.WithValue(ctx, contextValuesKey, vals)
@@ -92,6 +98,19 @@ func GetContextValues(ctx context.Context) (*ContextValues, bool) {
 	}
 
 	return values, true
+}
+
+func EnsureRequestID(ctx context.Context) context.Context {
+	vals, ok := GetContextValues(ctx)
+	if ok && vals.RequestID != "" {
+		return ctx
+	}
+	copy := ContextValues{}
+	if ok {
+		copy = *vals
+	}
+	copy.RequestID = system.GenerateRequestID()
+	return context.WithValue(ctx, contextValuesKey, &copy)
 }
 
 func SetStep(ctx context.Context, step *Step) context.Context {

@@ -86,6 +86,18 @@ func (s *HelixAPIServer) createSecret(_ http.ResponseWriter, r *http.Request) (*
 	if err := json.NewDecoder(r.Body).Decode(&secretReq); err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
+	if secretReq.ProjectID != "" {
+		project, err := s.Store.GetProject(ctx, secretReq.ProjectID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404("project not found")
+			}
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		if err := s.authorizeUserToProject(ctx, user, project, types.ActionCreate); err != nil {
+			return nil, system.NewHTTPError403("not authorized to create secrets in this project")
+		}
+	}
 
 	// Encrypt the secret value before storing
 	encryptionKey, err := s.getEncryptionKey()
@@ -111,6 +123,9 @@ func (s *HelixAPIServer) createSecret(_ http.ResponseWriter, r *http.Request) (*
 
 	createdSecret, err := s.Store.CreateSecret(ctx, secret)
 	if err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			return nil, system.NewHTTPError409("A secret with this name already exists in the selected environment")
+		}
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
@@ -147,15 +162,20 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Check authorization: either user owns the secret OR has access to the project
-	authorized := false
-	if existing.Owner == user.ID {
-		authorized = true
-	} else if existing.ProjectID != "" {
-		// For project secrets, check if user has update access to the project
-		if err := s.authorizeUserToProjectByID(ctx, user, existing.ProjectID, types.ActionUpdate); err == nil {
-			authorized = true
+	// Project-scoped rows remain governed by their project even when their
+	// original creator still owns the secret row. This validates that the
+	// project still exists and prevents an owner from rotating a credential in
+	// a project they can no longer update.
+	authorized := existing.Owner == user.ID && existing.ProjectID == ""
+	if existing.ProjectID != "" {
+		project, projectErr := s.Store.GetProject(ctx, existing.ProjectID)
+		if projectErr != nil {
+			if errors.Is(projectErr, store.ErrNotFound) {
+				return nil, system.NewHTTPError404("project not found")
+			}
+			return nil, system.NewHTTPError500(projectErr.Error())
 		}
+		authorized = s.authorizeUserToProject(ctx, user, project, types.ActionUpdate) == nil
 	}
 	if !authorized {
 		// Return 404 instead of 403 to avoid leaking existence of secret
@@ -189,6 +209,22 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 	secret.OwnerType = existing.OwnerType
 	secret.ProjectID = existing.ProjectID
 	secret.AppID = existing.AppID
+	// The store persists a full row (GORM Save), so any field the client
+	// omitted would otherwise be written back as its zero value. Scope is
+	// fixed at creation (an omitted scope used to silently zero it, changing
+	// which sessions the secret is injected into), Name must not blank, and an
+	// omitted/empty value must keep the stored ciphertext rather than delete
+	// the secret's value.
+	secret.Scope = existing.Scope
+	if secret.Name == "" {
+		secret.Name = existing.Name
+	}
+	if len(secret.Value) == 0 {
+		secret.Value = existing.Value
+	}
+	if secret.Created.IsZero() {
+		secret.Created = existing.Created
+	}
 
 	updatedSecret, err := s.Store.UpdateSecret(ctx, &secret)
 	if err != nil {
@@ -209,7 +245,9 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 // @Description Delete a secret for the user.
 // @Tags    secrets
 // @Success 200 {object} types.Secret
+// @Failure 409 {object} system.HTTPError "Secret is granted to one or more Agents"
 // @Param id path string true "Secret ID"
+// @Param force query boolean false "Revoke Agent grants and delete anyway"
 // @Router /api/v1/secrets/{id} [delete]
 // @Security BearerAuth
 func (s *HelixAPIServer) deleteSecret(_ http.ResponseWriter, r *http.Request) (*types.Secret, *system.HTTPError) {
@@ -241,6 +279,31 @@ func (s *HelixAPIServer) deleteSecret(_ http.ResponseWriter, r *http.Request) (*
 	}
 	if !authorized {
 		return nil, system.NewHTTPError403("Access denied")
+	}
+
+	// Agents granted this secret hold a binding that points at its id.
+	// Deleting the secret without revoking them leaves the binding
+	// pointing at nothing and the failure only shows up inside the
+	// sandbox, so refuse until the caller confirms with force=true and
+	// then revoke the grants along with the secret.
+	if s.helixOrg != nil {
+		bound, err := s.helixOrg.store.WorkerSecretBindings.ListBySecretID(ctx, id)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		if len(bound) > 0 && r.URL.Query().Get("force") != "true" {
+			return nil, system.NewHTTPError409(fmt.Sprintf(
+				"%s is granted to %d agent(s); deleting it revokes their access", existing.Name, len(bound)))
+		}
+		// Revoked before the secret is gone: a grant removed from a
+		// secret that still exists can be re-granted from the Agent's
+		// secrets panel, while the reverse leaves the orphan this
+		// guard exists to prevent.
+		for _, b := range bound {
+			if err := s.helixOrg.store.WorkerSecretBindings.Delete(ctx, b.OrganizationID, b.WorkerID, b.Name); err != nil {
+				return nil, system.NewHTTPError500(err.Error())
+			}
+		}
 	}
 
 	err = s.Store.DeleteSecret(ctx, id)
@@ -280,7 +343,7 @@ func (s *HelixAPIServer) listProjectSecrets(_ http.ResponseWriter, r *http.Reque
 	// Verify user has access to the project (owner or org member)
 	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, system.NewHTTPError404("Project not found")
+			return nil, projectSecretNotFound(projectID, err)
 		}
 		return nil, system.NewHTTPError403("Access denied")
 	}
@@ -323,7 +386,7 @@ func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Requ
 	// Verify user has access to the project (owner or org member with create permission)
 	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionCreate); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, system.NewHTTPError404("Project not found")
+			return nil, projectSecretNotFound(projectID, err)
 		}
 		return nil, system.NewHTTPError403("Access denied")
 	}
@@ -368,6 +431,9 @@ func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Requ
 
 	createdSecret, err := s.Store.CreateSecret(ctx, secret)
 	if err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			return nil, system.NewHTTPError409("A secret with this name already exists in the selected environment")
+		}
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
@@ -375,6 +441,17 @@ func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Requ
 	createdSecret.Value = nil
 
 	return createdSecret, nil
+}
+
+func projectSecretNotFound(projectKey string, resolutionErr error) *system.HTTPError {
+	log.Warn().
+		Err(resolutionErr).
+		Str("project_key", projectKey).
+		Msg("project secret route could not resolve project")
+	return system.NewHTTPError404(fmt.Sprintf(
+		"project not found: %s (did you mean the prj_... ID?)",
+		projectKey,
+	))
 }
 
 // GetProjectSecretsAsEnvVars retrieves project secrets scoped to the given

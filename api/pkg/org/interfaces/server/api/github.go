@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	githubclient "github.com/helixml/helix/api/pkg/github"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 )
 
 // githubWebhook is the per-request dispatcher for POST /github/webhook.
@@ -244,7 +244,7 @@ func (a *apiHandler) listGitHubRepos(w http.ResponseWriter, r *http.Request) {
 }
 
 // InstallGitHubWebhookResponse is the body of POST
-// /topics/{id}/github/install-webhook.
+// /triggers/{id}/github/install-webhook.
 type InstallGitHubWebhookResponse struct {
 	WebhookID      int64  `json:"webhook_id"`
 	WebhookHTMLURL string `json:"webhook_html_url,omitempty"`
@@ -258,7 +258,7 @@ type InstallGitHubWebhookResponse struct {
 }
 
 // GitHubWebhookStatusResponse is the body of GET
-// /topics/{id}/github/webhook-status. It reports the LIVE state of the
+// /triggers/{id}/github/webhook-status. It reports the LIVE state of the
 // topic's repo webhook as seen on GitHub (not the stored config), so the
 // detail page can show a link when the hook really exists and a re-install
 // button when it doesn't — and self-correct stale stored ids.
@@ -297,17 +297,17 @@ type GitHubWebhookStatusResponse struct {
 //
 // @Summary Helix-org: auto-install the webhook for a github topic
 // @Tags HelixOrg
-// @Param id path string true "Topic ID"
+// @Param id path string true "Trigger ID"
 // @Produce json
 // @Success 200 {object} api.InstallGitHubWebhookResponse
 // @Failure 400 {object} api.ErrorResponse
 // @Failure 412 {object} api.ErrorResponse "pre-conditions not met"
 // @Failure 502 {object} api.ErrorResponse "GitHub API call failed"
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/topics/{id}/github/install-webhook [post]
+// @Router /api/v1/orgs/{org}/triggers/{id}/github/install-webhook [post]
 func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request) {
-	if a.deps.Topics == nil {
-		writeError(w, http.StatusNotImplemented, errors.New("topics service is not wired in this deployment"))
+	if a.deps.Triggers == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("trigger service is not wired in this deployment"))
 		return
 	}
 	orgID, err := resolveOrgID(r)
@@ -315,14 +315,14 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	topicID := streaming.TopicID(r.PathValue("id"))
-	if topicID == "" {
-		writeError(w, http.StatusBadRequest, errors.New("topic id is required"))
+	triggerID := r.PathValue("id")
+	if triggerID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("trigger id is required"))
 		return
 	}
-	// Generic seam: the topics service dispatches to the registered
-	// inbound provisioner for the topic's transport (github today).
-	res, err := a.deps.Topics.InstallInbound(r.Context(), orgID, topicID)
+	// Generic seam: the trigger service dispatches to the registered
+	// inbound provisioner for the Trigger's transport kind.
+	res, err := a.deps.Triggers.InstallInbound(r.Context(), orgID, triggerID)
 	if err != nil {
 		writeError(w, inboundFailStatus(err), err)
 		return
@@ -334,20 +334,20 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// inboundFailStatus maps a streaming.Failure (from the inbound-provisioning
+// inboundFailStatus maps a trigger.Failure (from the inbound-provisioning
 // seam) to its HTTP code. Non-Failure errors fall through to errStatus
-// (404 for a missing topic, else 500).
+// (404 for a missing trigger, else 500).
 func inboundFailStatus(err error) int {
-	var f *streaming.Failure
+	var f *trigger.Failure
 	if errors.As(err, &f) {
 		switch f.Kind {
-		case streaming.FailBadRequest:
+		case trigger.FailBadRequest:
 			return http.StatusBadRequest
-		case streaming.FailPrecondition:
+		case trigger.FailPrecondition:
 			return http.StatusPreconditionFailed
-		case streaming.FailUpstream:
+		case trigger.FailUpstream:
 			return http.StatusBadGateway
-		case streaming.FailNotFound:
+		case trigger.FailNotFound:
 			return http.StatusNotFound
 		default:
 			return http.StatusInternalServerError
@@ -365,15 +365,15 @@ func inboundFailStatus(err error) int {
 //
 // @Summary Helix-org: live webhook status for a github topic
 // @Tags HelixOrg
-// @Param id path string true "Topic ID"
+// @Param id path string true "Trigger ID"
 // @Produce json
 // @Success 200 {object} api.GitHubWebhookStatusResponse
 // @Failure 400 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/topics/{id}/github/webhook-status [get]
+// @Router /api/v1/orgs/{org}/triggers/{id}/github/webhook-status [get]
 func (a *apiHandler) getGitHubWebhookStatus(w http.ResponseWriter, r *http.Request) {
-	if a.deps.Topics == nil {
-		writeError(w, http.StatusNotImplemented, errors.New("topics service is not wired in this deployment"))
+	if a.deps.Triggers == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("trigger service is not wired in this deployment"))
 		return
 	}
 	orgID, err := resolveOrgID(r)
@@ -381,12 +381,12 @@ func (a *apiHandler) getGitHubWebhookStatus(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	topicID := streaming.TopicID(r.PathValue("id"))
-	if topicID == "" {
-		writeError(w, http.StatusBadRequest, errors.New("topic id is required"))
+	triggerID := r.PathValue("id")
+	if triggerID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("trigger id is required"))
 		return
 	}
-	res, err := a.deps.Topics.InboundStatus(r.Context(), orgID, topicID)
+	res, err := a.deps.Triggers.InboundStatus(r.Context(), orgID, triggerID)
 	if err != nil {
 		writeError(w, inboundFailStatus(err), err)
 		return

@@ -210,9 +210,10 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 		var buf bytes.Buffer
 
 		err = waitlistApprovedTmpl.Execute(&buf, &templateData{
-			FirstName: n.FirstName,
-			AppURL:    e.cfg.AppURL,
-			TrialDays: n.TrialDays,
+			FirstName:    n.FirstName,
+			AppURL:       e.cfg.AppURL,
+			TrialDays:    n.TrialDays,
+			TrialPending: n.TrialPending,
 		})
 		if err != nil {
 			return "", "", fmt.Errorf("failed to execute template: %w", err)

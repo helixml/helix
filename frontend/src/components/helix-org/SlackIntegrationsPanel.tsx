@@ -162,10 +162,10 @@ const SlackIntegrationsPanel: FC = () => {
         <Typography variant="h6">Slack</Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Connect a Slack workspace and a topic for it is created automatically. Then
-        <code> /invite</code> the bot into any channels you want it to listen on — messages from those
-        channels flow to the topic, and Workers reply in the same channel/thread as their persona.
-        Route to a specific Worker with a filter (e.g. <code>!qa-bot</code>).
+        Connect a Slack workspace to create its Trigger automatically. Then
+        <code> /invite</code> the bot into any channels you want it to listen on. Messages can
+        start agents, which reply in the same channel or thread. Route to a specific agent
+        with a filter (for example, <code>!qa-bot</code>).
       </Typography>
 
       <Stack spacing={2}>
@@ -260,7 +260,7 @@ const SlackIntegrationsPanel: FC = () => {
         >
           <Typography variant="body1">
             Disconnect <b>{deleting.slack_team_name || deleting.slack_team_id || deleting.id}</b>?
-            Topics bound to it stop sending and receiving. The Helix bot stays in your
+            Triggers connected to it stop receiving messages. The Helix bot stays in your
             workspace until you remove it from Slack.
           </Typography>
         </DeleteConfirmWindow>

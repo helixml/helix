@@ -2,9 +2,12 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,7 +69,7 @@ func (s *SpecTaskKeepAliveSuite) TestKeepAliveOff_OnDoneTask_StopsDesktop() {
 		ID:                s.taskID,
 		ProjectID:         "project_keepalive",
 		Status:            types.TaskStatusDone,
-		AgentSessionID: "session_keepalive",
+		PlanningSessionID: "session_keepalive",
 		KeepAlive:         true,
 	}
 	project := &types.Project{
@@ -95,7 +98,7 @@ func (s *SpecTaskKeepAliveSuite) TestKeepAliveOn_OnDoneTask_DoesNotStopDesktop()
 		ID:                s.taskID,
 		ProjectID:         "project_keepalive",
 		Status:            types.TaskStatusDone,
-		AgentSessionID: "session_keepalive",
+		PlanningSessionID: "session_keepalive",
 		KeepAlive:         false,
 	}
 	project := &types.Project{
@@ -122,7 +125,7 @@ func (s *SpecTaskKeepAliveSuite) TestKeepAliveOff_OnRunningTask_DoesNotStopDeskt
 		ID:                s.taskID,
 		ProjectID:         "project_keepalive",
 		Status:            types.TaskStatusImplementation,
-		AgentSessionID: "session_keepalive",
+		PlanningSessionID: "session_keepalive",
 		KeepAlive:         true,
 	}
 	project := &types.Project{
@@ -144,11 +147,12 @@ func (s *SpecTaskKeepAliveSuite) TestKeepAliveOff_OnRunningTask_DoesNotStopDeskt
 
 func (s *SpecTaskKeepAliveSuite) TestResetDoneExistingTaskToBacklogUsesNewBranchMode() {
 	existingTask := &types.SpecTask{
-		ID:         s.taskID,
-		ProjectID:  "project_keepalive",
-		Status:     types.TaskStatusDone,
-		BranchMode: types.BranchModeExisting,
-		BranchName: "merged-branch",
+		ID:                s.taskID,
+		ProjectID:         "project_keepalive",
+		Status:            types.TaskStatusDone,
+		PlanningSessionID: "session_keepalive",
+		BranchMode:        types.BranchModeExisting,
+		BranchName:        "merged-branch",
 	}
 	project := &types.Project{
 		ID:     "project_keepalive",
@@ -157,7 +161,10 @@ func (s *SpecTaskKeepAliveSuite) TestResetDoneExistingTaskToBacklogUsesNewBranch
 
 	s.store.EXPECT().GetSpecTask(gomock.Any(), s.taskID).Return(existingTask, nil)
 	s.store.EXPECT().GetProject(gomock.Any(), "project_keepalive").Return(project, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "session_keepalive").Return(nil)
+	s.store.EXPECT().ReapWaitingInteractions(gomock.Any(), "session_keepalive", types.InteractionStateInterrupted, "spec task reset to backlog").Return(nil, nil)
 	s.store.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ interface{}, task *types.SpecTask) error {
+		s.Empty(task.PlanningSessionID)
 		s.Empty(task.BranchName)
 		s.Equal(types.BranchModeNew, task.BranchMode)
 		return nil
@@ -176,7 +183,7 @@ func (s *SpecTaskKeepAliveSuite) TestReopenDoneTask_ClearsTerminalFields() {
 		ProjectID:         "project_keepalive",
 		Status:            types.TaskStatusDone,
 		BranchName:        "feature/reopen",
-		AgentSessionID: "session_keepalive",
+		PlanningSessionID: "session_keepalive",
 		CompletedAt:       &now,
 		MergedToMain:      true,
 		MergedAt:          &now,
@@ -193,7 +200,7 @@ func (s *SpecTaskKeepAliveSuite) TestReopenDoneTask_ClearsTerminalFields() {
 		s.Nil(task.MergedAt)
 		s.Empty(task.MergeCommitHash)
 		s.Equal("feature/reopen", task.BranchName)
-		s.Equal("session_keepalive", task.AgentSessionID)
+		s.Equal("session_keepalive", task.PlanningSessionID)
 		return nil
 	})
 
@@ -201,4 +208,87 @@ func (s *SpecTaskKeepAliveSuite) TestReopenDoneTask_ClearsTerminalFields() {
 	s.server.updateSpecTask(rr, s.makeUpdateRequest(types.SpecTaskUpdateRequest{Status: types.TaskStatusImplementation}))
 
 	s.Equal(http.StatusOK, rr.Code)
+}
+
+// Archiving must not block on desktop teardown: the HTTP response returns
+// while StopDesktop still runs in the background. Stopping a desktop is slow
+// (screenshot, container teardown, key revocation) and previously stalled the
+// archive request for its full duration.
+func (s *SpecTaskKeepAliveSuite) TestArchiveTask_ReturnsBeforeDesktopStopCompletes() {
+	existingTask := &types.SpecTask{
+		ID:                s.taskID,
+		ProjectID:         "project_keepalive",
+		Status:            types.TaskStatusDone,
+		PlanningSessionID: "session_keepalive",
+	}
+	project := &types.Project{ID: "project_keepalive", UserID: s.userID}
+	session := &types.Session{
+		ID:       "session_keepalive",
+		Metadata: types.SessionMetadata{AgentType: "zed_external"},
+	}
+
+	stopStarted := make(chan struct{})
+	releaseStop := make(chan struct{})
+	stopFinished := make(chan struct{})
+	s.store.EXPECT().GetSpecTask(gomock.Any(), s.taskID).Return(existingTask, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), "project_keepalive").Return(project, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "session_keepalive").Return(session, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "session_keepalive").DoAndReturn(
+		func(_ context.Context, _ string) error {
+			close(stopStarted)
+			<-releaseStop // block until the response has been verified
+			return nil
+		},
+	)
+	// The turn in flight when the task is archived is ended, so auto-wake
+	// does not read it as a stuck cold start and boot the desktop again.
+	s.store.EXPECT().ReapWaitingInteractions(gomock.Any(), "session_keepalive", types.InteractionStateInterrupted, "spec task archived").
+		Return(nil, nil)
+	s.store.EXPECT().GetSpecTaskExternalAgent(gomock.Any(), s.taskID).DoAndReturn(
+		func(_ context.Context, _ string) (*types.SpecTaskExternalAgent, error) {
+			defer close(stopFinished)
+			return nil, errors.New("no external agent")
+		},
+	)
+	s.store.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ interface{}, t *types.SpecTask) error {
+			s.True(t.Archived)
+			return nil
+		},
+	)
+
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/spec-tasks/"+s.taskID+"/archive",
+		strings.NewReader(`{"archived":true}`),
+	)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: s.userID}))
+	req = mux.SetURLVars(req, map[string]string{"taskId": s.taskID})
+
+	rr := httptest.NewRecorder()
+	handlerDone := make(chan struct{})
+	go func() {
+		defer close(handlerDone)
+		s.server.archiveSpecTask(rr, req)
+	}()
+
+	select {
+	case <-stopStarted:
+	case <-time.After(5 * time.Second):
+		s.Fail("background StopDesktop was never started")
+	}
+
+	select {
+	case <-handlerDone:
+		s.Equal(http.StatusOK, rr.Code)
+	case <-time.After(5 * time.Second):
+		s.Fail("archive response blocked on StopDesktop")
+	}
+
+	close(releaseStop)
+	select {
+	case <-stopFinished:
+	case <-time.After(5 * time.Second):
+		s.Fail("background stop goroutine did not finish")
+	}
 }

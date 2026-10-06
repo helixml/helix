@@ -143,7 +143,7 @@ const HelixOrgAssets: FC = () => {
       </Typography>
     ),
     status: <AssetStatusBadge enabled={asset.enabled !== false} health={asset.id ? health[asset.id] : undefined} />,
-    agents: <Typography variant="body2" color="text.secondary">{asset.agent_ids?.length ?? 0}</Typography>,
+    agents: <Typography variant="body2" color="text.secondary">{asset.bot_ids?.length ?? 0}</Typography>,
     updated: (
       <Typography variant="body2" color="text.secondary">
         {asset.updated_at ? new Date(asset.updated_at).toLocaleString() : '—'}
@@ -249,7 +249,7 @@ const HelixOrgAssets: FC = () => {
         {deleting && (
           <DeleteConfirmWindow title="asset" submitTitle="Delete" onSubmit={confirmDelete} onCancel={() => setDeleting(undefined)}>
             <Typography variant="body1">
-              Deleting <b>{deleting.name ?? deleting.id}</b> revokes every agent link and removes its stored credentials.
+              Deleting <b>{deleting.name ?? deleting.id}</b> revokes every org bot link and removes its stored credentials.
             </Typography>
           </DeleteConfirmWindow>
         )}
@@ -258,7 +258,7 @@ const HelixOrgAssets: FC = () => {
           open={drawerOpen}
           asset={editing}
           health={editing?.id ? health[editing.id] : undefined}
-          agents={agents.filter((agent) => agent.kind !== 'human')}
+          agents={agents}
           onClose={() => { setDrawerOpen(false); setEditing(undefined) }}
           onDelete={(id) => {
             const asset = assets.find((candidate) => candidate.id === id)

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import type { TypesOrganization } from '../api/api';
+import type { TypesOrganization, TypesOrganizationMembership } from '../api/api';
 
 export const orgListQueryKey = () => ["orgs"];
 
@@ -16,6 +16,7 @@ export const orgUsageQueryKey = (
   filters?: {
     userId?: string
     projectId?: string
+    taskId?: string
     appId?: string
     sessionId?: string
     provider?: string
@@ -38,6 +39,7 @@ export const orgUsageQueryKey = (
   to,
   filters?.userId,
   filters?.projectId,
+  filters?.taskId,
   filters?.appId,
   filters?.sessionId,
   filters?.provider,
@@ -52,6 +54,27 @@ export const orgUsageQueryKey = (
   sessionLimit,
   sessionOffset,
 ];
+
+export const orgMembersQueryKey = (id: string) => ["org", id, "members"];
+
+// Live members list with presence (`online`). The account context loads
+// memberships once per org switch; surfaces that show who is online poll this
+// instead so a colleague opening or closing Helix shows within a minute.
+export function useOrganizationMembers(
+  id: string,
+  options?: { enabled?: boolean; refetchInterval?: number | false },
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: orgMembersQueryKey(id),
+    queryFn: async () => {
+      const result = await api.getApiClient().v1OrganizationsMembersDetail(id);
+      return (result.data ?? []) as TypesOrganizationMembership[];
+    },
+    enabled: !!id && (options?.enabled ?? true),
+    refetchInterval: options?.refetchInterval,
+  });
+}
 
 export function getOrgByIdQueryKey(id: string) {
   return [
@@ -133,6 +156,7 @@ export function useGetOrgUsage(
     to?: string
     userId?: string
     projectId?: string
+    taskId?: string
     appId?: string
     sessionId?: string
     provider?: string
@@ -160,6 +184,7 @@ export function useGetOrgUsage(
       {
         userId: options?.userId,
         projectId: options?.projectId,
+        taskId: options?.taskId,
         appId: options?.appId,
         sessionId: options?.sessionId,
         provider: options?.provider,
@@ -182,6 +207,7 @@ export function useGetOrgUsage(
         to: options?.to,
         user_id: options?.userId,
         project_id: options?.projectId,
+        task_id: options?.taskId,
         app_id: options?.appId,
         session_id: options?.sessionId,
         provider: options?.provider,

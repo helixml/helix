@@ -29,3 +29,14 @@ type local struct{}
 func (local) ParseConfig(_ json.RawMessage) (Config, error) {
 	return LocalConfig{}, nil
 }
+
+func (local) Describe() Descriptor {
+	return Descriptor{
+		Kind:    KindLocal,
+		Label:   "Manual or agent event",
+		Summary: "Fires when an agent or the Helix API publishes to it. Nothing external reaches this Trigger.",
+		Activation: Activation{
+			Summary: "An agent publishes to this Trigger with its publish tool, or Helix publishes to it internally.",
+		},
+	}
+}

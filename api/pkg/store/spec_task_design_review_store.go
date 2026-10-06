@@ -2,11 +2,15 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
 )
+
+var ErrSpecTaskDesignReviewNotEditable = errors.New("design review is no longer editable")
 
 // Design Review methods
 
@@ -28,6 +32,44 @@ func (s *PostgresStore) GetSpecTaskDesignReview(ctx context.Context, id string) 
 
 func (s *PostgresStore) UpdateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error {
 	return s.gdb.WithContext(ctx).Save(review).Error
+}
+
+// UpdateSpecTaskDesignReviewDocument atomically refreshes document snapshots
+// without saving either stale row wholesale. The status predicate closes the
+// final race between the handler's post-git re-read and this write.
+func (s *PostgresStore) UpdateSpecTaskDesignReviewDocument(
+	ctx context.Context,
+	reviewID, taskID string,
+	reviewUpdates, taskUpdates map[string]any,
+) error {
+	if reviewID == "" || taskID == "" {
+		return fmt.Errorf("review ID and task ID are required")
+	}
+	now := time.Now()
+	reviewUpdates["updated_at"] = now
+	taskUpdates["updated_at"] = now
+	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&types.SpecTaskDesignReview{}).
+			Where("id = ? AND spec_task_id = ? AND status NOT IN ?", reviewID, taskID, []types.SpecTaskDesignReviewStatus{
+				types.SpecTaskDesignReviewStatusApproved,
+				types.SpecTaskDesignReviewStatusSuperseded,
+			}).
+			Updates(reviewUpdates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrSpecTaskDesignReviewNotEditable
+		}
+		result = tx.Model(&types.SpecTask{}).Where("id = ?", taskID).Updates(taskUpdates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("spec task not found: %s", taskID)
+		}
+		return nil
+	})
 }
 
 func (s *PostgresStore) DeleteSpecTaskDesignReview(ctx context.Context, id string) error {
@@ -328,15 +370,15 @@ func (s *PostgresStore) GetUnresolvedCommentsForTask(ctx context.Context, specTa
 	return comments, nil
 }
 
-// GetPendingCommentByAgentSessionID finds a comment that has a pending request_id
+// GetPendingCommentByPlanningSessionID finds a comment that has a pending request_id
 // for a given planning session. This is used for response linking after API restart
 // when in-memory requestToSessionMapping is lost.
-func (s *PostgresStore) GetPendingCommentByAgentSessionID(ctx context.Context, agentSessionID string) (*types.SpecTaskDesignReviewComment, error) {
+func (s *PostgresStore) GetPendingCommentByPlanningSessionID(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error) {
 	var comment types.SpecTaskDesignReviewComment
 	err := s.gdb.WithContext(ctx).
 		Joins("JOIN spec_task_design_reviews ON spec_task_design_reviews.id = spec_task_design_review_comments.review_id").
 		Joins("JOIN spec_tasks ON spec_tasks.id = spec_task_design_reviews.spec_task_id").
-		Where("spec_tasks.agent_session_id = ? AND spec_task_design_review_comments.request_id IS NOT NULL AND spec_task_design_review_comments.request_id != ''", agentSessionID).
+		Where("spec_tasks.planning_session_id = ? AND spec_task_design_review_comments.request_id IS NOT NULL AND spec_task_design_review_comments.request_id != ''", planningSessionID).
 		Order("spec_task_design_review_comments.created_at DESC").
 		First(&comment).Error
 	if err != nil {
@@ -349,15 +391,15 @@ func (s *PostgresStore) GetPendingCommentByAgentSessionID(ctx context.Context, a
 // This is the PRIMARY mechanism for the comment queue (database-backed, restart-resilient).
 // A comment is queued if:
 // - queued_at IS NOT NULL (was submitted for processing)
-// - request_id IS NULL OR '' (not currently being processed)
-// - agent_response IS NULL OR '' (no response received yet)
+// - request_id IS NULL OR empty (not currently being processed)
+// - agent_response IS NULL OR empty (no response received yet)
 // Returns oldest queued comment (FIFO order by queued_at).
-func (s *PostgresStore) GetNextQueuedCommentForSession(ctx context.Context, agentSessionID string) (*types.SpecTaskDesignReviewComment, error) {
+func (s *PostgresStore) GetNextQueuedCommentForSession(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error) {
 	var comment types.SpecTaskDesignReviewComment
 	err := s.gdb.WithContext(ctx).
 		Joins("JOIN spec_task_design_reviews ON spec_task_design_reviews.id = spec_task_design_review_comments.review_id").
 		Joins("JOIN spec_tasks ON spec_tasks.id = spec_task_design_reviews.spec_task_id").
-		Where("spec_tasks.agent_session_id = ?", agentSessionID).
+		Where("spec_tasks.planning_session_id = ?", planningSessionID).
 		Where("spec_task_design_review_comments.queued_at IS NOT NULL").
 		Where("(spec_task_design_review_comments.request_id IS NULL OR spec_task_design_review_comments.request_id = '')").
 		Where("(spec_task_design_review_comments.agent_response IS NULL OR spec_task_design_review_comments.agent_response = '')").
@@ -371,13 +413,13 @@ func (s *PostgresStore) GetNextQueuedCommentForSession(ctx context.Context, agen
 
 // IsCommentBeingProcessedForSession checks if there's a comment currently being processed
 // (has request_id set) for the given session. Used to prevent concurrent processing.
-func (s *PostgresStore) IsCommentBeingProcessedForSession(ctx context.Context, agentSessionID string) (bool, error) {
+func (s *PostgresStore) IsCommentBeingProcessedForSession(ctx context.Context, planningSessionID string) (bool, error) {
 	var count int64
 	err := s.gdb.WithContext(ctx).
 		Model(&types.SpecTaskDesignReviewComment{}).
 		Joins("JOIN spec_task_design_reviews ON spec_task_design_reviews.id = spec_task_design_review_comments.review_id").
 		Joins("JOIN spec_tasks ON spec_tasks.id = spec_task_design_reviews.spec_task_id").
-		Where("spec_tasks.agent_session_id = ?", agentSessionID).
+		Where("spec_tasks.planning_session_id = ?", planningSessionID).
 		Where("spec_task_design_review_comments.request_id IS NOT NULL AND spec_task_design_review_comments.request_id != ''").
 		Count(&count).Error
 	if err != nil {
@@ -392,12 +434,12 @@ func (s *PostgresStore) GetSessionsWithPendingComments(ctx context.Context) ([]s
 	var sessionIDs []string
 	err := s.gdb.WithContext(ctx).
 		Model(&types.SpecTaskDesignReviewComment{}).
-		Select("DISTINCT spec_tasks.agent_session_id").
+		Select("DISTINCT spec_tasks.planning_session_id").
 		Joins("JOIN spec_task_design_reviews ON spec_task_design_reviews.id = spec_task_design_review_comments.review_id").
 		Joins("JOIN spec_tasks ON spec_tasks.id = spec_task_design_reviews.spec_task_id").
 		Where("spec_task_design_review_comments.queued_at IS NOT NULL").
-		Where("spec_tasks.agent_session_id IS NOT NULL AND spec_tasks.agent_session_id != ''").
-		Pluck("spec_tasks.agent_session_id", &sessionIDs).Error
+		Where("spec_tasks.planning_session_id IS NOT NULL AND spec_tasks.planning_session_id != ''").
+		Pluck("spec_tasks.planning_session_id", &sessionIDs).Error
 	if err != nil {
 		return nil, err
 	}

@@ -2,14 +2,91 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestInjectSandboxBrowserBridge(t *testing.T) {
+	original := "<!doctype html><html><head><title>App</title></head><body>hello</body></html>"
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":            []string{"text/html; charset=utf-8"},
+			"Content-Length":          []string{strconv.Itoa(len(original))},
+			"Content-Security-Policy": []string{"default-src 'self'; script-src 'self'"},
+			"ETag":                    []string{`"old"`},
+		},
+		Body:          io.NopCloser(strings.NewReader(original)),
+		ContentLength: int64(len(original)),
+	}
+
+	require.NoError(t, injectSandboxBrowserBridge(response))
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Contains(t, string(body), "<head>"+sandboxBrowserBridgeScript+"<title>")
+	require.Equal(t, int64(len(body)), response.ContentLength)
+	require.Equal(t, strconv.Itoa(len(body)), response.Header.Get("Content-Length"))
+	require.Empty(t, response.Header.Get("ETag"))
+	require.Contains(t, response.Header.Get("Content-Security-Policy"), "script-src 'self' 'sha256-")
+}
+
+func TestInjectSandboxBrowserBridgeSkipsCompressedHTML(t *testing.T) {
+	original := "<html><head></head><body>compressed</body></html>"
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":     []string{"text/html"},
+			"Content-Encoding": []string{"gzip"},
+		},
+		Body: io.NopCloser(strings.NewReader(original)),
+	}
+
+	require.NoError(t, injectSandboxBrowserBridge(response))
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Equal(t, original, string(body))
+}
+
+func TestInjectSandboxBrowserBridgePreservesDoctypeWithoutHead(t *testing.T) {
+	original := "<!doctype html><html><body>hello</body></html>"
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":     []string{"text/html"},
+			"Content-Encoding": []string{"identity"},
+		},
+		Body: io.NopCloser(strings.NewReader(original)),
+	}
+
+	require.NoError(t, injectSandboxBrowserBridge(response))
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(string(body), "<!doctype html><html>"+sandboxBrowserBridgeScript))
+}
+
+func TestInjectSandboxBrowserBridgeLeavesOversizedHTMLIntact(t *testing.T) {
+	original := bytes.Repeat([]byte("a"), maxSandboxBrowserHTMLSize+1)
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/html"},
+		},
+		Body: io.NopCloser(bytes.NewReader(original)),
+	}
+
+	require.NoError(t, injectSandboxBrowserBridge(response))
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Equal(t, original, body)
+}
 
 func TestReadRevdialResponsePreservesUpgradeConnection(t *testing.T) {
 	client, upstream := net.Pipe()

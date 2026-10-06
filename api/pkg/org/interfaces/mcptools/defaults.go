@@ -8,10 +8,10 @@ import (
 // BaseReadTools is the set of MCP tools that every Bot must expose. The
 // principle: a tool belongs here only if exposing it to every Bot is
 // safe (it cannot mutate the org graph) and useful (the Bot needs it to
-// introspect its reporting line, look up peers, or read topics it has
-// been subscribed to).
+// introspect its reporting line, look up peers, or read the sources it
+// has been attached to).
 //
-// `create_bot` unions this list into the caller-supplied tools so that
+// New-bot entry points include this list through DefaultBotTools so that
 // new Nodes can never miss the baseline. The bots Reconcile backfill
 // unions this list into every existing Bot's tools so that pre-existing
 // Nodes get backfilled at API server start.
@@ -19,10 +19,8 @@ import (
 // Order matters: it is preserved when appending to a Bot's tool list, so
 // the reconciled output is deterministic.
 //
-// The baseline also includes two safe actions: mint_credential obtains an
-// org-scoped external-provider credential, and ask_human contacts a human
-// node through their configured route. Neither mutates the org graph. Without
-// mint_credential,
+// The baseline also includes get_secret, which obtains an org-scoped
+// external-provider credential. Without get_secret,
 // a Bot has nothing to authenticate gh/git/auth-curl with — there is no
 // boot-time env-var fallback. Every Bot needs this, so it sits in the
 // baseline.
@@ -31,19 +29,17 @@ var BaseReadTools = []tool.Name{
 	ReportsName,
 	ListBotsName,
 	GetBotName,
-	ListTopicsName,
-	GetTopicName,
-	ListTopicEventsName,
+	ListTriggersName,
+	GetTriggerName,
+	ListTriggerEventsName,
 	ReadEventsName,
 	BotLogName,
-	MintCredentialName,
-	AskHumanName,
-	// Every bot can read its own project secrets (its own project only) so
-	// it can export a secret added after boot — the read sibling of
-	// mint_credential, same reason it belongs in the baseline.
+	GetSecretName,
+	// Every bot can discover metadata for credentials explicitly granted to it.
+	// Values remain behind the separately audited get_secret call.
 	ListSecretsName,
 	// Processor introspection — safe reads so any bot can discover the
-	// transform/filter/js nodes feeding topics it may subscribe to.
+	// transform/filter/js nodes feeding sources it may attach to.
 	ListProcessorsName,
 	GetProcessorName,
 }
@@ -64,11 +60,11 @@ var AssetManagementTools = []tool.Name{
 }
 
 // OwnerBotTools is the canonical tool set the bootstrap owner Bot
-// (Chief of Staff) receives: every mutation in the system plus the
-// universal base read set (via MergeBaseReadTools). It lives here —
+// (Chief of Staff) receives: every organization-management mutation plus
+// the standard worker tool set. It lives here —
 // beside the tool name constants and BaseReadTools — so the owner-seed
 // policy references the typed names directly and bootstrap can be handed
-// the list without importing this package. mint_credential arrives
+// the list without importing this package. get_secret arrives
 // through BaseReadTools, so it is not repeated in the mutation list.
 //
 // Repository tools (list/attach/detach) are here so CoS can equip the
@@ -80,14 +76,15 @@ func OwnerBotTools() []tool.Name {
 		AttachToolName,
 		DetachToolName,
 		DeleteBotName,
-		CreateTopicName,
-		TopicMembersName,
-		SubscribeName,
-		UnsubscribeName,
-		PublishName,
+		CreateTriggerName,
+		RequestSecretIntakeName,
+		GetSecretIntakeStatusName,
+		TriggerMembersName,
+		AttachWorkerName,
+		DetachWorkerName,
+		ChatName,
 		DMName,
-		SetHumanContactName,
-		// Processors: define topic transforms/filters/js and rewire them.
+		// Processors: define transforms/filters/js and rewire them.
 		CreateProcessorName,
 		UpdateProcessorName,
 		DeleteProcessorName,
@@ -100,6 +97,10 @@ func OwnerBotTools() []tool.Name {
 		StartBotName,
 		StopBotName,
 		RestartBotName,
+		// Bot instances: extra sessions with a bot's identity.
+		CreateBotInstanceName,
+		ListBotInstancesName,
+		DeleteBotInstanceName,
 		// Standalone Sandboxes API lifecycle for the organization.
 		ListSandboxRuntimesName,
 		ListSandboxesName,
@@ -111,7 +112,7 @@ func OwnerBotTools() []tool.Name {
 	}
 	// Org assets: create/configure inventory and grant/revoke Bot access.
 	ownerMutations = append(ownerMutations, AssetManagementTools...)
-	return MergeBaseReadTools(ownerMutations)
+	return MergeDefaultBotTools(ownerMutations)
 }
 
 // MergeBaseReadTools returns the union of `existing` and BaseReadTools.
@@ -119,11 +120,116 @@ func OwnerBotTools() []tool.Name {
 // already present are appended in BaseReadTools order. Duplicates within
 // `existing` are also dropped, so the result is fully deduped.
 //
-// Used by every entry point that creates a Bot — the MCP create_bot
-// tool, the REST POST /orgs/{org}/bots handler, and the bots Reconcile
-// backfill. Keeping the merge in one place ensures all paths agree on
-// order and dedup semantics, and adding a new entry point only requires
-// a single call to this helper.
+// Used directly by the bots service and its Reconcile backfill. New-bot
+// entry points reach it through MergeDefaultBotTools.
 func MergeBaseReadTools(existing []tool.Name) []tool.Name {
 	return nodes.MergeTools(existing, BaseReadTools)
+}
+
+// DefaultBotTools is the capability set every newly created non-manager Bot
+// receives. It covers normal collaboration, scoped project/repository/asset
+// discovery, and the complete spec-task lifecycle. Organization control-plane
+// mutations remain exclusive to OwnerBotTools.
+func DefaultBotTools() []tool.Name {
+	standard := []tool.Name{
+		ChatName,
+		DMName,
+		ListProjectsName,
+		GetProjectName,
+		ListRepositoriesName,
+		ListBotRepositoriesName,
+		ListAssetsName,
+		GetAssetName,
+	}
+	standard = append(standard, SpecTaskAgentTools...)
+	// Bots may open PRs for the tasks they manage; spec-task agents may not
+	// (see SpecTaskBlockedTools), so this sits outside SpecTaskAgentTools.
+	standard = append(standard, CreateSpecTaskPRsName)
+	return MergeBaseReadTools(standard)
+}
+
+// MergeDefaultBotTools preserves explicitly requested additions while
+// guaranteeing the complete standard worker capability set.
+func MergeDefaultBotTools(existing []tool.Name) []tool.Name {
+	return nodes.MergeTools(existing, DefaultBotTools())
+}
+
+// HasNonDefaultBotTool reports whether tools requests any capability outside
+// the standard worker surface. Granting such a capability is an organization
+// administration action even when the caller does not request the complete
+// OwnerBotTools set.
+func HasNonDefaultBotTool(tools []tool.Name) bool {
+	defaultTools := DefaultBotTools()
+	defaults := make(map[tool.Name]struct{}, len(defaultTools))
+	for _, name := range defaultTools {
+		defaults[name] = struct{}{}
+	}
+	for _, name := range tools {
+		if _, ok := defaults[name]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
+// SpecTaskAgentTools is the catalogue offered to a spec task's coding agent —
+// the tools that work when the caller is a project principal rather than a Bot
+// (see runtime.ProjectPrincipal). Every entry resolves its target project from
+// the caller, so a task can only ever reach its own project's tasks.
+//
+// This is the whole eligibility policy: a project/task tool selection is
+// intersected with this list before it reaches MCP, so a stale or hand-crafted
+// name can never widen the surface. Adding a tool here is a data edit.
+var SpecTaskAgentTools = []tool.Name{
+	CreateSpecTaskName,
+	ListSpecTasksName,
+	GetSpecTaskName,
+	UpdateSpecTaskName,
+	StartSpecTaskPlanningName,
+	SendSpecTaskAgentMessageName,
+	ListSpecTaskAgentMessagesName,
+	StartSpecTaskAgentName,
+	StopSpecTaskAgentName,
+	RestartSpecTaskAgentName,
+	ReviewSpecTaskSpecName,
+	ApproveSpecTaskSpecName,
+	RequestSpecTaskChangesName,
+}
+
+// IsSpecTaskAgentTool reports whether name is in SpecTaskAgentTools.
+func IsSpecTaskAgentTool(name tool.Name) bool {
+	for _, n := range SpecTaskAgentTools {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// SpecTaskBlockedTools are org-graph and grant-admin tools, excluded from
+// every spec-task surface (rationale: spec task 003014 design doc).
+var SpecTaskBlockedTools = []tool.Name{
+	CreateBotName, DeleteBotName, SetBotContentName,
+	AttachToolName, DetachToolName,
+	StartBotName, StopBotName, RestartBotName,
+	AttachWorkerName, DetachWorkerName, CreateTriggerName,
+	CreateProcessorName, UpdateProcessorName, DeleteProcessorName,
+	ConfigureBotProjectName,
+	AttachRepositoryName, DetachRepositoryName,
+	CreateServerAssetName, UpdateServerAssetName, DeleteAssetName,
+	LinkAssetName, UnlinkAssetName,
+	CreateSandboxName, UpdateSandboxName, DeleteSandboxName,
+	SandboxSSHAccessName,
+	// A spec task's PRs open only from proposals its user approved
+	// (propose_pull_request); this tool would open them without approval.
+	CreateSpecTaskPRsName,
+}
+
+func IsSpecTaskBlockedTool(name tool.Name) bool {
+	for _, n := range SpecTaskBlockedTools {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }

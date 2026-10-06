@@ -18,6 +18,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
@@ -58,12 +59,31 @@ func newRuntimesCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			runtimes, err := c.ListSandboxRuntimes(ctx)
+			details, desktopCapable, err := c.ListSandboxRuntimeDetails(ctx)
 			if err != nil {
 				return err
 			}
-			for _, r := range runtimes {
-				fmt.Println(r)
+			if len(details) == 0 {
+				// Older server: no availability information published.
+				runtimes, err := c.ListSandboxRuntimes(ctx)
+				if err != nil {
+					return err
+				}
+				for _, r := range runtimes {
+					fmt.Println(r)
+				}
+				return nil
+			}
+			for _, r := range details {
+				if r.Available {
+					fmt.Println(r.Name)
+					continue
+				}
+				fmt.Printf("%s  (unavailable: %s)\n", r.Name, r.Reason)
+			}
+			if !desktopCapable {
+				fmt.Println("\nNo sandbox host on this deployment has a display/render node, so desktop")
+				fmt.Println("runtimes cannot run. Headless runtimes are unaffected — they need no GPU.")
 			}
 			return nil
 		},
@@ -71,15 +91,11 @@ func newRuntimesCmd() *cobra.Command {
 }
 
 func newClient() (*client.HelixClient, error) {
-	url := os.Getenv("HELIX_URL")
-	if url == "" {
-		url = "http://localhost:8080"
-	}
-	apiKey := os.Getenv("HELIX_API_KEY")
+	apiKey := config.CliAPIKey()
 	if apiKey == "" {
-		return nil, errors.New("HELIX_API_KEY is not set")
+		return nil, errors.New("HELIX_API_KEY (or USER_API_TOKEN inside a Helix sandbox) is not set")
 	}
-	return client.NewClient(url, apiKey, false)
+	return client.NewClient(config.CliURL("http://localhost:8080"), apiKey, false)
 }
 
 // resolveOrg picks the org id. Order:
@@ -230,7 +246,7 @@ Pass --project to associate the sandbox with a project (optional).`,
 	cmd.Flags().StringVar(&name, "name", "", "Display name")
 	cmd.Flags().StringVar(&runtime, "runtime", "", "Configured runtime name (e.g. headless-ubuntu, node22). Empty = server default.")
 	cmd.Flags().StringVar(&image, "image", "", "Custom Docker image (requires HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE=true on the server)")
-	cmd.Flags().StringVar(&size, "size", "small", "Resource size: small=1CPU/2GB, medium=4CPU/8GB, large=8CPU/16GB")
+	cmd.Flags().StringVar(&size, "size", "small", "Resource size: small=1CPU/2GB, medium=4CPU/8GB, large=8CPU/16GB, xlarge=12CPU/24GB, 2xlarge=16CPU/32GB")
 	cmd.Flags().IntVar(&ttl, "ttl", 600, "Lifetime in seconds")
 	cmd.Flags().BoolVar(&wait, "wait", true, "Wait for status=running")
 	cmd.Flags().BoolVar(&persistent, "persistent", false, "Mount a persistent workspace volume that survives container restarts")
@@ -245,8 +261,12 @@ func parseSandboxSize(size string) (int, int, error) {
 		return 4, 8192, nil
 	case "large", "8cpu-16gb":
 		return 8, 16384, nil
+	case "xlarge", "12cpu-24gb":
+		return 12, 24576, nil
+	case "2xlarge", "16cpu-32gb":
+		return 16, 32768, nil
 	default:
-		return 0, 0, fmt.Errorf("invalid sandbox size %q: use small, medium, or large", size)
+		return 0, 0, fmt.Errorf("invalid sandbox size %q: use small, medium, large, xlarge, or 2xlarge", size)
 	}
 }
 
@@ -392,6 +412,17 @@ the new command id is printed; fetch its output later with:
 			orgID, err := resolveOrg(ctx, c, orgFlag)
 			if err != nil {
 				return err
+			}
+			if !detached {
+				// A synchronous command holds the request open for up to its
+				// timeout (the server defaults 0 to 60s).
+				wait := ttl
+				if wait <= 0 {
+					wait = 60
+				}
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, time.Duration(wait+30)*time.Second)
+				defer cancel()
 			}
 			resp, err := c.RunSandboxCommand(ctx, orgID, sbID, &types.RunSandboxCommandRequest{
 				Cmd:            cmdArgs[0],

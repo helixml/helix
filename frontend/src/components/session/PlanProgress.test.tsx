@@ -1,9 +1,10 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ResponseEntry } from "./InteractionInference";
 import {
+  ComposerPlanProgress,
   hasPlanSource,
   PlanProgress,
   planStepsFromChecklist,
@@ -43,6 +44,19 @@ describe("plan progress normalization", () => {
       tool_name: "update_plan",
       content: '{"plan":[{"step":"Test it","status":"completed"}]}',
     })])).toEqual([{ step: "Test it", status: "completed" }]);
+  });
+
+  it("reads OpenCode todo displays after an initial empty plan snapshot", () => {
+    expect(planStepsFromResponseEntries([
+      entry({ type: "plan", message_id: "plan", content: '{"steps":[]}' }),
+      entry({
+        tool_name: "2 todos",
+        content: '**Tool Call: 2 todos**\nStatus: Completed\n\n[{"content":"Inspect","status":"completed"},{"content":"Build","status":"in_progress"}]',
+      }),
+    ])).toEqual([
+      { step: "Inspect", status: "completed" },
+      { step: "Build", status: "inProgress" },
+    ]);
   });
 
   it("prefers the latest native snapshot", () => {
@@ -91,6 +105,70 @@ describe("plan progress normalization", () => {
     fireEvent.click(toggle);
 
     expect(screen.getByRole("button", { name: "Collapse plan" })).toBeInTheDocument();
+    expect(screen.getByText("Inspect")).toBeInTheDocument();
+    expect(screen.getByText("Verify")).toBeInTheDocument();
+  });
+
+  it("shows an ellipsis when expanded plan steps overflow", () => {
+    const longStep = "Implement a deliberately long plan step that cannot fit on one line";
+    render(<PlanProgress steps={[{ step: longStep, status: "inProgress" }]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand plan" }));
+
+    expect(within(screen.getByRole("list")).getByText(longStep)).toHaveStyle({
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    });
+  });
+
+  it("compresses very long plans into a continuous fixed track", () => {
+    const steps = Array.from({ length: 80 }, (_, index) => ({
+      step: `Step ${index + 1}`,
+      status: index < 20 ? "completed" as const : index === 20 ? "inProgress" as const : "pending" as const,
+    }));
+    const { container } = render(<PlanProgress steps={steps} />);
+
+    expect(screen.getByRole("button", { name: "Expand plan" })).toHaveTextContent("20/80");
+    expect(container.querySelector('[data-plan-segments="continuous"]')?.children).toHaveLength(80);
+  });
+});
+
+describe("composer plan progress", () => {
+  const steps = [
+    { step: "Inspect", status: "completed" as const },
+    { step: "Build", status: "inProgress" as const },
+    { step: "Verify", status: "pending" as const },
+  ];
+
+  it("renders the T3-style attached Plan bar", () => {
+    const { container } = render(
+      <ComposerPlanProgress
+        steps={steps}
+        expanded={false}
+        onToggle={() => undefined}
+        onDismiss={() => undefined}
+      />,
+    );
+
+    expect(container.querySelector('[data-composer-plan-badge="true"]')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Plan: 1 of 3 complete. Current step: Build" })).toHaveTextContent("Plan");
+    expect(screen.getByRole("button", { name: "Plan: 1 of 3 complete. Current step: Build" })).toHaveTextContent("1/3");
+    expect(screen.getByRole("button", { name: "Dismiss plan for this turn" })).toBeInTheDocument();
+  });
+
+  it("opens into the attached checklist drawer", () => {
+    const { container } = render(
+      <ComposerPlanProgress
+        steps={steps}
+        expanded
+        onToggle={() => undefined}
+        onDismiss={() => undefined}
+      />,
+    );
+
+    expect(container.querySelector('[data-composer-plan-drawer="true"]')).toBeInTheDocument();
+    expect(screen.getByRole("list")).toBeInTheDocument();
     expect(screen.getByText("Inspect")).toBeInTheDocument();
     expect(screen.getByText("Verify")).toBeInTheDocument();
   });

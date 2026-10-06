@@ -6,8 +6,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/internal/orgtest"
 )
 
 // TestReconcile_DMChannelCreatedPerEdge: wiring a reporting edge
@@ -22,11 +21,11 @@ func TestReconcile_DMChannelCreatedPerEdge(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li", "w-jane"); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	dm := channels.DMTopicID("w-jane", "w-li")
-	if !topicExists(t, st, dm) {
+	dm := channels.DMTriggerID("w-jane", "w-li")
+	if !channelExists(t, st, dm) {
 		t.Fatalf("DM channel %q should exist after wiring the edge", dm)
 	}
-	if got := topicMembers(t, st, dm); !eq(got, []orgchart.NodeID{"w-jane", "w-li"}) {
+	if got := channelMembers(t, st, dm); !eq(got, []orgchart.NodeID{"w-jane", "w-li"}) {
 		t.Fatalf("DM members = %v, want [w-jane w-li]", got)
 	}
 }
@@ -43,8 +42,8 @@ func TestReconcile_DMChannelTornDownOnEdgeRemoval(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li", "w-jane"); err != nil {
 		t.Fatalf("reconcile add: %v", err)
 	}
-	dm := channels.DMTopicID("w-jane", "w-li")
-	if !topicExists(t, st, dm) {
+	dm := channels.DMTriggerID("w-jane", "w-li")
+	if !channelExists(t, st, dm) {
 		t.Fatalf("precondition: DM channel should exist")
 	}
 
@@ -54,7 +53,7 @@ func TestReconcile_DMChannelTornDownOnEdgeRemoval(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li", "w-jane"); err != nil {
 		t.Fatalf("reconcile remove: %v", err)
 	}
-	if topicExists(t, st, dm) {
+	if channelExists(t, st, dm) {
 		t.Fatalf("DM channel %q should be torn down when the reporting edge is removed", dm)
 	}
 }
@@ -71,7 +70,7 @@ func TestReconcile_DMChannelTornDownOnFire(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li", "w-jane"); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	dm := channels.DMTopicID("w-jane", "w-li")
+	dm := channels.DMTriggerID("w-jane", "w-li")
 
 	managers, _ := st.ReportingLines.ListManagers(ctx, orgID, "w-li")
 	if err := st.Nodes.Delete(ctx, orgID, "w-li"); err != nil {
@@ -81,32 +80,29 @@ func TestReconcile_DMChannelTornDownOnFire(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, affected...); err != nil {
 		t.Fatalf("reconcile fire: %v", err)
 	}
-	if topicExists(t, st, dm) {
+	if channelExists(t, st, dm) {
 		t.Fatalf("DM channel %q should be gone after firing the report", dm)
 	}
 }
 
-// TestReconcile_LeavesForeignTopicsUntouched is the load-bearing
+// TestReconcile_LeavesForeignTriggersUntouched is the load-bearing
 // safety assertion for the scoping comment: Reconcile only ever touches
-// the activation / team / DM ids of the affected Workers and their
-// one-hop neighbours — never an operator-created topic, even one whose
+// the transcript / team / DM ids of the affected Workers and their
+// one-hop neighbours — never an operator-created Trigger, even one whose
 // members overlap the affected set.
-func TestReconcile_LeavesForeignTopicsUntouched(t *testing.T) {
+func TestReconcile_LeavesForeignTriggersUntouched(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
 	seedBot(t, st, bot("w-jane"))
 	seedBot(t, st, bot("w-li"))
 	seedBot(t, st, bot("w-outsider"))
 
-	// An operator-created topic with its own membership — nothing to do
-	// with the reporting graph.
-	foreign := streaming.TopicID("s-general")
-	fs, err := streaming.NewTopic(foreign, "general", "", "w-jane", fixedNow(), transport.Transport{}, orgID)
-	if err != nil {
-		t.Fatalf("new foreign topic: %v", err)
-	}
-	if err := rec.ensureTopicWithMembers(ctx, fs, fixedNow(), "w-jane", "w-li", "w-outsider"); err != nil {
-		t.Fatalf("seed foreign topic: %v", err)
+	// An operator-created Trigger with its own membership — nothing to
+	// do with the reporting graph.
+	const foreign = "s-general"
+	orgtest.Trigger(t, st, orgID, foreign)
+	for _, w := range []orgchart.NodeID{"w-jane", "w-li", "w-outsider"} {
+		orgtest.AttachTrigger(t, st, orgID, w, foreign)
 	}
 
 	addLine(t, st, "w-jane", "w-li")
@@ -114,23 +110,23 @@ func TestReconcile_LeavesForeignTopicsUntouched(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	// The foreign topic still exists with its full, unmodified
+	// The foreign Trigger still exists with its full, unmodified
 	// membership — Reconcile never considered it.
-	if !topicExists(t, st, foreign) {
-		t.Fatalf("operator topic %q must survive reconcile", foreign)
+	if !channelExists(t, st, foreign) {
+		t.Fatalf("operator trigger %q must survive reconcile", foreign)
 	}
-	if got := topicMembers(t, st, foreign); !eq(got, []orgchart.NodeID{"w-jane", "w-li", "w-outsider"}) {
-		t.Fatalf("foreign topic members = %v, want untouched [w-jane w-li w-outsider]", got)
+	if got := channelMembers(t, st, foreign); !eq(got, []orgchart.NodeID{"w-jane", "w-li", "w-outsider"}) {
+		t.Fatalf("foreign trigger members = %v, want untouched [w-jane w-li w-outsider]", got)
 	}
 }
 
-// TestReconcileAll_CatchesUpMissingTeamTopic simulates the case where
+// TestReconcileAll_CatchesUpMissingTeamChat simulates the case where
 // Workers were hired before the topology reconciler was wired: the
 // reporting lines and Workers exist in the store but no team topic was
 // ever created. ReconcileAll must converge all Topics idempotently,
 // including the team topic for a manager who already has direct
 // reports.
-func TestReconcileAll_CatchesUpMissingTeamTopic(t *testing.T) {
+func TestReconcileAll_CatchesUpMissingTeamChat(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
 
@@ -147,17 +143,17 @@ func TestReconcileAll_CatchesUpMissingTeamTopic(t *testing.T) {
 		t.Fatalf("ReconcileAll: %v", err)
 	}
 
-	team := channels.TeamTopicID("w-owner")
-	if !topicExists(t, st, team) {
+	team := channels.TeamTriggerID("w-owner")
+	if !channelExists(t, st, team) {
 		t.Fatalf("s-team-w-owner should exist after ReconcileAll")
 	}
-	if got := topicMembers(t, st, team); !eq(got, []orgchart.NodeID{"w-alice", "w-owner", "w-qa-1"}) {
+	if got := channelMembers(t, st, team); !eq(got, []orgchart.NodeID{"w-alice", "w-owner", "w-qa-1"}) {
 		t.Fatalf("s-team-w-owner members = %v, want [w-alice w-owner w-qa-1]", got)
 	}
 }
 
-// TestReconcileAll_ScopedToAffectedSubtree: reconciling one manager's
-// subtree leaves an unrelated manager's team topic untouched.
+// TestReconcile_ScopedToAffectedSubtree: reconciling one manager's
+// subtree leaves an unrelated manager's team chat untouched.
 func TestReconcile_ScopedToAffectedSubtree(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
@@ -176,7 +172,7 @@ func TestReconcile_ScopedToAffectedSubtree(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-sam", "w-bob"); err != nil {
 		t.Fatalf("reconcile bob subtree: %v", err)
 	}
-	before := topicMembers(t, st, channels.TeamTopicID("w-bob"))
+	before := channelMembers(t, st, channels.TeamTriggerID("w-bob"))
 
 	// Now mutate jane's subtree only (fire li) and reconcile just it.
 	managers, _ := st.ReportingLines.ListManagers(ctx, orgID, "w-li")
@@ -188,7 +184,7 @@ func TestReconcile_ScopedToAffectedSubtree(t *testing.T) {
 	}
 
 	// bob's team topic is untouched.
-	after := topicMembers(t, st, channels.TeamTopicID("w-bob"))
+	after := channelMembers(t, st, channels.TeamTriggerID("w-bob"))
 	if !eq(before, after) {
 		t.Fatalf("unrelated subtree disturbed: s-team-w-bob before=%v after=%v", before, after)
 	}

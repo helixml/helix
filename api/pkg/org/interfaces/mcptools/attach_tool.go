@@ -52,9 +52,6 @@ func (t *AttachTool) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	if len(args.Tools) == 0 {
 		return nil, fmt.Errorf("tools must contain at least one tool name")
 	}
-	if err := validateRegisteredTools(args.Tools, t.deps.ToolNames); err != nil {
-		return nil, err
-	}
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
 		return nil, fmt.Errorf("attach_tool: caller has no OrgID")
@@ -64,23 +61,4 @@ func (t *AttachTool) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 		return nil, err
 	}
 	return json.Marshal(map[string]any{"id": string(updated.ID), "tools": updated.Tools})
-}
-
-// validateRegisteredTools rejects any name not in the registered
-// catalogue so a typo fails the whole call rather than silently adding a
-// dead tool. No-op when the catalogue provider isn't wired.
-func validateRegisteredTools(names []string, provider func() []tool.Name) error {
-	if provider == nil {
-		return nil
-	}
-	valid := make(map[string]struct{})
-	for _, n := range provider() {
-		valid[n] = struct{}{}
-	}
-	for _, n := range names {
-		if _, ok := valid[n]; !ok {
-			return fmt.Errorf("unknown tool %q", n)
-		}
-	}
-	return nil
 }

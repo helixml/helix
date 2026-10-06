@@ -68,9 +68,10 @@ const PURPLE_TRAIL = "#a855f7";
 
 interface StreamingIndicatorProps {
   className?: string;
+  compact?: boolean;
 }
 
-const StreamingIndicator: FC<StreamingIndicatorProps> = ({ className }) => {
+const StreamingIndicator: FC<StreamingIndicatorProps> = ({ className, compact = false }) => {
   // Generate trail elements for a given color and base delay
   const renderTrails = (color: string, baseDelay: number) => {
     return Array.from({ length: TRAIL_COUNT }, (_, i) => {
@@ -93,6 +94,9 @@ const StreamingIndicator: FC<StreamingIndicatorProps> = ({ className }) => {
             animation: `${infinityPath} ${DURATION}s linear infinite`,
             animationDelay: `${delay}s`,
             opacity: Math.max(0, opacity),
+            "@media (prefers-reduced-motion: reduce)": {
+              animationPlayState: "paused",
+            },
           }}
         />
       );
@@ -110,6 +114,8 @@ const StreamingIndicator: FC<StreamingIndicatorProps> = ({ className }) => {
         width: 44,
         height: 20,
         position: "relative",
+        transform: compact ? "scale(0.68)" : "none",
+        marginInline: compact ? "-7px" : 0,
       }}
     >
       {/* Cyan trails */}
@@ -131,6 +137,9 @@ const StreamingIndicator: FC<StreamingIndicatorProps> = ({ className }) => {
           boxShadow: `0 0 3px ${CYAN}, 0 0 6px ${CYAN}`,
           animation: `${infinityPath} ${DURATION}s linear infinite`,
           animationDelay: "0s",
+          "@media (prefers-reduced-motion: reduce)": {
+            animationPlayState: "paused",
+          },
         }}
       />
 
@@ -147,6 +156,9 @@ const StreamingIndicator: FC<StreamingIndicatorProps> = ({ className }) => {
           boxShadow: `0 0 3px ${PURPLE_HEAD}, 0 0 6px ${PURPLE_HEAD}`,
           animation: `${infinityPath} ${DURATION}s linear infinite`,
           animationDelay: `${OFFSET}s`,
+          "@media (prefers-reduced-motion: reduce)": {
+            animationPlayState: "paused",
+          },
         }}
       />
     </Box>

@@ -27,15 +27,15 @@ import (
 type invoiceWebhookBackend struct {
 	t *testing.T
 
-	subscriptionPath     string
-	subscription         *stripe.Subscription
-	subscriptionErr      error
-	subscriptionInvoked  bool
+	subscriptionPath    string
+	subscription        *stripe.Subscription
+	subscriptionErr     error
+	subscriptionInvoked bool
 
-	productPath     string
-	product         *stripe.Product
-	productErr      error
-	productInvoked  bool
+	productPath    string
+	product        *stripe.Product
+	productErr     error
+	productInvoked bool
 }
 
 func (m *invoiceWebhookBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
@@ -323,6 +323,40 @@ func Test_handleInvoicePaymentPaidEvent_AdminGrantedTrial_SkipsAutoCredit(t *tes
 	require.NoError(t, err)
 	require.True(t, backend.subscriptionInvoked, "subscription should have been fetched")
 	require.False(t, backend.productInvoked, "product should NOT be fetched when admin-granted trial is detected")
+}
+
+func Test_handleInvoicePaymentPaidEvent_OnboardingTrialCreate_SkipsAutoCredit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	store := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{SecretKey: "sk_test_invoice_paid"}, store)
+
+	bts, err := os.ReadFile("testdata/paid.json")
+	require.NoError(t, err)
+	var event stripe.Event
+	require.NoError(t, json.Unmarshal(bts, &event))
+
+	wallet := &types.Wallet{ID: "wal_onboarding_trial"}
+	store.EXPECT().GetWalletByStripeCustomerID(gomock.Any(), "cus_SqicesZoU7LrDR").Return(wallet, nil)
+
+	backend := &invoiceWebhookBackend{
+		t:                t,
+		subscriptionPath: invoiceSubscriptionPath,
+		subscription: &stripe.Subscription{
+			ID:     "sub_1Rv1oVFNNvjhkCqzI3vgc41P",
+			Status: stripe.SubscriptionStatusTrialing,
+			Metadata: map[string]string{
+				"user_id": "usr_123",
+				"org_id":  "org_123",
+			},
+		},
+	}
+	installInvoiceWebhookBackend(t, backend)
+
+	require.NoError(t, s.handleInvoicePaymentPaidEvent(event))
+	require.True(t, backend.subscriptionInvoked)
+	require.False(t, backend.productInvoked, "trial creation must not grant monthly credits")
 }
 
 // Test_handleInvoicePaymentPaidEvent_AdminGrantedConvertedToPaid pins the

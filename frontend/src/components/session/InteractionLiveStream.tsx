@@ -18,6 +18,7 @@ import {
 } from "../../api/api";
 import ToolStepsWidget from "./ToolStepsWidget";
 import ActivitySummary from "./ActivitySummary";
+import AgentOfflineNotice from "./AgentOfflineNotice";
 import { getInteractionRequestTimeMs } from "./interactionDuration";
 
 export const InteractionLiveStream: FC<{
@@ -25,6 +26,14 @@ export const InteractionLiveStream: FC<{
   interaction: TypesInteraction;
   serverConfig?: TypesServerConfigForFrontend;
   session: TypesSession;
+  /**
+   * True when this session's sandbox is no longer running. An interaction can
+   * sit in `state=waiting` long after the container backing it has exited (the
+   * agent never connected, or died mid-turn), and nothing about the interaction
+   * row itself reveals that. Without this the chat renders a ticking
+   * "Working for 12m 4s" against a dead sandbox.
+   */
+  agentOffline?: boolean;
   onMessageChange?: {
     (message: string): void;
   };
@@ -35,6 +44,7 @@ export const InteractionLiveStream: FC<{
   serverConfig,
   session,
   interaction,
+  agentOffline = false,
   onMessageChange,
   onMessageUpdate,
   onFilterDocument,
@@ -104,7 +114,13 @@ export const InteractionLiveStream: FC<{
   const pendingScrollRef = useRef(false);
 
   // Trigger scroll on either message or entries change
-  const hasContent = !!(message || (responseEntries && responseEntries.length > 0));
+  const questionHistoryCount = interaction.question_history?.length ?? 0;
+  const hasContent = !!(
+    message ||
+    (responseEntries && responseEntries.length > 0) ||
+    questionHistoryCount > 0
+  );
+  const hasPendingQuestion = !!interaction.pending_question;
 
   useEffect(() => {
     if (!hasContent || !onMessageUpdate) return;
@@ -121,7 +137,7 @@ export const InteractionLiveStream: FC<{
     } else {
       pendingScrollRef.current = true;
     }
-  }, [hasContent, message, responseEntries, onMessageUpdate]);
+  }, [hasContent, message, responseEntries, questionHistoryCount, onMessageUpdate]);
 
   useEffect(() => {
     return () => {
@@ -135,17 +151,18 @@ export const InteractionLiveStream: FC<{
     return null;
   }
 
+  // A dead sandbox cannot be streaming, whatever the interaction row says.
+  const isStreaming = isActivelyStreaming && !agentOffline;
+
   return (
     <>
       {stepInfos.length > 0 && (
-        <ToolStepsWidget
-          steps={toolSteps}
-          isLiveStreaming={isActivelyStreaming}
-        />
+        <ToolStepsWidget steps={toolSteps} isLiveStreaming={isStreaming} />
       )}
 
-      {/* Show thinking indicator when waiting and no content yet */}
-      {interaction.state === "waiting" && !hasContent && (
+      {/* Show thinking indicator when waiting and no content yet. Suppressed
+          once the sandbox is gone: there is no agent left to be working. */}
+      {interaction.state === "waiting" && !hasContent && !hasPendingQuestion && !agentOffline && (
         <ActivitySummary
           hasActivity={false}
           isStreaming
@@ -153,15 +170,20 @@ export const InteractionLiveStream: FC<{
         />
       )}
 
+      {interaction.state === "waiting" && !hasContent && agentOffline && (
+        <AgentOfflineNotice />
+      )}
+
       {hasContent && (
         <div>
           <MessageWithToolCalls
             text={message}
             responseEntries={responseEntries}
+            questionHistory={interaction.question_history}
             session={session}
             getFileURL={useClientURL}
-            showBlinker={true}
-            isStreaming={isActivelyStreaming}
+            showBlinker={!agentOffline}
+            isStreaming={isStreaming}
             durationMs={effectiveDurationMs}
             activityStartedAt={activityStartedAt}
             onFilterDocument={onFilterDocument}

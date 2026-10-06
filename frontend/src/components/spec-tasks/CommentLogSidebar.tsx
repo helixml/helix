@@ -42,11 +42,6 @@ export default function CommentLogSidebar({
         <Typography variant="h6">
           Comment Log ({comments.length})
         </Typography>
-        <Box mt={1} p={1} bgcolor="action.hover" borderRadius={1}>
-          <Typography variant="caption" color="text.secondary" display="block">
-            <strong>Shortcuts:</strong> C=Comment, 1/2/3=Switch tabs, Esc=Close
-          </Typography>
-        </Box>
       </Box>
 
       <Box flex={1} overflow="auto" p={2}>

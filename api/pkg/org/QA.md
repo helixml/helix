@@ -1,5 +1,34 @@
 # Helix Org — QA test plan
 
+> The Topic-era sections below are retained only as the upgrade fixture for
+> the PR 4 conversion. They are not the current product acceptance contract.
+> Run the Trigger acceptance gate immediately below for PR 5; remove the
+> legacy fixture instructions after the final deployed conversion is verified.
+
+## PR 5 Trigger acceptance gate
+
+1. Open `/orgs/<org>/triggers`. Verify tokenized multi-word search and switch
+   between table and card views; refresh and confirm the view persists.
+2. Create a local Trigger, open its detail page, edit its name/description with
+   the current revision, and confirm the bounded event history renders payloads
+   as inert text. A stale revision must return `409 stale_resource`.
+3. Open a live Org Bot's **Inbound attachments** section. Attach it to the
+   Trigger and to two distinct outputs of one Processor. Detach and reattach;
+   every Processor selection must include its stable output ID.
+4. Visit `/orgs/<org>/topics` and `/orgs/<org>/topics/<former-id>`. Both show
+   the deliberate Topics-retired tombstone and link to Triggers without making
+   a retired Topic API request.
+5. Repeat list/detail/attachment reads with a second organization containing
+   colliding IDs. No names, status, history, or attachments from the first
+   organization may appear in UI or network responses.
+6. Inspect the browser console and network responses. Trigger payloads must not
+   contain provider credentials, signatures, raw provider errors, or foreign
+   tenant metadata.
+
+Provider acceptance requires real credentials and callbacks. Record unavailable
+providers as `NOT tested: <provider and missing prerequisite>`; mocks do not
+satisfy this gate.
+
 End-to-end UI test for helix-org. Run before merging any change to
 `frontend/src/pages/HelixOrg*.tsx`, `frontend/src/components/orgs/`,
 `api/pkg/org/`, or `api/pkg/server/helix_org*.go`.
@@ -726,11 +755,18 @@ real: it is the same id-collision class as #2570, one layer down in the
 git-repo service, which #2570 did not cover. Either scope the repo id by
 org or make it collision-proof (ULID, not second-granularity).
 
-> **Terminology note (Stream → Topic rename).** The wire is a
-> **Topic** everywhere: table `org_topics` (was `org_streams`), REST
-> `/topics…`, MCP `create_topic`/`list_topics`/`get_topic`, frontend
-> `TopicNode`. The `s-` id prefix is unchanged. Any older artefacts that
-> still say "stream"/`org_streams` should be read as "topic"/`org_topics`.
+> **Terminology note (Stream → Topic → Trigger).** This document is
+> written in the middle name of that chain. The inbound edge is now a
+> **Trigger**: table `org_triggers` (was `org_topics`, was
+> `org_streams`), REST `/triggers…`, MCP
+> `create_trigger`/`list_triggers`/`get_trigger`, and attachments
+> (`attach_worker`) in place of subscriptions. The `s-` id prefix is
+> unchanged, and a Topic kept its id when it was converted, so ids and
+> event history carry across all three names. Read "stream" and "topic"
+> below as "Trigger". What did change in substance, not just naming: a
+> Processor's output branch is no longer a Topic row of its own — it is
+> addressed as `processor_output:<processorId>:<outputId>`, and a Worker
+> attaches to that handle directly.
 
 ## §17. Processors (transform / filter / router)
 
@@ -893,7 +929,7 @@ an app is present: `SELECT count(*) FROM service_connections WHERE type =
   carries `slack_channel`/`slack_team_id`); the bot's own posts are
   dropped (no echo loop). A subscribed Bot (or a processor filter)
   activates; its prompt carries the `how_to_reply` hint. The Bot mints
-  a token (`mint_credential provider=slack resource=<team_id>`) and posts
+  the explicitly granted Slack token (`get_secret name=SLACK_BOT_TOKEN`) and posts
   back via `chat.postMessage` under its own name. Unknown team / no bound
   Topic → 200 + silently dropped.
 - **Isolation + cascade.** `GET /api/v1/orgs/<org>/slack/workspaces`
@@ -902,38 +938,17 @@ an app is present: `SELECT count(*) FROM service_connections WHERE type =
   produced **and** their `s-slack-ws-*` Topics across all orgs; a
   socket-mode app's live connection is torn down without a restart.
 
-## §19. Human nodes (people in the org graph)
+## §19. People in the org chart
 
-Design: `design/2026-07-07-humans-in-the-org.md`. A human node is a Bot
-with `kind=human` — a placeholder for a real person, **never
-spawned/activated**. Humans are **never free-created**: a human node is
-always the projection of an existing org member (`helix_user_id` is the
-anchor). Membership drives the nodes; there is no `create_human` tool and
-no "New human" button.
+People are org members, not Bot placeholders. The chart reads them from
+`organization_memberships` joined to `users`; `org_bots` contains executable
+Org Bots only.
 
-1. **Org create → human node + Chief of Staff (peers, no edge).** Create a
-   new org. The chart at `…/helix-org/chart` shows **two unconnected**
-   nodes: your human node (id `h-<yourUserID>`, display = your name,
-   rendered with a person icon / blue border / **Human** label) and a
-   **Chief of Staff** bot. There is **no reporting line** between them —
-   humans stay out of the reporting graph. Confirm DB:
-   `SELECT id, kind, helix_user_id FROM org_bots WHERE org_id='<org>'`
-   → an `h-<userID>` row `kind='human'` + a `chief-of-staff` row
-   `kind=''`; `SELECT * FROM org_reporting_lines WHERE org_id='<org>'`
-   → **zero rows** referencing the human node.
-2. **No tools on the human** (`SELECT tools FROM org_bots WHERE
-   id='h-<userID>'` → null/empty — a human never makes an MCP request).
-3. **Add a member → their node appears.** Add a second member (invite +
-   accept, or add-member). A `h-<theirUserID>` human node appears on the
-   chart. Remove them → the node disappears
-   (`org_bots` row gone).
-4. **Human is never activated.** Subscribe a human node to any topic and
-   publish an event to it: no agent run is spawned for the human
-   (`org_activations` has no `worker_id='h-<userID>'` row) — the
-   dispatcher skips human subscribers (`b.IsHuman()` guard).
-5. **`who owns X` (no new code).** A bot with `list_bots` reads a human
-   node's content and can name them as an owner — prompt-driven over the
-   existing read surface.
+1. Create an org and confirm its owner appears in the chart's people panel.
+2. Add a member and confirm they appear without creating an `org_bots` row.
+3. Remove the member and confirm they disappear from the people panel.
+4. Confirm `org_bots` has no `kind`, `helix_user_id`, or `identity` columns and
+   contains no `h-<userID>` placeholder rows.
 
 ## Pass criteria
 

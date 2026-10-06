@@ -85,19 +85,23 @@ const Account: FC<AccountProps> = ({ tab = 'general' }) => {
 
   return (
     <>
-      <Container maxWidth="lg" sx={{ mb: 4 }}>
-        <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-          <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
-            <Typography variant="h4" gutterBottom sx={{ mt: 4 }}></Typography>
-
-            {tab === 'general' && (
-              <GeneralSettings onOpenPasswordDialog={() => setPasswordDialogOpen(true)} />
-            )}
-            {tab === 'chat' && <ChatSettings />}
-            {tab === 'git_config' && <GitConfigSettings />}
-            {tab === 'api_keys' && <ApiKeysSettings />}
-          </Box>
-        </Box>
+      <Container
+        maxWidth="lg"
+        disableGutters
+        sx={{
+          // Phones can't spare the 32px of stacked container + inner gutter the
+          // desktop layout uses.
+          px: { xs: 1.5, sm: 4 },
+          pt: { xs: 2, sm: 4 },
+          pb: { xs: 3, sm: 4 },
+        }}
+      >
+        {tab === 'general' && (
+          <GeneralSettings onOpenPasswordDialog={() => setPasswordDialogOpen(true)} />
+        )}
+        {tab === 'chat' && <ChatSettings />}
+        {tab === 'git_config' && <GitConfigSettings />}
+        {tab === 'api_keys' && <ApiKeysSettings />}
       </Container>
 
       <DarkDialog

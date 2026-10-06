@@ -8,7 +8,6 @@ import { InteractionLiveStream } from "./InteractionLiveStream";
 vi.mock("../../hooks/useLiveInteraction", () => ({
   default: vi.fn(),
 }));
-
 const mockedUseLiveInteraction = vi.mocked(useLiveInteraction);
 
 describe("InteractionLiveStream", () => {
@@ -29,7 +28,7 @@ describe("InteractionLiveStream", () => {
     vi.useRealTimers();
   });
 
-  it("keeps counting from the persisted request time after mounting", () => {
+  const renderStream = (agentOffline?: boolean) =>
     render(
       <InteractionLiveStream
         session_id="session-1"
@@ -40,9 +39,58 @@ describe("InteractionLiveStream", () => {
         }}
         session={{ id: "session-1" }}
         serverConfig={{ filestore_prefix: "/api/v1/filestore" }}
+        agentOffline={agentOffline}
       />,
     );
 
+  it("suppresses the working timer while a question is attached to the composer", () => {
+    render(
+      <InteractionLiveStream
+        session_id="session-1"
+        interaction={{
+          id: "interaction-1",
+          created: "2026-08-03T00:00:00.000Z",
+          state: TypesInteractionState.InteractionStateWaiting,
+          pending_question: {
+            request_id: "question-1",
+            questions: [{ id: "choice", question: "Choose one", options: [{ label: "A" }] }],
+          },
+        }}
+        session={{ id: "session-1" }}
+        serverConfig={{ filestore_prefix: "/api/v1/filestore" }}
+      />,
+    );
+
+    expect(screen.queryByText(/Working for/)).not.toBeInTheDocument();
+  });
+
+  it("keeps counting from the persisted request time after mounting", () => {
+    renderStream();
+
     expect(screen.getByText("Working for 2m 5s")).toBeInTheDocument();
+  });
+
+  // An interaction stays `state=waiting` long after the container backing it has
+  // exited — until the agent answers or the auto-wake worker errors it out. The
+  // row alone cannot express that, so without the sandbox state the chat renders
+  // a ticking timer against a dead sandbox.
+  it("does not show a running timer when the sandbox has stopped", () => {
+    renderStream(true);
+
+    expect(screen.queryByText(/Working for/)).not.toBeInTheDocument();
+  });
+
+  it("explains that the sandbox stopped instead of the timer", () => {
+    renderStream(true);
+
+    expect(screen.getByRole("status", { name: "Sandbox stopped" })).toBeInTheDocument();
+    expect(screen.getByText(/send a message to wake the agent/i)).toBeInTheDocument();
+  });
+
+  it("still shows the timer when the sandbox is alive", () => {
+    renderStream(false);
+
+    expect(screen.getByText("Working for 2m 5s")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Sandbox stopped" })).not.toBeInTheDocument();
   });
 });

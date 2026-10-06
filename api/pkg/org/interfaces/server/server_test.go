@@ -266,10 +266,10 @@ func newTestServerWithPrompts(t *testing.T, includeCreateBot bool) (*httptest.Se
 	}
 	deps := mcptools.DefaultDeps(s)
 	deps.Publishing = publishing.New(publishing.Deps{
-		Topics: s.Topics,
-		Events: s.Events,
-		Now:    deps.Now,
-		NewID:  deps.NewID,
+		Triggers: s.Triggers,
+		Events:   s.Events,
+		Now:      deps.Now,
+		NewID:    deps.NewID,
 	})
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
@@ -363,5 +363,15 @@ func TestMCPGetPromptReturnsSeedMessages(t *testing.T) {
 	}
 	if !strings.Contains(text.Text, "create_bot") {
 		t.Errorf("template missing create_bot reference")
+	}
+	for _, want := range []string{
+		"human-readable **name or role title**",
+		"concrete **purpose**",
+		"stop and wait for the answer",
+		"generic placeholder",
+	} {
+		if !strings.Contains(text.Text, want) {
+			t.Errorf("MCP role prompt missing creation safeguard %q", want)
+		}
 	}
 }

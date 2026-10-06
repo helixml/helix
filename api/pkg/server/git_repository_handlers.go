@@ -21,6 +21,50 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+func redactGitRepository(repo *types.GitRepository) *types.GitRepository {
+	if repo == nil {
+		return nil
+	}
+
+	redacted := *repo
+	redacted.Password = ""
+	if repo.GitHub != nil {
+		github := *repo.GitHub
+		github.PersonalAccessToken = ""
+		github.PrivateKey = ""
+		github.WebhookSecret = ""
+		redacted.GitHub = &github
+	}
+	if repo.GitLab != nil {
+		gitlab := *repo.GitLab
+		gitlab.PersonalAccessToken = ""
+		redacted.GitLab = &gitlab
+	}
+	if repo.AzureDevOps != nil {
+		azureDevOps := *repo.AzureDevOps
+		azureDevOps.PersonalAccessToken = ""
+		azureDevOps.ClientSecret = ""
+		redacted.AzureDevOps = &azureDevOps
+	}
+	if repo.Bitbucket != nil {
+		bitbucket := *repo.Bitbucket
+		bitbucket.AppPassword = ""
+		redacted.Bitbucket = &bitbucket
+	}
+	return &redacted
+}
+
+func redactGitRepositories(repos []*types.GitRepository) []*types.GitRepository {
+	if repos == nil {
+		return nil
+	}
+	redacted := make([]*types.GitRepository, len(repos))
+	for i, repo := range repos {
+		redacted[i] = redactGitRepository(repo)
+	}
+	return redacted
+}
+
 // createGitRepository creates a new git repository
 // @Summary Create git repository
 // @Description Create a new git repository on the server
@@ -161,7 +205,7 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(repository)
+	json.NewEncoder(w).Encode(redactGitRepository(repository))
 }
 
 // getGitRepository retrieves repository information by ID
@@ -197,7 +241,7 @@ func (s *HelixAPIServer) getGitRepository(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeResponse(w, repository, http.StatusOK)
+	writeResponse(w, redactGitRepository(repository), http.StatusOK)
 }
 
 // updateGitRepository updates an existing git repository
@@ -230,8 +274,9 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Get existing one
-	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	// Get existing metadata only — a failed external clone (e.g. bad
+	// credentials) must not block fixing those credentials via this endpoint.
+	existing, err := s.gitRepositoryService.GetRepositoryMetadata(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
 		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)
@@ -269,7 +314,7 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(repository)
+	json.NewEncoder(w).Encode(redactGitRepository(repository))
 }
 
 // deleteGitRepository deletes a git repository
@@ -292,8 +337,9 @@ func (s *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *http.Requ
 
 	user := getRequestUser(r)
 
-	// Get existing one
-	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	// Metadata only — deletion must work even when the external clone failed
+	// (e.g. authentication error), otherwise the repository is undeletable.
+	existing, err := s.gitRepositoryService.GetRepositoryMetadata(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
 		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)
@@ -337,6 +383,9 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 	projectID := r.URL.Query().Get("project_id")
 
 	user := getRequestUser(r)
+	if orgID == "" && user.TokenType == types.TokenTypeAPIKey {
+		orgID = user.OrganizationID
+	}
 
 	var orgMembership *types.OrganizationMembership
 	if orgID != "" {
@@ -398,7 +447,7 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 		repositories = authorizedRepos
 	}
 
-	writeResponseWithETag(w, r, repositories)
+	writeResponseWithETag(w, r, redactGitRepositories(repositories))
 }
 
 // createSampleRepository creates a sample/demo repository
@@ -467,7 +516,7 @@ func (s *HelixAPIServer) createSampleRepository(w http.ResponseWriter, r *http.R
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(repository)
+	json.NewEncoder(w).Encode(redactGitRepository(repository))
 }
 
 // getGitRepositoryCloneCommand returns the git clone command for a repository
@@ -622,7 +671,7 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 	}
 
 	response := InitializeSampleRepositoriesResponse{
-		CreatedRepositories: createdRepositories,
+		CreatedRepositories: redactGitRepositories(createdRepositories),
 		CreatedCount:        len(createdRepositories),
 		Errors:              errors,
 		Success:             len(errors) == 0,
@@ -883,9 +932,18 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 
 	// For external repos, sync from upstream before reading
 	var branches []string
+	var mergedHeads map[string]struct{}
+	defaultBranch := repository.DefaultBranch
+	if defaultBranch == "" {
+		defaultBranch = "main"
+	}
 	err = apiServer.gitRepositoryService.WithExternalRepoRead(r.Context(), repository, func() error {
 		var listErr error
 		branches, listErr = apiServer.gitRepositoryService.ListBranches(r.Context(), repoID)
+		if listErr != nil {
+			return listErr
+		}
+		mergedHeads, listErr = services.GetMergeParentSHAs(r.Context(), repository.LocalPath, defaultBranch)
 		return listErr
 	})
 	if err != nil {
@@ -894,8 +952,39 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 		return
 	}
 
+	activeBranches, err := filterActiveBranches(branches, defaultBranch, mergedHeads, func(branch string) (string, error) {
+		return apiServer.gitRepositoryService.GetLocalBranchSHA(r.Context(), repoID, branch)
+	})
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to resolve branch tip")
+		http.Error(w, fmt.Sprintf("Failed to determine active branches: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(branches)
+	json.NewEncoder(w).Encode(activeBranches)
+}
+
+func branchTipWasMerged(branchSHA string, mergedHeads map[string]struct{}) bool {
+	_, merged := mergedHeads[branchSHA]
+	return merged
+}
+
+func filterActiveBranches(branches []string, defaultBranch string, mergedHeads map[string]struct{}, resolveSHA func(string) (string, error)) ([]string, error) {
+	activeBranches := make([]string, 0, len(branches))
+	for _, branch := range branches {
+		if branch == defaultBranch || branch == "helix-specs" {
+			continue
+		}
+		branchSHA, err := resolveSHA(branch)
+		if err != nil {
+			return nil, fmt.Errorf("resolve branch %s: %w", branch, err)
+		}
+		if !branchTipWasMerged(branchSHA, mergedHeads) {
+			activeBranches = append(activeBranches, branch)
+		}
+	}
+	return activeBranches, nil
 }
 
 // getGitRepositoryFile gets the contents of a file
@@ -1052,7 +1141,7 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 		}
 	}
 
-	// Use WithExternalRepoWrite to handle pre-sync, write, post-push, and rollback
+	// WithExternalRepoWrite applies the branch's configured mirror semantics.
 	var fileContent string
 	err = s.gitRepositoryService.WithExternalRepoWrite(
 		r.Context(),
@@ -1690,9 +1779,10 @@ func (s *HelixAPIServer) getOrCreateUserAPIKey(ctx context.Context, user *types.
 		return "", fmt.Errorf("failed to get API keys: %w", err)
 	}
 
-	// Filter for personal API keys (not app-scoped)
+	// Filter for a user-level key rather than an app, organization, project,
+	// spec-task, or session-scoped key.
 	for _, key := range apiKeys {
-		if key.AppID == nil || !key.AppID.Valid || key.AppID.String == "" {
+		if isPersonalAPIKey(key) {
 			return key.Key, nil
 		}
 	}

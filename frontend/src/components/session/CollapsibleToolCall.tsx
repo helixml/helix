@@ -4,7 +4,9 @@ import Typography from "@mui/material/Typography";
 import { useTheme } from "@mui/material/styles";
 import {
   ChevronDown,
+  ChevronRight,
   Check,
+  MessageCircle,
   Minus,
   Terminal,
   Wrench,
@@ -13,6 +15,8 @@ import {
 import { preserveDisclosureExpansion } from "./disclosureScroll";
 import { getChatColors } from "./chatStyles";
 import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY } from "../../styles/typography";
+import QuestionAnswerHistory from "./QuestionAnswerHistory";
+import type { TypesResolvedQuestion } from "../../api/api";
 
 /**
  * Represents a parsed segment of a response message.
@@ -201,6 +205,28 @@ export const getToolCallPresentation = (toolName: string, body: string) => {
   return { kind: "tool" as const, label: toolName, preview: "" };
 };
 
+export const getQuestionAnswerPresentation = (
+  questionAnswer: TypesResolvedQuestion,
+) => {
+  const answers = Object.values(questionAnswer.answers || {}).filter(Boolean);
+  const questions = (questionAnswer.questions || [])
+    .map((question) => question.question)
+    .filter((question): question is string => Boolean(question));
+  const preview = (answers.length > 0 ? answers : questions)
+    .join(" · ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return {
+    kind: "question" as const,
+    label:
+      questionAnswer.outcome === "answered"
+        ? "User input submitted"
+        : "User input dismissed",
+    preview,
+  };
+};
+
 const stripToolCallEnvelope = (body: string) => body
   .replace(/^\*\*Tool Call:[\s\S]*?\*\*\s*\nStatus:\s*\S+\s*/, "")
   .trim();
@@ -233,6 +259,7 @@ interface CollapsibleToolCallProps {
   defaultExpanded?: boolean;
   /** Use the tighter row sizing needed inside a Work Log. */
   dense?: boolean;
+  questionAnswer?: TypesResolvedQuestion;
 }
 
 export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
@@ -241,12 +268,15 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
   body,
   defaultExpanded = false,
   dense = false,
+  questionAnswer,
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
   const chatColors = getChatColors(theme);
-  const presentation = getToolCallPresentation(toolName, body);
+  const presentation = questionAnswer
+    ? getQuestionAnswerPresentation(questionAnswer)
+    : getToolCallPresentation(toolName, body);
   const expandedBody = getToolCallExpandedBody(toolName, body);
   const detailBorder = isDark
     ? "rgba(255,255,255,0.03)"
@@ -309,7 +339,9 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
             color: isDark ? chatColors.subtle : "rgba(0,0,0,0.45)",
           }}
         >
-          {presentation.kind === "command" ? (
+          {presentation.kind === "question" ? (
+            <MessageCircle size={14} strokeWidth={1.8} aria-hidden="true" />
+          ) : presentation.kind === "command" ? (
             <Terminal size={14} strokeWidth={1.8} aria-hidden="true" />
           ) : (
             <Wrench size={14} strokeWidth={1.8} aria-hidden="true" />
@@ -348,7 +380,16 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
                 textOverflow: "ellipsis",
                 fontSize: "0.75rem",
                 lineHeight: "20px",
-                color: isDark ? chatColors.subtle : "text.secondary",
+                color:
+                  questionAnswer &&
+                  questionAnswer.outcome === "answered" &&
+                  !expanded
+                    ? isDark
+                      ? chatColors.foreground
+                      : "text.primary"
+                    : isDark
+                      ? chatColors.subtle
+                      : "text.secondary",
                 fontFamily: APP_FONT_FAMILY,
               }}
             >
@@ -369,27 +410,56 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
             component="span"
             sx={{ display: "flex", width: 16, height: 16, alignItems: "center", justifyContent: "center" }}
           >
-            <ChevronDown
-              size={12}
-              strokeWidth={1.8}
-              style={{
-                opacity: 0.7,
-                transform: `rotate(${expanded ? 180 : 0}deg)`,
-                transition: "transform 200ms ease",
+            {questionAnswer ? (
+              <ChevronRight
+                size={12}
+                strokeWidth={1.8}
+                style={{
+                  opacity: 0.7,
+                  transform: `rotate(${expanded ? 90 : 0}deg)`,
+                  transition: "transform 200ms ease",
+                }}
+              />
+            ) : (
+              <ChevronDown
+                size={12}
+                strokeWidth={1.8}
+                style={{
+                  opacity: 0.7,
+                  transform: `rotate(${expanded ? 180 : 0}deg)`,
+                  transition: "transform 200ms ease",
+                }}
+              />
+            )}
+          </Box>
+          {!questionAnswer && (
+            <Box
+              component="span"
+              sx={{
+                display: "flex",
+                width: 16,
+                height: 16,
+                alignItems: "center",
+                justifyContent: "center",
               }}
-            />
-          </Box>
-          <Box
-            component="span"
-            sx={{ display: "flex", width: 16, height: 16, alignItems: "center", justifyContent: "center" }}
-          >
-            {statusIcon(status, isDark ? chatColors.subtle : "rgba(0,0,0,0.45)")}
-          </Box>
+            >
+              {statusIcon(status, isDark ? chatColors.subtle : "rgba(0,0,0,0.45)")}
+            </Box>
+          )}
         </Box>
       </Box>
 
       {/* Expanded body */}
-      {expanded && expandedBody && (
+      {expanded && questionAnswer && (
+        <Box
+          sx={{ mt: 1, ml: 3.5 }}
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <QuestionAnswerHistory history={[questionAnswer]} />
+        </Box>
+      )}
+      {expanded && !questionAnswer && expandedBody && (
         <Box
           sx={{
             mt: 0.5,

@@ -24,11 +24,8 @@ import (
 // project) when the repositories port is wired — so "what can this bot
 // work on?" is answered without a second tool call.
 type botView struct {
-	ID   orgchart.NodeID `json:"id"`
-	Name string          `json:"name,omitempty"`
-	// Kind is "" for an agent bot or "human" for a person (a human node).
-	// Use ask_human to reach a person; do not try to dm/manage them.
-	Kind      string            `json:"kind,omitempty"`
+	ID        orgchart.NodeID   `json:"id"`
+	Name      string            `json:"name,omitempty"`
 	Content   string            `json:"content"`
 	Tools     []tool.Name       `json:"tools,omitempty"`
 	ParentIDs []orgchart.NodeID `json:"parentIds,omitempty"`
@@ -46,7 +43,6 @@ func botViewOf(b orgchart.Node, managers []orgchart.NodeID) botView {
 	return botView{
 		ID:        b.ID,
 		Name:      b.Name,
-		Kind:      b.Kind,
 		Content:   b.Content,
 		Tools:     b.Tools,
 		ParentIDs: managers,
@@ -57,7 +53,7 @@ func botViewOf(b orgchart.Node, managers []orgchart.NodeID) botView {
 
 func canonicalBotView(ctx context.Context, deps Deps, b orgchart.Node, managers []orgchart.NodeID) (botView, error) {
 	view := botViewOf(b, managers)
-	if b.IsHuman() || b.AgentID == "" {
+	if b.AgentID == "" {
 		return view, nil
 	}
 	if deps.AgentProfileReader == nil {
@@ -86,9 +82,8 @@ type listBotsArgs struct{}
 func (t *ListBots) Name() tool.Name                 { return ListBotsName }
 func (t *ListBots) InputSchema() *jsonschema.Schema { return listBotsSchema }
 func (t *ListBots) Description() string {
-	return "List every Bot: id, name, kind, markdown content, tools, reporting parents, " +
-		"and timestamps. Use this to discover what bots exist. `kind` is \"\" for an agent " +
-		"bot or \"human\" for a person (a human node) — reach a person with `ask_human`."
+	return "List every org Bot: id, name, markdown content, tools, reporting parents, " +
+		"and timestamps. Use this to discover what bots exist."
 }
 
 func (t *ListBots) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
@@ -174,8 +169,8 @@ func (t *GetBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 		return nil, err
 	}
 	// Best-effort: surface attached repos so callers don't have to know
-	// about list_bot_repositories. Humans never have a project.
-	if b.Kind != orgchart.NodeKindHuman && t.deps.Repositories != nil {
+	// about list_bot_repositories.
+	if t.deps.Repositories != nil {
 		repos, rerr := t.deps.Repositories.ListForBot(ctx, orgID, b.ID)
 		switch {
 		case rerr == nil:

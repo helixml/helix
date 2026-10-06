@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -20,38 +18,19 @@ const (
 	// DefaultDataDir is the persistent directory for docker data
 	DefaultDataDir = "/hydra-data"
 
-	// SharedBuildKitCacheDir is the directory for shared BuildKit cache across all sessions
-	// BuildKit uses content-addressed storage, so concurrent access is safe
-	SharedBuildKitCacheDir = "buildkit-cache"
-
-	// SharedBuildKitContainerName is the name of the shared BuildKit container
+	// SharedBuildKitContainerName is retained only to retire the obsolete shared
+	// builder after the last pre-upgrade session stops using it.
 	SharedBuildKitContainerName = "helix-buildkit"
+	SharedBuildxBuilderName     = "helix-shared"
 
-	// SharedBuildKitImage is the BuildKit image to use
-	SharedBuildKitImage = "moby/buildkit:latest"
-
-	// SharedBuildxBuilderName is the name of the shared buildx builder
-	SharedBuildxBuilderName = "helix-shared"
-
-	// SharedRegistryContainerName is the name of the shared registry container
-	// Used for efficient layer-level image transfer (push/pull) instead of tarball --load
+	// SharedRegistryContainerName is the host-side recovery registry. It is not
+	// exposed to session containers.
 	SharedRegistryContainerName = "helix-registry"
-
-	// SharedRegistryImage is the registry image to use
-	SharedRegistryImage = "registry:2"
-
-	// SharedRegistryPort is the port the registry listens on
-	SharedRegistryPort = "5000"
-
-	// SharedBuildKitGCKeepBytes is the max BuildKit cache size before GC evicts.
-	// Default is 10% of disk (~93 GiB on 931 GiB), but our full build cache is
-	// ~94 GB. BuildKit doesn't refresh LastUsedAt on cache hits, so golden build
-	// entries look "stale" to GC and get evicted when later builds temporarily
-	// push the cache over the limit. 300 GiB prevents GC from ever running.
-	SharedBuildKitGCKeepBytes int64 = 300 * 1024 * 1024 * 1024
+	SharedRegistryImage         = "registry:2"
+	SharedRegistryPort          = "5000"
 )
 
-// Manager manages the Hydra runtime (dev containers, shared BuildKit).
+// Manager manages the Hydra runtime and dev containers.
 // With docker-in-desktop mode, each desktop container runs its own dockerd.
 // The manager no longer needs to manage per-session dockerd subprocess instances,
 // bridge interfaces, veth pairs, or DNS proxies.
@@ -86,18 +65,11 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	// Create shared BuildKit cache directory for all sessions
-	buildkitCacheDir := filepath.Join(m.dataDir, SharedBuildKitCacheDir)
-	if err := os.MkdirAll(buildkitCacheDir, 0777); err != nil {
-		return fmt.Errorf("failed to create buildkit cache directory: %w", err)
+	if err := m.retireUnusedSharedBuildKit(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to evaluate legacy shared BuildKit retirement")
 	}
-	if err := os.Chmod(buildkitCacheDir, 0777); err != nil {
-		log.Warn().Err(err).Str("dir", buildkitCacheDir).Msg("Failed to set buildkit cache directory permissions")
-	}
-
-	// Setup shared BuildKit container and builder for cache sharing
-	if err := m.setupSharedBuildKit(ctx); err != nil {
-		log.Warn().Err(err).Msg("Failed to setup shared BuildKit container, builds will work but cache won't be shared")
+	if err := m.setupSharedRegistry(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to set up shared recovery registry")
 	}
 
 	log.Info().
@@ -114,238 +86,95 @@ func (m *Manager) Stop(ctx context.Context) error {
 	return nil
 }
 
-// setupSharedBuildKit creates a shared BuildKit container and buildx builder
-// that all dev containers can use for cached builds.
-func (m *Manager) setupSharedBuildKit(ctx context.Context) error {
-	buildkitCacheDir := filepath.Join(m.dataDir, SharedBuildKitCacheDir)
-
-	// Check if buildkit container already exists and is running
-	checkCmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Running}}", SharedBuildKitContainerName)
-	output, err := checkCmd.Output()
-	if err == nil && strings.TrimSpace(string(output)) == "true" {
-		log.Debug().Str("container", SharedBuildKitContainerName).Msg("Shared BuildKit container already running")
-		// Still ensure registry and config are up-to-date (IPs may have changed)
-		if err := m.setupSharedRegistry(ctx); err != nil {
-			log.Warn().Err(err).Msg("Failed to set up shared registry")
-		} else if err := m.configureBuildKitRegistry(ctx); err != nil {
-			log.Warn().Err(err).Msg("Failed to configure BuildKit registry access")
-		}
-		return m.ensureBuildxBuilder(ctx)
+// retireUnusedSharedBuildKit removes the privileged shared builder only after
+// every pre-upgrade container that still references it has gone away. Its
+// persistent cache volume is deliberately left intact.
+func (m *Manager) retireUnusedSharedBuildKit(ctx context.Context) error {
+	consumer, err := m.legacyContainerConsumer(ctx, SharedBuildKitContainerName, "BUILDKIT_HOST")
+	if err != nil {
+		return err
 	}
-
-	// Remove old container if exists (might be stopped)
-	_ = exec.CommandContext(ctx, "docker", "rm", "-f", SharedBuildKitContainerName).Run()
-
-	// Create buildkit container with cache directory mounted
-	log.Info().
-		Str("container", SharedBuildKitContainerName).
-		Str("cache_dir", buildkitCacheDir).
-		Msg("Creating shared BuildKit container")
-
-	// BuildKit state volume: use ZFS-backed bind mount if CONTAINER_DOCKER_PATH is set,
-	// otherwise use a Docker named volume. ZFS provides dedup for content-addressed data.
-	buildkitStateMount := "buildkit_state:/var/lib/buildkit"
-	if containerDockerPath := os.Getenv("CONTAINER_DOCKER_PATH"); containerDockerPath != "" {
-		buildkitStateDir := "/container-docker/buildkit"
-		if err := os.MkdirAll(buildkitStateDir, 0755); err != nil {
-			log.Warn().Err(err).Msg("Failed to create buildkit state dir on ZFS, using named volume")
-		} else {
-			buildkitStateMount = buildkitStateDir + ":/var/lib/buildkit"
-			log.Info().Str("path", buildkitStateDir).Msg("Using ZFS-backed bind mount for BuildKit state")
-		}
-	}
-
-	createCmd := exec.CommandContext(ctx, "docker", "run", "-d",
-		"--name", SharedBuildKitContainerName,
-		"--privileged",
-		"-v", buildkitCacheDir+":/buildkit-cache",
-		"-v", buildkitStateMount,
-		"--restart", "unless-stopped",
-		SharedBuildKitImage,
-		"--addr", "unix:///run/buildkit/buildkitd.sock",
-		"--addr", "tcp://0.0.0.0:1234",
-	)
-
-	if output, err := createCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to create buildkit container: %w, output: %s", err, string(output))
-	}
-
-	// Wait for container to be running
-	time.Sleep(2 * time.Second)
-
-	if err := m.setupSharedRegistry(ctx); err != nil {
-		log.Warn().Err(err).Msg("Failed to set up shared registry (layer-level --load will be unavailable)")
-	} else {
-		// Configure BuildKit to trust the insecure registry
-		if err := m.configureBuildKitRegistry(ctx); err != nil {
-			log.Warn().Err(err).Msg("Failed to configure BuildKit registry access")
-		}
-	}
-
-	return m.ensureBuildxBuilder(ctx)
-}
-
-// setupSharedRegistry ensures a Docker registry is running on the sandbox network.
-// This registry enables layer-level image transfer: the docker wrapper can push images
-// to this registry and pull them locally, instead of using --load (which transfers the
-// entire image as a tarball with no layer dedup). For a 7.7GB image with one changed
-// layer, this means transferring ~100MB instead of 7.7GB.
-func (m *Manager) setupSharedRegistry(ctx context.Context) error {
-	// Check if registry container already exists and is running
-	checkCmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Running}}", SharedRegistryContainerName)
-	output, err := checkCmd.Output()
-	if err == nil && strings.TrimSpace(string(output)) == "true" {
-		log.Debug().Str("container", SharedRegistryContainerName).Msg("Shared registry container already running")
+	if consumer != "" {
+		log.Info().Str("container", consumer).Msg("Retaining shared BuildKit for a pre-upgrade session")
 		return nil
 	}
 
-	// Remove old container if exists (might be stopped)
+	removed, err := removeLegacyContainer(ctx, SharedBuildKitContainerName)
+	if err != nil {
+		return err
+	}
+	if !removed {
+		return nil
+	}
+	_ = exec.CommandContext(ctx, "docker", "buildx", "rm", SharedBuildxBuilderName).Run()
+	log.Info().Msg("Retired obsolete shared BuildKit container; persistent cache was preserved")
+	return nil
+}
+
+func (m *Manager) legacyContainerConsumer(ctx context.Context, infrastructureName, envName string) (string, error) {
+	if err := exec.CommandContext(ctx, "docker", "inspect", infrastructureName).Run(); err != nil {
+		return "", nil
+	}
+
+	// Stopped legacy sessions are recreated on the isolated network when they
+	// next start, so only a running container can still depend on this service.
+	containerIDs, err := exec.CommandContext(ctx, "docker", "ps", "-q").Output()
+	if err != nil {
+		return "", fmt.Errorf("list containers before retiring %s: %w", infrastructureName, err)
+	}
+	for _, containerID := range strings.Fields(string(containerIDs)) {
+		nameOutput, err := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.Name}}", containerID).Output()
+		if err != nil {
+			return "", fmt.Errorf("inspect container %s name: %w", containerID, err)
+		}
+		if strings.TrimSpace(string(nameOutput)) == "/"+infrastructureName {
+			continue
+		}
+		envOutput, err := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", containerID).Output()
+		if err != nil {
+			return "", fmt.Errorf("inspect container %s environment: %w", containerID, err)
+		}
+		for _, env := range strings.Split(string(envOutput), "\n") {
+			if strings.HasPrefix(env, envName+"=") && strings.TrimPrefix(env, envName+"=") != "" {
+				return containerID, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+func removeLegacyContainer(ctx context.Context, containerName string) (bool, error) {
+	if err := exec.CommandContext(ctx, "docker", "inspect", containerName).Run(); err != nil {
+		return false, nil
+	}
+	if output, err := exec.CommandContext(ctx, "docker", "rm", "-f", containerName).CombinedOutput(); err != nil {
+		return false, fmt.Errorf("remove obsolete %s container: %w, output: %s", containerName, err, strings.TrimSpace(string(output)))
+	}
+	return true, nil
+}
+
+// setupSharedRegistry keeps the host-side image recovery path available. The
+// session firewall blocks this container, and Hydra never passes its address
+// into session environments.
+func (m *Manager) setupSharedRegistry(ctx context.Context) error {
+	checkCmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Running}}", SharedRegistryContainerName)
+	output, err := checkCmd.Output()
+	if err == nil && strings.TrimSpace(string(output)) == "true" {
+		log.Debug().Str("container", SharedRegistryContainerName).Msg("Shared recovery registry already running")
+		return nil
+	}
+
 	_ = exec.CommandContext(ctx, "docker", "rm", "-f", SharedRegistryContainerName).Run()
-
-	log.Info().
-		Str("container", SharedRegistryContainerName).
-		Msg("Creating shared registry container for layer-level image transfer")
-
-	// Use a named volume for registry storage so cached layers persist across restarts
 	createCmd := exec.CommandContext(ctx, "docker", "run", "-d",
 		"--name", SharedRegistryContainerName,
 		"-v", "registry_data:/var/lib/registry",
 		"--restart", "unless-stopped",
 		SharedRegistryImage,
 	)
-
 	if output, err := createCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to create registry container: %w, output: %s", err, string(output))
+		return fmt.Errorf("create shared recovery registry: %w, output: %s", err, strings.TrimSpace(string(output)))
 	}
 
-	log.Info().Str("container", SharedRegistryContainerName).Msg("Shared registry container started")
+	log.Info().Str("container", SharedRegistryContainerName).Msg("Shared recovery registry started")
 	return nil
 }
-
-// configureBuildKitRegistry configures the BuildKit container to trust the insecure
-// shared registry, so BuildKit can push images to it for layer-level transfer.
-func (m *Manager) configureBuildKitRegistry(ctx context.Context) error {
-	// Get registry container IP
-	ipCmd := exec.CommandContext(ctx, "docker", "inspect", "-f",
-		"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-		SharedRegistryContainerName)
-	ipOutput, err := ipCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to get registry container IP: %w", err)
-	}
-	registryIP := strings.TrimSpace(string(ipOutput))
-	if registryIP == "" {
-		return fmt.Errorf("registry container has no IP address")
-	}
-
-	registryAddr := registryIP + ":" + SharedRegistryPort
-
-	// Check if config is already correct (avoid unnecessary BuildKit restart)
-	checkCmd := exec.CommandContext(ctx, "docker", "exec", SharedBuildKitContainerName,
-		"cat", "/etc/buildkit/buildkitd.toml")
-	if existingConfig, err := checkCmd.Output(); err == nil {
-		configStr := string(existingConfig)
-		if strings.Contains(configStr, registryAddr) && strings.Contains(configStr, "worker.oci") {
-			log.Debug().Str("registry", registryAddr).Msg("BuildKit already configured")
-			return nil
-		}
-	}
-
-	// Write buildkitd.toml with registry trust and GC policy.
-	//
-	// BuildKit's default GC caps at 10% of disk (~93GB on our 931GB partition),
-	// but the full build cache is ~96GB. GC evicts golden build layers during or
-	// after the build, so subsequent sessions get cache misses and rebuild from
-	// scratch. Raise the limit to 300GB.
-	tomlContent := fmt.Sprintf(`[registry."%s"]
-  http = true
-  insecure = true
-
-[worker.oci]
-  gc = true
-  [[worker.oci.gcpolicy]]
-    keepDuration = 172800
-    keepBytes = 10737418240
-    filters = ["type==source.local", "type==exec.cachemount", "type==source.git.checkout"]
-  [[worker.oci.gcpolicy]]
-    keepDuration = 5184000
-    keepBytes = %d
-  [[worker.oci.gcpolicy]]
-    keepBytes = %d
-  [[worker.oci.gcpolicy]]
-    all = true
-    keepBytes = %d
-`, registryAddr, SharedBuildKitGCKeepBytes, SharedBuildKitGCKeepBytes, SharedBuildKitGCKeepBytes)
-	writeCmd := exec.CommandContext(ctx, "docker", "exec", SharedBuildKitContainerName,
-		"sh", "-c", fmt.Sprintf("mkdir -p /etc/buildkit && cat > /etc/buildkit/buildkitd.toml << 'EOF'\n%sEOF", tomlContent))
-	if output, err := writeCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to write buildkitd.toml: %w, output: %s", err, string(output))
-	}
-
-	// Restart BuildKit to pick up the new config
-	restartCmd := exec.CommandContext(ctx, "docker", "restart", SharedBuildKitContainerName)
-	if output, err := restartCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to restart BuildKit: %w, output: %s", err, string(output))
-	}
-
-	// Wait for BuildKit to be ready
-	time.Sleep(3 * time.Second)
-
-	log.Info().
-		Str("registry", registryAddr).
-		Int64("gc_keep_bytes", SharedBuildKitGCKeepBytes).
-		Msg("Configured BuildKit with registry trust and GC policy (300 GiB)")
-	return nil
-}
-
-// ensureBuildxBuilder creates or updates the buildx builder pointing to the shared BuildKit container
-func (m *Manager) ensureBuildxBuilder(ctx context.Context) error {
-	// Get buildkit container IP
-	ipCmd := exec.CommandContext(ctx, "docker", "inspect", "-f",
-		"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-		SharedBuildKitContainerName)
-	ipOutput, err := ipCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to get buildkit container IP: %w", err)
-	}
-	buildkitIP := strings.TrimSpace(string(ipOutput))
-	if buildkitIP == "" {
-		return fmt.Errorf("buildkit container has no IP address")
-	}
-
-	// Check if builder already exists
-	checkCmd := exec.CommandContext(ctx, "docker", "buildx", "inspect", SharedBuildxBuilderName)
-	if err := checkCmd.Run(); err == nil {
-		log.Debug().Str("builder", SharedBuildxBuilderName).Msg("Buildx builder already exists")
-		_ = exec.CommandContext(ctx, "docker", "buildx", "use", SharedBuildxBuilderName).Run()
-		return nil
-	}
-
-	// Remove stale builder if exists
-	_ = exec.CommandContext(ctx, "docker", "buildx", "rm", SharedBuildxBuilderName).Run()
-
-	// Create buildx builder pointing to the container
-	log.Info().
-		Str("builder", SharedBuildxBuilderName).
-		Str("endpoint", "tcp://"+buildkitIP+":1234").
-		Msg("Creating shared buildx builder")
-
-	createCmd := exec.CommandContext(ctx, "docker", "buildx", "create",
-		"--name", SharedBuildxBuilderName,
-		"--driver", "remote",
-		"tcp://"+buildkitIP+":1234",
-		"--use",
-	)
-	if output, err := createCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to create buildx builder: %w, output: %s", err, string(output))
-	}
-
-	// Bootstrap the builder
-	bootstrapCmd := exec.CommandContext(ctx, "docker", "buildx", "inspect", "--bootstrap", SharedBuildxBuilderName)
-	if output, err := bootstrapCmd.CombinedOutput(); err != nil {
-		log.Warn().Err(err).Str("output", string(output)).Msg("Failed to bootstrap buildx builder")
-	}
-
-	return nil
-}
-

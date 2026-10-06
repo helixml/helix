@@ -204,7 +204,7 @@ const CronScheduleFields: FC<CronScheduleFieldsProps> = ({
           minRows={2}
           fullWidth
           size="small"
-          helperText="This message is published into the topic when the schedule fires."
+          helperText="This message is sent to the agents started by this schedule."
           disabled={disabled}
         />
       )}

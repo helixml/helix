@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -43,6 +44,7 @@ type Client interface {
 	SearchKnowledge(ctx context.Context, f *KnowledgeSearchQuery) ([]*types.KnowledgeSearchResult, error)
 
 	ListSecrets(ctx context.Context, f *SecretFilter) ([]*types.Secret, error)
+	ListProjectSecrets(ctx context.Context, projectID string) ([]*types.Secret, error)
 	CreateSecret(ctx context.Context, secret *types.CreateSecretRequest) (*types.Secret, error)
 	CreateProjectSecret(ctx context.Context, projectID string, secret *types.CreateSecretRequest) (*types.Secret, error)
 	UpdateSecret(ctx context.Context, id string, secret *types.Secret) (*types.Secret, error)
@@ -51,6 +53,8 @@ type Client interface {
 	ListKnowledgeVersions(ctx context.Context, f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error)
 
 	FilestoreList(ctx context.Context, path string) ([]filestore.Item, error)
+	FilestoreGet(ctx context.Context, path string) (*filestore.Item, error)
+	FilestoreRead(ctx context.Context, path string) ([]byte, error)
 	FilestoreUpload(ctx context.Context, path string, file io.Reader) error
 	FilestoreDelete(ctx context.Context, path string) error
 
@@ -92,6 +96,21 @@ type Client interface {
 
 	// Projects
 	ApplyProject(ctx context.Context, req *types.ProjectApplyRequest) (*types.ProjectApplyResponse, error)
+	GetProject(ctx context.Context, projectID string) (*types.Project, error)
+	ListProjects(ctx context.Context, organizationID string) ([]*types.Project, error)
+
+	// Spec tasks
+	ListSpecTasks(ctx context.Context, f *SpecTaskFilter) ([]*types.SpecTask, error)
+	GetSpecTask(ctx context.Context, taskID string) (*types.SpecTask, error)
+	CreateSpecTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error)
+	FindSpecTaskByName(ctx context.Context, projectID, name string) (*types.SpecTask, error)
+
+	// Project artifacts
+	ListArtifacts(ctx context.Context, projectID string) ([]*types.Artifact, error)
+	GetArtifact(ctx context.Context, artifactID string) (*types.Artifact, error)
+	CreateArtifact(ctx context.Context, projectID string, input *ArtifactUploadRequest) (*types.Artifact, error)
+	UpdateArtifact(ctx context.Context, artifactID string, input *ArtifactUploadRequest) (*types.Artifact, error)
+	DeleteArtifact(ctx context.Context, artifactID string) error
 
 	// System Settings
 	GetSystemSettings(ctx context.Context) (*types.SystemSettingsResponse, error)
@@ -148,6 +167,9 @@ const (
 	DefaultURL = "https://app.helix.ml"
 )
 
+// ErrNotFound is returned when a requested resource does not exist.
+var ErrNotFound = errors.New("not found")
+
 func NewClientFromEnv() (*HelixClient, error) {
 	cfg, err := config.LoadCliConfig()
 	if err != nil {
@@ -163,9 +185,10 @@ func NewClient(url, apiKey string, tlsSkipVerify bool) (*HelixClient, error) {
 	}
 
 	if apiKey == "" {
-		return nil, errors.New("apiKey is required, find yours in your helix account page and set HELIX_API_KEY and HELIX_URL")
+		return nil, errors.New("apiKey is required: set HELIX_API_KEY (find yours in your helix account page) and HELIX_URL; inside a Helix sandbox USER_API_TOKEN and HELIX_API_URL are used automatically")
 	}
 
+	url = strings.TrimRight(url, "/")
 	if !strings.HasSuffix(url, "/api/v1") {
 		// append /api/v1 to the url
 		url = url + "/api/v1"
@@ -187,26 +210,47 @@ func NewClient(url, apiKey string, tlsSkipVerify bool) (*HelixClient, error) {
 	}, nil
 }
 
+// defaultRequestTimeout bounds a request whose context has no deadline.
+// Long calls (blocking chat, synchronous sandbox commands, bot activation)
+// set a deadline on the context instead, and makeRequest honours it.
+var defaultRequestTimeout = 10 * time.Second
+
+// requestContext applies defaultRequestTimeout unless ctx already carries a
+// deadline, in which case the caller's deadline wins (longer or shorter).
+func requestContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, defaultRequestTimeout)
+}
+
 func (c *HelixClient) makeRequest(ctx context.Context, method, path string, body io.Reader, v interface{}) error {
+	return c.makeRequestURL(ctx, method, c.url+path, body, v)
+}
+
+// makeRequestURL is makeRequest for an absolute URL, for the few routes that
+// live outside /api/v1 (e.g. the OpenAI-compatible /v1/chat/completions).
+func (c *HelixClient) makeRequestURL(ctx context.Context, method, fullURL string, body io.Reader, v interface{}) error {
+	// Read the body once so a retry resends it rather than a drained reader.
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(body)
+		if err != nil {
+			return err
+		}
+	}
+
 	return retry.Do(func() error {
-		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		reqCtx, cancel := requestContext(ctx)
 		defer cancel()
 
-		fullURL := c.url + path
-
-		// Read and store body content for curl logging
-		var bodyBytes []byte
+		var reqBody io.Reader
 		if body != nil {
-			var err error
-			bodyBytes, err = io.ReadAll(body)
-			if err != nil {
-				return err
-			}
-			// Create new reader from bytes for the actual request
-			body = strings.NewReader(string(bodyBytes))
+			reqBody = bytes.NewReader(bodyBytes)
 		}
 
-		req, err := http.NewRequestWithContext(reqCtx, method, fullURL, body)
+		req, err := http.NewRequestWithContext(reqCtx, method, fullURL, reqBody)
 		if err != nil {
 			return err
 		}

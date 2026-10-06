@@ -66,31 +66,14 @@ const SpecTaskDetailPage: FC = () => {
     setCreateDialogOpen(false);
   }, []);
 
-  // Keyboard shortcut: Enter to toggle new task panel, Escape to close
+  // Escape closes the task panel. Opening it is deliberately an explicit
+  // action: a global bare-Enter shortcut conflicts with editors and custom
+  // elements whose editable target may be hidden behind shadow DOM.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (createDialogOpen) setCreateDialogOpen(false);
-        return;
-      }
-      if (
-        e.key === "Enter" &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        !e.shiftKey
-      ) {
-        const target = e.target as HTMLElement;
-        if (
-          target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable ||
-          target.hasAttribute("tabindex")
-        ) {
-          return;
-        }
+      if (e.key === "Escape" && createDialogOpen) {
         e.preventDefault();
-        setCreateDialogOpen((prev) => !prev);
+        setCreateDialogOpen(false);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -144,12 +127,16 @@ const SpecTaskDetailPage: FC = () => {
           }}
         >
           <Tooltip title="Create New Task">
-            <IconButton onClick={() => setCreateDialogOpen((prev) => !prev)} size="small">
+            <IconButton
+              aria-label="Create New Task"
+              onClick={() => setCreateDialogOpen((prev) => !prev)}
+              size="small"
+            >
               <AddIcon />
             </IconButton>
           </Tooltip>
           <Tooltip title="Open in Split Screen">
-            <IconButton onClick={handleOpenInWorkspace} size="small">
+            <IconButton aria-label="Open in Split Screen" onClick={handleOpenInWorkspace} size="small">
               <TiledIcon />
             </IconButton>
           </Tooltip>

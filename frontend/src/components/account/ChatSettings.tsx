@@ -3,7 +3,6 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Collapse from '@mui/material/Collapse'
 import FormControlLabel from '@mui/material/FormControlLabel'
-import Grid from '@mui/material/Grid'
 import Slider from '@mui/material/Slider'
 import Switch from '@mui/material/Switch'
 import TextField from '@mui/material/TextField'
@@ -11,9 +10,8 @@ import Typography from '@mui/material/Typography'
 
 import { ChevronDown, ChevronUp } from 'lucide-react'
 
-import useLightTheme from '../../hooks/useLightTheme'
+import SettingsPanel from './SettingsPanel'
 import useSnackbar from '../../hooks/useSnackbar'
-import useThemeConfig from '../../hooks/useThemeConfig'
 import {
   useGetConfig,
   useGetUserChatSettings,
@@ -42,9 +40,6 @@ const parseOptionalInt = (value: string): number | undefined => {
 
 const ChatSettings: FC = () => {
   const snackbar = useSnackbar()
-  const themeConfig = useThemeConfig()
-  const lightTheme = useLightTheme()
-  const panelBg = lightTheme.isLight ? lightTheme.panelColor : themeConfig.darkPanel
 
   const { data: serverConfig } = useGetConfig()
   const { data: chatSettings, isLoading: isLoadingChatSettings } = useGetUserChatSettings()
@@ -142,158 +137,173 @@ const ChatSettings: FC = () => {
 
   return (
     <>
-      <Grid container spacing={2} sx={{ mb: 2, backgroundColor: panelBg, p: 2, borderRadius: 2 }}>
-        <Grid item xs={12}>
-          <Typography variant="h6">Chat Defaults</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            These defaults apply when you chat with a model directly. Apps and agents
-            always use their own configuration and ignore these settings.
+      <SettingsPanel>
+        <Typography variant="h6">Chat Defaults</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          These defaults apply when you chat with a model directly. Apps and agents
+          always use their own configuration and ignore these settings.
+        </Typography>
+
+        <Box sx={{ mb: 3 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 1,
+              mb: 1,
+            }}
+          >
+            <Typography variant="subtitle2">System Prompt</Typography>
+            <FormControlLabel
+              sx={{ mr: 0 }}
+              control={(
+                <Switch
+                  checked={systemPromptEnabled}
+                  onChange={(e) => setSystemPromptEnabled(e.target.checked)}
+                  disabled={disabled}
+                />
+              )}
+              label={systemPromptEnabled ? 'Enabled' : 'Disabled'}
+            />
+          </Box>
+          <TextField
+            fullWidth
+            multiline
+            minRows={4}
+            value={chatSystemPrompt}
+            onChange={(e) => setChatSystemPrompt(e.target.value)}
+            placeholder={defaultSystemPrompt || 'You are a helpful assistant…'}
+            variant="outlined"
+            disabled={disabled || !systemPromptEnabled}
+            helperText={
+              systemPromptEnabled
+                ? 'Pre-filled with the platform default. Edit to customise.'
+                : 'No system prompt will be sent to the model.'
+            }
+          />
+        </Box>
+
+        <Box sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', mb: 1 }}>
+            <Typography variant="subtitle2">Temperature</Typography>
+            <Typography variant="body2" color="text.secondary">{temperature.toFixed(1)}</Typography>
+          </Box>
+          <Slider
+            value={temperature}
+            min={TEMPERATURE_MIN}
+            max={TEMPERATURE_MAX}
+            step={TEMPERATURE_STEP}
+            marks={temperatureMarks}
+            valueLabelDisplay="auto"
+            onChange={(_, value) => setTemperature(Array.isArray(value) ? value[0] : value)}
+            disabled={disabled}
+            // The slider thumb would otherwise overhang the panel padding at
+            // both ends of the track.
+            sx={{ mt: 1, mx: 1, width: 'calc(100% - 16px)' }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            Lower is more deterministic, higher is more creative.
           </Typography>
+        </Box>
 
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-              <Typography variant="subtitle2">System Prompt</Typography>
-              <FormControlLabel
-                control={(
-                  <Switch
-                    checked={systemPromptEnabled}
-                    onChange={(e) => setSystemPromptEnabled(e.target.checked)}
-                    disabled={disabled}
-                  />
-                )}
-                label={systemPromptEnabled ? 'Enabled' : 'Disabled'}
-              />
-            </Box>
-            <TextField
-              fullWidth
-              multiline
-              minRows={4}
-              value={chatSystemPrompt}
-              onChange={(e) => setChatSystemPrompt(e.target.value)}
-              placeholder={defaultSystemPrompt || 'You are a helpful assistant…'}
-              variant="outlined"
-              disabled={disabled || !systemPromptEnabled}
-              helperText={
-                systemPromptEnabled
-                  ? 'Pre-filled with the platform default. Edit to customise.'
-                  : 'No system prompt will be sent to the model.'
-              }
-            />
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', mb: 1 }}>
-              <Typography variant="subtitle2">Temperature</Typography>
-              <Typography variant="body2" color="text.secondary">{temperature.toFixed(1)}</Typography>
-            </Box>
-            <Slider
-              value={temperature}
-              min={TEMPERATURE_MIN}
-              max={TEMPERATURE_MAX}
-              step={TEMPERATURE_STEP}
-              marks={temperatureMarks}
-              valueLabelDisplay="auto"
-              onChange={(_, value) => setTemperature(Array.isArray(value) ? value[0] : value)}
-              disabled={disabled}
-              sx={{ mt: 1 }}
-            />
-            <Typography variant="caption" color="text.secondary">
-              Lower is more deterministic, higher is more creative.
-            </Typography>
-          </Box>
-
-          <Box sx={{ mb: 2 }}>
-            <Button
-              variant="text"
-              size="small"
-              onClick={() => setAdvancedOpen((open) => !open)}
-              endIcon={advancedOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-              sx={{ pl: 0 }}
+        <Box>
+          <Button
+            variant="text"
+            size="small"
+            onClick={() => setAdvancedOpen((open) => !open)}
+            endIcon={advancedOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            sx={{ pl: 0 }}
+          >
+            Advanced
+          </Button>
+          <Collapse in={advancedOpen} unmountOnExit>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  sm: 'repeat(2, 1fr)',
+                  md: 'repeat(4, 1fr)',
+                },
+                gap: 2,
+                mt: 1.5,
+              }}
             >
-              Advanced
-            </Button>
-            <Collapse in={advancedOpen} unmountOnExit>
-              <Grid container spacing={2} sx={{ mt: 0.5 }}>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Top P</Typography>
-                  <TextField
-                    fullWidth
-                    value={chatTopP}
-                    onChange={(e) => setChatTopP(e.target.value)}
-                    placeholder="e.g. 1"
-                    variant="outlined"
-                    disabled={disabled}
-                    helperText="0–1"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Max Tokens</Typography>
-                  <TextField
-                    fullWidth
-                    value={chatMaxTokens}
-                    onChange={(e) => setChatMaxTokens(e.target.value)}
-                    placeholder="e.g. 2048"
-                    variant="outlined"
-                    disabled={disabled}
-                    helperText="Response length cap"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Frequency Penalty</Typography>
-                  <TextField
-                    fullWidth
-                    value={chatFrequencyPenalty}
-                    onChange={(e) => setChatFrequencyPenalty(e.target.value)}
-                    placeholder="e.g. 0"
-                    variant="outlined"
-                    disabled={disabled}
-                    helperText="-2 to 2"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Presence Penalty</Typography>
-                  <TextField
-                    fullWidth
-                    value={chatPresencePenalty}
-                    onChange={(e) => setChatPresencePenalty(e.target.value)}
-                    placeholder="e.g. 0"
-                    variant="outlined"
-                    disabled={disabled}
-                    helperText="-2 to 2"
-                  />
-                </Grid>
-              </Grid>
-            </Collapse>
-          </Box>
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>Top P</Typography>
+                <TextField
+                  fullWidth
+                  value={chatTopP}
+                  onChange={(e) => setChatTopP(e.target.value)}
+                  placeholder="e.g. 1"
+                  variant="outlined"
+                  disabled={disabled}
+                  helperText="0–1"
+                />
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>Max Tokens</Typography>
+                <TextField
+                  fullWidth
+                  value={chatMaxTokens}
+                  onChange={(e) => setChatMaxTokens(e.target.value)}
+                  placeholder="e.g. 2048"
+                  variant="outlined"
+                  disabled={disabled}
+                  helperText="Response length cap"
+                />
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>Frequency Penalty</Typography>
+                <TextField
+                  fullWidth
+                  value={chatFrequencyPenalty}
+                  onChange={(e) => setChatFrequencyPenalty(e.target.value)}
+                  placeholder="e.g. 0"
+                  variant="outlined"
+                  disabled={disabled}
+                  helperText="-2 to 2"
+                />
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>Presence Penalty</Typography>
+                <TextField
+                  fullWidth
+                  value={chatPresencePenalty}
+                  onChange={(e) => setChatPresencePenalty(e.target.value)}
+                  placeholder="e.g. 0"
+                  variant="outlined"
+                  disabled={disabled}
+                  helperText="-2 to 2"
+                />
+              </Box>
+            </Box>
+          </Collapse>
+        </Box>
+      </SettingsPanel>
 
-        </Grid>
-      </Grid>
-
-      <Grid
-        container
-        spacing={2}
+      <SettingsPanel
         sx={{
           position: 'sticky',
           bottom: 0,
-          backgroundColor: panelBg,
+          mb: 0,
           borderTop: '1px solid',
           borderColor: 'divider',
-          borderRadius: 2,
-          p: 2,
+          display: 'flex',
+          justifyContent: 'flex-end',
           zIndex: 1,
         }}
       >
-        <Grid item xs={12} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button
-            variant="contained"
-            color="secondary"
-            onClick={handleSave}
-            disabled={disabled}
-          >
-            {isSaving ? 'Saving…' : 'Save'}
-          </Button>
-        </Grid>
-      </Grid>
+        <Button
+          variant="contained"
+          color="secondary"
+          onClick={handleSave}
+          disabled={disabled}
+        >
+          {isSaving ? 'Saving…' : 'Save'}
+        </Button>
+      </SettingsPanel>
     </>
   )
 }

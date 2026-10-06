@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -31,12 +32,12 @@ func TestActivationCreateGetRoundTrip(t *testing.T) {
 	triggers := []activation.Trigger{
 		{Kind: activation.TriggerHire},
 		{
-			Kind:      activation.TriggerEvent,
-			EventID:   "e-1",
-			TopicID:   "s-test",
-			Source:    "w-bob",
-			Message:   streaming.Message{From: "w-bob", Body: "hi"},
-			CreatedAt: started.Add(-time.Minute),
+			Kind:        activation.TriggerEvent,
+			EventID:     "e-1",
+			EventSource: eventsource.Trigger("s-test"),
+			Source:      "w-bob",
+			Message:     streaming.Message{From: "w-bob", Body: "hi"},
+			CreatedAt:   started.Add(-time.Minute),
 		},
 	}
 	a, err := activation.New("a-1", "w-alice", triggers, started, "org-test")

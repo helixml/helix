@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os"
@@ -76,6 +78,13 @@ type GitRepositoryService struct {
 	// concurrent handler hits) so we don't hammer GitHub and trip its 5000 req/hr
 	// rate limit. Set on construction; safe for concurrent use.
 	prListCache *prListCache
+
+	// githubReviewWebhooksURL enables PR review feedback for spec tasks: when
+	// set, creating a GitHub pull request also installs (idempotently) a
+	// pull_request_review webhook on the external repo so Helix gets review
+	// deliveries. Deliveries are signed with a per-repo secret stored on the
+	// repo row. Set via SetGitHubReviewWebhooks from server wiring.
+	githubReviewWebhooksURL string
 }
 
 // NewGitRepositoryService creates a new git repository service
@@ -147,6 +156,24 @@ func (s *GitRepositoryService) SetKoditGitURL(url string) {
 	s.koditGitURL = strings.TrimSuffix(url, "/")
 }
 
+// SetGitHubReviewWebhooks enables PR review webhooks on external GitHub repos.
+// url is the deployment's base payload URL (…/api/v1/webhooks/github/reviews);
+// per-repo secrets are generated at install time and stored on the repo row.
+// Empty url = feature off.
+func (s *GitRepositoryService) SetGitHubReviewWebhooks(url string) {
+	s.githubReviewWebhooksURL = strings.TrimSuffix(url, "/")
+}
+
+// generateWebhookSecret returns a fresh 256-bit hex secret for a repo's
+// pull_request_review webhook.
+func generateWebhookSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate webhook secret: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
+}
+
 // GetGitHomePath returns the path where git stores its global config (.gitconfig).
 // This is separate from where git repositories are stored.
 func (s *GitRepositoryService) GetGitHomePath() string {
@@ -202,7 +229,7 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 	// Recover incomplete pushes from before a crash in the background.
 	// If we crashed between receive-pack and upstream push, the commit is in the
 	// middle repo but not upstream. Push any such commits now to prevent data loss.
-	// Runs async so it doesn't block API startup (fetching every branch can take minutes).
+	// Runs async so it doesn't block API startup (fetching every repository can take minutes).
 	go s.recoverIncompletePushes(context.Background())
 
 	log.Info().
@@ -234,6 +261,15 @@ func (s *GitRepositoryService) recoverIncompletePushes(ctx context.Context) {
 
 		// Check if repo directory exists
 		if _, err := os.Stat(repo.LocalPath); os.IsNotExist(err) {
+			continue
+		}
+
+		// Refresh all remote-tracking refs once per repository. Fetching each
+		// branch separately turns a repository with hundreds of branches into
+		// hundreds of DNS/TLS round trips during every API restart, which can
+		// starve normal task-provisioning fetches.
+		if err := s.fetchRemoteTrackingRefsForRecovery(ctx, repo); err != nil {
+			log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to refresh remote refs for crash recovery")
 			continue
 		}
 
@@ -300,30 +336,19 @@ func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath s
 	return branches, nil
 }
 
-// isBranchAheadOfRemote checks if a local branch has commits not in the remote
-func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
-	// Fetch the latest remote state so origin/<branch> reflects reality, not
-	// a stale ref from before a crash. Without this, a local branch that is
-	// strictly *behind* the remote looks "ahead" of the outdated tracking ref,
-	// causing spurious push attempts that always fail with PushRejected.
-	_, _, fetchErr := gitcmd.NewCommand("fetch", "origin").
-		AddDynamicArguments(branch).
-		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
-	if fetchErr != nil {
-		// "couldn't find remote ref" is the common case for branches that
-		// exist locally but not on the remote (deleted PR branches, branches
-		// renamed upstream). Drop these to Trace so the ordinary recovery
-		// pass doesn't drown the log; reserve Debug for genuine remote/auth
-		// failures that an operator might want to investigate.
-		ev := log.Debug()
-		if strings.Contains(fetchErr.Error(), "couldn't find remote ref") {
-			ev = log.Trace()
-		}
-		ev.Err(fetchErr).Str("branch", branch).Str("repo_path", repoPath).
-			Msg("Failed to fetch remote before ahead check, skipping branch")
-		return false, nil
-	}
+func (s *GitRepositoryService) fetchRemoteTrackingRefsForRecovery(ctx context.Context, repo *types.GitRepository) error {
+	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, repo)
+	return Fetch(ctx, repo.LocalPath, FetchOptions{
+		Remote:   fetchURL,
+		Force:    true,
+		Prune:    true,
+		Timeout:  5 * time.Minute,
+		RefSpecs: []string{"+refs/heads/*:refs/remotes/origin/*"},
+	})
+}
 
+// isBranchAheadOfRemote checks refreshed origin refs without network access.
+func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
 	// Check if remote tracking ref exists
 	remoteRef := "refs/remotes/origin/" + branch
 	_, _, err := gitcmd.NewCommand("rev-parse").
@@ -615,102 +640,112 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 		return
 	}
 
-	go func() {
+	repoSnapshot := *gitRepo
+	go func(gitRepo *types.GitRepository) {
 		ctx := context.Background()
-
-		// Update progress to show we're starting
-		gitRepo.CloneProgress = &types.CloneProgress{
-			Phase:     "starting",
-			StartedAt: time.Now(),
-		}
-		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
-			log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to update clone progress")
-		}
-
-		// Determine repo path
-		repoPath := gitRepo.LocalPath
-		if repoPath == "" {
-			repoPath = filepath.Join(s.gitRepoBase, gitRepo.ID)
-		}
-
-		log.Info().
-			Str("repo_id", gitRepo.ID).
-			Str("external_url", gitRepo.ExternalURL).
-			Str("repo_path", repoPath).
-			Msg("Starting async clone using native git")
-
-		// Build authenticated URL for clone
-		cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
-
-		// Use native git clone via gitea/git module
-		// Note: gitea's Clone doesn't support progress callback, but native git is much faster
-		cloneErr := giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
-			Bare:   true,
-			Mirror: true, // Clone ALL branches, tags, and refs
-		})
-		if cloneErr != nil {
-			// Clone failed - update status to error
-			gitRepo.Status = types.GitRepositoryStatusError
-			gitRepo.CloneError = cloneErr.Error()
-			gitRepo.CloneProgress = nil
-			if updateErr := s.store.UpdateGitRepository(ctx, gitRepo); updateErr != nil {
-				log.Error().Err(updateErr).Str("repo_id", gitRepo.ID).Msg("Failed to update repo status to error")
+		var callbackPath string
+		err := s.WithRepoLock(gitRepo.ID, func() error {
+			storedRepo, err := s.store.GetGitRepository(ctx, gitRepo.ID)
+			if err != nil {
+				return fmt.Errorf("failed to reload repository before clone: %w", err)
 			}
-			log.Error().Err(cloneErr).Str("repo_id", gitRepo.ID).Msg("Async clone failed")
-			return
-		}
+			gitRepo = storedRepo
+			recordCloneError := func(cloneErr error) error {
+				gitRepo.Status = types.GitRepositoryStatusError
+				gitRepo.CloneError = cloneErr.Error()
+				gitRepo.CloneProgress = nil
+				if updateErr := s.store.UpdateGitRepository(ctx, gitRepo); updateErr != nil {
+					return fmt.Errorf("%w; failed to persist clone error: %v", cloneErr, updateErr)
+				}
+				return cloneErr
+			}
 
-		// Open cloned repo to get metadata
-		repo, err := giteagit.OpenRepository(ctx, repoPath)
-		if err != nil {
-			log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to open cloned repository for metadata")
-		} else {
+			if gitRepo.LocalPath != "" {
+				repo, openErr := giteagit.OpenRepository(ctx, gitRepo.LocalPath)
+				if openErr == nil {
+					repo.Close()
+					if gitRepo.Status != types.GitRepositoryStatusActive || gitRepo.CloneURL == "" || gitRepo.CloneProgress != nil || gitRepo.CloneError != "" {
+						gitRepo.Status = types.GitRepositoryStatusActive
+						gitRepo.CloneURL = s.generateCloneURL(gitRepo.ID)
+						gitRepo.CloneProgress = nil
+						gitRepo.CloneError = ""
+						gitRepo.UpdatedAt = time.Now()
+						if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+							return fmt.Errorf("failed to persist existing repository metadata: %w", err)
+						}
+					}
+					callbackPath = gitRepo.LocalPath
+					return nil
+				}
+				return recordCloneError(fmt.Errorf("repository path %s is not a valid git repository: %w", gitRepo.LocalPath, openErr))
+			}
+
+			gitRepo.CloneProgress = &types.CloneProgress{
+				Phase:     "starting",
+				StartedAt: time.Now(),
+			}
+			if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+				return fmt.Errorf("failed to update clone progress: %w", err)
+			}
+
+			repoPath := filepath.Join(s.gitRepoBase, gitRepo.ID)
+			log.Info().
+				Str("repo_id", gitRepo.ID).
+				Str("external_url", gitRepo.ExternalURL).
+				Str("repo_path", repoPath).
+				Msg("Starting async clone using native git")
+
+			cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+			cloneErr := giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
+				Bare:   true,
+				Mirror: true,
+			})
+			if cloneErr != nil {
+				return recordCloneError(fmt.Errorf("clone failed: %w", cloneErr))
+			}
+
+			repo, err := giteagit.OpenRepository(ctx, repoPath)
+			if err != nil {
+				return recordCloneError(fmt.Errorf("failed to open cloned repository: %w", err))
+			}
 			defer repo.Close()
 
-			// Detect default branch from HEAD
 			defaultBranch, err := giteagit.GetDefaultBranch(ctx, repoPath)
 			if err == nil && defaultBranch != "" {
 				gitRepo.DefaultBranch = defaultBranch
-				log.Info().
-					Str("repo_id", gitRepo.ID).
-					Str("default_branch", gitRepo.DefaultBranch).
-					Msg("Detected default branch from external repository")
 			}
-
-			// Populate branches list
 			branches, _, err := repo.GetBranchNames(0, 0)
 			if err == nil {
 				gitRepo.Branches = branches
 			}
-		}
 
-		// Update status to active, set local path, clear progress
-		gitRepo.Status = types.GitRepositoryStatusActive
-		gitRepo.LocalPath = repoPath
-		gitRepo.CloneProgress = nil
-		gitRepo.CloneError = ""
-		gitRepo.UpdatedAt = time.Now()
+			gitRepo.Status = types.GitRepositoryStatusActive
+			gitRepo.CloneURL = s.generateCloneURL(gitRepo.ID)
+			gitRepo.LocalPath = repoPath
+			gitRepo.CloneProgress = nil
+			gitRepo.CloneError = ""
+			gitRepo.UpdatedAt = time.Now()
 
-		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
-			log.Error().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to update repo status to active after clone")
+			if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+				return fmt.Errorf("failed to update repository after clone: %w", err)
+			}
+			callbackPath = repoPath
+
+			log.Info().
+				Str("repo_id", gitRepo.ID).
+				Str("external_url", gitRepo.ExternalURL).
+				Int("branches", len(gitRepo.Branches)).
+				Msg("Async clone completed successfully")
+			return nil
+		})
+		if err != nil {
+			log.Error().Err(err).Str("repo_id", gitRepo.ID).Msg("Async clone failed")
 			return
 		}
-
-		log.Info().
-			Str("repo_id", gitRepo.ID).
-			Str("external_url", gitRepo.ExternalURL).
-			Int("branches", len(gitRepo.Branches)).
-			Msg("Async clone completed successfully")
-
-		// Invoke optional post-clone callback (e.g., to write startup script to helix-specs)
-		if len(postClone) > 0 && postClone[0] != nil {
-			postClone[0](repoPath)
+		if callbackPath != "" && len(postClone) > 0 && postClone[0] != nil {
+			postClone[0](callbackPath)
 		}
-
-		// Register with Kodit if enabled (non-blocking)
-		// Note: This requires an API key which we don't have in the async context
-		// Kodit registration will happen when user accesses the repo
-	}()
+	}(&repoSnapshot)
 }
 
 // GetRepository retrieves repository information by ID
@@ -730,6 +765,7 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 		gitRepo.Branches = make([]string, len(storedRepo.Branches))
 		copy(gitRepo.Branches, storedRepo.Branches)
 	}
+	metadataNeedsRepair := gitRepo.ExternalURL != "" && gitRepo.LocalPath == ""
 
 	// Got from database - verify the LocalPath exists if this is not external
 	if gitRepo.ExternalURL == "" {
@@ -751,6 +787,33 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 	err = s.updateRepositoryFromGit(ctx, &gitRepo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update repository info from git: %w", err)
+	}
+	if metadataNeedsRepair {
+		gitRepo.CloneURL = s.generateCloneURL(gitRepo.ID)
+		if err := s.store.UpdateGitRepository(ctx, &gitRepo); err != nil {
+			return nil, fmt.Errorf("failed to persist repaired repository metadata: %w", err)
+		}
+	}
+
+	return &gitRepo, nil
+}
+
+// GetRepositoryMetadata reads repository metadata from the store without
+// touching git on disk. Unlike GetRepository it never clones or syncs, so a
+// broken external clone (e.g. failed authentication) cannot block
+// metadata-level operations such as updating credentials or deleting the
+// repository.
+func (s *GitRepositoryService) GetRepositoryMetadata(ctx context.Context, repoID string) (*types.GitRepository, error) {
+	storedRepo, err := s.store.GetGitRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository %s not found: %w", repoID, err)
+	}
+
+	// Make a defensive copy to avoid race conditions with callers mutating fields.
+	gitRepo := *storedRepo
+	if storedRepo.Branches != nil {
+		gitRepo.Branches = make([]string, len(storedRepo.Branches))
+		copy(gitRepo.Branches, storedRepo.Branches)
 	}
 
 	return &gitRepo, nil
@@ -852,8 +915,9 @@ func (s *GitRepositoryService) UpdateRepository(
 		}
 	}
 
-	// Get existing repository
-	existing, err := s.GetRepository(ctx, repoID)
+	// Get existing repository metadata (no git sync — a broken external clone
+	// must not block metadata updates such as fixing credentials)
+	existing, err := s.GetRepositoryMetadata(ctx, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("repository not found: %w", err)
 	}
@@ -893,6 +957,12 @@ func (s *GitRepositoryService) UpdateRepository(
 	if request.AzureDevOps != nil {
 		existing.AzureDevOps = request.AzureDevOps
 	}
+	if request.ReviewBotUserID != nil {
+		if existing.GitHub == nil {
+			existing.GitHub = &types.GitHub{}
+		}
+		existing.GitHub.ReviewBotUserID = *request.ReviewBotUserID
+	}
 
 	// Check if we're enabling Kodit indexing (must check before modifying existing)
 	shouldRegisterKodit := s.koditService != nil &&
@@ -905,6 +975,19 @@ func (s *GitRepositoryService) UpdateRepository(
 		existing.KoditIndexing = *request.KoditIndexing
 	}
 
+	// Kodit clones through Helix's git server, so the repository must exist on
+	// disk before registration. Sync now (with any credentials just applied) so
+	// a failure aborts the whole update instead of persisting a half-enabled
+	// Kodit state.
+	if shouldRegisterKodit {
+		if koditAPIKey == "" {
+			return nil, fmt.Errorf("cannot register repository with Kodit without API key")
+		}
+		if err := s.updateRepositoryFromGit(ctx, existing); err != nil {
+			return nil, fmt.Errorf("failed to sync repository before Kodit registration: %w", err)
+		}
+	}
+
 	existing.UpdatedAt = time.Now()
 
 	// Update in store
@@ -915,11 +998,6 @@ func (s *GitRepositoryService) UpdateRepository(
 
 	// Register with Kodit if indexing was just enabled
 	if shouldRegisterKodit {
-		// Always use the internal URL - Kodit clones through Helix's git server
-		// GetRepository was called earlier, so external repos are already cloned to disk
-		if koditAPIKey == "" {
-			return nil, fmt.Errorf("cannot register repository with Kodit without API key")
-		}
 		koditCloneURL := s.BuildAuthenticatedCloneURL(repoID, koditAPIKey)
 
 		koditRepoID, _, err := s.koditService.RegisterRepository(ctx, &RegisterRepositoryParams{
@@ -2449,6 +2527,9 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 	if repo.LocalPath == "" {
 		return nil, fmt.Errorf("repository has no local path")
 	}
+	if repo.IsExternal && repo.ExternalURL != "" {
+		return s.listExternalBranches(ctx, repo)
+	}
 
 	// Use gitea's git module to list branches
 	gitRepo, err := giteagit.OpenRepository(ctx, repo.LocalPath)
@@ -2465,49 +2546,32 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 	return branches, nil
 }
 
-// IsBranchMerged checks if a branch has been merged into the target branch.
-// Returns true if the branch's HEAD commit is an ancestor of the target branch.
-// This is used to detect when PRs have been merged externally.
-func (s *GitRepositoryService) IsBranchMerged(ctx context.Context, repoID, branchName, targetBranch string) (bool, error) {
-	repo, err := s.GetRepository(ctx, repoID)
+// listExternalBranches reads the authoritative upstream refs. The local bare
+// mirror intentionally does not prune because it also contains Helix-only refs,
+// so listing its refs would keep branches that were deleted upstream.
+func (s *GitRepositoryService) listExternalBranches(ctx context.Context, repo *types.GitRepository) ([]string, error) {
+	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, repo)
+	stdout, _, err := gitcmd.NewCommand("ls-remote", "--heads").
+		AddDynamicArguments(fetchURL).
+		RunStdString(ctx, &gitcmd.RunOpts{Timeout: 5 * time.Minute})
 	if err != nil {
-		return false, fmt.Errorf("repository not found: %w", err)
+		return nil, fmt.Errorf("failed to list upstream branches: %w", err)
 	}
 
-	if repo.LocalPath == "" {
-		return false, fmt.Errorf("repository has no local path")
-	}
-
-	gitRepo, err := OpenGitRepo(repo.LocalPath)
-	if err != nil {
-		return false, fmt.Errorf("failed to open git repository: %w", err)
-	}
-	defer gitRepo.Close()
-
-	return gitRepo.IsBranchMergedInto(branchName, targetBranch)
+	return parseLsRemoteBranches(stdout), nil
 }
 
-// IsCommitInBranch checks if a commit SHA exists in the history of the target branch.
-// This is useful for detecting merges when the source branch has been deleted.
-func (s *GitRepositoryService) IsCommitInBranch(ctx context.Context, repoID, commitSHA, targetBranch string) (bool, error) {
-	repo, err := s.GetRepository(ctx, repoID)
-	if err != nil {
-		return false, fmt.Errorf("repository not found: %w", err)
+func parseLsRemoteBranches(stdout string) []string {
+	const headsPrefix = "refs/heads/"
+	branches := make([]string, 0)
+	for _, line := range strings.Split(stdout, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || !strings.HasPrefix(fields[1], headsPrefix) {
+			continue
+		}
+		branches = append(branches, strings.TrimPrefix(fields[1], headsPrefix))
 	}
-
-	if repo.LocalPath == "" {
-		return false, fmt.Errorf("repository has no local path")
-	}
-
-	// Use git merge-base --is-ancestor to check if commit is in branch history
-	_, _, err = gitcmd.NewCommand("merge-base", "--is-ancestor").
-		AddDynamicArguments(commitSHA, targetBranch).
-		RunStdString(ctx, &gitcmd.RunOpts{Dir: repo.LocalPath})
-	if err != nil {
-		// Exit code 1 means not an ancestor
-		return false, nil
-	}
-	return true, nil
+	return branches
 }
 
 // PushPullRequest syncs with external repository using a temporary working copy.

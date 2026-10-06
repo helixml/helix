@@ -15,10 +15,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var errInvitationEmailNotConfigured = errors.New("email delivery is not configured")
-
-const invitationEmailNotConfiguredMessage = "Organization invitations require email delivery, but this server has no SMTP or Mailgun email provider configured."
-
 // listOrganizationMembers godoc
 // @Summary List organization members
 // @Description List members of an organization, including pending invitations as placeholder rows (user_id starts with "inv_").
@@ -49,6 +45,10 @@ func (apiServer *HelixAPIServer) listOrganizationMembers(rw http.ResponseWriter,
 		log.Err(err).Msg("error listing organization members")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	now := time.Now()
+	for _, member := range members {
+		member.Online = types.IsUserOnline(&member.User, now)
 	}
 
 	// Surface pending invitations alongside real members so the OrgPeople
@@ -158,7 +158,7 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 		invitation, invErr := apiServer.createOrganizationInvitation(r.Context(), orgID, req.UserReference, req.Role, req.AppID, req.GrantRoles, user)
 		if invErr != nil {
 			log.Err(invErr).Msg("error creating organization invitation")
-			writeOrganizationInvitationError(rw, invErr)
+			http.Error(rw, invErr.Error(), http.StatusInternalServerError)
 			return
 		}
 		writeResponse(rw, &types.AddOrganizationMemberResponse{
@@ -180,9 +180,6 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 		return
 	}
 
-	// Represent the new member in the org graph as a human node.
-	apiServer.ensureOrgHumanNode(r.Context(), orgID, newMember.ID)
-
 	writeResponse(rw, &types.AddOrganizationMemberResponse{
 		Membership: membership,
 	}, http.StatusCreated)
@@ -199,10 +196,6 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 // on the invitation so the access grant can be materialised at register
 // time without needing to keep the inviter's session alive.
 func (apiServer *HelixAPIServer) createOrganizationInvitation(ctx context.Context, orgID, email string, role types.OrganizationRole, appID string, grantRoles []string, inviter *types.User) (*types.OrganizationInvitation, error) {
-	if !apiServer.invitationEmailConfigured() {
-		return nil, errInvitationEmailNotConfigured
-	}
-
 	inviterID := ""
 	if inviter != nil {
 		inviterID = inviter.ID
@@ -229,23 +222,6 @@ func (apiServer *HelixAPIServer) createOrganizationInvitation(ctx context.Contex
 	apiServer.sendInvitationEmail(ctx, invitation, inviter)
 	return invitation, nil
 }
-
-func (apiServer *HelixAPIServer) invitationEmailConfigured() bool {
-	if apiServer == nil || apiServer.Cfg == nil {
-		return false
-	}
-	emailCfg := apiServer.Cfg.Notifications.Email
-	return emailCfg.SMTP.Host != "" || emailCfg.Mailgun.APIKey != ""
-}
-
-func writeOrganizationInvitationError(rw http.ResponseWriter, err error) {
-	if errors.Is(err, errInvitationEmailNotConfigured) {
-		http.Error(rw, invitationEmailNotConfiguredMessage, http.StatusServiceUnavailable)
-		return
-	}
-	http.Error(rw, err.Error(), http.StatusInternalServerError)
-}
-
 func (apiServer *HelixAPIServer) sendInvitationEmail(ctx context.Context, invitation *types.OrganizationInvitation, inviter *types.User) {
 	if apiServer.Controller == nil || apiServer.Controller.Options.Notifier == nil {
 		return
@@ -499,7 +475,7 @@ func (apiServer *HelixAPIServer) createOrganizationInvitationHandler(rw http.Res
 	invitation, err := apiServer.createOrganizationInvitation(r.Context(), orgID, req.UserReference, req.Role, req.AppID, req.GrantRoles, user)
 	if err != nil {
 		log.Err(err).Msg("error creating invitation")
-		writeOrganizationInvitationError(rw, err)
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeResponse(rw, invitation, http.StatusCreated)
@@ -625,9 +601,6 @@ func (apiServer *HelixAPIServer) removeOrganizationMember(rw http.ResponseWriter
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// Drop the departing member's human node from the org graph.
-	apiServer.removeOrgHumanNode(r.Context(), orgID, userIDToRemove)
 
 	writeResponse(rw, nil, http.StatusOK)
 }

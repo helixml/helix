@@ -60,7 +60,7 @@ func (activationMapper) ToDomain(row activationRow) (*activation.Activation, err
 		Triggers:       triggers,
 		StartedAt:      row.StartedAt,
 		EndedAt:        row.EndedAt,
-		TranscriptID:   streaming.TopicID(row.TranscriptID),
+		TranscriptID:   streaming.StreamID(row.TranscriptID),
 	}
 	if row.OutcomeStatus != "" {
 		a.Outcome = activation.Outcome{

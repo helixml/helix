@@ -5,12 +5,14 @@ import CircularProgress from '@mui/material/CircularProgress'
 import { IAppFlatState } from '../../types'
 import AppSettings from './AppSettings'
 import OrgAgentSettings from './OrgAgentSettings'
+import WorkerSecretsPanel from '../helix-org/WorkerSecretsPanel'
 import { BotDetailDTO } from '../../services/helixOrgService'
 import {
   AgentSettingsPage,
   AgentSettingsRow,
   AgentSettingsSection,
 } from './AgentSettingsLayout'
+import BotInstanceProfileSettings from '../helix-org/BotInstanceProfileSettings'
 
 interface FocusedAgentDetailsProps {
   agentID: string
@@ -43,7 +45,7 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
     return (
       <AgentSettingsPage>
         <AgentSettingsRow>
-          <CircularProgress size={22} aria-label="Loading org agent settings" />
+          <CircularProgress size={22} aria-label="Loading org bot settings" />
         </AgentSettingsRow>
       </AgentSettingsPage>
     )
@@ -53,7 +55,7 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
     return (
       <AgentSettingsPage>
         <Alert severity="warning">
-          This backing agent is no longer linked to an organization worker. Open the current worker from the Helix Org Agents list.
+          This legacy App is no longer linked to an org bot. Open the current bot from the Org Bots list.
         </Alert>
       </AgentSettingsPage>
     )
@@ -80,7 +82,7 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
       <AgentSettingsSection
         title="General"
         description={kind === 'org'
-          ? 'Set the worker name, coding harness, model, and reasoning effort.'
+          ? 'Set the worker name, coding runtime, model, and reasoning effort.'
           : 'Choose the name used to identify this coding agent across the organization.'}
       >
         <AgentSettingsRow>
@@ -123,7 +125,7 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
       {kind === 'coding' && (
         <AgentSettingsSection
           title="Provider and model"
-          description="Choose the coding harness, credentials, model, and reasoning effort."
+          description="Choose the coding runtime, credentials, model, and reasoning effort."
         >
           <AgentSettingsRow>{appSettings('configuration')}</AgentSettingsRow>
         </AgentSettingsSection>
@@ -170,8 +172,17 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
           </AgentSettingsSection>
 
           <AgentSettingsSection
-            title="Subscriptions"
-            description="Choose the organization topics that trigger this worker."
+            title="Instances"
+            description="What each instance of this bot gets: separate chats, each with its own sandbox. Instances start with only a browser; enable more here. Changes apply on each instance's next start."
+          >
+            <AgentSettingsRow>
+              <BotInstanceProfileSettings detail={orgAgentDetail} readOnly={readOnly} />
+            </AgentSettingsRow>
+          </AgentSettingsSection>
+
+          <AgentSettingsSection
+            title="Triggers"
+            description="Choose what starts this agent. You can use a Trigger directly or the result of a Processor."
           >
             <AgentSettingsRow>
               <OrgAgentSettings
@@ -181,6 +192,15 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
                 detail={orgAgentDetail}
                 embedded
               />
+            </AgentSettingsRow>
+          </AgentSettingsSection>
+
+          <AgentSettingsSection
+            title="Secrets"
+            description="Choose which credentials this agent may retrieve when it needs them."
+          >
+            <AgentSettingsRow>
+              <WorkerSecretsPanel agentID={orgAgentDetail?.bot?.id} projectID={orgAgentDetail?.project_id} readOnly={readOnly} />
             </AgentSettingsRow>
           </AgentSettingsSection>
 

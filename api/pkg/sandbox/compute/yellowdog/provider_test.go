@@ -214,6 +214,9 @@ func TestTaskBodyShape_BashInline(t *testing.T) {
 	if !strings.Contains(task.Arguments[1], "HELIX_URL=\"${1") {
 		t.Fatalf("embedded script body doesn't reference $1 as expected")
 	}
+	if !strings.Contains(task.Arguments[1], `${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}`) {
+		t.Fatal("embedded script does not use the Bash 4.3-safe optional array expansion")
+	}
 	if task.Arguments[2] != "yd-inline" {
 		t.Fatalf("Arguments[2] = %q, want yd-inline ($0)", task.Arguments[2])
 	}
@@ -286,8 +289,9 @@ func TestTaskEnvironmentForwardsRunnerKnobs(t *testing.T) {
 	// (and bash_script forwards them). Without this they're silently dead on YD.
 	p, err := NewProvider(Config{
 		APIKeyID: "k", APISecret: "s", Namespace: "n", DeploymentTag: "d", WorkerTag: "w",
-		NeuronCompileCacheURL:  "s3://bucket/neuron-cache",
-		RunnerReadinessTimeout: "45m",
+		NeuronCompileCacheURL:   "s3://bucket/neuron-cache",
+		RunnerReadinessTimeout:  "45m",
+		SandboxEgressAllowCIDRs: "10.40.0.0/16,192.168.50.10/32",
 	})
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
@@ -299,6 +303,9 @@ func TestTaskEnvironmentForwardsRunnerKnobs(t *testing.T) {
 	if env["HELIX_RUNNER_READINESS_TIMEOUT"] != "45m" {
 		t.Errorf("HELIX_RUNNER_READINESS_TIMEOUT: got %q", env["HELIX_RUNNER_READINESS_TIMEOUT"])
 	}
+	if env["HELIX_SANDBOX_EGRESS_ALLOW_CIDRS"] != "10.40.0.0/16,192.168.50.10/32" {
+		t.Errorf("HELIX_SANDBOX_EGRESS_ALLOW_CIDRS: got %q", env["HELIX_SANDBOX_EGRESS_ALLOW_CIDRS"])
+	}
 	// Unset knobs must not inject keys (compose-manager keeps its own default).
 	p2, _ := NewProvider(Config{APIKeyID: "k", APISecret: "s", Namespace: "n", DeploymentTag: "d", WorkerTag: "w"})
 	env2 := p2.taskEnvironment(compute.Spec{Labels: map[string]string{"helix.sandbox_id": "x"}})
@@ -307,6 +314,9 @@ func TestTaskEnvironmentForwardsRunnerKnobs(t *testing.T) {
 	}
 	if _, ok := env2["HELIX_RUNNER_READINESS_TIMEOUT"]; ok {
 		t.Error("readiness timeout should be absent when unset")
+	}
+	if _, ok := env2["HELIX_SANDBOX_EGRESS_ALLOW_CIDRS"]; ok {
+		t.Error("sandbox egress allowlist should be absent when unset")
 	}
 }
 
@@ -817,8 +827,8 @@ func TestIsoMinutesFormatsDurations(t *testing.T) {
 		want string
 	}{
 		{0, ""},
-		{30 * time.Second, "PT1M"},     // rounds up
-		{4 * time.Hour, "PT240M"},      // matches the POC config.toml
+		{30 * time.Second, "PT1M"}, // rounds up
+		{4 * time.Hour, "PT240M"},  // matches the POC config.toml
 		{2*time.Hour + 30*time.Second, "PT121M"},
 	}
 	for _, tc := range cases {

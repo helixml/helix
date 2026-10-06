@@ -72,7 +72,7 @@ func newListSamplesCommand() *cobra.Command {
 			}
 
 			fmt.Printf("💡 To fork a sample project:\n")
-			fmt.Printf("   helix project fork <sample-id> --name \"My Project\"\n\n")
+			fmt.Printf("   helix project fork <sample-id> --name \"My Project\" --provider openai --model gpt-5.6-sol\n\n")
 
 			return nil
 		},

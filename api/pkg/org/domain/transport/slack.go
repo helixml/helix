@@ -31,7 +31,7 @@ import (
 //
 // Outbound: basic text is posted to the configured channel with Helix's
 // workspace credential. Rich Slack actions remain the agent's job via
-// mint_credential and the Slack Web API.
+// get_secret and the Slack Web API.
 const KindSlack Kind = "slack"
 
 // SlackConfig is the parsed shape of Transport.Config when
@@ -88,4 +88,37 @@ func parseSlackConfig(raw json.RawMessage) (SlackConfig, error) {
 		return SlackConfig{}, fmt.Errorf("parse slack config: %w", err)
 	}
 	return c, nil
+}
+
+func (slack) Describe() Descriptor {
+	return Descriptor{
+		Kind:    KindSlack,
+		Label:   "Slack event",
+		Summary: "Fires when a message arrives in a connected Slack workspace.",
+		Fields: []Field{
+			{
+				Name:      "service_connection_id",
+				Label:     "Slack workspace",
+				Help:      "Which connected workspace this Trigger listens to.",
+				Type:      FieldSlackWorkspace,
+				Required:  true,
+				Direction: Inbound,
+			},
+			{
+				Name:        "channel_id",
+				Label:       "Channel (optional)",
+				Help:        "Limit this Trigger to one channel. Leave empty to receive messages from the whole workspace that no channel-specific Trigger already claims.",
+				Placeholder: "C012ABCDEF",
+				Type:        FieldSlackChannel,
+				Direction:   Inbound,
+			},
+		},
+		Activation: Activation{
+			Summary: "Post a message in the connected workspace (or the specific channel above).",
+		},
+		Secrets: []SecretRef{{
+			Label:    "Slack workspace connection (bot token)",
+			Location: "Organization Settings, Connected Accounts",
+		}},
+	}
 }

@@ -5,14 +5,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
 func newFilterProc(t *testing.T, outputs []processor.Output) processor.Processor {
 	t.Helper()
+	for i := range outputs {
+		if outputs[i].ID == "" {
+			outputs[i].ID = "po-" + string(outputs[i].StreamID)
+		}
+	}
 	p, err := processor.NewProcessor(
-		"p-filter", "Filter", "s-in", processor.KindFilter,
+		"p-filter", "Filter", eventsource.Trigger("s-in"), processor.KindFilter,
 		nil, outputs, "", time.Now(), "org-1",
 	)
 	if err != nil {
@@ -24,13 +30,13 @@ func newFilterProc(t *testing.T, outputs []processor.Output) processor.Processor
 func TestFilterOneOutputKeepsMatch(t *testing.T) {
 	// Predicate: keep when subject contains "invoice" (case-insensitive via lower).
 	p := newFilterProc(t, []processor.Output{
-		{TopicID: "s-bill", Match: `{{ if eq (lower .Message.subject) "invoice" }}yes{{ end }}`},
+		{ID: "po-bill", StreamID: "s-bill", Match: `{{ if eq (lower .Message.subject) "invoice" }}yes{{ end }}`},
 	})
 	res, err := p.Process(context.Background(), streaming.Message{Subject: "Invoice", Body: "x"})
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
-	if len(res) != 1 || res[0].TopicID != "s-bill" {
+	if len(res) != 1 || res[0].Output.StreamID != "s-bill" {
 		t.Fatalf("want 1 result on s-bill, got %+v", res)
 	}
 	// Body passes through unchanged.
@@ -41,7 +47,7 @@ func TestFilterOneOutputKeepsMatch(t *testing.T) {
 
 func TestFilterOneOutputDropsNonMatch(t *testing.T) {
 	p := newFilterProc(t, []processor.Output{
-		{TopicID: "s-bill", Match: `{{ if eq (lower .Message.subject) "invoice" }}yes{{ end }}`},
+		{ID: "po-bill", StreamID: "s-bill", Match: `{{ if eq (lower .Message.subject) "invoice" }}yes{{ end }}`},
 	})
 	res, err := p.Process(context.Background(), streaming.Message{Subject: "hello", Body: "x"})
 	if err != nil {
@@ -56,9 +62,9 @@ func TestFilterRoutesToMatchingOutputs(t *testing.T) {
 	// Three outputs: vip (from contains @vip), billing (subject=invoice),
 	// and a default (empty predicate) catching everything.
 	p := newFilterProc(t, []processor.Output{
-		{TopicID: "s-vip", Match: `{{ if hasSuffix "@vip.com" .Message.from }}1{{ end }}`},
-		{TopicID: "s-bill", Match: `{{ if eq (lower .Message.subject) "invoice" }}1{{ end }}`},
-		{TopicID: "s-gen", Match: ``}, // default / catch-all
+		{ID: "po-vip", StreamID: "s-vip", Match: `{{ if hasSuffix "@vip.com" .Message.from }}1{{ end }}`},
+		{ID: "po-bill", StreamID: "s-bill", Match: `{{ if eq (lower .Message.subject) "invoice" }}1{{ end }}`},
+		{ID: "po-gen", StreamID: "s-gen", Match: ``}, // default / catch-all
 	})
 
 	// A VIP invoice → vip + bill + default.
@@ -80,17 +86,17 @@ func TestFilterRoutesToMatchingOutputs(t *testing.T) {
 }
 
 func TestFilterEmptyPredicateIsUnconditional(t *testing.T) {
-	p := newFilterProc(t, []processor.Output{{TopicID: "s-all", Match: ""}})
+	p := newFilterProc(t, []processor.Output{{ID: "po-all", StreamID: "s-all", Match: ""}})
 	res, _ := p.Process(context.Background(), streaming.Message{Body: "anything"})
-	if len(res) != 1 || res[0].TopicID != "s-all" {
+	if len(res) != 1 || res[0].Output.StreamID != "s-all" {
 		t.Fatalf("empty predicate should always match, got %+v", res)
 	}
 }
 
 func TestFilterMalformedPredicateRejected(t *testing.T) {
 	_, err := processor.NewProcessor(
-		"p-bad", "Bad", "s-in", processor.KindFilter,
-		nil, []processor.Output{{TopicID: "s-x", Match: "{{ if "}}, "", time.Now(), "org-1",
+		"p-bad", "Bad", eventsource.Trigger("s-in"), processor.KindFilter,
+		nil, []processor.Output{{ID: "po-x", StreamID: "s-x", Match: "{{ if "}}, "", time.Now(), "org-1",
 	)
 	if err == nil {
 		t.Fatal("want error for malformed predicate, got nil")
@@ -102,8 +108,8 @@ func TestFilterMalformedPredicateRejected(t *testing.T) {
 // user funcs in v1).
 func TestFilterUnknownFuncRejected(t *testing.T) {
 	_, err := processor.NewProcessor(
-		"p-fn", "Fn", "s-in", processor.KindFilter,
-		nil, []processor.Output{{TopicID: "s-x", Match: `{{ if regexMatch "x" .Message.from }}1{{ end }}`}},
+		"p-fn", "Fn", eventsource.Trigger("s-in"), processor.KindFilter,
+		nil, []processor.Output{{ID: "po-x", StreamID: "s-x", Match: `{{ if regexMatch "x" .Message.from }}1{{ end }}`}},
 		"", time.Now(), "org-1",
 	)
 	if err == nil {
@@ -114,7 +120,7 @@ func TestFilterUnknownFuncRejected(t *testing.T) {
 func topicSet(res []processor.Result) map[string]bool {
 	m := map[string]bool{}
 	for _, r := range res {
-		m[string(r.TopicID)] = true
+		m[string(r.Output.StreamID)] = true
 	}
 	return m
 }
@@ -136,8 +142,8 @@ func keys(m map[string]bool) []string {
 func TestFilterRoutesSpecTaskEventsToBot(t *testing.T) {
 	// Two branches: PRs for a specific project, and everything for one task.
 	p := newFilterProc(t, []processor.Output{
-		{TopicID: "s-pm-prs", Match: `{{ if and (contains "\"event_type\":\"pr_ready\"" (printf "%s" .Message.extra)) (contains "\"project_id\":\"prj_1\"" (printf "%s" .Message.extra)) }}1{{ end }}`},
-		{TopicID: "s-task-thread", Match: `{{ if eq .Message.thread_id "task_1" }}1{{ end }}`},
+		{ID: "po-pm-prs", StreamID: "s-pm-prs", Match: `{{ if and (contains "\"event_type\":\"pr_ready\"" (printf "%s" .Message.extra)) (contains "\"project_id\":\"prj_1\"" (printf "%s" .Message.extra)) }}1{{ end }}`},
+		{ID: "po-task-thread", StreamID: "s-task-thread", Match: `{{ if eq .Message.thread_id "task_1" }}1{{ end }}`},
 	})
 
 	// A pr_ready event for task_1 in prj_1 — matches both branches.

@@ -20,6 +20,7 @@ import (
 // @Tags    wallets
 // @Success 200 {object} types.Wallet
 // @Param   org_id query string false "Organization ID"
+// @Param   discover_subscription query bool false "Discover a subscription after returning from Checkout"
 // @Router /api/v1/wallet [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Request) (*types.Wallet, *system.HTTPError) {
@@ -41,10 +42,14 @@ func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Reque
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 		}
 
-		// Everyone can check balance
+		// Everyone can check balance. A caller who isn't a member has no
+		// membership row, so the store returns ErrNotFound — that is a
+		// permission answer, not a server fault. Returning 500 here made a
+		// stale org slug in the URL look like the API was broken, and it
+		// diverged from every other org-scoped endpoint (which 403s).
 		_, err = s.authorizeOrgMember(req.Context(), user, org.ID)
 		if err != nil {
-			return nil, system.NewHTTPError500(fmt.Sprintf("failed to authorize org owner: %s", err))
+			return nil, system.NewHTTPError403(fmt.Sprintf("user is not a member of organization %s", org.ID))
 		}
 
 		orgID = org.ID
@@ -56,7 +61,7 @@ func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Reque
 	}
 
 	// Sync latest subscription state from Stripe (cancel_at_period_end, status, etc.)
-	s.Stripe.SyncSubscription(ctx, wallet)
+	s.Stripe.SyncSubscription(ctx, wallet, req.URL.Query().Get("discover_subscription") == "true")
 
 	return wallet, nil
 }
@@ -128,8 +133,9 @@ func (s *HelixAPIServer) getOrCreateWallet(ctx context.Context, user *types.User
 }
 
 type CreateTopUpRequest struct {
-	Amount float64 `json:"amount"`
-	OrgID  string  `json:"org_id"`
+	Amount    float64 `json:"amount"`
+	OrgID     string  `json:"org_id"`
+	ReturnURL string  `json:"return_url"`
 }
 
 // createTopUp godoc
@@ -153,6 +159,12 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 	if err := json.NewDecoder(req.Body).Decode(&requestBody); err != nil {
 		return "", fmt.Errorf("failed to decode request body: %w", err)
 	}
+	if _, err := stripe.ValidateCheckoutReturnURL(requestBody.ReturnURL); err != nil {
+		return "", err
+	}
+	if requestBody.Amount < 0.50 || requestBody.Amount > 999999.99 {
+		return "", fmt.Errorf("amount must be between $0.50 and $999,999.99")
+	}
 
 	if requestBody.OrgID != "" {
 		org, err := s.lookupOrg(req.Context(), requestBody.OrgID)
@@ -168,11 +180,6 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 		requestBody.OrgID = org.ID
 	}
 
-	// Validate amount
-	if requestBody.Amount <= 0 {
-		return "", fmt.Errorf("amount must be greater than 0")
-	}
-
 	// Get wallet
 	wallet, err := s.getOrCreateWallet(req.Context(), user, requestBody.OrgID)
 	if err != nil {
@@ -184,6 +191,7 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 		OrgID:            requestBody.OrgID,
 		UserID:           user.ID,
 		Amount:           requestBody.Amount,
+		ReturnURL:        requestBody.ReturnURL,
 	}
 
 	if requestBody.OrgID != "" {
@@ -247,6 +255,9 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 	var orgName string
 	orgID := req.URL.Query().Get("org_id")
 	returnURL := req.URL.Query().Get("return_url")
+	if _, err := stripe.ValidateCheckoutReturnURL(returnURL); err != nil {
+		return "", err
+	}
 
 	if orgID != "" {
 		org, err := s.lookupOrg(req.Context(), orgID)
@@ -275,7 +286,17 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 		UserID:           user.ID,
 		Amount:           s.Cfg.Stripe.InitialBalance,
 		ReturnURL:        returnURL,
+		TrialPeriodDays:  onboardingTrialPeriodDays(user, wallet, returnURL),
 	})
+}
+
+func onboardingTrialPeriodDays(user *types.User, wallet *types.Wallet, returnURL string) int64 {
+	parsedReturnURL, err := stripe.ValidateCheckoutReturnURL(returnURL)
+	if err == nil && parsedReturnURL != nil && parsedReturnURL.Path == "/onboarding" &&
+		!user.OnboardingCompleted && wallet.StripeSubscriptionID == "" {
+		return 3
+	}
+	return 0
 }
 
 // subscriptionManage godoc

@@ -110,7 +110,10 @@ func (s *AutoRestartCrashedAgentSuite) TestAutonomousRestartsAndIncrements() {
 			return &sess, nil
 		}).AnyTimes()
 
-	// The recovery itself: recreate the container.
+	// The recovery itself: recreate the container. An auto-restart goes through
+	// the same restartSessionContainer primitive as the button, so it also marks
+	// the session "restarting" before the teardown.
+	s.store.EXPECT().MarkSessionRestarting(gomock.Any(), sessionID).Return(nil).AnyTimes()
 	gomock.InOrder(
 		s.executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(nil).Times(1),
 		s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(&types.DesktopAgentResponse{DevContainerID: "dev_new"}, nil).Times(1),

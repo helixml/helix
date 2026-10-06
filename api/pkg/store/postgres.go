@@ -29,6 +29,7 @@ import (
 
 type PostgresStore struct {
 	cfg config.Store
+	*SecretIntakePersistence
 
 	gdb    *gorm.DB
 	pubsub pubsub.PubSub
@@ -75,10 +76,11 @@ func NewPostgresStore(
 	}
 
 	store := &PostgresStore{
-		cfg:    cfg,
-		gdb:    gormDB,
-		pubsub: pubsub,
-		Store:  orgstore.New(gormDB),
+		cfg:                     cfg,
+		gdb:                     gormDB,
+		pubsub:                  pubsub,
+		Store:                   orgstore.New(gormDB),
+		SecretIntakePersistence: NewSecretIntakePersistence(gormDB),
 	}
 
 	if cfg.AutoMigrate {
@@ -153,38 +155,6 @@ func (s *PostgresStore) runMigrations() error {
 		}
 	}
 
-	// One-time column rename: spec_tasks.planning_session_id -> agent_session_id.
-	// The original name reflected an early design with separate planning and
-	// implementation agents. In reality there is one agent per spec task for the
-	// whole lifecycle. GORM AutoMigrate cannot rename columns; we do it here via
-	// the GORM Migrator before AutoMigrate runs.
-	//
-	// Three states are possible on startup:
-	//   1. Only planning_session_id exists (pre-rename DB)        -> rename.
-	//   2. Both columns exist (AutoMigrate ran with the new struct
-	//      between deployments, adding an empty agent_session_id)  -> drop the
-	//      empty new column first, then rename to preserve data.
-	//   3. Only agent_session_id exists                            -> no-op.
-	if s.gdb.Migrator().HasTable(&types.SpecTask{}) {
-		hasOld := s.gdb.Migrator().HasColumn(&types.SpecTask{}, "planning_session_id")
-		hasNew := s.gdb.Migrator().HasColumn(&types.SpecTask{}, "agent_session_id")
-		if hasOld && hasNew {
-			// State 2: drop the empty new column added by AutoMigrate, then rename.
-			if err := s.gdb.WithContext(context.Background()).Exec(
-				"ALTER TABLE spec_tasks DROP COLUMN agent_session_id",
-			).Error; err != nil {
-				return fmt.Errorf("failed to drop transient agent_session_id column before rename: %w", err)
-			}
-			hasNew = false
-		}
-		if hasOld && !hasNew {
-			// State 1: rename, preserving data and the index.
-			if err := s.gdb.Migrator().RenameColumn(&types.SpecTask{}, "planning_session_id", "agent_session_id"); err != nil {
-				return fmt.Errorf("failed to rename spec_tasks.planning_session_id to agent_session_id: %w", err)
-			}
-		}
-	}
-
 	// One-time data fix: truncate oversized session names before AutoMigrate
 	// adds the varchar(255) constraint. Safe to run on every startup because
 	// the WHERE clause makes it a no-op once all names are within bounds.
@@ -245,6 +215,12 @@ func (s *PostgresStore) runMigrations() error {
 		&types.Transaction{},
 		&types.TopUp{},
 		&types.Project{},
+		&types.Artifact{},
+		&types.ArtifactVersion{},
+		&types.SecretIntake{},
+		&types.WebhookEndpoint{},
+		&types.WebhookEvent{},
+		&types.WebhookDelivery{},
 		&types.ProjectAuditLog{}, // Audit trail for project activity
 		&types.OrgAuditLog{},     // Audit trail for Helix org activity
 		&types.SampleProject{},
@@ -253,10 +229,10 @@ func (s *PostgresStore) runMigrations() error {
 		&types.SpecTaskZedThread{},
 		&types.SpecTaskExternalAgent{},
 		&types.SpecTaskDesignReview{},
+		&types.SpecTaskPRProposal{},
 		&types.SpecTaskDesignReviewComment{},
 		&types.SpecTaskDesignReviewCommentReply{},
 		&types.SpecTaskGitPushEvent{},
-		&types.SpecTaskProposal{},
 		&types.SpecTaskAttachment{},
 		&types.GitRepository{},
 		&types.ProjectRepository{}, // Junction table for project-repository many-to-many relationship
@@ -266,6 +242,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.Memory{},
 		&types.SandboxInstance{},
 		&types.Sandbox{},
+		&types.OrgCodeAgentHarness{},
 		&types.DiskUsageHistory{},
 		&types.GuidelinesHistory{},
 		&types.PromptHistoryEntry{},
@@ -279,9 +256,31 @@ func (s *PostgresStore) runMigrations() error {
 		&types.VHostRoute{},
 		&types.ProjectWebServiceState{},
 		&types.WebServiceDeploy{},
+		&types.SandboxCacheState{}, // golden_builds
 	)
 	if err != nil {
 		return err
+	}
+	if err := s.gdb.WithContext(context.Background()).Exec(
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_llm_calls_request_id ON llm_calls (request_id)",
+	).Error; err != nil {
+		return fmt.Errorf("failed to create llm_calls request ID index: %w", err)
+	}
+	// Expression index for the sessions.config lookups in
+	// GetProjectExploratorySession (config->>'project_id' = ? AND
+	// config->>'session_role' = ?). The org-bot transcript Mirror polls that
+	// lookup every 5s per tracked worker, so without an index each call is a
+	// parallel seq scan of the whole sessions table — that pinned all 16 cores
+	// of the prod runner on 2026-10-04 (~29 concurrent scans, ~850ms each over
+	// 350k rows). In code, not a migrations/*.sql file: golang-migrate runs
+	// before AutoMigrate creates the table on fresh databases, and CONCURRENTLY
+	// must stay a lone statement (it cannot run in a transaction block, so it
+	// can't be combined with an existence guard in one batch). IF NOT EXISTS
+	// keeps every restart a no-op once built.
+	if err := s.gdb.WithContext(context.Background()).Exec(
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_config_project_id_session_role ON sessions ((config->>'project_id'), (config->>'session_role'))",
+	).Error; err != nil {
+		return fmt.Errorf("failed to create sessions config lookup index: %w", err)
 	}
 	if err := s.backfillAgentKinds(context.Background()); err != nil {
 		return err
@@ -312,6 +311,26 @@ func (s *PostgresStore) runMigrations() error {
 		).Error; err != nil {
 			return fmt.Errorf("failed to backfill secret scope: %w", err)
 		}
+	}
+
+	// One-time backfill: link pre-existing session-backed sandbox rows to the
+	// helix-org bot whose session owns them. New rows get org_bot_id from the
+	// executor at BeginSession; idempotent because the WHERE excludes rows
+	// already linked.
+	if s.gdb.Migrator().HasTable(&types.Sandbox{}) && s.gdb.Migrator().HasTable(&types.Session{}) {
+		if err := s.gdb.WithContext(context.Background()).Exec(
+			`UPDATE sandboxes SET org_bot_id = s.config->>'org_worker_id'
+			 FROM sessions s
+			 WHERE sandboxes.session_id = s.id
+			   AND COALESCE(sandboxes.org_bot_id, '') = ''
+			   AND COALESCE(s.config->>'org_worker_id', '') <> ''`,
+		).Error; err != nil {
+			return fmt.Errorf("failed to backfill sandboxes.org_bot_id: %w", err)
+		}
+	}
+
+	if err := s.migrateGoldenBuildsFromProjectMetadata(context.Background()); err != nil {
+		return fmt.Errorf("failed to migrate golden build state out of project metadata: %w", err)
 	}
 
 	err = s.AutoMigrateRoleConfig(context.Background())
@@ -401,6 +420,10 @@ func (s *PostgresStore) runMigrations() error {
 	}
 	if err := createFK(s.gdb, types.ProjectRepository{}, types.GitRepository{}, "repository_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK for project_repositories -> git_repositories")
+	}
+
+	if err := createFK(s.gdb, types.SandboxCacheState{}, types.Project{}, "project_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK for golden_builds -> projects")
 	}
 
 	// Ensure default project exists for spec tasks

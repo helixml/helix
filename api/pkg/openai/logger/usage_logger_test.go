@@ -21,6 +21,8 @@ func TestUsageLogger_CreateLLMCall_SetsAllIDs(t *testing.T) {
 	call := &types.LLMCall{
 		OrganizationID:   "org_123",
 		AppID:            "app_456",
+		SessionID:        "session_654",
+		CodeAgentRuntime: types.CodeAgentRuntimeOpenCode,
 		InteractionID:    "interaction_789",
 		SpecTaskID:       "spec_task_101",
 		ProjectID:        "project_202",
@@ -38,6 +40,8 @@ func TestUsageLogger_CreateLLMCall_SetsAllIDs(t *testing.T) {
 			assert.Equal(t, "org_123", metric.OrganizationID)
 			assert.Equal(t, "app_456", metric.AppID)
 			assert.Equal(t, "interaction_789", metric.InteractionID)
+			assert.Equal(t, "session_654", metric.SessionID)
+			assert.Equal(t, types.CodeAgentRuntimeOpenCode, metric.CodeAgentRuntime)
 			assert.Equal(t, "spec_task_101", metric.SpecTaskID)
 			assert.Equal(t, "project_202", metric.ProjectID)
 			assert.Equal(t, "user_303", metric.UserID)

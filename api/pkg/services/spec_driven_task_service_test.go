@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -15,6 +17,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func testSpecTaskCodeAgentConfig() *types.CodeAgentExecutionConfig {
+	return &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeZedAgent,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "provider-test",
+		Model:          "model-test",
+	}
+}
 
 func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -40,22 +51,23 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 
 	ctx := context.Background()
 	req := &types.CreateTaskRequest{
-		ProjectID:                "test-project",
-		Prompt:                   "Create a user authentication system",
-		Type:                     "feature",
-		Priority:                 types.SpecTaskPriorityHigh,
-		UserID:                   "test-user",
-		CodeAgentOverrides:       &types.CodeAgentOverrides{Model: "gpt-5.6-sol", ReasoningEffort: "high"},
+		ProjectID: "test-project",
+		Prompt:    "Create a user authentication system",
+		Type:      "feature",
+		Priority:  types.SpecTaskPriorityHigh,
+		UserID:    "test-user",
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeCodexCLI, CredentialType: types.CodeAgentCredentialTypeSubscription,
+			Model: "gpt-5.6-sol", ReasoningEffort: "high",
+		},
 		SandboxResourceOverrides: &types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192},
+		SandboxRuntime:           types.SandboxRuntimeHeadlessUbuntu,
 	}
 
 	// Mock expectations
 	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{
-		ID:                "test-project",
-		DefaultHelixAppID: "test-app-id",
-	}, nil)
-	mockStore.EXPECT().GetApp(ctx, "test-app-id").Return(&types.App{
-		ID: "test-app-id",
+		ID:              "test-project",
+		CodeAgentConfig: req.CodeAgentConfig,
 	}, nil)
 	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
 	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
@@ -66,8 +78,10 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 			assert.Equal(t, "test-user", task.CreatedBy)
 			assert.Equal(t, "feature", task.Type)
 			assert.Equal(t, types.SpecTaskPriorityHigh, task.Priority)
-			assert.Equal(t, req.CodeAgentOverrides, task.CodeAgentOverrides)
+			assert.Equal(t, req.CodeAgentConfig, task.CodeAgentConfig)
+			assert.Equal(t, req.CodeAgentConfig, task.PlanningCodeAgentConfig)
 			assert.Equal(t, req.SandboxResourceOverrides, task.SandboxResourceOverrides)
+			assert.Equal(t, types.SandboxRuntimeHeadlessUbuntu, task.SandboxRuntime)
 			// Task number and design doc path should be assigned at creation
 			assert.Equal(t, 1, task.TaskNumber)
 			assert.NotEmpty(t, task.DesignDocPath)
@@ -93,6 +107,140 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	assert.NotEmpty(t, task.DesignDocPath)
 
 	// Note: Goroutine will fail gracefully, we only test the synchronous part
+}
+
+func TestSpecDrivenTaskService_PreparingAttachmentTaskDefersCreationAudit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(
+		mockStore, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	var auditWG sync.WaitGroup
+	service.SetAuditLogWaitGroup(&auditWG)
+	ctx := context.Background()
+	config := testSpecTaskCodeAgentConfig()
+	mockStore.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID: "project-1", CodeAgentConfig: config,
+	}, nil)
+	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
+	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			require.Equal(t, types.TaskStatusPreparing, task.Status)
+			return nil
+		},
+	)
+	mockStore.EXPECT().CreateProjectAuditLog(gomock.Any(), gomock.Any()).Times(0)
+
+	task, err := service.CreateTaskFromPromptPreparingAttachments(ctx, &types.CreateTaskRequest{
+		ProjectID: "project-1",
+		Prompt:    "Use the attached brief",
+		UserID:    "user-1",
+		UserEmail: "user@example.com",
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.TaskStatusPreparing, task.Status)
+	auditWG.Wait()
+}
+
+func TestSpecDrivenTaskService_SnapshotsProjectPhaseAgents(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(
+		mockStore, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+	ctx := context.Background()
+	planner := &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription, Model: "planner",
+	}
+	implementer := &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeCodexCLI, CredentialType: types.CodeAgentCredentialTypeSubscription, Model: "implementer",
+	}
+	mockStore.EXPECT().GetProject(ctx, "project_1").Return(&types.Project{
+		ID: "project_1", PlanningCodeAgentConfig: planner, CodeAgentConfig: implementer,
+	}, nil)
+	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
+	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			require.Equal(t, planner, task.PlanningCodeAgentConfig)
+			require.Equal(t, implementer, task.CodeAgentConfig)
+			require.NotSame(t, planner, task.PlanningCodeAgentConfig)
+			require.NotSame(t, implementer, task.CodeAgentConfig)
+			return nil
+		},
+	)
+
+	_, err := service.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
+		ProjectID: "project_1", UserID: "user_1", Prompt: "Do work",
+	})
+	require.NoError(t, err)
+}
+
+func TestSpecDrivenTaskService_SnapshotsDelegatedClaudeOwner(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(
+		mockStore, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+	ctx := context.Background()
+	config := &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+	}
+	mockStore.EXPECT().GetProject(ctx, "project_1").Return(&types.Project{
+		ID: "project_1", OrganizationID: "org_1", CodeAgentConfig: config,
+	}, nil)
+	mockStore.EXPECT().GetDelegatedClaudeSubscriptionForOrg(ctx, "org_1").Return(
+		&types.ClaudeSubscription{OwnerID: "usr_delegate"}, nil,
+	)
+	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
+	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			require.Equal(t, "usr_delegate", task.CredentialOwnerID)
+			return nil
+		},
+	)
+
+	task, err := service.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
+		ProjectID: "project_1", UserID: "usr_member", Prompt: "Do work",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "usr_delegate", task.CredentialOwnerID)
+}
+
+func TestSpecDrivenTaskService_ExplicitClaudeOwnerWins(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(
+		mockStore, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+	ctx := context.Background()
+	mockStore.EXPECT().GetProject(ctx, "project_1").Return(&types.Project{
+		ID: "project_1", OrganizationID: "org_1",
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+		},
+	}, nil)
+	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
+	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).Return(nil)
+
+	task, err := service.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
+		ProjectID: "project_1", UserID: "usr_member", Prompt: "Do work", CredentialOwnerID: "usr_explicit",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "usr_explicit", task.CredentialOwnerID)
+}
+
+func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsInvalidSandboxRuntime(t *testing.T) {
+	service := NewSpecDrivenTaskService(
+		nil, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	task, err := service.CreateTaskFromPrompt(context.Background(), &types.CreateTaskRequest{
+		SandboxRuntime: types.SandboxRuntime("windows-desktop"),
+	})
+	require.EqualError(t, err, `invalid spec task sandbox runtime "windows-desktop"`)
+	require.Nil(t, task)
 }
 
 func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsInvalidSandboxPreset(t *testing.T) {
@@ -123,13 +271,21 @@ func TestSpecDrivenTaskService_AutoStartAssignsStarter(t *testing.T) {
 	service.SetTestMode(true)
 
 	ctx := context.Background()
-	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{ID: "test-project"}, nil)
+	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{
+		ID:                              "test-project",
+		DefaultSandboxRuntime:           types.SandboxRuntimeHeadlessUbuntu,
+		DefaultSandboxResourceOverrides: &types.SandboxResourceOverrides{VCPUs: 8, MemoryMB: 16384},
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+		},
+	}, nil)
 	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
 	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
 		func(_ context.Context, task *types.SpecTask) error {
 			require.Equal(t, "starter", task.AssigneeID)
 			require.Equal(t, "starter", task.PlanningStartedBy)
-			require.Equal(t, types.DefaultSpecTaskSandboxResources(), task.SandboxResourceOverrides)
+			require.Equal(t, &types.SandboxResourceOverrides{VCPUs: 8, MemoryMB: 16384}, task.SandboxResourceOverrides)
+			require.Equal(t, types.SandboxRuntimeHeadlessUbuntu, task.SandboxRuntime)
 			return nil
 		},
 	)
@@ -165,6 +321,10 @@ func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsBlankExistingBranch(t 
 	task, err := service.CreateTaskFromPrompt(context.Background(), &types.CreateTaskRequest{
 		BranchMode:    types.BranchModeExisting,
 		WorkingBranch: "   ",
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeZedAgent, CredentialType: types.CodeAgentCredentialTypeAPIKey,
+			ProviderRef: "openai", Model: "gpt-5.6-sol",
+		},
 	})
 
 	require.EqualError(t, err, "working branch is required for existing branch mode")
@@ -363,14 +523,15 @@ func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testin
 	// Task has SpecApprovedBy/SpecApprovedAt set but SpecApproval is nil —
 	// this is the broken state from the approveImplementation fallback bug.
 	taskInDB := &types.SpecTask{
-		ID:             "task-stuck",
-		ProjectID:      "project-1",
-		Status:         types.TaskStatusSpecApproved,
-		SpecApprovedBy: "user-1",
-		SpecApprovedAt: &approvedAt,
-		SpecApproval:   nil, // <-- the bug: this was never set
-		TaskNumber:     42,
-		Name:           "stuck-task",
+		ID:              "task-stuck",
+		ProjectID:       "project-1",
+		Status:          types.TaskStatusSpecApproved,
+		SpecApprovedBy:  "user-1",
+		SpecApprovedAt:  &approvedAt,
+		SpecApproval:    nil, // <-- the bug: this was never set
+		TaskNumber:      42,
+		Name:            "stuck-task",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
 	}
 
 	mockStore.EXPECT().GetSpecTask(ctx, "task-stuck").Return(taskInDB, nil)
@@ -386,7 +547,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testin
 		ctx,
 		"task-stuck",
 		gomock.Any(),
-		types.TaskStatusImplementation,
+		types.TaskStatusImplementationQueued,
 		gomock.Any(),
 	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, extraFields map[string]any) (bool, error) {
 		// Synthesized SpecApproval must be persisted in the same atomic UPDATE,
@@ -399,6 +560,9 @@ func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testin
 		assert.Contains(t, jsonStr, "user-1")
 		return true, nil
 	})
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx, "task-stuck", gomock.Any(), types.TaskStatusImplementation, gomock.Any(),
+	).Return(true, nil)
 
 	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-stuck"})
 	require.NoError(t, err)
@@ -427,14 +591,15 @@ func TestSpecDrivenTaskService_ApproveSpecs_NilSpecApprovalAndNilApprovedAt(t *t
 
 	// Both SpecApproval and SpecApprovedAt are nil — worst case scenario.
 	taskInDB := &types.SpecTask{
-		ID:             "task-worst-case",
-		ProjectID:      "project-1",
-		Status:         types.TaskStatusSpecApproved,
-		SpecApprovedBy: "user-1",
-		SpecApprovedAt: nil,
-		SpecApproval:   nil,
-		TaskNumber:     43,
-		Name:           "worst-case-task",
+		ID:              "task-worst-case",
+		ProjectID:       "project-1",
+		Status:          types.TaskStatusSpecApproved,
+		SpecApprovedBy:  "user-1",
+		SpecApprovedAt:  nil,
+		SpecApproval:    nil,
+		TaskNumber:      43,
+		Name:            "worst-case-task",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
 	}
 
 	mockStore.EXPECT().GetSpecTask(ctx, "task-worst-case").Return(taskInDB, nil)
@@ -450,8 +615,11 @@ func TestSpecDrivenTaskService_ApproveSpecs_NilSpecApprovalAndNilApprovedAt(t *t
 		ctx,
 		"task-worst-case",
 		gomock.Any(),
-		types.TaskStatusImplementation,
+		types.TaskStatusImplementationQueued,
 		gomock.Any(),
+	).Return(true, nil)
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx, "task-worst-case", gomock.Any(), types.TaskStatusImplementation, gomock.Any(),
 	).Return(true, nil)
 
 	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-worst-case"})
@@ -489,12 +657,13 @@ func TestSpecDrivenTaskService_ApproveSpecsUsesCustomBaseForNewBranch(t *testing
 		ProjectID:         "project-1",
 		CreatedBy:         "user-1",
 		Status:            types.TaskStatusSpecApproved,
-		AgentSessionID: "session-1",
+		PlanningSessionID: "session-1",
 		SpecApproval:      &types.SpecApprovalResponse{Approved: true},
 		BranchMode:        types.BranchModeNew,
 		BaseBranch:        "release/2.0",
 		TaskNumber:        44,
 		Name:              "custom-base-task",
+		CodeAgentConfig:   testSpecTaskCodeAgentConfig(),
 	}
 	project := &types.Project{ID: "project-1", DefaultRepoID: "repo-1"}
 	repo := &types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}
@@ -506,12 +675,15 @@ func TestSpecDrivenTaskService_ApproveSpecsUsesCustomBaseForNewBranch(t *testing
 		ctx,
 		task.ID,
 		gomock.Any(),
-		types.TaskStatusImplementation,
+		types.TaskStatusImplementationQueued,
 		gomock.Any(),
 	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, fields map[string]any) (bool, error) {
 		assert.Equal(t, "release/2.0", fields["base_branch"])
 		return true, nil
 	})
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx, task.ID, gomock.Any(), types.TaskStatusImplementation, gomock.Any(),
+	).Return(true, nil)
 	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{repo}, nil).Times(2)
 
 	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: task.ID})
@@ -521,6 +693,7 @@ func TestSpecDrivenTaskService_ApproveSpecsUsesCustomBaseForNewBranch(t *testing
 	assert.Contains(t, checkoutCommand[2], "git fetch origin 'release/2.0'")
 	assert.Contains(t, checkoutCommand[2], "origin/'release/2.0'")
 	assert.NotContains(t, checkoutCommand[2], "origin/'main'")
+	assert.NotContains(t, checkoutCommand[2], "git push")
 	assert.Contains(t, approvalPrompt, "git fetch origin release/2.0 && git merge origin/release/2.0")
 	assert.NotContains(t, approvalPrompt, "git fetch origin main && git merge origin/main")
 }
@@ -554,12 +727,13 @@ func TestSpecDrivenTaskService_ApproveSpecsDoesNotCheckoutExistingBranch(t *test
 		ProjectID:         "project-1",
 		CreatedBy:         "user-1",
 		Status:            types.TaskStatusSpecApproved,
-		AgentSessionID: "session-1",
+		PlanningSessionID: "session-1",
 		SpecApproval:      &types.SpecApprovalResponse{Approved: true},
 		BranchMode:        types.BranchModeExisting,
 		BranchName:        "existing-work",
 		TaskNumber:        45,
 		Name:              "existing-branch-task",
+		CodeAgentConfig:   testSpecTaskCodeAgentConfig(),
 	}
 	project := &types.Project{ID: "project-1", DefaultRepoID: "repo-1"}
 	repo := &types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}
@@ -571,8 +745,11 @@ func TestSpecDrivenTaskService_ApproveSpecsDoesNotCheckoutExistingBranch(t *test
 		ctx,
 		task.ID,
 		gomock.Any(),
-		types.TaskStatusImplementation,
+		types.TaskStatusImplementationQueued,
 		gomock.Any(),
+	).Return(true, nil)
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx, task.ID, gomock.Any(), types.TaskStatusImplementation, gomock.Any(),
 	).Return(true, nil)
 	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{repo}, nil).Times(2)
 
@@ -620,10 +797,11 @@ func TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace(t *testing
 		ID:                "task-loser",
 		ProjectID:         "project-1",
 		Status:            types.TaskStatusSpecApproved,
-		AgentSessionID: "ses-loser",
+		PlanningSessionID: "ses-loser",
 		SpecApproval:      &types.SpecApprovalResponse{Approved: true, ApprovedBy: "user-1"},
 		TaskNumber:        99,
 		Name:              "loser-task",
+		CodeAgentConfig:   testSpecTaskCodeAgentConfig(),
 	}
 
 	mockStore.EXPECT().GetSpecTask(ctx, "task-loser").Return(taskInDB, nil)
@@ -640,13 +818,112 @@ func TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace(t *testing
 		ctx,
 		"task-loser",
 		gomock.Any(),
-		types.TaskStatusImplementation,
+		types.TaskStatusImplementationQueued,
 		gomock.Any(),
 	).Return(false, nil)
 
 	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-loser"})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrImplementationHandoffAlreadyClaimed)
 	assert.Equal(t, 0, sendCalls, "messageSender must not be invoked when atomic transition loses the race")
+}
+
+func TestSpecDrivenTaskService_ApproveSpecsLeavesRecoverableMarkerWhenHandoffFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(mockStore, nil, "agent", nil, nil, nil, nil, nil, NewDisabledKoditService())
+	service.TransitionToImplementation = func(context.Context, *types.SpecTask, string) error {
+		return errors.New("switch failed")
+	}
+	task := &types.SpecTask{
+		ID: "task-retry", ProjectID: "project-1", CreatedBy: "user-1",
+		Status: types.TaskStatusSpecApproved, PlanningSessionID: "session-1",
+		SpecApproval: &types.SpecApprovalResponse{Approved: true},
+		BranchMode:   types.BranchModeExisting, BranchName: "feature/retry",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+	}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{ID: task.ProjectID, DefaultRepoID: "repo-1"}, nil).Times(2)
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-1").Return(&types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}, nil)
+	mockStore.EXPECT().TransitionSpecTaskStatus(gomock.Any(), task.ID, gomock.Any(), types.TaskStatusImplementationQueued, gomock.Any()).Return(true, nil)
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{}, nil).Times(2)
+
+	err := service.ApproveSpecs(context.Background(), task)
+	require.EqualError(t, err, "switch failed")
+	assert.Equal(t, types.TaskStatusImplementationQueued, task.Status)
+}
+
+func TestSpecDrivenTaskService_ApproveSpecsRedrivesPendingHandoff(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(mockStore, nil, "agent", nil, nil, nil, nil, nil, NewDisabledKoditService())
+	handoffCalls := 0
+	service.TransitionToImplementation = func(context.Context, *types.SpecTask, string) error {
+		handoffCalls++
+		return nil
+	}
+	task := &types.SpecTask{
+		ID: "task-retry", ProjectID: "project-1", CreatedBy: "user-1",
+		Status: types.TaskStatusImplementationQueued, PlanningSessionID: "session-1",
+		SpecApproval: &types.SpecApprovalResponse{Approved: true},
+		BranchMode:   types.BranchModeExisting, BranchName: "feature/retry",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+	}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{ID: task.ProjectID, DefaultRepoID: "repo-1"}, nil).Times(2)
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-1").Return(&types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}, nil)
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{}, nil).Times(2)
+	mockStore.EXPECT().TransitionSpecTaskStatus(gomock.Any(), task.ID, []types.SpecTaskStatus{types.TaskStatusImplementationQueued}, types.TaskStatusImplementation, gomock.Any()).Return(true, nil)
+
+	require.NoError(t, service.ApproveSpecs(context.Background(), task))
+	assert.Equal(t, 1, handoffCalls)
+	assert.Equal(t, types.TaskStatusImplementation, task.Status)
+}
+
+func TestSpecDrivenTaskService_ApproveSpecsWakesStoppedDesktop(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(mockStore, nil, "agent", nil, nil, nil, nil, nil, NewDisabledKoditService())
+	execErrors := []error{connman.ErrNoConnection, connman.ErrReconnectTimeout, nil}
+	execCalls := 0
+	service.ExecInDesktop = func(context.Context, string, []string) error {
+		err := execErrors[execCalls]
+		execCalls++
+		if err == nil {
+			return nil
+		}
+		return fmt.Errorf("failed to connect to desktop via RevDial: %w", err)
+	}
+	handoffCalls := 0
+	service.TransitionToImplementation = func(context.Context, *types.SpecTask, string) error {
+		handoffCalls++
+		return nil
+	}
+	wokenSession := ""
+	wakeCalls := 0
+	service.WakeDesktop = func(sessionID string) {
+		wokenSession = sessionID
+		wakeCalls++
+	}
+	task := &types.SpecTask{
+		ID: "task-retry", ProjectID: "project-1", CreatedBy: "user-1",
+		Status: types.TaskStatusImplementationQueued, PlanningSessionID: "session-1",
+		SpecApproval: &types.SpecApprovalResponse{Approved: true},
+		BranchMode:   types.BranchModeNew, BranchName: "feature/retry", BaseBranch: "main",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+	}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil).Times(3)
+	mockStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{ID: task.ProjectID, DefaultRepoID: "repo-1"}, nil).Times(4)
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-1").Return(&types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}, nil).Times(3)
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{}, nil).Times(2)
+	mockStore.EXPECT().TransitionSpecTaskStatus(gomock.Any(), task.ID, []types.SpecTaskStatus{types.TaskStatusImplementationQueued}, types.TaskStatusImplementation, gomock.Any()).Return(true, nil)
+
+	require.NoError(t, service.ApproveSpecs(context.Background(), task))
+	require.NoError(t, service.ApproveSpecs(context.Background(), task))
+	require.NoError(t, service.ApproveSpecs(context.Background(), task))
+	assert.Equal(t, task.PlanningSessionID, wokenSession)
+	assert.Equal(t, 2, wakeCalls)
+	assert.Equal(t, 1, handoffCalls)
+	assert.Equal(t, types.TaskStatusImplementation, task.Status)
 }
 
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
@@ -713,7 +990,7 @@ func TestSyncGitIdentityToApprover_Success(t *testing.T) {
 			return &types.User{ID: "approver-1", FullName: "Approver One", Email: "approver@example.com"}, nil
 		})
 
-	task := &types.SpecTask{ID: "task-1", AgentSessionID: "ses-1", SpecApprovedBy: "approver-1"}
+	task := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "approver-1"}
 	require.NoError(t, svc.syncGitIdentityToUser(context.Background(), task, task.SpecApprovedBy, "approver"))
 
 	require.Len(t, *calls, 2, "expected email then name")
@@ -747,7 +1024,7 @@ func TestSyncGitIdentityToApprover_FallsBackToUsernameThenEmailLocalPart(t *test
 
 			mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(tc.user, nil)
 
-			task := &types.SpecTask{ID: "task-1", AgentSessionID: "ses-1", SpecApprovedBy: "u"}
+			task := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "u"}
 			require.NoError(t, svc.syncGitIdentityToUser(context.Background(), task, task.SpecApprovedBy, "approver"))
 
 			require.Len(t, *calls, 2)
@@ -762,7 +1039,7 @@ func TestSyncGitIdentityToApprover_NoOpCases(t *testing.T) {
 		svc, _, ctrl := newIdentitySyncService(t, exec)
 		defer ctrl.Finish()
 		svc.SetTestMode(true)
-		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{AgentSessionID: "s", SpecApprovedBy: "u"}, "u", "approver"))
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{PlanningSessionID: "s", SpecApprovedBy: "u"}, "u", "approver"))
 		assert.Empty(t, *calls, "testMode should not exec")
 	})
 	t.Run("no session", func(t *testing.T) {
@@ -776,19 +1053,19 @@ func TestSyncGitIdentityToApprover_NoOpCases(t *testing.T) {
 		exec, calls := recordingExec()
 		svc, _, ctrl := newIdentitySyncService(t, exec)
 		defer ctrl.Finish()
-		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{AgentSessionID: "s"}, "", "approver"))
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{PlanningSessionID: "s"}, "", "approver"))
 		assert.Empty(t, *calls)
 	})
 	t.Run("ExecInDesktop nil", func(t *testing.T) {
 		svc, _, ctrl := newIdentitySyncService(t, nil)
 		defer ctrl.Finish()
-		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{AgentSessionID: "s", SpecApprovedBy: "u"}, "u", "approver"))
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{PlanningSessionID: "s", SpecApprovedBy: "u"}, "u", "approver"))
 	})
 }
 
 func TestSyncGitIdentityToApprover_ErrorsSurface(t *testing.T) {
 	ctx := context.Background()
-	baseTask := &types.SpecTask{ID: "task-1", AgentSessionID: "ses-1", SpecApprovedBy: "u"}
+	baseTask := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "u"}
 
 	t.Run("GetUser error bubbles up", func(t *testing.T) {
 		exec, calls := recordingExec()
@@ -855,7 +1132,7 @@ func TestSyncGitIdentityToUser_UsesExplicitUserID(t *testing.T) {
 	// helper honours the userID argument, not the task field.
 	task := &types.SpecTask{
 		ID:                "task-x",
-		AgentSessionID: "ses-x",
+		PlanningSessionID: "ses-x",
 		SpecApprovedBy:    "someone-else",
 		PlanningStartedBy: "planner-42",
 	}

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  isSandboxBrowserNavigationMessage,
   parseSandboxBrowserTarget,
+  sandboxDisplayUrlFromPreview,
   sandboxPreviewUrl,
   sandboxPreviewURLWithScheme,
 } from './sandboxBrowserUrl'
@@ -59,5 +61,41 @@ describe('sandboxPreviewUrl', () => {
       'https://share-blue-fox.dev.localhost:8080/dashboard?q=one#status',
       false,
     )).toBe('http://share-blue-fox.dev.localhost:8080/dashboard?q=one#status')
+  })
+})
+
+describe('sandboxDisplayUrlFromPreview', () => {
+  it('maps a navigated preview path back to its localhost address', () => {
+    expect(sandboxDisplayUrlFromPreview(
+      'http://localhost:8080/',
+      'http://share-blue-fox.dev.localhost:8080/',
+      'http://share-blue-fox.dev.localhost:8080/dashboard?q=one#status',
+    )).toBe('http://localhost:8080/dashboard?q=one#status')
+  })
+
+  it('rejects navigation reports from another origin', () => {
+    expect(sandboxDisplayUrlFromPreview(
+      'http://localhost:8080/',
+      'http://share-blue-fox.dev.localhost:8080/',
+      'https://example.com/dashboard',
+    )).toBeUndefined()
+  })
+})
+
+describe('isSandboxBrowserNavigationMessage', () => {
+  it('accepts complete bridge messages', () => {
+    expect(isSandboxBrowserNavigationMessage({
+      type: 'helix:sandbox-browser:navigate',
+      href: 'http://share-blue-fox.dev.localhost:8080/dashboard',
+      navigationType: 'push',
+    })).toBe(true)
+  })
+
+  it('rejects malformed bridge messages', () => {
+    expect(isSandboxBrowserNavigationMessage({
+      type: 'helix:sandbox-browser:navigate',
+      href: 42,
+      navigationType: 'push',
+    })).toBe(false)
   })
 })

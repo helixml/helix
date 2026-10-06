@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"sync"
@@ -31,6 +32,7 @@ func main() {
 		HTTPPort:      os.Getenv("SCREENSHOT_PORT"),
 		XDGRuntimeDir: os.Getenv("XDG_RUNTIME_DIR"),
 		SessionID:     os.Getenv("HELIX_SESSION_ID"),
+		WorkspaceOnly: os.Getenv("HELIX_HEADLESS") == "1",
 	}
 
 	// Apply defaults
@@ -65,7 +67,7 @@ func main() {
 	// Mount MCP handler on the desktop HTTP server so it's reachable via RevDial.
 	// RevDial tunnels to port 9876 (this server), so the API gateway proxy
 	// sends MCP requests to /mcp on this server.
-	if mcpEnabled {
+	if mcpEnabled && !cfg.WorkspaceOnly {
 		mcpCfg := desktop.MCPConfig{
 			ScreenshotURL: fmt.Sprintf("http://localhost:%s/screenshot", cfg.HTTPPort),
 		}
@@ -85,16 +87,17 @@ func main() {
 	// Start RevDial client if enabled and configured
 	// This allows the API to reach this desktop container through NAT/firewalls
 	if revdialEnabled && apiURL != "" && runnerID != "" && runnerToken != "" {
+		localAddr := net.JoinHostPort("127.0.0.1", cfg.HTTPPort)
 		logger.Info("starting RevDial client",
 			"api_url", apiURL,
 			"runner_id", runnerID,
-			"local_addr", fmt.Sprintf("localhost:%s", cfg.HTTPPort))
+			"local_addr", localAddr)
 
 		revdialClient := revdial.NewClient(&revdial.ClientConfig{
 			ServerURL:          apiURL,
 			RunnerID:           runnerID,
 			RunnerToken:        runnerToken,
-			LocalAddr:          fmt.Sprintf("localhost:%s", cfg.HTTPPort),
+			LocalAddr:          localAddr,
 			InsecureSkipVerify: true, // TODO: make configurable for enterprise CAs
 		})
 

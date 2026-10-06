@@ -85,7 +85,10 @@ export class WebSocketStream {
   // Heartbeat for stale connection detection
   private heartbeatIntervalId: ReturnType<typeof setInterval> | null = null
   private lastMessageTime = 0
-  private heartbeatTimeout = 10000  // 10 seconds without data = stale
+  // 10 seconds without ANY message = stale. The server answers our 500ms pings
+  // and sends a StreamStatus every 2s until video flows, so silence this long
+  // means the connection is dead, not that the desktop is slow.
+  private heartbeatTimeout = 10000
 
   // Connection stability tracking - for diagnosing reconnect loops
   private lastOpenTime = 0  // Timestamp when connection was established
@@ -335,6 +338,16 @@ export class WebSocketStream {
     // @ts-ignore - accessing private methods for patching
     this.input.sendKey = (isDown: boolean, key: number, modifiers: number) => {
       wsStream.sendKey(isDown, key, modifiers)
+    }
+    // Keysym paths are how virtual keyboards deliver characters. Without these
+    // patches they write to a null RTCDataChannel and are silently dropped.
+    // @ts-ignore
+    this.input.sendKeysym = (isDown: boolean, keysym: number, modifiers: number) => {
+      wsStream.sendKeysym(isDown, keysym, modifiers)
+    }
+    // @ts-ignore
+    this.input.sendKeysymTap = (keysym: number, modifiers: number = 0) => {
+      wsStream.sendKeysymTap(keysym, modifiers)
     }
     // @ts-ignore
     this.input.sendMouseMove = (movementX: number, movementY: number) => {
@@ -806,7 +819,9 @@ export class WebSocketStream {
   }
 
   private handleControlMessage(msg: any) {
-    console.log("[WebSocketStream] Control message:", msg)
+    if (!msg.StreamStatus) {
+      console.log("[WebSocketStream] Control message:", msg)
+    }
 
     if (msg.ConnectionComplete) {
       const { capabilities, width, height } = msg.ConnectionComplete
@@ -815,6 +830,13 @@ export class WebSocketStream {
         capabilities: capabilities || { touch: false },
       })
       this.input.onStreamStart(capabilities || { touch: false }, [width, height])
+    } else if (msg.StreamStatus) {
+      // Sent from the moment init is received until the first frame. Pipeline
+      // construction can take over a minute on a loaded host; these messages
+      // are what keep the stale detector below from tearing the socket down.
+      if (msg.StreamStatus.state === "starting_video") {
+        this.dispatchInfoEvent({ type: "videoStarting", elapsedMs: msg.StreamStatus.elapsed_ms ?? 0 })
+      }
     } else if (msg.error) {
       this.dispatchInfoEvent({ type: "error", message: msg.error })
     }
@@ -1706,6 +1728,26 @@ export class WebSocketStream {
     this.sendInputMessage(WsMessageType.KeyboardInput, this.inputBuffer.subarray(0, 5))
   }
 
+  // Keysym input names the CHARACTER, not the physical key position, so the
+  // backend resolves the shift level itself. This is the only correct path for
+  // virtual keyboards, which emit a symbol with no accompanying Shift key event.
+  sendKeysym(isDown: boolean, keysym: number, modifiers: number) {
+    // Format: subType(1) + isDown(1) + modifiers(1) + keysym(4 BE)
+    this.inputBuffer[0] = 2 // sub-type for keysym
+    this.inputBuffer[1] = isDown ? 1 : 0
+    this.inputBuffer[2] = modifiers
+    this.inputView.setUint32(3, keysym, false) // big-endian
+    this.sendInputMessage(WsMessageType.KeyboardInput, this.inputBuffer.subarray(0, 7))
+  }
+
+  sendKeysymTap(keysym: number, modifiers: number = 0) {
+    // Format: subType(1) + modifiers(1) + keysym(4 BE) — backend synthesizes press+release
+    this.inputBuffer[0] = 3 // sub-type for keysym tap
+    this.inputBuffer[1] = modifiers
+    this.inputView.setUint32(2, keysym, false) // big-endian
+    this.sendInputMessage(WsMessageType.KeyboardInput, this.inputBuffer.subarray(0, 6))
+  }
+
   sendMouseMove(movementX: number, movementY: number) {
     const now = performance.now()
     const elapsed = now - this.lastMouseSendTime
@@ -2275,40 +2317,13 @@ export class WebSocketStream {
   }
 
   getInput(): StreamInput {
-    // Return the underlying StreamInput that's been configured
-    // The caller will use onKeyDown, onMouseMove, etc. which internally
-    // call sendKey, sendMouseMove, etc.
-    // We need to patch the send methods to use our WebSocket transport
-    const wsStream = this
-    const patchedInput = this.input
-
-    // Override the send methods on the StreamInput instance
-    // @ts-ignore - accessing private methods for patching
-    patchedInput.sendKey = (isDown: boolean, key: number, modifiers: number) => {
-      wsStream.sendKey(isDown, key, modifiers)
-    }
-    // @ts-ignore
-    patchedInput.sendMouseMove = (movementX: number, movementY: number) => {
-      wsStream.sendMouseMove(movementX, movementY)
-    }
-    // @ts-ignore
-    patchedInput.sendMousePosition = (x: number, y: number, refW: number, refH: number) => {
-      wsStream.sendMousePosition(x, y, refW, refH)
-    }
-    // @ts-ignore
-    patchedInput.sendMouseButton = (isDown: boolean, button: number) => {
-      wsStream.sendMouseButton(isDown, button)
-    }
-    // @ts-ignore
-    patchedInput.sendMouseWheelHighRes = (deltaX: number, deltaY: number) => {
-      wsStream.sendMouseWheelHighRes(deltaX, deltaY)
-    }
-    // @ts-ignore
-    patchedInput.sendMouseWheel = (deltaX: number, deltaY: number) => {
-      wsStream.sendMouseWheel(deltaX, deltaY)
-    }
-
-    return patchedInput
+    // Return the underlying StreamInput with every send method routed to this
+    // WebSocket transport. patchInputMethods() is the single source of truth for
+    // that list and is idempotent — this used to be a hand-maintained duplicate
+    // of it, which is how the keysym paths ended up unpatched and silently
+    // dropping every character a virtual keyboard produced.
+    this.patchInputMethods()
+    return this.input
   }
 
   addInfoListener(listener: WsStreamInfoEventListener) {

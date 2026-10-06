@@ -282,13 +282,20 @@ func (s *PostgresStore) GetSandboxInstancesOlderThanHeartbeat(ctx context.Contex
 // FindAvailableSandboxInstance finds a sandbox host that is online, has recent heartbeat, and has the required desktop version.
 // Returns nil if no suitable sandbox host is found.
 //
+// requiresDisplay narrows the search to render-capable hosts. Pass true when
+// the container will run a compositor and be streamed; pass false for
+// headless containers, which still need the versioned toolchain image named
+// by desktopType but have no display or encoder to satisfy. A CPU-only host
+// (gpu_vendor "none" / render_node "SOFTWARE") is a perfectly good home for
+// headless work and is only excluded when requiresDisplay is true.
+//
 // Uses config.DefaultSandboxDispatchStaleThreshold (90s) as the dispatch
 // staleness filter. The Runner-side heartbeat cadence is 30s (see
 // cmd/sandbox-heartbeat/main.go:27 `HeartbeatInterval`), so 90s = 3
 // heartbeat intervals: a Runner that misses one beat stays selectable;
 // missing two-or-more excludes it from new dispatch. The reaper uses the
 // looser SandboxStaleThreshold for UI/reporting state.
-func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
+func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, desktopType string, requiresDisplay bool) (*types.SandboxInstance, error) {
 	staleThreshold := time.Now().Add(-config.DefaultSandboxDispatchStaleThreshold)
 	var instances []*types.SandboxInstance
 	err := s.gdb.WithContext(ctx).
@@ -301,10 +308,11 @@ func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, deskto
 
 	// Find one with the required desktop version
 	for _, instance := range instances {
-		// Sandboxes only run on render-capable hosts. A neuron/inf2 host
-		// (no /dev/dri render node) would otherwise be picked on load
-		// alone, then the desktop container FATALs at startup.
-		if !instance.CanHostSandbox() {
+		// Streamed desktops only run on render-capable hosts. A neuron/inf2
+		// host (no /dev/dri render node) would otherwise be picked on load
+		// alone, then the desktop container FATALs at startup. Headless
+		// containers have no such constraint.
+		if requiresDisplay && !instance.CanHostDesktop() {
 			continue
 		}
 		if len(instance.DesktopVersions) > 0 {

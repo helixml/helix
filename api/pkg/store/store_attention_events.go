@@ -88,8 +88,7 @@ func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organiz
 	if filters.MineOnly {
 		// Task events: mine when I'm the assignee (priority) or the creator.
 		// Org messages have no spec task but are addressed straight at this user
-		// (the outer user_id = ? already scopes them), so an ask_human sent to me
-		// is always "mine" — include every event that has no spec task.
+		// (the outer user_id = ? already scopes them), so they are always "mine".
 		mineFilter = "AND (spec_task_id = '' OR spec_task_id IN (" +
 			"SELECT id FROM spec_tasks " +
 			"WHERE assignee_id = ? " +
@@ -243,6 +242,19 @@ func (s *PostgresStore) DismissAttentionEventsForTask(ctx context.Context, specT
 	}
 
 	return result.RowsAffected, nil
+}
+
+// DismissAttentionEventByKey dismisses the undismissed event with the given
+// idempotency key, e.g. a PR proposal's approval request once it is decided.
+func (s *PostgresStore) DismissAttentionEventByKey(ctx context.Context, idempotencyKey string) error {
+	if idempotencyKey == "" {
+		return fmt.Errorf("idempotency key is required")
+	}
+	now := time.Now()
+	return s.gdb.WithContext(ctx).
+		Model(&types.AttentionEvent{}).
+		Where("idempotency_key = ? AND dismissed_at IS NULL", idempotencyKey).
+		Update("dismissed_at", &now).Error
 }
 
 // CleanupExpiredAttentionEvents deletes dismissed events older than the given duration.

@@ -123,7 +123,7 @@ func (c templateConfig) Process(_ context.Context, in streaming.Message, out []O
 	m := in
 	m.Body = buf.String()
 	m.BodyContentType = "text/plain"
-	return []Result{{TopicID: out[0].TopicID, Message: m}}, nil
+	return []Result{{Output: out[0], Message: m}}, nil
 }
 
 // template is the Strategy for KindTemplate.
@@ -150,7 +150,7 @@ func (template) ParseConfig(raw json.RawMessage) (Config, error) {
 // "" too (missingkey=zero). The Message envelope's `extra` is exposed
 // verbatim for transport-specific fields.
 //
-// `.Event` metadata (ID, TopicID, Source, CreatedAt) is intentionally
+// `.Event` metadata (ID, StreamID, Source, CreatedAt) is intentionally
 // not threaded in v1: Process receives only the Message, keeping the
 // Config interface pure. Add it when a template actually needs event
 // provenance.

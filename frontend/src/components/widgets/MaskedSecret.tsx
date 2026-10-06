@@ -3,6 +3,7 @@ import Box from '@mui/material/Box';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import { Copy, Check, Eye, EyeOff } from 'lucide-react';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 const MASK = '•'.repeat(16); // 16 bullets, fixed width — does not encode key length
 const DEFAULT_AUTO_HIDE_MS = 30_000;
@@ -76,7 +77,7 @@ const MaskedSecret: FC<MaskedSecretProps> = ({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(value);
+      await copyTextToClipboard(value);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {

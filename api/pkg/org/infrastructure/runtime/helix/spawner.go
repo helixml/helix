@@ -55,6 +55,11 @@ type SpawnerConfig struct {
 	Model    string
 	// Credentials forwards to WorkerProject.Credentials. See there.
 	Credentials string
+	// SandboxRuntime / SandboxResources are the org-level sandbox defaults a
+	// Bot inherits when it sets none of its own. Empty / nil fall through to
+	// the global spec-task defaults (ubuntu-desktop, standard preset).
+	SandboxRuntime   types.SandboxRuntime
+	SandboxResources *types.SandboxResourceOverrides
 	// SpecsMandate is an optional full activation mandate override.
 	// Empty uses the Bot's current Content.
 	SpecsMandate string
@@ -191,7 +196,8 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 				}
 			}
 			defer func() {
-				if completeErr := cfg.Store.Activations.Complete(ctx, orgID, act.ID, activation.OutcomeFromError(retErr), cfg.Now()); completeErr != nil && cfg.Logger != nil {
+				// A deleted or restarted bot cancels ctx; the row must still close.
+				if completeErr := cfg.Store.Activations.Complete(context.WithoutCancel(ctx), orgID, act.ID, activation.OutcomeFromError(retErr), cfg.Now()); completeErr != nil && cfg.Logger != nil {
 					cfg.Logger.Warn("helix spawner: complete activation row", "worker", workerID, "activation", act.ID, "err", completeErr)
 				}
 			}()
@@ -295,12 +301,17 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			sessionName = string(workerID)
 		}
 		instructions := briefing.BuildInstructions(workerID, mandate)
-		if err := cfg.prepareAgentInstructions(startupCtx, orgID, workerID, sessionName, instructions); err != nil {
+		launch := EffectiveLaunchConfig(bot, cfg.SandboxRuntime, cfg.SandboxResources)
+		if err := cfg.prepareAgentInstructions(startupCtx, orgID, workerID, sessionName, instructions, launch); err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
 		}
 		prompt := briefing.BuildPrompt(triggers)
-		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, instructions, prompt, bot.PreserveContext, publish)
+		interactionTrigger := ""
+		if triggers[0].Kind == activation.TriggerHire {
+			interactionTrigger = types.InteractionTriggerOrgHire
+		}
+		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, instructions, prompt, interactionTrigger, bot.PreserveContext, launch, publish)
 		if err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
@@ -324,14 +335,16 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 // prepareAgentInstructions refreshes an existing session before its old ACP
 // thread is cleared. Fresh sessions receive the same content through
 // StartSessionParams, which stores it on the session for Hydra to materialize
-// before the desktop starts.
-func (c SpawnerConfig) prepareAgentInstructions(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions string) error {
+// before the desktop starts. The launch config rides along so a Bot whose
+// sandbox runtime/size changed since the session was created lands the new
+// values on the session before any path can auto-start its container.
+func (c SpawnerConfig) prepareAgentInstructions(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions string, launch SessionLaunchConfig) error {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return fmt.Errorf("prepare agent instructions: load worker state: %w", err)
 	}
 	if state.SessionID != "" {
-		if err := c.Client.SyncAgentProfile(ctx, state.SessionID, sessionName, string(workerID), instructions); err != nil {
+		if err := c.Client.SyncAgentProfile(ctx, state.SessionID, sessionName, string(workerID), instructions, launch); err != nil {
 			return fmt.Errorf("prepare agent instructions: sync existing session: %w", err)
 		}
 	}
@@ -408,14 +421,14 @@ func sanitizeLogValue(value string) string {
 // Two paths:
 //   - **Follow-up** (state.SessionID exists): POST
 //     /api/v1/sessions/{id}/messages. Helix queues the message and
-//     pickupWaitingInteraction delivers it on agent reconnect — no
+//     the reconnect resume path delivers it on agent reconnect — no
 //     warmup loop, no cold-start handling on our side.
 //   - **First activation** (no session yet): POST /sessions/chat to
 //     create the session. The dispatch may race the desktop's WS
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions, prompt string, preserveContext bool, _ func(string)) (string, string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions, prompt, interactionTrigger string, preserveContext bool, launch SessionLaunchConfig, _ func(string)) (string, string, error) {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return "", "", err
@@ -493,12 +506,14 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 		// is owned only by the org-service user and every other org admin
 		// gets a 403 loading the worker's chat. The owner-chat bridge path
 		// sets this via EnsureAndSend too; the activation path must match.
-		OrganizationID: orgID,
-		AppID:          state.AgentID,
-		AgentType:      AgentType,
-		Prompt:         prompt,
-		WorkerID:       string(workerID),
-		Instructions:   instructions,
+		OrganizationID:     orgID,
+		AppID:              state.AgentID,
+		AgentType:          AgentType,
+		Prompt:             prompt,
+		WorkerID:           string(workerID),
+		Instructions:       instructions,
+		InteractionTrigger: interactionTrigger,
+		Launch:             launch,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("ensure session: %w", err)
@@ -540,6 +555,9 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID, priorIntera
 			observedCurrentInteraction = true
 			if IsTerminalOutput(out) {
 				if out.Status == "error" {
+					if strings.Contains(strings.ToLower(out.Output), types.ErrorInsufficientBalance) {
+						return fmt.Errorf("%w: session error: %s", activation.ErrNonRetryable, briefing.OneLine(out.Output, 500))
+					}
 					return fmt.Errorf("session error: %s", briefing.OneLine(out.Output, 500))
 				}
 				return nil
@@ -639,7 +657,7 @@ func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
 // shared transcript.Recorder so the helix spawner's call sites stay
 // terse. The owner-chat bridge records through the same recorder — both
 // paths produce identical event shapes on s-transcript-<workerID>.
-func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.NodeID, _ streaming.TopicID, body string) {
+func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.NodeID, _ streaming.StreamID, body string) {
 	_, _ = newTranscriptRecorder(cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger).Record(ctx, orgID, workerID, body)
 }
 

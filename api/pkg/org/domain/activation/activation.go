@@ -10,6 +10,9 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
+// ErrNonRetryable marks an activation failure that durable delivery must not replay.
+var ErrNonRetryable = errors.New("non-retryable activation error")
+
 // ID is the typed identifier for one Activation row. Format
 // convention: `a-<uuid>` — mirrors `e-…` for events, `w-…` for
 // Workers, `s-…` for Topics. Empty IDs are rejected at construction
@@ -51,7 +54,7 @@ type Activation struct {
 	StartedAt      time.Time
 	EndedAt        *time.Time
 	Outcome        Outcome
-	TranscriptID   streaming.TopicID
+	TranscriptID   streaming.StreamID
 }
 
 // New constructs an Activation, validating invariants. orgID is

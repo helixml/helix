@@ -18,13 +18,13 @@ import (
 type Subscription struct {
 	OrganizationID string
 	NodeID         string // orgchart.NodeID
-	TopicID        TopicID
+	TopicID        StreamID
 	CreatedAt      time.Time
 }
 
 // NewSubscription validates and constructs a Subscription. orgID is
 // required — subscriptions are tenant-scoped.
-func NewSubscription(botID string, topicID TopicID, createdAt time.Time, orgID string) (Subscription, error) {
+func NewSubscription(botID string, topicID StreamID, createdAt time.Time, orgID string) (Subscription, error) {
 	if botID == "" {
 		return Subscription{}, errors.New("subscription botId is empty")
 	}

@@ -47,15 +47,17 @@ const (
 	AttentionEventPrefix       = "atev_"
 	EvaluationSuitePrefix      = "evs_"
 	EvaluationRunPrefix        = "evr_"
-	SpecTaskProposalPrefix     = "stp_"
 	SandboxPrefix              = "sbx_"
 	SandboxCommandPrefix       = "sbcmd_"
 	RunnerProfilePrefix        = "rprof_"
 	SpecTaskAttachmentPrefix   = "att_"
+	PRProposalPrefix           = "prp_"
 	OrgInvitationPrefix        = "oin_"
 	VHostRoutePrefix           = "vhr_"
 	WebServiceDeployPrefix     = "wsd_"
 	PromptHistoryPrefix        = "prompt_"
+	ArtifactPrefix             = "art_"
+	ArtifactVersionPrefix      = "artv_"
 )
 
 func GenerateUUID() string {
@@ -193,10 +195,6 @@ func GenerateSpecTaskID() string {
 	return fmt.Sprintf("%s%s", SpecTaskPrefix, newID())
 }
 
-func GenerateSpecTaskProposalID() string {
-	return fmt.Sprintf("%s%s", SpecTaskProposalPrefix, newID())
-}
-
 func GenerateCloneGroupID() string {
 	return fmt.Sprintf("%s%s", CloneGroupPrefix, newID())
 }
@@ -241,6 +239,10 @@ func GenerateSpecTaskAttachmentID() string {
 	return fmt.Sprintf("%s%s", SpecTaskAttachmentPrefix, newID())
 }
 
+func GeneratePRProposalID() string {
+	return fmt.Sprintf("%s%s", PRProposalPrefix, newID())
+}
+
 func GenerateOrgInvitationID() string {
 	return fmt.Sprintf("%s%s", OrgInvitationPrefix, newID())
 }
@@ -255,6 +257,14 @@ func GeneratePromptHistoryID() string {
 
 func GenerateWebServiceDeployID() string {
 	return fmt.Sprintf("%s%s", WebServiceDeployPrefix, newID())
+}
+
+func GenerateArtifactID() string {
+	return fmt.Sprintf("%s%s", ArtifactPrefix, newID())
+}
+
+func GenerateArtifactVersionID() string {
+	return fmt.Sprintf("%s%s", ArtifactVersionPrefix, newID())
 }
 
 // GenerateGitRepositoryID mints a unique id for a git repository row.

@@ -34,13 +34,17 @@ const QUERY_KEYS = {
     offset?: number,
     sort?: 'created' | 'updated' | 'last_message',
     participantIds?: string[],
+    organizationId?: string,
+    createdByOrgBot?: string,
   ) =>
     [
       "spec-tasks",
       "list",
-      { projectId, archivedOnly, withDependsOn, labels, limit, offset, sort, participantIds },
+      { projectId, archivedOnly, withDependsOn, labels, limit, offset, sort, participantIds, organizationId, createdByOrgBot },
     ] as const,
   specTask: (id: string) => ["spec-tasks", id] as const,
+  foregroundPRRefresh: (id: string) =>
+    ["spec-task-pr-refresh", id] as const,
   executionConfig: (id: string) => ["spec-tasks", id, "execution-config"] as const,
   specTaskUsage: (id: string) => ["spec-tasks", id, "usage"] as const,
   taskProgress: (id: string) => ["spec-tasks", id, "progress"] as const,
@@ -97,6 +101,13 @@ export function useSpecTasks(options?: {
   offset?: number;
   sort?: 'created' | 'updated' | 'last_message';
   participantIds?: string[];
+  /**
+   * List across every project the caller can read instead of one project.
+   * Mutually exclusive with projectId.
+   */
+  organizationId?: string;
+  /** Only tasks created by this Org Bot handle. */
+  createdByOrgBot?: string;
   enabled?: boolean;
   refetchInterval?: number | false;
 }) {
@@ -112,10 +123,14 @@ export function useSpecTasks(options?: {
       options?.offset,
       options?.sort,
       options?.participantIds,
+      options?.organizationId,
+      options?.createdByOrgBot,
     ),
     queryFn: async () => {
       const response = await api.getApiClient().v1SpecTasksList({
-        project_id: options?.projectId || "default",
+        project_id: options?.organizationId ? undefined : options?.projectId || "default",
+        organization_id: options?.organizationId,
+        created_by_org_bot: options?.createdByOrgBot,
         include_archived: options?.archivedOnly,
         with_depends_on: options?.withDependsOn,
         labels:
@@ -252,6 +267,30 @@ export function useSpecTask(
     enabled: options?.enabled !== false && !!taskId,
     refetchInterval:
       options?.refetchInterval !== undefined ? options.refetchInterval : 10000,
+  });
+}
+
+// Keep external PR and CI state fresh while a task detail surface is mounted.
+// React Query pauses this interval for background browser tabs and shares one
+// request between duplicate views of the same task.
+export function useForegroundSpecTaskPRRefresh(taskId: string, enabled: boolean) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.foregroundPRRefresh(taskId),
+    queryFn: async () => {
+      await api.getApiClient().v1SpecTasksRefreshPullRequestCreate(taskId);
+      await queryClient.invalidateQueries({
+        queryKey: QUERY_KEYS.specTask(taskId),
+        exact: true,
+      });
+      return null;
+    },
+    enabled: enabled && !!taskId,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    retry: false,
   });
 }
 

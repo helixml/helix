@@ -51,7 +51,12 @@ const ChartVisibilityMenu: FC<{
   selected: string[]
   onChange: (selected: string[]) => void
   allLabel?: string
-}> = ({ label, icon, options, selected, onChange, allLabel = `All ${label.toLowerCase()}` }) => {
+  // counts overrides the button's "shown/total" badge for menus whose
+  // options are categories rather than the entities themselves — the
+  // operator cares how many things are on the chart, not how many
+  // checkboxes are ticked.
+  counts?: { shown: number; total: number }
+}> = ({ label, icon, options, selected, onChange, allLabel = `All ${label.toLowerCase()}`, counts }) => {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const [query, setQuery] = useState('')
   const selectedSet = useMemo(() => new Set(selected), [selected])
@@ -96,7 +101,7 @@ const ChartVisibilityMenu: FC<{
         aria-expanded={Boolean(anchorEl)}
         sx={chartToolbarButtonSx}
       >
-        {label} {selected.length}/{options.length}
+        {label} {counts ? counts.shown : selected.length}/{counts ? counts.total : options.length}
       </Button>
       <Menu
         anchorEl={anchorEl}

@@ -20,29 +20,105 @@ type acpTurnUsage struct {
 	CachedWriteTokens int `json:"cached_write_tokens"`
 }
 
+type acpContextUsage struct {
+	UsedTokens int `json:"used_tokens"`
+	MaxTokens  int `json:"max_tokens"`
+}
+
+func decodeACPTurnUsage(syncMsg *types.SyncMessage) (acpTurnUsage, bool, error) {
+	var usage acpTurnUsage
+	rawUsage := syncMsg.Data["usage"]
+	if rawUsage == nil {
+		return usage, false, nil
+	}
+	encoded, err := json.Marshal(rawUsage)
+	if err != nil {
+		return usage, false, fmt.Errorf("failed to encode ACP usage: %w", err)
+	}
+	if err := json.Unmarshal(encoded, &usage); err != nil {
+		return usage, false, fmt.Errorf("failed to decode ACP usage: %w", err)
+	}
+	return usage, true, nil
+}
+
+func applyACPInteractionUsage(interaction *types.Interaction, syncMsg *types.SyncMessage) error {
+	usage, usageKnown, err := decodeACPTurnUsage(syncMsg)
+	if err != nil {
+		return err
+	}
+	if usageKnown {
+		interaction.Usage.PromptTokens = usage.InputTokens
+		interaction.Usage.CompletionTokens = usage.OutputTokens
+		interaction.Usage.TotalTokens = usage.TotalTokens
+	}
+
+	rawContextUsage := syncMsg.Data["context_usage"]
+	if rawContextUsage != nil {
+		encoded, err := json.Marshal(rawContextUsage)
+		if err != nil {
+			return fmt.Errorf("failed to encode ACP context usage: %w", err)
+		}
+		var contextUsage acpContextUsage
+		if err := json.Unmarshal(encoded, &contextUsage); err != nil {
+			return fmt.Errorf("failed to decode ACP context usage: %w", err)
+		}
+		if contextUsage.UsedTokens >= 0 && contextUsage.MaxTokens > 0 {
+			interaction.Usage.ContextTokens = contextUsage.UsedTokens
+			interaction.Usage.ContextLength = contextUsage.MaxTokens
+		}
+	}
+
+	return nil
+}
+
+// applyACPTotalProcessedUsage records the cumulative number of tokens the
+// harness has processed across turns in this Helix session. ACP exposes the
+// active context window and the completed turn separately, so Helix derives
+// the cumulative value from its durable interaction history.
+func (s *HelixAPIServer) applyACPTotalProcessedUsage(ctx context.Context, interaction *types.Interaction) error {
+	if interaction == nil || interaction.Usage.TotalTokens <= 0 {
+		return nil
+	}
+	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    interaction.SessionID,
+		GenerationID: interaction.GenerationID,
+		PerPage:      10_000,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list interactions for cumulative ACP usage: %w", err)
+	}
+	total := interaction.Usage.TotalTokens
+	for _, prior := range interactions {
+		if prior == nil || prior.ID == interaction.ID || prior.State != types.InteractionStateComplete {
+			continue
+		}
+		total += prior.Usage.TotalTokens
+	}
+	interaction.Usage.TotalProcessedTokens = total
+	return nil
+}
+
 func (s *HelixAPIServer) recordACPUsage(
 	ctx context.Context,
 	session *types.Session,
 	interaction *types.Interaction,
 	syncMsg *types.SyncMessage,
 ) error {
-	var usage acpTurnUsage
-	usageKnown := false
-	rawUsage := syncMsg.Data["usage"]
-	agentName, _ := syncMsg.Data["agent_name"].(string)
-	if rawUsage != nil {
-		encoded, err := json.Marshal(rawUsage)
-		if err != nil {
-			return fmt.Errorf("failed to encode ACP usage: %w", err)
-		}
-		if err := json.Unmarshal(encoded, &usage); err != nil {
-			return fmt.Errorf("failed to decode ACP usage: %w", err)
-		}
-		usageKnown = true
+	usage, usageKnown, err := decodeACPTurnUsage(syncMsg)
+	if err != nil {
+		return err
 	}
+	agentName, _ := syncMsg.Data["agent_name"].(string)
 
 	snapshot := interaction.CodeAgentConfigSnapshot
 	if snapshot == nil {
+		if session.Metadata.SpecTaskID != "" {
+			log.Warn().
+				Str("session_id", session.ID).
+				Str("interaction_id", interaction.ID).
+				Msg("Skipping ACP usage attribution without dispatch-time spec-task snapshot")
+			return nil
+		}
 		var err error
 		snapshot, err = s.codeAgentConfigSnapshot(ctx, session)
 		if err != nil {
@@ -69,11 +145,13 @@ func (s *HelixAPIServer) recordACPUsage(
 		durationMs = int(interaction.Completed.Sub(interaction.Created).Milliseconds())
 	}
 
-	_, err := openailogger.NewUsageLogger(s.Controller.Options.Store).CreateUsageMetric(ctx, &types.UsageMetric{
+	_, err = openailogger.NewUsageLogger(s.Controller.Options.Store).CreateUsageMetric(ctx, &types.UsageMetric{
 		OrganizationID:   session.OrganizationID,
 		AppID:            snapshot.AppID,
 		UserID:           session.Owner,
 		InteractionID:    interaction.ID,
+		SessionID:        session.ID,
+		CodeAgentRuntime: snapshot.Runtime,
 		ProjectID:        session.ProjectID,
 		SpecTaskID:       session.Metadata.SpecTaskID,
 		Provider:         snapshot.Provider,
@@ -103,17 +181,36 @@ func (s *HelixAPIServer) codeAgentConfigSnapshot(ctx context.Context, session *t
 	}
 
 	appID := session.ParentApp
-	var overrides *types.CodeAgentOverrides
+	var task *types.SpecTask
+	if session.Metadata.SpecTaskID == "" && session.Metadata.CodeAgentConfig != nil {
+		config := session.Metadata.CodeAgentConfig
+		return &types.InteractionCodeAgentConfigSnapshot{
+			AppID:          appID,
+			Provider:       config.ProviderRef,
+			Model:          config.Model,
+			Runtime:        config.Runtime,
+			CredentialType: config.CredentialType,
+		}, nil
+	}
 	if session.Metadata.SpecTaskID != "" {
-		task, err := s.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+		loaded, err := s.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get spec task %s for ACP usage: %w", session.Metadata.SpecTaskID, err)
+		}
+		task = loaded
+		if config := task.ActiveCodeAgentConfig(); config != nil {
+			return &types.InteractionCodeAgentConfigSnapshot{
+				Provider:       config.ProviderRef,
+				Model:          config.Model,
+				Runtime:        config.Runtime,
+				CredentialType: config.CredentialType,
+			}, nil
 		}
 		if task.HelixAppID != "" {
 			appID = task.HelixAppID
 		}
-		overrides = task.CodeAgentOverrides
 	}
+	overrides := effectiveCodeAgentOverrides(session, task)
 	if appID == "" {
 		return nil, nil
 	}

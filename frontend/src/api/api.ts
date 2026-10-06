@@ -9,75 +9,27 @@
  * ---------------------------------------------------------------
  */
 
+export interface ApiAPIError {
+  code?: string;
+  correlation_id?: string;
+  field?: string;
+  resource?: Record<string, any>;
+  summary?: string;
+}
+
 export interface ApiAddBotParentRequest {
   parent_id?: string;
 }
 
-export interface ApiAgentDetailDTO {
-  agent_app_id?: string;
-  agent_id?: string;
-  agent_model?: string;
-  agent_runtime?: string;
-  /**
-   * AgentStatus is "running" when the bot's desktop sandbox is online,
-   * "stopped" otherwise (no session, paused, never activated). Drives
-   * the green/grey presence dot on the org chart.
-   */
-  agent_status?: string;
-  code_agent_credential_type?: TypesCodeAgentCredentialType;
-  code_agent_runtime?: TypesCodeAgentRuntime;
-  content?: string;
-  created_at?: string;
-  /**
-   * DefaultInstructions is the built-in seed prompt for this node, when
-   * one exists (currently only the Chief of Staff every org is seeded
-   * with). It lets the UI offer "reset instructions" and hide that
-   * affordance for operator-created nodes, which have no default to
-   * reset to. Detail-only: GET /bots/{id} populates it, the list does
-   * not (it would repeat kilobytes of prompt per row).
-   */
-  default_instructions?: string;
-  helix_user_id?: string;
-  id?: string;
-  identity?: Record<string, string>;
-  /**
-   * Kind is "" (agent) or "human". A human node is a person placeholder,
-   * never activated; Identity holds their cross-system handles and
-   * HelixUserID optionally links them to a Helix org member. Identity is
-   * omitted for agent bots.
-   */
-  kind?: string;
-  model?: string;
-  /**
-   * Name is the human-readable display label; empty means the UI falls
-   * back to ID. Distinct from ID, which is the immutable handle.
-   */
-  name?: string;
-  organization_id?: string;
-  parent_ids?: string[];
-  /**
-   * PreserveContext, when true, stops the runtime from wiping this
-   * Bot's chat session before each re-activation, so it accumulates
-   * context across triggers (e.g. Slack). Defaults to false.
-   */
-  preserve_context?: boolean;
-  project_id?: string;
-  project_ids?: string[];
-  provider?: string;
-  reasoning_effort?: string;
-  tools?: string[];
-  updated_at?: string;
-}
-
 export interface ApiAssetDTO {
-  agent_ids?: string[];
+  bot_ids?: string[];
   created_at?: string;
   description?: string;
   enabled?: boolean;
   id?: string;
   kind?: AssetKind;
   name?: string;
-  notes_for_agents?: string;
+  notes_for_bots?: string;
   organization_id?: string;
   server?: ApiServerAssetDTO;
   updated_at?: string;
@@ -91,22 +43,43 @@ export interface ApiAssetHealthDTO {
   tcp_reachable?: boolean;
 }
 
+export interface ApiAssetLinkDTO {
+  asset_id?: string;
+  bot_id?: string;
+  created_at?: string;
+  organization_id?: string;
+}
+
 export interface ApiAssetLinkRequest {
-  agent_id?: string;
+  bot_id?: string;
 }
 
 export interface ApiAssetLinksResponse {
-  agent_ids?: string[];
+  bot_ids?: string[];
 }
 
 export interface ApiAssetsResponse {
   assets?: ApiAssetDTO[];
 }
 
+export interface ApiAttachmentDTO {
+  created_at?: string;
+  id?: string;
+  source?: ApiSourceRefDTO;
+  worker_id?: string;
+}
+
+export interface ApiAttachmentListResponse {
+  attachments?: ApiAttachmentDTO[];
+}
+
+export interface ApiAttachmentWriteRequest {
+  source?: ApiSourceRefDTO;
+}
+
 export interface ApiBotActivateDTO {
   activation_id?: string;
-  agent_app_id?: string;
-  agent_id?: string;
+  legacy_app_id?: string;
   project_id?: string;
   session_id?: string;
 }
@@ -116,22 +89,18 @@ export interface ApiBotBadge {
 }
 
 export interface ApiBotChatDTO {
-  agent_app_id?: string;
-  agent_id?: string;
+  legacy_app_id?: string;
   project_id?: string;
 }
 
 export interface ApiBotDTO {
-  agent_app_id?: string;
-  agent_id?: string;
   agent_model?: string;
   agent_runtime?: string;
   /**
-   * AgentStatus is "running" when the bot's desktop sandbox is online,
-   * "stopped" otherwise (no session, paused, never activated). Drives
-   * the green/grey presence dot on the org chart.
+   * AgentWorkState is "working" only while the running Bot's latest
+   * interaction is still waiting for its external agent.
    */
-  agent_status?: string;
+  agent_work_state?: TypesAgentWorkState;
   code_agent_credential_type?: TypesCodeAgentCredentialType;
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
@@ -145,16 +114,15 @@ export interface ApiBotDTO {
    * not (it would repeat kilobytes of prompt per row).
    */
   default_instructions?: string;
-  helix_user_id?: string;
+  effective_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  effective_sandbox_runtime?: TypesSandboxRuntime;
   id?: string;
-  identity?: Record<string, string>;
   /**
-   * Kind is "" (agent) or "human". A human node is a person placeholder,
-   * never activated; Identity holds their cross-system handles and
-   * HelixUserID optionally links them to a Helix org member. Identity is
-   * omitted for agent bots.
+   * InstanceProfile is the effective profile of this Bot's instances (the
+   * default when the Bot never configured one).
    */
-  kind?: string;
+  instance_profile?: TypesBotInstanceProfile;
+  legacy_app_id?: string;
   model?: string;
   /**
    * Name is the human-readable display label; empty means the UI falls
@@ -169,29 +137,74 @@ export interface ApiBotDTO {
    * context across triggers (e.g. Slack). Defaults to false.
    */
   preserve_context?: boolean;
+  /**
+   * ProjectID is the bot's own Helix project — the one whose exploratory
+   * session is the bot's chat. SessionID is that session, when the bot
+   * has been activated. Both come from runtime state and let the chat
+   * sidebar list bots as top-level entries instead of surfacing their
+   * project like an ordinary one.
+   */
+  project_id?: string;
   project_ids?: string[];
   provider?: string;
   reasoning_effort?: string;
+  /**
+   * RestartRequired is true when the sandbox is running but still holds
+   * the tool list and instructions from before the last save. Drives the
+   * restart banner on the bot page and the org chat panel.
+   */
+  restart_required?: boolean;
+  sandbox_id?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime and SandboxResourceOverrides are the bot's own sandbox
+   * config in the spec-task vocabulary; empty means "inherit the org
+   * default". The Effective* fields are what the next container start will
+   * actually use once org and global defaults are applied. SandboxID /
+   * SandboxStatus come from the session-backed sandboxes row, when one
+   * exists (pending, running, stopping, stopped, failed).
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
+  sandbox_status?: string;
+  sandbox_status_message?: string;
+  session_id?: string;
+  /**
+   * Status is "running" when the bot's desktop sandbox is online,
+   * "stopped" otherwise (no session, paused, never activated). Drives
+   * the green/grey presence dot on the org chart.
+   */
+  status?: string;
   tools?: string[];
   updated_at?: string;
 }
 
 export interface ApiBotDetailDTO {
-  agent_app_id?: string;
-  /** AgentID + ProjectID — see BotChatDTO comments. */
-  agent_id?: string;
   bot?: ApiBotDTO;
+  /** LegacyAppID + ProjectID — see BotChatDTO comments. */
+  legacy_app_id?: string;
   project_id?: string;
 }
 
-export interface ApiBotSubscriptionDTO {
-  created_at?: string;
-  topic_id?: string;
-}
-
-export interface ApiBotSubscriptionsResponse {
+export interface ApiBotInstanceDTO {
   bot_id?: string;
-  subscriptions?: ApiBotSubscriptionDTO[];
+  created_at?: string;
+  disk_size_gb?: number;
+  name?: string;
+  owner?: string;
+  sandbox_runtime?: TypesSandboxRuntime;
+  /**
+   * SandboxStatus is the sandbox's external agent status: "" (stopped),
+   * "starting", "running", "restarting", "terminated_idle" …
+   */
+  sandbox_status?: string;
+  /**
+   * Secrets are the names granted when the instance was created. Values are
+   * never returned.
+   */
+  secrets?: string[];
+  session_id?: string;
+  sudo?: boolean;
+  updated_at?: string;
 }
 
 export interface ApiChartPositionDTO {
@@ -210,8 +223,34 @@ export interface ApiCreateAssetRequest {
   description?: string;
   kind?: AssetKind;
   name?: string;
-  notes_for_agents?: string;
+  notes_for_bots?: string;
   server?: ApiServerAssetWriteRequest;
+}
+
+export interface ApiCreateBotInstanceRequest {
+  /**
+   * DiskSizeGB is the persistent home filesystem capacity. Omitted defaults
+   * to 10 GB; accepted values are 1-1000.
+   */
+  disk_size_gb?: number;
+  /** Message is queued as the instance's first turn. */
+  message?: string;
+  name?: string;
+  /**
+   * SandboxRuntime overrides the Bot's instance profile runtime:
+   * "headless-ubuntu" or "ubuntu-desktop".
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
+  /**
+   * Secrets names project development secrets to grant to this instance.
+   * Omitted or empty means no project secrets.
+   */
+  secrets?: string[];
+  /**
+   * AllowSudo opts a headless instance out of no-new-privileges. It is
+   * false by default. ubuntu-desktop instances always allow sudo.
+   */
+  sudo?: boolean;
 }
 
 export interface ApiCreateBotRequest {
@@ -227,18 +266,25 @@ export interface ApiCreateBotRequest {
   name?: string;
   /**
    * Owner makes this a manager Bot: it receives the canonical owner
-   * tool set (every org-graph mutation - create_bot, delete_bot,
-   * set_bot_content, subscribe, ... - plus the read baseline) so it can
-   * hire and manage other Nodes. When true, Tools is ignored in favour
-   * of that set. Used to seed a starter/root Bot for a new org.
+   * tool set (standard worker tools plus org-management mutations such as
+   * create_bot, delete_bot, and set_bot_content) so it can hire and manage
+   * other Nodes. When true, Tools is ignored in favour of that set. Used to
+   * seed a starter/root Bot for a new org.
    */
   owner?: boolean;
   parent_id?: string;
   preserve_context?: boolean;
   provider?: string;
   reasoning_effort?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime / SandboxResourceOverrides are optional; see BotDTO.
+   * Only vcpus is read from the overrides — memory follows the preset.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
+  /** Tools contains additions to the standard worker tool set. */
   tools?: string[];
-  topics?: string[];
+  triggers?: string[];
 }
 
 export interface ApiCreateBotResponse {
@@ -246,34 +292,8 @@ export interface ApiCreateBotResponse {
   id?: string;
 }
 
-export interface ApiCreateTopicRequest {
-  /**
-   * As is the Bot that creates the topic — the bot whose chat
-   * the human is in. Empty leaves the topic unattributed (CreatedBy is
-   * cosmetic: it only anchors the node on the chart).
-   */
-  as?: string;
-  description?: string;
-  id?: string;
-  name?: string;
-  transport?: ApiTransportRequestField;
-}
-
 export interface ApiErrorResponse {
   error?: string;
-}
-
-export interface ApiEventCard {
-  body?: string;
-  created_at?: string;
-  from?: string;
-  has_message?: boolean;
-  id?: string;
-  message_body?: string;
-  source?: string;
-  subject?: string;
-  to?: string;
-  topic_id?: string;
 }
 
 export interface ApiGitHubInstallationStatus {
@@ -370,48 +390,12 @@ export interface ApiInstallGitLabWebhookResponse {
   webhook_id?: number;
 }
 
-export interface ApiMessageAttributes {
-  body?: string;
-  created_at?: string;
-  from?: string;
-  has_message?: boolean;
-  /**
-   * Raw is the canonical Message envelope JSON exactly as stored — the
-   * same shape a processor's `.Message` template/filter context sees
-   * ({"from":…,"subject":…,"body":…,"thread_id":…,…}). Lets the UI show
-   * operators which fields are available.
-   */
-  raw?: string;
-  source?: string;
-  subject?: string;
-  to?: string[];
-  topic_id?: string;
-}
-
-export interface ApiMessageResource {
-  attributes?: ApiMessageAttributes;
-  id?: string;
-  type?: string;
-}
-
-export interface ApiMessagesDocument {
-  data?: ApiMessageResource[];
-  links?: Record<string, string>;
-  meta?: ApiMessagesMeta;
-}
-
-export interface ApiMessagesMeta {
-  page?: number;
-  size?: number;
-  total?: number;
-  total_pages?: number;
-}
-
 export interface ApiOrgOverview {
   bots?: ApiBotBadge[];
 }
 
 export interface ApiProcessorOutputDTO {
+  id?: string;
   label?: string;
   /**
    * ManagedFor is set when this route is auto-managed by a reconciler for
@@ -420,8 +404,7 @@ export interface ApiProcessorOutputDTO {
    */
   managed_for?: string;
   match?: string;
-  owned?: boolean;
-  topic_id?: string;
+  source?: string;
 }
 
 export interface ApiProcessorWriteRequest {
@@ -429,7 +412,7 @@ export interface ApiProcessorWriteRequest {
     attributes?: {
       config?: Record<string, any>;
       created_by?: string;
-      input_topic_id?: string;
+      input_source?: string;
       kind?: string;
       name?: string;
       outputs?: ApiProcessorOutputDTO[];
@@ -438,22 +421,15 @@ export interface ApiProcessorWriteRequest {
   };
 }
 
-export interface ApiPublishRequest {
-  /**
-   * As is the Bot the message is sent as — the bot whose chat the
-   * human is in. Empty means human/system-origin (the dispatcher treats
-   * it as such). There is no global "owner" sender any more.
-   */
-  as?: string;
-  body?: string;
-  subject?: string;
-  threadId?: string;
-  to?: string[];
-}
-
-export interface ApiPublishResponse {
-  delivery?: PublishingDeliveryReceipt;
-  event_id?: string;
+export interface ApiPutWorkerSecretRequest {
+  account_id?: string;
+  content_type?: string;
+  description?: string;
+  export_key?: string;
+  secret_id?: string;
+  source_kind?: WorkersecretSourceKind;
+  suggested_filename?: string;
+  usage?: string;
 }
 
 export interface ApiServerAssetDTO {
@@ -494,8 +470,11 @@ export interface ApiSettingsSpecDTO {
   value?: string;
 }
 
-export interface ApiSubscribeBotRequest {
-  topic_id?: string;
+export interface ApiSourceRefDTO {
+  kind?: string;
+  output_id?: string;
+  processor_id?: string;
+  trigger_id?: string;
 }
 
 export interface ApiToolDTO {
@@ -503,36 +482,68 @@ export interface ApiToolDTO {
   name?: string;
 }
 
-export interface ApiTopicDTO {
-  can_publish?: boolean;
+export interface ApiTriggerDTO {
+  /**
+   * Activation is the resolved "how do I fire this" recipe for this
+   * Trigger: concrete URL or address, verb, and auth, with every
+   * template in the Kind's descriptor filled in.
+   */
+  activation?: TransportResolvedActivation;
+  /**
+   * AttachedWorkers are the Workers this Trigger activates — the
+   * attachment-model successor of the Topics page's subscriber list.
+   */
+  attached_workers?: string[];
   config?: Record<string, any>;
   created_at?: string;
-  created_by?: string;
   description?: string;
-  disable_reason?: string;
+  /**
+   * EffectivePublicURL is helix's public base URL (SERVER_URL), set
+   * only for provider Triggers whose webhook payload URL must be
+   * reachable from the internet, so the UI can warn on loopback.
+   */
   effective_public_url?: string;
   id?: string;
   kind?: string;
   name?: string;
-  recent_events?: ApiEventCard[];
-  subscribers?: string[];
+  revision?: string;
 }
 
-export interface ApiTopicsResponse {
-  recent?: ApiEventCard[];
-  topics?: ApiTopicDTO[];
+export interface ApiTriggerEventDTO {
+  body?: string;
+  created_at?: string;
+  id?: string;
+  source?: string;
 }
 
-export interface ApiTransportRequestField {
+export interface ApiTriggerEventsResponse {
+  events?: ApiTriggerEventDTO[];
+  limit?: number;
+  offset?: number;
+  total?: number;
+}
+
+export interface ApiTriggerKindsResponse {
+  kinds?: TransportDescriptor[];
+}
+
+export interface ApiTriggerListResponse {
+  triggers?: ApiTriggerDTO[];
+}
+
+export interface ApiTriggerWriteRequest {
   config?: Record<string, any>;
+  description?: string;
   kind?: string;
+  name?: string;
+  revision?: string;
 }
 
 export interface ApiUpdateAssetRequest {
   description?: string;
   enabled?: boolean;
   name?: string;
-  notes_for_agents?: string;
+  notes_for_bots?: string;
   server?: ApiUpdateServerAssetRequest;
 }
 
@@ -541,17 +552,24 @@ export interface ApiUpdateBotRequest {
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
   /**
-   * Identity is the per-channel handle map for a human node (slack/github/
-   * email/…). When present it replaces the stored map; absent leaves it
-   * unchanged. Only meaningful for kind=human bots.
+   * InstanceProfile replaces the profile of the Bot's instances. It applies
+   * to new instances and to existing ones on their next sandbox start.
    */
-  identity?: Record<string, string>;
+  instance_profile?: TypesBotInstanceProfile;
   model?: string;
   name?: string;
   preserve_context?: boolean;
   project_ids?: string[];
   provider?: string;
   reasoning_effort?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime / SandboxResourceOverrides patch the bot's sandbox
+   * config. A present-but-empty runtime, or vcpus=0, resets that field to
+   * inherit. Takes effect on the next container start; a running sandbox
+   * gets restart_required.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
   tools?: string[];
 }
 
@@ -564,14 +582,28 @@ export interface ApiUpdateServerAssetRequest {
   user?: string;
 }
 
-export interface ApiUpdateTopicRequest {
-  description?: string;
-  name?: string;
-  transport?: ApiTransportRequestField;
-}
-
 export interface ApiUpsertChartPositionsRequest {
   positions?: ApiChartPositionDTO[];
+}
+
+export interface ApiWorkerSecretBindingDTO {
+  account_id?: string;
+  /**
+   * Available reports whether the bound source still exists. A
+   * deleted source leaves the binding in place pointing at nothing,
+   * and this is the only signal the operator gets.
+   */
+  available?: boolean;
+  content_type?: string;
+  created_at?: string;
+  description?: string;
+  export_key?: string;
+  name?: string;
+  secret_id?: string;
+  source_kind?: WorkersecretSourceKind;
+  suggested_filename?: string;
+  updated_at?: string;
+  usage?: string;
 }
 
 export enum AssetAuthType {
@@ -581,13 +613,6 @@ export enum AssetAuthType {
 
 export enum AssetKind {
   KindServer = "server",
-}
-
-export interface AssetLink {
-  agent_id?: string;
-  asset_id?: string;
-  created_at?: string;
-  organization_id?: string;
 }
 
 export interface FilestoreConfig {
@@ -1154,17 +1179,10 @@ export interface OpenaiViolence {
   severity?: string;
 }
 
-export interface PublishingDeliveryReceipt {
-  destination?: string;
-  error?: string;
-  messageId?: string;
-  provider?: string;
-  status?: string;
-}
-
 export interface ServerActivateTrialRequest {
   credits?: number;
   days?: number;
+  org_id?: string;
   /**
    * Plan selects what to grant. "pro" grants a PAID plan via a PlanOverride
    * (no Stripe subscription) — for customers who paid out-of-band (bank
@@ -1181,6 +1199,14 @@ export interface ServerActivateTrialResponse {
 
 export interface ServerAddDomainRequest {
   hostname?: string;
+}
+
+export interface ServerAdminOrganizationsResponse {
+  organizations?: TypesOrgDetails[];
+  page?: number;
+  pageSize?: number;
+  totalCount?: number;
+  totalPages?: number;
 }
 
 export interface ServerAgentConfigAppliedResponse {
@@ -1212,7 +1238,25 @@ export interface ServerAgentSandboxesDebugResponse {
   sandboxes?: ServerSandboxInstanceInfo[];
 }
 
+export interface ServerAgentStartupErrorRequest {
+  error?: string;
+}
+
+export interface ServerAgentStartupErrorResponse {
+  interaction_id?: string;
+  status?: string;
+  transitioned?: boolean;
+}
+
 export interface ServerAppClaudeSubscriptionStatus {
+  claude_account_email?: string;
+  claude_account_name?: string;
+  /**
+   * ClaudeOrganizationID is Anthropic's organization uuid for the credential.
+   * Populated for setup tokens too, which cannot be profiled — it lets the UI
+   * say "this is the same subscription as X" without anyone typing anything.
+   */
+  claude_organization_id?: string;
   /** owner has a subscription connected at all */
   connected?: boolean;
   /** true when the editor IS the owner */
@@ -1223,9 +1267,39 @@ export interface ServerAppClaudeSubscriptionStatus {
   owner_id?: string;
   /** human-readable owner (email / full name) */
   owner_name?: string;
+  /**
+   * RefreshTokenExpiresAt is when the user must sign in again. Refreshing
+   * keeps the access token alive but does not move this, so it is the only
+   * honest basis for an expiry warning.
+   */
+  refresh_token_expires_at?: string;
   status?: string;
+  subscription_owner_id?: string;
+  subscription_owner_is_current_user?: boolean;
+  subscription_owner_name?: string;
   /** "user" or "org" — where the effective sub resolved */
   subscription_owner_type?: string;
+  /**
+   * SubscriptionRateLimitTier is the Claude org's rate-limit tier as Anthropic
+   * reports it, e.g. "default_claude_max_20x"; empty when unknown.
+   */
+  subscription_rate_limit_tier?: string;
+  /**
+   * Identity of the Claude subscription itself, populated when Connected.
+   * SubscriptionType is the plan ("pro" / "max"), empty for setup-token
+   * connections where the plan is unknown.
+   * SubscriptionOwnerName is the subscription owner's email (user-owned) or
+   * org name (org-owned) — i.e. WHOSE subscription authenticates the agent.
+   * SubscriptionOwnerIsCurrentUser is true when that owner is the requesting
+   * user's own subscription ("is it mine?" — yes).
+   *
+   * ClaudeAccountEmail/ClaudeAccountName identify the actual Claude account
+   * the token authenticates as (fetched from Anthropic's /api/oauth/profile) —
+   * the identity that gets billed. It can differ from SubscriptionOwnerName
+   * (the Helix user who connected the subscription); when no valid probe has
+   * enriched the row yet they are empty and consumers fall back to the owner.
+   */
+  subscription_type?: string;
   /** that subscription passed its last liveness probe */
   valid?: boolean;
 }
@@ -1247,22 +1321,16 @@ export interface ServerBatchTaskUsageResponse {
   tasks?: Record<string, ServerBatchTaskUsageMetric[]>;
 }
 
-export interface ServerClaudeLoginSessionResponse {
-  session_id?: string;
+export interface ServerClaudeLoginStartResponse {
+  authorize_url?: string;
+  code_verifier?: string;
+  state?: string;
 }
 
 export interface ServerClaudeModel {
   description?: string;
   id?: string;
   name?: string;
-}
-
-export interface ServerClaudePollLoginResponse {
-  /** Raw credentials JSON */
-  credentials?: string;
-  found?: boolean;
-  /** OAuth URL for native browser */
-  url?: string;
 }
 
 export interface ServerClientBufferStats {
@@ -1290,6 +1358,17 @@ export interface ServerCodexPollLoginResponse {
   url?: string;
 }
 
+export interface ServerCompleteClaudeLoginRequest {
+  code?: string;
+  code_verifier?: string;
+  /** Same ownership knobs as a direct create. */
+  name?: string;
+  organization_id?: string;
+  owner_id?: string;
+  owner_type?: TypesOwnerType;
+  state?: string;
+}
+
 export interface ServerConfigurePendingSessionRequest {
   client_unique_id?: string;
 }
@@ -1297,6 +1376,7 @@ export interface ServerConfigurePendingSessionRequest {
 export interface ServerCreateTopUpRequest {
   amount?: number;
   org_id?: string;
+  return_url?: string;
 }
 
 export interface ServerDeployWebServiceRequest {
@@ -1322,6 +1402,7 @@ export interface ServerDevContainerWithClients {
   owner_name?: string;
   project_id?: string;
   project_name?: string;
+  purpose?: string;
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
   sandbox_id?: string;
@@ -1336,6 +1417,11 @@ export interface ServerDevContainerWithClients {
   task_prompt?: string;
   vcpus?: number;
   video_stats?: ServerVideoStreamingStats;
+}
+
+export interface ServerEnsureAgentResponse {
+  connected?: boolean;
+  starting?: boolean;
 }
 
 export interface ServerForkSessionRequest {
@@ -1935,6 +2021,35 @@ export interface ServerSandboxTerminalSessionsResponse {
   sessions?: ServerSandboxTerminalSession[];
 }
 
+export interface ServerSecretIntakeConsumption {
+  values?: Record<string, string>;
+}
+
+export interface ServerSecretIntakeCreateResponse {
+  intake?: ServerSecretIntakeView;
+  invite_url?: string;
+}
+
+export interface ServerSecretIntakeRedeemRequest {
+  intake_id: string;
+  token: string;
+}
+
+export interface ServerSecretIntakeSubmissionRequest {
+  values?: Record<string, string>;
+}
+
+export interface ServerSecretIntakeView {
+  conversation_id?: string;
+  customer_id?: string;
+  expires_at?: string;
+  fields?: TypesSecretIntakeField[];
+  id?: string;
+  project_id?: string;
+  status?: string;
+  values_expires_at?: string;
+}
+
 export interface ServerSessionClaudeCredentialsResponse {
   /** "oauth" or "setup_token" */
   credential_type?: string;
@@ -2087,6 +2202,7 @@ export interface ServerTaskSpecsResponse {
 /** Disconnect a Claude subscription */
 export interface ServerUpdateClaudeSubscriptionDelegationRequest {
   delegated_org_ids?: string[];
+  switch_to_subscription?: boolean;
 }
 
 export interface ServerVideoStreamingStats {
@@ -2184,6 +2300,35 @@ export interface ServerRunnerProfileSaveRequest {
   vendor?: TypesGPUVendor;
 }
 
+export interface ServerWebhookDeliveryView {
+  attempt_count?: number;
+  created_at?: string;
+  delivered_at?: string;
+  endpoint_id?: string;
+  event_id?: string;
+  event_type?: string;
+  id?: string;
+  last_attempt_at?: string;
+  last_error?: string;
+  last_status_code?: number;
+  next_attempt_at?: string;
+  status?: TypesWebhookDeliveryStatus;
+  updated_at?: string;
+}
+
+export interface ServerWebhookEndpointRequest {
+  description?: string;
+  enabled?: boolean;
+  events?: string[];
+  project_id?: string;
+  url?: string;
+}
+
+export interface ServerWebhookEndpointSecretResponse {
+  endpoint?: TypesWebhookEndpoint;
+  secret?: string;
+}
+
 export interface ServicesStartupScriptVersion {
   author?: string;
   commit_hash?: string;
@@ -2214,6 +2359,85 @@ export interface SystemHTTPError {
   status_code?: number;
 }
 
+export interface TransportActivation {
+  address_template?: string;
+  auth_header?: string;
+  note?: string;
+  summary?: string;
+  url_template?: string;
+  verb?: string;
+}
+
+export interface TransportDescriptor {
+  activation?: TransportActivation;
+  fields?: TransportField[];
+  kind?: TransportKind;
+  label?: string;
+  secrets?: TransportSecretRef[];
+  summary?: string;
+  system_managed?: boolean;
+}
+
+export enum TransportDirection {
+  Inbound = "inbound",
+  Outbound = "outbound",
+}
+
+export interface TransportField {
+  /**
+   * Default is the value a create form seeds this field with when the
+   * Trigger has no stored config. It must itself validate.
+   */
+  default?: string;
+  direction?: TransportDirection;
+  help?: string;
+  label?: string;
+  name?: string;
+  placeholder?: string;
+  read_only?: boolean;
+  required?: boolean;
+  type?: TransportFieldType;
+}
+
+export enum TransportFieldType {
+  FieldString = "string",
+  FieldURL = "url",
+  FieldStringList = "string_list",
+  FieldCron = "cron",
+  FieldGitHubRepo = "github_repo",
+  FieldGitHubEvents = "github_events",
+  FieldGitLabRepo = "gitlab_repo",
+  FieldGitLabEvents = "gitlab_events",
+  FieldSlackWorkspace = "slack_workspace",
+  FieldSlackChannel = "slack_channel",
+}
+
+export enum TransportKind {
+  KindCron = "cron",
+  KindSlack = "slack",
+  KindGitHub = "github",
+  KindLocal = "local",
+  KindHelixEvents = "helix_events",
+  KindEmail = "email",
+  KindGitLab = "gitlab",
+  KindWebhook = "webhook",
+}
+
+export interface TransportResolvedActivation {
+  address?: string;
+  auth_header?: string;
+  note?: string;
+  summary?: string;
+  url?: string;
+  verb?: string;
+}
+
+export interface TransportSecretRef {
+  label?: string;
+  location?: string;
+  setting_key?: string;
+}
+
 export interface TypesAPIError {
   code?: any;
   message?: string;
@@ -2226,6 +2450,7 @@ export enum TypesAPIKeyType {
   APIkeytypeAPI = "api",
   APIkeytypeApp = "app",
   APIkeytypeEmbed = "embed",
+  APIkeytypeBotInstance = "bot_instance",
 }
 
 export interface TypesAccessGrant {
@@ -2332,6 +2557,25 @@ export interface TypesAgentConfig {
   secrets?: Record<string, string>;
 }
 
+export interface TypesAgentExecutionConfig {
+  agent_available?: boolean;
+  agent_id?: string;
+  agent_name?: string;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
+  /**
+   * CodeAgentOverrides is the override set the fields above were resolved
+   * with, so a caller can round-trip an edit without having to know which
+   * record (task or session) stores it.
+   */
+  code_agent_overrides?: TypesCodeAgentOverrides;
+  credential_type?: TypesCodeAgentCredentialType;
+  model?: string;
+  provider_ref?: string;
+  reasoning_effort?: string;
+  runtime?: TypesCodeAgentRuntime;
+  service_tier?: string;
+}
+
 export interface TypesAgentHelixConfig {
   assistants?: TypesAssistantConfig[];
   avatar?: string;
@@ -2345,6 +2589,11 @@ export interface TypesAgentHelixConfig {
   image?: string;
   name?: string;
   triggers?: TypesTrigger[];
+}
+
+export interface TypesAgentToolInfo {
+  description?: string;
+  name?: string;
 }
 
 export enum TypesAgentType {
@@ -2374,6 +2623,8 @@ export interface TypesAggregatedUsageMetric {
   request_size_bytes?: number;
   response_size_bytes?: number;
   sandbox_cost?: number;
+  tool_call_error_requests?: number;
+  tool_call_requests?: number;
   /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_requests?: number;
@@ -2396,6 +2647,83 @@ export interface TypesApiKey {
   /** Used for isolation and metrics tracking */
   spec_task_id?: string;
   type?: TypesAPIKeyType;
+}
+
+export interface TypesArtifact {
+  active_version?: TypesArtifactVersion;
+  active_version_id?: string;
+  created_at?: string;
+  created_by?: string;
+  deleted_at?: GormDeletedAt;
+  description?: string;
+  entrypoint?: string;
+  id?: string;
+  kind?: TypesArtifactKind;
+  name?: string;
+  organization_id?: string;
+  project_id?: string;
+  subdomain_url?: string;
+  updated_at?: string;
+  updated_by?: string;
+  url?: string;
+  visibility?: TypesArtifactVisibility;
+}
+
+export interface TypesArtifactFile {
+  content_type?: string;
+  path?: string;
+  sha256?: string;
+  size?: number;
+}
+
+export enum TypesArtifactKind {
+  ArtifactKindSingleFile = "single_file",
+  ArtifactKindSPA = "spa",
+  ArtifactKindPDF = "pdf",
+  ArtifactKindImage = "image",
+  ArtifactKindMarkdown = "markdown",
+}
+
+export interface TypesArtifactVersion {
+  artifact_id?: string;
+  content_sha256?: string;
+  created_at?: string;
+  created_by?: string;
+  file_count?: number;
+  files?: TypesArtifactFile[];
+  id?: string;
+  source_session_id?: string;
+  source_spec_task_id?: string;
+  total_bytes?: number;
+  version?: number;
+}
+
+export interface TypesArtifactVersionsListResponse {
+  versions?: TypesArtifactVersion[];
+}
+
+export interface TypesArtifactViewerResponse {
+  active_version_id?: string;
+  can_edit?: boolean;
+  description?: string;
+  id?: string;
+  kind?: TypesArtifactKind;
+  name?: string;
+  organization_id?: string;
+  organization_name?: string;
+  project_id?: string;
+  project_name?: string;
+  subdomain_url?: string;
+  visibility?: TypesArtifactVisibility;
+}
+
+export enum TypesArtifactVisibility {
+  ArtifactVisibilityProject = "project",
+  ArtifactVisibilityPublic = "public",
+}
+
+export interface TypesArtifactsListResponse {
+  artifacts?: TypesArtifact[];
 }
 
 export interface TypesAssistantAPI {
@@ -2462,7 +2790,7 @@ export interface TypesAssistantConfig {
    * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
    * which the claude-agent-acp package reads (resolveModelPreference) to pick the
    * model — otherwise Claude Code defaults to Sonnet. Empty means
-   * "claude-opus-5" (the current 1M-context Opus model).
+   * "claude-opus-5-5" (the current 1M-context Opus model).
    */
   claude_subscription_model?: string;
   /**
@@ -2703,6 +3031,7 @@ export enum TypesAttentionEventType {
   AttentionEventSpecFailed = "spec_failed",
   AttentionEventImplementationFailed = "implementation_failed",
   AttentionEventPRReady = "pr_ready",
+  AttentionEventPRProposal = "pr_proposal",
   AttentionEventOrgMessage = "org_message",
   AttentionEventCIPassed = "ci_passed",
   AttentionEventCIFailed = "ci_failed",
@@ -2817,6 +3146,30 @@ export interface TypesBoardSettings {
   wip_limits?: TypesWIPLimits;
 }
 
+export interface TypesBotInstanceProfile {
+  /**
+   * HelixSkills links the helix-* agent skills. The project repo's own
+   * skills are always linked.
+   */
+  helix_skills?: boolean;
+  /**
+   * MCPServers lists the context servers kept in an instance's agent
+   * config: built-in names above or the bot project's own MCP servers.
+   * Every other server is removed.
+   */
+  mcp_servers?: string[];
+  /**
+   * SandboxRuntime is the default runtime for new instances. Empty means the
+   * bot's own runtime.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
+  /**
+   * Tools lists the helix-org tools an instance may call. The served set is
+   * Tools ∩ the bot's own tools. Empty removes the org tools server.
+   */
+  tools?: string[];
+}
+
 export enum TypesBranchMode {
   BranchModeNew = "new",
   BranchModeExisting = "existing",
@@ -2905,12 +3258,35 @@ export interface TypesClaudeOAuthCredentials {
   expiresAt?: number;
   rateLimitTier?: string;
   refreshToken?: string;
+  /**
+   * RefreshTokenExpiresAt is Unix milliseconds. This is the one that matters
+   * for "when must I sign in again": rotation does not extend it, so it is a
+   * hard deadline anchored to the original login.
+   */
+  refreshTokenExpiresAt?: number;
   scopes?: string[];
   subscriptionType?: string;
 }
 
 export interface TypesClaudeSubscription {
   access_token_expires_at?: string;
+  account_display_name?: string;
+  /**
+   * AccountEmail is the email of the Claude account the stored token
+   * authenticates as, fetched from Anthropic's /api/oauth/profile. It is the
+   * identity that gets billed and can differ from the Helix user/org (OwnerID)
+   * that connected the subscription. Best-effort: empty until a valid probe
+   * has enriched the row.
+   */
+  account_email?: string;
+  /**
+   * ClaudeOrganizationID is Anthropic's organization uuid for the credential,
+   * captured from the anthropic-organization-id header on the liveness probe.
+   * Unlike AccountEmail it needs no OAuth scope, so it is populated for setup
+   * tokens too — it is the only *verified* identity a setup token discloses.
+   * Two subscriptions sharing it are the same Claude subscription.
+   */
+  claude_organization_id?: string;
   created?: string;
   created_by?: string;
   /** "oauth" or "setup_token" */
@@ -2937,6 +3313,15 @@ export interface TypesClaudeSubscription {
   /** "user" or "org" */
   owner_type?: TypesOwnerType;
   rate_limit_tier?: string;
+  /**
+   * RefreshTokenExpiresAt is when the login itself dies and the user must
+   * re-authenticate. Refreshing keeps the 8h access token alive but does not
+   * move this, so it is the only honest basis for an expiry warning. Zero for
+   * setup tokens, which carry no refresh token — omitzero so an absent
+   * deadline reaches the client as absent, not as "0001-01-01T00:00:00Z",
+   * which reads as a date 739850 days in the past.
+   */
+  refresh_token_expires_at?: string;
   scopes?: string[];
   /** "active", "expired", "error" */
   status?: string;
@@ -3053,6 +3438,20 @@ export interface TypesCodeAgentBakedRecipe {
   name?: string;
 }
 
+export interface TypesCodeAgentBinary {
+  /** Artifacts maps GOARCH to the downloadable archive for that platform. */
+  artifacts?: Record<string, TypesCodeAgentBinaryArtifact>;
+  /** Version is the semver of the pinned release (no leading "v"). */
+  version?: string;
+}
+
+export interface TypesCodeAgentBinaryArtifact {
+  /** SHA256 is the hex digest of the archive, as published by the release. */
+  sha256?: string;
+  /** URL is the archive to download (tar.gz containing a single binary). */
+  url?: string;
+}
+
 export interface TypesCodeAgentConfig {
   /** AgentName is the name used in Zed's agent_servers config (e.g., "qwen", "claude-code") */
   agent_name?: string;
@@ -3081,6 +3480,12 @@ export interface TypesCodeAgentConfig {
    */
   goose_recipes?: TypesCodeAgentGooseRecipe[];
   /**
+   * InputModalities and OutputModalities describe the model's accepted input
+   * and generated output types. They are omitted when the capability is
+   * unknown; code-agent runtimes must not assume attachment support.
+   */
+  input_modalities?: TypesModality[];
+  /**
    * MaxOutputTokens is the model's max completion tokens
    * Looked up from model_info.json, 0 if not found
    */
@@ -3092,6 +3497,16 @@ export interface TypesCodeAgentConfig {
   max_tokens?: number;
   /** Model is the model identifier (e.g., "claude-sonnet-4-5-latest", "gpt-4o") */
   model?: string;
+  /**
+   * OpenCodeBinary, when set, pins the opencode build the container must run
+   * instead of the one baked into the desktop image. It is only populated
+   * when an admin has set SystemSettings.OpenCodeVersion to a version newer
+   * than the baked floor. The API resolves the artifact (URL + digest) so
+   * the container never has to know the release URL scheme — that keeps the
+   * mirror decision in one place for air-gapped installs.
+   */
+  opencode_binary?: TypesCodeAgentBinary;
+  output_modalities?: TypesModality[];
   /** Provider is the LLM provider name (e.g., "anthropic", "openai", "openrouter") */
   provider?: string;
   /**
@@ -3122,6 +3537,22 @@ export enum TypesCodeAgentCredentialType {
   CodeAgentCredentialTypeSubscription = "subscription",
 }
 
+export interface TypesCodeAgentExecutionConfig {
+  credential_type?: TypesCodeAgentCredentialType;
+  /**
+   * Goose declarations are execution inputs, not Agent identity. They are
+   * copied while migrating legacy coding Apps so existing Goose tasks keep
+   * their project recipe catalogue after the App link is cleared.
+   */
+  goose_recipe_repo_url?: string;
+  goose_recipes?: TypesAssistantGooseRecipe[];
+  model?: string;
+  provider_ref?: string;
+  reasoning_effort?: string;
+  runtime?: TypesCodeAgentRuntime;
+  service_tier?: string;
+}
+
 export interface TypesCodeAgentGooseRecipe {
   name?: string;
   path?: string;
@@ -3141,6 +3572,8 @@ export enum TypesCodeAgentRuntime {
   CodeAgentRuntimeGeminiCLI = "gemini_cli",
   CodeAgentRuntimeCodexCLI = "codex_cli",
   CodeAgentRuntimeGooseCode = "goose_code",
+  CodeAgentRuntimeOpenCode = "opencode",
+  CodeAgentRuntimeDeepSeekHarness = "deepseek_harness",
 }
 
 export interface TypesCodexAuthCredentials {
@@ -3158,6 +3591,14 @@ export interface TypesCodexAuthTokens {
 }
 
 export interface TypesCodexSubscription {
+  account_display_name?: string;
+  /**
+   * Identity of the ChatGPT account the stored credential authenticates as,
+   * read from claims OpenAI signed in the id_token (verified against their
+   * JWKS — never from user input). Distinct from OwnerID, which is the Helix
+   * user/org that connected it.
+   */
+  account_email?: string;
   account_id?: string;
   auth_mode?: string;
   created?: string;
@@ -3168,15 +3609,17 @@ export interface TypesCodexSubscription {
   name?: string;
   owner_id?: string;
   owner_type?: TypesOwnerType;
+  /** PlanType is OpenAI's chatgpt_plan_type ("pro", "plus", "team", …). */
+  plan_type?: string;
   status?: string;
   updated?: string;
 }
 
 export interface TypesCommentQueueStatusResponse {
-  /** Session ID for WebSocket subscription */
-  agent_session_id?: string;
   /** Comment currently being processed (response streaming) */
   current_comment_id?: string;
+  /** Session ID for WebSocket subscription */
+  planning_session_id?: string;
   /** Comments waiting in queue */
   queued_comment_ids?: string[];
 }
@@ -3254,10 +3697,21 @@ export interface TypesCreateBranchResponse {
 }
 
 export interface TypesCreateClaudeSubscriptionRequest {
+  /**
+   * Account identity is never accepted from the caller. It is derived from
+   * Anthropic: the profile fetch for oauth credentials, and the probe's
+   * organization header for setup tokens. Self-reported identity was
+   * unverifiable free text that rendered next to agents as if authoritative.
+   */
   credentials?: {
     claudeAiOauth?: TypesClaudeOAuthCredentials;
   };
   name?: string;
+  /**
+   * OrganizationID identifies the org whose Claude Code runtime is enabled
+   * after connection. It is independent from subscription ownership.
+   */
+  organization_id?: string;
   /** Required for org-level, auto-set for user */
   owner_id?: string;
   /** "user" or "org" */
@@ -3269,6 +3723,11 @@ export interface TypesCreateClaudeSubscriptionRequest {
 export interface TypesCreateCodexSubscriptionRequest {
   credentials?: TypesCodexAuthCredentials;
   name?: string;
+  /**
+   * OrganizationID identifies the org whose Codex runtime is enabled after
+   * connection. It is independent from subscription ownership.
+   */
+  organization_id?: string;
   owner_id?: string;
   owner_type?: TypesOwnerType;
 }
@@ -3347,10 +3806,15 @@ export interface TypesCreateSecretRequest {
 }
 
 export interface TypesCreateTaskRequest {
-  /** Optional: Helix agent to use for spec generation */
-  app_id?: string;
   /** Optional: team member assigned to the task */
   assignee_id?: string;
+  /** Attachments are validated and stored before the task is exposed to dispatchers. */
+  attachments?: TypesSpecTaskInlineAttachment[];
+  /**
+   * Optional: approve the agent's pull request proposals without asking.
+   * Unset takes the project's auto_approve_pull_requests default.
+   */
+  auto_approve_pull_requests?: boolean;
   /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
   auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
@@ -3359,13 +3823,13 @@ export interface TypesCreateTaskRequest {
   branch_mode?: TypesBranchMode;
   /** For new mode: user-specified prefix (task# appended) */
   branch_prefix?: string;
-  code_agent_overrides?: TypesCodeAgentOverrides;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   /**
    * CredentialOwnerID optionally names the user whose Claude subscription should
    * authenticate this task's agent, for orchestrators dispatching work on a
    * human's behalf under one service API key. Credential resolution only — the
-   * task is still created by, owned by, and attributed to the caller. Ignored
-   * unless that user has delegated their subscription to this organization.
+   * task is still created by, owned by, and attributed to the caller. Resolution
+   * fails closed unless that user has delegated to this organization.
    */
   credential_owner_id?: string;
   /** Optional: IDs of tasks this task depends on */
@@ -3383,10 +3847,14 @@ export interface TypesCreateTaskRequest {
   just_do_it_mode?: boolean;
   /** Name is the task title. Empty means derive it from the prompt. */
   name?: string;
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
+  planning_goose_recipe_name?: string;
+  planning_goose_recipe_params?: Record<string, string>;
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   prompt?: string;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  sandbox_runtime?: TypesSandboxRuntime;
   type?: string;
   /** Optional: User email for audit trail */
   user_email?: string;
@@ -3433,8 +3901,8 @@ export interface TypesCronTrigger {
    * authenticates as the person it acts for, exactly as CreateTaskRequest does
    * for a run dispatched by hand. Credential resolution only: the task is still
    * created by, owned by, and attributed to the trigger's app owner, and the
-   * named user must have delegated their subscription to this organization or it
-   * is ignored. Currently honoured by the spec_task action.
+   * named user must have delegated their subscription to this organization or
+   * credential resolution fails closed. Currently honoured by the spec_task action.
    */
   credential_owner_id?: string;
   emails?: string[];
@@ -3508,6 +3976,12 @@ export interface TypesDynamicModelInfo {
 export enum TypesEffect {
   EffectAllow = "allow",
   EffectDeny = "deny",
+}
+
+export enum TypesEffortSource {
+  EffortSourceProbed = "probed",
+  EffortSourceCatalogue = "catalogue",
+  EffortSourceVendor = "vendor",
 }
 
 export interface TypesEvaluationAssertion {
@@ -3681,6 +4155,7 @@ export interface TypesForkRepositoriesResponse {
 }
 
 export interface TypesForkSimpleProjectRequest {
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   /**
    * ConfiguredSkillEnvVars contains user-configured env vars for skills
    * Outer key: skill name, Inner key: env var name, Value: user-provided value
@@ -3698,8 +4173,6 @@ export interface TypesForkSimpleProjectRequest {
    * Required for sample projects with RequiresGitHubAuth=true
    */
   github_connection_id?: string;
-  /** Optional: agent app to use for spec tasks (uses default if empty) */
-  helix_app_id?: string;
   /** Optional: if empty, project is personal */
   organization_id?: string;
   project_name?: string;
@@ -3789,6 +4262,14 @@ export interface TypesGitHub {
   personal_access_token?: string;
   /** PEM-encoded private key for JWT signing */
   private_key?: string;
+  review_bot_user_id?: number;
+  /**
+   * WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review
+   * deliveries with (spec task PR review feedback). Auto-generated at first
+   * webhook install; one repo's secret never validates another repo's
+   * deliveries, keeping orgs isolated on shared deployments.
+   */
+  webhook_secret?: string;
 }
 
 export interface TypesGitLab {
@@ -3957,6 +4438,7 @@ export interface TypesGitRepositoryUpdateRequest {
   /** OAuth connection for authentication */
   oauth_connection_id?: string;
   password?: string;
+  review_bot_user_id?: number;
   username?: string;
 }
 
@@ -4030,6 +4512,7 @@ export interface TypesInteraction {
    */
   last_zed_message_offset?: number;
   mode?: TypesSessionMode;
+  pending_question?: TypesPendingQuestion;
   /**
    * PromptID links this interaction back to the prompt_history_entry that
    * created it (when the interaction was dispatched by the queue, as opposed
@@ -4044,6 +4527,7 @@ export interface TypesInteraction {
   prompt_message?: string;
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
+  question_history?: TypesResolvedQuestion[];
   rag_results?: TypesSessionRAGResult[];
   /**
    * ResponseEntries holds the structured response as an ordered list of typed entries.
@@ -4284,11 +4768,18 @@ export interface TypesLLMCall {
   cache_write_cost?: number;
   /** prompt tokens written to provider cache (Anthropic only; subset of PromptTokens) */
   cache_write_tokens?: number;
+  code_agent_runtime?: TypesCodeAgentRuntime;
   completion_cost?: number;
   completion_tokens?: number;
   created?: string;
   duration_ms?: number;
   error?: string;
+  /**
+   * FinishReason is the provider's reason for stopping ("stop", "tool_calls",
+   * "length", ...). Anthropic's stop_reason is normalised onto the same
+   * vocabulary so the two proxies stay comparable.
+   */
+  finish_reason?: string;
   id?: string;
   interaction_id?: string;
   model?: string;
@@ -4299,6 +4790,7 @@ export interface TypesLLMCall {
   prompt_tokens?: number;
   provider?: string;
   request?: number[];
+  request_id?: string;
   response?: number[];
   session_id?: string;
   spec_task_id?: string;
@@ -4313,6 +4805,18 @@ export interface TypesLLMCall {
    * time to the full response.
    */
   time_to_first_token_ms?: number;
+  tool_call_error_kinds?: string;
+  tool_call_errors?: number;
+  tool_calls_returned?: number;
+  /**
+   * Tool call validity. ToolsOffered is how many tools the request carried,
+   * ToolCallsReturned how many calls came back, ToolCallErrors how many of
+   * those were structurally unusable, and ToolCallErrorKinds which buckets
+   * they fell into (see api/pkg/toolcall). Tools offered with no calls
+   * returned is not an error — it is a turn the model chose to answer in
+   * prose.
+   */
+  tools_offered?: number;
   /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_tokens?: number;
@@ -4437,6 +4941,11 @@ export interface TypesModel {
 export interface TypesModelInfo {
   author?: string;
   context_length?: number;
+  /**
+   * DefaultReasoningEffort is the value the model applies when none is sent.
+   * Empty when unknown.
+   */
+  default_reasoning_effort?: string;
   description?: string;
   input_modalities?: TypesModality[];
   max_completion_tokens?: number;
@@ -4588,13 +5097,37 @@ export interface TypesOpenAIModel {
   enabled?: boolean;
   hide?: boolean;
   id?: string;
+  /**
+   * InputModalities is the model's accepted input types ("text", "image",
+   * "file", ...). Same provenance and same nil-means-unknown rule as
+   * SupportedParameters.
+   */
+  input_modalities?: string[];
   model_info?: TypesModelInfo;
   name?: string;
   object?: string;
   owned_by?: string;
   parent?: string;
   permission?: TypesOpenAIPermission[];
+  /**
+   * ReasoningEfforts is the curated set of reasoning-effort values this model
+   * accepts. It is a separate field from ModelInfo on purpose: ModelInfo being
+   * non-nil is what the billing path reads as "this model is priceable", so
+   * effort capability — which is known for models that have no pricing entry,
+   * e.g. self-hosted vLLM deployments — must not be smuggled in through it.
+   * Nil means Helix does not know; a UI must not offer a guessed effort list,
+   * because sending a value the provider rejects aborts the whole turn.
+   */
+  reasoning_efforts?: TypesReasoningEffortProfile;
   root?: string;
+  /**
+   * SupportedParameters is the set of request parameters the model accepts,
+   * as reported by aggregators that publish it (OpenRouter's /v1/models does;
+   * plain OpenAI-compatible servers don't). Used by the model picker to
+   * filter a several-hundred-model catalogue down to, for example, the models
+   * that can actually call tools. Nil means the provider didn't say.
+   */
+  supported_parameters?: string[];
   type?: string;
 }
 
@@ -4633,6 +5166,28 @@ export interface TypesOpenAIUsage {
   total_tokens?: number;
 }
 
+export interface TypesOrgCodeAgentHarnessStatus {
+  enabled?: boolean;
+  provider_refs?: string[];
+  runtime?: TypesCodeAgentRuntime;
+  subscription_credential_type?: string;
+  subscription_enabled?: boolean;
+  subscription_owner_name?: string;
+  supports_subscription?: boolean;
+  viewer_has_subscription?: boolean;
+}
+
+export interface TypesOrgCodeAgentHarnessUpdate {
+  enabled?: boolean;
+  provider_refs?: string[];
+  runtime?: TypesCodeAgentRuntime;
+  subscription_enabled?: boolean;
+}
+
+export interface TypesOrgCodeAgentHarnessesUpdateRequest {
+  harnesses?: TypesOrgCodeAgentHarnessUpdate[];
+}
+
 export interface TypesOrgComputeUsage {
   /**
    * BillingEnabled reports whether compute is actually charged. When false
@@ -4649,7 +5204,7 @@ export interface TypesOrgComputeUsage {
 }
 
 export interface TypesOrgDetails {
-  members?: TypesUser[];
+  members?: TypesOrganizationMembership[];
   organization?: TypesOrganization;
   projects?: TypesProject[];
   wallet?: TypesWallet;
@@ -4664,8 +5219,8 @@ export interface TypesOrgUsageSummaryResponse {
   apps?: TypesUsageBreakdownRow[];
   cache_savings?: number;
   /**
-   * Compute is sandbox runtime spend. It answers the date range and the
-   * project filter; the token-shaped filters (model, provider, session)
+   * Compute is sandbox runtime spend. It answers the date range, project, and
+   * task filters; the token-shaped filters (model, provider, session)
    * don't apply to a container and leave it untouched.
    */
   compute?: TypesOrgComputeUsage;
@@ -4678,6 +5233,7 @@ export interface TypesOrgUsageSummaryResponse {
   filter_apps?: TypesUsageFilterOption[];
   filter_models?: TypesUsageFilterOption[];
   filter_projects?: TypesUsageFilterOption[];
+  filter_tasks?: TypesUsageFilterOption[];
   filter_users?: TypesUsageFilterOption[];
   helix_credits?: number;
   metrics?: TypesAggregatedUsageMetric[];
@@ -4774,6 +5330,11 @@ export interface TypesOrganizationInvitation {
 
 export interface TypesOrganizationMembership {
   created_at?: string;
+  /**
+   * Online is true when the member has authenticated against the API within
+   * PresenceOnlineWindow. Computed by the members list, never persisted.
+   */
+  online?: boolean;
   organization_id?: string;
   /** Role - the role of the user in the organization (owner or member) */
   role?: TypesOrganizationRole;
@@ -4794,6 +5355,21 @@ export enum TypesOwnerType {
   OwnerTypeSystem = "system",
   OwnerTypeSocket = "socket",
   OwnerTypeOrg = "org",
+}
+
+export interface TypesPRProposalDecisionRequest {
+  /**
+   * AutoApproveFuture, with an approval, approves this task's later
+   * proposals without asking, as the deciding user.
+   */
+  auto_approve_future?: boolean;
+  base_branch?: string;
+  body?: string;
+  comment?: string;
+  /** "approve" or "reject" */
+  decision?: string;
+  head_branch?: string;
+  title?: string;
 }
 
 export interface TypesPaginatedInteractions {
@@ -4841,6 +5417,16 @@ export interface TypesPasswordUpdateRequest {
   new_password?: string;
 }
 
+export interface TypesPendingQuestion {
+  asked_at?: string;
+  questions?: TypesUserQuestion[];
+  request_id?: string;
+  source?: string;
+  thread_id?: string;
+  tool_call_id?: string;
+  turn_request_id?: string;
+}
+
 export interface TypesPinnedChat {
   id?: string;
   kind?: string;
@@ -4885,13 +5471,33 @@ export interface TypesProfileModel {
 }
 
 export interface TypesProject {
+  /**
+   * AgentTools is the Helix MCP tool allowlist every spec task in this
+   * project inherits. Empty means no Helix MCP surface at all.
+   */
+  agent_tools?: string[];
+  /** Idle days before a stale task is archived */
+  archive_stale_tasks_days?: number;
+  /** Archive tasks idle for ArchiveStaleTasksDays */
+  archive_stale_tasks_enabled?: boolean;
+  /**
+   * AutoApprovePullRequests is the default for new spec tasks: their agents'
+   * pull request proposals are approved without asking. Each task keeps its
+   * own setting, so changing this does not affect existing tasks.
+   */
+  auto_approve_pull_requests?: boolean;
+  /** Archive automation, reconciled by the spec task orchestrator */
+  auto_archive_completed_tasks?: boolean;
   /** Automation settings */
   auto_start_backlog_tasks?: boolean;
+  /** CodeAgentConfig is the project default copied into each new SpecTask. */
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   created_at?: string;
   default_branch?: string;
   /**
-   * Default agent for spec tasks in this project (App ID)
-   * New spec tasks inherit this agent; can be overridden per-task
+   * Legacy coding-App migration source. Coding projects clear this after
+   * materializing CodeAgentConfig. Org Worker projects retain it as their Bot
+   * identity link until that separate overload is removed.
    */
   default_helix_app_id?: string;
   /**
@@ -4899,6 +5505,17 @@ export interface TypesProject {
    * DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
    */
   default_repo_id?: string;
+  /**
+   * Default sandbox resources copied into each new SpecTask. Nil means the
+   * project expresses no preference and the task resolves the global default at
+   * container-create time.
+   */
+  default_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * Default sandbox environment for new spec tasks. Empty values from legacy
+   * projects resolve to the full desktop runtime.
+   */
+  default_sandbox_runtime?: TypesSandboxRuntime;
   /** Soft delete timestamp */
   deleted_at?: GormDeletedAt;
   description?: string;
@@ -4927,6 +5544,11 @@ export interface TypesProject {
    */
   next_task_number?: number;
   organization_id?: string;
+  /**
+   * PlanningCodeAgentConfig is the planning-phase default copied into each new
+   * SpecTask. Nil preserves the historical behaviour by using CodeAgentConfig.
+   */
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
   project_manager_helix_app_id?: string;
   pull_request_reviewer_helix_app_id?: string;
   pull_request_reviews_enabled?: boolean;
@@ -5036,16 +5658,22 @@ export interface TypesProjectAuditLogResponse {
 }
 
 export interface TypesProjectCreateRequest {
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   default_branch?: string;
-  /** Default agent for spec tasks */
+  /** Org-agent identity only; coding projects use CodeAgentConfig */
   default_helix_app_id?: string;
   default_repo_id?: string;
+  /** Default sandbox resources for spec tasks */
+  default_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /** Default sandbox environment for spec tasks */
+  default_sandbox_runtime?: TypesSandboxRuntime;
   description?: string;
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
   guidelines?: string;
   name?: string;
   organization_id?: string;
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
   /** Project-level skills */
   skills?: TypesAssistantSkills;
   startup_script?: string;
@@ -5059,7 +5687,14 @@ export interface TypesProjectKanban {
 export interface TypesProjectMetadata {
   auto_warm_docker_cache?: boolean;
   board_settings?: TypesBoardSettings;
+  /** Computed from golden_builds on read */
   docker_cache_status?: TypesDockerCacheState;
+  org_members_access?: boolean;
+}
+
+export interface TypesProjectMetadataUpdate {
+  auto_warm_docker_cache?: boolean;
+  board_settings?: TypesBoardSettings;
   org_members_access?: boolean;
 }
 
@@ -5119,19 +5754,35 @@ export interface TypesProjectTaskSpec {
 }
 
 export interface TypesProjectUpdateRequest {
+  /** Helix MCP tools granted to every spec task */
+  agent_tools?: string[];
+  /** Idle days before a stale task is archived (1-365) */
+  archive_stale_tasks_days?: number;
+  /** Archive tasks idle for ArchiveStaleTasksDays */
+  archive_stale_tasks_enabled?: boolean;
+  /** Default for new spec tasks: auto-approve agent PR proposals */
+  auto_approve_pull_requests?: boolean;
+  /** Archive tasks immediately when they enter Done */
+  auto_archive_completed_tasks?: boolean;
   auto_start_backlog_tasks?: boolean;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   default_branch?: string;
-  /** Default agent for spec tasks */
+  /** Org-agent identity only; coding projects use CodeAgentConfig */
   default_helix_app_id?: string;
   default_repo_id?: string;
+  /** Default sandbox resources for spec tasks */
+  default_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /** Default sandbox environment for spec tasks */
+  default_sandbox_runtime?: TypesSandboxRuntime;
   description?: string;
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
   guidelines?: string;
   /** Whether Kodit code intelligence is enabled */
   kodit_enabled?: boolean;
-  metadata?: TypesProjectMetadata;
+  metadata?: TypesProjectMetadataUpdate;
   name?: string;
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
   /** Project manager agent */
   project_manager_helix_app_id?: string;
   /** Pull request reviewer agent */
@@ -5258,19 +5909,6 @@ export interface TypesPromptHistorySyncResponse {
   synced?: number;
 }
 
-export interface TypesProposalDecisionRequest {
-  comment?: string;
-  /** "approve" or "reject" */
-  decision: "approve" | "reject";
-  /** optional: user edits to the proposal payload (PR head_branch / title / etc.) */
-  edited_payload?: Record<string, any>;
-}
-
-export interface TypesProposalDecisionResponse {
-  message?: string;
-  proposal?: TypesSpecTaskProposal;
-}
-
 export enum TypesProvider {
   ProviderOpenAI = "openai",
   ProviderTogetherAI = "togetherai",
@@ -5314,6 +5952,16 @@ export interface TypesProviderEndpoint {
   vertex_region?: string;
 }
 
+export interface TypesProviderEndpointModels {
+  /**
+   * EnabledModels is the operator's whitelist. Empty means every model in
+   * Models is available — the default for a newly added provider.
+   */
+  enabled_models?: string[];
+  /** Models is the provider's full upstream catalogue, unfiltered. */
+  models?: TypesOpenAIModel[];
+}
+
 export enum TypesProviderEndpointStatus {
   ProviderEndpointStatusOK = "ok",
   ProviderEndpointStatusError = "error",
@@ -5337,6 +5985,11 @@ export interface TypesPublicInvitationInfo {
 
 export interface TypesPullRequest {
   author?: string;
+  /**
+   * BaseSHA is the commit SHA on the target side of the PR. CI failures on
+   * the head are only actionable when CI passed on this commit.
+   */
+  base_sha?: string;
   created_at?: string;
   description?: string;
   /**
@@ -5391,6 +6044,14 @@ export interface TypesPushResponse {
   message?: string;
   repository_id?: string;
   success?: boolean;
+}
+
+export interface TypesQuestionActionResponse {
+  status?: string;
+}
+
+export interface TypesQuestionRespondRequest {
+  answers?: Record<string, string>;
 }
 
 export interface TypesQuotaResponse {
@@ -5451,6 +6112,38 @@ export interface TypesRAGSettings {
   threshold?: number;
 }
 
+export interface TypesReasoningEffortProfile {
+  /** Default is the value applied when none is sent. Empty when unknown. */
+  default?: string;
+  /** Family is the normalized model-id prefix this profile applies to. */
+  family?: string;
+  /** Notes carries anything a debugger needs that the fields above do not say. */
+  notes?: string;
+  /** Parameter is the wire field that carries the value. */
+  parameter?: string;
+  /**
+   * Rejected lists values known to fail with an error. Deliberately separate
+   * from "absent from Supported": a value can be missing from Supported because
+   * it is silently coerced rather than because it errors, and only the erroring
+   * ones abort a turn.
+   */
+  rejected?: string[];
+  /**
+   * ResponsesOnly lists values accepted on /v1/responses but rejected on
+   * /v1/chat/completions. They are not in Supported: only a harness that
+   * speaks the Responses API may offer them.
+   */
+  responses_only?: string[];
+  /** Source is how this entry was established. */
+  source?: TypesEffortSource;
+  /** Supported lists the values the model accepts and acts on. */
+  supported?: string[];
+  /** SupportsEffort is false for models that accept no effort value at all. */
+  supports_effort?: boolean;
+  /** VerifiedAt is the date the entry was last checked (YYYY-MM-DD). */
+  verified_at?: string;
+}
+
 export interface TypesRegisterRequest {
   email?: string;
   full_name?: string;
@@ -5459,6 +6152,8 @@ export interface TypesRegisterRequest {
 }
 
 export interface TypesRepoPR {
+  ci_base_sha?: string;
+  ci_base_status?: string;
   ci_head_sha?: string;
   /**
    * CI status, populated by the spec task orchestrator's PR poll loop.
@@ -5471,11 +6166,18 @@ export interface TypesRepoPR {
   ci_status?: string;
   ci_updated_at?: string;
   ci_url?: string;
+  /**
+   * HeadBranch is the branch the PR was opened from. ProposalID links PRs
+   * opened from an approved SpecTaskPRProposal; their title and body come from
+   * the approved proposal rather than the helix-specs pull_request*.md files.
+   */
+  head_branch?: string;
   pr_id?: string;
   pr_number?: number;
   /** "open", "closed", "merged" */
   pr_state?: string;
   pr_url?: string;
+  proposal_id?: string;
   repository_id?: string;
   repository_name?: string;
 }
@@ -5509,6 +6211,19 @@ export interface TypesRepositoryInfo {
   html_url?: string;
   name?: string;
   private?: boolean;
+}
+
+export interface TypesResolvedQuestion {
+  answers?: Record<string, string>;
+  asked_at?: string;
+  outcome?: string;
+  questions?: TypesUserQuestion[];
+  request_id?: string;
+  resolved_at?: string;
+  source?: string;
+  thread_id?: string;
+  tool_call_id?: string;
+  turn_request_id?: string;
 }
 
 export enum TypesResource {
@@ -5639,6 +6354,12 @@ export interface TypesSandbox {
   image?: string;
   memory_mb?: number;
   name?: string;
+  /**
+   * OrgBotID is the helix-org bot whose session owns this container, when
+   * there is one. Denormalised from the session (org_worker_id) so the bot
+   * detail and the Sandboxes list can link both ways without joining sessions.
+   */
+  org_bot_id?: string;
   organization_id?: string;
   owner?: string;
   /**
@@ -5693,12 +6414,34 @@ export interface TypesSandbox {
 }
 
 export interface TypesSandboxCacheState {
+  /** Attempt is the 1-based attempt number for the current trigger. */
+  attempt?: number;
   build_session_id?: string;
   error?: string;
+  /** InterruptReason is why the last attempt ended without a result. */
+  interrupt_reason?: string;
+  /** when the current/last attempt started */
   last_build_at?: string;
   last_ready_at?: string;
+  /** MaxAttempts is GoldenBuildMaxAttempts, exposed for the UI. */
+  max_attempts?: number;
+  /** NextRetryAt is when the retry of an interrupted build may start. */
+  next_retry_at?: string;
+  /**
+   * PendingRebuild: a trigger arrived while a build was running; build again
+   * as soon as it finishes.
+   */
+  pending_rebuild?: boolean;
+  project_id?: string;
+  sandbox_id?: string;
   size_bytes?: number;
   status?: string;
+  /**
+   * TriggeredAt identifies the trigger (merge or manual build) the attempts
+   * belong to. A new trigger resets Attempt and the retry budget.
+   */
+  triggered_at?: string;
+  updated?: string;
 }
 
 export interface TypesSandboxFileUploadResponse {
@@ -5914,6 +6657,26 @@ export interface TypesSecret {
   value?: number[];
 }
 
+export interface TypesSecretIntakeCreateRequest {
+  accent_color?: string;
+  artifact_id?: string;
+  brand_name?: string;
+  conversation_id?: string;
+  customer_id?: string;
+  description?: string;
+  fields?: TypesSecretIntakeField[];
+  logo_url?: string;
+  title?: string;
+}
+
+export interface TypesSecretIntakeField {
+  autocomplete?: string;
+  label?: string;
+  name?: string;
+  required?: boolean;
+  type?: string;
+}
+
 export enum TypesSecretScope {
   SecretScopeDev = "dev",
   SecretScopeProd = "prod",
@@ -5931,6 +6694,15 @@ export interface TypesServerConfigForFrontend {
    * the frontend so the chat-settings page can prefill the textbox.
    */
   default_chat_system_prompt?: string;
+  /**
+   * DefaultSpecTaskSandbox is the sandbox size a new spec task gets when it
+   * specifies none. It is operator-configurable
+   * (HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS/_MEMORY_MB), so the UI has to read
+   * it from here rather than hardcode a copy — otherwise an operator who moves
+   * the default gets a task selector that marks the wrong rung "Default" while
+   * containers come up at the configured size.
+   */
+  default_spec_task_sandbox?: TypesSandboxResourceOverrides;
   deployment_id?: string;
   /**
    * DevSubdomain is the base domain used for sandbox preview hostnames.
@@ -5952,6 +6724,16 @@ export interface TypesServerConfigForFrontend {
    * Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
    */
   max_concurrent_desktops?: number;
+  /** Minimum wallet balance required for inference */
+  minimum_inference_balance?: number;
+  onboarding_helix_model?: string;
+  onboarding_helix_model_effort?: string;
+  /**
+   * Operator-selected default for the Helix-credits path through onboarding.
+   * Provider references and model IDs are identifiers, not credentials, and
+   * are safe to expose through the public frontend configuration endpoint.
+   */
+  onboarding_helix_model_provider?: string;
   organizations_create_enabled_for_non_admins?: boolean;
   /**
    * PreviewURLHTTPS controls whether generated sandbox preview URLs use
@@ -6209,6 +6991,21 @@ export interface TypesSessionChatRequest {
   type?: TypesSessionType;
 }
 
+export interface TypesSessionExecutionConfigUpdateRequest {
+  agent_id?: string;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
+  code_agent_overrides?: TypesCodeAgentOverrides;
+}
+
+export interface TypesSessionExecutionConfigUpdateResponse {
+  agent_id?: string;
+  agent_thread_restarted?: boolean;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
+  code_agent_overrides?: TypesCodeAgentOverrides;
+  session_id?: string;
+  spec_task_id?: string;
+}
+
 export interface TypesSessionInfo {
   auth_provider?: TypesAuthProvider;
   created_at?: string;
@@ -6219,6 +7016,21 @@ export interface TypesSessionInfo {
 
 export interface TypesSessionMetadata {
   active_tools?: string[];
+  /**
+   * AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop
+   * settings-sync daemon's /agent-config-applied callback for the most recent
+   * in-place switch. They are the explicit "the fast hot-reload path worked"
+   * signal that agentSwitchRestartFallback consults instead of deciding purely
+   * on a timer — without them a confirmed-applied config was still restarted
+   * 5s later, killing Zed mid-new_session().
+   *
+   * AgentHandoffDeliveredAt is only set when the handoff actually reached a
+   * live connection; a callback with nothing delivered is not evidence the
+   * turn is moving. Persisted (not an in-memory map) so it is correct when the
+   * callback lands on a different API replica than the fallback goroutine.
+   */
+  agent_config_applied_at?: string;
+  agent_handoff_delivered_at?: string;
   /**
    * AgentSwitchedAt is set when the agent framework is switched IN PLACE on
    * this same session (no fork / new container) — see
@@ -6254,8 +7066,42 @@ export interface TypesSessionMetadata {
    */
   auto_restart_on_crash?: boolean;
   avatar?: string;
+  /**
+   * BotInstance is set on org bot instance sessions (SessionRole
+   * SessionRoleOrgBotInstance): the bot's instance profile as of the last
+   * sync, which shapes the instance's MCP servers, org tools and skills.
+   */
+  bot_instance?: TypesBotInstanceProfile;
+  bot_instance_allow_sudo?: boolean;
+  /**
+   * BotInstanceDiskSizeGB is the hard capacity of the instance's persistent
+   * home filesystem. BotInstanceAllowSudo is the requested opt-out from the
+   * default no-new-privileges policy. Read both through BotInstanceDiskSize
+   * and BotInstanceSudo, which apply defaults and runtime rules.
+   */
+  bot_instance_disk_size_gb?: number;
+  /**
+   * BotInstanceSecrets names the project development secrets explicitly
+   * granted when this instance was created. Empty means no project secrets.
+   */
+  bot_instance_secrets?: string[];
   /** Webhook URL to POST on session completion */
   callback_url?: string;
+  /**
+   * CodeAgentConfig is the complete coding runtime selected for a general
+   * external-agent session. ParentApp remains the Helix Agent identity and
+   * supplies instructions/tools; this value owns runtime, credentials, model,
+   * and reasoning. SpecTask sessions keep this nil and read the task instead.
+   */
+  code_agent_config?: TypesCodeAgentExecutionConfig;
+  /**
+   * CodeAgentOverrides customizes the coding model for THIS session without
+   * mutating its Agent. Set from the chat composer's execution controls on
+   * sessions that own their configuration (org bot chat, project chat).
+   * SpecTask sessions leave this nil — SpecTask.CodeAgentConfig is
+   * authoritative there, so there is exactly one source of truth per session.
+   */
+  code_agent_overrides?: TypesCodeAgentOverrides;
   /** Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.) */
   code_agent_runtime?: TypesCodeAgentRuntime;
   /** Docker container ID */
@@ -6292,12 +7138,26 @@ export interface TypesSessionMetadata {
   executor_mode?: string;
   /** Configuration for external agents */
   external_agent_config?: TypesExternalAgentConfig;
+  /**
+   * ExternalAgentConnected reports whether the agent currently holds a live
+   * sync WebSocket — i.e. whether a message sent now would actually reach it.
+   *
+   * SEPARATE FROM ExternalAgentStatus ON PURPOSE. That field is "running" as
+   * soon as the CONTAINER is up, which is not the same thing: a container can
+   * be running for hours with Zed never having dialled home (helixml/helix#2397).
+   * Anything embedding a session — Find AI presented a chat box to candidates
+   * on this basis — needs to know it can send, not merely that a machine
+   * exists. Computed per request, never stored.
+   */
+  external_agent_connected?: boolean;
   /** NEW: External agent ID for this session */
   external_agent_id?: string;
   /** NEW: External agent status (running, stopped, terminated_idle) */
   external_agent_status?: string;
   forked_at?: string;
   forked_at_interaction_id?: string;
+  /** Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped */
+  golden_build?: boolean;
   /** GPU vendor of sandbox running this session (nvidia, amd, intel, none) */
   gpu_vendor?: string;
   helix_version?: string;
@@ -6344,6 +7204,16 @@ export interface TypesSessionMetadata {
   /** GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE) */
   render_node?: string;
   runtime_instructions?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime and SandboxResourceOverrides are the container runtime and
+   * size for an org-worker session. The org spawner writes them from the Bot
+   * on every activation and StartDesktop reads them on every launch path
+   * (fresh start, message auto-start, resume, auto-wake, reconciler), so a
+   * headless bot never comes back as a desktop. SpecTask sessions leave both
+   * empty — the task is authoritative there, as with CodeAgentConfig.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
   session_rag_results?: TypesSessionRAGResult[];
   /** "planning", "implementation", "coordination", "exploratory" */
   session_role?: string;
@@ -6434,6 +7304,64 @@ export enum TypesSessionType {
   SessionTypeImage = "image",
 }
 
+export interface TypesSessionUsage {
+  calls?: TypesSessionUsageCall[];
+  session_id?: string;
+  summary?: TypesSessionUsageSummary;
+  /**
+   * Truncated is set when the session has more calls than the endpoint returns;
+   * the summary then covers only the returned calls.
+   */
+  truncated?: boolean;
+  turns?: TypesSessionUsageTurn[];
+}
+
+export interface TypesSessionUsageCall {
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  completion_tokens?: number;
+  created?: string;
+  duration_ms?: number;
+  interaction_id?: string;
+  model?: string;
+  prompt_tokens?: number;
+  time_to_first_token_ms?: number;
+  total_cost?: number;
+}
+
+export interface TypesSessionUsageSummary {
+  /** CacheHitRatio is cache-read / prompt tokens; nil when there were no prompt tokens. */
+  cache_hit_ratio?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  calls?: number;
+  completion_tokens?: number;
+  duration_p50_ms?: number;
+  duration_p90_ms?: number;
+  /** LLMMs is the summed duration of the calls (calls can overlap, so this can exceed wall time). */
+  llm_ms?: number;
+  models?: string[];
+  prompt_tokens?: number;
+  total_cost?: number;
+  ttft_p50_ms?: number;
+  ttft_p90_ms?: number;
+}
+
+export interface TypesSessionUsageTurn {
+  cache_hit_ratio?: number;
+  cache_read_tokens?: number;
+  calls?: number;
+  completed?: string;
+  completion_tokens?: number;
+  interaction_id?: string;
+  llm_ms?: number;
+  prompt?: string;
+  prompt_tokens?: number;
+  started?: string;
+  state?: string;
+  total_cost?: number;
+}
+
 export interface TypesSkillDefinition {
   /** API configuration */
   baseUrl?: string;
@@ -6519,16 +7447,23 @@ export interface TypesSpecApprovalResponse {
 
 export interface TypesSpecTask {
   /**
-   * AgentSessionID is the single Helix session backing the agent for this spec task.
-   * One agent, one session for the whole lifecycle (planning + implementation phases).
+   * AgentTools are Helix MCP tools granted to this task on top of the
+   * project's list. The effective surface is the union of the two.
    */
-  agent_session_id?: string;
+  agent_tools?: string[];
   /** Current agent work state (idle/working/done) from activity tracking */
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
   archived?: boolean;
   /** Team member assigned to work on this task */
   assignee_id?: string;
+  /**
+   * AutoApprovePullRequests approves the agent's PR proposals without asking.
+   * They are approved as AutoApprovePullRequestsBy, whose provider
+   * credentials push and open the PR; it is the user who turned this on.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -6543,11 +7478,20 @@ export interface TypesSpecTask {
   cloned_from_id?: string;
   /** Original project */
   cloned_from_project_id?: string;
+  /** CodeAgentConfig is the implementation-phase execution configuration. */
+  code_agent_config?: TypesCodeAgentExecutionConfig;
+  /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  /**
+   * CreatedByOrgBot is the Org Bot handle that created this task. CreatedBy
+   * stays the person the Bot acts for; this records the Bot so its work can be
+   * listed under it.
+   */
+  created_by_org_bot?: string;
   /**
    * CredentialOwnerID names the user whose Claude subscription authenticates
    * this task's agent sessions, when that differs from CreatedBy. It changes
@@ -6586,7 +7530,11 @@ export interface TypesSpecTask {
    */
   goose_recipe_name?: string;
   goose_recipe_params?: Record<string, string>;
-  /** NEW: Single Helix Agent for entire workflow (App type in code) */
+  /**
+   * Legacy migration source. New API writes are rejected and task start clears
+   * this after materializing CodeAgentConfig. Remove the column after the
+   * migration window.
+   */
   helix_app_id?: string;
   id?: string;
   implementation_approved_at?: string;
@@ -6627,11 +7575,18 @@ export interface TypesSpecTask {
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
   /**
-   * Parent task tracking — set when this task was spawned via an approved
-   * SpecTaskProposal of kind=spec_task. Enables UI lineage display.
+   * PlanningCodeAgentConfig is independently snapshotted when the task is
+   * created so project-default changes cannot alter an existing planning run.
    */
-  parent_task_id?: string;
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
+  planning_goose_recipe_name?: string;
+  planning_goose_recipe_params?: Record<string, string>;
   planning_options?: TypesStartPlanningOptions;
+  /**
+   * Session tracking (single Helix session for entire workflow - planning + implementation)
+   * The same external agent/session is reused throughout the entire SpecTask lifecycle
+   */
+  planning_session_id?: string;
   planning_started_at?: string;
   /** User who kicked off planning (may differ from CreatedBy) */
   planning_started_by?: string;
@@ -6645,11 +7600,13 @@ export interface TypesSpecTask {
   queue_reason?: string;
   /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
   rebase_requested_at?: string;
+  repo_pull_request_history?: TypesRepoPR[];
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  sandbox_runtime?: TypesSandboxRuntime;
   /** "absent", "running", "starting" — derived from session config in listTasks */
   sandbox_state?: string;
   /** Transient startup message e.g. "Unpacking build cache" */
@@ -6819,6 +7776,12 @@ export interface TypesSpecTaskDesignReviewDetailResponse {
   spec_task?: TypesSpecTask;
 }
 
+export interface TypesSpecTaskDesignReviewDocumentUpdateRequest {
+  content: string;
+  document_type: "requirements" | "technical_design" | "implementation_plan";
+  original_content: string;
+}
+
 export interface TypesSpecTaskDesignReviewListResponse {
   reviews?: TypesSpecTaskDesignReview[];
   total?: number;
@@ -6839,21 +7802,9 @@ export interface TypesSpecTaskDesignReviewSubmitRequest {
   review_id: string;
 }
 
-export interface TypesSpecTaskExecutionConfig {
-  agent_available?: boolean;
-  agent_id?: string;
-  agent_name?: string;
-  credential_type?: TypesCodeAgentCredentialType;
-  model?: string;
-  provider_ref?: string;
-  reasoning_effort?: string;
-  runtime?: TypesCodeAgentRuntime;
-  service_tier?: string;
-}
-
 export interface TypesSpecTaskExecutionConfigUpdateRequest {
-  agent_id?: string;
-  code_agent_overrides?: TypesCodeAgentOverrides;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
+  phase?: "planning" | "implementation";
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
 }
 
@@ -6861,6 +7812,47 @@ export interface TypesSpecTaskExecutionConfigUpdateResponse {
   agent_thread_restarted?: boolean;
   sandbox_resources_applied?: boolean;
   task?: TypesSpecTask;
+}
+
+export interface TypesSpecTaskInlineAttachment {
+  caption?: string;
+  /** Standard base64-encoded file bytes. */
+  content_base64: string;
+  /** Filename visible in the task workspace. */
+  name: string;
+}
+
+export interface TypesSpecTaskPRProposal {
+  auto_approved?: boolean;
+  base_branch?: string;
+  body?: string;
+  created_at?: string;
+  decided_at?: string;
+  decided_by?: string;
+  decision_comment?: string;
+  error?: string;
+  head_branch?: string;
+  id?: string;
+  pr_id?: string;
+  pr_number?: number;
+  pr_url?: string;
+  project_id?: string;
+  proposed_by_session?: string;
+  reason?: string;
+  repository_id?: string;
+  repository_name?: string;
+  spec_task_id?: string;
+  status?: TypesSpecTaskPRProposalStatus;
+  title?: string;
+  updated_at?: string;
+}
+
+export enum TypesSpecTaskPRProposalStatus {
+  PRProposalStatusPending = "pending",
+  PRProposalStatusApproved = "approved",
+  PRProposalStatusOpened = "opened",
+  PRProposalStatusRejected = "rejected",
+  PRProposalStatusFailed = "failed",
 }
 
 export enum TypesSpecTaskPhase {
@@ -6876,62 +7868,8 @@ export enum TypesSpecTaskPriority {
   SpecTaskPriorityCritical = "critical",
 }
 
-export interface TypesSpecTaskProposal {
-  /** free-form why-we-want-this */
-  agent_reason?: string;
-  /** Mark-complete payload (kind = ProposalKindMarkComplete) */
-  complete_reason?: string;
-  created_at?: string;
-  decided_at?: string;
-  /** Decision tracking */
-  decided_by?: string;
-  decision_comment?: string;
-  /** user edits to the payload, if any */
-  edited_payload?: number[];
-  id?: string;
-  kind?: TypesSpecTaskProposalKind;
-  pr_base_branch?: string;
-  pr_body?: string;
-  pr_head_branch?: string;
-  /** PR proposal payload (kind = ProposalKindPullRequest) */
-  pr_repository_id?: string;
-  pr_title?: string;
-  project_id?: string;
-  /** Created-by-agent metadata */
-  proposed_by_session?: string;
-  /** populated when Status=failed */
-  result_error?: string;
-  /** Result tracking — what actually happened on approval */
-  result_pr_id?: string;
-  /** for PR kind */
-  result_pr_url?: string;
-  /** for spec_task kind */
-  result_task_id?: string;
-  spec_task_id?: string;
-  status?: TypesSpecTaskProposalStatus;
-  task_description?: string;
-  /** Spec task proposal payload (kind = ProposalKindSpecTask) */
-  task_name?: string;
-  task_original_prompt?: string;
-  task_priority?: TypesSpecTaskPriority;
-  task_type?: string;
-  updated_at?: string;
-}
-
-export enum TypesSpecTaskProposalKind {
-  ProposalKindPullRequest = "pull_request",
-  ProposalKindSpecTask = "spec_task",
-  ProposalKindMarkComplete = "mark_complete",
-}
-
-export enum TypesSpecTaskProposalStatus {
-  ProposalStatusPending = "pending",
-  ProposalStatusApproved = "approved",
-  ProposalStatusRejected = "rejected",
-  ProposalStatusFailed = "failed",
-}
-
 export enum TypesSpecTaskStatus {
+  TaskStatusPreparing = "preparing",
   TaskStatusBacklog = "backlog",
   TaskStatusQueuedImplementation = "queued_implementation",
   TaskStatusQueuedSpecGeneration = "queued_spec_generation",
@@ -6949,13 +7887,15 @@ export enum TypesSpecTaskStatus {
 }
 
 export interface TypesSpecTaskUpdateRequest {
+  /** Extra Helix MCP tools for this task, on top of the project's */
+  agent_tools?: string[];
   /** Pointer to allow clearing (set to empty string to unassign) */
   assignee_id?: string;
+  /** Approve the agent's PR proposals without asking, as the updating user */
+  auto_approve_pull_requests?: boolean;
   /** IDs of tasks this task depends on */
   depends_on?: string[];
   description?: string;
-  /** Agent to use for this task */
-  helix_app_id?: string;
   /** Pointer to allow explicit false */
   just_do_it_mode?: boolean;
   /** Pointer to allow explicit false — prevent auto-idle-shutdown */
@@ -6971,16 +7911,23 @@ export interface TypesSpecTaskUpdateRequest {
 
 export interface TypesSpecTaskWithProject {
   /**
-   * AgentSessionID is the single Helix session backing the agent for this spec task.
-   * One agent, one session for the whole lifecycle (planning + implementation phases).
+   * AgentTools are Helix MCP tools granted to this task on top of the
+   * project's list. The effective surface is the union of the two.
    */
-  agent_session_id?: string;
+  agent_tools?: string[];
   /** Current agent work state (idle/working/done) from activity tracking */
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
   archived?: boolean;
   /** Team member assigned to work on this task */
   assignee_id?: string;
+  /**
+   * AutoApprovePullRequests approves the agent's PR proposals without asking.
+   * They are approved as AutoApprovePullRequestsBy, whose provider
+   * credentials push and open the PR; it is the user who turned this on.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -6995,11 +7942,20 @@ export interface TypesSpecTaskWithProject {
   cloned_from_id?: string;
   /** Original project */
   cloned_from_project_id?: string;
+  /** CodeAgentConfig is the implementation-phase execution configuration. */
+  code_agent_config?: TypesCodeAgentExecutionConfig;
+  /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  /**
+   * CreatedByOrgBot is the Org Bot handle that created this task. CreatedBy
+   * stays the person the Bot acts for; this records the Bot so its work can be
+   * listed under it.
+   */
+  created_by_org_bot?: string;
   /**
    * CredentialOwnerID names the user whose Claude subscription authenticates
    * this task's agent sessions, when that differs from CreatedBy. It changes
@@ -7038,7 +7994,11 @@ export interface TypesSpecTaskWithProject {
    */
   goose_recipe_name?: string;
   goose_recipe_params?: Record<string, string>;
-  /** NEW: Single Helix Agent for entire workflow (App type in code) */
+  /**
+   * Legacy migration source. New API writes are rejected and task start clears
+   * this after materializing CodeAgentConfig. Remove the column after the
+   * migration window.
+   */
   helix_app_id?: string;
   id?: string;
   implementation_approved_at?: string;
@@ -7079,11 +8039,18 @@ export interface TypesSpecTaskWithProject {
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
   /**
-   * Parent task tracking — set when this task was spawned via an approved
-   * SpecTaskProposal of kind=spec_task. Enables UI lineage display.
+   * PlanningCodeAgentConfig is independently snapshotted when the task is
+   * created so project-default changes cannot alter an existing planning run.
    */
-  parent_task_id?: string;
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
+  planning_goose_recipe_name?: string;
+  planning_goose_recipe_params?: Record<string, string>;
   planning_options?: TypesStartPlanningOptions;
+  /**
+   * Session tracking (single Helix session for entire workflow - planning + implementation)
+   * The same external agent/session is reused throughout the entire SpecTask lifecycle
+   */
+  planning_session_id?: string;
   planning_started_at?: string;
   /** User who kicked off planning (may differ from CreatedBy) */
   planning_started_by?: string;
@@ -7098,11 +8065,13 @@ export interface TypesSpecTaskWithProject {
   queue_reason?: string;
   /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
   rebase_requested_at?: string;
+  repo_pull_request_history?: TypesRepoPR[];
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  sandbox_runtime?: TypesSandboxRuntime;
   /** "absent", "running", "starting" — derived from session config in listTasks */
   sandbox_state?: string;
   /** Transient startup message e.g. "Unpacking build cache" */
@@ -7219,6 +8188,14 @@ export interface TypesSpecTaskZedThreadListResponse {
   zed_threads?: TypesSpecTaskZedThread[];
 }
 
+export interface TypesStartCodexLoginRequest {
+  /**
+   * OrganizationID identifies the org whose Codex runtime is enabled after
+   * the device flow succeeds.
+   */
+  organization_id?: string;
+}
+
 export interface TypesStartPlanningOptions {
   /**
    * KeyboardLayout is the XKB keyboard layout code (e.g., "us", "fr", "de")
@@ -7259,9 +8236,6 @@ export interface TypesSyncAllResponse {
 }
 
 export interface TypesSystemSettingsRequest {
-  default_new_project_agent_model?: string;
-  default_new_project_agent_provider?: string;
-  default_new_project_agent_reasoning_effort?: string;
   enforce_quotas?: boolean;
   huggingface_token?: string;
   kodit_enrichment_model?: string;
@@ -7275,6 +8249,10 @@ export interface TypesSystemSettingsRequest {
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
+  onboarding_helix_model?: string;
+  onboarding_helix_model_effort?: string;
+  onboarding_helix_model_provider?: string;
+  opencode_version?: string;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;
@@ -7293,9 +8271,6 @@ export interface TypesSystemSettingsRequest {
 
 export interface TypesSystemSettingsResponse {
   created?: string;
-  default_new_project_agent_model?: string;
-  default_new_project_agent_provider?: string;
-  default_new_project_agent_reasoning_effort?: string;
   enforce_quotas?: boolean;
   /** Sensitive fields are masked */
   huggingface_token_set?: boolean;
@@ -7317,6 +8292,16 @@ export interface TypesSystemSettingsResponse {
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
+  onboarding_helix_model?: string;
+  onboarding_helix_model_effort?: string;
+  onboarding_helix_model_provider?: string;
+  opencode_bundled_version?: string;
+  /**
+   * OpenCodeVersion is the admin override; empty means the bundled build.
+   * OpenCodeBundledVersion tells the UI what "bundled" currently is so it
+   * can show the floor without hardcoding it.
+   */
+  opencode_version?: string;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;
@@ -7537,6 +8522,7 @@ export interface TypesToolZapierConfig {
 
 export interface TypesTreeEntry {
   is_dir?: boolean;
+  last_commit_at?: string;
   name?: string;
   path?: string;
   size?: number;
@@ -7688,6 +8674,10 @@ export interface TypesUpdateProviderEndpoint {
   vertex_region?: string;
 }
 
+export interface TypesUpdateProviderEndpointModels {
+  models?: string[];
+}
+
 export interface TypesUpdateSandboxRequest {
   name?: string;
   tags?: Record<string, string>;
@@ -7709,9 +8699,12 @@ export interface TypesUpdateUserGuidelinesRequest {
 
 export interface TypesUsage {
   completion_tokens?: number;
+  context_length?: number;
+  context_tokens?: number;
   /** How long the request took in milliseconds */
   duration_ms?: number;
   prompt_tokens?: number;
+  total_processed_tokens?: number;
   total_tokens?: number;
 }
 
@@ -7744,6 +8737,8 @@ export interface TypesUsageBreakdownRow {
   session_count?: number;
   session_id?: string;
   started_at?: string;
+  tool_call_error_requests?: number;
+  tool_call_requests?: number;
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
@@ -7949,6 +8944,20 @@ export interface TypesUserModelUsage {
   total_tokens?: number;
 }
 
+export interface TypesUserQuestion {
+  allow_custom_answer?: boolean;
+  header?: string;
+  id?: string;
+  multi_select?: boolean;
+  options?: TypesUserQuestionOption[];
+  question?: string;
+}
+
+export interface TypesUserQuestionOption {
+  description?: string;
+  label?: string;
+}
+
 export interface TypesUserResponse {
   admin?: boolean;
   alpha_features?: string[];
@@ -8047,12 +9056,12 @@ export interface TypesVHostRoute {
    * User-added custom domains and preview tokens are false.
    */
   is_default?: boolean;
-  /** destination port inside the container */
+  /** destination port inside the container; zero for static artifacts */
   port?: number;
   rotated_at?: string;
   target_id?: string;
   target_kind?: TypesVHostTargetKind;
-  /** public URL, populated by preview API handlers */
+  /** public URL, populated by API handlers returning routes */
   url?: string;
   /**
    * VerificationToken is only meaningful for custom domains awaiting
@@ -8070,6 +9079,8 @@ export interface TypesVHostRoute {
 export enum TypesVHostTargetKind {
   VHostTargetProjectWebService = "project_web_service",
   VHostTargetSandboxPreview = "sandbox_preview",
+  VHostTargetArtifact = "artifact_static",
+  VHostTargetArtifactPrivate = "artifact_private",
 }
 
 export interface TypesWIPLimits {
@@ -8124,6 +9135,51 @@ export enum TypesWebServiceDeployStatus {
   WebServiceDeployStatusSuperseded = "superseded",
 }
 
+export interface TypesWebhookDelivery {
+  attempt_count?: number;
+  created_at?: string;
+  delivered_at?: string;
+  endpoint_id?: string;
+  event_id?: string;
+  id?: string;
+  last_attempt_at?: string;
+  last_error?: string;
+  last_status_code?: number;
+  next_attempt_at?: string;
+  status?: TypesWebhookDeliveryStatus;
+  updated_at?: string;
+}
+
+export enum TypesWebhookDeliveryStatus {
+  WebhookDeliveryStatusPending = "pending",
+  WebhookDeliveryStatusProcessing = "processing",
+  WebhookDeliveryStatusRetrying = "retrying",
+  WebhookDeliveryStatusDelivered = "delivered",
+  WebhookDeliveryStatusFailed = "failed",
+  WebhookDeliveryStatusDisabled = "disabled",
+}
+
+export interface TypesWebhookEndpoint {
+  created_at?: string;
+  created_by?: string;
+  description?: string;
+  disabled_reason?: string;
+  events?: string[];
+  id?: string;
+  organization_id?: string;
+  project_id?: string;
+  secret_preview?: string;
+  status?: TypesWebhookEndpointStatus;
+  updated_at?: string;
+  updated_by?: string;
+  url?: string;
+}
+
+export enum TypesWebhookEndpointStatus {
+  WebhookEndpointStatusActive = "active",
+  WebhookEndpointStatusDisabled = "disabled",
+}
+
 export interface TypesWebsiteCrawler {
   enabled?: boolean;
   firecrawl?: TypesFirecrawl;
@@ -8148,6 +9204,13 @@ export interface TypesWorkspaceFileResponse {
   contents?: string;
   path?: string;
   truncated?: boolean;
+  workspace?: string;
+}
+
+export interface TypesWorkspaceFileWriteRequest {
+  contents?: string;
+  expected_content_hash?: string;
+  path?: string;
   workspace?: string;
 }
 
@@ -8252,6 +9315,24 @@ export interface TypesZedInstanceStatus {
   status?: string;
   thread_count?: number;
   zed_instance_id?: string;
+}
+
+export interface WorkersecretAvailableSource {
+  account_id?: string;
+  already_bound?: boolean;
+  export_key?: string;
+  group?: string;
+  label?: string;
+  proposed_name?: string;
+  resource_id?: string;
+  secret_id?: string;
+  source_kind?: WorkersecretSourceKind;
+  usage?: string;
+}
+
+export enum WorkersecretSourceKind {
+  SourceHelixSecret = "helix_secret",
+  SourceConnectedAccount = "connected_account",
 }
 
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, HeadersDefaults, ResponseType } from "axios";
@@ -8704,7 +9785,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List all organizations
+     * @description List organizations with server-side pagination and name or owner email search
      *
      * @tags organizations
      * @name V1AdminOrgsList
@@ -8712,10 +9793,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/admin/orgs
      * @secure
      */
-    v1AdminOrgsList: (params: RequestParams = {}) =>
-      this.request<TypesOrgDetails[], any>({
+    v1AdminOrgsList: (
+      query?: {
+        /** Page number (default: 1) */
+        page?: number;
+        /** Organizations per page (default: 25, max: 100) */
+        per_page?: number;
+        /** Search organization display name, name, or owner email */
+        query?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerAdminOrganizationsResponse, any>({
         path: `/api/v1/admin/orgs`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -8859,7 +9951,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Clears any stashed trial intent on the user and cancels the Stripe subscription on the user's oldest owned org if it is currently in a trialing state. Paid (active) subscriptions are never cancelled.
+     * @description Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the specified owned org (org_id required when the user owns organisations; the cancelled wallet state is mirrored immediately). Paid (active) subscriptions are never cancelled.
      *
      * @tags users
      * @name V1AdminUsersTrialActivateDelete
@@ -8867,17 +9959,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/admin/users/{id}/trial-activate
      * @secure
      */
-    v1AdminUsersTrialActivateDelete: (id: string, params: RequestParams = {}) =>
+    v1AdminUsersTrialActivateDelete: (
+      id: string,
+      query?: {
+        /** Owned organisation whose trialing subscription to cancel (required iff the user owns an organisation) */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<ServerActivateTrialResponse, any>({
         path: `/api/v1/admin/users/${id}/trial-activate`,
         method: "DELETE",
+        query: query,
         secure: true,
         format: "json",
         ...params,
       }),
 
     /**
-     * @description Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).
+     * @description Stash a trial intent when the user owns no organisations, or activate the explicitly selected owned organisation. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).
      *
      * @tags users
      * @name V1AdminUsersTrialActivateCreate
@@ -8892,6 +9992,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the catalogue backing the project and task tool pickers. The set is static per deployment; a project grants a subset to all its tasks and a task may add more on top.
+     *
+     * @tags spec-driven-tasks
+     * @name V1AgentToolsList
+     * @summary List the Helix MCP tools that can be granted to spec tasks
+     * @request GET:/api/v1/agent-tools
+     * @secure
+     */
+    v1AgentToolsList: (params: RequestParams = {}) =>
+      this.request<TypesAgentToolInfo[], any>({
+        path: `/api/v1/agent-tools`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -9633,6 +10751,96 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * No description
+     *
+     * @tags Artifacts
+     * @name V1ArtifactsDelete
+     * @summary Delete an artifact
+     * @request DELETE:/api/v1/artifacts/{artifact_id}
+     * @secure
+     */
+    v1ArtifactsDelete: (artifactId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/artifacts/${artifactId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Artifacts
+     * @name V1ArtifactsDetail
+     * @summary Get an artifact
+     * @request GET:/api/v1/artifacts/{artifact_id}
+     * @secure
+     */
+    v1ArtifactsDetail: (artifactId: string, params: RequestParams = {}) =>
+      this.request<TypesArtifact, any>({
+        path: `/api/v1/artifacts/${artifactId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Patch metadata and optionally upload replacement HTML, Markdown, PDF, or ZIP content as a new version.
+     *
+     * @tags Artifacts
+     * @name V1ArtifactsUpdate
+     * @summary Update an artifact
+     * @request PUT:/api/v1/artifacts/{artifact_id}
+     * @secure
+     */
+    v1ArtifactsUpdate: (
+      artifactId: string,
+      data: {
+        /** Artifact name */
+        name?: string;
+        /** Description */
+        description?: string;
+        /** HTML entrypoint */
+        entrypoint?: string;
+        /** project or public */
+        visibility?: string;
+        /** Allocate or retain a public default subdomain */
+        with_subdomain?: boolean;
+        /** Replacement HTML, Markdown, PDF, or ZIP content */
+        artifact?: File;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesArtifact, any>({
+        path: `/api/v1/artifacts/${artifactId}`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Artifacts
+     * @name V1ArtifactsVersionsDetail
+     * @summary List artifact versions
+     * @request GET:/api/v1/artifacts/{artifact_id}/versions
+     * @secure
+     */
+    v1ArtifactsVersionsDetail: (artifactId: string, params: RequestParams = {}) =>
+      this.request<TypesArtifactVersionsListResponse, any>({
+        path: `/api/v1/artifacts/${artifactId}/versions`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Returns attention events that need human action for the current user. Only returns events that have not been dismissed and are not currently snoozed.
      *
      * @tags attention-events
@@ -9961,6 +11169,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Disconnect a Claude subscription owned by the current user, or by an organization they own
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDelete
+     * @summary Delete a Claude subscription
+     * @request DELETE:/api/v1/claude-subscriptions/{id}
+     * @secure
+     */
+    v1ClaudeSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get details of a specific Claude subscription (no secrets)
      *
      * @tags Claude
@@ -9979,7 +11205,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Only the subscription owner may change this.
+     * @description Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Sharing with an owned organization also enables Claude Code subscription mode there. Only the subscription owner may change this.
      *
      * @tags Claude
      * @name V1ClaudeSubscriptionsDelegationUpdate
@@ -10021,35 +11247,37 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Check if Claude credentials file has been written inside the desktop container
+     * @description Exchange the pasted authorization code for tokens and connect the subscription
      *
      * @tags Claude
-     * @name V1ClaudeSubscriptionsPollLoginDetail
-     * @summary Poll for Claude login credentials
-     * @request GET:/api/v1/claude-subscriptions/poll-login/{sessionId}
+     * @name V1ClaudeSubscriptionsOauthCompleteCreate
+     * @summary Complete a Claude subscription login
+     * @request POST:/api/v1/claude-subscriptions/oauth/complete
      * @secure
      */
-    v1ClaudeSubscriptionsPollLoginDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<ServerClaudePollLoginResponse, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
-        method: "GET",
+    v1ClaudeSubscriptionsOauthCompleteCreate: (body: ServerCompleteClaudeLoginRequest, params: RequestParams = {}) =>
+      this.request<TypesClaudeSubscription, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/oauth/complete`,
+        method: "POST",
+        body: body,
         secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
 
     /**
-     * @description Launch a temporary desktop session for interactive Claude OAuth login
+     * @description Build the Anthropic authorization URL and PKCE material for connecting a Claude subscription
      *
      * @tags Claude
-     * @name V1ClaudeSubscriptionsStartLoginCreate
-     * @summary Start a Claude login session
-     * @request POST:/api/v1/claude-subscriptions/start-login
+     * @name V1ClaudeSubscriptionsOauthStartCreate
+     * @summary Start a Claude subscription login
+     * @request POST:/api/v1/claude-subscriptions/oauth/start
      * @secure
      */
-    v1ClaudeSubscriptionsStartLoginCreate: (params: RequestParams = {}) =>
-      this.request<ServerClaudeLoginSessionResponse, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/start-login`,
+    v1ClaudeSubscriptionsOauthStartCreate: (params: RequestParams = {}) =>
+      this.request<ServerClaudeLoginStartResponse, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/oauth/start`,
         method: "POST",
         secure: true,
         format: "json",
@@ -10148,6 +11376,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Stop and remove the temporary sandbox used for Codex device authentication
+     *
+     * @tags Codex
+     * @name V1CodexSubscriptionsLoginDelete
+     * @summary Cancel a Codex login session
+     * @request DELETE:/api/v1/codex-subscriptions/login/{sessionId}
+     * @secure
+     */
+    v1CodexSubscriptionsLoginDelete: (sessionId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, any>({
+        path: `/api/v1/codex-subscriptions/login/${sessionId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Return device authentication instructions or persist completed credentials
      *
      * @tags Codex
@@ -10166,7 +11412,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Launch a temporary container and start Codex device authentication
+     * @description Launch a temporary headless sandbox and start Codex device authentication
      *
      * @tags Codex
      * @name V1CodexSubscriptionsStartLoginCreate
@@ -10174,11 +11420,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/codex-subscriptions/start-login
      * @secure
      */
-    v1CodexSubscriptionsStartLoginCreate: (params: RequestParams = {}) =>
+    v1CodexSubscriptionsStartLoginCreate: (body: TypesStartCodexLoginRequest, params: RequestParams = {}) =>
       this.request<ServerCodexLoginSessionResponse, any>({
         path: `/api/v1/codex-subscriptions/start-login`,
         method: "POST",
+        body: body,
         secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -10286,7 +11534,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Executes a command inside the sandbox container for benchmarking and debugging. Only specific safe commands are allowed (vkcube, glxgears, pkill).
+     * @description Executes a command inside the caller's sandbox container.
      *
      * @tags ExternalAgents
      * @name V1ExternalAgentsExecCreate
@@ -10391,6 +11639,58 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Replaces an existing browsable UTF-8 workspace file when its content hash still matches the version the user opened.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceFileUpdate
+     * @summary Update a workspace file
+     * @request PUT:/api/v1/external-agents/{sessionID}/workspace-file
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceFileUpdate: (
+      sessionId: string,
+      request: TypesWorkspaceFileWriteRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceFileResponse, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-file`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Streams a complete, binary-safe workspace file from the task desktop.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceFileDownloadDetail
+     * @summary Download a workspace file
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-file/download
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceFileDownloadDetail: (
+      sessionId: string,
+      query: {
+        /** Workspace name */
+        workspace?: string;
+        /** Repository-relative file path */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-file/download`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "blob",
+        ...params,
+      }),
+
+    /**
      * @description Returns a bounded flat list of tracked and non-ignored untracked workspace entries.
      *
      * @tags ExternalAgents
@@ -10404,6 +11704,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Workspace name */
         workspace?: string;
+        /** Set to work to list the full session work root (requires update access) */
+        root?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -10707,7 +12009,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field
+     * @description Upload one or more files to the filestore. The path may be a directory, in which case multipart filenames are appended, or the exact full path when its basename matches the multipart filename.
      *
      * @tags filestore
      * @name V1FilestoreUploadCreate
@@ -10717,7 +12019,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      */
     v1FilestoreUploadCreate: (
       query: {
-        /** Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder') */
+        /** Destination directory or exact full file path (e.g., 'documents' or 'documents/report.json') */
         path: string;
       },
       data: {
@@ -11807,6 +13109,49 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Cancels the agent question currently pending on an interaction
+     *
+     * @tags interactions
+     * @name V1InteractionsQuestionsCancelCreate
+     * @summary Cancel an agent question
+     * @request POST:/api/v1/interactions/{interaction_id}/questions/{request_id}/cancel
+     * @secure
+     */
+    v1InteractionsQuestionsCancelCreate: (interactionId: string, requestId: string, params: RequestParams = {}) =>
+      this.request<TypesQuestionActionResponse, any>({
+        path: `/api/v1/interactions/${interactionId}/questions/${requestId}/cancel`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Sends answers to the agent question currently pending on an interaction
+     *
+     * @tags interactions
+     * @name V1InteractionsQuestionsRespondCreate
+     * @summary Respond to an agent question
+     * @request POST:/api/v1/interactions/{interaction_id}/questions/{request_id}/respond
+     * @secure
+     */
+    v1InteractionsQuestionsRespondCreate: (
+      interactionId: string,
+      requestId: string,
+      request: TypesQuestionRespondRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesQuestionActionResponse, any>({
+        path: `/api/v1/interactions/${interactionId}/questions/${requestId}/respond`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).
      *
      * @tags organizations
@@ -12757,6 +14102,181 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsDetail
+     * @summary List organization webhook endpoints
+     * @request GET:/api/v1/organizations/{id}/webhook-endpoints
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesWebhookEndpoint[], any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Creates a Standard Webhooks endpoint. The signing secret is returned once.
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsCreate
+     * @summary Create an organization webhook endpoint
+     * @request POST:/api/v1/organizations/{id}/webhook-endpoints
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsCreate: (
+      id: string,
+      request: ServerWebhookEndpointRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerWebhookEndpointSecretResponse, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints`,
+        method: "POST",
+        body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsDelete
+     * @summary Disable an organization webhook endpoint
+     * @request DELETE:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsDelete: (id: string, endpointId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsUpdate
+     * @summary Update an organization webhook endpoint
+     * @request PUT:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsUpdate: (
+      id: string,
+      endpointId: string,
+      request: ServerWebhookEndpointRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWebhookEndpoint, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsDeliveriesDetail
+     * @summary List recent webhook deliveries
+     * @request GET:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsDeliveriesDetail: (id: string, endpointId: string, params: RequestParams = {}) =>
+      this.request<ServerWebhookDeliveryView[], any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}/deliveries`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsDeliveriesReplayCreate
+     * @summary Replay a webhook delivery
+     * @request POST:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries/{delivery_id}/replay
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsDeliveriesReplayCreate: (
+      id: string,
+      endpointId: string,
+      deliveryId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWebhookDelivery, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}/deliveries/${deliveryId}/replay`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns the new secret once. Helix signs with both keys for a 24-hour overlap.
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsRotateSecretCreate
+     * @summary Rotate a webhook signing secret
+     * @request POST:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/rotate-secret
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsRotateSecretCreate: (id: string, endpointId: string, params: RequestParams = {}) =>
+      this.request<ServerWebhookEndpointSecretResponse, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}/rotate-secret`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns every selectable coding-agent runtime, whether the organization enabled it, and whether the requesting user can use its subscription mode.
+     *
+     * @tags organizations
+     * @name V1OrganizationsCodeAgentHarnessesDetail
+     * @summary List an organization's coding-agent runtimes
+     * @request GET:/api/v1/organizations/{org_id}/code-agent-harnesses
+     * @secure
+     */
+    v1OrganizationsCodeAgentHarnessesDetail: (orgId: string, params: RequestParams = {}) =>
+      this.request<TypesOrgCodeAgentHarnessStatus[], any>({
+        path: `/api/v1/organizations/${orgId}/code-agent-harnesses`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Enables or disables coding-agent runtimes and selects either subscription mode or API-provider mode for each runtime. Runtimes omitted from the request are left unchanged. Models are selected per task.
+     *
+     * @tags organizations
+     * @name V1OrganizationsCodeAgentHarnessesUpdate
+     * @summary Update an organization's coding-agent runtimes
+     * @request PUT:/api/v1/organizations/{org_id}/code-agent-harnesses
+     * @secure
+     */
+    v1OrganizationsCodeAgentHarnessesUpdate: (
+      orgId: string,
+      request: TypesOrgCodeAgentHarnessesUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrgCodeAgentHarnessStatus[], any>({
+        path: `/api/v1/organizations/${orgId}/code-agent-harnesses`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description List sandboxes belonging to an organization
      *
      * @tags Sandboxes
@@ -13173,262 +14693,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List the canonical Agents in an organization, including their instructions, tools, runtime, model configuration, and reporting lines.
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsDetail
-     * @summary Helix-org: list agents
-     * @request GET:/api/v1/orgs/{org}/agents
-     * @secure
-     */
-    v1OrgsAgentsDetail: (org: string, params: RequestParams = {}) =>
-      this.request<ApiBotDTO[], any>({
-        path: `/api/v1/orgs/${org}/agents`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a canonical Agent with its org-chart position, communication topics, tools, and Agent App configuration.
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsCreate
-     * @summary Helix-org: create an agent
-     * @request POST:/api/v1/orgs/{org}/agents
-     * @secure
-     */
-    v1OrgsAgentsCreate: (org: string, payload: ApiCreateBotRequest, params: RequestParams = {}) =>
-      this.request<ApiCreateBotResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete an Agent after atomically detaching and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. Only the project's default agent ID is unset; the configured project, repositories, tasks, and other project configuration are preserved.
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsDelete
-     * @summary Helix-org: delete an agent
-     * @request DELETE:/api/v1/orgs/{org}/agents/{id}
-     * @secure
-     */
-    v1OrgsAgentsDelete: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get one canonical Agent with its instructions, tools, runtime, model configuration, project, and reporting lines.
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsDetail2
-     * @summary Helix-org: get agent detail
-     * @request GET:/api/v1/orgs/{org}/agents/{id}
-     * @originalName v1OrgsAgentsDetail
-     * @duplicate
-     * @secure
-     */
-    v1OrgsAgentsDetail2: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiAgentDetailDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update the canonical Agent instructions, tools, project access, runtime, provider, model, or reasoning configuration.
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsPartialUpdate
-     * @summary Helix-org: update an agent
-     * @request PATCH:/api/v1/orgs/{org}/agents/{id}
-     * @secure
-     */
-    v1OrgsAgentsPartialUpdate: (org: string, id: string, payload: ApiUpdateBotRequest, params: RequestParams = {}) =>
-      this.request<ApiBotDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}`,
-        method: "PATCH",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsActivateCreate
-     * @summary Helix-org: activate an agent
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/activate
-     * @secure
-     */
-    v1OrgsAgentsActivateCreate: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiBotActivateDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/activate`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsChatCreate
-     * @summary Helix-org: provision an agent chat
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/chat
-     * @secure
-     */
-    v1OrgsAgentsChatCreate: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiBotChatDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/chat`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsParentsCreate
-     * @summary Helix-org: add an agent manager
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/parents
-     * @secure
-     */
-    v1OrgsAgentsParentsCreate: (org: string, id: string, payload: ApiAddBotParentRequest, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/parents`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsParentsDelete
-     * @summary Helix-org: remove an agent manager
-     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/parents/{parent_id}
-     * @secure
-     */
-    v1OrgsAgentsParentsDelete: (org: string, id: string, parentId: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/parents/${parentId}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsRestartAgentCreate
-     * @summary Helix-org: restart an agent session
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/restart-agent
-     * @secure
-     */
-    v1OrgsAgentsRestartAgentCreate: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiBotActivateDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/restart-agent`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsStopAgentCreate
-     * @summary Helix-org: stop an agent desktop
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/stop-agent
-     * @secure
-     */
-    v1OrgsAgentsStopAgentCreate: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/stop-agent`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsSubscriptionsDetail
-     * @summary Helix-org: list an agent's subscriptions
-     * @request GET:/api/v1/orgs/{org}/agents/{id}/subscriptions
-     * @secure
-     */
-    v1OrgsAgentsSubscriptionsDetail: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiBotSubscriptionsResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/subscriptions`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsSubscriptionsCreate
-     * @summary Helix-org: subscribe an agent to a topic
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/subscriptions
-     * @secure
-     */
-    v1OrgsAgentsSubscriptionsCreate: (
-      org: string,
-      id: string,
-      payload: ApiSubscribeBotRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<ApiBotSubscriptionDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/subscriptions`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsSubscriptionsDelete
-     * @summary Helix-org: unsubscribe an agent from a topic
-     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/subscriptions/{topic_id}
-     * @secure
-     */
-    v1OrgsAgentsSubscriptionsDelete: (org: string, id: string, topicId: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/subscriptions/${topicId}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * No description
      *
      * @tags HelixOrg
@@ -13564,12 +14828,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      *
      * @tags HelixOrg
      * @name V1OrgsAssetsLinksCreate
-     * @summary Helix-org: link an asset to an agent
+     * @summary Helix-org: link an asset to a bot
      * @request POST:/api/v1/orgs/{org}/assets/{id}/links
      * @secure
      */
     v1OrgsAssetsLinksCreate: (org: string, id: string, payload: ApiAssetLinkRequest, params: RequestParams = {}) =>
-      this.request<AssetLink, any>({
+      this.request<ApiAssetLinkDTO, any>({
         path: `/api/v1/orgs/${org}/assets/${id}/links`,
         method: "POST",
         body: payload,
@@ -13584,13 +14848,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      *
      * @tags HelixOrg
      * @name V1OrgsAssetsLinksDelete
-     * @summary Helix-org: unlink an asset from an agent
-     * @request DELETE:/api/v1/orgs/{org}/assets/{id}/links/{agent_id}
+     * @summary Helix-org: unlink an asset from a bot
+     * @request DELETE:/api/v1/orgs/{org}/assets/{id}/links/{bot_id}
      * @secure
      */
-    v1OrgsAssetsLinksDelete: (org: string, id: string, agentId: string, params: RequestParams = {}) =>
+    v1OrgsAssetsLinksDelete: (org: string, id: string, botId: string, params: RequestParams = {}) =>
       this.request<void, any>({
-        path: `/api/v1/orgs/${org}/assets/${id}/links/${agentId}`,
+        path: `/api/v1/orgs/${org}/assets/${id}/links/${botId}`,
         method: "DELETE",
         secure: true,
         ...params,
@@ -13615,7 +14879,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a Bot. Wraps the lifecycle Create so REST + chat creates share semantics (base-tool union, reporting line, transcript topics, create dispatch).
+     * @description Create a Bot. Wraps the lifecycle Create so REST + chat creates share semantics (base-tool union, reporting line, transcript channel, create dispatch).
      *
      * @tags HelixOrg
      * @name V1OrgsBotsCreate
@@ -13635,7 +14899,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a Bot. Cascades: detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Only the project's default agent ID is unset; the configured project, repositories, tasks, other project configuration, and activations are preserved.
+     * @description Delete a Bot. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops attachments + reporting lines, then the bot row. Repositories and activations are preserved.
      *
      * @tags HelixOrg
      * @name V1OrgsBotsDelete
@@ -13711,6 +14975,94 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsBotsApplyConfigCreate
+     * @summary Helix-org: apply Bot config to its running sandbox
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/apply-config
+     * @secure
+     */
+    v1OrgsBotsApplyConfigCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/apply-config`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsAttachmentsDetail
+     * @summary Helix-org: list bot attachments
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/attachments
+     */
+    v1OrgsBotsAttachmentsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiAttachmentListResponse, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/attachments`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsAttachmentsCreate
+     * @summary Helix-org: attach a bot to a source
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/attachments
+     */
+    v1OrgsBotsAttachmentsCreate: (
+      org: string,
+      id: string,
+      payload: ApiAttachmentWriteRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiAttachmentDTO, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/attachments`,
+        method: "POST",
+        body: payload,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsAttachmentsDelete
+     * @summary Helix-org: delete a bot attachment
+     * @request DELETE:/api/v1/orgs/{org}/bots/{id}/attachments/{attachment_id}
+     */
+    v1OrgsBotsAttachmentsDelete: (org: string, id: string, attachmentId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/attachments/${attachmentId}`,
+        method: "DELETE",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsAvailableSecretsDetail
+     * @summary List sources that may be granted to a Bot
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/available-secrets
+     * @secure
+     */
+    v1OrgsBotsAvailableSecretsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<WorkersecretAvailableSource[], any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/available-secrets`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsBotsChatCreate
      * @summary Helix-org: provision a per-bot chat app
      * @request POST:/api/v1/orgs/{org}/bots/{id}/chat
@@ -13720,6 +15072,64 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ApiBotChatDTO, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/bots/${id}/chat`,
         method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsInstancesDetail
+     * @summary Helix-org: list a bot's instances
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/instances
+     * @secure
+     */
+    v1OrgsBotsInstancesDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotInstanceDTO[], ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/instances`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsInstancesCreate
+     * @summary Helix-org: create a bot instance
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/instances
+     * @secure
+     */
+    v1OrgsBotsInstancesCreate: (
+      id: string,
+      org: string,
+      request: ApiCreateBotInstanceRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiBotInstanceDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/instances`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsInstancesDelete
+     * @summary Helix-org: delete a bot instance
+     * @request DELETE:/api/v1/orgs/{org}/bots/{id}/instances/{session_id}
+     * @secure
+     */
+    v1OrgsBotsInstancesDelete: (id: string, sessionId: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/instances/${sessionId}`,
+        method: "DELETE",
         secure: true,
         ...params,
       }),
@@ -13764,14 +15174,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsBotsRestartAgentCreate
-     * @summary Helix-org: restart a bot's agent session (fresh session + desktop)
-     * @request POST:/api/v1/orgs/{org}/bots/{id}/restart-agent
+     * @name V1OrgsBotsRestartCreate
+     * @summary Helix-org: restart a bot (fresh session + desktop)
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/restart
      * @secure
      */
-    v1OrgsBotsRestartAgentCreate: (id: string, org: string, params: RequestParams = {}) =>
+    v1OrgsBotsRestartCreate: (id: string, org: string, params: RequestParams = {}) =>
       this.request<ApiBotActivateDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/bots/${id}/restart-agent`,
+        path: `/api/v1/orgs/${org}/bots/${id}/restart`,
         method: "POST",
         secure: true,
         ...params,
@@ -13781,31 +15191,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsBotsStopAgentCreate
-     * @summary Helix-org: stop a bot's agent desktop
-     * @request POST:/api/v1/orgs/{org}/bots/{id}/stop-agent
+     * @name V1OrgsBotsSecretsDetail
+     * @summary List a Bot's secret bindings
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/secrets
      * @secure
      */
-    v1OrgsBotsStopAgentCreate: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/bots/${id}/stop-agent`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsBotsSubscriptionsDetail
-     * @summary Helix-org: list a bot's subscriptions
-     * @request GET:/api/v1/orgs/{org}/bots/{id}/subscriptions
-     * @secure
-     */
-    v1OrgsBotsSubscriptionsDetail: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiBotSubscriptionsResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/bots/${id}/subscriptions`,
+    v1OrgsBotsSecretsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerSecretBindingDTO[], any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/secrets`,
         method: "GET",
         secure: true,
         ...params,
@@ -13815,20 +15208,38 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsBotsSubscriptionsCreate
-     * @summary Helix-org: subscribe a bot to a topic
-     * @request POST:/api/v1/orgs/{org}/bots/{id}/subscriptions
+     * @name V1OrgsBotsSecretsDelete
+     * @summary Delete a Bot secret binding
+     * @request DELETE:/api/v1/orgs/{org}/bots/{id}/secrets/{name}
      * @secure
      */
-    v1OrgsBotsSubscriptionsCreate: (
-      id: string,
+    v1OrgsBotsSecretsDelete: (org: string, id: string, name: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/secrets/${name}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsSecretsUpdate
+     * @summary Create or replace a Bot secret binding
+     * @request PUT:/api/v1/orgs/{org}/bots/{id}/secrets/{name}
+     * @secure
+     */
+    v1OrgsBotsSecretsUpdate: (
       org: string,
-      payload: ApiSubscribeBotRequest,
+      id: string,
+      name: string,
+      payload: ApiPutWorkerSecretRequest,
       params: RequestParams = {},
     ) =>
-      this.request<ApiBotSubscriptionDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/bots/${id}/subscriptions`,
-        method: "POST",
+      this.request<ApiWorkerSecretBindingDTO, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/secrets/${name}`,
+        method: "PUT",
         body: payload,
         secure: true,
         type: ContentType.Json,
@@ -13839,15 +15250,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsBotsSubscriptionsDelete
-     * @summary Helix-org: unsubscribe a bot from a topic
-     * @request DELETE:/api/v1/orgs/{org}/bots/{id}/subscriptions/{topic_id}
+     * @name V1OrgsBotsStopCreate
+     * @summary Helix-org: stop a bot's desktop
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/stop
      * @secure
      */
-    v1OrgsBotsSubscriptionsDelete: (id: string, topicId: string, org: string, params: RequestParams = {}) =>
+    v1OrgsBotsStopCreate: (id: string, org: string, params: RequestParams = {}) =>
       this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/bots/${id}/subscriptions/${topicId}`,
-        method: "DELETE",
+        path: `/api/v1/orgs/${org}/bots/${id}/stop`,
+        method: "POST",
         secure: true,
         ...params,
       }),
@@ -14261,16 +15672,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsDetail
-     * @summary Helix-org: list topics
-     * @request GET:/api/v1/orgs/{org}/topics
-     * @secure
+     * @name V1OrgsTriggerKindsDetail
+     * @summary Helix-org: list trigger kinds and their settings
+     * @request GET:/api/v1/orgs/{org}/trigger-kinds
      */
-    v1OrgsTopicsDetail: (org: string, params: RequestParams = {}) =>
-      this.request<ApiTopicsResponse, any>({
-        path: `/api/v1/orgs/${org}/topics`,
+    v1OrgsTriggerKindsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiTriggerKindsResponse, any>({
+        path: `/api/v1/orgs/${org}/trigger-kinds`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -14279,17 +15688,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsCreate
-     * @summary Helix-org: create a topic
-     * @request POST:/api/v1/orgs/{org}/topics
-     * @secure
+     * @name V1OrgsTriggersDetail
+     * @summary Helix-org: list triggers
+     * @request GET:/api/v1/orgs/{org}/triggers
      */
-    v1OrgsTopicsCreate: (org: string, payload: ApiCreateTopicRequest, params: RequestParams = {}) =>
-      this.request<ApiTopicDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics`,
+    v1OrgsTriggersDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiTriggerListResponse, any>({
+        path: `/api/v1/orgs/${org}/triggers`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersCreate
+     * @summary Helix-org: create a trigger
+     * @request POST:/api/v1/orgs/{org}/triggers
+     */
+    v1OrgsTriggersCreate: (org: string, payload: ApiTriggerWriteRequest, params: RequestParams = {}) =>
+      this.request<ApiTriggerDTO, ApiAPIError>({
+        path: `/api/v1/orgs/${org}/triggers`,
         method: "POST",
         body: payload,
-        secure: true,
         type: ContentType.Json,
         format: "json",
         ...params,
@@ -14299,16 +15722,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsDelete
-     * @summary Helix-org: delete a topic
-     * @request DELETE:/api/v1/orgs/{org}/topics/{id}
-     * @secure
+     * @name V1OrgsTriggersDelete
+     * @summary Helix-org: delete a trigger
+     * @request DELETE:/api/v1/orgs/{org}/triggers/{id}
      */
-    v1OrgsTopicsDelete: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}`,
+    v1OrgsTriggersDelete: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}`,
         method: "DELETE",
-        secure: true,
         ...params,
       }),
 
@@ -14316,18 +15737,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsDetail2
-     * @summary Helix-org: get a topic
-     * @request GET:/api/v1/orgs/{org}/topics/{id}
-     * @originalName v1OrgsTopicsDetail
+     * @name V1OrgsTriggersDetail2
+     * @summary Helix-org: get a trigger
+     * @request GET:/api/v1/orgs/{org}/triggers/{id}
+     * @originalName v1OrgsTriggersDetail
      * @duplicate
-     * @secure
      */
-    v1OrgsTopicsDetail2: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiTopicDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}`,
+    v1OrgsTriggersDetail2: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiTriggerDTO, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -14336,17 +15755,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsUpdate
-     * @summary Helix-org: update a topic
-     * @request PUT:/api/v1/orgs/{org}/topics/{id}
-     * @secure
+     * @name V1OrgsTriggersUpdate
+     * @summary Helix-org: update a trigger
+     * @request PUT:/api/v1/orgs/{org}/triggers/{id}
      */
-    v1OrgsTopicsUpdate: (id: string, org: string, payload: ApiUpdateTopicRequest, params: RequestParams = {}) =>
-      this.request<ApiTopicDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}`,
+    v1OrgsTriggersUpdate: (org: string, id: string, payload: ApiTriggerWriteRequest, params: RequestParams = {}) =>
+      this.request<ApiTriggerDTO, ApiAPIError>({
+        path: `/api/v1/orgs/${org}/triggers/${id}`,
         method: "PUT",
         body: payload,
-        secure: true,
         type: ContentType.Json,
         format: "json",
         ...params,
@@ -14356,132 +15773,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsEventsDetail
-     * @summary Helix-org: SSE topic of events for one topic
-     * @request GET:/api/v1/orgs/{org}/topics/{id}/events
-     * @secure
+     * @name V1OrgsTriggersEventsDetail
+     * @summary Helix-org: list trigger events
+     * @request GET:/api/v1/orgs/{org}/triggers/{id}/events
      */
-    v1OrgsTopicsEventsDetail: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<string, any>({
-        path: `/api/v1/orgs/${org}/topics/${id}/events`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsTopicsGithubInstallWebhookCreate
-     * @summary Helix-org: auto-install the webhook for a github topic
-     * @request POST:/api/v1/orgs/{org}/topics/{id}/github/install-webhook
-     * @secure
-     */
-    v1OrgsTopicsGithubInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiInstallGitHubWebhookResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}/github/install-webhook`,
-        method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsTopicsGithubWebhookStatusDetail
-     * @summary Helix-org: live webhook status for a github topic
-     * @request GET:/api/v1/orgs/{org}/topics/{id}/github/webhook-status
-     * @secure
-     */
-    v1OrgsTopicsGithubWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiGitHubWebhookStatusResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}/github/webhook-status`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsTopicsGitlabInstallWebhookCreate
-     * @summary Helix-org: auto-install the webhook for a GitLab topic
-     * @request POST:/api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook
-     * @secure
-     */
-    v1OrgsTopicsGitlabInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiInstallGitLabWebhookResponse, any>({
-        path: `/api/v1/orgs/${org}/topics/${id}/gitlab/install-webhook`,
-        method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsTopicsGitlabWebhookStatusDetail
-     * @summary Helix-org: live webhook status for a GitLab topic
-     * @request GET:/api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status
-     * @secure
-     */
-    v1OrgsTopicsGitlabWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiGitLabWebhookStatusResponse, any>({
-        path: `/api/v1/orgs/${org}/topics/${id}/gitlab/webhook-status`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsTopicsMessagesDelete
-     * @summary Helix-org: clear all messages from a topic
-     * @request DELETE:/api/v1/orgs/{org}/topics/{id}/messages
-     * @secure
-     */
-    v1OrgsTopicsMessagesDelete: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}/messages`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsTopicsMessagesDetail
-     * @summary Helix-org: list a topic's messages (JSON:API, paginated)
-     * @request GET:/api/v1/orgs/{org}/topics/{id}/messages
-     * @secure
-     */
-    v1OrgsTopicsMessagesDetail: (
-      id: string,
+    v1OrgsTriggersEventsDetail: (
       org: string,
+      id: string,
       query?: {
-        /** 1-based page number (default 1) */
-        "page[number]"?: number;
-        /** page size (default 50, max 200) */
-        "page[size]"?: number;
+        /** Page size (1-100) */
+        limit?: number;
+        /** Offset */
+        offset?: number;
       },
       params: RequestParams = {},
     ) =>
-      this.request<ApiMessagesDocument, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}/messages`,
+      this.request<ApiTriggerEventsResponse, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}/events`,
         method: "GET",
         query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersGithubInstallWebhookCreate
+     * @summary Helix-org: auto-install the webhook for a github topic
+     * @request POST:/api/v1/orgs/{org}/triggers/{id}/github/install-webhook
+     * @secure
+     */
+    v1OrgsTriggersGithubInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiInstallGitHubWebhookResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/triggers/${id}/github/install-webhook`,
+        method: "POST",
         secure: true,
         format: "json",
         ...params,
@@ -14491,18 +15818,52 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsPublishCreate
-     * @summary Helix-org: publish a message to a topic
-     * @request POST:/api/v1/orgs/{org}/topics/{id}/publish
+     * @name V1OrgsTriggersGithubWebhookStatusDetail
+     * @summary Helix-org: live webhook status for a github topic
+     * @request GET:/api/v1/orgs/{org}/triggers/{id}/github/webhook-status
      * @secure
      */
-    v1OrgsTopicsPublishCreate: (id: string, org: string, payload: ApiPublishRequest, params: RequestParams = {}) =>
-      this.request<ApiPublishResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}/publish`,
-        method: "POST",
-        body: payload,
+    v1OrgsTriggersGithubWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiGitHubWebhookStatusResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/triggers/${id}/github/webhook-status`,
+        method: "GET",
         secure: true,
-        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersGitlabInstallWebhookCreate
+     * @summary Helix-org: auto-install the webhook for a GitLab Trigger
+     * @request POST:/api/v1/orgs/{org}/triggers/{id}/gitlab/install-webhook
+     * @secure
+     */
+    v1OrgsTriggersGitlabInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiInstallGitLabWebhookResponse, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}/gitlab/install-webhook`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersGitlabWebhookStatusDetail
+     * @summary Helix-org: live webhook status for a GitLab Trigger
+     * @request GET:/api/v1/orgs/{org}/triggers/{id}/gitlab/webhook-status
+     * @secure
+     */
+    v1OrgsTriggersGitlabWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiGitLabWebhookStatusResponse, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}/gitlab/webhook-status`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -14644,6 +16005,61 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List static artifacts in a project. Access is inherited from the project.
+     *
+     * @tags Artifacts
+     * @name V1ProjectsArtifactsDetail
+     * @summary List project artifacts
+     * @request GET:/api/v1/projects/{id}/artifacts
+     * @secure
+     */
+    v1ProjectsArtifactsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesArtifactsListResponse, any>({
+        path: `/api/v1/projects/${id}/artifacts`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Upload one HTML, Markdown, PDF, or image file, or a ZIP containing a compiled static SPA.
+     *
+     * @tags Artifacts
+     * @name V1ProjectsArtifactsCreate
+     * @summary Create a project artifact
+     * @request POST:/api/v1/projects/{id}/artifacts
+     * @secure
+     */
+    v1ProjectsArtifactsCreate: (
+      id: string,
+      data: {
+        /** Artifact name */
+        name: string;
+        /** Description */
+        description?: string;
+        /** HTML entrypoint (default index.html) */
+        entrypoint?: string;
+        /** project or public */
+        visibility?: string;
+        /** Deprecated: public artifacts always receive a share subdomain */
+        with_subdomain?: boolean;
+        /** HTML, Markdown, PDF, image, or ZIP bundle */
+        artifact: File;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesArtifact, any>({
+        path: `/api/v1/projects/${id}/artifacts`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
         ...params,
       }),
 
@@ -15007,6 +16423,102 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Creates a short-lived, one-time link for collecting requested fields outside chat. The response never contains submitted values.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesCreate
+     * @summary Create a secret intake
+     * @request POST:/api/v1/projects/{id}/secret-intakes
+     * @secure
+     */
+    v1ProjectsSecretIntakesCreate: (id: string, request: TypesSecretIntakeCreateRequest, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeCreateResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Invalidates its link and clears any submitted ciphertext.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesDelete
+     * @summary Revoke a secret intake
+     * @request DELETE:/api/v1/projects/{id}/secret-intakes/{intake_id}
+     * @secure
+     */
+    v1ProjectsSecretIntakesDelete: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns metadata and status only; submitted values remain inaccessible through this endpoint.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesDetail
+     * @summary Get secret intake status
+     * @request GET:/api/v1/projects/{id}/secret-intakes/{intake_id}
+     * @secure
+     */
+    v1ProjectsSecretIntakesDetail: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeView, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description One-time read for trusted integrations: returns the submitted values and clears the stored ciphertext atomically. A failed or repeated call cannot read them again.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesConsumeCreate
+     * @summary Consume secret intake values
+     * @request POST:/api/v1/projects/{id}/secret-intakes/{intake_id}/consume
+     * @secure
+     */
+    v1ProjectsSecretIntakesConsumeCreate: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeConsumption, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}/consume`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Write-only project API for trusted integrations. Values are encrypted and cannot be read through the API.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesSubmissionsCreate
+     * @summary Submit secret intake values
+     * @request POST:/api/v1/projects/{id}/secret-intakes/{intake_id}/submissions
+     * @secure
+     */
+    v1ProjectsSecretIntakesSubmissionsCreate: (
+      id: string,
+      intakeId: string,
+      request: ServerSecretIntakeSubmissionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}/submissions`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description List all secrets associated with a specific project.
      *
      * @tags secrets
@@ -15328,23 +16840,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List pending proposals across all spec tasks in a project
-     *
-     * @tags projects
-     * @name V1ProjectsProposalsDetail
-     * @summary List pending proposals for a project
-     * @request GET:/api/v1/projects/{projectId}/proposals
-     * @secure
-     */
-    v1ProjectsProposalsDetail: (projectId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskProposal[], any>({
-        path: `/api/v1/projects/${projectId}/proposals`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Idempotent upsert of a project from a declarative YAML spec
      *
      * @tags Projects
@@ -15457,25 +16952,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Approve or reject an agent's proposal; on approve, the action is executed and the agent is notified
-     *
-     * @tags spec-tasks
-     * @name V1ProposalsDecideCreate
-     * @summary Decide on a spec task proposal
-     * @request POST:/api/v1/proposals/{proposalId}/decide
-     * @secure
-     */
-    v1ProposalsDecideCreate: (proposalId: string, request: TypesProposalDecisionRequest, params: RequestParams = {}) =>
-      this.request<TypesProposalDecisionResponse, any>({
-        path: `/api/v1/proposals/${proposalId}/decide`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
      * No description
      *
      * @name V1ProviderEndpointsList
@@ -15488,6 +16964,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         with_models?: boolean;
         /** Organization ID */
         org_id?: string;
+        /** Filter by organization code-agent runtime policy */
+        code_agent_runtime?: string;
         /** Include all endpoints (system admin only) */
         all?: boolean;
       },
@@ -15547,6 +17025,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns every model the upstream provider advertises, plus the subset currently enabled on the endpoint. Aggregators such as OpenRouter list hundreds of models, so this is deliberately separate from the endpoint's effective (enabled-only) model list.
+     *
+     * @tags providers
+     * @name V1ProviderEndpointsAvailableModelsDetail
+     * @summary List a provider endpoint's full model catalogue
+     * @request GET:/api/v1/provider-endpoints/{id}/available-models
+     * @secure
+     */
+    v1ProviderEndpointsAvailableModelsDetail: (
+      id: string,
+      query?: {
+        /** Bypass the cached catalogue and refetch from upstream */
+        refresh?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesProviderEndpointModels, SystemHTTPError>({
+        path: `/api/v1/provider-endpoints/${id}/available-models`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get provider daily usage
      *
      * @tags providers
@@ -15569,6 +17073,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/provider-endpoints/${id}/daily-usage`,
         method: "GET",
         query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Replaces the endpoint's enabled-models whitelist. An empty list enables the provider's whole catalogue.
+     *
+     * @tags providers
+     * @name V1ProviderEndpointsModelsUpdate
+     * @summary Set the models enabled on a provider endpoint
+     * @request PUT:/api/v1/provider-endpoints/{id}/models
+     * @secure
+     */
+    v1ProviderEndpointsModelsUpdate: (
+      id: string,
+      request: TypesUpdateProviderEndpointModels,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesProviderEndpoint, SystemHTTPError>({
+        path: `/api/v1/provider-endpoints/${id}/models`,
+        method: "PUT",
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -15650,6 +17178,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/providers`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns safe display metadata for public artifacts without authentication. Private artifacts require project access.
+     *
+     * @tags Artifacts
+     * @name V1PublicArtifactsDetail
+     * @summary Get artifact viewer metadata
+     * @request GET:/api/v1/public/artifacts/{artifact_id}
+     */
+    v1PublicArtifactsDetail: (artifactId: string, params: RequestParams = {}) =>
+      this.request<TypesArtifactViewerResponse, any>({
+        path: `/api/v1/public/artifacts/${artifactId}`,
+        method: "GET",
+        format: "json",
         ...params,
       }),
 
@@ -16211,10 +17755,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/secrets/{id}
      * @secure
      */
-    v1SecretsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSecret, any>({
+    v1SecretsDelete: (
+      id: string,
+      query?: {
+        /** Revoke Agent grants and delete anyway */
+        force?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSecret, SystemHTTPError>({
         path: `/api/v1/secrets/${id}`,
         method: "DELETE",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -16392,6 +17944,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         include_external_agents?: boolean;
         /** Return only archived sessions instead of only unarchived ones */
         archived?: boolean;
+        /** List another org member's sessions (requires org_id); limited to projects the caller can access unless they own the org */
+        owner_id?: string;
+        /** List every member's chats in one project (requires org_id, project_id and project_scope=project) */
+        all_members?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -16478,6 +18034,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/agent-config-applied`,
         method: "POST",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Called by the settings-sync daemon when the session's Zed configuration is rejected. Atomically fails the latest waiting interaction so the task does not remain on an infinite spinner.
+     *
+     * @tags Sessions
+     * @name V1SessionsAgentStartupErrorCreate
+     * @summary Report a fatal in-container agent configuration error
+     * @request POST:/api/v1/sessions/{id}/agent-startup-error
+     * @secure
+     */
+    v1SessionsAgentStartupErrorCreate: (
+      id: string,
+      request: ServerAgentStartupErrorRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerAgentStartupErrorResponse, any>({
+        path: `/api/v1/sessions/${id}/agent-startup-error`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -16615,6 +18195,66 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Reports whether the agent currently holds a live sync WebSocket — whether a message sent now would actually reach it — and kicks the canonical dev-container auto-start when it does not. For EMBEDDERS. GET /sessions/{id} reports external_agent_status "running" as soon as the container is up, which is not the same as reachable: a container can run for hours with Zed never having dialled home (helixml/helix#2397). Find AI presented a chat box to candidates on the strength of "running"; messages died in stuck interactions and the customer was shown "The system has encountered an error". An embedder needs to ask "can I send?" and to be able to do something about "no". Idempotent and cheap: connected sessions return immediately without touching the container. Returns promptly rather than waiting for boot — poll until connected is true.
+     *
+     * @tags Sessions
+     * @name V1SessionsEnsureAgentCreate
+     * @summary Ensure this session's agent is connected, starting it if not
+     * @request POST:/api/v1/sessions/{id}/ensure-agent
+     * @secure
+     */
+    v1SessionsEnsureAgentCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerEnsureAgentResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/ensure-agent`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the session's current coding identity without exposing Agent secrets. Sessions belonging to a SpecTask report the task's configuration.
+     *
+     * @tags Sessions
+     * @name V1SessionsExecutionConfigDetail
+     * @summary Get session execution configuration
+     * @request GET:/api/v1/sessions/{id}/execution-config
+     * @secure
+     */
+    v1SessionsExecutionConfigDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesAgentExecutionConfig, TypesAPIError>({
+        path: `/api/v1/sessions/${id}/execution-config`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Replaces the complete coding execution config. SpecTask sessions write through to the task; general sessions keep their parent Agent for instructions and tools while storing runtime/model configuration on the session. Running sandboxes start a fresh ACP thread with the prior transcript.
+     *
+     * @tags Sessions
+     * @name V1SessionsExecutionConfigPartialUpdate
+     * @summary Update session execution configuration
+     * @request PATCH:/api/v1/sessions/{id}/execution-config
+     * @secure
+     */
+    v1SessionsExecutionConfigPartialUpdate: (
+      id: string,
+      request: TypesSessionExecutionConfigUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSessionExecutionConfigUpdateResponse, TypesAPIError>({
+        path: `/api/v1/sessions/${id}/execution-config`,
+        method: "PATCH",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Tells the per-spec-task Zed desktop to open (foreground) the thread that belongs to THIS session, so the streamed desktop tracks the session the user is viewing. A spec task can have multiple sessions/threads sharing one desktop; the chat panel and message routing are already session-scoped, but nothing previously told the desktop to follow the selected session — so the foregrounded thread could differ from the one messages were sent to. This is session-scoped and never guesses a "latest" thread. It no-ops (200) when the session has no thread yet or the desktop WS is not connected, and crucially NEVER auto-starts a dev container (foregrounding must not boot a desktop).
      *
      * @tags Sessions
@@ -16728,7 +18368,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Persists a Waiting interaction and dispatches it via the external-agent WebSocket. If no agent is connected the interaction is held until the agent reconnects, at which point pickupWaitingInteraction delivers it — callers do not need to manage WebSocket readiness or retries. Distinct from POST /sessions/chat (synchronous SSE chat); use this endpoint for fire-and-forget delivery to an external (e.g. desktop) agent.
+     * @description Persists a Waiting interaction and dispatches it via the external-agent WebSocket. If no agent is connected the interaction is held until the agent reconnects, at which point the reconnect resume path delivers it — callers do not need to manage WebSocket readiness or retries. Distinct from POST /sessions/chat (synchronous SSE chat); use this endpoint for fire-and-forget delivery to an external (e.g. desktop) agent.
      *
      * @tags Sessions
      * @name V1SessionsMessagesCreate
@@ -16973,11 +18613,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, which Zed hot-reloads live (MCP context servers reconcile without a process restart), then repopulates a fresh thread with the prior transcript. Falls back to a clean Zed restart only if the live reload doesn't take.
+     * @description Switches the agentic framework on the SAME session without forking. A running sandbox hot-reloads the new agent and starts a fresh thread with the prior transcript. A stopped sandbox only records the change and applies it on the next start.
      *
      * @tags sessions
      * @name V1SessionsSwitchAgentCreate
-     * @summary Switch the agent framework on a running session in place
+     * @summary Switch the agent framework on a session in place
      * @request POST:/api/v1/sessions/{id}/switch-agent
      * @secure
      */
@@ -17079,6 +18719,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Spend, tokens, latency and prompt-cache hit ratio of one session, overall, per turn and per LLM call.
+     *
+     * @tags sessions
+     * @name V1SessionsUsageDetail
+     * @summary Get a session's LLM usage
+     * @request GET:/api/v1/sessions/{id}/usage
+     * @secure
+     */
+    v1SessionsUsageDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSessionUsage, any>({
+        path: `/api/v1/sessions/${id}/usage`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
@@ -17255,7 +18912,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List spec-driven tasks with optional filtering by project, status, or user
+     * @description List spec-driven tasks with optional filtering by project, status, or user. Pass organization_id instead of project_id to list across every project the caller can access.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksList
@@ -17263,15 +18920,19 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/spec-tasks
      */
     v1SpecTasksList: (
-      query: {
-        /** Project ID */
-        project_id: string;
+      query?: {
+        /** Project ID (required unless organization_id is set) */
+        project_id?: string;
+        /** Organization slug or ID: list tasks across all accessible projects */
+        organization_id?: string;
         /** Filter by status */
         status?: string;
         /** Filter by user ID */
         user_id?: string;
         /** Filter by creator or assignee user IDs (comma-separated, OR semantics) */
         participant_ids?: string;
+        /** Only tasks created by this Org Bot handle */
+        created_by_org_bot?: string;
         /**
          * Include archived tasks
          * @default false
@@ -17458,6 +19119,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Update one Markdown design document with optimistic concurrency
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsDocumentUpdate
+     * @summary Update a design review document
+     * @request PUT:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/document
+     * @secure
+     */
+    v1SpecTasksDesignReviewsDocumentUpdate: (
+      specTaskId: string,
+      reviewId: string,
+      request: TypesSpecTaskDesignReviewDocumentUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskDesignReview, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/document`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Approve or request changes for a design review
      *
      * @tags SpecTasks
@@ -17474,6 +19160,49 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesSpecTaskDesignReview, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/submit`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Every pull request a spec task opens starts as an agent proposal awaiting user approval.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksPrProposalsDetail
+     * @summary List a spec task's pull request proposals
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/pr-proposals
+     * @secure
+     */
+    v1SpecTasksPrProposalsDetail: (specTaskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskPRProposal[], any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/pr-proposals`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approving grants the agent push rights to the proposal's head branch and opens the pull request as soon as the branch has commits beyond the base. Edited fields override the agent's proposal. Rejecting withdraws push rights.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksPrProposalsDecideCreate
+     * @summary Approve or reject a pull request proposal
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide
+     * @secure
+     */
+    v1SpecTasksPrProposalsDecideCreate: (
+      specTaskId: string,
+      proposalId: string,
+      request: TypesPRProposalDecisionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskPRProposal, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/pr-proposals/${proposalId}/decide`,
         method: "POST",
         body: request,
         secure: true,
@@ -17716,7 +19445,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns the task's current coding identity without exposing Agent secrets. Legacy tasks whose Agent was deleted fall back to their session and interaction snapshots.
+     * @description Returns the task-owned code-agent configuration for the active planning or implementation phase. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksExecutionConfigDetail
@@ -17725,7 +19454,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SpecTasksExecutionConfigDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskExecutionConfig, TypesAPIError>({
+      this.request<TypesAgentExecutionConfig, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/execution-config`,
         method: "GET",
         secure: true,
@@ -17734,7 +19463,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Replaces a task's code-agent overrides or sandbox resource preset. Running sandboxes are resized in place; code-agent changes start a new ACP thread with normalized prior context.
+     * @description Replaces a task's planning or implementation code-agent configuration, or its sandbox resource preset. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksExecutionConfigPartialUpdate
@@ -17808,26 +19537,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List all agent proposals (PR / sub-task / mark-complete) for a given spec task
+     * @description Immediately synchronize pull request and CI status for a task being actively viewed. Requests are coalesced to one poll per task every 30 seconds.
      *
      * @tags spec-tasks
-     * @name V1SpecTasksProposalsDetail
-     * @summary List proposals for a spec task
-     * @request GET:/api/v1/spec-tasks/{taskId}/proposals
+     * @name V1SpecTasksRefreshPullRequestCreate
+     * @summary Refresh a spec task's pull request status
+     * @request POST:/api/v1/spec-tasks/{taskId}/refresh-pull-request
      * @secure
      */
-    v1SpecTasksProposalsDetail: (
-      taskId: string,
-      query?: {
-        /** Filter by status (pending|approved|rejected|failed) */
-        status?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesSpecTaskProposal[], any>({
-        path: `/api/v1/spec-tasks/${taskId}/proposals`,
-        method: "GET",
-        query: query,
+    v1SpecTasksRefreshPullRequestCreate: (taskId: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/refresh-pull-request`,
+        method: "POST",
         secure: true,
         ...params,
       }),
@@ -18356,6 +20077,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         user_id?: string;
         /** Project ID */
         project_id?: string;
+        /** Task ID */
+        task_id?: string;
         /** App ID */
         app_id?: string;
         /** Session ID */
@@ -18759,6 +20482,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Organization ID */
         org_id?: string;
+        /** Discover a subscription after returning from Checkout */
+        discover_subscription?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -18876,6 +20601,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+  };
+  connect = {
+    /**
+     * @description Exchanges a one-time invitation token for a short-lived browser flow cookie.
+     *
+     * @tags Secret Intakes
+     * @name IntakeRedeemCreate
+     * @summary Redeem a secret intake invitation
+     * @request POST:/connect/intake/redeem
+     */
+    intakeRedeemCreate: (request: ServerSecretIntakeRedeemRequest, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/connect/intake/redeem`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
         ...params,
       }),
   };

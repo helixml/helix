@@ -53,6 +53,7 @@ import {
 } from "../../services/sessionService";
 import { useStreaming } from "../../contexts/streaming";
 import { TypesInteraction, TypesInteractionState } from "../../api/api";
+import { lastSuccessfulInteractionIndex } from "../../utils/interactionRecovery";
 import useLightTheme from "../../hooks/useLightTheme";
 import { SESSION_TYPE_TEXT } from "../../types";
 import { getChatColors } from "./chatStyles";
@@ -63,11 +64,27 @@ import {
   resolveChatTurnAssistantPreview,
 } from "./ChatTurnNavigator.logic";
 import { splitSystemPrefix } from "./CollapsibleSystemPrefix";
+import { isSandboxOffline } from "../external-agent/sandboxState";
+import { seedPromptIndex } from "./minimalChatLogic";
 
 interface EmbeddedSessionViewProps {
   sessionId: string;
   onScrollToBottom?: () => void;
   enableInteractionDebugCopy?: boolean;
+  /**
+   * Customer-facing mode: hide the session's opening prompt.
+   *
+   * The first turn of an agent session is not something the customer said — it
+   * is the agent's briefing, sent as the session's first prompt, and it renders
+   * as a user message like any other. On an embed that meant a candidate on the
+   * job board was shown the entire system prompt, the tool list, and the
+   * sandbox scaffolding (repository paths, the branch to push to) before they
+   * had typed a word. The agent's REPLY to it is kept: that is the greeting.
+   */
+  minimal?: boolean;
+  // False for an org bot instance, whose first interaction is the customer's
+  // own message rather than a hidden briefing. Defaults to the spec-task shape.
+  hasBriefingTurn?: boolean;
 }
 
 export interface EmbeddedSessionViewHandle {
@@ -87,7 +104,7 @@ export interface EmbeddedSessionViewHandle {
 const EmbeddedSessionView = forwardRef<
   EmbeddedSessionViewHandle,
   EmbeddedSessionViewProps
->(({ sessionId, onScrollToBottom, enableInteractionDebugCopy }, ref) => {
+>(({ sessionId, onScrollToBottom, enableInteractionDebugCopy, minimal = false, hasBriefingTurn = true }, ref) => {
   const account = useAccount();
   const api = useApi();
   const lightTheme = useLightTheme();
@@ -249,6 +266,14 @@ const EmbeddedSessionView = forwardRef<
   // below so a forbidden / missing session degrades gracefully instead of
   // spinning on "Loading session…" forever.
   const sessionErrorStatus = (sessionError as any)?.response?.status as number | undefined;
+
+  // Whether this session's sandbox has stopped. Derived from the session we
+  // already poll above rather than via useSandboxState, so we don't open a
+  // second query against the same row with different parameters.
+  const agentOffline = useMemo(
+    () => isSandboxOffline(session?.config),
+    [session?.config],
+  );
 
   // Fetch paginated interactions (newest first via order=desc)
   // Page 0 = newest interactions, higher pages = older interactions.
@@ -474,7 +499,7 @@ const EmbeddedSessionView = forwardRef<
 
   const navigatorItems = useMemo<ChatTurnNavigatorItem[]>(() => {
     return visibleInteractions.flatMap((interaction) => {
-      if (!interaction.id || interaction.trigger === "fork_seed" || interaction.trigger === "fork_handoff") return [];
+      if (!interaction.id || interaction.trigger === "fork_seed" || interaction.trigger === "fork_handoff" || interaction.trigger === "org_hire") return [];
       const contentText = interaction.prompt_message_content?.parts?.find(
         (part): part is { text: string } =>
           typeof part === "object" &&
@@ -506,10 +531,19 @@ const EmbeddedSessionView = forwardRef<
 
   const totalInteractions = visibleInteractions.length;
 
+  // Anything errored before the last clean completion has been overtaken by
+  // work that succeeded afterwards; its alarm and Retry button are stale.
+  const lastSuccessIndex = useMemo(
+    () => lastSuccessfulInteractionIndex(visibleInteractions),
+    [visibleInteractions],
+  );
+
   // Check if there are more pages to load
   const totalPages = paginatedData?.totalPages || 1;
   const totalCount = paginatedData?.totalCount || 0;
   const hasOlderInteractions = oldestPageLoaded < totalPages - 1;
+  // The session's opening prompt, or -1 when it is not on screen.
+  const seedIndex = seedPromptIndex(minimal, hasOlderInteractions, hasBriefingTurn);
   const remainingOlderCount = Math.max(0, totalCount - totalInteractions);
 
   const isOwner = account.user?.id === session?.owner;
@@ -700,6 +734,7 @@ const EmbeddedSessionView = forwardRef<
                 serverConfig={account.serverConfig}
                 interaction={interaction}
                 nextInteraction={visibleInteractions[index + 1]}
+                recoveredLater={index < lastSuccessIndex}
                 session={session}
                 highlightAllFiles={false}
                 onReloadSession={handleReloadSession}
@@ -711,12 +746,14 @@ const EmbeddedSessionView = forwardRef<
                 session_id={sessionId}
                 sessionSteps={sessionSteps?.data || []}
                 enableDebugCopy={enableInteractionDebugCopy}
+                hidePrompt={index === seedIndex}
               >
                 {isLive && (isOwner || account.admin) && (
                   <InteractionLiveStream
                     session_id={sessionId}
                     interaction={interaction}
                     session={session}
+                    agentOffline={agentOffline}
                     serverConfig={account.serverConfig}
                     onMessageUpdate={scrollToBottom}
                   />
@@ -727,11 +764,15 @@ const EmbeddedSessionView = forwardRef<
         </Box>
       </Box>
 
-      <ChatTurnNavigator
-        items={navigatorItems}
-        scrollContainer={scrollContainerEl}
-        onSelect={handleNavigateToTurn}
-      />
+      {/* The turn navigator's dash/tick markers read as a stray glyph in the
+          customer-facing minimal embed, so it is only shown in the full app. */}
+      {!minimal && (
+        <ChatTurnNavigator
+          items={navigatorItems}
+          scrollContainer={scrollContainerEl}
+          onSelect={handleNavigateToTurn}
+        />
+      )}
 
       {/* Jump-to-latest pill (bottom-center, only when content arrived while
           the user was reading above the latest message) */}

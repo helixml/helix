@@ -259,13 +259,15 @@ func TestRequireUnpaused(t *testing.T) {
 }
 
 func TestFindForkSeed(t *testing.T) {
-	seed := &types.Interaction{ID: "seed1", Trigger: types.InteractionTriggerForkSeed}
+	oldSeed := &types.Interaction{ID: "seed1", Trigger: types.InteractionTriggerForkSeed}
+	latestSeed := &types.Interaction{ID: "seed2", Trigger: types.InteractionTriggerForkSeed}
 	interactions := []*types.Interaction{
 		{ID: "i1", Trigger: ""},
-		seed,
+		oldSeed,
 		{ID: "i2", Trigger: ""},
+		latestSeed,
 	}
-	assert.Same(t, seed, findForkSeed(interactions))
+	assert.Same(t, latestSeed, findForkSeed(interactions))
 	assert.Nil(t, findForkSeed(nil))
 	assert.Nil(t, findForkSeed([]*types.Interaction{{Trigger: ""}}))
 }

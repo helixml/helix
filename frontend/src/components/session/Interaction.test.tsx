@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -13,12 +13,14 @@ vi.mock("./InteractionInference", () => ({
   default: ({
     enableDebugCopy,
     error,
+    errorIsHistorical,
     isFromAssistant,
     message,
     workspaceAttachments,
   }: {
     enableDebugCopy?: boolean;
     error?: string;
+    errorIsHistorical?: boolean;
     isFromAssistant?: boolean;
     message?: string;
     workspaceAttachments?: Array<{ name: string }>;
@@ -28,7 +30,14 @@ vi.mock("./InteractionInference", () => ({
       {workspaceAttachments?.map((attachment) => (
         <span key={attachment.name}>{attachment.name}</span>
       ))}
-      {error && <span data-testid="interaction-error">{error}</span>}
+      {error && (
+        <span
+          data-testid="interaction-error"
+          data-historical={errorIsHistorical ? "true" : "false"}
+        >
+          {error}
+        </span>
+      )}
       {enableDebugCopy && <button aria-label="agent debug copy" />}
     </div>
   ),
@@ -80,6 +89,23 @@ describe("Interaction", () => {
     expect(screen.queryByRole("button", { name: "agent debug copy" })).not.toBeInTheDocument();
   });
 
+  it("hides an organization hire prompt without hiding the agent reply", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_first_hire",
+          prompt_message: "Internal activation instructions",
+          response_message: "Hello, I am your new agent.",
+          trigger: "org_hire",
+        }}
+      />,
+    );
+
+    expect(screen.queryByTestId("user-message")).not.toBeInTheDocument();
+    expect(screen.getByTestId("agent-reply")).toHaveTextContent("Hello, I am your new agent.");
+  });
+
   it("renders workspace attachments without exposing the transport manifest", () => {
     render(
       <Interaction
@@ -99,6 +125,29 @@ describe("Interaction", () => {
     expect(screen.getByTestId("user-message")).toHaveTextContent("What is in this screenshot?");
     expect(screen.getByTestId("user-message")).toHaveTextContent("image.png");
     expect(screen.queryByText("Attachments available in the agent workspace:")).not.toBeInTheDocument();
+  });
+
+  it("does not offer raw-message editing for structured file comments", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_review",
+          prompt_message: [
+            "Please explain this.",
+            "",
+            '<review_comment filePath="README.md" startIndex="22" endIndex="22" rangeLabel="L23">',
+            "What does this line do?",
+            "```md",
+            "- Docker",
+            "```",
+            "</review_comment>",
+          ].join("\n"),
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "edit" })).not.toBeInTheDocument();
   });
 
   it("renders an interaction error once below the user message", () => {
@@ -140,9 +189,88 @@ describe("Interaction", () => {
     expect(screen.queryByTestId("agent-reply")).not.toBeInTheDocument();
   });
 
-  it("collapses an agent-switch handoff under its divider", () => {
+  // The 2026-08-18 shape: a turn aborted mid-work, then the session went on and
+  // answered a DIFFERENT question. The old rule only suppressed the alarm when
+  // the very next turn retried the SAME prompt, so a recovered session kept a
+  // red error and a Retry button that would have re-sent a stale prompt.
+  it("demotes an error once a later turn has succeeded", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_error",
+          prompt_message: "Do the work",
+          response_message: "partial output before the turn died",
+          error: "agent turn aborted",
+        }}
+        nextInteraction={{
+          id: "int_other",
+          prompt_message: "whats the status?",
+          response_message: "Idle.",
+          state: TypesInteractionState.InteractionStateComplete,
+        }}
+        recoveredLater
+      />,
+    );
+
+    // Still shown — the turn really did fail and its work was abandoned — but
+    // as history rather than as an actionable alarm.
+    const shown = screen.getByTestId("interaction-error");
+    expect(shown).toHaveTextContent("agent turn aborted");
+    expect(shown).toHaveAttribute("data-historical", "true");
+  });
+
+  it("keeps an error actionable while nothing has succeeded after it", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_error",
+          prompt_message: "Do the work",
+          error: "agent turn aborted",
+        }}
+        nextInteraction={{
+          id: "int_later",
+          prompt_message: "another go",
+          state: TypesInteractionState.InteractionStateError,
+          error: "failed again",
+        }}
+        recoveredLater={false}
+      />,
+    );
+
+    expect(screen.getByTestId("interaction-error")).toHaveAttribute(
+      "data-historical",
+      "false",
+    );
+  });
+
+  it("still removes the error entirely when the same prompt was retried", () => {
+    // recoveredLater must not weaken the stronger suppression: a successful
+    // retry of the same prompt means the work got done, so nothing is shown.
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_error",
+          prompt_message: "Question",
+          error: "agent failed",
+        }}
+        nextInteraction={{
+          id: "int_retry",
+          prompt_message: "Question",
+          response_message: "Answer",
+          state: TypesInteractionState.InteractionStateComplete,
+        }}
+        recoveredLater
+      />,
+    );
+
+    expect(screen.queryByTestId("interaction-error")).not.toBeInTheDocument();
+  });
+
+  it("labels the implementation harness configuration transition", () => {
     const systemPrompt = "[System: The coding agent or model configuration changed for this task.]";
-    const agentReply = "Ready to continue with Claude Code.";
     render(
       <Interaction
         {...baseProps}
@@ -155,29 +283,21 @@ describe("Interaction", () => {
         nextInteraction={{
           id: "int_handoff",
           trigger: "fork_handoff",
-          prompt_message: systemPrompt,
-          response_entries: [{ type: "text", content: agentReply }] as any,
+          prompt_message: `## CURRENT PHASE: IMPLEMENTATION\n\n${systemPrompt}`,
           state: TypesInteractionState.InteractionStateComplete,
         }}
       />,
     );
 
-    const divider = screen.getByRole("button", {
-      name: "Agent switched to claude_code at turn 2",
-    });
-    expect(divider).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Switching to implementation harness configuration"))
+      .toBeInTheDocument();
+    expect(screen.queryByText("Agent switched to claude_code at turn 2"))
+      .not.toBeInTheDocument();
     expect(screen.queryByText(systemPrompt)).not.toBeInTheDocument();
-    expect(screen.queryByText(agentReply)).not.toBeInTheDocument();
     expect(screen.queryByText(/Show transcript/)).not.toBeInTheDocument();
-
-    fireEvent.click(divider);
-
-    expect(divider).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText(systemPrompt)).toBeInTheDocument();
-    expect(screen.getByText(agentReply)).toBeInTheDocument();
   });
 
-  it("does not render a handoff as a normal conversation turn", () => {
+  it("renders handoff agent work without exposing its system prompt", () => {
     render(
       <Interaction
         {...baseProps}
@@ -185,12 +305,31 @@ describe("Interaction", () => {
           id: "int_handoff",
           trigger: "fork_handoff",
           prompt_message: "[System: hidden handoff]",
-          response_message: "Hidden agent reply",
+          response_message: "Visible implementation work",
         }}
       />,
     );
 
     expect(screen.queryByText("[System: hidden handoff]")).not.toBeInTheDocument();
-    expect(screen.queryByText("Hidden agent reply")).not.toBeInTheDocument();
+    expect(screen.getByTestId("agent-reply")).toHaveTextContent("Visible implementation work");
+  });
+
+  it("renders live handoff activity", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_handoff",
+          trigger: "fork_handoff",
+          prompt_message: "[System: hidden handoff]",
+          state: TypesInteractionState.InteractionStateWaiting,
+        }}
+      >
+        <div>Live implementation activity</div>
+      </Interaction>,
+    );
+
+    expect(screen.queryByText("[System: hidden handoff]")).not.toBeInTheDocument();
+    expect(screen.getByText("Live implementation activity")).toBeInTheDocument();
   });
 });

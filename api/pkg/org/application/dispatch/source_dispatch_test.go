@@ -1,0 +1,125 @@
+package dispatch_test
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"testing"
+	"time"
+
+	"github.com/helixml/helix/api/pkg/org/application/dispatch"
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/attachment"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
+	"github.com/stretchr/testify/require"
+)
+
+type queued struct {
+	org     string
+	worker  orgchart.NodeID
+	trigger activation.Trigger
+}
+type recordingQueue struct{ rows []queued }
+
+func (q *recordingQueue) Enqueue(org string, worker orgchart.NodeID, tr activation.Trigger) {
+	q.rows = append(q.rows, queued{org, worker, tr})
+}
+func addNode(t *testing.T, ctx context.Context, st interface {
+	Create(context.Context, orgchart.Node) error
+}, org string, id orgchart.NodeID) {
+	n, err := orgchart.NewNode(id, "work", nil, time.Now(), org)
+	require.NoError(t, err)
+	require.NoError(t, st.Create(ctx, n))
+}
+func addAttachment(t *testing.T, ctx context.Context, repo interface {
+	Create(context.Context, attachment.Attachment) error
+}, id, org string, worker orgchart.NodeID, src eventsource.SourceRef) {
+	a, err := attachment.New(id, org, worker, src, "", time.Now())
+	require.NoError(t, err)
+	require.NoError(t, repo.Create(ctx, a))
+}
+
+func TestRouteExactFanoutOrderingAndSuppression(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	addNode(t, ctx, st.Nodes, "org-1", "w-a")
+	addNode(t, ctx, st.Nodes, "org-1", "w-b")
+	addNode(t, ctx, st.Nodes, "org-1", "w-c")
+	addNode(t, ctx, st.Nodes, "org-2", "w-a")
+	src := eventsource.ProcessorOutput("p-1", "po-left")
+	addAttachment(t, ctx, st.WorkerAttachments, "a-1", "org-1", "w-a", src)
+	addAttachment(t, ctx, st.WorkerAttachments, "a-2", "org-1", "w-b", src)
+	addAttachment(t, ctx, st.WorkerAttachments, "a-3", "org-1", "w-c", src)
+	addAttachment(t, ctx, st.WorkerAttachments, "a-4", "org-1", "w-missing", src)
+	addAttachment(t, ctx, st.WorkerAttachments, "a-5", "org-1", "w-b", eventsource.ProcessorOutput("p-1", "po-right"))
+	addAttachment(t, ctx, st.WorkerAttachments, "a-6", "org-2", "w-a", src)
+	d := dispatch.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	q := &recordingQueue{}
+	d.RegisterActivationQueue(q)
+	e, err := eventsource.NewEvent("e-1", "org-1", src, streaming.Message{Body: "one"}, "w-a", time.Now())
+	require.NoError(t, err)
+	require.NoError(t, d.Route(ctx, e))
+	require.Len(t, q.rows, 2)
+	require.Equal(t, orgchart.NodeID("w-b"), q.rows[0].worker)
+	require.Equal(t, src, q.rows[0].trigger.EventSource)
+	require.Equal(t, "one", q.rows[0].trigger.Message.Body)
+	e2, err := eventsource.NewEvent("e-2", "org-1", src, streaming.Message{Body: "two"}, "", time.Now())
+	require.NoError(t, err)
+	require.NoError(t, d.Route(ctx, e2))
+	require.Equal(t, []orgchart.NodeID{"w-b", "w-c", "w-a", "w-b", "w-c"}, []orgchart.NodeID{q.rows[0].worker, q.rows[1].worker, q.rows[2].worker, q.rows[3].worker, q.rows[4].worker})
+	require.Equal(t, "two", q.rows[2].trigger.Message.Body)
+}
+func TestRouteMissingRepository(t *testing.T) {
+	d := dispatch.New(&store.Store{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	err := d.Route(context.Background(), eventsource.Event{})
+	require.ErrorContains(t, err, "not configured")
+}
+
+// flakyNodes fails Get for one id with a non-ErrNotFound error, standing
+// in for a transient store failure.
+type flakyNodes struct {
+	store.Nodes
+	failFor orgchart.NodeID
+}
+
+func (n flakyNodes) Get(ctx context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error) {
+	if id == n.failFor {
+		return orgchart.Node{}, errors.New("connection reset")
+	}
+	return n.Nodes.Get(ctx, orgID, id)
+}
+
+// A store failure on one attachment must be logged, not swallowed, and
+// must not stop the event reaching the other attached Bots.
+func TestRouteLogsStoreFailureAndKeepsRoutingOtherTargets(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	addNode(t, ctx, st.Nodes, "org-1", "w-a")
+	addNode(t, ctx, st.Nodes, "org-1", "w-b")
+	src := eventsource.ProcessorOutput("p-1", "po-left")
+	addAttachment(t, ctx, st.WorkerAttachments, "a-1", "org-1", "w-a", src)
+	addAttachment(t, ctx, st.WorkerAttachments, "a-2", "org-1", "w-b", src)
+	addAttachment(t, ctx, st.WorkerAttachments, "a-3", "org-1", "w-missing", src)
+	st.Nodes = flakyNodes{Nodes: st.Nodes, failFor: "w-a"}
+
+	var logs bytes.Buffer
+	d := dispatch.New(st, nil, slog.New(slog.NewTextHandler(&logs, nil)))
+	q := &recordingQueue{}
+	d.RegisterActivationQueue(q)
+	e, err := eventsource.NewEvent("e-1", "org-1", src, streaming.Message{Body: "one"}, "", time.Now())
+	require.NoError(t, err)
+	require.NoError(t, d.Route(ctx, e))
+
+	require.Len(t, q.rows, 1)
+	require.Equal(t, orgchart.NodeID("w-b"), q.rows[0].worker)
+	require.Contains(t, logs.String(), "w-a")
+	require.Contains(t, logs.String(), "connection reset")
+	// A fired Bot is expected, not an anomaly — no warning for it.
+	require.NotContains(t, logs.String(), "w-missing")
+}

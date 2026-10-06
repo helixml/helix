@@ -17,16 +17,23 @@ import (
 // recordingPort is a configurable runtime.SpecTasks for the tool tests.
 type recordingPort struct {
 	runtime.NoopSpecTasks
-	createIn    runtime.CreateSpecTaskInput
-	lastProject string
-	lastTaskID  string
-	lastComment string
-	lastFilter  runtime.ListSpecTasksFilter
-	updateIn    runtime.UpdateSpecTaskInput
-	stopCalls   int
-	view        runtime.SpecTaskView
-	review      runtime.SpecReviewView
-	err         error
+	createIn     runtime.CreateSpecTaskInput
+	lastProject  string
+	lastTaskID   string
+	lastComment  string
+	lastFilter   runtime.ListSpecTasksFilter
+	updateIn     runtime.UpdateSpecTaskInput
+	stopCalls    int
+	startCalls   int
+	restartCalls int
+	messageIn    runtime.SpecTaskMessageInput
+	view         runtime.SpecTaskView
+	review       runtime.SpecReviewView
+	action       runtime.SpecTaskAgentActionView
+	message      runtime.SpecTaskMessageView
+	messages     []runtime.SpecTaskAgentMessageView
+	lastLimit    int
+	err          error
 }
 
 func (p *recordingPort) Create(_ context.Context, _ string, _ orgchart.NodeID, projectID string, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
@@ -52,10 +59,28 @@ func (p *recordingPort) StartPlanning(_ context.Context, _ string, _ orgchart.No
 	p.lastProject, p.lastTaskID = projectID, id
 	return p.view, p.err
 }
+func (p *recordingPort) SendAgentMessage(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string, in runtime.SpecTaskMessageInput) (runtime.SpecTaskMessageView, error) {
+	p.lastProject, p.lastTaskID, p.messageIn = projectID, id, in
+	return p.message, p.err
+}
+func (p *recordingPort) ListAgentMessages(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string, limit int) ([]runtime.SpecTaskAgentMessageView, error) {
+	p.lastProject, p.lastTaskID, p.lastLimit = projectID, id, limit
+	return p.messages, p.err
+}
+func (p *recordingPort) StartAgent(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecTaskAgentActionView, error) {
+	p.lastProject, p.lastTaskID = projectID, id
+	p.startCalls++
+	return p.action, p.err
+}
 func (p *recordingPort) StopAgent(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecTaskView, error) {
 	p.lastProject, p.lastTaskID = projectID, id
 	p.stopCalls++
 	return p.view, p.err
+}
+func (p *recordingPort) RestartAgent(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecTaskAgentActionView, error) {
+	p.lastProject, p.lastTaskID = projectID, id
+	p.restartCalls++
+	return p.action, p.err
 }
 func (p *recordingPort) ReviewSpec(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecReviewView, error) {
 	p.lastProject, p.lastTaskID = projectID, id
@@ -209,6 +234,60 @@ func TestStopSpecTaskAgentTool(t *testing.T) {
 	}
 	if p.stopCalls != 1 || p.lastTaskID != "task_1" {
 		t.Errorf("stop calls/task = %d/%q", p.stopCalls, p.lastTaskID)
+	}
+}
+
+func TestSendSpecTaskAgentMessageTool(t *testing.T) {
+	t.Parallel()
+	p := &recordingPort{message: runtime.SpecTaskMessageView{TaskID: "task_1", SessionID: "ses_1", PromptID: "pmt_1"}}
+	tl := mcptools.NewSendSpecTaskAgentMessage(depsWithPort(p))
+	out, err := tl.Invoke(context.Background(), callerInv(`{"project_id":"prj_other","task_id":"task_1","content":"check CI","interrupt":true}`))
+	if err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if p.lastProject != "prj_other" || p.lastTaskID != "task_1" || p.messageIn.Content != "check CI" || !p.messageIn.Interrupt {
+		t.Errorf("target/input = %q/%q/%+v", p.lastProject, p.lastTaskID, p.messageIn)
+	}
+	if !strings.Contains(string(out), "pmt_1") {
+		t.Errorf("output missing prompt id: %s", out)
+	}
+}
+
+func TestSendSpecTaskAgentMessageTool_RequiresContent(t *testing.T) {
+	t.Parallel()
+	tl := mcptools.NewSendSpecTaskAgentMessage(depsWithPort(&recordingPort{}))
+	if _, err := tl.Invoke(context.Background(), callerInv(`{"task_id":"task_1","content":"  "}`)); err == nil {
+		t.Error("expected error when content is blank")
+	}
+}
+
+func TestListSpecTaskAgentMessagesTool(t *testing.T) {
+	t.Parallel()
+	p := &recordingPort{messages: []runtime.SpecTaskAgentMessageView{{InteractionID: "int_1", AgentMessage: "done"}}}
+	tl := mcptools.NewListSpecTaskAgentMessages(depsWithPort(p))
+	out, err := tl.Invoke(context.Background(), callerInv(`{"project_id":"prj_other","task_id":"task_1","limit":5}`))
+	if err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if p.lastProject != "prj_other" || p.lastTaskID != "task_1" || p.lastLimit != 5 {
+		t.Errorf("target/limit = %q/%q/%d", p.lastProject, p.lastTaskID, p.lastLimit)
+	}
+	if !strings.Contains(string(out), "done") {
+		t.Errorf("output missing agent response: %s", out)
+	}
+}
+
+func TestSpecTaskAgentLifecycleTools(t *testing.T) {
+	t.Parallel()
+	p := &recordingPort{action: runtime.SpecTaskAgentActionView{TaskID: "task_1", SessionID: "ses_1", Status: "started"}}
+	if _, err := mcptools.NewStartSpecTaskAgent(depsWithPort(p)).Invoke(context.Background(), callerInv(`{"task_id":"task_1"}`)); err != nil {
+		t.Fatalf("start Invoke: %v", err)
+	}
+	if _, err := mcptools.NewRestartSpecTaskAgent(depsWithPort(p)).Invoke(context.Background(), callerInv(`{"task_id":"task_1"}`)); err != nil {
+		t.Fatalf("restart Invoke: %v", err)
+	}
+	if p.startCalls != 1 || p.restartCalls != 1 {
+		t.Errorf("start/restart calls = %d/%d", p.startCalls, p.restartCalls)
 	}
 }
 

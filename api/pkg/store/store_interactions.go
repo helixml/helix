@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -17,6 +19,15 @@ import (
 func (s *PostgresStore) ResetRunningInteractions(ctx context.Context) error {
 	err := s.gdb.WithContext(ctx).Model(&types.Interaction{}).
 		Where("state = ?", types.InteractionStateWaiting).
+		// External-agent runtimes live outside the API process and commonly keep
+		// working through an API hot reload. Their Waiting rows are therefore not
+		// abandoned. Reconnect/cancel recovery owns their eventual transition.
+		Where(`session_id NOT IN (
+			SELECT id FROM sessions
+			WHERE config->>'agent_type' = ?
+			   OR COALESCE(config->>'external_agent_id', '') <> ''
+			   OR jsonb_exists(config, 'external_agent_config')
+		)`, "zed_external").
 		Updates(map[string]any{
 			"state": types.InteractionStateError,
 			"error": "Interrupted",
@@ -73,7 +84,7 @@ func (s *PostgresStore) CreateInteraction(ctx context.Context, interaction *type
 	db := s.gdb.WithContext(ctx)
 
 	// Allows overwriting the interaction with the same primary key (ID and generation ID)
-	err := db.Clauses(clause.OnConflict{
+	err := db.Omit("PendingQuestion", "QuestionHistory").Clauses(clause.OnConflict{
 		UpdateAll: true,
 	}).Create(&interaction).Error
 	if err != nil {
@@ -109,7 +120,7 @@ func (s *PostgresStore) CreateInteractions(ctx context.Context, interactions ...
 	db := s.gdb.WithContext(ctx)
 
 	// Allows overwriting the interaction with the same primary key (ID and generation ID)
-	err := db.Clauses(clause.OnConflict{
+	err := db.Omit("PendingQuestion", "QuestionHistory").Clauses(clause.OnConflict{
 		UpdateAll: true,
 	}).Create(&interactions).Error
 	if err != nil {
@@ -222,7 +233,11 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 
 	// CRITICAL: Use Save() which works with composite PK when struct has both fields populated
 	// The original OnConflict clause ensures upsert behavior
-	result := db.Clauses(clause.OnConflict{
+	// PendingQuestion and QuestionHistory are owned by the targeted methods
+	// below. A streaming/terminal caller commonly holds an older interaction
+	// snapshot, so allowing Save to write those columns would erase a question
+	// that arrived concurrently.
+	result := db.Omit("PendingQuestion", "QuestionHistory").Clauses(clause.OnConflict{
 		UpdateAll: true,
 	}).Save(&interaction)
 
@@ -262,6 +277,189 @@ func (s *PostgresStore) UpdateInteractionStreamingFields(ctx context.Context, in
 			"last_zed_message_id":     lastZedMessageID,
 			"updated":                 time.Now(),
 		}).Error
+}
+
+func (s *PostgresStore) SetInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error) {
+	if interactionID == "" || question == nil || question.RequestID == "" {
+		return nil, false, errors.New("interaction_id and question request_id are required")
+	}
+	var interaction types.Interaction
+	changed := false
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND generation_id = ?", interactionID, generationID).
+			First(&interaction).Error; err != nil {
+			return err
+		}
+		if interaction.State != types.InteractionStateWaiting {
+			return nil
+		}
+		if interaction.PendingQuestion != nil {
+			return nil
+		}
+		for _, resolved := range interaction.QuestionHistory {
+			if resolved.RequestID == question.RequestID {
+				return nil
+			}
+		}
+		questionCopy := *question
+		if questionCopy.AskedAt.IsZero() {
+			questionCopy.AskedAt = time.Now()
+		}
+		pendingJSON, err := json.Marshal(&questionCopy)
+		if err != nil {
+			return fmt.Errorf("marshal pending question: %w", err)
+		}
+		if err := tx.Model(&types.Interaction{}).
+			Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
+			Updates(map[string]interface{}{
+				"pending_question": datatypes.JSON(pendingJSON),
+				"updated":          time.Now(),
+			}).Error; err != nil {
+			return err
+		}
+		interaction.PendingQuestion = &questionCopy
+		interaction.Updated = time.Now()
+		changed = true
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false, ErrNotFound
+		}
+		return nil, false, err
+	}
+	return &interaction, changed, nil
+}
+
+func (s *PostgresStore) ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error) {
+	if interactionID == "" || requestID == "" || outcome == "" {
+		return nil, false, errors.New("interaction_id, request_id, and outcome are required")
+	}
+	var interaction types.Interaction
+	changed := false
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND generation_id = ?", interactionID, generationID).
+			First(&interaction).Error; err != nil {
+			return err
+		}
+		if interaction.PendingQuestion == nil || interaction.PendingQuestion.RequestID != requestID {
+			return nil
+		}
+		resolved := types.ResolvedQuestion{
+			PendingQuestion: *interaction.PendingQuestion,
+			Outcome:         outcome,
+			Answers:         answers,
+			ResolvedAt:      time.Now(),
+		}
+		interaction.QuestionHistory = append(interaction.QuestionHistory, resolved)
+		interaction.PendingQuestion = nil
+		interaction.Updated = time.Now()
+		historyJSON, err := json.Marshal(interaction.QuestionHistory)
+		if err != nil {
+			return fmt.Errorf("marshal question history: %w", err)
+		}
+		if err := tx.Model(&types.Interaction{}).
+			Where("id = ? AND generation_id = ?", interactionID, generationID).
+			Updates(map[string]interface{}{
+				"pending_question": nil,
+				"question_history": datatypes.JSON(historyJSON),
+				"updated":          interaction.Updated,
+			}).Error; err != nil {
+			return err
+		}
+		changed = true
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false, ErrNotFound
+		}
+		return nil, false, err
+	}
+	return &interaction, changed, nil
+}
+
+func (s *PostgresStore) BindInteractionExternalAgentRequest(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error) {
+	if interactionID == "" || requestID == "" {
+		return false, errors.New("interaction_id and request_id are required")
+	}
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
+		Update("external_agent_request_id", requestID)
+	return result.RowsAffected > 0, result.Error
+}
+
+func (s *PostgresStore) MarkInteractionExternalAgentDispatched(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error) {
+	if interactionID == "" || requestID == "" {
+		return false, errors.New("interaction_id and request_id are required")
+	}
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
+		Updates(map[string]interface{}{
+			"external_agent_request_id":    requestID,
+			"external_agent_dispatched_at": time.Now(),
+			"updated":                      time.Now(),
+		})
+	return result.RowsAffected > 0, result.Error
+}
+
+func (s *PostgresStore) ClearInteractionExternalAgentDispatched(ctx context.Context, interactionID string, generationID int, requestID string) error {
+	if interactionID == "" || requestID == "" {
+		return errors.New("interaction_id and request_id are required")
+	}
+	return s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ? AND external_agent_request_id = ?", interactionID, generationID, types.InteractionStateWaiting, requestID).
+		Update("external_agent_dispatched_at", nil).Error
+}
+
+func (s *PostgresStore) RequestInteractionCancellationIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error) {
+	if interactionID == "" {
+		return false, errors.New("interaction_id is required")
+	}
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
+		Updates(map[string]interface{}{
+			"external_agent_cancel_requested_at": time.Now(),
+			"updated":                            time.Now(),
+		})
+	return result.RowsAffected > 0, result.Error
+}
+
+func (s *PostgresStore) MarkInteractionInterruptedIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error) {
+	if interactionID == "" {
+		return false, errors.New("interaction_id is required")
+	}
+	now := time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
+		Updates(map[string]interface{}{
+			"state":     types.InteractionStateInterrupted,
+			"completed": now,
+			"updated":   now,
+		})
+	return result.RowsAffected > 0, result.Error
+}
+
+func (s *PostgresStore) GetInteractionByExternalAgentRequestID(ctx context.Context, requestID string) (*types.Interaction, error) {
+	if requestID == "" {
+		return nil, errors.New("request_id is required")
+	}
+	var interaction types.Interaction
+	err := s.gdb.WithContext(ctx).
+		Where("external_agent_request_id = ?", requestID).
+		Order("created DESC").
+		First(&interaction).Error
+	if err != nil {
+		return nil, err
+	}
+	return &interaction, nil
 }
 
 // MarkInteractionCompleteIfWaiting atomically transitions an interaction from
@@ -334,27 +532,57 @@ func (s *PostgresStore) ReapWaitingInteractions(ctx context.Context, sessionID s
 	now := time.Now()
 	var reaped []*types.Interaction
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.
+		var candidates []*types.Interaction
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("session_id = ? AND state = ?", sessionID, types.InteractionStateWaiting).
-			Find(&reaped).Error; err != nil {
+			Order("created ASC, id ASC").
+			Find(&candidates).Error; err != nil {
 			return err
 		}
-		if len(reaped) == 0 {
+		if len(candidates) == 0 {
 			return nil
 		}
-		if err := tx.Model(&types.Interaction{}).
-			Where("session_id = ? AND state = ?", sessionID, types.InteractionStateWaiting).
-			Updates(map[string]interface{}{
+		for _, interaction := range candidates {
+			settledHistory := interaction.QuestionHistory
+			updates := map[string]interface{}{
 				"state":     newState,
 				"completed": now,
 				"updated":   now,
-			}).Error; err != nil {
-			return err
-		}
-		for _, in := range reaped {
-			in.State = newState
-			in.Completed = now
-			in.Updated = now
+			}
+			if interaction.PendingQuestion != nil {
+				settledHistory = append(settledHistory, types.ResolvedQuestion{
+					PendingQuestion: *interaction.PendingQuestion,
+					Outcome:         "cancelled",
+					ResolvedAt:      now,
+				})
+				historyJSON, err := json.Marshal(settledHistory)
+				if err != nil {
+					return fmt.Errorf("marshal reaped question history: %w", err)
+				}
+				updates["pending_question"] = nil
+				updates["question_history"] = datatypes.JSON(historyJSON)
+			}
+
+			result := tx.Model(&types.Interaction{}).
+				Where(
+					"id = ? AND generation_id = ? AND state = ?",
+					interaction.ID,
+					interaction.GenerationID,
+					types.InteractionStateWaiting,
+				).
+				Updates(updates)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				continue
+			}
+			interaction.State = newState
+			interaction.Completed = now
+			interaction.Updated = now
+			interaction.PendingQuestion = nil
+			interaction.QuestionHistory = settledHistory
+			reaped = append(reaped, interaction)
 		}
 		return nil
 	})
@@ -416,10 +644,10 @@ func (s *PostgresStore) GetLatestInteractionsForSessions(ctx context.Context, se
 
 	var interactions []*types.Interaction
 	err := s.gdb.WithContext(ctx).
-		Raw(`SELECT DISTINCT ON (session_id) *
+		Raw(`SELECT DISTINCT ON (session_id) session_id, state
 		     FROM interactions
 		     WHERE session_id IN ?
-		     ORDER BY session_id, created DESC, generation_id DESC`, sessionIDs).
+		     ORDER BY session_id, updated DESC, generation_id DESC`, sessionIDs).
 		Scan(&interactions).Error
 	if err != nil {
 		return nil, err

@@ -1,0 +1,114 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import SpecTaskViewToolbar from "./SpecTaskViewToolbar";
+
+vi.mock("../../hooks/useElementWidth", () => ({
+  useElementWidth: () => [{ current: null }, 800],
+}));
+
+let isPhone = false;
+vi.mock("../../hooks/useIsPhone", () => ({ default: () => isPhone }));
+
+describe("SpecTaskViewToolbar", () => {
+  beforeEach(() => {
+    isPhone = false;
+  });
+
+  it("hides the desktop view for a headless task and keeps panel collapse available", () => {
+    const collapse = vi.fn();
+    render(
+      <SpecTaskViewToolbar
+        currentView="changes"
+        onViewChange={vi.fn()}
+        hasSession
+        showDesktop={false}
+        onCollapsePanel={collapse}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Desktop view" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse task panel" }));
+    expect(collapse).toHaveBeenCalledOnce();
+  });
+
+  it("keeps every view inline on a wide screen", () => {
+    render(
+      <SpecTaskViewToolbar currentView="chat" onViewChange={vi.fn()} hasSession showChatTab />,
+    );
+
+    for (const label of ["Chat", "Desktop", "Browser", "Diff", "Files", "Agents", "Details"]) {
+      expect(screen.getByRole("button", { name: `${label} view` })).toBeInTheDocument();
+    }
+    expect(
+      screen.getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label"))
+        .filter((label) => label?.endsWith(" view")),
+    ).toEqual([
+      "Chat view",
+      "Desktop view",
+      "Browser view",
+      "Diff view",
+      "Files view",
+      "Agents view",
+      "Details view",
+    ]);
+  });
+
+  it("shows planning workspace views without an implementation browser", () => {
+    render(
+      <SpecTaskViewToolbar
+        currentView="plan"
+        onViewChange={vi.fn()}
+        hasSession
+        showPlan
+        showBrowser={false}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Plan view" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Browser view" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Files view" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Agents view" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Diff view" })).toBeInTheDocument();
+  });
+
+  it("folds the deliberate views into the menu on a phone", () => {
+    isPhone = true;
+    const onViewChange = vi.fn();
+    render(
+      <SpecTaskViewToolbar
+        currentView="chat"
+        onViewChange={onViewChange}
+        hasSession
+        showChatTab
+      />,
+    );
+
+    // Only the views you flick between stay inline.
+    for (const label of ["Chat", "Browser", "Diff"]) {
+      expect(screen.getByRole("button", { name: `${label} view` })).toBeInTheDocument();
+    }
+    for (const label of ["Desktop", "Files", "Agents", "Details"]) {
+      expect(screen.queryByRole("button", { name: `${label} view` })).not.toBeInTheDocument();
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Agents" }));
+
+    expect(onViewChange).toHaveBeenCalledWith("agents");
+  });
+
+  it("drops the close button on a phone, where the panel is the whole screen", () => {
+    isPhone = true;
+    render(
+      <SpecTaskViewToolbar
+        currentView="chat"
+        onViewChange={vi.fn()}
+        hasSession
+        onClosePanel={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
+  });
+});

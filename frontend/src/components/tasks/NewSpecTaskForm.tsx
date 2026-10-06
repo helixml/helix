@@ -31,28 +31,21 @@ import { ChevronDown, X } from "lucide-react";
 import AssigneeSelector from "./AssigneeSelector";
 import OrganizationUserAvatar, { resolveOrganizationUser } from "../widgets/OrganizationUserAvatar";
 import GooseRecipeSelector from "./GooseRecipeSelector";
-import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
-
-import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
-import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
-import { isCodingAgent } from "../../utils/apps";
 import {
-  TypesCodeAgentOverrides,
+  TypesCodeAgentExecutionConfig,
   TypesCreateTaskRequest,
   TypesSpecTaskPriority,
   TypesBranchMode,
   TypesSandboxResourceOverrides,
+  TypesSandboxRuntime,
   TypesSpecTask,
   TypesSpecTaskStatus,
 } from "../../api/api";
-import CodingAgentForm, {
-  CodingAgentFormHandle,
-} from "../agent/CodingAgentForm";
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
 import useSnackbar from "../../hooks/useSnackbar";
-import useApps from "../../hooks/useApps";
 import { useGetProject, useGetProjectRepositories } from "../../services";
+import { projectHasPullRequests } from "../../services/specTaskPRProposalService";
 import { useSpecTasks, useProjectLabels, useAddLabel } from "../../services/specTaskService";
 import {
   SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
@@ -60,7 +53,18 @@ import {
   SPEC_TASK_ATTACHMENT_MAX_PER_TASK,
   useUploadSpecTaskAttachments,
 } from "../../services/specTaskAttachmentsService";
-import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
+import CodeAgentExecutionControls from "../agent/CodeAgentExecutionControls";
+import { useSeedProjectCodeAgentConfig } from "../../hooks/useSeedProjectCodeAgentConfig";
+import { CodeAgentConfigChangeSource } from "../../utils/codeAgentExecutionConfig";
+import NoCodeAgentsDialog from "../agent/NoCodeAgentsDialog";
+import { useHasEnabledCodeAgentHarnesses } from "../../services/codeAgentHarnessesService";
+import {
+  preferredSpecTaskSandboxResources,
+  preferredSpecTaskSandboxRuntime,
+  saveSpecTaskSandboxResourcesPreference,
+  saveSpecTaskSandboxRuntimePreference,
+} from "../../utils/specTaskSandboxRuntime";
+import { DEFAULT_SANDBOX_PRESET, defaultSandboxResourceOverrides } from "../../constants/sandboxPresets";
 
 const ATTACHMENT_ACCEPT_ATTR = Object.entries(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME)
   .flatMap(([mime, exts]) => [mime, ...exts])
@@ -97,7 +101,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const account = useAccount();
   const api = useApi();
   const snackbar = useSnackbar();
-  const apps = useApps();
   const queryClient = useQueryClient();
 
   // Fetch project data
@@ -106,6 +109,14 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     projectId,
     !!projectId,
   );
+  // PR auto-approval only applies when the project has an external repo; it
+  // starts from the project's default and resets if the project changes.
+  const showAutoApprovePRs = projectHasPullRequests(projectRepositories);
+  const projectAutoApprovesPRs = !!project?.auto_approve_pull_requests;
+  const [autoApprovePRs, setAutoApprovePRs] = useState(projectAutoApprovesPRs);
+  useEffect(() => {
+    setAutoApprovePRs(projectAutoApprovesPRs);
+  }, [projectId, projectAutoApprovesPRs]);
   const { data: projectTasks = [] } = useSpecTasks({
     projectId,
     withDependsOn: true,
@@ -140,18 +151,29 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const [selectedDependencyTaskIds, setSelectedDependencyTaskIds] = useState<
     string[]
   >([]);
-  const [selectedHelixAgent, setSelectedHelixAgent] = useState("");
-  const [codeAgentOverrides, setCodeAgentOverrides] = useState<TypesCodeAgentOverrides>({});
-  const [sandboxResourceOverrides, setSandboxResourceOverrides] = useState<TypesSandboxResourceOverrides>({
-    vcpus: 4,
-    memory_mb: 8192,
-  });
+  // A task cannot start without a coding agent, so an org with none configured
+  // gets an explanation and a route to settings rather than a Create button
+  // that is simply dead.
+  const { hasAny: hasCodeAgents, loading: loadingCodeAgents } = useHasEnabledCodeAgentHarnesses();
+  const [noAgentsOpen, setNoAgentsOpen] = useState(false);
+  const missingCodeAgents = !loadingCodeAgents && !hasCodeAgents;
+
+  const [codeAgentConfig, setCodeAgentConfig] = useState<TypesCodeAgentExecutionConfig>();
+  const [planningCodeAgentConfig, setPlanningCodeAgentConfig] =
+    useState<TypesCodeAgentExecutionConfig>();
+  const [sandboxResourceOverrides, setSandboxResourceOverrides] =
+    useState<TypesSandboxResourceOverrides | undefined>();
+  const [sandboxRuntime, setSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
+    preferredSpecTaskSandboxRuntime(projectId),
+  );
   // Goose recipe selection — only meaningful when the selected agent's runtime
   // is goose_code. Empty selectedRecipeName means "use vanilla goose"; the
   // backend skips baking and the agent's declared recipes are still available
   // as runtime /<name> slash commands inside the desktop.
   const [selectedRecipeName, setSelectedRecipeName] = useState<string>("");
   const [recipeParams, setRecipeParams] = useState<Record<string, string>>({});
+  const [planningRecipeName, setPlanningRecipeName] = useState<string>("");
+  const [planningRecipeParams, setPlanningRecipeParams] = useState<Record<string, string>>({});
   const [justDoItMode, setJustDoItMode] = useState<boolean>(() => {
     try {
       return JSON.parse(localStorage.getItem(LAST_JUST_DO_IT_KEY) || "false");
@@ -264,6 +286,16 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     return defaultRepo?.default_branch || "main";
   }, [projectRepositories, defaultRepoId]);
 
+  const existingBranchOptions = useMemo(
+    () =>
+      (branchesData || [])
+        .filter((branch: string) => branch !== defaultBranchName)
+        .sort((a: string, b: string) =>
+          a.localeCompare(b, undefined, { sensitivity: "base" }),
+        ),
+    [branchesData, defaultBranchName],
+  );
+
   const dependencyTaskOptions = useMemo(
     () =>
       projectTasks.filter(
@@ -289,74 +321,15 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     }
   }, [defaultBranchName, baseBranch]);
 
-  // Inline agent creation state
-  const [showCreateAgentForm, setShowCreateAgentForm] = useState(false);
-  const [codeAgentRuntime, setCodeAgentRuntime] =
-    useState<CodeAgentRuntime>("zed_agent");
-  const [claudeCodeMode, setClaudeCodeMode] = useState<
-    "subscription" | "api_key"
-  >("subscription");
-  const [selectedProvider, setSelectedProvider] = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
-  const [newAgentName, setNewAgentName] = useState("-");
-  const [userModifiedName, setUserModifiedName] = useState(false);
-  const [creatingAgent, setCreatingAgent] = useState(false);
-  const codingAgentFormRef = useRef<CodingAgentFormHandle>(null);
   // Ref for task prompt text field
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
-
-  // Show coding agents only, with the project default first.
-  const sortedApps = useMemo(() => {
-    if (!apps.apps) return [];
-    const codingApps: IApp[] = [];
-    let defaultApp: IApp | null = null;
-    const projectDefaultId = project?.default_helix_app_id;
-
-    apps.apps.forEach((app) => {
-      if (!isCodingAgent(app)) return;
-      if (projectDefaultId && app.id === projectDefaultId) {
-        defaultApp = app;
-        return;
-      }
-      codingApps.push(app);
-    });
-
-    // Sort the remaining coding agents by model quality.
-    const modelPriority = (app: IApp): number => {
-      const name = (app.config?.helix?.name || "").toLowerCase();
-      if (name.includes("opus")) return 0;
-      if (name.includes("sonnet")) return 1;
-      if (name.includes("haiku")) return 3;
-      return 2; // unknown models between sonnet and haiku
-    };
-    codingApps.sort((a, b) => modelPriority(a) - modelPriority(b));
-
-    const result: IApp[] = [];
-    if (defaultApp) result.push(defaultApp);
-    result.push(...codingApps);
-    return result;
-  }, [apps.apps, project?.default_helix_app_id]);
-
-  // Auto-generate agent name when model or runtime changes
-  useEffect(() => {
-    if (!userModifiedName && showCreateAgentForm) {
-      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
-    }
-  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
 
   // Determine whether the selected agent is a goose_code agent. We check
   // the zed_external assistant's code_agent_runtime — without this gate the
   // recipe selector would render for non-goose agents and just show "no
   // recipes" forever, which is noisy.
-  const selectedAgentIsGoose = useMemo(() => {
-    if (!selectedHelixAgent || !apps.apps) return false;
-    const app = apps.apps.find((a) => a.id === selectedHelixAgent);
-    if (!app) return false;
-    const assistant = app.config?.helix?.assistants?.find(
-      (a) => a.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-    );
-    return assistant?.code_agent_runtime === "goose_code";
-  }, [selectedHelixAgent, apps.apps]);
+  const implementationAgentIsGoose = codeAgentConfig?.runtime === "goose_code";
+  const planningAgentIsGoose = planningCodeAgentConfig?.runtime === "goose_code";
 
   // Reset recipe selection when the chosen agent changes — recipe names are
   // scoped to the agent, so a leftover selection from a previous agent would
@@ -364,28 +337,73 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   useEffect(() => {
     setSelectedRecipeName("");
     setRecipeParams({});
-  }, [selectedHelixAgent]);
+  }, [codeAgentConfig?.runtime]);
 
-  // Load apps on mount
   useEffect(() => {
-    if (account.user?.id) {
-      apps.loadApps();
-    }
-  }, []);
+    setPlanningRecipeName("");
+    setPlanningRecipeParams({});
+  }, [planningCodeAgentConfig?.runtime]);
 
-  // Auto-select default agent
   useEffect(() => {
-    if (project?.default_helix_app_id) {
-      setSelectedHelixAgent(project.default_helix_app_id);
-      setShowCreateAgentForm(false);
-    } else if (sortedApps.length === 0) {
-      setShowCreateAgentForm(true);
-      setSelectedHelixAgent("");
-    } else {
-      setSelectedHelixAgent(sortedApps[0]?.id || "");
-      setShowCreateAgentForm(false);
-    }
-  }, [sortedApps, project?.default_helix_app_id]);
+    setSandboxRuntime(
+      preferredSpecTaskSandboxRuntime(
+        projectId,
+        project?.default_sandbox_runtime,
+      ),
+    );
+  }, [projectId, project?.default_sandbox_runtime]);
+
+  // A user-selected size is remembered per project. Without one, the project
+  // default is used; undefined means both are absent and lets the server resolve
+  // its live global default when the task starts.
+  const projectDefaultSandboxVCPUs = project?.default_sandbox_resource_overrides?.vcpus;
+  const projectDefaultSandboxMemoryMB = project?.default_sandbox_resource_overrides?.memory_mb;
+  const projectCodeAgentConfigKey = JSON.stringify(
+    project?.code_agent_config ?? null,
+  );
+  const projectPlanningCodeAgentConfigKey = JSON.stringify(
+    project?.planning_code_agent_config ?? project?.code_agent_config ?? null,
+  );
+
+  useEffect(() => {
+    setSandboxResourceOverrides(
+      preferredSpecTaskSandboxResources(
+        projectId,
+        projectDefaultSandboxVCPUs && projectDefaultSandboxMemoryMB
+          ? { vcpus: projectDefaultSandboxVCPUs, memory_mb: projectDefaultSandboxMemoryMB }
+          : undefined,
+      ),
+    );
+  }, [projectId, projectDefaultSandboxVCPUs, projectDefaultSandboxMemoryMB]);
+
+  const handleSandboxResourceOverridesChange = (
+    resources: TypesSandboxResourceOverrides,
+  ) => {
+    setSandboxResourceOverrides(resources);
+    saveSpecTaskSandboxResourcesPreference(projectId, resources);
+  };
+
+  const handleSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
+    setSandboxRuntime(runtime);
+    saveSpecTaskSandboxRuntimePreference(projectId, runtime);
+  };
+
+  const seedProjectCodeAgentConfig = useSeedProjectCodeAgentConfig(project);
+
+  const handleCodeAgentConfigChange = (
+    next: TypesCodeAgentExecutionConfig,
+    source: CodeAgentConfigChangeSource,
+  ) => {
+    setCodeAgentConfig(next);
+    seedProjectCodeAgentConfig(next, source);
+  };
+
+  useEffect(() => {
+    setCodeAgentConfig(project?.code_agent_config);
+    setPlanningCodeAgentConfig(
+      project?.planning_code_agent_config || project?.code_agent_config,
+    );
+  }, [projectId, projectCodeAgentConfigKey, projectPlanningCodeAgentConfigKey]);
 
   // Focus text field on mount
   useEffect(() => {
@@ -429,9 +447,24 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setPendingAttachments([]);
     // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
-    setSelectedHelixAgent("");
-    setCodeAgentOverrides({});
-    setSandboxResourceOverrides({ vcpus: 4, memory_mb: 8192 });
+    setCodeAgentConfig(project?.code_agent_config);
+    setPlanningCodeAgentConfig(
+      project?.planning_code_agent_config || project?.code_agent_config,
+    );
+    setSandboxResourceOverrides(
+      preferredSpecTaskSandboxResources(
+        projectId,
+        projectDefaultSandboxVCPUs && projectDefaultSandboxMemoryMB
+          ? { vcpus: projectDefaultSandboxVCPUs, memory_mb: projectDefaultSandboxMemoryMB }
+          : undefined,
+      ),
+    );
+    setSandboxRuntime(
+      preferredSpecTaskSandboxRuntime(
+        projectId,
+        project?.default_sandbox_runtime,
+      ),
+    );
     setSelectedRecipeName("");
     setRecipeParams({});
     // justDoItMode and autoStart intentionally kept — they persist to the next
@@ -441,16 +474,18 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setBranchPrefix("");
     setWorkingBranch("");
     setShowBranchCustomization(false);
-    setShowCreateAgentForm(false);
-    setCodeAgentRuntime("zed_agent");
-    setClaudeCodeMode("subscription");
-    setSelectedProvider("");
-    setSelectedModel("");
-    setNewAgentName("-");
-    setUserModifiedName(false);
     setAssigneeId(currentUserId || "");
     setAssigneeTouched(false);
-  }, [defaultBranchName, currentUserId]);
+  }, [
+    defaultBranchName,
+    currentUserId,
+    projectId,
+    projectCodeAgentConfigKey,
+    projectPlanningCodeAgentConfigKey,
+    project?.default_sandbox_runtime,
+    projectDefaultSandboxVCPUs,
+    projectDefaultSandboxMemoryMB,
+  ]);
 
   // Handle task creation
   const handleCreateTask = async () => {
@@ -467,27 +502,29 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setIsCreating(true);
 
     try {
-      let agentId = selectedHelixAgent;
-
-      // Create agent inline if showing create form
-      if (showCreateAgentForm) {
-        const createdAgent =
-          await codingAgentFormRef.current?.handleCreateAgent();
-        if (!createdAgent?.id) {
-          setIsCreating(false);
-          return;
-        }
-        agentId = createdAgent.id;
+      if (!codeAgentConfig) {
+        snackbar.error("Select a coding runtime and model");
+        setIsCreating(false);
+        return;
+      }
+      if (!justDoItMode && !planningCodeAgentConfig) {
+        snackbar.error("Select a planning runtime and model");
+        setIsCreating(false);
+        return;
       }
 
       const createTaskRequest: TypesCreateTaskRequest = {
         prompt: taskPrompt,
         priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId,
-        app_id: agentId || undefined,
+        code_agent_config: codeAgentConfig,
+        planning_code_agent_config: planningCodeAgentConfig,
         assignee_id: assigneeId || undefined,
         just_do_it_mode: justDoItMode,
         auto_start: autoStart,
+        ...(showAutoApprovePRs
+          ? { auto_approve_pull_requests: autoApprovePRs }
+          : {}),
         depends_on: selectedDependencyTasks
           .map((task) => task.id || "")
           .filter((taskId) => !!taskId),
@@ -507,10 +544,13 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           selectedRecipeName && Object.keys(recipeParams).length > 0
             ? recipeParams
             : undefined,
-        code_agent_overrides: Object.values(codeAgentOverrides).some(Boolean)
-          ? codeAgentOverrides
-          : undefined,
+        planning_goose_recipe_name: planningRecipeName || undefined,
+        planning_goose_recipe_params:
+          planningRecipeName && Object.keys(planningRecipeParams).length > 0
+            ? planningRecipeParams
+            : undefined,
         sandbox_resource_overrides: sandboxResourceOverrides,
+        sandbox_runtime: sandboxRuntime,
       };
 
       const response = await api
@@ -578,7 +618,15 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [taskPrompt, justDoItMode, selectedHelixAgent, selectedDependencyTaskIds]);
+  }, [
+    taskPrompt,
+    justDoItMode,
+    codeAgentConfig?.runtime,
+    codeAgentConfig?.model,
+    planningCodeAgentConfig?.runtime,
+    planningCodeAgentConfig?.model,
+    selectedDependencyTaskIds,
+  ]);
 
   // Keyboard shortcut: Ctrl/Cmd+J to toggle Just Do It mode
   useEffect(() => {
@@ -773,19 +821,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   localStorage.removeItem(draftKey);
                 }
               }, 300);
-            }}
-            onKeyDown={(e) => {
-              // If user presses Enter in empty text box, close panel
-              if (
-                e.key === "Enter" &&
-                !taskPrompt.trim() &&
-                !e.shiftKey &&
-                !e.ctrlKey &&
-                !e.metaKey
-              ) {
-                e.preventDefault();
-                onClose?.();
-              }
             }}
             placeholder={
               justDoItMode
@@ -1110,50 +1145,99 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   )}
                 </Stack>
               ) : (
-                <FormControl fullWidth size="small">
-                  <InputLabel>Select branch</InputLabel>
-                  <Select
-                    value={workingBranch}
-                    onChange={(e) => setWorkingBranch(e.target.value)}
-                    label="Select branch"
-                  >
-                    {branchesData
-                      ?.filter((branch: string) => branch !== defaultBranchName)
-                      .sort((a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-                      .map((branch: string) => (
-                        <MenuItem key={branch} value={branch}>
-                          {branch}
-                        </MenuItem>
-                      ))}
-                    {branchesData?.filter(
-                      (branch: string) => branch !== defaultBranchName,
-                    ).length === 0 && (
-                      <MenuItem disabled value="">
-                        No feature branches available
-                      </MenuItem>
-                    )}
-                  </Select>
-                </FormControl>
+                <Autocomplete
+                  fullWidth
+                  size="small"
+                  options={existingBranchOptions}
+                  value={workingBranch || null}
+                  onChange={(_, branch) => setWorkingBranch(branch || "")}
+                  noOptionsText={
+                    existingBranchOptions.length === 0
+                      ? "No feature branches available"
+                      : "No matching branches"
+                  }
+                  componentsProps={{
+                    popper: {
+                      placement: "bottom-start",
+                      modifiers: [{ name: "flip", enabled: false }],
+                    },
+                  }}
+                  ListboxProps={{
+                    sx: {
+                      maxHeight: 240,
+                      overflowY: "auto",
+                      py: 0.5,
+                      "& .MuiAutocomplete-option": {
+                        minHeight: 32,
+                        py: 0.5,
+                        px: 1.5,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      },
+                    },
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Select branch"
+                      placeholder="Search branches"
+                    />
+                  )}
+                />
               )}
             </Box>
           )}
 
-          {/* Coding agent and execution configuration */}
-          <Box>
-            {!showCreateAgentForm ? (
+          {/* Phase-owned agent and execution configuration */}
+          <Stack spacing={1.5}>
+            {!justDoItMode && (
+              <Box>
+                <Typography
+                  variant="subtitle2"
+                  color="text.secondary"
+                  sx={{ mb: 0.5 }}
+                >
+                  Planning agent
+                </Typography>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  <CodeAgentExecutionControls
+                    value={planningCodeAgentConfig}
+                    onChange={setPlanningCodeAgentConfig}
+                    autoSelectDefault
+                  />
+                  {planningAgentIsGoose && (
+                    <GooseRecipeSelector
+                      projectId={projectId}
+                      selectedRecipeName={planningRecipeName}
+                      onSelectedRecipeNameChange={setPlanningRecipeName}
+                      params={planningRecipeParams}
+                      onParamsChange={setPlanningRecipeParams}
+                      pendingAttachments={pendingAttachments}
+                    />
+                  )}
+                </Box>
+              </Box>
+            )}
+            <Box>
+              <Typography
+                variant="subtitle2"
+                color="text.secondary"
+                sx={{ mb: 0.5 }}
+              >
+                {justDoItMode ? "Agent" : "Implementation agent"}
+              </Typography>
               <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                <SpecTaskExecutionControls
-                  agents={sortedApps}
-                  selectedAgentId={selectedHelixAgent}
-                  codeAgentOverrides={codeAgentOverrides}
+                <CodeAgentExecutionControls
+                  value={codeAgentConfig}
+                  onChange={handleCodeAgentConfigChange}
                   sandboxResourceOverrides={sandboxResourceOverrides}
-                  onAgentModelChange={(agentId, overrides) => {
-                    setSelectedHelixAgent(agentId);
-                    setCodeAgentOverrides(overrides);
-                  }}
-                  onSandboxResourceOverridesChange={setSandboxResourceOverrides}
+                  sandboxRuntime={sandboxRuntime}
+                  onSandboxResourceOverridesChange={handleSandboxResourceOverridesChange}
+                  onSandboxRuntimeChange={handleSandboxRuntimeChange}
+                  autoSelectDefault
                 />
-                {selectedAgentIsGoose && (
+                {implementationAgentIsGoose && (
                   <GooseRecipeSelector
                     projectId={projectId}
                     selectedRecipeName={selectedRecipeName}
@@ -1163,77 +1247,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                     pendingAttachments={pendingAttachments}
                   />
                 )}
-                <Button
-                  size="small"
-                  onClick={() => setShowCreateAgentForm(true)}
-                  sx={{
-                    alignSelf: "flex-start",
-                    textTransform: "none",
-                    fontSize: "0.75rem",
-                  }}
-                >
-                  + Create new agent
-                </Button>
               </Box>
-            ) : (
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <CodingAgentForm
-                  ref={codingAgentFormRef}
-                  value={{
-                    codeAgentRuntime,
-                    claudeCodeMode,
-                    selectedProvider,
-                    selectedModel,
-                    agentName: newAgentName,
-                  }}
-                  onChange={(nextValue) => {
-                    setCodeAgentRuntime(nextValue.codeAgentRuntime);
-                    setClaudeCodeMode(nextValue.claudeCodeMode);
-                    setSelectedProvider(nextValue.selectedProvider);
-                    setSelectedModel(nextValue.selectedModel);
-                    if (nextValue.agentName !== newAgentName) {
-                      setUserModifiedName(true);
-                    }
-                    setNewAgentName(nextValue.agentName);
-                  }}
-                  disabled={creatingAgent || isCreating}
-                  recommendedModels={RECOMMENDED_CODING_MODELS}
-                  createAgentDescription="Code development agent for spec tasks"
-                  onCreateStateChange={setCreatingAgent}
-                  onAgentCreated={(app) => {
-                    setSelectedHelixAgent(app.id);
-                    setCodeAgentOverrides({});
-                    setShowCreateAgentForm(false);
-                  }}
-                  modelPickerHint="Choose a capable model for agentic coding."
-                  modelPickerDisplayMode="short"
-                  sx={{ display: "flex", flexDirection: "column", gap: 0 }}
-                />
-
-                {sortedApps.length > 0 && (
-                  <Button
-                    size="small"
-                    onClick={() => setShowCreateAgentForm(false)}
-                    sx={{ alignSelf: "flex-start" }}
-                    disabled={creatingAgent}
-                  >
-                    Back to agent list
-                  </Button>
-                )}
-              </Box>
-            )}
-            <Box sx={{ mt: 1 }}>
-              {showCreateAgentForm && (
-                <SpecTaskExecutionControls
-                  agents={[]}
-                  selectedAgentId=""
-                  sandboxResourceOverrides={sandboxResourceOverrides}
-                  onAgentModelChange={() => undefined}
-                  onSandboxResourceOverridesChange={setSandboxResourceOverrides}
-                />
-              )}
             </Box>
-          </Box>
+          </Stack>
 
           {/* Skip Spec Checkbox */}
           <FormControl fullWidth>
@@ -1278,6 +1294,31 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               />
             </Tooltip>
           </FormControl>
+
+          {showAutoApprovePRs && (
+            <FormControl fullWidth>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={autoApprovePRs}
+                    onChange={(e) => setAutoApprovePRs(e.target.checked)}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      Auto-approve PRs
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Open this task&apos;s pull requests without asking you
+                      first. You can change it later in the task&apos;s
+                      details.
+                    </Typography>
+                  </Box>
+                }
+              />
+            </FormControl>
+          )}
 
           {/* Start Immediately Checkbox */}
           <FormControl fullWidth>
@@ -1330,6 +1371,12 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             Cancel
           </Button>
         )}
+        <Tooltip
+          title={missingCodeAgents
+            ? "No coding agents are configured for this organization yet"
+            : ""}
+        >
+          <span onClick={() => { if (missingCodeAgents) setNoAgentsOpen(true) }}>
         <Button
           onClick={handleCreateTask}
           variant="contained"
@@ -1337,18 +1384,14 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           disabled={
             !taskPrompt.trim() ||
             isCreating ||
-            creatingAgent ||
+            missingCodeAgents ||
+            !codeAgentConfig?.model ||
+            (!justDoItMode && !planningCodeAgentConfig?.model) ||
             (branchMode === TypesBranchMode.BranchModeExisting &&
-              !workingBranch) ||
-            (showCreateAgentForm &&
-              !(
-                codeAgentRuntime === "claude_code" &&
-                claudeCodeMode === "subscription"
-              ) &&
-              (!selectedModel || !selectedProvider))
+              !workingBranch)
           }
           startIcon={
-            isCreating || creatingAgent ? (
+            isCreating ? (
               <CircularProgress size={16} />
             ) : (
               <AddIcon />
@@ -1377,7 +1420,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         >
           Create Task
         </Button>
+          </span>
+        </Tooltip>
       </Box>
+      <NoCodeAgentsDialog open={noAgentsOpen} onClose={() => setNoAgentsOpen(false)} />
     </Box>
   );
 };

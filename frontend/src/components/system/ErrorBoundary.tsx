@@ -1,6 +1,7 @@
 import React from 'react'
 import { isMobileOrTablet } from '../../utils/isMobileOrTablet'
 import { logErrorToSession, getRecentErrors, clearErrorLog } from '../../utils/errorSessionLog'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 interface Props {
   children: React.ReactNode
@@ -89,7 +90,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
       })
     }
     text += `\nURL: ${window.location.href}\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}`
-    navigator.clipboard.writeText(text).catch(() => {
+    copyTextToClipboard(text).catch(() => {
       // fallback: select text for manual copy
     })
   }

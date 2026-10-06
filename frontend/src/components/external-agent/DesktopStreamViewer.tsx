@@ -955,6 +955,28 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       streamRef.current = stream;
 
+      // Video start timeout - if video doesn't start within 15 seconds of the
+      // last sign of progress, the GStreamer pipeline likely failed. This catches
+      // GStreamer errors like resolution mismatches that cause silent hangs.
+      // The server's "videoStarting" status re-arms it: a slow start that is
+      // still reporting progress is not a failure.
+      const armVideoStartTimeout = () => {
+        if (videoStartTimeoutRef.current) {
+          clearTimeout(videoStartTimeoutRef.current);
+        }
+        videoStartTimeoutRef.current = setTimeout(() => {
+          console.error(
+            "[DesktopStreamViewer] Video start timeout - GStreamer pipeline may have failed",
+          );
+          setError(
+            "Video stream failed to start. This can happen if the server is overloaded, or if your browser suspended the connection (common on mobile devices to save power). Try refreshing the page or clicking the Restart button.",
+          );
+          setIsConnecting(false);
+          setIsConnected(false);
+          onConnectionChange?.(false);
+        }, VIDEO_START_TIMEOUT_MS);
+      };
+
       // Listen for stream events
       stream.addInfoListener((event: any) => {
         const data = event.detail;
@@ -984,22 +1006,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           currentWebSocketStreamIdRef.current =
             registerConnection("websocket-stream");
 
-          // Start video timeout - if video doesn't start within 15 seconds, GStreamer pipeline likely failed
-          // This catches GStreamer errors like resolution mismatches that cause silent hangs
-          if (videoStartTimeoutRef.current) {
-            clearTimeout(videoStartTimeoutRef.current);
-          }
-          videoStartTimeoutRef.current = setTimeout(() => {
-            console.error(
-              "[DesktopStreamViewer] Video start timeout - GStreamer pipeline may have failed",
-            );
-            setError(
-              "Video stream failed to start. This can happen if the server is overloaded, or if your browser suspended the connection (common on mobile devices to save power). Try refreshing the page or clicking the Restart button.",
-            );
-            setIsConnecting(false);
-            setIsConnected(false);
-            onConnectionChange?.(false);
-          }, VIDEO_START_TIMEOUT_MS);
+          armVideoStartTimeout();
 
           // Keep overlay visible until video/screenshot actually arrives
           // - 'video' mode: wait for videoStarted event (first WS keyframe)
@@ -1019,6 +1026,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             setStatus("Waiting for video...");
           }
           // isConnecting stays true until video/screenshot arrives
+        } else if (data.type === "videoStarting") {
+          // The desktop is up and its video pipeline is still being built —
+          // over a minute on a loaded host. Say so instead of an error.
+          if (stream !== streamRef.current) return;
+          if (qualityMode !== "screenshot") {
+            setStatus(
+              `Starting video… (${Math.round(data.elapsedMs / 1000)}s)`,
+            );
+          }
+          if (videoStartTimeoutRef.current) {
+            armVideoStartTimeout();
+          }
         } else if (data.type === "videoStarted") {
           // First keyframe received and being decoded - video is now visible.
           // This — frames actually arriving — is the only evidence the stream
@@ -4818,9 +4837,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             const input = streamRef.current?.getInput();
             if (input) {
               // Send the complete text (handles multi-character swipe results)
-              for (const char of data) {
-                input.sendText(char);
-              }
+              input.sendTextAsKeysyms(data);
             }
             e.preventDefault();
           }
@@ -4837,10 +4854,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             );
             const input = streamRef.current?.getInput();
             if (input) {
-              // Send each character as a key event
-              for (const char of data) {
-                input.sendText(char);
-              }
+              input.sendTextAsKeysyms(data);
             }
           }
           // Clear the input to prevent accumulation
@@ -4858,9 +4872,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             const input = streamRef.current?.getInput();
             if (input) {
               // Send the complete composed text
-              for (const char of data) {
-                input.sendText(char);
-              }
+              input.sendTextAsKeysyms(data);
             }
           }
           // Clear the input

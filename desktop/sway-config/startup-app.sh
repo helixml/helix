@@ -123,15 +123,16 @@ xdg-mime default google-chrome.desktop x-scheme-handler/https 2>/dev/null || tru
 xdg-mime default google-chrome.desktop text/html 2>/dev/null || true
 echo "✅ Chrome set as default browser for URL handling"
 
-# Configure Qwen Code session persistence
-# Qwen stores sessions at $QWEN_DATA_DIR/projects/<project_hash>/chats/
-# By setting QWEN_DATA_DIR to workspace, sessions persist across container restarts
-export QWEN_DATA_DIR=$WORK_DIR/.qwen-state
-mkdir -p $QWEN_DATA_DIR
-# Also create symlink for backwards compatibility and any tools that look at ~/.qwen
+# Configure Qwen Code session persistence. QWEN_HOME and QWEN_RUNTIME_DIR are
+# also passed directly to the ACP server by settings-sync-daemon.
+QWEN_STATE_DIR=$WORK_DIR/.qwen-state
+mkdir -p $QWEN_STATE_DIR
+if [ ! -f $QWEN_STATE_DIR/settings.json ] && [ -f ~/.qwen/settings.json ]; then
+    cp ~/.qwen/settings.json $QWEN_STATE_DIR/settings.json
+fi
 rm -rf ~/.qwen
-ln -sf $QWEN_DATA_DIR ~/.qwen
-echo "✅ Qwen data directory set to persistent storage: QWEN_DATA_DIR=$QWEN_DATA_DIR"
+ln -sf $QWEN_STATE_DIR ~/.qwen
+echo "✅ Qwen state directory set to persistent storage: $QWEN_STATE_DIR"
 
 # Codex stores ACP rollouts under ~/.codex. Keep them with the session
 # workspace so a recreated desktop can resume the Zed thread it advertises.
@@ -597,41 +598,6 @@ while true; do
 
             # Settings sync daemon only needs to start once
             /usr/local/bin/start-settings-sync-daemon.sh &
-
-            # Chrome auto-relaunch: if Chrome was running when the previous
-            # container stopped (marker file present, maintained by the
-            # heartbeat loop below), bring it back up so the user's tabs are
-            # visible immediately. The heartbeat removes the marker as soon as
-            # Chrome stops, so a missing marker means the user closed Chrome
-            # before the session ended. Profile persistence is set up by
-            # helix-workspace-setup.sh; restore-on-startup policy lives in
-            # the Dockerfile. Works for both Chrome (amd64) and Chromium
-            # (arm64) — google-chrome-stable is symlinked to chromium on arm64.
-            CHROME_MARKER="/home/retro/work/.chrome-state/.was-running"
-            CHROME_LOG="/tmp/chrome-autolaunch.log"
-            if [ -f "$CHROME_MARKER" ]; then
-                # Hard container kill can leave singleton locks behind.
-                rm -f /home/retro/work/.chrome-state/Singleton* 2>/dev/null || true
-                echo "[$(date -Is)] [sway-session] Auto-launching Chrome (marker present from previous session)" | tee -a "$CHROME_LOG"
-                WAYLAND_DISPLAY=wayland-1 google-chrome-stable >>"$CHROME_LOG" 2>&1 &
-            else
-                echo "[$(date -Is)] [sway-session] Skipping Chrome auto-launch (no marker; was closed or never opened)" >> "$CHROME_LOG"
-            fi
-
-            # Heartbeat: while Chrome is running, refresh the marker; when it
-            # stops, remove it. Loop runs once per session (gated by
-            # SERVICES_STARTED) and is detached from any individual Sway run.
-            (
-                while true; do
-                    if pgrep -x chrome >/dev/null 2>&1 || pgrep -x chromium >/dev/null 2>&1; then
-                        mkdir -p /home/retro/work/.chrome-state
-                        touch "$CHROME_MARKER"
-                    else
-                        rm -f "$CHROME_MARKER" 2>/dev/null || true
-                    fi
-                    sleep 30
-                done
-            ) >/dev/null 2>&1 &
 
             SERVICES_STARTED=true
         fi

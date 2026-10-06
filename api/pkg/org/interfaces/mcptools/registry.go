@@ -50,6 +50,21 @@ func (r *Registry) Get(name tool.Name) (tool.Tool, error) {
 	return tool, nil
 }
 
+// Catalogue returns a closure over the registry's live tool names — the
+// catalogue the nodes service validates writes against and prunes
+// retired names with. Read lazily, so a composition root can inject it
+// before RegisterBuiltins has populated the registry.
+func Catalogue(reg *Registry) func() map[tool.Name]bool {
+	return func() map[tool.Name]bool {
+		all := reg.List()
+		out := make(map[tool.Name]bool, len(all))
+		for _, t := range all {
+			out[t.Name()] = true
+		}
+		return out
+	}
+}
+
 // List returns every registered tool, sorted by name for stable
 // rendering. Used by the chart UI's role editor to populate the
 // "Tools" multi-select with the catalogue of available tools.

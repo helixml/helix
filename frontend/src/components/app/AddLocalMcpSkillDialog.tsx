@@ -12,9 +12,13 @@ import {
   ListItem,
   Grid,
   Alert,
+  InputAdornment,
+  Tooltip,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { IAppFlatState } from '../../types';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
@@ -78,6 +82,7 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
   const [description, setDescription] = useState('');
   const [commandLine, setCommandLine] = useState(''); // Single field for "command arg1 arg2..."
   const [env, setEnv] = useState<Record<string, string>>({});
+  const [visibleEnvValues, setVisibleEnvValues] = useState<Record<string, boolean>>({});
 
   const [existingSkillIndex, setExistingSkillIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -128,6 +133,7 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
   };
 
   useEffect(() => {
+    setVisibleEnvValues({});
     if (initialSkill) {
       setName(initialSkill.name || '');
       setDescription(initialSkill.description || '');
@@ -166,6 +172,14 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
     delete newEnv[oldKey];
     newEnv[newKey] = value;
     setEnv(newEnv);
+    setVisibleEnvValues((current) => {
+      const next = { ...current };
+      delete next[oldKey];
+      if (current[oldKey]) {
+        next[newKey] = true;
+      }
+      return next;
+    });
   };
 
   const addEnv = () => {
@@ -176,6 +190,11 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
     const newEnv = { ...env };
     delete newEnv[key];
     setEnv(newEnv);
+    setVisibleEnvValues((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
   };
 
   const handleSave = async () => {
@@ -264,6 +283,7 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
           setDescription('');
           setCommandLine('');
           setEnv({});
+          setVisibleEnvValues({});
           setExistingSkillIndex(null);
           setError(null);
           onClosed?.();
@@ -446,8 +466,29 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
                           size="small"
                           placeholder="Value"
                           value={value}
+                          type={visibleEnvValues[key] ? 'text' : 'password'}
+                          autoComplete="new-password"
                           onChange={(e) => handleEnvChange(key, e.target.value)}
                           fullWidth
+                          InputProps={{
+                            endAdornment: (
+                              <InputAdornment position="end">
+                                <Tooltip title={visibleEnvValues[key] ? 'Hide value' : 'Show value'}>
+                                  <IconButton
+                                    aria-label={`${visibleEnvValues[key] ? 'Hide' : 'Show'} value for ${key || 'environment variable'}`}
+                                    onClick={() => setVisibleEnvValues((current) => ({
+                                      ...current,
+                                      [key]: !current[key],
+                                    }))}
+                                    edge="end"
+                                    size="small"
+                                  >
+                                    {visibleEnvValues[key] ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                                  </IconButton>
+                                </Tooltip>
+                              </InputAdornment>
+                            ),
+                          }}
                         />
                       </Grid>
                       <Grid item xs={2}>

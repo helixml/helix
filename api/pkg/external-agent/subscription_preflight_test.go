@@ -105,6 +105,21 @@ func TestVerifySubscriptionCredentials_APIKeyRuntimeSkipped(t *testing.T) {
 	assert.NoError(t, h.verifySubscriptionCredentials(context.Background(), &types.DesktopAgent{SessionID: "ses_x"}))
 }
 
+func TestVerifySubscriptionCredentials_BotInstanceRejectedEvenWhenActive(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	h := newTestExecutor(mockStore)
+	session := subscriptionSession()
+	session.Metadata.SessionRole = types.SessionRoleOrgBotInstance
+
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_x").Return(session, nil)
+	mockStore.EXPECT().GetApp(gomock.Any(), "app_1").
+		Return(appWithRuntime(types.CodeAgentRuntimeClaudeCode, types.CodeAgentCredentialTypeSubscription), nil)
+
+	err := h.verifySubscriptionCredentials(context.Background(), &types.DesktopAgent{SessionID: "ses_x"})
+	require.ErrorContains(t, err, "do not support subscription credentials")
+}
+
 // The Codex/Claude login desktops are started precisely to obtain a
 // subscription, and have no parent app — they must never be gated.
 func TestVerifySubscriptionCredentials_LoginDesktopSkipped(t *testing.T) {
@@ -116,6 +131,27 @@ func TestVerifySubscriptionCredentials_LoginDesktopSkipped(t *testing.T) {
 		Return(&types.Session{ID: "ses_login", Owner: "usr_no_sub"}, nil)
 
 	assert.NoError(t, h.verifySubscriptionCredentials(context.Background(), &types.DesktopAgent{SessionID: "ses_login"}))
+}
+
+func TestVerifySubscriptionCredentials_ParentlessSpecTaskMissingClaude(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	h := newTestExecutor(mockStore)
+	session := &types.Session{
+		ID: "ses_spec", Owner: "usr_member", OrganizationID: "org_1",
+		Metadata: types.SessionMetadata{SpecTaskID: "spt_1"},
+	}
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_spec").Return(session, nil)
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_1").Return(&types.SpecTask{
+		ID: "spt_1",
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+		},
+	}, nil)
+	mockStore.EXPECT().GetSessionClaudeSubscription(gomock.Any(), session).Return(nil, store.ErrNotFound)
+
+	err := h.verifySubscriptionCredentials(context.Background(), &types.DesktopAgent{SessionID: "ses_spec"})
+	require.ErrorContains(t, err, "Claude subscription")
 }
 
 // The browser has to decide which provider login to offer. Pattern-matching the

@@ -8,7 +8,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"path/filepath"
+	pathpkg "path"
+	"runtime"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/filestore"
 )
@@ -46,14 +48,30 @@ func (c *HelixClient) FilestoreDelete(ctx context.Context, path string) error {
 }
 
 func (c *HelixClient) FilestoreUpload(ctx context.Context, path string, file io.Reader) error {
+	var err error
+	path, err = normalizeFilestoreUploadPath(path, runtime.GOOS)
+	if err != nil {
+		return err
+	}
 	if path == "" {
 		return fmt.Errorf("path is required")
+	}
+	if strings.HasSuffix(path, "/") {
+		return fmt.Errorf("path must include a filename")
+	}
+	filename := pathpkg.Base(path)
+	directory := pathpkg.Dir(path)
+	if filename == "." || filename == ".." || filename == "/" {
+		return fmt.Errorf("path must include a filename")
+	}
+	if directory == "." {
+		directory = ""
 	}
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	part, err := writer.CreateFormFile("files", filepath.Base(path))
+	part, err := writer.CreateFormFile("files", filename)
 	if err != nil {
 		return err
 	}
@@ -68,15 +86,12 @@ func (c *HelixClient) FilestoreUpload(ctx context.Context, path string, file io.
 		return err
 	}
 
-	// Remove the filename from the path as it would create a directory named as a filename
-	path = filepath.Dir(path)
-
 	url := url.URL{
 		Path: "/filestore/upload",
 	}
 
 	query := url.Query()
-	query.Add("path", path)
+	query.Add("path", directory)
 	url.RawQuery = query.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+url.String(), body)
@@ -100,4 +115,62 @@ func (c *HelixClient) FilestoreUpload(ctx context.Context, path string, file io.
 	}
 
 	return nil
+}
+
+func normalizeFilestoreUploadPath(path, goos string) (string, error) {
+	if !strings.Contains(path, `\`) {
+		return path, nil
+	}
+	if goos != "windows" {
+		return "", fmt.Errorf("path contains backslashes; use forward slashes on %s", goos)
+	}
+	return strings.ReplaceAll(path, `\`, "/"), nil
+}
+
+// FilestoreGet returns the metadata for one filestore path. The API responds
+// with an item whose Path is the canonical (owner-prefixed) path that
+// FilestoreRead accepts.
+func (c *HelixClient) FilestoreGet(ctx context.Context, path string) (*filestore.Item, error) {
+	if path == "" {
+		return nil, fmt.Errorf("path is required")
+	}
+	u := url.URL{Path: "/filestore/get"}
+	q := u.Query()
+	q.Add("path", path)
+	u.RawQuery = q.Encode()
+
+	var item filestore.Item
+	if err := c.makeRequest(ctx, http.MethodGet, u.String(), nil, &item); err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+// FilestoreRead downloads a file's bytes by its canonical filestore path (as
+// returned in filestore.Item.Path, e.g. "dev/users/<id>/engagements/x/y.json").
+// A user-relative path is resolved with FilestoreGet first.
+func (c *HelixClient) FilestoreRead(ctx context.Context, path string) ([]byte, error) {
+	if path == "" {
+		return nil, fmt.Errorf("path is required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/filestore/viewer/"+strings.TrimLeft(path, "/"), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrNotFound
+	}
+	if resp.StatusCode >= 300 {
+		bts, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("status code %d (%s)", resp.StatusCode, string(bts))
+	}
+	return io.ReadAll(resp.Body)
 }

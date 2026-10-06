@@ -1,14 +1,19 @@
 package server
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-func (apiServer *HelixAPIServer) authorizeWorkspaceReviewRequest(w http.ResponseWriter, req *http.Request) (*types.Session, bool) {
+func (apiServer *HelixAPIServer) authorizeWorkspaceReviewRequest(w http.ResponseWriter, req *http.Request, action types.Action) (*types.Session, bool) {
 	user := getRequestUser(req)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -20,7 +25,7 @@ func (apiServer *HelixAPIServer) authorizeWorkspaceReviewRequest(w http.Response
 		http.Error(w, "session not found", http.StatusNotFound)
 		return nil, false
 	}
-	if err := apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet); err != nil {
+	if err := apiServer.authorizeUserToSession(req.Context(), user, session, action); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return nil, false
 	}
@@ -57,7 +62,7 @@ func (apiServer *HelixAPIServer) callSessionDesktopJSON(ctx context.Context, ses
 // @Router /api/v1/external-agents/{sessionID}/workspace-review [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getWorkspaceReview(w http.ResponseWriter, req *http.Request) {
-	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req)
+	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -80,11 +85,16 @@ func (apiServer *HelixAPIServer) getWorkspaceReview(w http.ResponseWriter, req *
 // @Produce json
 // @Param sessionID path string true "Session ID"
 // @Param workspace query string false "Workspace name"
+// @Param root query string false "Set to work to list the full session work root (requires update access)"
 // @Success 200 {object} types.WorkspaceFilesResponse
 // @Router /api/v1/external-agents/{sessionID}/workspace-files [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getWorkspaceFiles(w http.ResponseWriter, req *http.Request) {
-	apiServer.proxyAuthorizedWorkspaceGET(w, req, "/workspace/files", &types.WorkspaceFilesResponse{})
+	action := types.ActionGet
+	if req.URL.Query().Get("root") != "" {
+		action = types.ActionUpdate
+	}
+	apiServer.proxyAuthorizedWorkspaceGETWithAction(w, req, "/workspace/files", &types.WorkspaceFilesResponse{}, action)
 }
 
 // getWorkspaceFile godoc
@@ -102,6 +112,96 @@ func (apiServer *HelixAPIServer) getWorkspaceFile(w http.ResponseWriter, req *ht
 	apiServer.proxyAuthorizedWorkspaceGET(w, req, "/workspace/file", &types.WorkspaceFileResponse{})
 }
 
+// downloadWorkspaceFile godoc
+// @Summary Download a workspace file
+// @Description Streams a complete, binary-safe workspace file from the task desktop.
+// @Tags ExternalAgents
+// @Produce image/*,application/octet-stream
+// @Param sessionID path string true "Session ID"
+// @Param workspace query string false "Workspace name"
+// @Param path query string true "Repository-relative file path"
+// @Success 200 {file} binary
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/workspace-file/download [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) downloadWorkspaceFile(w http.ResponseWriter, req *http.Request) {
+	action := types.ActionGet
+	if req.URL.Query().Get("root") != "" {
+		action = types.ActionUpdate
+	}
+	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, action)
+	if !ok {
+		return
+	}
+	conn, err := apiServer.dialDesktop(req.Context(), session.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer conn.Close()
+	applyDesktopDeadline(req.Context(), conn)
+	desktopURL := &url.URL{Scheme: "http", Host: "localhost:9876", Path: "/workspace/file/download", RawQuery: req.URL.RawQuery}
+	desktopReq, err := http.NewRequestWithContext(req.Context(), http.MethodGet, desktopURL.String(), nil)
+	if err != nil || desktopReq.Write(conn) != nil {
+		http.Error(w, "failed to request workspace file", http.StatusBadGateway)
+		return
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), desktopReq)
+	if err != nil {
+		http.Error(w, "failed to read workspace file", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	for _, header := range []string{"Content-Type", "Content-Length", "Content-Disposition", "Last-Modified", "X-Content-Type-Options"} {
+		if value := resp.Header.Get(header); value != "" {
+			w.Header().Set(header, value)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+// putWorkspaceFile godoc
+// @Summary Update a workspace file
+// @Description Replaces an existing browsable UTF-8 workspace file when its content hash still matches the version the user opened.
+// @Tags ExternalAgents
+// @Accept json
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Param request body types.WorkspaceFileWriteRequest true "Workspace file update"
+// @Success 200 {object} types.WorkspaceFileResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 409 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/workspace-file [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) putWorkspaceFile(w http.ResponseWriter, req *http.Request) {
+	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, types.ActionUpdate)
+	if !ok {
+		return
+	}
+	var request types.WorkspaceFileWriteRequest
+	if err := json.NewDecoder(io.LimitReader(req.Body, 8*1024*1024)).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	var response types.WorkspaceFileResponse
+	if err := apiServer.callSessionDesktopJSON(req.Context(), session.ID, http.MethodPut, "/workspace/file", request, &response); err != nil {
+		status := http.StatusServiceUnavailable
+		var desktopErr *desktopHTTPError
+		if errors.As(err, &desktopErr) && desktopErr.StatusCode >= 400 && desktopErr.StatusCode < 500 {
+			status = desktopErr.StatusCode
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
 // getWorkspaceSkills godoc
 // @Summary List workspace skills
 // @Description Returns agent skills installed for the connected external-agent workspace and sandbox user.
@@ -117,7 +217,11 @@ func (apiServer *HelixAPIServer) getWorkspaceSkills(w http.ResponseWriter, req *
 }
 
 func (apiServer *HelixAPIServer) proxyAuthorizedWorkspaceGET(w http.ResponseWriter, req *http.Request, desktopPath string, response interface{}) {
-	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req)
+	apiServer.proxyAuthorizedWorkspaceGETWithAction(w, req, desktopPath, response, types.ActionGet)
+}
+
+func (apiServer *HelixAPIServer) proxyAuthorizedWorkspaceGETWithAction(w http.ResponseWriter, req *http.Request, desktopPath string, response interface{}, action types.Action) {
+	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, action)
 	if !ok {
 		return
 	}
@@ -143,7 +247,7 @@ func (apiServer *HelixAPIServer) proxyAuthorizedWorkspaceGET(w http.ResponseWrit
 // @Router /api/v1/external-agents/{sessionID}/workspace-review/turn/{interactionID} [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getWorkspaceTurnReview(w http.ResponseWriter, req *http.Request) {
-	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req)
+	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, types.ActionGet)
 	if !ok {
 		return
 	}

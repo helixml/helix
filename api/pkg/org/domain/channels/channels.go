@@ -1,42 +1,46 @@
 // Package channels is the pure domain rule that turns the org's
 // reporting graph into the communication channels it requires: the
 // per-Bot transcript (the append-only log of a Bot's activations), the
-// per-manager team Topic (the downward broadcast channel a manager
+// per-manager team chat (the downward broadcast channel a manager
 // briefs their reports on), and the per-edge DM channel (the 1:1 a
 // manager and report message on).
 //
+// Each channel is realised as a system-managed local Trigger, and each
+// membership as a Worker attachment to it. They are ordinary Triggers —
+// same event stream, same attachment dispatch, same history — created
+// and torn down only by this rule and its reconciler.
+//
 // Everything here is a PURE function over the reporting graph — no I/O,
-// fully table-tested. It answers "what Topics and Subscriptions does
+// fully table-tested. It answers "what Triggers and attachments does
 // this graph require?" and nothing else. The application-layer
 // Reconciler (application/reconcile) loads the graph from the store,
 // calls Required, diffs the required set against what's persisted, and
-// applies create/subscribe/unsubscribe/delete idempotently.
+// applies create/attach/detach/delete idempotently.
 package channels
 
 import (
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
-// TeamTopicID returns the deterministic Topic ID for a manager's team
-// broadcast channel — the downward channel a manager publishes to so
-// every direct report receives the post in one shot. Mirrors the
+// TeamTriggerID returns the deterministic Trigger ID for a manager's
+// team chat — the downward channel a manager sends to so every direct
+// report receives the message in one shot. Mirrors the
 // `s-transcript-<id>` convention in domain/activation.
-func TeamTopicID(managerID orgchart.NodeID) streaming.TopicID {
-	return streaming.TopicID("s-team-" + string(managerID))
+func TeamTriggerID(managerID orgchart.NodeID) string {
+	return "s-team-" + string(managerID)
 }
 
-// DMTopicID returns the deterministic Topic ID for a 1:1 channel
+// DMTriggerID returns the deterministic Trigger ID for a 1:1 channel
 // between two Nodes, ordered by string compare so A→B and B→A share one
-// Topic. DM channels follow the reporting graph — the reconciler
+// Trigger. DM channels follow the reporting graph — the reconciler
 // provisions one per reporting edge (manager ↔ report), so a Bot can
 // assume the channel to a manager or direct report already exists. The
 // managers / reports read paths hand this id back so a Bot can escalate
 // up / message a report 1:1 along an existing channel.
-func DMTopicID(a, b orgchart.NodeID) streaming.TopicID {
+func DMTriggerID(a, b orgchart.NodeID) string {
 	pair := sortedPair(a, b)
-	return streaming.TopicID("s-dm-" + pair[0] + "-" + pair[1])
+	return "s-dm-" + pair[0] + "-" + pair[1]
 }
 
 func sortedPair(a, b orgchart.NodeID) [2]string {
@@ -48,11 +52,12 @@ func sortedPair(a, b orgchart.NodeID) [2]string {
 }
 
 // Channel is a communication channel the reporting structure requires.
-// The reconciler builds a streaming.Topic from it when the row is
+// The reconciler builds a trigger.Trigger from it when the row is
 // missing; the fields are immutable once created, so an existing row is
-// never rewritten. Its ID is the id of the Topic that realises it.
+// never rewritten. Its ID is the id of the Trigger that realises it,
+// which is also the id of the event stream carrying its history.
 type Channel struct {
-	ID          streaming.TopicID
+	ID          string
 	Name        string
 	Description string
 	// CreatedBy owns the channel. Activation channels are owned by the
@@ -60,16 +65,16 @@ type Channel struct {
 	CreatedBy orgchart.NodeID
 }
 
-// Membership identifies one required (Bot is a member of Channel) edge.
+// Membership identifies one required (Bot is attached to Channel) edge.
 type Membership struct {
-	NodeID  orgchart.NodeID
-	TopicID streaming.TopicID
+	NodeID    orgchart.NodeID
+	TriggerID string
 }
 
 // Set is the complete collection of channels and memberships a reporting
 // graph requires. It is the output of the pure Required function.
 type Set struct {
-	Channels map[streaming.TopicID]Channel
+	Channels map[string]Channel
 	Members  map[Membership]struct{}
 }
 
@@ -85,21 +90,21 @@ type Set struct {
 //     self-subscribed (that would re-trigger it indefinitely, and a
 //     transcript is observe-only regardless).
 //
-//   - Team Topic `s-team-M` exists for Bot M iff M has ≥1 direct
+//   - Team chat `s-team-M` exists for Bot M iff M has ≥1 direct
 //     report. Members are M plus all of M's direct reports. A Bot with
-//     two managers is therefore a member of two team Topics — correct:
-//     either manager can brief it. No reports → no team Topic (lazy).
+//     two managers is therefore a member of two team chats — correct:
+//     either manager can brief it. No reports → no team chat (lazy).
 //
-//   - DM Topic `s-dm-<pair>` exists for every reporting edge (M, R),
+//   - DM channel `s-dm-<pair>` exists for every reporting edge (M, R),
 //     with members exactly {M, R}. This is the 1:1 channel a Bot
 //     escalates up / messages a report down on. DMs are deliberately
 //     tied to the reporting graph: a Bot can only DM the bots it shares a
 //     reporting line with (its managers and its direct reports), not
 //     arbitrary peers. Peer-to-peer or skip-level reach is a deliberate,
-//     explicitly-created Topic, not an implicit DM.
+//     explicitly-created channel, not an implicit DM.
 func Required(bots []orgchart.Node, lines []orgchart.ReportingLine) Set {
 	set := Set{
-		Channels: map[streaming.TopicID]Channel{},
+		Channels: map[string]Channel{},
 		Members:  map[Membership]struct{}{},
 	}
 
@@ -123,7 +128,7 @@ func Required(bots []orgchart.Node, lines []orgchart.ReportingLine) Set {
 		reportsByManager[l.ManagerID] = append(reportsByManager[l.ManagerID], l.ReportID)
 
 		// DM channel for this reporting edge: members exactly {M, R}.
-		dmID := DMTopicID(l.ManagerID, l.ReportID)
+		dmID := DMTriggerID(l.ManagerID, l.ReportID)
 		pair := sortedPair(l.ManagerID, l.ReportID)
 		set.Channels[dmID] = Channel{
 			ID:          dmID,
@@ -131,8 +136,8 @@ func Required(bots []orgchart.Node, lines []orgchart.ReportingLine) Set {
 			Description: dmChannelDescription(pair[0], pair[1]),
 			CreatedBy:   orgchart.NodeID(pair[0]),
 		}
-		set.Members[Membership{NodeID: l.ManagerID, TopicID: dmID}] = struct{}{}
-		set.Members[Membership{NodeID: l.ReportID, TopicID: dmID}] = struct{}{}
+		set.Members[Membership{NodeID: l.ManagerID, TriggerID: dmID}] = struct{}{}
+		set.Members[Membership{NodeID: l.ReportID, TriggerID: dmID}] = struct{}{}
 	}
 
 	for _, b := range bots {
@@ -151,22 +156,22 @@ func Required(bots []orgchart.Node, lines []orgchart.ReportingLine) Set {
 			CreatedBy:   wid,
 		}
 		for _, m := range managers {
-			set.Members[Membership{NodeID: m, TopicID: sid}] = struct{}{}
+			set.Members[Membership{NodeID: m, TriggerID: sid}] = struct{}{}
 		}
 
-		// Team Topic: only when the Bot has at least one report.
+		// Team chat: only when the Bot has at least one report.
 		reports := reportsByManager[wid]
 		if len(reports) > 0 {
-			sid := TeamTopicID(wid)
+			sid := TeamTriggerID(wid)
 			set.Channels[sid] = Channel{
 				ID:          sid,
 				Name:        "Team: " + string(wid),
 				Description: teamChannelDescription(wid),
 				CreatedBy:   wid,
 			}
-			set.Members[Membership{NodeID: wid, TopicID: sid}] = struct{}{}
+			set.Members[Membership{NodeID: wid, TriggerID: sid}] = struct{}{}
 			for _, r := range reports {
-				set.Members[Membership{NodeID: r, TopicID: sid}] = struct{}{}
+				set.Members[Membership{NodeID: r, TriggerID: sid}] = struct{}{}
 			}
 		}
 	}
@@ -187,8 +192,8 @@ func transcriptChannelDescription(botID orgchart.NodeID) string {
 }
 
 func teamChannelDescription(managerID orgchart.NodeID) string {
-	return "Team broadcast channel for " + string(managerID) +
-		" and their direct reports. The manager publishes once here to " +
+	return "Team chat for " + string(managerID) +
+		" and their direct reports. The manager sends once here to " +
 		"brief the whole team; every direct report receives it."
 }
 
@@ -198,5 +203,5 @@ func dmChannelDescription(a, b string) string {
 		"escalate up or direct a report down. Reporting pairs only: a " +
 		"Bot may DM its managers and direct reports, never an arbitrary " +
 		"peer. Peer or skip-level reach is a deliberately, explicitly " +
-		"created Topic, not an implicit DM."
+		"created channel, not an implicit DM."
 }

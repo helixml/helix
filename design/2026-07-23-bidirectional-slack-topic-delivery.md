@@ -7,7 +7,7 @@ Status: implemented, awaiting review
 
 Slack Topics support inbound events and synchronous outbound basic text
 delivery. Helix sends outbound Topic messages with the workspace credential it
-already owns. Agents continue to call `mint_credential` to receive the
+already owns. Agents call `get_secret` for an explicitly granted binding to receive the
 workspace's long-lived Slack bot token for rich Slack operations such as
 reactions, uploads, edits, lookups, and multi-step workflows.
 
@@ -137,7 +137,7 @@ The Slack deliverer supports only basic text and an optional existing thread
 timestamp. It does not model Slack reactions, file uploads, message edits,
 lookups, interactive blocks, or multi-step workflows.
 
-For those operations, the agent calls `mint_credential` and uses the Slack API
+For those operations, the agent calls `get_secret` and uses the Slack API
 directly. For Slack, this does not mint a scoped or short-lived credential. It
 returns the same long-lived workspace `xoxb-` bot token stored in the Slack
 service connection. The `resource` team ID selects a workspace when the org has
@@ -160,7 +160,7 @@ tools select destinations differently:
 |---|---|---|
 | Send an event to a configured Slack route | `publish` | Slack Topic configuration |
 | Contact a known person | `ask_human` | Human ID and preferred contact route |
-| Perform a rich Slack action | `mint_credential` and Slack API | Agent-selected Slack resource |
+| Perform a rich Slack action | `get_secret` and Slack API | Explicitly granted Slack workspace |
 
 `ask_human` is not an owner-only org mutation. Its implementation scopes the
 lookup to the caller's org, requires a human node, and delivers through the
@@ -221,17 +221,17 @@ received it:
 
 - An exact channel Topic names that Topic ID and tells the Bot to call
   `publish` with the correct thread ID for a basic reply when the Bot has the
-  `publish` capability. Otherwise it directs the Bot to `mint_credential` and
+  `publish` capability. Otherwise it directs the Bot to `get_secret` and
   `chat.postMessage`.
 - A workspace-wide fallback names itself as inbound-only, tells the Bot to use
   `list_topics` to find a Slack Topic whose `service_connection_id` matches the
   fallback Topic and whose `channel_id` matches the incoming channel. It uses
   that Topic only when `publish` is available; otherwise, or when no matching
-  Topic exists, it directs the Bot to `mint_credential` and
+  Topic exists, it directs the Bot to `get_secret` and
   `chat.postMessage`.
 
 The hint continues to direct reactions, uploads, edits, lookups, and other rich
-operations to `mint_credential` and the Slack API.
+operations to `get_secret` and the Slack API.
 
 ### 8. MCP Topic reads expose only typed Slack configuration
 
@@ -368,7 +368,7 @@ The intent boundary is:
 - "Post the review result to the engineering Slack Topic" uses `publish`.
 - "Ask the org owner whether this should merge" uses `ask_human`.
 - "React to the original message and upload the report" uses the workspace
-  token returned by `mint_credential` and the Slack API.
+  token returned by `get_secret` and the Slack API.
 
 No generic `message.send` tool is needed. The two existing primitives already
 cover event routing and person-oriented contact.
@@ -420,7 +420,7 @@ retry subsystem was added.
    it through the same universal baseline.
 4. Updated prompts direct basic Slack Topic text through `publish`,
    person-oriented contact through `ask_human`, and rich Slack behavior through
-   the workspace token returned by `mint_credential`.
+   the workspace token returned by `get_secret`.
 5. Existing inbound Slack ingestion and thread-follow routes are preserved.
 
 No existing Topic event needs rewriting.

@@ -16,23 +16,22 @@ import (
 // 1 MiB is comfortable for text payloads and prevents an obvious DoS.
 const maxWebhookBody = 1 << 20
 
-// webhookHandler accepts inbound POSTs on /webhooks/<topicID> and
-// turns each request body into an Event on that Topic. The Topic
-// must exist and have transport.kind == webhook; otherwise 404.
+// webhookHandler accepts inbound POSTs on /webhooks/<triggerID> and
+// turns each request body into an event on that Trigger. The Trigger
+// must exist and have kind == webhook; otherwise 404.
 //
-// Source attribution on the resulting Event is empty (system-emitted,
-// per streaming.NewEvent's contract). The dispatcher is invoked so Nodes
-// subscribed to the Topic are activated; the broadcaster is notified so
-// any long-poll observer wakes.
+// Source attribution on the resulting event is empty (system-emitted,
+// per streaming.NewEvent's contract). Publishing routes it to every
+// Worker attached to the Trigger and wakes any long-poll observer.
 func (s *Server) webhookHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		topicID := streaming.TopicID(r.PathValue("topicID"))
-		if topicID == "" {
-			http.Error(w, "missing topicID", http.StatusNotFound)
+		triggerID := r.PathValue("triggerID")
+		if triggerID == "" {
+			http.Error(w, "missing triggerID", http.StatusNotFound)
 			return
 		}
-		// Webhook URL shape: /webhooks/{org}/{topicID}. The org segment
-		// is required under composite (id, org_id) PKs — topic IDs are
+		// Webhook URL shape: /webhooks/{org}/{triggerID}. The org segment
+		// is required under composite (id, org_id) PKs — Trigger IDs are
 		// not globally unique across helix tenants.
 		orgID := r.PathValue("org")
 		if orgID == "" {
@@ -43,18 +42,18 @@ func (s *Server) webhookHandler() http.Handler {
 			return
 		}
 
-		topic, err := s.queries.GetTopic(r.Context(), orgID, topicID)
+		trg, err := s.queries.GetTrigger(r.Context(), orgID, triggerID)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				http.Error(w, fmt.Sprintf("topic %q: not found", topicID), http.StatusNotFound)
+				http.Error(w, fmt.Sprintf("trigger %q: not found", triggerID), http.StatusNotFound)
 				return
 			}
-			s.logger.Error("webhook: lookup topic", "topic", topicID, "err", err)
+			s.logger.Error("webhook: lookup trigger", "trigger", triggerID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		if topic.Transport.Kind != transport.KindWebhook {
-			http.Error(w, fmt.Sprintf("topic %q is not a webhook topic", topicID), http.StatusNotFound)
+		if trg.Kind != transport.KindWebhook {
+			http.Error(w, fmt.Sprintf("trigger %q is not a webhook trigger", triggerID), http.StatusNotFound)
 			return
 		}
 
@@ -69,24 +68,24 @@ func (s *Server) webhookHandler() http.Handler {
 		}
 
 		if s.publishing == nil {
-			s.logger.Error("webhook: publishing service not wired", "topic", topicID)
+			s.logger.Error("webhook: publishing service not wired", "trigger", triggerID)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		// Append → notify → dispatch through the publishing service.
+		// Append → notify → route through the publishing service.
 		// From is empty — webhook callers are arbitrary external systems
 		// with no helix Bot identity; routing decisions about "who
 		// sent this" belong in the receiving Bot's prompt.
-		event, err := s.publishing.Publish(r.Context(), orgID, topicID, "", streaming.Message{Body: string(body)})
+		event, err := s.publishing.PublishToTrigger(r.Context(), orgID, triggerID, "", streaming.Message{Body: string(body)})
 		if err != nil {
-			s.logger.Error("webhook: publish event", "topic", topicID, "err", err)
+			s.logger.Error("webhook: publish event", "trigger", triggerID, "err", err)
 			http.Error(w, "append event", http.StatusInternalServerError)
 			return
 		}
 
 		ack, _ := json.Marshal(map[string]string{
-			"id":      string(event.ID),
-			"topicId": string(topicID),
+			"id":        string(event.ID),
+			"triggerId": triggerID,
 		})
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(ack)

@@ -79,8 +79,8 @@ func TestManagers_ListsBothManagersWithDMTopics(t *testing.T) {
 	if !ok {
 		t.Fatalf("b-jane missing from managers: %+v", got.Managers)
 	}
-	if jane.DMTopicID != channels.DMTopicID("b-li", "b-jane") {
-		t.Fatalf("jane dmTopicId = %q, want %q", jane.DMTopicID, channels.DMTopicID("b-li", "b-jane"))
+	if jane.DMChannelID != channels.DMTriggerID("b-li", "b-jane") {
+		t.Fatalf("jane dmTopicId = %q, want %q", jane.DMChannelID, channels.DMTriggerID("b-li", "b-jane"))
 	}
 	if _, ok := byID["b-bob"]; !ok {
 		t.Fatalf("b-bob missing from managers: %+v", got.Managers)

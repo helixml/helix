@@ -7,8 +7,6 @@ import (
 )
 
 // SandboxRuntime identifies the type of sandbox to create.
-// Today only ubuntu-desktop is implemented; later runtimes will spin up
-// lightweight Docker containers.
 type SandboxRuntime string
 
 const (
@@ -17,9 +15,9 @@ const (
 	// user can stream into and exec commands inside.
 	SandboxRuntimeUbuntuDesktop SandboxRuntime = "ubuntu-desktop"
 
-	// SandboxRuntimeHeadlessUbuntu spins up a plain `ubuntu:22.04` container
-	// running `sleep infinity` — no GUI, no agent, just a long-lived shell
-	// to exec into. Useful for CI-style scripted workloads.
+	// SandboxRuntimeHeadlessUbuntu selects an Ubuntu runtime without a GUI.
+	// Standalone sandboxes use the configured lightweight image; spec tasks use
+	// the Helix agent toolchain image without compositor or streaming services.
 	SandboxRuntimeHeadlessUbuntu SandboxRuntime = "headless-ubuntu"
 )
 
@@ -91,6 +89,11 @@ type Sandbox struct {
 	// Denormalised from the session purely so the Sandboxes list can link back
 	// to the task without joining through sessions.
 	SpecTaskID string `json:"spec_task_id,omitempty" gorm:"size:64;index"`
+
+	// OrgBotID is the helix-org bot whose session owns this container, when
+	// there is one. Denormalised from the session (org_worker_id) so the bot
+	// detail and the Sandboxes list can link both ways without joining sessions.
+	OrgBotID string `json:"org_bot_id,omitempty" gorm:"size:128;index"`
 
 	// Display fields apply to desktop runtimes.
 	DisplayWidth  int `json:"display_width,omitempty"`
@@ -182,6 +185,7 @@ type BeginSandboxSessionRequest struct {
 	Owner          string
 	ProjectID      string
 	SpecTaskID     string
+	OrgBotID       string
 	Name           string
 	Runtime        SandboxRuntime
 	VCPUs          int

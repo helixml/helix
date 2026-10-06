@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { IconButton, Tooltip, useTheme, Box } from '@mui/material';
 import { Copy, Check } from 'lucide-react';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface CopyButtonProps {
   content: string;
@@ -25,7 +26,7 @@ const CopyButton: React.FC<CopyButtonProps> = ({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(content);
+      await copyTextToClipboard(content);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -76,4 +77,4 @@ const CopyButton: React.FC<CopyButtonProps> = ({
   );
 };
 
-export default CopyButton; 
+export default CopyButton;

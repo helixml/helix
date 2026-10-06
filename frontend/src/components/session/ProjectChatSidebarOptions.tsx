@@ -9,6 +9,8 @@ import Typography from '@mui/material/Typography'
 import { ArrowUpDown, Minus, Plus } from 'lucide-react'
 
 import useLightTheme from '../../hooks/useLightTheme'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { TYPOGRAPHY } from '../../styles/typography'
 import {
   MAX_VISIBLE_THREAD_COUNT,
   MIN_VISIBLE_THREAD_COUNT,
@@ -47,9 +49,9 @@ const ProjectChatSidebarOptions: FC<ProjectChatSidebarOptionsProps> = ({
   onVisibleThreadCountChange,
 }) => {
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const open = !!anchorEl
-  const muted = lightTheme.isLight ? '#71717a' : '#8f8f94'
   const surface = lightTheme.isLight ? '#ffffff' : '#191919'
   const selected = lightTheme.isLight ? 'rgba(24,24,27,0.07)' : 'rgba(255,255,255,0.08)'
 
@@ -59,8 +61,8 @@ const ProjectChatSidebarOptions: FC<ProjectChatSidebarOptionsProps> = ({
     px: 1,
     pt: 0.75,
     pb: 0.4,
-    color: muted,
-    fontSize: '12px',
+    color: sidebarColors.mutedForeground,
+    fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
     fontWeight: 500,
     lineHeight: 1.4,
   }
@@ -79,7 +81,7 @@ const ProjectChatSidebarOptions: FC<ProjectChatSidebarOptionsProps> = ({
     color: 'inherit',
     cursor: 'pointer',
     font: 'inherit',
-    fontSize: '13px',
+    fontSize: TYPOGRAPHY.sidebar.controlFontSize,
     textAlign: 'left',
     '&:hover, &:focus-visible': { backgroundColor: selected, outline: 'none' },
   }
@@ -93,11 +95,7 @@ const ProjectChatSidebarOptions: FC<ProjectChatSidebarOptionsProps> = ({
           aria-haspopup="menu"
           aria-expanded={open || undefined}
           onClick={openMenu}
-          sx={{
-            color: lightTheme.isLight
-              ? 'rgba(113,113,122,0.65)'
-              : 'rgba(163,163,163,0.55)',
-          }}
+          sx={{ color: sidebarColors.subtleForeground }}
         >
           <ArrowUpDown size={15} strokeWidth={1.7} />
         </IconButton>
@@ -189,7 +187,11 @@ const ProjectChatSidebarOptions: FC<ProjectChatSidebarOptionsProps> = ({
               </IconButton>
               <Typography
                 aria-label="Visible thread count"
-                sx={{ textAlign: 'center', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}
+                sx={{
+                  textAlign: 'center',
+                  fontSize: TYPOGRAPHY.sidebar.controlFontSize,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
               >
                 {visibleThreadCount}
               </Typography>

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getMonacoClipboardOverrideServices } from "../../utils/clipboard";
 import { copyTextToClipboard, workspaceFilePath } from "./clipboard";
 
 const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
@@ -89,5 +90,53 @@ describe("copyTextToClipboard", () => {
     expect(clipboardGetter).not.toHaveBeenCalled();
     expect(execCommand).toHaveBeenCalledWith("copy");
     expect(document.querySelector("textarea")).toBeNull();
+  });
+});
+
+describe("getMonacoClipboardOverrideServices", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    restoreProperty(navigator, "clipboard", originalClipboard);
+    restoreProperty(window, "isSecureContext", originalSecureContext);
+  });
+
+  it("keeps Monaco's clipboard service when the full API is available", () => {
+    Object.defineProperty(window, "isSecureContext", {
+      configurable: true,
+      value: true,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { write: vi.fn(), writeText: vi.fn() },
+    });
+
+    expect(getMonacoClipboardOverrideServices()).toEqual({});
+  });
+
+  it("overrides Monaco's clipboard service without reading the API on HTTP", async () => {
+    const execCommand = vi.fn().mockReturnValue(true);
+    const clipboardGetter = vi.fn(() => {
+      throw new Error("Safari must not evaluate navigator.clipboard on HTTP");
+    });
+    Object.defineProperty(window, "isSecureContext", {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      get: clipboardGetter,
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+
+    const override = getMonacoClipboardOverrideServices() as {
+      clipboardService: { writeText: (text: string) => Promise<void> };
+    };
+    await override.clipboardService.writeText("editor contents");
+
+    expect(clipboardGetter).not.toHaveBeenCalled();
+    expect(execCommand).toHaveBeenCalledWith("copy");
   });
 });

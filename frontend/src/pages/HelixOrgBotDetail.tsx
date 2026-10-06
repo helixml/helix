@@ -55,14 +55,17 @@ import StopIcon from '@mui/icons-material/Stop'
 import Tooltip from '@mui/material/Tooltip'
 import { useRouter as useRouter5 } from 'react-router5'
 
+import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import AgentConfigForm, { AgentConfigValue } from '../components/helix-org/BotRuntimeForm'
 import ToolPickerDialog from '../components/helix-org/ToolPickerDialog'
+import WorkerSecretsPanel from '../components/helix-org/WorkerSecretsPanel'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
+import { useStreaming } from '../contexts/streaming'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -71,17 +74,21 @@ import {
   BotDTO,
   ToolDTO,
   useActivateBot,
+  useApplyBotConfig,
   useDeleteBot,
   useHelixOrgBot,
-  useListBotSubscriptions,
+  useListHelixOrgProcessors,
   useListHelixOrgTools,
-  useListHelixOrgTopics,
   useRestartBotAgent,
   useStopBotAgent,
-  useSubscribeBot,
-  useUnsubscribeBot,
   useUpdateBot,
 } from '../services/helixOrgService'
+import {
+  useBotAttachments,
+  useCreateBotAttachment,
+  useDeleteBotAttachment,
+  useTriggers,
+} from '../services/triggerService'
 import {
   WorkerChatReader,
   fetchExistingWorkerSession,
@@ -93,9 +100,10 @@ const HelixOrgBotDetail: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
   const api = useApi()
+  const streaming = useStreaming()
   const orgSlug = router.params.org_id as string | undefined
   const botId = router.params.bot_id as string | undefined
-  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Agents', routeName: 'helix_org_bots' })
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Org Bots', routeName: 'helix_org_bots' })
 
   const del = useDeleteBot()
   // Stop polling/refetching this bot once a delete is in flight or done —
@@ -108,6 +116,7 @@ const HelixOrgBotDetail: FC = () => {
   const activateAgent = useActivateBot()
   const stopAgent = useStopBotAgent()
   const restartAgent = useRestartBotAgent()
+  const applyBotConfig = useApplyBotConfig()
   const { data: toolCatalogue } = useListHelixOrgTools()
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [confirmingResetInstructions, setConfirmingResetInstructions] = useState(false)
@@ -122,18 +131,14 @@ const HelixOrgBotDetail: FC = () => {
   const bot = data?.bot
   const projectID = data?.project_id
   const { data: projects = [] } = useListProjects(bot?.organization_id, { enabled: !!bot?.organization_id })
-  const agentID = data?.agent_id ?? data?.agent_app_id
-  // A human node is a person placeholder — it never runs, so the agent-only
-  // surfaces (Project Desktop session, tools, preserve-context, restart) make
-  // no sense for it and are hidden below.
-  const isHuman = bot?.kind === 'human'
-  // agent_status from GET /bots/{id}; poll detail so the presence control stays fresh.
-  const agentOnline = bot?.agent_status === 'running'
+  const agentID = data?.legacy_app_id
+  // status from GET /bots/{id}; poll detail so the presence control stays fresh.
+  const botOnline = bot?.status === 'running'
   useEffect(() => {
-    if (!botId || isHuman) return
+    if (!botId) return
     const t = window.setInterval(() => { void refetchBot() }, 5000)
     return () => window.clearInterval(t)
-  }, [botId, isHuman, refetchBot])
+  }, [botId, refetchBot])
 
   // Editable content markdown + tools. Seeded from the bot every time it
   // loads/refreshes so a cancelled edit re-syncs to server state.
@@ -166,16 +171,6 @@ const HelixOrgBotDetail: FC = () => {
       reasoning_effort: bot?.reasoning_effort ?? 'none',
     })
   }, [bot?.code_agent_runtime, bot?.code_agent_credential_type, bot?.provider, bot?.model, bot?.reasoning_effort])
-
-  // A human node is a person, not a bot — the agent detail page (desktop,
-  // tools, activation) makes no sense for it. Redirect a direct hit on
-  // /bots/h-<userId> to the dedicated person view. The render below also
-  // guards on isHuman so the agent surfaces never flash before the redirect.
-  useEffect(() => {
-    if (isHuman && orgSlug && botId) {
-      router.navigate('helix_org_human_detail', { org_id: orgSlug, bot_id: botId })
-    }
-  }, [isHuman, orgSlug, botId, router])
 
   // The Autocomplete needs Option objects, but the bot's tool list is
   // just a string[] of names. Render every catalogue entry plus any
@@ -233,14 +228,14 @@ const HelixOrgBotDetail: FC = () => {
     if (runtimeChanged && chatSessionId && agentID) {
       try {
         await switchAgent.mutateAsync({ helix_app_id: agentID })
-        snackbar.success(`Agent ${botId} saved and the active session switched to ${runtimeConfig.runtime}`)
+        snackbar.success(`Org bot ${botId} saved and the active session switched to ${runtimeConfig.runtime}`)
       } catch (err: any) {
         await refetchBot()
         const message = err?.response?.data?.error ?? err?.message ?? 'session switch failed'
-        snackbar.error(`Agent saved, but active session switch failed: ${message}`)
+        snackbar.error(`Org bot saved, but active session switch failed: ${message}`)
       }
     } else {
-      snackbar.success(`Agent ${botId} saved`)
+      snackbar.success(`Org bot ${botId} saved`)
     }
   }
 
@@ -266,7 +261,7 @@ const HelixOrgBotDetail: FC = () => {
     if (!botId || activateAgent.isPending) return
     try {
       await activateAgent.mutateAsync(botId)
-      snackbar.success('Starting agent…')
+      snackbar.success('Starting org bot…')
       await pollForSession(chatSessionId, false)
       void refetchBot()
     } catch (err: any) {
@@ -278,7 +273,7 @@ const HelixOrgBotDetail: FC = () => {
     if (!botId || stopAgent.isPending) return
     try {
       await stopAgent.mutateAsync(botId)
-      snackbar.success('Agent stopped')
+      snackbar.success('Org bot stopped')
       void refetchBot()
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'stop failed')
@@ -292,7 +287,7 @@ const HelixOrgBotDetail: FC = () => {
     try {
       await restartAgent.mutateAsync(botId)
       setChatSessionId(null)
-      snackbar.success('Restarting agent — a fresh session will come up shortly')
+      snackbar.success('Restarting org bot — a fresh session will come up shortly')
       await pollForSession(previousSessionId, true)
       void refetchBot()
     } catch (err: any) {
@@ -337,7 +332,7 @@ const HelixOrgBotDetail: FC = () => {
 
   // Built-in seed prompt for this node, when it has one. Only seeded
   // nodes (the Chief of Staff every org gets) carry a default; for
-  // operator-created agents the server sends nothing and the reset
+  // operator-created bots the server sends nothing and the reset
   // affordance stays hidden — there is no default to go back to.
   const defaultInstructions = bot?.default_instructions ?? ''
 
@@ -369,7 +364,7 @@ const HelixOrgBotDetail: FC = () => {
     } catch (err: any) {
       const status = err?.response?.status
       if (status === 409) {
-        snackbar.error('owner agent is protected and cannot be deleted')
+        snackbar.error('The owner org bot is protected and cannot be deleted')
       } else {
         snackbar.error(err?.response?.data?.error ?? err?.message ?? 'delete failed')
       }
@@ -378,7 +373,7 @@ const HelixOrgBotDetail: FC = () => {
     }
   }
 
-  const leafTitle = bot?.name || botId || 'Agent'
+  const leafTitle = bot?.name || botId || 'Org Bot'
 
   return (
     <HelixOrgShell
@@ -400,16 +395,16 @@ const HelixOrgBotDetail: FC = () => {
     >
       <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
-        {isLoading || !bot || isHuman ? (
+        {isLoading || !bot ? (
           <LoadingSpinner />
         ) : (
           <>
           <Grid container spacing={3}>
             <Grid item xs={12} md={8}>
               <Stack spacing={3}>
-                {/* Header — identity plus the agent's lifecycle control.
+                {/* Header — identity plus the org bot's lifecycle control.
                     The start/stop/restart menu lives here (rather than in a
-                    session panel) because it acts on the agent this page
+                    session panel) because it acts on the org bot this page
                     configures; conversing with it belongs in the real chat. */}
                 <Box>
                   <Stack
@@ -430,24 +425,24 @@ const HelixOrgBotDetail: FC = () => {
                       )}
                     </Stack>
                     <Stack direction="row" alignItems="center" spacing={1}>
-                      <Tooltip title={agentOnline ? 'Agent sandbox online' : 'Agent sandbox stopped'}>
+                      <Tooltip title={botOnline ? 'Org bot sandbox online' : 'Org bot sandbox stopped'}>
                         <Box
                           sx={{
                             width: 10,
                             height: 10,
                             borderRadius: '50%',
-                            backgroundColor: agentOnline ? 'rgb(46, 160, 67)' : 'rgba(0,0,0,0.28)',
-                            boxShadow: agentOnline ? '0 0 0 2px rgba(46,160,67,0.2)' : 'none',
+                            backgroundColor: botOnline ? 'rgb(46, 160, 67)' : 'rgba(0,0,0,0.28)',
+                            boxShadow: botOnline ? '0 0 0 2px rgba(46,160,67,0.2)' : 'none',
                             flexShrink: 0,
                           }}
                         />
                       </Tooltip>
                       <Typography variant="caption" color="text.secondary">
-                        {agentOnline ? 'Running' : 'Stopped'}
+                        {botOnline ? 'Running' : 'Stopped'}
                       </Typography>
                       <IconButton
                         size="small"
-                        aria-label="Agent session actions"
+                        aria-label="Org bot session actions"
                         onClick={(e) => setAgentMenuEl(e.currentTarget)}
                         disabled={activateAgent.isPending || stopAgent.isPending || restartAgent.isPending}
                       >
@@ -462,7 +457,7 @@ const HelixOrgBotDetail: FC = () => {
                         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
                         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
                       >
-                        {agentOnline ? (
+                        {botOnline ? (
                           <>
                             <MenuItem
                               onClick={() => {
@@ -471,7 +466,7 @@ const HelixOrgBotDetail: FC = () => {
                               }}
                             >
                               <StopIcon sx={{ mr: 1, fontSize: 20 }} />
-                              Stop agent
+                              Stop org bot
                             </MenuItem>
                             <MenuItem
                               onClick={() => {
@@ -480,7 +475,7 @@ const HelixOrgBotDetail: FC = () => {
                               }}
                             >
                               <RestartAltIcon sx={{ mr: 1, fontSize: 20 }} />
-                              Restart agent
+                              Restart org bot
                             </MenuItem>
                           </>
                         ) : (
@@ -491,13 +486,21 @@ const HelixOrgBotDetail: FC = () => {
                             }}
                           >
                             <PlayArrowIcon sx={{ mr: 1, fontSize: 20 }} />
-                            Start agent
+                            Start org bot
                           </MenuItem>
                         )}
                       </Menu>
                     </Stack>
                   </Stack>
                 </Box>
+
+                <AgentRestartRequiredBanner
+                  visible={!!bot.restart_required}
+                  working={!!chatSessionId && streaming.currentResponses.has(chatSessionId)}
+                  busy={activateAgent.isPending || stopAgent.isPending || restartAgent.isPending || applyBotConfig.isPending}
+                  sticky
+                  onRestart={() => { if (bot.id) void applyBotConfig.mutateAsync(bot.id) }}
+                />
 
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>Name</Typography>
@@ -589,7 +592,7 @@ const HelixOrgBotDetail: FC = () => {
                       <TextField
                         {...params}
                         placeholder="Select projects"
-                        helperText="The agent's own project is always allowed and is used when a tool omits project_id. Other projects must be selected here."
+                        helperText="The org bot's own project is always allowed and is used when a tool omits project_id. Other projects must be selected here."
                       />
                     )}
                   />
@@ -630,11 +633,11 @@ const HelixOrgBotDetail: FC = () => {
                         </Stack>
                       ) : (
                         <Typography variant="body2" color="text.secondary">
-                          No tools selected. The agent can still receive owner chat, but cannot call Helix Org MCP capabilities.
+                          No tools selected. The org bot can still receive owner chat, but cannot call Helix Org MCP capabilities.
                         </Typography>
                       )}
                       <Typography variant="caption" color="text.secondary">
-                        Changes made in the tool picker are saved with the rest of this agent configuration.
+                        Changes made in the tool picker are saved with the rest of this org bot configuration.
                       </Typography>
                     </Stack>
                   </Paper>
@@ -651,17 +654,19 @@ const HelixOrgBotDetail: FC = () => {
                     label="Preserve context across triggers"
                   />
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                    By default each trigger wipes the agent's session so every turn
+                    By default each trigger wipes the org bot's session so every turn
                     starts on a fresh context window. Enable this to keep the
                     conversation across triggers — faster, more context-aware
                     follow-ups (e.g. for Slack), at the cost of the session
                     growing toward the model's context limit (where compaction
-                    kicks in). Durable state still belongs in the agent's git
+                    kicks in). Durable state still belongs in the org bot's git
                     workspace, not the chat history.
                   </Typography>
                 </Box>
 
-                <SubscriptionsPanel botID={bot?.id} />
+                <AttachmentsPanel botID={bot?.id} />
+                <Divider sx={{ my: 2 }} />
+                <WorkerSecretsPanel agentID={bot?.id} projectID={projectID} />
               </Stack>
             </Grid>
 
@@ -713,10 +718,8 @@ const HelixOrgBotDetail: FC = () => {
                       )}
                     </Box>
                   )}
-                  {/* The agent app id is machine detail nobody reads — the
-                      only useful thing is getting to the agent, so the label
-                      itself is the link. Without an org slug there is no
-                      route to build, so the row is dropped entirely. */}
+                  {/* The legacy App link remains while bot execution is being
+                      detached from Apps. */}
                   {agentID && orgSlug && (
                     <Box>
                       <Link
@@ -726,7 +729,7 @@ const HelixOrgBotDetail: FC = () => {
                         underline="hover"
                         sx={{ fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
                       >
-                        Agent
+                        Legacy App configuration
                         <OpenInNewIcon sx={{ fontSize: 14, flexShrink: 0 }} />
                       </Link>
                     </Box>
@@ -759,7 +762,7 @@ const HelixOrgBotDetail: FC = () => {
                         Reset instructions
                       </Button>
                       <Typography variant="caption" color="text.secondary">
-                        Restores this agent's built-in default instructions,
+                        Restores this org bot's built-in default instructions,
                         discarding local edits to them. Tools, subscriptions,
                         and reporting lines are untouched.
                       </Typography>
@@ -774,10 +777,10 @@ const HelixOrgBotDetail: FC = () => {
                     disabled={del.isPending}
                     fullWidth
                   >
-                    Delete agent
+                    Delete org bot
                   </Button>
                   <Typography variant="caption" color="text.secondary">
-                    Deletes the canonical Agent configuration and knowledge,
+                    Deletes the org bot's runtime configuration and knowledge,
                     tears down its Helix project, and drops its subscriptions
                     and reporting lines.
                   </Typography>
@@ -807,9 +810,9 @@ const HelixOrgBotDetail: FC = () => {
             lost and cannot be recovered.
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            The agent's tools, subscriptions, reporting lines, runtime, and
+            The org bot's tools, subscriptions, reporting lines, runtime, and
             project access are not affected. The new instructions apply on the
-            agent's next activation.
+            org bot's next activation.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -840,14 +843,14 @@ const HelixOrgBotDetail: FC = () => {
 
       {confirmingDelete && botId && (
         <DeleteConfirmWindow
-          title="agent"
+          title="org bot"
           submitTitle="Delete"
           onSubmit={handleDelete}
           onCancel={() => setConfirmingDelete(false)}
         >
           <Typography variant="body1">
-            Deleting agent <b style={{ fontFamily: 'monospace' }}>{botId}</b> deletes its
-            canonical Agent configuration and knowledge sources, tears down its
+            Deleting org bot <b style={{ fontFamily: 'monospace' }}>{botId}</b> deletes its
+            runtime configuration and knowledge sources, tears down its
             Helix project, and clears its subscriptions, reporting lines, and runtime state.
             This is irreversible.
           </Typography>
@@ -858,76 +861,66 @@ const HelixOrgBotDetail: FC = () => {
   )
 }
 
-// SubscriptionsPanel surfaces the topics this Bot consumes — and the
-// multi-select to change that set. Subscriptions are bot-anchored:
-// deleting the bot drops them.
-//
-// disableCloseOnSelect so toggling several topics in one pass doesn't
-// bounce the popper closed.
-const SubscriptionsPanel: FC<{ botID?: string }> = ({ botID }) => {
-  const snackbar = useSnackbar()
-  const { data: streamsData, isLoading: streamsLoading } = useListHelixOrgTopics()
-  const { data: subsData, isLoading: subsLoading } = useListBotSubscriptions(botID)
-  const subscribe = useSubscribeBot(botID)
-  const unsubscribe = useUnsubscribeBot(botID)
+type SourceOption = { key: string; label: string; description: string; source: { kind: string; trigger_id?: string; processor_id?: string; output_id?: string } }
 
-  const allTopics = streamsData?.topics ?? []
-  const subscribedIDs = useMemo(
-    () => new Set((subsData?.subscriptions ?? []).map((s) => s.topic_id)),
-    [subsData],
-  )
-  const subscribedTopics = useMemo(
-    () => allTopics.filter((s) => subscribedIDs.has(s.id)),
-    [allTopics, subscribedIDs],
-  )
+const AttachmentsPanel: FC<{ botID?: string }> = ({ botID }) => {
+  const snackbar = useSnackbar()
+  const { data: triggers = [], isLoading: triggersLoading } = useTriggers()
+  const { data: processors = [], isLoading: processorsLoading } = useListHelixOrgProcessors()
+  const { data: attachments = [], isLoading: attachmentsLoading } = useBotAttachments(botID)
+  const attach = useCreateBotAttachment(botID)
+  const detach = useDeleteBotAttachment(botID)
+  const options = useMemo<SourceOption[]>(() => [
+    ...triggers.map((trigger) => ({ key: `trigger:${trigger.id}`, label: trigger.name || trigger.id!, description: `Trigger · ${trigger.kind}`, source: { kind: 'trigger', trigger_id: trigger.id } })),
+    ...processors.flatMap((processor) => processor.outputs.map((output) => ({ key: `processor_output:${processor.id}:${output.id}`, label: `${processor.name} · ${output.label || output.id}`, description: `Processed event · ${output.id}`, source: { kind: 'processor_output', processor_id: processor.id, output_id: output.id } }))),
+  ], [triggers, processors])
+  const attachmentKey = (source: { kind?: string; trigger_id?: string; processor_id?: string; output_id?: string }) => source.kind === 'trigger' ? `trigger:${source.trigger_id}` : `processor_output:${source.processor_id}:${source.output_id}`
+  const selectedKeys = useMemo(() => new Set(attachments.map((item) => attachmentKey(item.source ?? {}))), [attachments])
+  const selected = useMemo(() => options.filter((option) => selectedKeys.has(option.key)), [options, selectedKeys])
 
   if (!botID) {
     return null
   }
 
-  const handleChange = async (_e: unknown, next: typeof allTopics) => {
-    const nextIDs = new Set(next.map((s) => s.id))
-    const toAdd = next.filter((s) => !subscribedIDs.has(s.id))
-    const toRemove = (subsData?.subscriptions ?? []).filter((s) => !nextIDs.has(s.topic_id))
+  const handleChange = async (_e: unknown, next: SourceOption[]) => {
+    const nextKeys = new Set(next.map((source) => source.key))
+    const toAdd = next.filter((source) => !selectedKeys.has(source.key))
+    const toRemove = attachments.filter((item) => !nextKeys.has(attachmentKey(item.source ?? {})))
     try {
-      for (const s of toAdd) await subscribe.mutateAsync(s.id)
-      for (const s of toRemove) await unsubscribe.mutateAsync(s.topic_id)
+      for (const source of toAdd) await attach.mutateAsync({ source: source.source })
+      for (const item of toRemove) await detach.mutateAsync(item.id!)
       if (toAdd.length || toRemove.length) {
-        snackbar.success(`subscriptions updated (${toAdd.length} added, ${toRemove.length} removed)`)
+        snackbar.success(`Triggers updated (${toAdd.length} added, ${toRemove.length} removed)`)
       }
     } catch (err: any) {
-      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'subscription update failed')
+      snackbar.error(err?.response?.data?.summary ?? err?.message ?? 'Could not update triggers')
     }
   }
 
   return (
     <Box>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Subscriptions ({subscribedTopics.length})
+        Triggers ({selected.length})
       </Typography>
       <Autocomplete
         multiple
         disableCloseOnSelect
-        loading={streamsLoading || subsLoading}
-        options={allTopics}
-        value={subscribedTopics}
+        loading={triggersLoading || processorsLoading || attachmentsLoading}
+        options={options}
+        value={selected}
         onChange={handleChange}
-        getOptionLabel={(s) => s.id}
-        isOptionEqualToValue={(a, b) => a.id === b.id}
+        getOptionLabel={(source) => source.label}
+        isOptionEqualToValue={(a, b) => a.key === b.key}
         renderOption={(props, option, { selected }) => {
           // Pass key explicitly rather than via the props spread —
           // React 18.3 warns when a spread object carries a key.
           const { key, ...liProps } = props as typeof props & { key?: Key }
           return (
-            <li key={key ?? option.id} {...liProps}>
+            <li key={key ?? option.key} {...liProps}>
               <Checkbox checked={selected} sx={{ mr: 1 }} />
               <Box>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{option.id}</Typography>
-                {option.description && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                    {option.description}
-                  </Typography>
-                )}
+                <Typography variant="body2">{option.label}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{option.description}</Typography>
               </Box>
             </li>
           )
@@ -935,7 +928,7 @@ const SubscriptionsPanel: FC<{ botID?: string }> = ({ botID }) => {
         renderInput={(params) => (
           <TextField
             {...params}
-            placeholder={subscribedTopics.length === 0 ? 'Subscribe this agent to a topic...' : ''}
+            placeholder={selected.length === 0 ? 'Choose triggers or processed events…' : ''}
             variant="outlined"
             size="small"
           />
@@ -945,18 +938,17 @@ const SubscriptionsPanel: FC<{ botID?: string }> = ({ botID }) => {
             const { key, ...tagProps } = getTagProps({ index })
             return (
               <Chip
-                key={key ?? option.id}
+                key={key ?? option.key}
                 {...tagProps}
-                label={option.id}
+                label={option.label}
                 size="small"
-                sx={{ fontFamily: 'monospace' }}
               />
             )
           })
         }
       />
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-        Subscriptions belong to this agent and are removed when it is deleted.
+        This org bot starts when any selected Trigger or processed event occurs.
       </Typography>
     </Box>
   )

@@ -178,7 +178,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSpecTask() {
 	task.Name = "Updated Name"
 	task.Status = types.TaskStatusSpecGeneration
 	task.Priority = types.SpecTaskPriorityHigh
-	task.AgentSessionID = "session-123"
+	task.PlanningSessionID = "session-123"
 
 	err = suite.db.UpdateSpecTask(suite.ctx, task)
 	suite.NoError(err)
@@ -188,7 +188,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSpecTask() {
 	suite.Equal("Updated Name", retrieved.Name)
 	suite.Equal(types.TaskStatusSpecGeneration, retrieved.Status)
 	suite.Equal(types.SpecTaskPriorityHigh, retrieved.Priority)
-	suite.Equal("session-123", retrieved.AgentSessionID)
+	suite.Equal("session-123", retrieved.PlanningSessionID)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSpecTask_EmptyID() {
@@ -574,7 +574,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_SortByLastM
 			Name:              "Recent status, old message",
 			Status:            types.TaskStatusDone,
 			StatusUpdatedAt:   &recentStatusAt,
-			AgentSessionID: oldSessionID,
+			PlanningSessionID: oldSessionID,
 			CreatedAt:         now.Add(-4 * time.Hour),
 		},
 		{
@@ -583,7 +583,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_SortByLastM
 			Name:              "Old status, new message",
 			Status:            types.TaskStatusImplementation,
 			StatusUpdatedAt:   &oldStatusAt,
-			AgentSessionID: newSessionID,
+			PlanningSessionID: newSessionID,
 			CreatedAt:         now.Add(-3 * time.Hour),
 		},
 		{

@@ -136,20 +136,21 @@ check "docker compose version" de docker compose version
 check "DNS resolution" de docker run --rm alpine ping -c 1 google.com
 
 echo ""
-echo "--- Shared BuildKit cache ---"
-check "/buildkit-cache mounted" de ls /buildkit-cache
-check "BUILDKIT_HOST set" de printenv BUILDKIT_HOST
+echo "--- Per-session BuildKit isolation ---"
+check "Shared cache not mounted" de test ! -e /buildkit-cache
+check "BUILDKIT_HOST unset" de bash -c 'test -z "${BUILDKIT_HOST:-}"'
+check "HELIX_REGISTRY unset" de bash -c 'test -z "${HELIX_REGISTRY:-}"'
 
 BUILD_OUT=$(de bash -c 'echo "FROM alpine
 RUN echo bk-test" | docker build -t bk-test -' 2>&1 || true)
-echo -n "  BuildKit remote builder... "
-if echo "$BUILD_OUT" | grep -q "helix-shared"; then
+echo -n "  Per-session Docker builder... "
+if echo "$BUILD_OUT" | grep -q 'building with "default"'; then
     echo "PASS"
     PASS=$((PASS + 1))
 else
     echo "FAIL"
     FAIL=$((FAIL + 1))
-    ERRORS="${ERRORS}  - BuildKit remote builder: builder not helix-shared\n"
+    ERRORS="${ERRORS}  - Per-session builder: default builder not used\n"
 fi
 
 echo ""

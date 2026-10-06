@@ -91,6 +91,63 @@ func TestWorkspaceReviewRejectsUnknownExplicitBase(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestWorkspaceReviewPrefersRemoteBaseOverStaleLocalBranch(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	runReviewTestGit(t, repoDir, "checkout", "-b", "upstream")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "upstream.txt"), []byte("upstream\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "upstream.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "advance upstream")
+	runReviewTestGit(t, repoDir, "update-ref", "refs/remotes/origin/main", "HEAD")
+	runReviewTestGit(t, repoDir, "checkout", "-b", "feature")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "feature.txt"), []byte("feature\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "feature.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "add feature")
+
+	branch := requestReviewSources(t, server, workspace, "main")[types.WorkspaceReviewSourceBranch]
+	assert.Equal(t, "origin/main", branch.BaseRef)
+	assert.Equal(t, []string{"feature.txt"}, codeChangePaths(branch.Files))
+}
+
+func TestWorkspaceReviewDoesNotReplaceHEADWithRemoteRef(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	runReviewTestGit(t, repoDir, "update-ref", "refs/remotes/origin/HEAD", "HEAD")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "feature.txt"), []byte("feature\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "feature.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "add feature")
+
+	branch := requestReviewSources(t, server, workspace, "HEAD")[types.WorkspaceReviewSourceBranch]
+	assert.Equal(t, "HEAD", branch.BaseRef)
+	assert.Empty(t, branch.Files)
+}
+
+func TestWorkspaceReviewPrefersRemoteCompatibilityFallback(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	runReviewTestGit(t, repoDir, "branch", "master", "main")
+	runReviewTestGit(t, repoDir, "checkout", "-b", "upstream")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "upstream.txt"), []byte("upstream\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "upstream.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "advance upstream")
+	runReviewTestGit(t, repoDir, "update-ref", "refs/remotes/origin/master", "HEAD")
+	runReviewTestGit(t, repoDir, "checkout", "-b", "feature")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "feature.txt"), []byte("feature\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "feature.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "add feature")
+	runReviewTestGit(t, repoDir, "branch", "-D", "main")
+
+	branch := requestReviewSources(t, server, workspace, "main")[types.WorkspaceReviewSourceBranch]
+	assert.Equal(t, "origin/master", branch.BaseRef)
+	assert.Equal(t, []string{"feature.txt"}, codeChangePaths(branch.Files))
+}
+
 func TestWorkspaceCheckpointCaptureDoesNotModifyUserGitState(t *testing.T) {
 	repoDir := setupTestGitRepo(t)
 	workspace := useReviewTestWorkspace(t, repoDir)
@@ -141,6 +198,23 @@ func TestWorkspaceFileRejectsSymlinkEscape(t *testing.T) {
 	server.handleWorkspaceFile(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.NotContains(t, w.Body.String(), "secret")
+}
+
+func TestWorkspaceFileDownloadReturnsCompleteBinaryFile(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+	contents := bytes.Repeat([]byte{0, 1, 2, 255}, workspaceFileLimit/2)
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "artifact.bin"), contents, 0o644))
+
+	req := httptest.NewRequest(http.MethodGet, "/workspace/file/download?workspace="+workspace+"&path=artifact.bin", nil)
+	w := httptest.NewRecorder()
+	server.handleWorkspaceFileDownload(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, contents, w.Body.Bytes())
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "attachment")
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "artifact.bin")
 }
 
 // TestWorkspaceReviewRepresentsDualStateFileCoherently is the acceptance
@@ -419,6 +493,87 @@ func TestWorkspaceFileReadsBrowsableContent(t *testing.T) {
 	assert.NotEqual(t, text.ContentHash, updated.ContentHash)
 }
 
+func TestWorkspaceFileWriteSavesAndSupportsTheNextEdit(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+	pathValue := filepath.Join(repoDir, "editable.txt")
+	require.NoError(t, os.WriteFile(pathValue, []byte("first\n"), 0o640))
+	runReviewTestGit(t, repoDir, "add", "editable.txt")
+
+	opened := readWorkspaceFile(t, server, workspace, "editable.txt")
+	firstSave := writeWorkspaceFile(t, server, types.WorkspaceFileWriteRequest{
+		Workspace: workspace, Path: "editable.txt", Contents: "second\n",
+		ExpectedContentHash: opened.ContentHash,
+	})
+	assert.Equal(t, "second\n", firstSave.Contents)
+	assert.NotEqual(t, opened.ContentHash, firstSave.ContentHash)
+
+	secondSave := writeWorkspaceFile(t, server, types.WorkspaceFileWriteRequest{
+		Workspace: workspace, Path: "editable.txt", Contents: "third\n",
+		ExpectedContentHash: firstSave.ContentHash,
+	})
+	assert.Equal(t, "third\n", secondSave.Contents)
+	assert.Equal(t, secondSave, readWorkspaceFile(t, server, workspace, "editable.txt"))
+	info, err := os.Stat(pathValue)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+}
+
+func TestWorkspaceFileWriteRejectsStaleContent(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+	pathValue := filepath.Join(repoDir, "moving.txt")
+	require.NoError(t, os.WriteFile(pathValue, []byte("opened\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "moving.txt")
+	opened := readWorkspaceFile(t, server, workspace, "moving.txt")
+	require.NoError(t, os.WriteFile(pathValue, []byte("agent edit\n"), 0o644))
+
+	body, err := json.Marshal(types.WorkspaceFileWriteRequest{
+		Workspace: workspace, Path: "moving.txt", Contents: "browser edit\n",
+		ExpectedContentHash: opened.ContentHash,
+	})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPut, "/workspace/file", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	server.handleWorkspaceFile(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	contents, err := os.ReadFile(pathValue)
+	require.NoError(t, err)
+	assert.Equal(t, "agent edit\n", string(contents), "a stale browser must not overwrite the agent's edit")
+}
+
+func TestWorkspaceFileWriteRejectsUneditableContent(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, ".gitignore"), []byte("secret.env\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "secret.env"), []byte("secret\n"), 0o600))
+	runReviewTestGit(t, repoDir, "add", ".gitignore")
+
+	for name, request := range map[string]types.WorkspaceFileWriteRequest{
+		"ignored": {
+			Workspace: workspace, Path: "secret.env", Contents: "changed\n",
+			ExpectedContentHash: hashString("secret\n"),
+		},
+		"oversized": {
+			Workspace: workspace, Path: ".gitignore", Contents: strings.Repeat("x", workspaceFileLimit+1),
+			ExpectedContentHash: hashString("secret.env\n"),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			body, err := json.Marshal(request)
+			require.NoError(t, err)
+			req := httptest.NewRequest(http.MethodPut, "/workspace/file", bytes.NewReader(body))
+			w := httptest.NewRecorder()
+			server.handleWorkspaceFile(w, req)
+			assert.GreaterOrEqual(t, w.Code, 400)
+		})
+	}
+}
+
 // TestWorkspaceFilesListsTrackedAndUntrackedOnly covers the tree endpoint,
 // which had no coverage at all.
 func TestWorkspaceFilesListsTrackedAndUntrackedOnly(t *testing.T) {
@@ -451,6 +606,36 @@ func TestWorkspaceFilesListsTrackedAndUntrackedOnly(t *testing.T) {
 	assert.NotContains(t, kinds, ".git")
 	assert.False(t, response.Truncated)
 	assert.Equal(t, workspace, response.Workspace)
+}
+
+func TestWorkspaceFilesAndDownloadIncludeSiblingOutputsFromWorkRoot(t *testing.T) {
+	workRoot := t.TempDir()
+	t.Setenv("WORKSPACE_DIR", workRoot)
+	require.NoError(t, os.MkdirAll(filepath.Join(workRoot, "repo", ".git"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(workRoot, "engagement"), 0o755))
+	contents := []byte("collected output\n")
+	require.NoError(t, os.WriteFile(filepath.Join(workRoot, "engagement", "findings.json"), contents, 0o644))
+	server := newTestServer(t)
+
+	listReq := httptest.NewRequest(http.MethodGet, "/workspace/files?root=work", nil)
+	listRecorder := httptest.NewRecorder()
+	server.handleWorkspaceFiles(listRecorder, listReq)
+	require.Equal(t, http.StatusOK, listRecorder.Code, listRecorder.Body.String())
+	var response types.WorkspaceFilesResponse
+	require.NoError(t, json.Unmarshal(listRecorder.Body.Bytes(), &response))
+	paths := make(map[string]string, len(response.Entries))
+	for _, entry := range response.Entries {
+		paths[entry.Path] = entry.Kind
+	}
+	assert.Equal(t, "directory", paths["engagement"])
+	assert.Equal(t, "file", paths["engagement/findings.json"])
+	assert.NotContains(t, paths, "repo/.git")
+
+	downloadReq := httptest.NewRequest(http.MethodGet, "/workspace/file/download?root=work&path=engagement/findings.json", nil)
+	downloadRecorder := httptest.NewRecorder()
+	server.handleWorkspaceFileDownload(downloadRecorder, downloadReq)
+	require.Equal(t, http.StatusOK, downloadRecorder.Code, downloadRecorder.Body.String())
+	assert.Equal(t, contents, downloadRecorder.Body.Bytes())
 }
 
 func TestListWorkspaceSkillsUsesProjectPrecedenceAndFollowsSymlinks(t *testing.T) {
@@ -504,6 +689,19 @@ func readWorkspaceFile(t *testing.T, server *Server, workspace, path string) typ
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet,
 		"/workspace/file?workspace="+workspace+"&path="+url.QueryEscape(path), nil)
+	w := httptest.NewRecorder()
+	server.handleWorkspaceFile(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var response types.WorkspaceFileResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	return response
+}
+
+func writeWorkspaceFile(t *testing.T, server *Server, request types.WorkspaceFileWriteRequest) types.WorkspaceFileResponse {
+	t.Helper()
+	body, err := json.Marshal(request)
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPut, "/workspace/file", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	server.handleWorkspaceFile(w, req)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

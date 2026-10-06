@@ -1,7 +1,12 @@
-import { FC, useEffect, useRef } from 'react'
+import { FC, useEffect, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
+import { Copy, MessageSquareText } from 'lucide-react'
+import { copyTextToClipboard } from '../../utils/clipboard'
 import '@xterm/xterm/css/xterm.css'
 
 interface Props {
@@ -10,6 +15,13 @@ interface Props {
   active?: boolean
   onActivate?: () => void
   onExit?: (exitCode: number) => void
+  onCopyToChat?: (text: string) => void
+}
+
+interface TerminalContextMenu {
+  mouseX: number
+  mouseY: number
+  text: string
 }
 
 const PersistentTerminalPane: FC<Props> = ({
@@ -18,13 +30,21 @@ const PersistentTerminalPane: FC<Props> = ({
   active = false,
   onActivate,
   onExit,
+  onCopyToChat,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const onExitRef = useRef(onExit)
+  const onCopyToChatRef = useRef(onCopyToChat)
+  const [selectedText, setSelectedText] = useState('')
+  const [contextMenu, setContextMenu] = useState<TerminalContextMenu | null>(null)
 
   useEffect(() => {
     onExitRef.current = onExit
   }, [onExit])
+
+  useEffect(() => {
+    onCopyToChatRef.current = onCopyToChat
+  }, [onCopyToChat])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -41,6 +61,23 @@ const PersistentTerminalPane: FC<Props> = ({
     term.loadAddon(fit)
     term.open(containerRef.current)
     fit.fit()
+
+    term.attachCustomKeyEventHandler((event) => {
+      const isCopyShortcut = event.type === 'keydown'
+        && event.key.toLowerCase() === 'c'
+        && (event.metaKey || event.ctrlKey)
+        && !event.altKey
+
+      if (!isCopyShortcut || !term.hasSelection()) return true
+
+      event.preventDefault()
+      void copyTextToClipboard(term.getSelection()).catch(() => {})
+      return false
+    })
+
+    const selectionDisposable = term.onSelectionChange(() => {
+      setSelectedText(term.getSelection())
+    })
 
     const ws = new WebSocket(websocketUrl)
     ws.binaryType = 'arraybuffer'
@@ -110,6 +147,7 @@ const PersistentTerminalPane: FC<Props> = ({
       resizeObserver?.disconnect()
       if (resizeFrame !== undefined) window.cancelAnimationFrame(resizeFrame)
       dataDisposable?.dispose()
+      selectionDisposable.dispose()
       ws.close()
       term.dispose()
     }
@@ -121,6 +159,16 @@ const PersistentTerminalPane: FC<Props> = ({
   return (
     <Box
       onMouseDown={onActivate}
+      onContextMenu={(event) => {
+        if (!selectedText) return
+        event.preventDefault()
+        event.stopPropagation()
+        setContextMenu({
+          mouseX: event.clientX,
+          mouseY: event.clientY,
+          text: selectedText,
+        })
+      }}
       sx={{
         position: 'relative',
         minWidth: 0,
@@ -134,6 +182,58 @@ const PersistentTerminalPane: FC<Props> = ({
       }}
     >
       <Box ref={containerRef} sx={{ width: '100%', height: '100%' }} />
+      <Menu
+        open={contextMenu !== null}
+        onClose={() => setContextMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={contextMenu
+          ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+          : undefined}
+        MenuListProps={{
+          dense: true,
+          'aria-label': 'Terminal selection actions',
+          sx: { py: 0.5 },
+        }}
+        slotProps={{
+          paper: {
+            sx: {
+              minWidth: 150,
+              border: '1px solid',
+              borderColor: 'divider',
+              boxShadow: 4,
+            },
+          },
+        }}
+      >
+        <MenuItem
+          onClick={() => {
+            if (contextMenu) {
+              void copyTextToClipboard(contextMenu.text).catch(() => {})
+            }
+            setContextMenu(null)
+          }}
+        >
+          <ListItemIcon sx={{ minWidth: 30 }}>
+            <Copy size={16} />
+          </ListItemIcon>
+          Copy
+        </MenuItem>
+        {onCopyToChat && (
+          <MenuItem
+            onClick={() => {
+              if (contextMenu) {
+                onCopyToChatRef.current?.(contextMenu.text)
+              }
+              setContextMenu(null)
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: 30 }}>
+              <MessageSquareText size={16} />
+            </ListItemIcon>
+            Add to chat
+          </MenuItem>
+        )}
+      </Menu>
     </Box>
   )
 }

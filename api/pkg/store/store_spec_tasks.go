@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -10,7 +11,16 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
+
+// specTaskPRMatchJSON is the containment probe marshaled for the PRMatch
+// filter's @> query. Field tags must match the RepoPR JSON keys persisted by
+// the gorm json serializer.
+type specTaskPRMatchJSON struct {
+	RepositoryID string `json:"repository_id"`
+	PRNumber     int    `json:"pr_number"`
+}
 
 // CreateSpecTask creates a new spec-driven task
 func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
@@ -37,8 +47,17 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		if err := syncSpecTaskDependsOn(ctx, tx, task); err != nil {
 			return err
 		}
+		if task.Status == types.TaskStatusPreparing {
+			return nil
+		}
 
-		return nil
+		return enqueueWebhookEventTx(tx, types.WebhookEventSpecTaskCreated, task.OrganizationID, task.ProjectID, types.SpecTaskWebhookData{
+			SpecTaskID:      task.ID,
+			ProjectID:       task.ProjectID,
+			OrganizationID:  task.OrganizationID,
+			Status:          task.Status,
+			StatusUpdatedAt: task.StatusUpdatedAt,
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create spec task: %w", err)
@@ -50,7 +69,9 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		Str("status", task.Status.String()).
 		Msg("Created spec task")
 
-	_ = s.notifyTaskUpdates(ctx, StoreEventOperationCreated, task)
+	if task.Status != types.TaskStatusPreparing {
+		_ = s.notifyTaskUpdates(ctx, StoreEventOperationCreated, task)
+	}
 
 	return nil
 }
@@ -113,6 +134,13 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 	task.UpdatedAt = time.Now()
 
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var previous struct {
+			Status types.SpecTaskStatus
+		}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Model(&types.SpecTask{}).
+			Select("status").Where("id = ?", task.ID).Take(&previous).Error; err != nil {
+			return err
+		}
 		result := tx.Omit("DependsOn").Save(task)
 		if result.Error != nil {
 			return result.Error
@@ -125,7 +153,17 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 			return err
 		}
 
-		return nil
+		if previous.Status == task.Status {
+			return nil
+		}
+		return enqueueWebhookEventTx(tx, types.WebhookEventSpecTaskStatusChanged, task.OrganizationID, task.ProjectID, types.SpecTaskWebhookData{
+			SpecTaskID:      task.ID,
+			ProjectID:       task.ProjectID,
+			OrganizationID:  task.OrganizationID,
+			Status:          task.Status,
+			PreviousStatus:  previous.Status,
+			StatusUpdatedAt: task.StatusUpdatedAt,
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update spec task: %w", err)
@@ -134,11 +172,39 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 	log.Info().
 		Str("task_id", task.ID).
 		Str("status", task.Status.String()).
-		Str("agent_session_id", task.AgentSessionID).
+		Str("planning_session_id", task.PlanningSessionID).
 		Msg("Updated spec task")
 
 	_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, task)
 
+	return nil
+}
+
+// UpdateSpecTaskFields updates only the named columns. Callers holding a stale
+// task snapshot must use this instead of Save so concurrent workflow
+// transitions cannot be reverted.
+func (s *PostgresStore) UpdateSpecTaskFields(ctx context.Context, taskID string, updates map[string]any) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	updates["updated_at"] = time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.SpecTask{}).
+		Where("id = ?", taskID).
+		Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update spec task fields: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("spec task not found: %s", taskID)
+	}
+	updated, err := s.GetSpecTask(ctx, taskID)
+	if err == nil {
+		_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, updated)
+	}
 	return nil
 }
 
@@ -179,22 +245,59 @@ func (s *PostgresStore) TransitionSpecTaskStatus(
 		fromStrs[i] = string(st)
 	}
 
-	result := s.gdb.WithContext(ctx).
-		Model(&types.SpecTask{}).
-		Where("id = ? AND status IN ?", taskID, fromStrs).
-		Updates(updates)
+	var updated types.SpecTask
+	transitioned := false
+	published := false
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var previous struct {
+			Status types.SpecTaskStatus
+		}
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Model(&types.SpecTask{}).
+			Select("status").
+			Where("id = ? AND status IN ?", taskID, fromStrs).
+			Take(&previous).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 
-	if result.Error != nil {
-		return false, fmt.Errorf("failed to transition spec task status: %w", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return false, nil
-	}
+		result := tx.Model(&types.SpecTask{}).
+			Where("id = ? AND status = ?", taskID, previous.Status).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		if err := tx.Where("id = ?", taskID).Take(&updated).Error; err != nil {
+			return err
+		}
 
-	updated, err := s.GetSpecTask(ctx, taskID)
+		if previous.Status == types.TaskStatusPreparing {
+			if err := enqueueWebhookEventTx(tx, types.WebhookEventSpecTaskCreated, updated.OrganizationID, updated.ProjectID, types.SpecTaskWebhookData{
+				SpecTaskID:      updated.ID,
+				ProjectID:       updated.ProjectID,
+				OrganizationID:  updated.OrganizationID,
+				Status:          updated.Status,
+				StatusUpdatedAt: updated.StatusUpdatedAt,
+			}); err != nil {
+				return err
+			}
+			published = true
+		}
+
+		transitioned = true
+		return nil
+	})
 	if err != nil {
-		log.Warn().Err(err).Str("task_id", taskID).Msg("Transitioned spec task but failed to re-fetch for notification")
-		return true, nil
+		return false, fmt.Errorf("failed to transition spec task status: %w", err)
+	}
+	if !transitioned {
+		return false, nil
 	}
 
 	log.Info().
@@ -202,11 +305,15 @@ func (s *PostgresStore) TransitionSpecTaskStatus(
 		Str("new_status", string(newStatus)).
 		Msg("Atomically transitioned spec task status")
 
-	_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, updated)
+	operation := StoreEventOperationUpdated
+	if published {
+		operation = StoreEventOperationCreated
+	}
+	_ = s.notifyTaskUpdates(ctx, operation, &updated)
 	return true, nil
 }
 
-// SetAgentSessionIDIfEmpty atomically writes agent_session_id only when the
+// SetPlanningSessionIDIfEmpty atomically writes planning_session_id only when the
 // existing column is empty (NULL or ”). Returns true if this caller claimed the
 // slot, false if another caller had already populated it.
 //
@@ -215,7 +322,7 @@ func (s *PostgresStore) TransitionSpecTaskStatus(
 // at line 414-423 of spec_driven_task_service.go (which lets two concurrent goroutines
 // each see an empty value and each go on to create a session and spawn a dev
 // container against the shared workspace, corrupting the git clone).
-func (s *PostgresStore) SetAgentSessionIDIfEmpty(ctx context.Context, taskID string, sessionID string) (bool, error) {
+func (s *PostgresStore) SetPlanningSessionIDIfEmpty(ctx context.Context, taskID string, sessionID string) (bool, error) {
 	if taskID == "" {
 		return false, fmt.Errorf("task ID is required")
 	}
@@ -226,14 +333,14 @@ func (s *PostgresStore) SetAgentSessionIDIfEmpty(ctx context.Context, taskID str
 	now := time.Now()
 	result := s.gdb.WithContext(ctx).
 		Model(&types.SpecTask{}).
-		Where("id = ? AND (agent_session_id IS NULL OR agent_session_id = '')", taskID).
+		Where("id = ? AND (planning_session_id IS NULL OR planning_session_id = '')", taskID).
 		Updates(map[string]any{
-			"agent_session_id": sessionID,
-			"updated_at":       now,
+			"planning_session_id": sessionID,
+			"updated_at":          now,
 		})
 
 	if result.Error != nil {
-		return false, fmt.Errorf("failed to claim agent_session_id: %w", result.Error)
+		return false, fmt.Errorf("failed to claim planning_session_id: %w", result.Error)
 	}
 	return result.RowsAffected > 0, nil
 }
@@ -384,6 +491,7 @@ func (s *PostgresStore) DeleteSpecTask(ctx context.Context, id string) error {
 			&types.SpecTaskZedThread{},
 			&types.SpecTaskImplementationTask{},
 			&types.SpecTaskWorkSession{},
+			&types.SpecTaskPRProposal{},
 		} {
 			if deleteErr := tx.Where("spec_task_id = ?", id).Delete(child).Error; deleteErr != nil {
 				return deleteErr
@@ -431,11 +539,24 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	if filters.ProjectID != "" {
 		db = db.Where("project_id = ?", filters.ProjectID)
 	}
+	if filters.FilterProjectIDs {
+		if len(filters.ProjectIDs) == 0 {
+			db = db.Where("1 = 0")
+		} else {
+			db = db.Where("project_id IN ?", filters.ProjectIDs)
+		}
+	}
 	if filters.Status != "" {
 		db = db.Where("status = ?", filters.Status)
 	}
+	if len(filters.ExcludeStatuses) > 0 {
+		db = db.Where("status NOT IN ?", filters.ExcludeStatuses)
+	}
 	if filters.UserID != "" {
 		db = db.Where("created_by = ?", filters.UserID)
+	}
+	if filters.CreatedByOrgBot != "" {
+		db = db.Where("created_by_org_agent = ?", filters.CreatedByOrgBot)
 	}
 	if filters.FilterParticipants {
 		if len(filters.ParticipantIDs) == 0 {
@@ -456,6 +577,9 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	} else if !filters.IncludeArchived {
 		db = db.Where("archived = ? OR archived IS NULL", false)
 	}
+	if filters.ExcludeDeletedProjects {
+		db = db.Where("NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = spec_tasks.project_id AND p.deleted_at IS NOT NULL)")
+	}
 	// DesignDocPath filter - used for matching pushed design doc directories to tasks
 	if filters.DesignDocPath != "" {
 		db = db.Where("design_doc_path = ?", filters.DesignDocPath)
@@ -464,14 +588,30 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	if filters.BranchName != "" {
 		db = db.Where("branch_name = ?", filters.BranchName)
 	}
-	// AgentSessionID filter - reverse lookup from session to spec task
-	if filters.AgentSessionID != "" {
-		db = db.Where("agent_session_id = ?", filters.AgentSessionID)
+	// PlanningSessionID filter - reverse lookup from session to spec task
+	if filters.PlanningSessionID != "" {
+		db = db.Where("planning_session_id = ?", filters.PlanningSessionID)
 	}
 	// Labels filter - tasks must have ALL specified labels (AND semantics via JSONB containment)
 	for _, label := range filters.Labels {
 		labelJSON := `["` + label + `"]`
 		db = db.Where("labels @> ?::jsonb", labelJSON)
+	}
+	// PRMatch filter - tasks tracking this repo + PR (GitHub webhook correlation
+	// via JSONB containment against the RepoPullRequests array; the repository
+	// row's org ownership is the tenant boundary)
+	if filters.PRMatch != nil {
+		// json.Marshal, not fmt.Sprintf: the id is arbitrary row data and %q
+		// produces Go-quoted, not JSON-escaped, strings (control characters
+		// would break the ::jsonb cast and 500 the query).
+		matchJSON, err := json.Marshal(specTaskPRMatchJSON{
+			RepositoryID: filters.PRMatch.RepositoryID,
+			PRNumber:     filters.PRMatch.PRNumber,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("marshal PR match filter: %w", err)
+		}
+		db = db.Where("repo_pull_requests @> ?::jsonb", string(matchJSON))
 	}
 
 	if filters.Limit > 0 {
@@ -487,7 +627,7 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		const lastMessageAt = `COALESCE(
 			(SELECT MAX(interactions.created)
 			 FROM interactions
-			 WHERE interactions.session_id = spec_tasks.agent_session_id),
+			 WHERE interactions.session_id = spec_tasks.planning_session_id),
 			spec_tasks.created_at
 		)`
 		db = db.

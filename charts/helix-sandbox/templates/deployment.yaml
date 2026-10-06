@@ -164,6 +164,8 @@ spec:
               value: "/tmp/sockets"
             - name: SANDBOX_DATA_PATH
               value: "/data"
+            - name: HELIX_SANDBOX_EGRESS_ALLOW_CIDRS
+              value: {{ .Values.sandbox.egressAllowCIDRs | quote }}
 
             # =====================================================
             # Debugging options

@@ -2,8 +2,6 @@ package config
 
 import (
 	"fmt"
-	"net"
-	"net/url"
 	"strings"
 	"time"
 
@@ -39,6 +37,8 @@ type ServerConfig struct {
 	Organizations      Organizations
 	Sandboxes          Sandboxes
 	Compute            Compute
+	Webhooks           Webhooks
+	ConnectPortal      ConnectPortalConfig
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
 	// Inactivity is measured as the time since the last interaction was created or updated
@@ -96,6 +96,15 @@ type ServerConfig struct {
 	// reap a healthy Runner.
 	SandboxStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_STALE_THRESHOLD" default:"5m"`
 
+	// SandboxContainerReconcileInterval is how often the control plane asks
+	// every online sandbox which dev containers are actually running, so
+	// sessions whose container died on its own (workspace-setup FATAL, OOM
+	// kill, crashed compositor) stop being reported as running. Container
+	// discovery otherwise only happens when a sandbox registers or its
+	// RevDial connection is (re)established, which never fires for a
+	// container that dies while its sandbox stays connected.
+	SandboxContainerReconcileInterval time.Duration `envconfig:"HELIX_SANDBOX_CONTAINER_RECONCILE_INTERVAL" default:"30s"`
+
 	// SandboxDispatchStaleThreshold is the tighter freshness filter
 	// applied by FindAvailableSandboxInstance when selecting a Runner
 	// for new work. Set lower than SandboxStaleThreshold so freshly-dead
@@ -144,6 +153,18 @@ type ServerConfig struct {
 	SBMessage string `envconfig:"SB_MESSAGE" default:""`
 }
 
+type ConnectPortalConfig struct {
+	SecretIntakeEnabled bool `envconfig:"HELIX_SECRET_INTAKE_ENABLED" default:"false"`
+}
+
+// Webhooks controls the in-process durable outbound delivery worker.
+type Webhooks struct {
+	AllowPrivateEndpoints bool          `envconfig:"WEBHOOK_ALLOW_PRIVATE_ENDPOINTS" default:"false" description:"Allow HTTP and private-network webhook destinations. Development only."`
+	DeliveryTimeout       time.Duration `envconfig:"WEBHOOK_DELIVERY_TIMEOUT" default:"20s" description:"Timeout for one outbound webhook attempt."`
+	WorkerInterval        time.Duration `envconfig:"WEBHOOK_WORKER_INTERVAL" default:"2s" description:"How often the webhook outbox is scanned."`
+	MaxAttempts           int           `envconfig:"WEBHOOK_MAX_ATTEMPTS" default:"8" description:"Maximum delivery attempts before a webhook delivery is marked failed."`
+}
+
 // Sandboxes configures the user-facing Sandboxes API.
 //
 // Each entry in Runtimes maps a runtime name (the value users put in
@@ -172,6 +193,24 @@ type Sandboxes struct {
 	// DefaultRuntime is the runtime applied when the create request omits
 	// both `runtime` and `image`. Must match one of the names in Runtimes.
 	DefaultRuntime string `envconfig:"HELIX_SANDBOX_DEFAULT_RUNTIME" default:"headless-ubuntu"`
+
+	// OpenCodeReleasesURL is the release index used to resolve the admin's
+	// opencode version override into download URLs + digests. Point it at an
+	// internal mirror serving the same JSON shape for air-gapped installs.
+	// Empty uses the public GitHub API.
+	OpenCodeReleasesURL string `envconfig:"HELIX_OPENCODE_RELEASES_URL"`
+
+	// DefaultSpecTaskVCPUs / DefaultSpecTaskMemoryMB size the desktop container a
+	// spec task gets when neither the task nor its project chose a size. They must
+	// form a valid preset (types.SandboxResourceOverrides.ValidPreset) — memory is
+	// keyed off vCPUs everywhere else in the system, so an arbitrary pairing here
+	// would produce a container the UI cannot represent and a failed resize cannot
+	// roll back to. An invalid pair fails startup rather than being ignored.
+	//
+	// The defaults below are the correct out-of-the-box values; these exist so an
+	// operator with a bigger or smaller box can move them without a rebuild.
+	DefaultSpecTaskVCPUs    int `envconfig:"HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS" default:"12"`
+	DefaultSpecTaskMemoryMB int `envconfig:"HELIX_SPEC_TASK_SANDBOX_DEFAULT_MEMORY_MB" default:"24576"`
 }
 
 // Compute configures the cloud-provisioning side of Helix's sandbox
@@ -381,16 +420,16 @@ type Compute struct {
 	// in a registry the workers can pull from.
 	SandboxImage string `envconfig:"HELIX_COMPUTE_SANDBOX_IMAGE" default:""`
 
-	// NeuronCompileCacheURL and RunnerReadinessTimeout are runner-side knobs
-	// (read by compose-manager inside the sandbox) that the Manager forwards
-	// onto provisioned hosts. They share the operator-facing names
-	// HELIX_NEURON_COMPILE_CACHE_URL / HELIX_RUNNER_READINESS_TIMEOUT with the
-	// vars compose-manager reads directly on bare (install.sh) runners — set
-	// the same var once and it works on both runner topologies. On YD runners
-	// the value travels control-plane -> task env -> bash_script -e -> sandbox.
-	// Empty = not forwarded (compose-manager keeps its own default).
-	NeuronCompileCacheURL  string `envconfig:"HELIX_NEURON_COMPILE_CACHE_URL" default:""`
-	RunnerReadinessTimeout string `envconfig:"HELIX_RUNNER_READINESS_TIMEOUT" default:""`
+	// NeuronCompileCacheURL, RunnerReadinessTimeout, and
+	// SandboxEgressAllowCIDRs are runner-side knobs
+	// that the Manager forwards onto provisioned hosts. They keep the same
+	// operator-facing env names used by the sandbox processes on bare runners,
+	// so one setting works with either topology. On YD runners the value travels
+	// control-plane -> task env -> bash_script -e -> sandbox. Empty values are
+	// not forwarded.
+	NeuronCompileCacheURL   string `envconfig:"HELIX_NEURON_COMPILE_CACHE_URL" default:""`
+	RunnerReadinessTimeout  string `envconfig:"HELIX_RUNNER_READINESS_TIMEOUT" default:""`
+	SandboxEgressAllowCIDRs string `envconfig:"HELIX_SANDBOX_EGRESS_ALLOW_CIDRS" default:""`
 }
 
 // Yellowdog is the YellowDog-provider-specific configuration block.
@@ -436,34 +475,28 @@ func LoadServerConfig() (ServerConfig, error) {
 		cfg.Notifications.AppURL = cfg.WebServer.URL
 	}
 	if cfg.WebServer.AssetSSHProxyAddress == "" {
-		address, err := inferAssetSSHProxyAddress(cfg.WebServer.SandboxAPIURL, cfg.WebServer.URL)
-		if err != nil {
-			return ServerConfig{}, err
-		}
-		cfg.WebServer.AssetSSHProxyAddress = address
+		cfg.WebServer.AssetSSHProxyAddress = defaultAssetSSHProxyAddress
+	}
+	// The spec task sandbox default is read from packages that have no config
+	// handle (desktopBillingResources is a free function; HydraExecutor holds no
+	// ServerConfig), so it is installed as a process-wide value here rather than
+	// threaded through ten constructors. Set once, before anything serves.
+	if err := types.SetDefaultSpecTaskSandboxResources(types.SandboxResourceOverrides{
+		VCPUs:    cfg.Sandboxes.DefaultSpecTaskVCPUs,
+		MemoryMB: cfg.Sandboxes.DefaultSpecTaskMemoryMB,
+	}); err != nil {
+		return ServerConfig{}, fmt.Errorf(
+			"HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS/_MEMORY_MB: %w", err)
 	}
 	return cfg, nil
 }
 
-func inferAssetSSHProxyAddress(sandboxAPIURL, serverURL string) (string, error) {
-	endpoint := sandboxAPIURL
-	name := "SANDBOX_API_URL"
-	if endpoint == "" {
-		endpoint = serverURL
-		name = "SERVER_URL"
-	}
-	if endpoint == "" {
-		return "", nil
-	}
-	parsed, err := url.Parse(endpoint)
-	if err != nil {
-		return "", fmt.Errorf("parse %s for asset SSH proxy: %w", name, err)
-	}
-	if parsed.Hostname() == "" {
-		return "", fmt.Errorf("%s must include a hostname for the asset SSH proxy", name)
-	}
-	return net.JoinHostPort(parsed.Hostname(), "2224"), nil
-}
+// defaultAssetSSHProxyAddress is where an agent reaches the Helix SSH proxy.
+// Agents run inside session containers on the isolated sandbox bridge, where
+// the only routable control-plane name is helix-api.internal (the Hydra
+// gateway). Hydra mirrors the proxy there on :2224 (hydra.SandboxSSHProxyPort);
+// the control plane's own hostname is deliberately unreachable from a sandbox.
+const defaultAssetSSHProxyAddress = "helix-api.internal:2224"
 
 type Inference struct {
 	Provider string `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
@@ -698,14 +731,15 @@ type EmailConfig struct {
 }
 
 type Janitor struct {
-	AppURL                  string
-	SentryDsnAPI            string   `envconfig:"SENTRY_DSN_API" description:"The api sentry DSN."`
-	SentryDsnFrontend       string   `envconfig:"SENTRY_DSN_FRONTEND" description:"The frontend sentry DSN."`
-	GoogleAnalyticsFrontend string   `envconfig:"GOOGLE_ANALYTICS_FRONTEND" description:"The frontend Google analytics id."`
-	SlackWebhookURL         string   `envconfig:"JANITOR_SLACK_WEBHOOK_URL" description:"The slack webhook URL to ping messages to."`
-	SlackIgnoreUser         []string `envconfig:"JANITOR_SLACK_IGNORE_USERS" description:"Ignore keycloak user ids for slack messages."`
-	RudderStackWriteKey     string   `envconfig:"RUDDERSTACK_WRITE_KEY" description:"The write key for rudderstack."`
-	RudderStackDataPlaneURL string   `envconfig:"RUDDERSTACK_DATA_PLANE_URL" description:"The data plane URL for rudderstack."`
+	AppURL                       string
+	SentryDsnAPI                 string   `envconfig:"SENTRY_DSN_API" description:"The api sentry DSN."`
+	SentryDsnFrontend            string   `envconfig:"SENTRY_DSN_FRONTEND" description:"The frontend sentry DSN."`
+	GoogleAnalyticsFrontend      string   `envconfig:"GOOGLE_ANALYTICS_FRONTEND" description:"The frontend Google analytics id."`
+	SlackWebhookURL              string   `envconfig:"JANITOR_SLACK_WEBHOOK_URL" description:"The slack webhook URL to ping messages to."`
+	SubscriptionsSlackWebhookURL string   `envconfig:"HELIX_SUBSCRIPTIONS_SLACK_WEBHOOK_URL" description:"Slack webhook URL for the #helix-subscriptions channel."`
+	SlackIgnoreUser              []string `envconfig:"JANITOR_SLACK_IGNORE_USERS" description:"Ignore keycloak user ids for slack messages."`
+	RudderStackWriteKey          string   `envconfig:"RUDDERSTACK_WRITE_KEY" description:"The write key for rudderstack."`
+	RudderStackDataPlaneURL      string   `envconfig:"RUDDERSTACK_DATA_PLANE_URL" description:"The data plane URL for rudderstack."`
 }
 
 type Stripe struct {
@@ -720,7 +754,11 @@ type Stripe struct {
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET" description:"The webhook signing secret for stripe."`
 	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY" default:"helix-subscription" description:"The lookup key for the stripe price."`
+	PromoCreditPriceID   string `envconfig:"STRIPE_PROMO_CREDIT_PRICE_ID" description:"The Stripe price ID for the fixed $5 promotional credit top-up."`
 	OrgPriceLookupKey    string `envconfig:"STRIPE_ORG_PRICE_LOOKUP_KEY" default:"helix-org-subscription" description:"The lookup key for the stripe price."`
+	OrgPriceCents        int64  `envconfig:"STRIPE_ORG_PRICE_CENTS" default:"49900" description:"Expected organization subscription price in the smallest currency unit."`
+	OrgPriceCurrency     string `envconfig:"STRIPE_ORG_PRICE_CURRENCY" default:"usd" description:"Expected organization subscription price currency."`
+	OrgPriceInterval     string `envconfig:"STRIPE_ORG_PRICE_INTERVAL" default:"month" description:"Expected organization subscription billing interval."`
 }
 
 type DataPrepText struct {
@@ -742,9 +780,10 @@ const RAGProviderName = "kodit"
 // the field was never explicitly configured and envconfig left it
 // unparsed). Keep in sync with the `default:` tags above.
 var (
-	DefaultSandboxReaperInterval         = time.Minute
-	DefaultSandboxStaleThreshold         = 5 * time.Minute
-	DefaultSandboxDispatchStaleThreshold = 90 * time.Second
+	DefaultSandboxReaperInterval             = time.Minute
+	DefaultSandboxStaleThreshold             = 5 * time.Minute
+	DefaultSandboxDispatchStaleThreshold     = 90 * time.Second
+	DefaultSandboxContainerReconcileInterval = 30 * time.Second
 )
 
 type RAG struct {
@@ -862,7 +901,7 @@ type WebServer struct {
 	Host                 string `envconfig:"SERVER_HOST" default:"0.0.0.0" description:"The host to bind the api server to."`
 	Port                 int    `envconfig:"SERVER_PORT" default:"80" description:""`
 	AssetSSHProxyListen  string `envconfig:"ASSET_SSH_PROXY_LISTEN" default:":2224" description:"Address for the Helix managed-resource SSH proxy to listen on."`
-	AssetSSHProxyAddress string `envconfig:"ASSET_SSH_PROXY_ADDRESS" description:"Public host:port for agents to reach the Helix asset and sandbox SSH proxy."`
+	AssetSSHProxyAddress string `envconfig:"ASSET_SSH_PROXY_ADDRESS" description:"host:port agents use to reach the Helix asset and sandbox SSH proxy. Defaults to helix-api.internal:2224, the Hydra-mirrored proxy on the sandbox bridge."`
 	// Can either be a URL to frontend (for dev proxy) or a path to static files (for prod)
 	// Default is dev proxy; Dockerfile sets FRONTEND_URL=/www for production
 	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081" description:"URL to proxy to or filesystem path to serve from"`
@@ -902,10 +941,10 @@ type WebServer struct {
 	// Example: p8080-ses_abc123.dev.helix.example.com → session ses_abc123, port 8080
 	DevSubdomain string `envconfig:"DEV_SUBDOMAIN" description:"Subdomain prefix for dev container port proxying. Format: 'dev' or 'dev.helix.example.com'"`
 
-	// PreviewURLHTTPS controls the public scheme used in generated sandbox
-	// preview URLs. It is independent of VHostTLSMode because TLS may terminate
-	// at an upstream ingress rather than in the Helix API process.
-	PreviewURLHTTPS bool `envconfig:"PREVIEW_URL_HTTPS" default:"true" description:"Generate sandbox preview URLs with HTTPS. Set false for HTTP-only development deployments."`
+	// PreviewURLHTTPS controls the public scheme used in generated vhost URLs.
+	// It is independent of VHostTLSMode because TLS may terminate at an upstream
+	// ingress rather than in the Helix API process.
+	PreviewURLHTTPS bool `envconfig:"PREVIEW_URL_HTTPS" default:"true" description:"Generate vhost URLs with HTTPS. Set false for HTTP-only development deployments."`
 
 	// SandboxAPIURL is the URL that sandbox containers use to connect back to the API.
 	// This is needed when the main SERVER_URL goes through a reverse proxy that doesn't
@@ -1026,6 +1065,13 @@ type GitHub struct {
 	ClientSecret string `envconfig:"GITHUB_INTEGRATION_CLIENT_SECRET" description:"The github app client secret."`
 	RepoFolder   string `envconfig:"GITHUB_INTEGRATION_REPO_FOLDER" default:"/filestore/github/repos" description:"What folder do we use to clone github repos."`
 	WebhookURL   string `envconfig:"GITHUB_INTEGRATION_WEBHOOK_URL" description:"The URL to receive github webhooks."`
+	// ReviewWebhooks turns on PR review feedback for spec tasks. When enabled,
+	// creating a GitHub pull request installs a pull_request_review webhook on
+	// the external repo pointing at /api/v1/webhooks/github/reviews/{repo_id}.
+	// Each repo gets its own auto-generated HMAC secret (stored on the repo
+	// row), so one org's webhook secret never confers power over another org's
+	// tasks on a shared deployment. Off by default.
+	ReviewWebhooks bool `envconfig:"GITHUB_INTEGRATION_REVIEW_WEBHOOKS" default:"false" description:"Enable per-repo PR review webhooks for spec task feedback."`
 	// AppSlug is the public URL slug of this deployment's Helix GitHub App
 	// (e.g. "helix-agent" → https://github.com/apps/helix-agent). NOT a
 	// secret — just the public app handle used to build the install URL the

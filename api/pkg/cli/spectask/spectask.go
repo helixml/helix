@@ -24,6 +24,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -33,6 +34,20 @@ func New() *cobra.Command {
 		Short:   "Spec task testing and management",
 		Aliases: []string{"st"},
 	}
+
+	// Board / task lifecycle management (see task_cmd.go)
+	cmd.AddCommand(newBoardCommand())
+	cmd.AddCommand(newGetCommand())
+	cmd.AddCommand(newCreateCommand())
+	cmd.AddCommand(newUpdateCommand())
+	cmd.AddCommand(newMoveCommand())
+	cmd.AddCommand(newLabelCommand())
+	cmd.AddCommand(newAttachCommand())
+	cmd.AddCommand(newAttachmentsCommand())
+	cmd.AddCommand(newApproveCommand())
+	cmd.AddCommand(newArchiveCommand())
+	cmd.AddCommand(newDeleteCommand())
+	cmd.AddCommand(newProgressCommand())
 
 	cmd.AddCommand(newStartCommand())
 	cmd.AddCommand(newScreenshotCommand())
@@ -54,6 +69,8 @@ func New() *cobra.Command {
 	cmd.AddCommand(newLatencyCommand())
 	cmd.AddCommand(newExecCommand())
 	cmd.AddCommand(newCopyCommand())
+	cmd.AddCommand(newFilesCommand())
+	cmd.AddCommand(newDownloadCommand())
 
 	return cmd
 }
@@ -61,35 +78,58 @@ func New() *cobra.Command {
 func newStartCommand() *cobra.Command {
 	var taskName string
 	var projectID string
-	var agentID string
 	var prompt string
 	var promptFile string
 	var attachFiles []string
+	var runtime string
 	var quiet bool
 	var wait bool
 	var noWait bool
+	var justDoIt bool
 
 	cmd := &cobra.Command{
 		Use:   "start [task-id]",
-		Short: "Start a spec task planning session (creates sandbox)",
-		Long: `Start a spec task planning session which creates a sandbox desktop.
+		Short: "Start a spec task agent session (creates sandbox)",
+		Long: `Start a spec task agent session which creates a sandbox.
 
 If no task-id is provided, a new spec task will be created.
 Use --project to specify which project to create the task in.
-Use --agent to specify which Helix agent/app to use (e.g., app_01xxx).
+Use --just-do-it when the prompt is already a complete brief and the agent
+should begin implementation without a spec-writing and approval phase.
+Use --runtime to pick the sandbox environment:
+  ubuntu-desktop   full GNOME desktop you can stream and screenshot (default)
+  headless-ubuntu  agent-only, no compositor or streaming — faster and cheaper
+The runtime is fixed for the life of the task; omit --runtime to inherit the
+project default.
 
 Example workflow:
-  1. Fork a sample project:  helix project fork modern-todo-app --name "My Project"
-  2. Start a spec task:      helix spectask start --project prj_xxx --agent app_xxx -n "Add dark mode"
+  1. Fork a sample project:  helix project fork modern-todo-app --name "My Project" --provider openai --model gpt-5.6-sol
+  2. Start a spec task:      helix spectask start --project prj_xxx -n "Add dark mode"
   3. Connect via browser:    Visit /sessions/<session-id> to access the desktop`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			apiURL := getAPIURL()
 			token := getToken()
 
+			if !types.ValidSpecTaskSandboxRuntime(types.SandboxRuntime(runtime)) {
+				return fmt.Errorf("invalid --runtime %q: must be %s or %s",
+					runtime, types.SandboxRuntimeUbuntuDesktop, types.SandboxRuntimeHeadlessUbuntu)
+			}
+
 			var taskID string
 			if len(args) > 0 {
 				taskID = args[0]
+				// The runtime is chosen at creation and is immutable — the
+				// owning task is the source of truth on every launch path, so
+				// silently ignoring it here would be misleading.
+				if runtime != "" {
+					return fmt.Errorf("--runtime can only be set when creating a task; %s already has a fixed runtime", taskID)
+				}
+				if justDoIt {
+					if _, err := setSpecTaskJustDoIt(apiURL, token, taskID); err != nil {
+						return fmt.Errorf("failed to enable just-do-it mode: %w", err)
+					}
+				}
 			} else {
 				// Create a new spec task
 				if projectID == "" {
@@ -114,18 +154,16 @@ Example workflow:
 					}
 				}
 				if taskPrompt == "" {
-					taskPrompt = "Testing RevDial connectivity"
+					taskPrompt = "Complete the requested task"
 				}
-				task, err := createSpecTask(apiURL, token, taskName, taskPrompt, projectID, agentID)
+				task, err := createSpecTask(apiURL, token, taskName, taskPrompt, projectID, runtime, justDoIt)
 				if err != nil {
 					return fmt.Errorf("failed to create spec task: %w", err)
 				}
 				taskID = task.ID
 				if !quiet {
 					fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
-					if agentID != "" {
-						fmt.Printf("   Agent: %s\n", agentID)
-					}
+					fmt.Printf("   Environment: %s\n", types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime))
 				}
 				// Attach files (e.g. logfiles) — the agent reads them at
 				// design/tasks/<task>/attachments/<name>, keeping large context
@@ -140,9 +178,10 @@ Example workflow:
 				}
 			}
 
-			// Start planning - this triggers async session creation
+			// Start the task agent. The server selects planning or direct
+			// implementation according to the task's just-do-it mode.
 			if !quiet {
-				fmt.Printf("Starting planning for task %s...\n", taskID)
+				fmt.Printf("Starting agent for task %s...\n", taskID)
 			}
 			task, err := triggerStartPlanning(apiURL, token, taskID)
 			if err != nil {
@@ -164,7 +203,7 @@ Example workflow:
 				if quiet {
 					fmt.Println(taskID)
 				} else {
-					fmt.Printf("\n✅ Task created — planning started: %s\n", taskID)
+					fmt.Printf("\n✅ Task agent started: %s\n", taskID)
 					if taskURL := buildTaskURL(apiURL, task, projectID); taskURL != "" {
 						fmt.Printf("   Open in browser: %s\n", taskURL)
 					}
@@ -203,12 +242,23 @@ Example workflow:
 				fmt.Printf("\n✅ Sandbox is running!\n")
 				fmt.Printf("   Session ID: %s\n", session.ID)
 
-				// Show connection instructions
-				fmt.Printf("\n📺 Connect to Desktop:\n")
-				fmt.Printf("   Open in browser: %s/sessions/%s\n", apiURL, session.ID)
+				// Show connection instructions. Headless sandboxes run no
+				// compositor or streaming stack, so the desktop/screenshot
+				// hints don't apply to them.
+				if types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime) == types.SandboxRuntimeHeadlessUbuntu {
+					fmt.Printf("\n🤖 Headless sandbox — no desktop to stream.\n")
+					if taskURL := buildTaskURL(apiURL, task, projectID); taskURL != "" {
+						fmt.Printf("   Follow the agent: %s\n", taskURL)
+					}
+					fmt.Printf("\n💬 Interact from the CLI:\n")
+					fmt.Printf("   helix spectask interact %s\n", session.ID)
+				} else {
+					fmt.Printf("\n📺 Connect to Desktop:\n")
+					fmt.Printf("   Open in browser: %s/sessions/%s\n", apiURL, session.ID)
 
-				fmt.Printf("\n📷 Test screenshot:\n")
-				fmt.Printf("   helix spectask screenshot %s\n", session.ID)
+					fmt.Printf("\n📷 Test screenshot:\n")
+					fmt.Printf("   helix spectask screenshot %s\n", session.ID)
+				}
 			}
 
 			return nil
@@ -217,12 +267,14 @@ Example workflow:
 
 	cmd.Flags().StringVarP(&taskName, "name", "n", "CLI Test Task", "Task name")
 	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (required when creating new task)")
-	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent ID to use (e.g., app_01xxx)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file (e.g. a design doc) — dispatch a full brief without committing it to the repo. Appended after --prompt if both are set.")
 	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable). Uploaded as spec-task attachments the agent reads at design/tasks/<task>/attachments/<name> — good for logs/large context without bloating the prompt.")
+	cmd.Flags().StringVar(&runtime, "runtime", "", "Sandbox environment for the new task: ubuntu-desktop (streamable GNOME desktop) or headless-ubuntu (agent only, no desktop). Empty = project default. Immutable once the task exists.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output the task ID (session ID with --wait)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Block until the sandbox has booted, then print session-level connect info (default: return immediately with the task URL — the browser page shows it loading)")
+	cmd.Flags().BoolVar(&justDoIt, "just-do-it", false, "Skip spec planning and go straight to implementation")
+	cmd.Flags().Bool("auto-start", false, "Start immediately (already the behavior of this command; accepted for create-command parity)")
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Deprecated: no-wait is now the default; kept as a no-op for back-compat")
 	_ = cmd.Flags().MarkHidden("no-wait")
 
@@ -328,8 +380,8 @@ func newListCommand() *cobra.Command {
 			if count == 0 {
 				fmt.Println("No sessions with active external agents found.")
 				fmt.Println("\nTo start a session:")
-				fmt.Println("  1. Fork a sample project:  helix project fork modern-todo-app --name \"My Project\"")
-				fmt.Println("  2. Create a spec task:     helix spectask start <project-id> -n \"Task Name\"")
+				fmt.Println("  1. Fork a sample project:  helix project fork modern-todo-app --name \"My Project\" --provider openai --model gpt-5.6-sol")
+				fmt.Println("  2. Create a spec task:     helix spectask start --project <project-id> -n \"Task Name\"")
 			} else {
 				fmt.Printf("Found %d session(s) with external agents.\n", count)
 			}
@@ -343,7 +395,7 @@ func newStopCommand() *cobra.Command {
 	var all bool
 
 	cmd := &cobra.Command{
-		Use:   "stop <session-id>",
+		Use:   "stop <session-id|task-id>",
 		Short: "Stop a running sandbox session",
 		Long: `Stops a running sandbox session and its container.
 
@@ -351,6 +403,7 @@ Use --all to stop all sessions with external agents.
 
 Examples:
   helix spectask stop ses_01xxx      # Stop specific session
+  helix spectask stop spt_01xxx      # Stop a task, or no-op if it is not running
   helix spectask stop --all          # Stop all sessions
 `,
 		Args: cobra.MaximumNArgs(1),
@@ -366,14 +419,45 @@ Examples:
 				return fmt.Errorf("session ID required (or use --all)")
 			}
 
-			sessionID := args[0]
-			return stopSession(apiURL, token, sessionID)
+			id := args[0]
+			if strings.HasPrefix(id, "spt_") {
+				return stopSpecTask(apiURL, token, id)
+			}
+			return stopSession(apiURL, token, id)
 		},
 	}
 
 	cmd.Flags().BoolVar(&all, "all", false, "Stop all sessions with external agents")
 
 	return cmd
+}
+
+func stopSpecTask(apiURL, token, taskID string) error {
+	url := fmt.Sprintf("%s/api/v1/spec-tasks/%s/stop-agent", apiURL, taskID)
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to stop task agent: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("stop failed: %d - %s", resp.StatusCode, string(body))
+	}
+	var task SpecTask
+	if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
+		return fmt.Errorf("decode stopped task: %w", err)
+	}
+	if task.PlanningSessionID == "" {
+		fmt.Printf("Task %s is not running; nothing to stop.\n", taskID)
+	} else {
+		fmt.Printf("Task %s agent stopped.\n", taskID)
+	}
+	return nil
 }
 
 func stopSession(apiURL, token, sessionID string) error {
@@ -440,15 +524,11 @@ func stopAllSessions(apiURL, token string) error {
 // Helper functions
 
 func getAPIURL() string {
-	url := os.Getenv("HELIX_URL")
-	if url == "" {
-		url = "http://localhost:8080"
-	}
-	return url
+	return config.CliURL("http://localhost:8080")
 }
 
 func getToken() string {
-	token := os.Getenv("HELIX_API_KEY")
+	token := config.CliAPIKey()
 	if token == "" {
 		token = "oh-hallo-insecure-token" // Dev default
 	}
@@ -456,13 +536,15 @@ func getToken() string {
 }
 
 type SpecTask struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	Description       string `json:"description"`
-	Status            string `json:"status"`
-	OrganizationID    string `json:"organization_id"`
-	ProjectID         string `json:"project_id"`
-	AgentSessionID string `json:"agent_session_id"`
+	ID                string               `json:"id"`
+	Name              string               `json:"name"`
+	Description       string               `json:"description"`
+	Status            string               `json:"status"`
+	OrganizationID    string               `json:"organization_id"`
+	ProjectID         string               `json:"project_id"`
+	PlanningSessionID string               `json:"planning_session_id"`
+	SandboxRuntime    types.SandboxRuntime `json:"sandbox_runtime"`
+	JustDoItMode      bool                 `json:"just_do_it_mode"`
 }
 
 // buildTaskURL returns the frontend task-detail page URL, which is known the
@@ -499,16 +581,13 @@ type SessionMetadata struct {
 	StatusMessage   string `json:"status_message"`
 }
 
-func createSpecTask(apiURL, token, name, prompt, projectID, agentID string) (*SpecTask, error) {
-	payload := map[string]string{
-		"name":   name,
-		"prompt": prompt, // API expects "prompt" not "description"
-	}
-	if projectID != "" {
-		payload["project_id"] = projectID
-	}
-	if agentID != "" {
-		payload["app_id"] = agentID // API expects "app_id" not "helix_app_id"
+func createSpecTask(apiURL, token, name, prompt, projectID, runtime string, justDoIt bool) (*SpecTask, error) {
+	payload := types.CreateTaskRequest{
+		Name:           name,
+		Prompt:         prompt,
+		ProjectID:      projectID,
+		SandboxRuntime: types.SandboxRuntime(runtime),
+		JustDoItMode:   justDoIt,
 	}
 	jsonData, _ := json.Marshal(payload)
 
@@ -537,6 +616,36 @@ func createSpecTask(apiURL, token, name, prompt, projectID, agentID string) (*Sp
 		return nil, err
 	}
 
+	return &task, nil
+}
+
+func setSpecTaskJustDoIt(apiURL, token, taskID string) (*SpecTask, error) {
+	enabled := true
+	payload := types.SpecTaskUpdateRequest{JustDoItMode: &enabled}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s/api/v1/spec-tasks/%s", apiURL, taskID)
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API returned %d: %s", resp.StatusCode, string(body))
+	}
+	var task SpecTask
+	if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
+		return nil, err
+	}
 	return &task, nil
 }
 
@@ -650,12 +759,12 @@ func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*t
 		}
 		resp.Body.Close()
 
-		if task.AgentSessionID == "" {
+		if task.PlanningSessionID == "" {
 			time.Sleep(pollInterval)
 			continue
 		}
 
-		session, err := getSessionDetails(apiURL, token, task.AgentSessionID)
+		session, err := getSessionDetails(apiURL, token, task.PlanningSessionID)
 		if err != nil {
 			time.Sleep(pollInterval)
 			continue
@@ -755,18 +864,17 @@ func newListAgentsCommand() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "list-agents",
-		Short: "List agents (apps) in an organization",
+		Short: "List reusable Helix agents in an organization",
 		Long: `List agents in an organization.
 
 Agents are organization-scoped. If --org is omitted and you belong to a
 single org, that org is used; if you belong to multiple, you will be
 prompted. The HELIX_ORG environment variable is also honoured.
 
-By default every agent the user has access to in the org is listed, with
-the assistant type shown so it is obvious which can be launched with
-"helix spectask start" (zed_external) vs other agent kinds. Pass
---zed-external-only to restore the old behaviour and hide non-spec-task
-agents.`,
+This is a read-only utility for general and org-chart Helix agents. SpecTasks
+do not consume these App IDs; their execution configuration comes from the
+project or task. Pass --zed-external-only to show only agents that expose an
+external coding assistant.`,
 		Aliases: []string{"agents"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -811,10 +919,8 @@ agents.`,
 
 			shown := 0
 			for _, agent := range agents {
-				// Surface the most relevant assistant per agent: prefer zed_external
-				// (the only kind launchable via `spectask start` today), fall back
-				// to the first assistant otherwise so non-spec-task agents are
-				// still visible to the user.
+				// Surface the most relevant assistant per agent: prefer zed_external,
+				// then fall back to the first assistant.
 				var primary *Assistant
 				for i, assistant := range agent.Config.Helix.Assistants {
 					if assistant.AgentType == "zed_external" {
@@ -834,17 +940,11 @@ agents.`,
 				}
 
 				shown++
-				usable := primary.AgentType == "zed_external"
-				marker := " (not launchable via spectask start)"
-				if usable {
-					marker = ""
-				}
-
 				name := agent.Config.Helix.Name
 				if name == "" {
 					name = agent.Name
 				}
-				fmt.Printf("Agent: %s%s\n", name, marker)
+				fmt.Printf("Agent: %s\n", name)
 				fmt.Printf("  ID: %s\n", agent.ID)
 				fmt.Printf("  Assistant: %s\n", primary.Name)
 				if primary.AgentType != "" {
@@ -855,9 +955,6 @@ agents.`,
 				}
 				if primary.Model != "" {
 					fmt.Printf("  Model: %s\n", primary.Model)
-				}
-				if usable {
-					fmt.Printf("  Usage: helix spectask start --project <prj_id> --agent %s -n \"Task name\"\n", agent.ID)
 				}
 				fmt.Println()
 			}
@@ -877,7 +974,7 @@ agents.`,
 	}
 
 	cmd.Flags().StringVarP(&orgFlag, "org", "o", "", "Organization name or ID (defaults to $HELIX_ORG, then your only org, or prompts)")
-	cmd.Flags().BoolVar(&zedExternalOnly, "zed-external-only", false, "Hide agents whose assistant is not zed_external (the only kind launchable via spectask start today)")
+	cmd.Flags().BoolVar(&zedExternalOnly, "zed-external-only", false, "Hide agents whose assistant is not zed_external")
 	return cmd
 }
 

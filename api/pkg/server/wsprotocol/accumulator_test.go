@@ -13,7 +13,7 @@ func TestFirstMessage(t *testing.T) {
 	a.AddMessage("msg-1", "Hello world")
 
 	a.Rebuild()
-	if a.Content !="Hello world" {
+	if a.Content != "Hello world" {
 		t.Errorf("expected 'Hello world', got %q", a.Content)
 	}
 	if a.LastMessageID != "msg-1" {
@@ -31,7 +31,7 @@ func TestSameMessageStreaming(t *testing.T) {
 	a.AddMessage("msg-1", "Hello world")
 
 	a.Rebuild()
-	if a.Content !="Hello world" {
+	if a.Content != "Hello world" {
 		t.Errorf("expected 'Hello world', got %q", a.Content)
 	}
 }
@@ -43,7 +43,7 @@ func TestTwoDistinctMessages(t *testing.T) {
 
 	expected := "Hello world\n\nTool call result"
 	a.Rebuild()
-	if a.Content !=expected {
+	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 	if a.Offset != len("Hello world")+2 {
@@ -63,7 +63,7 @@ func TestMultiMessageWithStreaming(t *testing.T) {
 
 	expected := "Hello world\n\n[tool: edit.py]"
 	a.Rebuild()
-	if a.Content !=expected {
+	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 }
@@ -76,7 +76,7 @@ func TestThreeDistinctMessages(t *testing.T) {
 
 	expected := "Hello world\n\nTool call\n\nFinal response"
 	a.Rebuild()
-	if a.Content !=expected {
+	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 }
@@ -101,7 +101,7 @@ func TestInterleavedStreamingAndNewMessages(t *testing.T) {
 
 	expected := "I'll help you with that.\n\n```tool\nedit file.py\n```\n\nDone!"
 	a.Rebuild()
-	if a.Content !=expected {
+	if a.Content != expected {
 		t.Errorf("expected:\n%s\n\ngot:\n%s", expected, a.Content)
 	}
 }
@@ -115,7 +115,7 @@ func TestStreamingAfterAppendPreservesPrefix(t *testing.T) {
 
 	expected := "First message content\n\nSecond complete message"
 	a.Rebuild()
-	if a.Content !=expected {
+	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 
@@ -131,7 +131,7 @@ func TestEmptyContent(t *testing.T) {
 	a.AddMessage("msg-1", "")
 
 	a.Rebuild()
-	if a.Content !="" {
+	if a.Content != "" {
 		t.Errorf("expected empty content, got %q", a.Content)
 	}
 }
@@ -163,7 +163,7 @@ func TestOutOfOrderFlushUpdates(t *testing.T) {
 
 	// Verify truncated state
 	a.Rebuild()
-	if a.Content !="I'll start...understand the c\n\n**Tool Call: List the `clea`**\nStatus: Pending\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very\n\nThe design docs" {
+	if a.Content != "I'll start...understand the c\n\n**Tool Call: List the `clea`**\nStatus: Pending\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very\n\nThe design docs" {
 		t.Fatalf("unexpected truncated state:\n%s", a.Content)
 	}
 
@@ -175,7 +175,7 @@ func TestOutOfOrderFlushUpdates(t *testing.T) {
 
 	expected := "I'll start...understand the codebase structure\n\n**Tool Call: List the `clean-truncation-test`**\nStatus: Completed\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very minimal — just a README.\n\nThe design docs have been pushed and are ready for review."
 	a.Rebuild()
-	if a.Content !=expected {
+	if a.Content != expected {
 		t.Errorf("out-of-order flush failed.\nexpected:\n%s\n\ngot:\n%s", expected, a.Content)
 	}
 }
@@ -193,7 +193,7 @@ func TestFlushDoesNotDuplicateContent(t *testing.T) {
 
 	expected := "FIRST (corrected)\n\nsecond\n\nthird"
 	a.Rebuild()
-	if a.Content !=expected {
+	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 
@@ -229,6 +229,42 @@ func TestEntriesWithTypes(t *testing.T) {
 	assert.Equal(t, "text", entries[2].Type)
 	assert.Equal(t, "Here are the files I found.", entries[2].Content)
 	assert.Equal(t, "3", entries[2].MessageID)
+}
+
+func TestSubagentMetadataSurvivesStreamingUpdates(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessageWithMetadata(
+		"tool-1",
+		"**Tool Call: Audit auth changes**\nStatus: In Progress",
+		"tool_call",
+		"Audit auth changes",
+		"In Progress",
+		"call-7",
+		"spawn_agent",
+		"child-session-9",
+	)
+	a.AddMessageWithMetadata(
+		"tool-1",
+		"**Tool Call: Audit auth changes**\nStatus: Completed",
+		"tool_call",
+		"Audit auth changes",
+		"Completed",
+		"call-7",
+		"spawn_agent",
+		"child-session-9",
+	)
+
+	require.Len(t, a.Entries(), 1)
+	assert.Equal(t, ResponseEntry{
+		Type:         "tool_call",
+		Content:      "**Tool Call: Audit auth changes**\nStatus: Completed",
+		MessageID:    "tool-1",
+		ToolName:     "Audit auth changes",
+		ToolStatus:   "Completed",
+		ToolCallID:   "call-7",
+		ToolCallName: "spawn_agent",
+		SubagentID:   "child-session-9",
+	}, a.Entries()[0])
 }
 
 func TestEntriesPreserveLatestPlanSnapshot(t *testing.T) {
@@ -373,6 +409,37 @@ func TestResumeFromPersistedState(t *testing.T) {
 	}
 }
 
+func TestResumePreservesSubagentMetadata(t *testing.T) {
+	entries := []byte(`[{
+		"type":"tool_call",
+		"content":"Working",
+		"message_id":"msg-1",
+		"tool_name":"Start subagent reviewer",
+		"tool_status":"In Progress",
+		"tool_call_id":"call-1",
+		"tool_call_name":"spawn_agent",
+		"subagent_id":"child-session-1"
+	}]`)
+	a := RestoreAccumulator("Working", "msg-1", 0, entries)
+
+	a.AddMessageWithMetadata(
+		"msg-1",
+		"Done",
+		"tool_call",
+		"Start subagent reviewer",
+		"Completed",
+		"",
+		"",
+		"",
+	)
+
+	restored := a.Entries()
+	require.Len(t, restored, 1)
+	assert.Equal(t, "call-1", restored[0].ToolCallID)
+	assert.Equal(t, "spawn_agent", restored[0].ToolCallName)
+	assert.Equal(t, "child-session-1", restored[0].SubagentID)
+}
+
 func TestSanitizeNullBytes(t *testing.T) {
 	a := &MessageAccumulator{}
 
@@ -405,8 +472,8 @@ func TestSanitizeForPostgres(t *testing.T) {
 	assert.Equal(t, "a\tb", sanitize.ForPostgres("a\tb"), "tab preserved")
 	assert.Equal(t, "a\nb", sanitize.ForPostgres("a\nb"), "newline preserved")
 	assert.Equal(t, "a\rb", sanitize.ForPostgres("a\rb"), "carriage return preserved")
-	assert.Equal(t, "ab", sanitize.ForPostgres("a\x0Bb"))  // vertical tab stripped
-	assert.Equal(t, "ab", sanitize.ForPostgres("a\x1Fb"))  // unit separator stripped
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\x0Bb")) // vertical tab stripped
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\x1Fb")) // unit separator stripped
 
 	// C1 control characters (U+0080–U+009F)
 	assert.Equal(t, "ab", sanitize.ForPostgres("a\u0080b"))
@@ -542,7 +609,7 @@ func TestPriorEntriesFilterStableUnderStreaming(t *testing.T) {
 func TestSetPriorMessageIDsOnlyDropsEmptyContent(t *testing.T) {
 	a := &MessageAccumulator{}
 	a.SetPriorMessageIDs([]string{"1"})
-	a.AddMessageWithType("1", "", "text")    // matches stored empty-content snapshot, dropped
+	a.AddMessageWithType("1", "", "text")     // matches stored empty-content snapshot, dropped
 	a.AddMessageWithType("1", "real", "text") // different content, accepted
 	entries := a.Entries()
 	require.Len(t, entries, 1)

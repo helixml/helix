@@ -59,3 +59,57 @@ func (suite *PostgresStoreTestSuite) TestGetNextPendingPrompt_RetryCapExcludesRu
 	suite.Require().NotNil(got, "raising the cap must re-enable the previously-capped prompt")
 	suite.Equal(capped.ID, got.ID)
 }
+
+func (suite *PostgresStoreTestSuite) TestRequeueBouncedPrompt_UpdatesExactInFlightPrompt() {
+	ctx := context.Background()
+	sessionID := "ses_bounce_" + system.GenerateUUID()
+	now := time.Now()
+
+	older := &types.PromptHistoryEntry{
+		ID:        "phe_older_" + system.GenerateUUID(),
+		UserID:    "user_bounce",
+		SessionID: sessionID,
+		Content:   "older prompt",
+		Status:    "sent",
+		CreatedAt: now.Add(-time.Minute),
+	}
+	newer := &types.PromptHistoryEntry{
+		ID:        "phe_newer_" + system.GenerateUUID(),
+		UserID:    "user_bounce",
+		SessionID: sessionID,
+		Content:   "newer prompt",
+		Status:    "sent",
+		CreatedAt: now,
+	}
+	pending := &types.PromptHistoryEntry{
+		ID:        "phe_pending_" + system.GenerateUUID(),
+		UserID:    "user_bounce",
+		SessionID: sessionID,
+		Content:   "pending prompt",
+		Status:    "pending",
+		CreatedAt: now.Add(time.Minute),
+	}
+	suite.Require().NoError(suite.db.gdb.WithContext(ctx).Create([]*types.PromptHistoryEntry{older, newer, pending}).Error)
+	suite.T().Cleanup(func() {
+		suite.db.gdb.Exec("DELETE FROM prompt_history_entries WHERE session_id = ?", sessionID)
+	})
+
+	suite.Require().NoError(suite.db.RequeueBouncedPrompt(ctx, older.ID))
+	suite.Require().Error(suite.db.RequeueBouncedPrompt(ctx, pending.ID))
+
+	for _, expected := range []struct {
+		id         string
+		status     string
+		retryCount int
+	}{
+		{older.ID, "failed", 1},
+		{newer.ID, "sent", 0},
+		{pending.ID, "pending", 0},
+	} {
+		got, err := suite.db.GetPromptHistoryEntry(ctx, expected.id)
+		suite.Require().NoError(err)
+		suite.Require().NotNil(got)
+		suite.Equal(expected.status, got.Status)
+		suite.Equal(expected.retryCount, got.RetryCount)
+	}
+}

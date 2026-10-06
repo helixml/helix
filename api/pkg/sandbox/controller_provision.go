@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -21,6 +22,7 @@ import (
 // in a fake without standing up a RevDial connection.
 type hydraProvisionClient interface {
 	CreateDevContainer(ctx context.Context, req *hydra.CreateDevContainerRequest) (*hydra.DevContainerResponse, error)
+	ListDevContainers(ctx context.Context) (*hydra.ListDevContainersResponse, error)
 	DeleteDevContainer(ctx context.Context, sessionID string) (*hydra.DevContainerResponse, error)
 	ForgetSandboxOps(ctx context.Context, sessionID string) error
 }
@@ -37,10 +39,16 @@ type resourcePreset struct {
 	MemoryMB int
 }
 
+// Kept in step with types.SpecTaskSandboxPresets so a size offered on one
+// surface is not refused on the other. The sandboxes API's own default is
+// deliberately unchanged (the first rung): size here is an explicit user choice
+// at create time, not a default silently applied to work the user did not size.
 var allowedResourcePresets = []resourcePreset{
 	{VCPUs: 1, MemoryMB: 2048},
 	{VCPUs: 4, MemoryMB: 8192},
 	{VCPUs: 8, MemoryMB: 16384},
+	{VCPUs: 12, MemoryMB: 24576},
+	{VCPUs: 16, MemoryMB: 32768},
 }
 
 func resolveSandboxResources(req *types.CreateSandboxRequest) (int, int, error) {
@@ -368,6 +376,77 @@ func (c *Controller) specForSandbox(sandbox *types.Sandbox) (*RuntimeSpec, error
 	return spec, nil
 }
 
+// HasDisplayCapableHost reports whether any online sandbox host can run a
+// streamed desktop. Used to reject desktop runtimes at create time and to
+// advertise per-runtime availability, so a CPU-only deployment tells callers
+// what it can do instead of failing at placement.
+func (c *Controller) HasDisplayCapableHost(ctx context.Context) (bool, error) {
+	hosts, err := c.store.ListSandboxInstances(ctx)
+	if err != nil {
+		return false, fmt.Errorf("list hosts: %w", err)
+	}
+	for _, h := range hosts {
+		if h.Status == "online" && h.CanHostDesktop() {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// HostReadyForReplacement reports whether a replacement container for this
+// sandbox could actually be placed right now: its pinned host is online, still
+// heartbeating, and still advertising the image the sandbox's runtime needs.
+// The reason string explains the refusal and is empty when ready.
+//
+// Callers use this to avoid destroying a container they would then be unable
+// to rebuild. A persistent sandbox NEVER relocates — pickHostForSandbox
+// refuses, because the data lives on the original host's local disk — so when
+// the pinned host cannot take a replacement, deleting the existing container
+// strands the data and leaves nothing serving. It fails CLOSED: any error
+// looking the host up means "not ready", because "I don't know" must never
+// authorise a destructive recreate.
+//
+// The staleness bound is the same one dispatch uses
+// (DefaultSandboxDispatchStaleThreshold, 90s = 3 missed 30s heartbeats), so
+// this agrees with FindAvailableSandboxInstance about when a host stops being
+// a valid placement target. Note that is tighter than the reaper's 5m
+// mark-offline threshold on purpose: between 90s and 5m the row still says
+// "online" while the host is already undispatchable, and that gap is exactly
+// where a stressed runner gets its healthy containers destroyed.
+func (c *Controller) HostReadyForReplacement(ctx context.Context, sandbox *types.Sandbox) (bool, string) {
+	if sandbox == nil {
+		return false, "no sandbox row"
+	}
+	if sandbox.HostDeviceID == "" {
+		// Never placed, so there is nothing to strand — a fresh placement
+		// picks a host through the normal scheduler path.
+		return true, ""
+	}
+	host, err := c.store.GetSandboxInstance(ctx, sandbox.HostDeviceID)
+	if err != nil || host == nil {
+		return false, fmt.Sprintf("pinned host %s could not be looked up: %v", sandbox.HostDeviceID, err)
+	}
+	if host.Status != "online" {
+		return false, fmt.Sprintf("pinned host %s is %s", host.ID, host.Status)
+	}
+	if age := time.Since(host.LastSeen); age > config.DefaultSandboxDispatchStaleThreshold {
+		return false, fmt.Sprintf("pinned host %s last heartbeat %s ago", host.ID, age.Truncate(time.Second))
+	}
+	spec, err := c.specForSandbox(sandbox)
+	if err != nil {
+		return false, fmt.Sprintf("runtime %q for %s could not be resolved: %v", sandbox.Runtime, sandbox.ID, err)
+	}
+	if spec.RequiresDisplay && !host.CanHostDesktop() {
+		return false, fmt.Sprintf("pinned host %s cannot host runtime %s (gpu_vendor=%q render_node=%q)",
+			host.ID, spec.Name, host.GPUVendor, host.RenderNode)
+	}
+	if spec.VersionKey != "" && !instanceAdvertisesVersion(host, spec.VersionKey) {
+		return false, fmt.Sprintf("pinned host %s no longer advertises the %q image for runtime %s",
+			host.ID, spec.VersionKey, spec.Name)
+	}
+	return true, ""
+}
+
 // instanceAdvertisesVersion mirrors the version-matching logic in
 // store.FindAvailableSandboxInstance — it returns true iff the host's
 // heartbeat blob lists a non-empty image tag for desktopType. Used when
@@ -424,11 +503,14 @@ func (c *Controller) pickHostForSandbox(ctx context.Context, sandbox *types.Sand
 
 	// First-time placement (or non-persistent reschedule).
 	if spec.VersionKey != "" {
-		host, err := c.store.FindAvailableSandboxInstance(ctx, spec.VersionKey)
+		host, err := c.store.FindAvailableSandboxInstance(ctx, spec.VersionKey, spec.RequiresDisplay)
 		if err != nil {
 			return nil, fmt.Errorf("find available host: %w", err)
 		}
 		if host == nil {
+			if spec.RequiresDisplay {
+				return nil, ErrNoDisplayCapableHost
+			}
 			return nil, fmt.Errorf("no online sandbox host advertises image for runtime %s", spec.Name)
 		}
 		return host, nil
@@ -438,10 +520,10 @@ func (c *Controller) pickHostForSandbox(ctx context.Context, sandbox *types.Sand
 		return nil, fmt.Errorf("list hosts: %w", err)
 	}
 	for _, h := range hosts {
-		// Headless sandboxes are still sandboxes - keep them off
-		// non-render-capable (e.g. neuron/inf2) hosts, which are
-		// inference-only.
-		if h.Status == "online" && h.CanHostSandbox() {
+		// Headless containers run no compositor and no encoder, so any
+		// online host will do - including CPU-only and inference
+		// accelerator hosts that cannot stream a desktop.
+		if h.Status == "online" {
 			return h, nil
 		}
 	}

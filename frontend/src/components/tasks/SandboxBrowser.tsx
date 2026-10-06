@@ -29,7 +29,9 @@ import {
   useSessionPreviewTokens,
 } from '../../services/sessionPreviewService'
 import {
+  isSandboxBrowserNavigationMessage,
   parseSandboxBrowserTarget,
+  sandboxDisplayUrlFromPreview,
   sandboxPreviewUrl,
   sandboxPreviewURLWithScheme,
 } from './sandboxBrowserUrl'
@@ -50,6 +52,7 @@ interface BrowserHistoryEntry {
 interface BrowserTab {
   address: string
   error: string
+  frameUrl: string
   history: BrowserHistoryEntry[]
   historyIndex: number
   id: string
@@ -68,6 +71,7 @@ function createBrowserTab(id: string, address = defaultAddress): BrowserTab {
   return {
     address,
     error: '',
+    frameUrl: '',
     history: [],
     historyIndex: -1,
     id,
@@ -111,8 +115,15 @@ function errorMessage(error: unknown): string {
 const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
   const storageKey = `helix.sandboxBrowser.url.${sessionId}`
   const nextTabId = useRef(1)
+  const iframeRefs = useRef(new Map<string, HTMLIFrameElement>())
+  const activeTabIdRef = useRef<string | null>('browser-0')
+  const loadedSessionIdRef = useRef(sessionId)
+  const autoNavigateAddressRef = useRef<string | null>(
+    window.localStorage.getItem(storageKey) ?? defaultAddress,
+  )
+  const navigationRequestsRef = useRef(new Map<string, number>())
   const [tabs, setTabs] = useState<BrowserTab[]>(() => [
-    createBrowserTab('browser-0', window.localStorage.getItem(storageKey) ?? defaultAddress),
+    createBrowserTab('browser-0', autoNavigateAddressRef.current ?? defaultAddress),
   ])
   const [activeTabId, setActiveTabId] = useState<string | null>('browser-0')
   const [tabContextMenu, setTabContextMenu] = useState<TabContextMenu | null>(null)
@@ -122,15 +133,78 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
   const tokensQuery = useSessionPreviewTokens(sessionId, previewConfigured)
   const createToken = useCreateSessionPreviewToken(sessionId)
 
+  activeTabIdRef.current = activeTabId
+
   useEffect(() => {
+    if (loadedSessionIdRef.current === sessionId) return
+    loadedSessionIdRef.current = sessionId
     const nextStorageKey = `helix.sandboxBrowser.url.${sessionId}`
+    const address = window.localStorage.getItem(nextStorageKey) ?? defaultAddress
     nextTabId.current = 1
-    setTabs([
-      createBrowserTab('browser-0', window.localStorage.getItem(nextStorageKey) ?? defaultAddress),
-    ])
+    iframeRefs.current.clear()
+    navigationRequestsRef.current.clear()
+    autoNavigateAddressRef.current = address
+    setTabs([createBrowserTab('browser-0', address)])
     setActiveTabId('browser-0')
     setTabContextMenu(null)
   }, [sessionId])
+
+  useEffect(() => {
+    const handlePreviewNavigation = (event: MessageEvent) => {
+      if (!isSandboxBrowserNavigationMessage(event.data)) return
+      const frameEntry = [...iframeRefs.current.entries()].find(([, frame]) => (
+        frame.contentWindow === event.source
+      ))
+      if (!frameEntry) return
+      const [tabId] = frameEntry
+
+      setTabs((currentTabs) => currentTabs.map((tab) => {
+        if (tab.id !== tabId || tab.historyIndex < 0) return tab
+        const currentEntry = tab.history[tab.historyIndex]
+        const resolvedPreviewUrl = sandboxPreviewURLWithScheme(
+          currentEntry.previewUrl,
+          previewURLHTTPS,
+        )
+        if (event.origin !== new URL(resolvedPreviewUrl).origin) return tab
+        const displayUrl = sandboxDisplayUrlFromPreview(
+          currentEntry.displayUrl,
+          resolvedPreviewUrl,
+          event.data.href,
+        )
+        if (!displayUrl) return tab
+        if (activeTabIdRef.current === tabId) {
+          window.localStorage.setItem(`helix.sandboxBrowser.url.${sessionId}`, displayUrl)
+        }
+        if (displayUrl === currentEntry.displayUrl) {
+          return { ...tab, address: displayUrl }
+        }
+
+        const nextEntry = { displayUrl, previewUrl: event.data.href }
+        if (event.data.navigationType === 'replace') {
+          const history = [...tab.history]
+          history[tab.historyIndex] = nextEntry
+          return { ...tab, address: displayUrl, history }
+        }
+        if (event.data.navigationType === 'pop') {
+          const historyIndex = tab.history.findIndex((entry) => entry.displayUrl === displayUrl)
+          if (historyIndex >= 0) {
+            return { ...tab, address: displayUrl, historyIndex }
+          }
+        }
+
+        const history = [...tab.history.slice(0, tab.historyIndex + 1), nextEntry]
+        return {
+          ...tab,
+          address: displayUrl,
+          history,
+          historyIndex: history.length - 1,
+        }
+      }))
+    }
+
+    window.addEventListener('message', handlePreviewNavigation)
+    return () => window.removeEventListener('message', handlePreviewNavigation)
+  }, [previewURLHTTPS, sessionId])
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId)
   const current = activeTab && activeTab.historyIndex >= 0
@@ -140,6 +214,103 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
     ? sandboxPreviewURLWithScheme(current.previewUrl, previewURLHTTPS)
     : undefined
   const isLoading = createToken.isPending
+
+  const findOrCreateRoute = async (port: number): Promise<TypesVHostRoute> => {
+    const cached = tokensQuery.data?.find((route) => route.port === port)
+    if (cached) return cached
+
+    const refreshed = await tokensQuery.refetch()
+    const existing = refreshed.data?.find((route) => route.port === port)
+    if (existing) return existing
+
+    const created = await createToken.mutateAsync(port)
+    if (!created?.hostname) throw new Error('Preview route was created without a hostname')
+    return created
+  }
+
+  const updateTab = (tabId: string, update: (tab: BrowserTab) => BrowserTab) => {
+    setTabs((currentTabs) => currentTabs.map((tab) => tab.id === tabId ? update(tab) : tab))
+  }
+
+  const navigate = async (tabId: string, input: string) => {
+    const requestId = (navigationRequestsRef.current.get(tabId) ?? 0) + 1
+    navigationRequestsRef.current.set(tabId, requestId)
+    updateTab(tabId, (tab) => ({ ...tab, error: '' }))
+    try {
+      const target = parseSandboxBrowserTarget(input)
+      const route = await findOrCreateRoute(target.port)
+      if (navigationRequestsRef.current.get(tabId) !== requestId) return
+      if (!route.url) throw new Error('Preview route has no public URL')
+
+      const entry = {
+        displayUrl: target.displayUrl,
+        previewUrl: sandboxPreviewUrl(route.url, target.path, previewURLHTTPS),
+      }
+      updateTab(tabId, (tab) => {
+        const nextHistory = [...tab.history.slice(0, tab.historyIndex + 1), entry]
+        return {
+          ...tab,
+          address: target.displayUrl,
+          error: '',
+          frameUrl: entry.previewUrl,
+          history: nextHistory,
+          historyIndex: nextHistory.length - 1,
+        }
+      })
+      window.localStorage.setItem(storageKey, target.displayUrl)
+    } catch (navigateError) {
+      if (navigationRequestsRef.current.get(tabId) !== requestId) return
+      updateTab(tabId, (tab) => ({ ...tab, error: errorMessage(navigateError) }))
+    }
+  }
+
+  useEffect(() => {
+    if (configQuery.isLoading || !previewConfigured) return
+    const address = autoNavigateAddressRef.current
+    if (!address) return
+    autoNavigateAddressRef.current = null
+    void navigate('browser-0', address)
+  }, [configQuery.isLoading, previewConfigured, sessionId])
+
+  const handleSubmit = (event: FormEvent) => {
+    event.preventDefault()
+    if (activeTab) void navigate(activeTab.id, activeTab.address)
+  }
+
+  const moveHistory = (tabId: string, nextIndex: number) => {
+    const tab = tabs.find((candidate) => candidate.id === tabId)
+    const next = tab?.history[nextIndex]
+    if (!next) return
+    updateTab(tabId, (currentTab) => ({
+      ...currentTab,
+      address: next.displayUrl,
+      error: '',
+      frameUrl: next.previewUrl,
+      historyIndex: nextIndex,
+      reloadNonce: currentTab.reloadNonce + 1,
+    }))
+  }
+
+  const addTab = () => {
+    const tabId = `browser-${nextTabId.current}`
+    nextTabId.current += 1
+    setTabs((currentTabs) => [...currentTabs, createBrowserTab(tabId)])
+    setActiveTabId(tabId)
+    setTabContextMenu(null)
+  }
+
+  const closeTabs = (targetTabId: string, action: SandboxBrowserTabCloseAction) => {
+    const result = closeSandboxBrowserTabs(
+      tabs.map((tab) => tab.id),
+      activeTabId,
+      targetTabId,
+      action,
+    )
+    const remainingTabIds = new Set(result.openTabIds)
+    setTabs((currentTabs) => currentTabs.filter((tab) => remainingTabIds.has(tab.id)))
+    setActiveTabId(result.activeTabId)
+    setTabContextMenu(null)
+  }
 
   if (configQuery.isLoading) {
     return (
@@ -191,88 +362,6 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
         </Box>
       </Box>
     )
-  }
-
-  const findOrCreateRoute = async (port: number): Promise<TypesVHostRoute> => {
-    const cached = tokensQuery.data?.find((route) => route.port === port)
-    if (cached) return cached
-
-    const refreshed = await tokensQuery.refetch()
-    const existing = refreshed.data?.find((route) => route.port === port)
-    if (existing) return existing
-
-    const created = await createToken.mutateAsync(port)
-    if (!created?.hostname) throw new Error('Preview route was created without a hostname')
-    return created
-  }
-
-  const updateTab = (tabId: string, update: (tab: BrowserTab) => BrowserTab) => {
-    setTabs((currentTabs) => currentTabs.map((tab) => tab.id === tabId ? update(tab) : tab))
-  }
-
-  const navigate = async (tabId: string, input: string) => {
-    updateTab(tabId, (tab) => ({ ...tab, error: '' }))
-    try {
-      const target = parseSandboxBrowserTarget(input)
-      const route = await findOrCreateRoute(target.port)
-      if (!route.url) throw new Error('Preview route has no public URL')
-
-      const entry = {
-        displayUrl: target.displayUrl,
-        previewUrl: sandboxPreviewUrl(route.url, target.path, previewURLHTTPS),
-      }
-      updateTab(tabId, (tab) => {
-        const nextHistory = [...tab.history.slice(0, tab.historyIndex + 1), entry]
-        return {
-          ...tab,
-          address: target.displayUrl,
-          error: '',
-          history: nextHistory,
-          historyIndex: nextHistory.length - 1,
-        }
-      })
-      window.localStorage.setItem(storageKey, target.displayUrl)
-    } catch (navigateError) {
-      updateTab(tabId, (tab) => ({ ...tab, error: errorMessage(navigateError) }))
-    }
-  }
-
-  const handleSubmit = (event: FormEvent) => {
-    event.preventDefault()
-    if (activeTab) void navigate(activeTab.id, activeTab.address)
-  }
-
-  const moveHistory = (tabId: string, nextIndex: number) => {
-    const tab = tabs.find((candidate) => candidate.id === tabId)
-    const next = tab?.history[nextIndex]
-    if (!next) return
-    updateTab(tabId, (currentTab) => ({
-      ...currentTab,
-      address: next.displayUrl,
-      error: '',
-      historyIndex: nextIndex,
-    }))
-  }
-
-  const addTab = () => {
-    const tabId = `browser-${nextTabId.current}`
-    nextTabId.current += 1
-    setTabs((currentTabs) => [...currentTabs, createBrowserTab(tabId)])
-    setActiveTabId(tabId)
-    setTabContextMenu(null)
-  }
-
-  const closeTabs = (targetTabId: string, action: SandboxBrowserTabCloseAction) => {
-    const result = closeSandboxBrowserTabs(
-      tabs.map((tab) => tab.id),
-      activeTabId,
-      targetTabId,
-      action,
-    )
-    const remainingTabIds = new Set(result.openTabIds)
-    setTabs((currentTabs) => currentTabs.filter((tab) => remainingTabIds.has(tab.id)))
-    setActiveTabId(result.activeTabId)
-    setTabContextMenu(null)
   }
 
   return (
@@ -425,7 +514,11 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
             <IconButton
               aria-label="Reload browser preview"
               disabled={!current || isLoading}
-              onClick={() => updateTab(activeTab.id, (tab) => ({ ...tab, reloadNonce: tab.reloadNonce + 1 }))}
+              onClick={() => updateTab(activeTab.id, (tab) => ({
+                ...tab,
+                frameUrl: current?.previewUrl || tab.frameUrl,
+                reloadNonce: tab.reloadNonce + 1,
+              }))}
               sx={browserButtonSx}
             >
               {isLoading ? <CircularProgress size={16} /> : <RotateCw />}
@@ -472,9 +565,9 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
       <Box sx={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden', backgroundColor: '#000' }}>
         {tabs.map((tab) => {
           const tabCurrent = tab.historyIndex >= 0 ? tab.history[tab.historyIndex] : undefined
-          if (!tabCurrent) return null
+          if (!tabCurrent || !tab.frameUrl) return null
           const resolvedPreviewUrl = sandboxPreviewURLWithScheme(
-            tabCurrent.previewUrl,
+            tab.frameUrl,
             previewURLHTTPS,
           )
           return (
@@ -487,7 +580,11 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
               }}
             >
               <iframe
-                key={`${resolvedPreviewUrl}:${tab.reloadNonce}`}
+                key={`${tab.id}:${tab.reloadNonce}`}
+                ref={(frame) => {
+                  if (frame) iframeRefs.current.set(tab.id, frame)
+                  else iframeRefs.current.delete(tab.id)
+                }}
                 src={resolvedPreviewUrl}
                 title={`Sandbox browser: ${tabCurrent.displayUrl}`}
                 allow="clipboard-read; clipboard-write; fullscreen"
@@ -502,8 +599,8 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
               <Globe2 size={38} strokeWidth={1.4} />
               <Typography variant="h6" sx={{ mt: 1.5 }}>Open a sandbox web app</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                Enter a localhost URL above, such as http://localhost:8080, then press Enter.
-                Traffic goes through Helix to this task&apos;s sandbox.
+                The saved localhost URL opens automatically. Enter a different URL above to
+                navigate within this task&apos;s sandbox.
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
                 Opening a port creates a shareable preview URL. Anyone with that unguessable URL can

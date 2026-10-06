@@ -45,7 +45,8 @@ Examples:
   helix api -X POST /sessions/chat --input '{"session_id":"ses_…","type":"text","stream":false,"messages":[…]}'
   echo '{"name":"x"}' | helix api -X POST /orgs/unmanned-org/bots --input -
 
-Uses HELIX_URL (default http://localhost:8080) and HELIX_API_KEY.
+Uses HELIX_URL and HELIX_API_KEY; inside a Helix sandbox the exported
+HELIX_API_URL and USER_API_TOKEN are used automatically.
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

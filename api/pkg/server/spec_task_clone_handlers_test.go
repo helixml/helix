@@ -29,6 +29,7 @@ func TestCloneTaskToProject_WithSpecs_GoesToSpecGeneration(t *testing.T) {
 		TechnicalDesign:    "# Technical Design\nSome design",
 		ImplementationPlan: "# Implementation Plan\nSome plan",
 		JustDoItMode:       false,
+		SandboxRuntime:     types.SandboxRuntimeHeadlessUbuntu,
 	}
 
 	targetProjectID := "target-project-id"
@@ -76,6 +77,7 @@ func TestCloneTaskToProject_WithSpecs_GoesToSpecGeneration(t *testing.T) {
 	assert.Equal(t, sourceTask.RequirementsSpec, createdTask.RequirementsSpec)
 	assert.Equal(t, sourceTask.TechnicalDesign, createdTask.TechnicalDesign)
 	assert.Equal(t, sourceTask.ImplementationPlan, createdTask.ImplementationPlan)
+	assert.Equal(t, types.SandboxRuntimeHeadlessUbuntu, createdTask.SandboxRuntime)
 
 	// Verify UserID and OrganizationID are set correctly
 	assert.Equal(t, userID, createdTask.UserID, "UserID should be set from the user creating the clone")

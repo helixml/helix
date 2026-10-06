@@ -2,11 +2,16 @@ import { describe, expect, it } from 'vitest'
 import {
   buildNewChatTaskRequest,
   chooseProjectChatAgentId,
-  modelSupportsReasoningEffort,
   newChatHeading,
+  newChatTaskModeStorageKey,
   projectChatAgentStorageKey,
-  readNewChatReasoningEffort,
+  readNewChatTaskMode,
 } from './newChatLogic'
+import {
+  TypesCodeAgentCredentialType,
+  TypesCodeAgentRuntime,
+  TypesSandboxRuntime,
+} from '../api/api'
 
 describe('new chat project mode', () => {
   it('uses the normal-chat heading without project context', () => {
@@ -19,12 +24,20 @@ describe('new chat project mode', () => {
 
   it('creates Plan tasks in backlog so attachments can upload before start', () => {
     expect(buildNewChatTaskRequest({
-      appId: 'app_1',
+      codeAgentConfig: {
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+        model: 'claude-opus-5',
+      },
       mode: 'plan',
       projectId: 'prj_1',
       prompt: 'Add billing',
     })).toEqual({
-      app_id: 'app_1',
+      planning_code_agent_config: {
+        runtime: 'claude_code',
+        credential_type: 'subscription',
+        model: 'claude-opus-5',
+      },
       auto_start: false,
       just_do_it_mode: false,
       priority: 'medium',
@@ -41,10 +54,21 @@ describe('new chat project mode', () => {
     }).just_do_it_mode).toBe(true)
   })
 
+  it('remembers Plan or Build per user, organization, and project', () => {
+    expect(newChatTaskModeStorageKey('user_one', 'org_one', 'project_one'))
+      .toBe('helix_project_task_mode:user_one:org_one:project_one')
+    expect(newChatTaskModeStorageKey('user_one', 'org_one', 'project_one'))
+      .not.toBe(newChatTaskModeStorageKey('user_one', 'org_one', 'project_two'))
+    expect(readNewChatTaskMode('plan')).toBe('plan')
+    expect(readNewChatTaskMode('build')).toBe('build')
+    expect(readNewChatTaskMode('invalid')).toBe('build')
+  })
+
   it('passes task execution choices through chat-first creation', () => {
     expect(buildNewChatTaskRequest({
-      appId: 'app_codex',
-      codeAgentOverrides: {
+      codeAgentConfig: {
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
         model: 'gpt-5.6-sol',
         reasoning_effort: 'high',
         service_tier: 'fast',
@@ -53,35 +77,18 @@ describe('new chat project mode', () => {
       projectId: 'prj_1',
       prompt: 'Fix the tests',
       sandboxResourceOverrides: { vcpus: 8, memory_mb: 16384 },
+      sandboxRuntime: TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
     })).toMatchObject({
-      app_id: 'app_codex',
-      code_agent_overrides: {
+      code_agent_config: {
+        runtime: 'codex_cli',
+        credential_type: 'subscription',
         model: 'gpt-5.6-sol',
         reasoning_effort: 'high',
         service_tier: 'fast',
       },
       sandbox_resource_overrides: { vcpus: 8, memory_mb: 16384 },
+      sandbox_runtime: TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
     })
-  })
-
-  it('only exposes effort for a selected model that supports it', () => {
-    const providers = [{
-      id: 'provider-1',
-      name: 'openai',
-      available_models: [
-        { id: 'gpt-basic', model_info: { supports_reasoning_effort: false } },
-        { id: 'gpt-reasoning', model_info: { supports_reasoning_effort: true } },
-      ],
-    }]
-
-    expect(modelSupportsReasoningEffort(providers, 'provider-1', 'gpt-reasoning')).toBe(true)
-    expect(modelSupportsReasoningEffort(providers, 'openai', 'gpt-basic')).toBe(false)
-    expect(modelSupportsReasoningEffort(providers, 'another-provider', 'gpt-reasoning')).toBe(false)
-  })
-
-  it('falls back to medium for an invalid stored effort', () => {
-    expect(readNewChatReasoningEffort('high')).toBe('high')
-    expect(readNewChatReasoningEffort('ultra')).toBe('medium')
   })
 
   it('keeps project agent preferences isolated by organization', () => {
@@ -94,5 +101,18 @@ describe('new chat project mode', () => {
     expect(chooseProjectChatAgentId(availableIds, 'app_codex')).toBe('app_codex')
     expect(chooseProjectChatAgentId(availableIds, 'app_org_worker')).toBe('app_claude')
     expect(chooseProjectChatAgentId([], 'app_codex')).toBe('')
+  })
+})
+
+describe('buildNewChatTaskRequest PR auto-approval', () => {
+  const base = { mode: 'build' as const, projectId: 'prj_1', prompt: 'do it' }
+
+  it('sends the explicit choice, including false', () => {
+    expect(buildNewChatTaskRequest({ ...base, autoApprovePullRequests: true }).auto_approve_pull_requests).toBe(true)
+    expect(buildNewChatTaskRequest({ ...base, autoApprovePullRequests: false }).auto_approve_pull_requests).toBe(false)
+  })
+
+  it('omits the field so the server applies the project default', () => {
+    expect('auto_approve_pull_requests' in buildNewChatTaskRequest(base)).toBe(false)
   })
 })

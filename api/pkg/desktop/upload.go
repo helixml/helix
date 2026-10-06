@@ -12,10 +12,11 @@ import (
 	"time"
 )
 
-const (
-	maxUploadSize = 500 << 20 // 500MB
-	incomingDir   = "/home/retro/work/incoming"
-)
+const maxUploadSize = 500 << 20 // 500MB
+
+// incomingDir is where chat attachments land inside the agent container.
+// It is a var so tests can point it at a temp dir.
+var incomingDir = "/home/retro/work/incoming"
 
 // handleUpload handles file uploads to the sandbox incoming folder.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
@@ -78,8 +79,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Info("file uploaded", "path", destPath, "size", written)
 
-	// Try to open file manager showing the uploaded file (unless suppressed via query param)
-	if r.URL.Query().Get("open_file_manager") != "false" {
+	// Try to open file manager showing the uploaded file (unless suppressed via
+	// query param). Headless tasks have no compositor, so there is nothing to open.
+	if !s.config.WorkspaceOnly && r.URL.Query().Get("open_file_manager") != "false" {
 		go s.openFileManagerWithFile(destPath)
 	}
 }

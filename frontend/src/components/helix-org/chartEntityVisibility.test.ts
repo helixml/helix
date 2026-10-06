@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   loadHiddenChartEntityIDs,
   saveHiddenChartEntityIDs,
+  selectedChartEntityIDs,
 } from './chartEntityVisibility'
 
 describe('chartEntityVisibility', () => {
@@ -35,5 +36,16 @@ describe('chartEntityVisibility', () => {
     expect(loadHiddenChartEntityIDs(userID, orgID)).toBeNull()
     window.localStorage.setItem(key, 'not-json')
     expect(loadHiddenChartEntityIDs(userID, orgID)).toBeNull()
+  })
+
+  it('defaults fresh charts to agents only and applies saved settings exactly', () => {
+    expect(selectedChartEntityIDs('agents', ['bot_one'], null)).toEqual(['bot_one'])
+    expect(selectedChartEntityIDs('processors', ['processor_one'], null)).toEqual([])
+    expect(selectedChartEntityIDs('assets', ['asset_one'], null)).toEqual([])
+
+    const saved = { agents: ['bot_one'], processors: [], assets: ['asset_one'] }
+    expect(selectedChartEntityIDs('agents', ['bot_one', 'bot_two'], saved)).toEqual(['bot_two'])
+    expect(selectedChartEntityIDs('processors', ['processor_one'], saved)).toEqual(['processor_one'])
+    expect(selectedChartEntityIDs('assets', ['asset_one'], saved)).toEqual([])
   })
 })

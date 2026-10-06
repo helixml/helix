@@ -1,12 +1,26 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { TypesCodeAgentRuntime } from "../../api/api";
+import { TypesCodeAgentRuntime, TypesSandboxRuntime } from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
 import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
+import { DEFAULT_SANDBOX_PRESET } from "../../constants/sandboxPresets";
 
 vi.mock("../../hooks/useSnackbar", () => ({
   default: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
+
+// The controls read the selected model's supported reasoning efforts through
+// React Query (useModelReasoningEfforts), so they need a client the same way
+// they do under App.tsx. Retries off so a query that has nothing to resolve
+// fails fast instead of holding the test open.
+const render = (ui: ReactElement) => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  return rtlRender(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+};
 
 const codexAgent = {
   id: "app_codex",
@@ -72,7 +86,60 @@ describe("SpecTaskExecutionControls", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_codex",
       { provider_ref: "", model: "gpt-5.6-terra" },
+      expect.objectContaining({
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+        model: "gpt-5.6-terra",
+      }),
     ));
+  });
+
+  it("shows the active harness icon and name when hovering the model control", async () => {
+    render(
+      <SpecTaskExecutionControls
+        agents={[]}
+        selectedAgentId=""
+        currentExecutionConfig={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+          model: "deepseek-v4-flash",
+        }}
+        onAgentModelChange={vi.fn()}
+        onSandboxResourceOverridesChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.mouseOver(screen.getByRole("button", { name: "Change coding model" }));
+
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent("opencode");
+    expect(tooltip.querySelector('[data-harness-mark="opencode"]')).toBeInTheDocument();
+  });
+
+  it("groups harness, model, and compute controls for task details", () => {
+    render(
+      <SpecTaskExecutionControls
+        agents={[]}
+        selectedAgentId=""
+        currentExecutionConfig={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+          model: "deepseek-v4-flash",
+          reasoning_effort: "medium",
+        }}
+        onAgentModelChange={vi.fn()}
+        onSandboxResourceOverridesChange={vi.fn()}
+        grouped
+      />,
+    );
+
+    const executionConfig = screen.getByLabelText("Execution configuration");
+    expect(executionConfig).toHaveTextContent("Runtime:");
+    expect(executionConfig).toHaveTextContent("Model:");
+    expect(executionConfig).toHaveTextContent("Compute:");
+    expect(executionConfig).toHaveTextContent("deepseek-v4-flash");
+    expect(executionConfig).toHaveTextContent("Medium");
+    expect(executionConfig).toHaveTextContent(`${DEFAULT_SANDBOX_PRESET.vcpus} vCPU`);
+    const harness = screen.getByLabelText("Runtime: opencode");
+    expect(harness).toHaveTextContent("opencode");
+    expect(harness.querySelector('[data-harness-mark="opencode"]')).toBeInTheDocument();
   });
 
   it("uses coding agents in the left rail and models in the right pane", async () => {
@@ -89,11 +156,15 @@ describe("SpecTaskExecutionControls", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Change coding model" }));
     fireEvent.click(screen.getByRole("button", { name: "Claude Code" }));
-    fireEvent.click(screen.getByRole("button", { name: /Claude Opus 5.*Claude Code/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Claude Opus 5 \(1M.*Claude Code/ }));
 
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_claude",
       { provider_ref: "", model: "claude-opus-5" },
+      expect.objectContaining({
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+        model: "claude-opus-5",
+      }),
     ));
   });
 
@@ -124,6 +195,10 @@ describe("SpecTaskExecutionControls", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_codex",
       { provider_ref: "", model: "gpt-5.6-sol" },
+      expect.objectContaining({
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+        model: "gpt-5.6-sol",
+      }),
     ));
   });
 
@@ -145,7 +220,72 @@ describe("SpecTaskExecutionControls", () => {
     await waitFor(() => expect(resize).toHaveBeenCalledWith({ vcpus: 8, memory_mb: 16384 }));
   });
 
-  it("shows the effective 4 vCPU default for legacy tasks without an override", () => {
+  it("offers full desktop and headless environments when creating a task", async () => {
+    const setRuntime = vi.fn();
+    render(
+      <SpecTaskExecutionControls
+        agents={[codexAgent]}
+        selectedAgentId={codexAgent.id}
+        sandboxResourceOverrides={{ vcpus: 4, memory_mb: 8192 }}
+        sandboxRuntime={TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop}
+        onAgentModelChange={vi.fn()}
+        onSandboxResourceOverridesChange={vi.fn()}
+        onSandboxRuntimeChange={setRuntime}
+      />,
+    );
+
+    const computeButton = screen.getByRole("button", { name: "Change sandbox size" });
+    expect(computeButton.querySelector(".lucide-monitor"))
+      .toBeInTheDocument();
+    fireEvent.click(computeButton);
+    expect(screen.getByRole("menuitem", { name: /Full Desktop.*Selected/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Headless" }));
+
+    await waitFor(() => expect(setRuntime).toHaveBeenCalledWith(
+      TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
+    ));
+  });
+
+  it("omits the desktop icon from the collapsed control for headless tasks", () => {
+    render(
+      <SpecTaskExecutionControls
+        agents={[codexAgent]}
+        selectedAgentId={codexAgent.id}
+        sandboxResourceOverrides={{ vcpus: 4, memory_mb: 8192 }}
+        sandboxRuntime={TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu}
+        onAgentModelChange={vi.fn()}
+        onSandboxResourceOverridesChange={vi.fn()}
+        onSandboxRuntimeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Change sandbox size" }).querySelector(".lucide-monitor"))
+      .not.toBeInTheDocument();
+  });
+
+  it("shows a locked environment with guidance after task creation", async () => {
+    render(
+      <SpecTaskExecutionControls
+        agents={[codexAgent]}
+        selectedAgentId={codexAgent.id}
+        sandboxResourceOverrides={{ vcpus: 4, memory_mb: 8192 }}
+        sandboxRuntime={TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu}
+        onAgentModelChange={vi.fn()}
+        onSandboxResourceOverridesChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Change sandbox size" }));
+    const lockedRuntime = screen.getByRole("menuitem", { name: /Headless.*Selected/ });
+    expect(lockedRuntime).toHaveAttribute("aria-disabled", "true");
+    fireEvent.mouseOver(lockedRuntime);
+
+    expect(await screen.findByText(
+      "Sandbox environment can't be changed after the task starts. Start a new task to use a different environment.",
+    )).toBeInTheDocument();
+  });
+
+  it("shows the effective default for legacy tasks without an override", () => {
     render(
       <SpecTaskExecutionControls
         agents={[codexAgent]}
@@ -155,7 +295,8 @@ describe("SpecTaskExecutionControls", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Change sandbox size" })).toHaveTextContent("4 vCPU");
+    expect(screen.getByRole("button", { name: "Change sandbox size" }))
+      .toHaveTextContent(`${DEFAULT_SANDBOX_PRESET.vcpus} vCPU`);
     expect(screen.queryByText("Uncapped")).not.toBeInTheDocument();
   });
 
@@ -178,6 +319,10 @@ describe("SpecTaskExecutionControls", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_codex",
       { reasoning_effort: "high" },
+      expect.objectContaining({
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+        reasoning_effort: "high",
+      }),
     ));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -201,6 +346,10 @@ describe("SpecTaskExecutionControls", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_claude",
       { provider_ref: "", model: "sonnet" },
+      expect.objectContaining({
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+        model: "sonnet",
+      }),
     ));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

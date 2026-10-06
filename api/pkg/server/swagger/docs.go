@@ -20418,7 +20418,7 @@ const docTemplate = `{
                     "description": "Comment currently being processed (response streaming)",
                     "type": "string"
                 },
-                "agent_session_id": {
+                "planning_session_id": {
                     "description": "Session ID for WebSocket subscription",
                     "type": "string"
                 },
@@ -26554,7 +26554,7 @@ const docTemplate = `{
                 "planning_options": {
                     "$ref": "#/definitions/types.StartPlanningOptions"
                 },
-                "agent_session_id": {
+                "planning_session_id": {
                     "description": "Session tracking (single Helix session for entire workflow - planning + implementation)\nThe same external agent/session is reused throughout the entire SpecTask lifecycle",
                     "type": "string"
                 },
@@ -27261,7 +27261,7 @@ const docTemplate = `{
                 "planning_options": {
                     "$ref": "#/definitions/types.StartPlanningOptions"
                 },
-                "agent_session_id": {
+                "planning_session_id": {
                     "description": "Session tracking (single Helix session for entire workflow - planning + implementation)\nThe same external agent/session is reused throughout the entire SpecTask lifecycle",
                     "type": "string"
                 },

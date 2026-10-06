@@ -23,7 +23,7 @@ import (
 // `domain` / `event_type` keys in the published Message's Extra. Routing
 // to individual bots is done by filter processors over this one topic
 // (keyed on domain / event_type / project_id) — there are no per-project
-// topics.
+// Triggers.
 type attentionTopicPublisher struct {
 	reconciler *helixevents.Reconciler
 	publisher  orgEventPublisher
@@ -32,10 +32,10 @@ type attentionTopicPublisher struct {
 // orgEventPublisher is the narrow publish surface — satisfied by the org
 // application Publishing service.
 type orgEventPublisher interface {
-	Publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error)
+	PublishToTrigger(ctx context.Context, orgID, triggerID, from string, msg streaming.Message) (streaming.Event, error)
 }
 
-// helixEventExtra is the structured payload carried on the topic event
+// helixEventExtra is the structured payload carried on the event
 // so an activated Worker (or a filter processor's predicate over
 // .Message.extra) can route/react without an extra lookup. Domain +
 // EventType identify the event family and type; the remaining keys are
@@ -56,18 +56,18 @@ type helixEventExtra struct {
 // the first (and today only) domain on the Helix events bus.
 const domainSpecTask = "spectask"
 
-// PublishAttentionEvent ensures the org's single Helix events topic
+// PublishAttentionEvent ensures the org's single Helix events Trigger
 // exists, then publishes the event onto it. A missing org scope is a
 // no-op — there's nothing to route to.
 func (p *attentionTopicPublisher) PublishAttentionEvent(ctx context.Context, ev *types.AttentionEvent) error {
 	if ev == nil || ev.OrganizationID == "" {
 		return nil
 	}
-	// Defensive ensure: the helixevents reconciler creates this topic on
+	// Defensive ensure: the helixevents reconciler creates this Trigger on
 	// org bootstrap, but a brand-new org whose bootstrap hasn't run yet
 	// still needs somewhere to publish. Idempotent.
 	if err := p.reconciler.Reconcile(ctx, ev.OrganizationID); err != nil {
-		return fmt.Errorf("ensure helix events topic: %w", err)
+		return fmt.Errorf("ensure helix events trigger: %w", err)
 	}
 	extra, _ := json.Marshal(helixEventExtra{
 		Domain:       domainSpecTask,
@@ -92,7 +92,7 @@ func (p *attentionTopicPublisher) PublishAttentionEvent(ctx context.Context, ev 
 		MessageID:       ev.ID,
 		Extra:           extra,
 	}
-	if _, err := p.publisher.Publish(ctx, ev.OrganizationID, helixevents.TopicID, "", msg); err != nil {
+	if _, err := p.publisher.PublishToTrigger(ctx, ev.OrganizationID, helixevents.TriggerID, "", msg); err != nil {
 		return fmt.Errorf("publish helix event: %w", err)
 	}
 	return nil

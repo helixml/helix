@@ -7,11 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,11 +21,33 @@ import (
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-units"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+)
+
+const (
+	// SandboxNetworkName is the dedicated dockerd bridge used by untrusted
+	// session containers. sandbox/06-setup-network-policy.sh creates the bridge
+	// and enforces its egress policy before Hydra starts.
+	SandboxNetworkName = "helix-sandboxes"
+
+	// SandboxAPIProxyHostname is pinned to the isolated bridge gateway in each
+	// session container. The host-side proxy forwards only to HELIX_API_URL.
+	SandboxAPIProxyHostname       = "helix-api.internal"
+	SandboxLegacyAPIProxyHostname = "outer-api"
+	SandboxNetworkGateway         = "192.0.2.1"
+	SandboxAPIProxyPort           = 18080
+	SandboxAPIProxyListenAddress  = SandboxNetworkGateway + ":18080"
+
+	// SandboxAPIProxyURL is the canonical, deployment-independent URL every
+	// session container uses to reach the Helix API: the Hydra-owned proxy on the
+	// isolated bridge (helix-api.internal → gateway, port 18080), which forwards
+	// to the real control plane. The API emits this at config-generation time so
+	// no component downstream has to rewrite control-plane addresses.
+	SandboxAPIProxyURL = "http://" + SandboxAPIProxyHostname + ":18080"
 )
 
 // GoldenCopyProgress tracks the progress of a golden cache copy operation.
@@ -45,6 +67,7 @@ type GoldenBuildResult struct {
 	SessionID      string    `json:"session_id"`
 	Success        bool      `json:"success"`
 	ExitCode       string    `json:"exit_code"`
+	Error          string    `json:"error,omitempty"` // Why a build failed after/despite the script result (promotion, timeout)
 	CacheSizeBytes int64     `json:"cache_size_bytes,omitempty"`
 	Timestamp      time.Time `json:"timestamp"`
 }
@@ -457,6 +480,16 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 	defer dockerClient.Close()
+	if req.DiskSizeGB > 0 {
+		if _, _, inspectErr := dockerClient.ImageInspectWithRaw(ctx, resolvedImage); inspectErr != nil {
+			if !dm.tryRecoverImage(ctx, dockerClient, resolvedImage, req.Image) {
+				return nil, fmt.Errorf("image %s is required to initialize instance disk", resolvedImage)
+			}
+		}
+		if err := prepareInstanceDisk(ctx, dockerClient, resolvedImage, req); err != nil {
+			return nil, fmt.Errorf("prepare instance disk: %w", err)
+		}
+	}
 
 	// Build container configuration
 	containerConfig := &container.Config{
@@ -478,6 +511,13 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	if req.Persistent {
 		containerConfig.Labels[containerPersistentLabel] = "true"
 	}
+	var goldenDeadline time.Time
+	if req.GoldenBuild {
+		goldenDeadline = time.Now().Add(goldenBuildTimeout(req))
+		containerConfig.Labels[containerGoldenBuildLabel] = "true"
+		containerConfig.Labels[containerProjectIDLabel] = req.ProjectID
+		containerConfig.Labels[containerGoldenDeadlineLabel] = goldenDeadline.UTC().Format(time.RFC3339)
+	}
 	if len(req.Entrypoint) > 0 {
 		containerConfig.Entrypoint = req.Entrypoint
 	}
@@ -491,12 +531,9 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		return nil, fmt.Errorf("failed to build host config: %w", err)
 	}
 
-	// Configure GPU passthrough
-	dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
-
-	// Network configuration is nil for host network mode
-	// (host network mode shares the sandbox's network namespace, so no separate network config needed)
-	var networkConfig *network.NetworkingConfig
+	if req.ContainerType != DevContainerTypeHeadless {
+		dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
+	}
 
 	// Ensure mount source directories exist before creating container
 	for _, m := range req.Mounts {
@@ -535,7 +572,38 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// 1. API restarted but container is still running
 	// 2. Previous start request failed after container creation but before DB update
 	existingContainer, err := dockerClient.ContainerInspect(dockerCtx, req.ContainerName)
-	if err == nil {
+	existingContainerFound := err == nil
+	if existingContainerFound && req.DiskSizeGB > 0 && quotaHomeConfigChanged(existingContainer.HostConfig, hostConfig) {
+		log.Info().
+			Str("container_id", existingContainer.ID).
+			Str("container_name", req.ContainerName).
+			Msg("Recreating instance container to apply security limits")
+		if err := dockerClient.ContainerRemove(dockerCtx, existingContainer.ID, container.RemoveOptions{Force: true}); err != nil {
+			return nil, fmt.Errorf("remove container to apply instance security limits: %w", err)
+		}
+		existingContainerFound = false
+	}
+	if existingContainerFound && shouldMigrateContainerNetwork(existingContainer.HostConfig.NetworkMode, hostConfig.NetworkMode) && existingContainer.State.Running {
+		log.Warn().
+			Str("container_id", existingContainer.ID).
+			Str("container_name", req.ContainerName).
+			Str("old_network", string(existingContainer.HostConfig.NetworkMode)).
+			Str("new_network", string(hostConfig.NetworkMode)).
+			Msg("Deferring network migration for running container until its next restart")
+	}
+	if existingContainerFound && shouldRecreateForNetworkMigration(existingContainer.HostConfig.NetworkMode, hostConfig.NetworkMode, existingContainer.State.Running) {
+		log.Info().
+			Str("container_id", existingContainer.ID).
+			Str("container_name", req.ContainerName).
+			Str("old_network", string(existingContainer.HostConfig.NetworkMode)).
+			Str("new_network", string(hostConfig.NetworkMode)).
+			Msg("Recreating container on isolated sandbox network")
+		if err := dockerClient.ContainerRemove(dockerCtx, existingContainer.ID, container.RemoveOptions{Force: true}); err != nil {
+			return nil, fmt.Errorf("remove container for network migration: %w", err)
+		}
+		existingContainerFound = false
+	}
+	if existingContainerFound {
 		// Container exists - check its state
 		if existingContainer.State.Running {
 			// Container is already running - return success
@@ -678,14 +746,14 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 
 	// Create container
-	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, nil, nil, req.ContainerName)
 	if err != nil && strings.Contains(err.Error(), "No such image") {
 		// Image disappeared from Docker (possible containerd GC or Docker daemon issue).
 		// Try to recover by pulling from whatever registry source is available.
 		recovered := dm.tryRecoverImage(dockerCtx, dockerClient, resolvedImage, req.Image)
 		if recovered {
 			// Retry container creation with the recovered image
-			resp, err = dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+			resp, err = dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, nil, nil, req.ContainerName)
 		}
 	}
 	if err != nil {
@@ -745,6 +813,9 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		DockerSocket:  req.DockerSocket,
 		IsGoldenBuild: req.GoldenBuild,
 		ProjectID:     req.ProjectID,
+	}
+	if req.GoldenBuild {
+		dc.GoldenBuildDeadline = goldenDeadline
 	}
 	dm.mu.Lock()
 	dm.containers[req.SessionID] = dc
@@ -842,6 +913,18 @@ func materializeWorkspaceFiles(mounts []MountConfig, files map[string][]byte) er
 func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string {
 	env := make([]string, len(req.Env))
 	copy(env, req.Env)
+	// Shared BuildKit and registry are infrastructure services, not tenant APIs.
+	// Every supported session network is isolated and builds through its own
+	// container engine.
+	env = removeEnvVar(env, "BUILDKIT_HOST")
+	env = removeEnvVar(env, "HELIX_REGISTRY")
+	if req.RootlessContainerEngine {
+		env = overrideEnvVar(env, "HELIX_ROOTLESS_CONTAINER_ENGINE", "1")
+		env = overrideEnvVar(env, "DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock")
+		env = overrideEnvVar(env, "CONTAINER_HOST", "unix:///run/user/1000/podman/podman.sock")
+		env = overrideEnvVar(env, "DOCKER_BUILDKIT", "0")
+		env = overrideEnvVar(env, "BUILDX_BUILDER", "helix-rootless")
+	}
 
 	// Add display settings if this is not a headless container
 	if req.ContainerType != DevContainerTypeHeadless {
@@ -856,99 +939,103 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		}
 	}
 
-	// Add GPU_VENDOR for detect-render-node.sh inside the container
-	// This tells the container which GPU to look for in /sys/class/drm
-	if req.GPUVendor != "" {
-		env = append(env, fmt.Sprintf("GPU_VENDOR=%s", req.GPUVendor))
-	}
+	if req.ContainerType != DevContainerTypeHeadless {
+		// Add GPU_VENDOR for detect-render-node.sh inside the container
+		// This tells the container which GPU to look for in /sys/class/drm
+		if req.GPUVendor != "" {
+			env = append(env, fmt.Sprintf("GPU_VENDOR=%s", req.GPUVendor))
+		}
 
-	// Enable GStreamer debug logging for vsockenc debugging
-	// TODO: Remove this after vsockenc receive thread issue is fixed
-	env = append(env, "GST_DEBUG=vsockenc:5")
+		// Enable GStreamer debug logging for vsockenc debugging
+		// TODO: Remove this after vsockenc receive thread issue is fixed
+		env = append(env, "GST_DEBUG=vsockenc:5")
+	}
 
 	// Tell claude-code-acp that we're in a sandbox environment.
 	// The ACP checks (!IS_ROOT || IS_SANDBOX) to allow bypassPermissions mode.
 	// Our containers run as root, so without this Claude Code prompts for every tool use.
 	env = append(env, "IS_SANDBOX=1")
 
-	// Add GPU-specific environment variables
-	switch req.GPUVendor {
-	case "nvidia":
-		// Check if already set
-		hasVisibleDevices := false
-		hasDriverCaps := false
-		for _, e := range env {
-			if strings.HasPrefix(e, "NVIDIA_VISIBLE_DEVICES=") {
-				hasVisibleDevices = true
+	if req.ContainerType != DevContainerTypeHeadless {
+		// Add GPU-specific environment variables
+		switch req.GPUVendor {
+		case "nvidia":
+			// Check if already set
+			hasVisibleDevices := false
+			hasDriverCaps := false
+			for _, e := range env {
+				if strings.HasPrefix(e, "NVIDIA_VISIBLE_DEVICES=") {
+					hasVisibleDevices = true
+				}
+				if strings.HasPrefix(e, "NVIDIA_DRIVER_CAPABILITIES=") {
+					hasDriverCaps = true
+				}
 			}
-			if strings.HasPrefix(e, "NVIDIA_DRIVER_CAPABILITIES=") {
-				hasDriverCaps = true
+			if !hasVisibleDevices {
+				// Decision 15: per-session GPU pinning on multi-GPU hosts.
+				// If the request specifies GPUIndex, expose only that GPU.
+				// Otherwise default to "all" (legacy behaviour).
+				//
+				// IMPORTANT: in nested-DinD setups (sandbox -> inner dockerd
+				// -> desktop container) the cgroup-level device restriction
+				// from NVIDIA_VISIBLE_DEVICES does NOT actually take effect
+				// because the outer sandbox container was launched with
+				// `--gpus all` so all /dev/nvidia* nodes are inherited.
+				// Verified live on a 2x Blackwell box: nvidia-smi inside
+				// pin-0 still saw GPU 1. The DRM device pinning (PCI walk)
+				// IS effective (Mutter+GStreamer get the right card), but
+				// CUDA visibility leaks. We set both NVIDIA_VISIBLE_DEVICES
+				// AND CUDA_VISIBLE_DEVICES to the index so CUDA workloads
+				// inside the desktop respect the pin even if /dev/nvidia*
+				// nodes leak. Real cgroup-level restriction in nested DinD
+				// is a separate problem documented in Decision 15 follow-ups.
+				if req.GPUIndex != nil {
+					env = append(env, fmt.Sprintf("NVIDIA_VISIBLE_DEVICES=%d", *req.GPUIndex))
+					env = append(env, fmt.Sprintf("CUDA_VISIBLE_DEVICES=%d", *req.GPUIndex))
+				} else {
+					env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
+				}
+			}
+			if !hasDriverCaps {
+				// Use explicit capabilities instead of "all" for GKE/cloud compatibility
+				env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
 			}
 		}
-		if !hasVisibleDevices {
-			// Decision 15: per-session GPU pinning on multi-GPU hosts.
-			// If the request specifies GPUIndex, expose only that GPU.
-			// Otherwise default to "all" (legacy behaviour).
-			//
-			// IMPORTANT: in nested-DinD setups (sandbox -> inner dockerd
-			// -> desktop container) the cgroup-level device restriction
-			// from NVIDIA_VISIBLE_DEVICES does NOT actually take effect
-			// because the outer sandbox container was launched with
-			// `--gpus all` so all /dev/nvidia* nodes are inherited.
-			// Verified live on a 2x Blackwell box: nvidia-smi inside
-			// pin-0 still saw GPU 1. The DRM device pinning (PCI walk)
-			// IS effective (Mutter+GStreamer get the right card), but
-			// CUDA visibility leaks. We set both NVIDIA_VISIBLE_DEVICES
-			// AND CUDA_VISIBLE_DEVICES to the index so CUDA workloads
-			// inside the desktop respect the pin even if /dev/nvidia*
-			// nodes leak. Real cgroup-level restriction in nested DinD
-			// is a separate problem documented in Decision 15 follow-ups.
-			if req.GPUIndex != nil {
-				env = append(env, fmt.Sprintf("NVIDIA_VISIBLE_DEVICES=%d", *req.GPUIndex))
-				env = append(env, fmt.Sprintf("CUDA_VISIBLE_DEVICES=%d", *req.GPUIndex))
-			} else {
-				env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
-			}
-		}
-		if !hasDriverCaps {
-			// Use explicit capabilities instead of "all" for GKE/cloud compatibility
-			env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
-		}
-	}
 
-	// Decision 15: tell detect-render-node.sh which GPU to pick. This drives
-	// Mutter via udev tags + the GStreamer encoder via HELIX_RENDER_NODE.
-	// Set for all vendors so AMD/Intel paths also pin via the script's
-	// PCI walk fast-path. Live-tested on 2x Blackwell box: each desktop
-	// correctly picked its assigned card via PCI BDF (not by index suffix).
-	if req.GPUIndex != nil {
-		env = append(env, fmt.Sprintf("HELIX_GPU_INDEX=%d", *req.GPUIndex))
-		// AMD equivalent of CUDA_VISIBLE_DEVICES — ROCm honours this for
-		// HIP workloads even when /dev/dri leaks (same nested-DinD caveat).
-		if req.GPUVendor == "amd" {
-			env = append(env, fmt.Sprintf("HIP_VISIBLE_DEVICES=%d", *req.GPUIndex))
-			env = append(env, fmt.Sprintf("ROCR_VISIBLE_DEVICES=%d", *req.GPUIndex))
+		// Decision 15: tell detect-render-node.sh which GPU to pick. This drives
+		// Mutter via udev tags + the GStreamer encoder via HELIX_RENDER_NODE.
+		// Set for all vendors so AMD/Intel paths also pin via the script's
+		// PCI walk fast-path. Live-tested on 2x Blackwell box: each desktop
+		// correctly picked its assigned card via PCI BDF (not by index suffix).
+		if req.GPUIndex != nil {
+			env = append(env, fmt.Sprintf("HELIX_GPU_INDEX=%d", *req.GPUIndex))
+			// AMD equivalent of CUDA_VISIBLE_DEVICES — ROCm honours this for
+			// HIP workloads even when /dev/dri leaks (same nested-DinD caveat).
+			if req.GPUVendor == "amd" {
+				env = append(env, fmt.Sprintf("HIP_VISIBLE_DEVICES=%d", *req.GPUIndex))
+				env = append(env, fmt.Sprintf("ROCR_VISIBLE_DEVICES=%d", *req.GPUIndex))
+			}
 		}
-	}
 
-	// For virtio-gpu (macOS ARM): set scanout mode environment variables
-	// These tell detect-render-node.sh and desktop-bridge to use the
-	// DRM lease → QEMU VideoToolbox H.264 pipeline instead of PipeWire.
-	drmSock := "/run/helix-drm/drm.sock"
-	if _, err := os.Stat(drmSock); err == nil {
-		env = append(env,
-			"GPU_VENDOR=virtio",
-			"HELIX_SCANOUT_MODE=1",
-			"HELIX_VIDEO_MODE=scanout",
-			"XDG_RUNTIME_DIR=/run/user/1000",
-		)
-		log.Debug().Str("socket", drmSock).Msg("DRM manager socket found, setting scanout env vars")
-	}
-	// Pass QEMU frame export port unconditionally — detect-render-node.sh can
-	// independently trigger scanout mode (GPU_VENDOR=virtio) even without the
-	// DRM socket, and desktop-bridge needs the correct port either way.
-	if fePort := os.Getenv("HELIX_FRAME_EXPORT_PORT"); fePort != "" {
-		env = append(env, "HELIX_FRAME_EXPORT_PORT="+fePort)
+		// For virtio-gpu (macOS ARM): set scanout mode environment variables
+		// These tell detect-render-node.sh and desktop-bridge to use the
+		// DRM lease → QEMU VideoToolbox H.264 pipeline instead of PipeWire.
+		drmSock := "/run/helix-drm/drm.sock"
+		if _, err := os.Stat(drmSock); err == nil {
+			env = append(env,
+				"GPU_VENDOR=virtio",
+				"HELIX_SCANOUT_MODE=1",
+				"HELIX_VIDEO_MODE=scanout",
+				"XDG_RUNTIME_DIR=/run/user/1000",
+			)
+			log.Debug().Str("socket", drmSock).Msg("DRM manager socket found, setting scanout env vars")
+		}
+		// Pass QEMU frame export port unconditionally — detect-render-node.sh can
+		// independently trigger scanout mode (GPU_VENDOR=virtio) even without the
+		// DRM socket, and desktop-bridge needs the correct port either way.
+		if fePort := os.Getenv("HELIX_FRAME_EXPORT_PORT"); fePort != "" {
+			env = append(env, "HELIX_FRAME_EXPORT_PORT="+fePort)
+		}
 	}
 
 	// Pass Docker nesting depth for address pool isolation.
@@ -962,48 +1049,11 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	}
 	env = append(env, fmt.Sprintf("HELIX_DOCKER_DEPTH=%d", currentDepth+1))
 
-	// Add BUILDKIT_HOST for shared BuildKit cache support
-	// Dev containers mount their per-session Docker socket, but helix-buildkit runs
-	// on the sandbox's main dockerd. Pass the BuildKit endpoint directly so the
-	// 17-start-dockerd.sh init script can create the helix-shared buildx builder.
-	if buildkitHost := GetBuildKitHost(); buildkitHost != "" {
-		env = append(env, fmt.Sprintf("BUILDKIT_HOST=%s", buildkitHost))
-		log.Debug().Str("buildkit_host", buildkitHost).Msg("Added BUILDKIT_HOST to dev container env")
-	}
-
-	// Add HELIX_REGISTRY for registry-based image loading (push/pull instead of tarball --load).
-	// When a build changes only one layer in a 7.73GB image, --load transfers the entire tarball
-	// (~9.5s). Registry push/pull transfers only changed layers (~0.6s) — a 16x improvement.
-	if registryHost := GetRegistryHost(); registryHost != "" {
-		env = append(env, fmt.Sprintf("HELIX_REGISTRY=%s", registryHost))
-		log.Debug().Str("registry_host", registryHost).Msg("Added HELIX_REGISTRY to dev container env")
-	}
-
-	// Override API URLs with sandbox's own HELIX_API_URL
-	// The API server sends localhost URLs, but desktop containers inside DinD
-	// need to reach the API via the sandbox's configured URL (set during install)
-	sandboxAPIURL := os.Getenv("HELIX_API_URL")
-	if sandboxAPIURL != "" {
-		log.Debug().
-			Str("sandbox_api_url", sandboxAPIURL).
-			Msg("Overriding API URLs in desktop container env with sandbox's HELIX_API_URL")
-
-		env = overrideEnvVar(env, "HELIX_API_URL", sandboxAPIURL)
-		env = overrideEnvVar(env, "HELIX_API_BASE_URL", sandboxAPIURL)
-		env = overrideEnvVar(env, "ANTHROPIC_BASE_URL", sandboxAPIURL)
-
-		// ZED_HELIX_URL needs host:port without scheme
-		zedURL := strings.TrimPrefix(sandboxAPIURL, "https://")
-		zedURL = strings.TrimPrefix(zedURL, "http://")
-		env = overrideEnvVar(env, "ZED_HELIX_URL", zedURL)
-
-		// Also set TLS flag based on scheme
-		if strings.HasPrefix(sandboxAPIURL, "https://") {
-			env = overrideEnvVar(env, "ZED_HELIX_TLS", "true")
-		} else {
-			env = overrideEnvVar(env, "ZED_HELIX_TLS", "false")
-		}
-	}
+	// The control plane emits canonical helix-api.internal:18080 URLs directly
+	// (see hydra.SandboxAPIProxyURL and its use in buildEnvVars / zed-config), so
+	// hydra no longer rewrites control-plane addresses in the container env. The
+	// isolated bridge pins helix-api.internal to the gateway (see ExtraHosts) and
+	// the proxy forwards to the real upstream.
 
 	return env
 }
@@ -1020,32 +1070,105 @@ func overrideEnvVar(env []string, key, value string) []string {
 	return append(env, prefix+value)
 }
 
+func removeEnvVar(env []string, key string) []string {
+	prefix := key + "="
+	filtered := env[:0]
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, prefix) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
+}
+
+const desktopShmSizeBytes = 1 << 30
+
 // buildHostConfig builds the host configuration for the container
 func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (*container.HostConfig, error) {
-	// Use the network from the request if specified, otherwise default to bridge.
-	// Previously we used host network mode which caused port conflicts when running
-	// multiple desktop containers (they all shared ports 9876/9877).
-	// With bridge network, each container gets its own IP and can use the same ports.
-	networkMode := container.NetworkMode(req.Network)
-	if networkMode == "" {
-		networkMode = "bridge"
+	if req.DiskSizeGB < 0 {
+		return nil, fmt.Errorf("disk size cannot be negative")
+	}
+	if req.PidsLimit < 0 {
+		return nil, fmt.Errorf("pids limit cannot be negative")
+	}
+	if req.NoNewPrivileges && req.Privileged {
+		return nil, fmt.Errorf("no-new-privileges cannot be combined with privileged mode")
+	}
+	if req.RootlessContainerEngine && req.ContainerType != DevContainerTypeHeadless {
+		return nil, fmt.Errorf("rootless container engine requires a headless container")
+	}
+	if req.RootlessContainerEngine && req.Privileged {
+		return nil, fmt.Errorf("rootless container engine cannot run in privileged mode")
+	}
+	if req.BrowserSandbox && (req.Privileged || req.RootlessContainerEngine) {
+		return nil, fmt.Errorf("browser sandbox is for unprivileged containers without a container engine")
+	}
+	if !usesIsolatedSandboxNetwork(req.Network) {
+		return nil, fmt.Errorf("unsupported sandbox network %q", req.Network)
 	}
 
 	resources := container.Resources{
-		DeviceCgroupRules: dm.getDeviceCgroupRules(),
 		Ulimits: []*units.Ulimit{
 			{Name: "nofile", Soft: 65536, Hard: 65536},
 		},
 	}
+	if req.ContainerType != DevContainerTypeHeadless {
+		resources.DeviceCgroupRules = dm.getDeviceCgroupRules()
+	}
+	if req.RootlessContainerEngine {
+		resources.Devices = append(resources.Devices,
+			container.DeviceMapping{PathOnHost: "/dev/fuse", PathInContainer: "/dev/fuse", CgroupPermissions: "rwm"},
+			container.DeviceMapping{PathOnHost: "/dev/net/tun", PathInContainer: "/dev/net/tun", CgroupPermissions: "rwm"},
+		)
+	}
 	// Apply CPU and memory limits when requested. NanoCPUs uses 10^9 units per CPU.
 	resources.NanoCPUs, resources.Memory, resources.MemorySwap = sandboxResourceLimits(req.VCPUs, req.MemoryMB)
+	if req.PidsLimit > 0 {
+		resources.PidsLimit = &req.PidsLimit
+	}
 
 	hostConfig := &container.HostConfig{
-		NetworkMode: networkMode,
-		IpcMode:     "host",
+		NetworkMode: SandboxNetworkName,
 		Privileged:  req.Privileged,
-		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
 		Resources:   resources,
+		DNS:         []string{sandboxDNSGateway()},
+	}
+	if req.NoNewPrivileges {
+		hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "no-new-privileges")
+	}
+	if req.DiskSizeGB > 0 {
+		hostConfig.Tmpfs = quotaHomeTmpfs(req.Mounts)
+	}
+	if req.ContainerType != DevContainerTypeHeadless {
+		hostConfig.IpcMode = "private"
+		hostConfig.ShmSize = desktopShmSizeBytes
+	}
+	if req.Privileged {
+		hostConfig.SecurityOpt = []string{"seccomp=unconfined", "apparmor=unconfined"}
+	} else {
+		hostConfig.CapDrop = []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
+		if req.RootlessContainerEngine {
+			// The trusted init process needs SYS_ADMIN in its bounding set so
+			// rootless Podman can create its subordinate user namespace. Before
+			// the agent starts, the image drops SYS_ADMIN from the agent's
+			// bounding set and enables no_new_privs.
+			hostConfig.CapAdd = []string{"SYS_ADMIN"}
+			hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "seccomp=unconfined")
+			// Rootless Podman needs to mount procfs entries that Docker masks or
+			// makes read-only by default. Empty, non-nil slices explicitly
+			// override those daemon defaults through the Docker API.
+			hostConfig.MaskedPaths = []string{}
+			hostConfig.ReadonlyPaths = []string{}
+		} else {
+			hostConfig.CapDrop = append([]string{"SYS_ADMIN"}, hostConfig.CapDrop...)
+			if req.BrowserSandbox {
+				profile, err := browserSandboxSeccomp()
+				if err != nil {
+					return nil, err
+				}
+				hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "seccomp="+profile)
+			}
+		}
 	}
 
 	// Persistent dev containers (hosted web services) must survive a host
@@ -1057,31 +1180,9 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		hostConfig.RestartPolicy = container.RestartPolicy{Name: "unless-stopped"}
 	}
 
-	// Only add explicit capabilities when not in privileged mode
-	// (privileged mode already grants all capabilities)
-	if !req.Privileged {
-		hostConfig.CapAdd = []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
-	}
-
-	// Resolve "api"/"outer-api" via the sandbox dns-proxy instead of pinning a
-	// concrete IP into /etc/hosts. The proxy (sandbox/dns-proxy, bound on the
-	// bridge gateway) forwards to the outer Docker DNS and re-resolves on every
-	// query, so a recreated `api` container is picked up automatically. The old
-	// ExtraHosts pin baked the IP at creation time and went stale on any API
-	// restart, stranding surviving desktops forever (#2641). /etc/hosts entries
-	// take precedence over DNS, so the pin also *shadowed* this dynamic path —
-	// hence we drop it entirely and point the resolver at the proxy.
-	//
-	// Only do this on the default bridge (the standard desktop path). Host
-	// networking shares the sandbox's resolver already, and an explicit custom
-	// network is the caller's responsibility.
-	if networkMode == "bridge" {
-		if gw := dm.sandboxDNSGateway(); gw != "" {
-			hostConfig.DNS = []string{gw}
-		}
-	} else {
-		// Non-bridge (e.g. host) keeps the legacy behaviour for now.
-		hostConfig.ExtraHosts = dm.buildExtraHosts()
+	hostConfig.ExtraHosts = []string{
+		SandboxAPIProxyHostname + ":" + SandboxNetworkGateway,
+		SandboxLegacyAPIProxyHostname + ":" + SandboxNetworkGateway,
 	}
 
 	// Build mounts
@@ -1094,8 +1195,23 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	return hostConfig, nil
 }
 
+// sandboxResourceLimits converts a preset into Docker's units.
+//
+// vCPUs are clamped to the host's CPU count because Docker REJECTS a NanoCPUs
+// above it outright ("Range of CPUs is from 0.01 to N.00, as there are only N
+// CPUs available") — an unclamped default larger than a small host would fail
+// container creation rather than degrade. Memory needs no such clamp: Docker
+// accepts a limit above host RAM, and an unreachable ceiling is strictly better
+// than one that OOM-kills the desktop.
 func sandboxResourceLimits(vcpus, memoryMB int) (nanoCPUs, memory, memorySwap int64) {
 	if vcpus > 0 {
+		if hostCPUs := runtime.NumCPU(); vcpus > hostCPUs {
+			log.Warn().
+				Int("requested_vcpus", vcpus).
+				Int("host_cpus", hostCPUs).
+				Msg("Clamping sandbox vCPUs to host CPU count; Docker rejects a larger limit")
+			vcpus = hostCPUs
+		}
 		nanoCPUs = int64(vcpus) * 1_000_000_000
 	}
 	if memoryMB > 0 {
@@ -1298,80 +1414,58 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mo
 		})
 	}
 
-	// Add shared BuildKit cache mount if available
-	// This allows docker build cache to be shared across all sessions
-	// BuildKit uses content-addressed storage, so concurrent access is safe
-	buildkitCacheDir := filepath.Join(dm.manager.dataDir, SharedBuildKitCacheDir)
-	if _, err := os.Stat(buildkitCacheDir); err == nil {
-		mounts = append(mounts, mount.Mount{
-			Type:   mount.TypeBind,
-			Source: buildkitCacheDir,
-			Target: "/buildkit-cache",
-		})
-		log.Debug().Str("source", buildkitCacheDir).Msg("Added shared BuildKit cache mount")
-	}
-
 	return mounts, nil
 }
 
-// sandboxDNSGateway returns the address of the sandbox dns-proxy that desktop
-// containers should use as their resolver: the gateway of this dockerd's default
-// bridge. The sandbox's dockerd uses pool 10.(212+depth).0.0/16 (see
-// sandbox/04-start-dockerd.sh) and the dns-proxy binds the .0.1 gateway of the
-// first /24 (see sandbox/05-start-dns-proxy.sh), so the address is
-// 10.(212+depth).0.1. Returns "" if the depth is implausible.
-//
-// NOTE: the dns-proxy startup script currently hard-codes 10.213.0.1 (depth 1),
-// so resolution via the proxy is only wired for the standard (non-nested) sandbox
-// today; deeper nesting needs the proxy bind made depth-aware to match.
-func (dm *DevContainerManager) sandboxDNSGateway() string {
+func usesIsolatedSandboxNetwork(requested string) bool {
+	return requested == "" || requested == "bridge" || requested == SandboxNetworkName
+}
+
+func shouldMigrateContainerNetwork(existing, desired container.NetworkMode) bool {
+	return desired == SandboxNetworkName && existing != desired
+}
+
+func shouldRecreateForNetworkMigration(existing, desired container.NetworkMode, running bool) bool {
+	return !running && shouldMigrateContainerNetwork(existing, desired)
+}
+
+// migrateContainerToIsolatedNetwork live-migrates a running container onto the
+// isolated sandbox network without recreating it (preserving the writable
+// layer): connect to the isolated bridge, then disconnect every legacy network
+// so the container's egress is subject to the isolated bridge's policy. Used on
+// recovery to close the pre-upgrade bypass for persistent web-service containers
+// that dockerd restores on the legacy bridge.
+func (dm *DevContainerManager) migrateContainerToIsolatedNetwork(ctx context.Context, dockerClient *client.Client, containerID string, legacyNetworks []string) error {
+	if err := dockerClient.NetworkConnect(ctx, SandboxNetworkName, containerID, nil); err != nil &&
+		!strings.Contains(err.Error(), "already exists") {
+		return fmt.Errorf("connect %s to %s: %w", containerID, SandboxNetworkName, err)
+	}
+	for _, netName := range legacyNetworks {
+		if netName == SandboxNetworkName {
+			continue
+		}
+		if err := dockerClient.NetworkDisconnect(ctx, netName, containerID, true); err != nil {
+			return fmt.Errorf("disconnect %s from %s: %w", containerID, netName, err)
+		}
+	}
+	return nil
+}
+
+// sandboxDNSGateway is the default bridge gateway where the existing DNS proxy
+// listens. Session containers use it explicitly so DNS_UPSTREAM and enterprise
+// resolvers continue to work on the isolated user-defined network.
+func sandboxDNSGateway() string {
 	depth := 1
 	if depthStr := os.Getenv("HELIX_DOCKER_DEPTH"); depthStr != "" {
-		if d, err := strconv.Atoi(depthStr); err == nil && d >= 1 {
-			depth = d
+		if parsed, err := strconv.Atoi(depthStr); err == nil && parsed >= 1 {
+			depth = parsed
 		}
 	}
 	octet := 212 + depth
 	if octet > 255 {
-		return ""
+		octet = 255
 	}
 	return fmt.Sprintf("10.%d.0.1", octet)
-}
-
-// buildExtraHosts returns Docker ExtraHosts entries (format: "hostname:ip")
-// so the desktop container can reach services on the helix compose network.
-//
-// DEPRECATED for the default-bridge desktop path: this pins a concrete IP at
-// container-creation time, which goes stale on any API restart (#2641). The
-// bridge path now resolves "api"/"outer-api" dynamically via the dns-proxy
-// (see sandboxDNSGateway). Retained only for the non-bridge fallback.
-func (dm *DevContainerManager) buildExtraHosts() []string {
-	var extraHosts []string
-
-	// Resolve "api" from the sandbox's perspective (via compose DNS).
-	ips, err := net.LookupHost("api")
-	if err == nil && len(ips) > 0 {
-		apiIP := ips[0]
-
-		// "api" hostname: direct access to the outer API.
-		extraHosts = append(extraHosts, "api:"+apiIP)
-		log.Debug().Str("api_ip", apiIP).Msg("Added API host entry for dev container")
-
-		// "outer-api" hostname: same IP, but survives inner compose DNS
-		// shadowing. In Helix-in-Helix, docker compose creates its own "api"
-		// service that shadows the /etc/hosts entry. "outer-api" always points
-		// to the real outer API because compose DNS doesn't override /etc/hosts.
-		//
-		// Note: We resolve the IP here rather than using "host-gateway" because
-		// host-gateway on the sandbox's inner dockerd resolves to the sandbox's
-		// bridge gateway, not the actual host — making it unreachable.
-		extraHosts = append(extraHosts, "outer-api:"+apiIP)
-		log.Debug().Str("outer_api_ip", apiIP).Msg("Added outer-api host entry (same as api, survives H-in-H DNS shadowing)")
-	} else {
-		log.Warn().Err(err).Msg("Could not resolve 'api' hostname, container may not connect to API")
-	}
-
-	return extraHosts
 }
 
 // drmDevice describes one GPU's host DRM nodes. Pairing render nodes
@@ -1822,9 +1916,22 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	dm.mu.RUnlock()
 
 	if !exists {
-		// Container not in our map - treat as already deleted (idempotent)
-		// This can happen if Hydra restarted or container was already cleaned up
-		log.Info().Str("session_id", sessionID).Msg("Dev container not found in map, treating as already deleted")
+		// Hydra may have restarted before it recovered a still-running container.
+		// Confirm absence in Docker before reporting a successful stop.
+		dockerClient, err := dm.getDockerClient("")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Docker client: %w", err)
+		}
+		defer dockerClient.Close()
+		if err := removeSessionContainers(ctx, dockerClient, sessionID); err != nil {
+			return nil, err
+		}
+		if isResourceID(sessionID, "ses_") {
+			if err := unmountInstanceDisk(ctx, sessionID); err != nil {
+				log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to unmount instance disk")
+			}
+		}
+		log.Info().Str("session_id", sessionID).Msg("Dev container removed or confirmed absent in Docker")
 		return &DevContainerResponse{
 			SessionID: sessionID,
 			Status:    DevContainerStatusStopped,
@@ -1854,8 +1961,15 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	}
 
 	// Remove container
-	if err := dockerClient.ContainerRemove(ctx, dc.ContainerID, container.RemoveOptions{Force: true}); err != nil {
-		log.Warn().Err(err).Str("container_id", dc.ContainerID).Msg("Failed to remove container")
+	if err := dockerClient.ContainerRemove(ctx, dc.ContainerID, container.RemoveOptions{Force: true}); err != nil && !client.IsErrNotFound(err) {
+		return nil, fmt.Errorf("remove container %s: %w", dc.ContainerID, err)
+	}
+	if isResourceID(sessionID, "ses_") {
+		// A stopped instance must not pin a loop device; the next start
+		// remounts its disk.
+		if err := unmountInstanceDisk(ctx, sessionID); err != nil {
+			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to unmount instance disk")
+		}
 	}
 
 	// Remove the per-session docker-data volume that was mounted at /var/lib/docker.
@@ -2012,6 +2126,11 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 	// GC orphaned ZFS zvols (sessions that no longer have running containers)
 	// and clean up old file-based golden dirs that have been migrated to zvols
 	if ZFSAvailable() {
+		// Before GC: an interrupted promotion's golden must be finished, not reaped.
+		if n := ReconcilePendingGoldenPromotions(); n > 0 {
+			log.Info().Int("completed", n).Msg("Completed pending golden promotions")
+		}
+
 		zvolsCleaned, err := GCOrphanedZvols(active)
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to GC orphaned zvols")
@@ -2037,7 +2156,7 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 // extra protection we UNION in the session IDs of currently-running containers
 // from hydra's in-memory map, so an in-flight session whose row hasn't been
 // observed by the API yet is never reaped.
-func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileResponse {
+func (dm *DevContainerManager) ReconcileGC(ctx context.Context, req GCReconcileRequest) GCReconcileResponse {
 	liveSessions := make(map[string]bool, len(req.LiveSessionIDs))
 	for _, id := range req.LiveSessionIDs {
 		liveSessions[id] = true
@@ -2091,6 +2210,12 @@ func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileRe
 	resp.FileCopyDirsReaped = fReaped
 	resp.FileCopyDirsSkipped = fSkipped
 
+	// Stopped containers and their docker-data volumes of dead sessions.
+	resp.ContainersReaped, resp.VolumesReaped = dm.reconcileOrphanDockerResources(ctx, liveSessions, grace, req.DryRun)
+
+	// Instance disks of dead sessions, after their containers are gone.
+	resp.InstanceDisksReaped, resp.InstanceDisksSkipped = ReconcileOrphanInstanceDisks(ctx, liveSessions, grace, req.DryRun)
+
 	if !req.DryRun {
 		// Prune golden snapshots the flatten just absorbed plus any other stale
 		// no-clone snapshots (>7d). Frees the old generations the dead session
@@ -2117,6 +2242,8 @@ func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileRe
 		Int("workspaces_skipped", len(resp.WorkspacesSkipped)).
 		Int("filecopy_dirs_reaped", len(resp.FileCopyDirsReaped)).
 		Int("filecopy_dirs_skipped", len(resp.FileCopyDirsSkipped)).
+		Int("instance_disks_reaped", len(resp.InstanceDisksReaped)).
+		Int("instance_disks_skipped", len(resp.InstanceDisksSkipped)).
 		Int("goldens_flattened", len(resp.GoldensFlattened)).
 		Int64("bytes_freed", resp.BytesFreed).
 		Msg("GC_RECONCILE completed")
@@ -2134,49 +2261,16 @@ func (dm *DevContainerManager) GetDevContainer(ctx context.Context, sessionID st
 		return nil, fmt.Errorf("dev container not found for session: %s", sessionID)
 	}
 
-	// Refresh status AND IP from Docker. The container's IP can change across
-	// a container restart; a stale cached IP causes "no route to host" 502s on
-	// the proxy path. Since the proxy calls GetDevContainer on every request,
-	// refreshing the IP here keeps routing correct without any retry logic.
-	var vcpus, memoryMB int
-	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
-	if err == nil {
-		defer dockerClient.Close()
-		inspect, err := dockerClient.ContainerInspect(ctx, dc.ContainerID)
-		if err == nil {
-			status := DevContainerStatusStopped
-			if inspect.State.Running {
-				status = DevContainerStatusRunning
-			}
-			ip := ""
-			for _, network := range inspect.NetworkSettings.Networks {
-				if network.IPAddress != "" {
-					ip = network.IPAddress
-					break
-				}
-			}
-			if ip == "" {
-				ip = inspect.NetworkSettings.IPAddress
-			}
-			dm.mu.Lock()
-			dc.Status = status
-			if ip != "" {
-				dc.IPAddress = ip
-			}
-			dm.mu.Unlock()
-			if inspect.HostConfig != nil {
-				vcpus = int(inspect.HostConfig.NanoCPUs / 1_000_000_000)
-				memoryMB = int(inspect.HostConfig.Memory / (1024 * 1024))
-			}
-		}
-	}
+	// Since the proxy calls GetDevContainer on every request, refreshing the
+	// status and IP here keeps routing correct without any retry logic.
+	status, ipAddress, vcpus, memoryMB := dm.inspectContainerState(ctx, dc)
 
 	return &DevContainerResponse{
 		SessionID:     dc.SessionID,
 		ContainerID:   dc.ContainerID,
 		ContainerName: dc.ContainerName,
-		Status:        dc.Status,
-		IPAddress:     dc.IPAddress,
+		Status:        status,
+		IPAddress:     ipAddress,
 		ContainerType: dc.ContainerType,
 		VCPUs:         vcpus,
 		MemoryMB:      memoryMB,
@@ -2245,19 +2339,36 @@ func (dm *DevContainerManager) UpdateDevContainerResources(ctx context.Context, 
 	}, nil
 }
 
-// ListDevContainers returns all active dev containers
-func (dm *DevContainerManager) ListDevContainers() *ListDevContainersResponse {
+// ListDevContainers returns all tracked dev containers with a status refreshed
+// from Docker.
+//
+// The cached `dc.Status` is only written when hydra itself stops a container
+// (StopDevContainer) or lazily by GetDevContainer. A container whose entrypoint
+// exits on its own — a workspace-setup FATAL, an OOM kill, a crashed compositor —
+// leaves the cached value at "running" indefinitely. The control plane treats
+// this list as its live-set when reconciling session status, so a stale
+// "running" here resurrects dead sessions and the UI shows a green "Sandbox
+// running" dot for a container that exited hours ago.
+//
+// One ContainerInspect per tracked container is local to the sandbox host and
+// cheap relative to the RevDial round-trip that carries the response.
+func (dm *DevContainerManager) ListDevContainers(ctx context.Context) *ListDevContainersResponse {
 	dm.mu.RLock()
-	defer dm.mu.RUnlock()
-
-	containers := make([]DevContainerResponse, 0, len(dm.containers))
+	tracked := make([]*DevContainer, 0, len(dm.containers))
 	for _, dc := range dm.containers {
+		tracked = append(tracked, dc)
+	}
+	dm.mu.RUnlock()
+
+	containers := make([]DevContainerResponse, 0, len(tracked))
+	for _, dc := range tracked {
+		status, ip, _, _ := dm.inspectContainerState(ctx, dc)
 		containers = append(containers, DevContainerResponse{
 			SessionID:     dc.SessionID,
 			ContainerID:   dc.ContainerID,
 			ContainerName: dc.ContainerName,
-			Status:        dc.Status,
-			IPAddress:     dc.IPAddress,
+			Status:        status,
+			IPAddress:     ip,
 			ContainerType: dc.ContainerType,
 		})
 	}
@@ -2265,6 +2376,57 @@ func (dm *DevContainerManager) ListDevContainers() *ListDevContainersResponse {
 	return &ListDevContainersResponse{
 		Containers: containers,
 	}
+}
+
+// inspectContainerState refreshes a tracked container's status and IP from
+// Docker and writes them back to the cached entry, also returning its current
+// cgroup limits. If Docker can't be reached or the container has been removed
+// the container is reported stopped — a container we cannot confirm is running
+// must never be advertised as running, because the control plane uses this to
+// decide whether a session is alive.
+//
+// The IP is refreshed because it can change across a container restart, and a
+// stale cached IP causes "no route to host" 502s on the proxy path.
+func (dm *DevContainerManager) inspectContainerState(ctx context.Context, dc *DevContainer) (status DevContainerStatus, ipAddress string, vcpus int, memoryMB int) {
+	// Default to stopped and only upgrade on a successful inspect that reports
+	// the container running. The write-back below therefore also clears a stale
+	// cached "running" when Docker is unreachable, so a caller reading dc.Status
+	// directly can't be handed a status we failed to confirm.
+	status = DevContainerStatusStopped
+	ip := ""
+
+	if dockerClient, err := dm.getDockerClient(dc.DockerSocket); err == nil {
+		defer dockerClient.Close()
+
+		if inspect, err := dockerClient.ContainerInspect(ctx, dc.ContainerID); err == nil {
+			if inspect.State.Running {
+				status = DevContainerStatusRunning
+			}
+			for _, network := range inspect.NetworkSettings.Networks {
+				if network.IPAddress != "" {
+					ip = network.IPAddress
+					break
+				}
+			}
+			if ip == "" {
+				ip = inspect.NetworkSettings.IPAddress
+			}
+			if inspect.HostConfig != nil {
+				vcpus = int(inspect.HostConfig.NanoCPUs / 1_000_000_000)
+				memoryMB = int(inspect.HostConfig.Memory / (1024 * 1024))
+			}
+		}
+	}
+
+	dm.mu.Lock()
+	dc.Status = status
+	if ip != "" {
+		dc.IPAddress = ip
+	}
+	ipAddress = dc.IPAddress
+	dm.mu.Unlock()
+
+	return status, ipAddress, vcpus, memoryMB
 }
 
 // FindDevContainerBySessionID finds a dev container by session ID
@@ -2319,14 +2481,50 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 			continue // not a Helix dev container
 		}
 
+		// Close the pre-upgrade egress bypass. Persistent web-service containers
+		// carry RestartPolicy=unless-stopped, so dockerd restores them RUNNING on
+		// the legacy bridge after any restart — a lifecycle event that never
+		// calls CreateDevContainer, so the network migration there never fires and
+		// they keep unrestricted egress to Postgres/control-plane forever. Migrate
+		// them here, live and non-destructively (connect+disconnect preserves the
+		// writable layer, unlike force-recreate). Only persistent containers are
+		// auto-restored like this; transient desktop sessions are left untouched
+		// to avoid disrupting a live stream. Failures are non-fatal.
+		migrated := false
+		if _, onIsolated := c.NetworkSettings.Networks[SandboxNetworkName]; !onIsolated && c.Labels[containerPersistentLabel] == "true" {
+			var legacyNets []string
+			for netName := range c.NetworkSettings.Networks {
+				legacyNets = append(legacyNets, netName)
+			}
+			if err := dm.migrateContainerToIsolatedNetwork(ctx, dockerClient, c.ID, legacyNets); err != nil {
+				log.Warn().Err(err).
+					Str("session_id", sessionID).
+					Str("container_id", c.ID[:12]).
+					Msg("Failed to migrate legacy persistent container onto isolated network; left on legacy bridge")
+			} else {
+				migrated = true
+				log.Info().
+					Str("session_id", sessionID).
+					Str("container_id", c.ID[:12]).
+					Msg("Migrated legacy persistent container onto isolated sandbox network")
+			}
+		}
+
 		// Get container IP (fresh from this list — survives container restarts).
+		// After a migration the summary's networks are stale, so re-inspect.
 		ipAddress := ""
-		for _, net := range c.NetworkSettings.Networks {
+		networks := c.NetworkSettings.Networks
+		if migrated {
+			if inspected, ierr := dockerClient.ContainerInspect(ctx, c.ID); ierr == nil {
+				networks = inspected.NetworkSettings.Networks
+			}
+		}
+		for _, net := range networks {
 			ipAddress = net.IPAddress
 			break
 		}
 
-		dc := &DevContainer{
+		dm.adoptRecoveredContainer(&DevContainer{
 			SessionID:     sessionID,
 			ContainerID:   c.ID,
 			ContainerName: name,
@@ -2335,21 +2533,9 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 			ContainerType: containerTypeForName(name),
 			CreatedAt:     time.Unix(c.Created, 0),
 			DockerSocket:  dockerSocket,
-		}
-
-		dm.mu.Lock()
-		dm.containers[sessionID] = dc
-		dm.mu.Unlock()
-
-		// Start streaming logs for recovered container
-		go dm.streamContainerLogs(context.Background(), c.ID, name, dockerSocket)
+		}, c.Labels)
 
 		recoveredCount++
-		log.Info().
-			Str("session_id", sessionID).
-			Str("container_id", c.ID[:12]).
-			Str("container_name", name).
-			Msg("Recovered dev container from Docker")
 	}
 
 	if recoveredCount > 0 {
@@ -2357,6 +2543,54 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 	}
 
 	return nil
+}
+
+// adoptRecoveredContainer tracks a dev container found running in Docker after
+// a Hydra restart. A golden build gets its result monitor back, so a build
+// that survived the restart is still detected, promoted and reported.
+func (dm *DevContainerManager) adoptRecoveredContainer(dc *DevContainer, labels map[string]string) {
+	if labels[containerGoldenBuildLabel] == "true" {
+		dc.IsGoldenBuild = true
+		dc.ProjectID = labels[containerProjectIDLabel]
+		deadline, err := time.Parse(time.RFC3339, labels[containerGoldenDeadlineLabel])
+		if err != nil {
+			log.Warn().Err(err).Str("session_id", dc.SessionID).
+				Msg("Recovered golden build has no valid deadline label, using the default timeout from its creation")
+			deadline = dc.CreatedAt.Add(types.GoldenBuildTimeout)
+		}
+		dc.GoldenBuildDeadline = deadline
+	}
+
+	dm.mu.Lock()
+	dm.containers[dc.SessionID] = dc
+	dm.mu.Unlock()
+
+	// Start streaming logs for recovered container
+	go dm.streamContainerLogs(context.Background(), dc.ContainerID, dc.ContainerName, dc.DockerSocket)
+
+	log.Info().
+		Str("session_id", dc.SessionID).
+		Str("container_id", shortID(dc.ContainerID)).
+		Str("container_name", dc.ContainerName).
+		Bool("golden_build", dc.IsGoldenBuild).
+		Msg("Recovered dev container from Docker")
+
+	if dc.IsGoldenBuild {
+		log.Info().
+			Str("session_id", dc.SessionID).
+			Str("project_id", dc.ProjectID).
+			Time("deadline", dc.GoldenBuildDeadline).
+			Msg("Resuming golden build monitor for recovered container")
+		go dm.monitorGoldenBuild(dc)
+	}
+}
+
+// shortID returns the 12-character prefix Docker uses for container IDs.
+func shortID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
 }
 
 // containerTypeForName infers a DevContainerType from a container name for
@@ -2479,34 +2713,9 @@ func (dm *DevContainerManager) streamContainerLogs(ctx context.Context, containe
 	log.Debug().Str("container", containerName).Msg("Stopped streaming container logs")
 }
 
-// GetBuildKitHost returns the BuildKit endpoint URL (e.g., "tcp://172.17.0.5:1234")
-// by querying the helix-buildkit container's IP address on the sandbox's main dockerd.
-// Returns empty string if BuildKit is not available.
-func GetBuildKitHost() string {
-	// Query helix-buildkit container IP using the sandbox's main Docker socket
-	// (not the per-session socket that dev containers use)
-	cmd := exec.Command("docker", "-H", "unix:///var/run/docker.sock",
-		"inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-		SharedBuildKitContainerName)
-	output, err := cmd.Output()
-	if err != nil {
-		log.Debug().Err(err).Msg("BuildKit container not found or not running")
-		return ""
-	}
-
-	ip := strings.TrimSpace(string(output))
-	if ip == "" {
-		log.Debug().Msg("BuildKit container has no IP address")
-		return ""
-	}
-
-	// BuildKit listens on TCP port 1234 (configured in setupSharedBuildKit)
-	return fmt.Sprintf("tcp://%s:1234", ip)
-}
-
-// GetRegistryHost returns the shared registry address (e.g., "10.213.0.5:5000")
-// by querying the helix-registry container's IP address on the sandbox's main dockerd.
-// Returns empty string if the registry is not available.
+// GetRegistryHost returns the shared registry address used by Hydra itself to
+// recover a missing desktop image. The address is deliberately not exposed to
+// session containers.
 func GetRegistryHost() string {
 	cmd := exec.Command("docker", "-H", "unix:///var/run/docker.sock",
 		"inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
@@ -2526,21 +2735,101 @@ func GetRegistryHost() string {
 	return fmt.Sprintf("%s:%s", ip, SharedRegistryPort)
 }
 
+// goldenBuildPollInterval is how often monitorGoldenBuild checks for the result file.
+var goldenBuildPollInterval = 5 * time.Second
+
+// goldenBuildTimeout returns how long Hydra waits for a golden build's result.
+// The API sends its own deadline so Hydra never kills a build the API is still
+// waiting on; older APIs that don't send one get the shared default.
+func goldenBuildTimeout(req *CreateDevContainerRequest) time.Duration {
+	if req.GoldenBuildTimeoutSeconds > 0 {
+		return time.Duration(req.GoldenBuildTimeoutSeconds) * time.Second
+	}
+	return types.GoldenBuildTimeout
+}
+
+// errGoldenBuildTimeout is returned by waitForGoldenBuildResult when the
+// deadline passes with no result.
+var errGoldenBuildTimeout = errors.New("golden build timed out")
+
+// waitForGoldenBuildResult polls paths (in order) every interval until one is
+// readable and returns its contents. It gives up with an error once timeout
+// elapses, or as soon as exited reports the build container has stopped
+// without writing a result — a dead build must not hold its data until the
+// (hours-long) deadline.
+func waitForGoldenBuildResult(timeout, interval time.Duration, exited func() (bool, string), paths ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	readResult := func() ([]byte, bool) {
+		for _, p := range paths {
+			if data, err := os.ReadFile(p); err == nil {
+				return data, true
+			}
+		}
+		return nil, false
+	}
+
+	// Poll for the result file. The workspace-setup script writes this after
+	// the startup script completes and dockerd is stopped.
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("%w: no result after %s", errGoldenBuildTimeout, timeout)
+		case <-ticker.C:
+			if data, ok := readResult(); ok {
+				return data, nil
+			}
+			if gone, reason := exited(); gone {
+				// It may have written the result just before exiting.
+				if data, ok := readResult(); ok {
+					return data, nil
+				}
+				return nil, fmt.Errorf("%s without writing a golden build result", reason)
+			}
+		}
+	}
+}
+
+// goldenBuildContainerExited reports whether a golden build's container has
+// stopped, and why. Inspect failures other than not-found are treated as
+// still running.
+func (dm *DevContainerManager) goldenBuildContainerExited(dc *DevContainer) (bool, string) {
+	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
+	if err != nil {
+		return false, ""
+	}
+	defer dockerClient.Close()
+	inspect, err := dockerClient.ContainerInspect(context.Background(), dc.ContainerID)
+	if err != nil {
+		if client.IsErrNotFound(err) {
+			return true, "build container was removed"
+		}
+		return false, ""
+	}
+	if inspect.State != nil && !inspect.State.Running && !inspect.State.Restarting {
+		return true, fmt.Sprintf("build container exited with code %d", inspect.State.ExitCode)
+	}
+	return false, ""
+}
+
 // monitorGoldenBuild watches a golden build container for the result signal file.
 // When helix-workspace-setup.sh (golden build mode) finishes the startup script,
 // it writes .golden-build-result and stops dockerd. Hydra detects the file,
 // promotes the Docker data if successful, and stops the container cleanly
 // via DeleteDevContainer.
 func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
-	buildStart := time.Now()
+	buildStart := dc.CreatedAt
+	timeout := time.Until(dc.GoldenBuildDeadline)
 	log.Info().
 		Str("session_id", dc.SessionID).
 		Str("project_id", dc.ProjectID).
 		Str("container_id", dc.ContainerID).
+		Dur("timeout", timeout).
 		Msg("Monitoring golden build container")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
 
 	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
 
@@ -2550,46 +2839,58 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	zvolResultFile := filepath.Join(zvolMountBase, dc.SessionID, ".golden-build-result")
 	fileCopyResultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
 
-	// Poll for the result file. The workspace-setup script writes this after
-	// the startup script completes and dockerd is stopped.
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	var resultData []byte
-	for {
-		select {
-		case <-ctx.Done():
-			buildDuration := time.Since(buildStart)
-			log.Error().
-				Str("session_id", dc.SessionID).
-				Str("project_id", dc.ProjectID).
-				Dur("build_duration", buildDuration).
-				Msg("Golden build: timed out waiting for result file (30 min)")
-			// Store timeout result so the API can query it
-			dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, false, "timeout", 0)
-			// Stop the container via the clean API
-			dm.DeleteDevContainer(context.Background(), dc.SessionID)
-			return
-
-		case <-ticker.C:
-			// Try ZFS zvol path first, then file-copy path
-			data, err := os.ReadFile(zvolResultFile)
-			if err != nil {
-				data, err = os.ReadFile(fileCopyResultFile)
-			}
-			if err != nil {
-				continue // File doesn't exist yet — build still running
-			}
-			resultData = data
-			goto done
+	exited := func() (bool, string) { return dm.goldenBuildContainerExited(dc) }
+	resultData, err := waitForGoldenBuildResult(timeout, goldenBuildPollInterval, exited, zvolResultFile, fileCopyResultFile)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", dc.SessionID).
+			Str("project_id", dc.ProjectID).
+			Dur("build_duration", time.Since(buildStart)).
+			Time("deadline", dc.GoldenBuildDeadline).
+			Msg("Golden build: no result file")
+		// Stop the container via the clean API, then drop its half-built data
+		dm.DeleteDevContainer(context.Background(), dc.SessionID)
+		discardGoldenBuildData(dc.SessionID)
+		exitCode := "exited"
+		if errors.Is(err, errGoldenBuildTimeout) {
+			exitCode = "timeout"
 		}
+		// Store the result so the API can query it
+		dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, false, exitCode, err.Error(), 0)
+		return
 	}
 
-done:
 	buildDuration := time.Since(buildStart)
-	result := strings.TrimSpace(string(resultData))
+	// Read before promotion: the zvol is renamed and unmounted by it.
+	buildKitStats := readGoldenBuildKitStats(filepath.Dir(zvolResultFile), filepath.Dir(fileCopyResultFile))
+	res := dm.completeGoldenBuild(dc, strings.TrimSpace(string(resultData)), buildDuration)
+
+	// Stop and clean up the container via the standard API.
+	// DeleteDevContainer handles: ContainerStop, ContainerRemove, VolumeRemove,
+	// and skips session Docker dir cleanup for golden builds.
+	dm.DeleteDevContainer(context.Background(), dc.SessionID)
+
+	// Structured summary log for golden build history tracking
+	addGoldenBuildKitStats(log.Info(), buildKitStats).
+		Str("session_id", dc.SessionID).
+		Str("project_id", dc.ProjectID).
+		Bool("succeeded", res.Success).
+		Str("exit_code", res.ExitCode).
+		Str("error", res.Error).
+		Dur("build_duration", buildDuration).
+		Int64("cache_size_bytes", res.CacheSizeBytes).
+		Msg("GOLDEN_BUILD_SUMMARY")
+}
+
+// completeGoldenBuild promotes (or discards) a finished golden build's Docker
+// data and stores the outcome for the API. result is the script's exit code
+// from the result file. A build whose script succeeded but whose promotion
+// failed is recorded as failed: the cache was not refreshed.
+func (dm *DevContainerManager) completeGoldenBuild(dc *DevContainer, result string, buildDuration time.Duration) *GoldenBuildResult {
+	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
 	buildSucceeded := result == "0"
 	var cacheSizeBytes int64
+	var buildErr string
 	log.Info().
 		Str("session_id", dc.SessionID).
 		Str("project_id", dc.ProjectID).
@@ -2627,6 +2928,9 @@ done:
 			log.Error().Err(promoteErr).
 				Str("project_id", dc.ProjectID).
 				Msg("Golden build: failed to promote session data")
+			// The script succeeded but the cache wasn't refreshed — that's a failed build.
+			buildSucceeded = false
+			buildErr = fmt.Sprintf("Golden cache promotion failed: %v", promoteErr)
 		} else {
 			// Purge container metadata from the golden cache to prevent
 			// workspace corruption on new sessions (containers have bind mounts
@@ -2651,45 +2955,37 @@ done:
 			Str("project_id", dc.ProjectID).
 			Dur("build_duration", buildDuration).
 			Msg("Golden build failed, not promoting")
-		// Clean up the failed session's Docker data
-		if ZFSAvailable() && zfsDatasetExists(sessionZvolName(dc.SessionID)) {
-			_ = CleanupSessionZvol(dc.SessionID)
-		} else {
-			_ = CleanupSessionDockerDir(dockerDataVolume)
-		}
+		discardGoldenBuildData(dc.SessionID)
 	}
 
 	// Store the result so the API can query it after the container is gone.
-	dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, buildSucceeded, result, cacheSizeBytes)
+	return dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, buildSucceeded, result, buildErr, cacheSizeBytes)
+}
 
-	// Stop and clean up the container via the standard API.
-	// DeleteDevContainer handles: ContainerStop, ContainerRemove, VolumeRemove,
-	// and skips session Docker dir cleanup for golden builds.
-	dm.DeleteDevContainer(context.Background(), dc.SessionID)
-
-	// Structured summary log for golden build history tracking
-	log.Info().
-		Str("session_id", dc.SessionID).
-		Str("project_id", dc.ProjectID).
-		Bool("succeeded", buildSucceeded).
-		Str("exit_code", result).
-		Dur("build_duration", buildDuration).
-		Int64("cache_size_bytes", cacheSizeBytes).
-		Msg("GOLDEN_BUILD_SUMMARY")
+// discardGoldenBuildData removes a failed golden build session's Docker data.
+func discardGoldenBuildData(sessionID string) {
+	if ZFSAvailable() && zfsDatasetExists(sessionZvolName(sessionID)) {
+		_ = CleanupSessionZvol(sessionID)
+	} else {
+		_ = CleanupSessionDockerDir(fmt.Sprintf("docker-data-%s", sessionID))
+	}
 }
 
 // storeGoldenBuildResult stores a golden build result for later querying by the API.
-func (dm *DevContainerManager) storeGoldenBuildResult(projectID, sessionID string, success bool, exitCode string, cacheSizeBytes int64) {
-	dm.goldenBuildResultsMu.Lock()
-	defer dm.goldenBuildResultsMu.Unlock()
-	dm.goldenBuildResults[projectID] = &GoldenBuildResult{
+func (dm *DevContainerManager) storeGoldenBuildResult(projectID, sessionID string, success bool, exitCode, errMsg string, cacheSizeBytes int64) *GoldenBuildResult {
+	res := &GoldenBuildResult{
 		ProjectID:      projectID,
 		SessionID:      sessionID,
 		Success:        success,
 		ExitCode:       exitCode,
+		Error:          errMsg,
 		CacheSizeBytes: cacheSizeBytes,
 		Timestamp:      time.Now(),
 	}
+	dm.goldenBuildResultsMu.Lock()
+	defer dm.goldenBuildResultsMu.Unlock()
+	dm.goldenBuildResults[projectID] = res
+	return res
 }
 
 // ContainerBlkioStats contains cumulative blkio write/read bytes for a container.

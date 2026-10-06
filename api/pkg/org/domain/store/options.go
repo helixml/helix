@@ -230,3 +230,9 @@ func WithOrg(orgID string) Option { return WithCondition("org_id", orgID) }
 // (`orgchart.NodeID`, `orgchart.NodeID`, …) via Stringer-style conversion at the
 // call site.
 func WithID(id any) Option { return WithCondition("id", id) }
+
+func WithWorkerID(id any) Option        { return WithCondition("worker_id", id) }
+func WithTriggerID(id string) Option    { return WithCondition("trigger_id", id) }
+func WithProcessorID(id any) Option     { return WithCondition("processor_id", id) }
+func WithOutputID(id string) Option     { return WithCondition("output_id", id) }
+func WithTransportKind(kind any) Option { return WithCondition("kind", kind) }

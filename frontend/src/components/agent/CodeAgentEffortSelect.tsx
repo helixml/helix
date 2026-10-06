@@ -32,8 +32,36 @@ export const CODEX_EFFORT_OPTIONS: ReadonlyArray<CodeAgentEffortOption> = [
   { value: 'ultra', label: 'Ultra', description: 'Deepest reasoning for supported models' },
 ]
 
-export const getCodeAgentEffortOptions = (runtime: string): ReadonlyArray<CodeAgentEffortOption> =>
-  runtime === 'claude_code' ? CLAUDE_CODE_EFFORT_OPTIONS : CODEX_EFFORT_OPTIONS
+/**
+ * Effort options for a code agent.
+ *
+ * `runtime` only decides which tiers the *harness* can express. The model
+ * decides which of them the provider will actually accept, and the two differ:
+ * qwen3.8-27b rejects `high` (the value this list used to offer unconditionally)
+ * while accepting `xhigh`. Sending a value the provider rejects is a hard 400
+ * that the agent retries and then aborts the turn on, so when the backend tells
+ * us what a model supports — `model.reasoning_efforts.supported`, see
+ * api/pkg/model/reasoning_efforts.go — narrow to that set.
+ *
+ * `supportedEfforts` undefined means "Helix has no profile for this model": keep
+ * the full runtime list rather than guessing a narrower one, since an empty
+ * selector would be worse than an occasionally-wrong option.
+ */
+export const getCodeAgentEffortOptions = (
+  runtime: string,
+  supportedEfforts?: readonly string[],
+): ReadonlyArray<CodeAgentEffortOption> => {
+  const runtimeOptions = runtime === 'claude_code' ? CLAUDE_CODE_EFFORT_OPTIONS : CODEX_EFFORT_OPTIONS
+  if (!supportedEfforts || supportedEfforts.length === 0) return runtimeOptions
+
+  const supported = new Set(supportedEfforts.map((effort) => effort.toLowerCase()))
+  // 'default' is not a provider value — it means "send nothing" — so it always
+  // survives the filter.
+  const narrowed = runtimeOptions.filter(
+    (option) => option.value === 'default' || supported.has(option.value),
+  )
+  return narrowed.length > 1 ? narrowed : runtimeOptions
+}
 
 export const CodeAgentEffortSelect: FC<{
   options: ReadonlyArray<CodeAgentEffortOption>

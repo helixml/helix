@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -85,6 +86,7 @@ type ProjectService interface {
 	// decrypted name→value map, read live. Backs list_secrets so a bot can
 	// pick up a secret added after its container booted.
 	ListProjectSecrets(ctx context.Context, projectID string) (map[string]string, error)
+	ListProjectSecretRecords(ctx context.Context, projectID string) ([]types.Secret, error)
 
 	// CreateGitRepo creates a Helix-internal git repository. Used when
 	// project-apply doesn't auto-create one.
@@ -341,15 +343,14 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 				}
 			}
 			if !existing.Metadata.OrgMembersAccess {
-				existing.Metadata.OrgMembersAccess = true
-				if _, err := a.Service.UpdateProject(ctx, state.ProjectID, types.ProjectUpdateRequest{Metadata: &existing.Metadata}); err != nil {
+				if _, err := a.Service.UpdateProject(ctx, state.ProjectID, enableOrgMembersAccessUpdate()); err != nil {
 					return "", "", "", fmt.Errorf("enable org member access to project %s for %s: %w", state.ProjectID, workerID, err)
 				}
 			}
-			// Runtime/model configuration is owned by the generated Helix app
-			// after initial provisioning. Do not re-apply the provisioning
-			// spec here: doing so would overwrite edits made through the app
-			// settings UI/API with worker.* defaults on every bot start.
+			// Runtime/model configuration is owned by the Org Bot after
+			// initial provisioning. Do not re-apply the provisioning spec here:
+			// doing so would overwrite per-agent edits with worker.* defaults on
+			// every bot start.
 			// Self-heal a deleted repo: the project is live but its repo may
 			// have been removed out-of-band. The project self-heals above (via
 			// ErrProjectNotFound); give the repo the same treatment so the
@@ -375,6 +376,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 				}
 			}
 			a.syncProjectRuntimeSecrets(ctx, state.ProjectID, workerID)
+			a.syncProjectCodeAgentConfig(ctx, state.ProjectID, bot.CodeAgentConfig, bot.AgentID, workerID)
 			return state.ProjectID, state.AgentID, repoID, nil
 		}
 	}
@@ -387,13 +389,20 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		return "", "", "", fmt.Errorf("get applied project %s for %s: %w", resp.ProjectID, workerID, err)
 	}
 	if !project.Metadata.OrgMembersAccess {
-		project.Metadata.OrgMembersAccess = true
-		project, err = a.Service.UpdateProject(ctx, resp.ProjectID, types.ProjectUpdateRequest{Metadata: &project.Metadata})
+		project, err = a.Service.UpdateProject(ctx, resp.ProjectID, enableOrgMembersAccessUpdate())
 		if err != nil {
 			return "", "", "", fmt.Errorf("enable org member access to project %s for %s: %w", resp.ProjectID, workerID, err)
 		}
 	}
 	a.syncProjectRuntimeSecrets(ctx, resp.ProjectID, workerID)
+	// A pre-cutover Bot may not have a materialized CodeAgentConfig yet. Keep
+	// the freshly provisioned App id as the compatibility fallback for that
+	// row; new Bots use their own persisted execution config.
+	freshAppID := resp.AgentAppID
+	if freshAppID == "" {
+		freshAppID = bot.AgentID
+	}
+	a.syncProjectCodeAgentConfig(ctx, resp.ProjectID, bot.CodeAgentConfig, freshAppID, workerID)
 	repoID = project.DefaultRepoID
 	// Helix's project-apply does NOT auto-create a default repo. We
 	// MUST create one and attach it as primary, because:
@@ -436,6 +445,85 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	return resp.ProjectID, resp.AgentAppID, repoID, nil
 }
 
+// syncProjectCodeAgentConfig keeps a Worker project's task defaults equal to
+// the Org Bot's own coding configuration. Legacy rows without a materialized
+// config temporarily fall back to their linked App during cutover.
+//
+// project.CodeAgentConfig is what a spec task inherits when it is created
+// without an explicit one, so it decides which harness the Bot's own work runs
+// on. It was previously written once at provisioning time from the applier's
+// worker.* defaults and never refreshed, so changing a Bot's harness in the
+// Bot settings left its project — and therefore every task it filed — on the
+// harness it was provisioned with. A Bot running opencode would keep creating
+// deepseek_harness tasks.
+//
+// Best-effort: a legacy Bot with neither a materialized config nor linked App,
+// an App with no coding assistant, or a failed write leaves the project as-is
+// and logs. Activation must not fail over a task default.
+func (a *WorkerProject) syncProjectCodeAgentConfig(ctx context.Context, projectID string, agentConfig *types.CodeAgentExecutionConfig, legacyAppID string, workerID orgchart.NodeID) {
+	if projectID == "" {
+		return
+	}
+	var desired *types.CodeAgentExecutionConfig
+	if agentConfig != nil {
+		copied := *agentConfig
+		copied.GooseRecipes = append([]types.AssistantGooseRecipe(nil), agentConfig.GooseRecipes...)
+		desired = &copied
+	} else {
+		if legacyAppID == "" {
+			return
+		}
+		app, err := a.Service.GetApp(ctx, legacyAppID)
+		if err != nil || app == nil {
+			if a.Logger != nil {
+				a.Logger.Warn("project applier: could not load legacy agent app for code-agent config sync", "worker", workerID, "app", legacyAppID, "err", err)
+			}
+			return
+		}
+		desired, err = external_agent.MaterializeCodeAgentConfig(app, nil)
+		if err != nil || desired == nil {
+			if a.Logger != nil {
+				a.Logger.Warn("project applier: legacy agent app has no coding assistant; leaving project task defaults unchanged", "worker", workerID, "app", legacyAppID, "err", err)
+			}
+			return
+		}
+	}
+	project, err := a.Service.GetProject(ctx, projectID)
+	if err != nil {
+		if a.Logger != nil {
+			a.Logger.Warn("project applier: could not read project for code-agent config sync", "worker", workerID, "project", projectID, "err", err)
+		}
+		return
+	}
+	if sameCodeAgentConfig(project.CodeAgentConfig, desired) {
+		return
+	}
+	if _, err := a.Service.UpdateProject(ctx, projectID, types.ProjectUpdateRequest{CodeAgentConfig: desired}); err != nil {
+		if a.Logger != nil {
+			a.Logger.Warn("project applier: failed to sync project task defaults from agent app", "worker", workerID, "project", projectID, "err", err)
+		}
+		return
+	}
+	if a.Logger != nil {
+		a.Logger.Info("project applier: synced project task defaults from agent app",
+			"worker", workerID, "project", projectID, "runtime", string(desired.Runtime), "model", desired.Model)
+	}
+}
+
+// sameCodeAgentConfig compares the fields that decide which agent a task runs
+// on. Only these are synced, so only these are compared — a difference in a
+// field this sync does not own must not cause a write loop.
+func sameCodeAgentConfig(current, desired *types.CodeAgentExecutionConfig) bool {
+	if current == nil || desired == nil {
+		return current == desired
+	}
+	return current.Runtime == desired.Runtime &&
+		current.CredentialType == desired.CredentialType &&
+		current.ProviderRef == desired.ProviderRef &&
+		current.Model == desired.Model &&
+		current.ReasoningEffort == desired.ReasoningEffort
+}
+
 func (a *WorkerProject) syncProjectRuntimeSecrets(ctx context.Context, projectID string, workerID orgchart.NodeID) {
 	if err := a.Service.DeleteProjectSecret(ctx, projectID, "HELIX_ORG_URL"); err != nil && a.Logger != nil {
 		a.Logger.Warn("delete legacy project secret HELIX_ORG_URL", "worker", workerID, "project", projectID, "err", err)
@@ -474,8 +562,9 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 	if ownerID == "" {
 		return "", fmt.Errorf("cannot create per-Worker repo — WhoAmI returned empty owner id (host wiring forgot to supply a service user?)")
 	}
+	repoName := fmt.Sprintf("%s-%s", workerID, projectID)
 	repo, err := a.Service.CreateGitRepo(ctx, types.GitRepositoryCreateRequest{
-		Name:           string(workerID),
+		Name:           repoName,
 		OwnerID:        ownerID,
 		OrganizationID: orgID,
 		InitialFiles: map[string]string{
@@ -491,11 +580,11 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 	// replica, which repoEnsureMu can't serialise) won the create race. Don't
 	// keep the duplicate: delete it and error, so the caller retries and the
 	// outer re-check picks up the winner's now-attached repo.
-	if repo.Name != string(workerID) {
+	if repo.Name != repoName {
 		if derr := a.Service.DeleteGitRepo(ctx, repo.ID); derr != nil && a.Logger != nil {
 			a.Logger.Warn("delete raced duplicate repo", "worker", workerID, "repo", repo.ID, "err", derr)
 		}
-		return "", fmt.Errorf("per-Worker repo %q already exists (create race); retrying", string(workerID))
+		return "", fmt.Errorf("per-Worker repo %q was created concurrently; retry activation", repoName)
 	}
 	if err := a.Service.AttachRepoToProject(ctx, projectID, repo.ID, true); err != nil {
 		// The repo was created but couldn't be attached — it's an orphan with
@@ -510,4 +599,11 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 		a.Logger.Info("helix repo created and attached", "worker", workerID, "repo", repo.ID)
 	}
 	return repo.ID, nil
+}
+
+// enableOrgMembersAccessUpdate turns on org member access without touching
+// any other project metadata (e.g. the user's auto-warm setting).
+func enableOrgMembersAccessUpdate() types.ProjectUpdateRequest {
+	enabled := true
+	return types.ProjectUpdateRequest{Metadata: &types.ProjectMetadataUpdate{OrgMembersAccess: &enabled}}
 }

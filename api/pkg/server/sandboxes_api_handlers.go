@@ -45,9 +45,19 @@ var sandboxTerminalUpgrader = websocket.Upgrader{
 // @Success 200 {object} map[string][]string
 // @Security ApiKeyAuth
 // @Router /api/v1/sandbox-runtimes [get]
-func (s *HelixAPIServer) listSandboxRuntimes(rw http.ResponseWriter, _ *http.Request) {
+func (s *HelixAPIServer) listSandboxRuntimes(rw http.ResponseWriter, r *http.Request) {
+	// A deployment with no display-capable sandbox host cannot run desktop
+	// runtimes at all. Report that alongside the names so callers can grey the
+	// option out rather than discovering it when creation is rejected.
+	hasDisplayHost, err := s.sandboxController.HasDisplayCapableHost(r.Context())
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to determine display-capable host availability; reporting desktop runtimes as available")
+		hasDisplayHost = true
+	}
 	writeJSON(rw, http.StatusOK, map[string]any{
-		"runtimes": s.sandboxController.Runtimes().Names(),
+		"runtimes":        s.sandboxController.Runtimes().Names(),
+		"runtime_details": s.sandboxController.Runtimes().Availability(hasDisplayHost),
+		"desktop_capable": hasDisplayHost,
 	})
 }
 
@@ -597,7 +607,7 @@ fi
 if command -v tmux >/dev/null 2>&1; then
   tmux has-session -t helix-` + session + ` 2>/dev/null || tmux new-session -d -s helix-` + session + newSessionWorkingDirectory + newSessionShell + `
   tmux set-option -t helix-` + session + ` status off
-  tmux set-option -t helix-` + session + ` mouse on
+  tmux set-option -t helix-` + session + ` mouse off
   exec tmux attach-session -d -t helix-` + session + `
 fi
 echo "tmux not available — falling back to bash (session will not persist across reconnects)" >&2

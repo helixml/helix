@@ -20,6 +20,7 @@ import Alert from '@mui/material/Alert'
 import { TeamsLogo } from '../icons/ProviderIcons'
 import DarkDialog from '../dialog/DarkDialog'
 import { IAppFlatState } from '../../types'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 interface SetupStep {
   step: number
@@ -124,7 +125,7 @@ const TriggerTeamsSetup: FC<TriggerTeamsSetupProps> = ({
 
   const handleCopyWebhookUrl = async () => {
     try {
-      await navigator.clipboard.writeText(webhookUrl)
+      await copyTextToClipboard(webhookUrl)
     } catch (err) {
       console.error('Failed to copy webhook URL:', err)
     }

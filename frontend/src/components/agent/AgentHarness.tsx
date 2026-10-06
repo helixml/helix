@@ -6,7 +6,9 @@ import useTheme from '@mui/material/styles/useTheme'
 import { Bot, Sparkles } from 'lucide-react'
 
 import OpenAILogo from '../providers/logos/openai'
+import deepSeekHarnessMark from '../../assets/harness/deepseek-harness.svg?no-inline'
 import gooseMark from '../../assets/harness/goose.svg?no-inline'
+import openCodeMark from '../../assets/harness/opencode.svg?no-inline'
 import qwenCodeMark from '../../assets/harness/qwen-code.svg?no-inline'
 import zedAgentMark from '../../assets/harness/zed-agent.svg'
 
@@ -23,13 +25,19 @@ const harnessMeta: Record<string, HarnessMeta> = {
   gemini_cli: { label: 'Gemini CLI', color: '#4285f4' },
   qwen_code: { label: 'Qwen Code', color: '#6d44e8' },
   goose_code: { label: 'Goose', color: '' },
+  deepseek_harness: { label: 'DeepSeek Runtime', color: '#4d6bfe' },
+  opencode: { label: 'opencode', color: '' },
   zed_agent: { label: 'Zed Agent', color: '' },
+  // An externally-driven Zed. Same mark, different label — it is not Helix's
+  // own agent turn.
+  zed_external: { label: 'External Agent', color: '' },
+  helix: { label: 'Helix', color: '' },
 }
 
 export const getAgentHarnessLabel = (runtime?: string): string => {
   if (!runtime) return 'Zed Agent'
   return harnessMeta[runtime]?.label
-    ?? runtime.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
+    ?? runtime.replace(/_harness$/, '_runtime').split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
 }
 
 type AgentHarnessSource = {
@@ -100,7 +108,9 @@ const HarnessMark: FC<{ runtime: string; size: number; color: string }> = ({ run
   if (runtime === 'gemini_cli') return <Sparkles size={size} color={color} aria-hidden="true" />
   if (runtime === 'qwen_code') return <MaskMark runtime={runtime} src={qwenCodeMark} size={size} color={color} />
   if (runtime === 'goose_code') return <MaskMark runtime={runtime} src={gooseMark} size={size} color={color} />
-  if (runtime === 'zed_agent') return <MaskMark runtime={runtime} src={zedAgentMark} size={size} color={color} />
+  if (runtime === 'opencode') return <MaskMark runtime={runtime} src={openCodeMark} size={size} color={color} />
+  if (runtime === 'deepseek_harness') return <MaskMark runtime={runtime} src={deepSeekHarnessMark} size={size} color={color} />
+  if (runtime === 'zed_agent' || runtime === 'zed_external') return <MaskMark runtime={runtime} src={zedAgentMark} size={size} color={color} />
   return <Bot size={size} color={color} aria-hidden="true" />
 }
 

@@ -257,6 +257,13 @@ const (
 	// are opt-in precisely so that existing ephemeral keys — which agent
 	// sandboxes rely on for broad API access — keep working unchanged.
 	APIkeytypeEmbed APIKeyType = "embed"
+	// APIkeytypeBotInstance is the key inside an org bot instance's sandbox.
+	// The instance works for untrusted end users and reads untrusted pages, so
+	// the key is restricted, fail-closed, to what the sandbox itself needs —
+	// its own session's plumbing, the LLM proxy, its profile's MCP servers and
+	// read-only git on its project's repositories (see botInstanceKeyAllows in
+	// auth_bot_instance_key.go).
+	APIkeytypeBotInstance APIKeyType = "bot_instance"
 )
 
 type DataEntityType string

@@ -169,10 +169,10 @@ type KoditGrepMeta struct {
 
 // KoditGrepResultDTO is the JSON representation of a grep result with links.
 type KoditGrepResultDTO struct {
-	Path     string                `json:"path"`
-	Language string                `json:"language"`
-	Matches  []KoditGrepMatchDTO   `json:"matches"`
-	Links    map[string]string     `json:"links"`
+	Path     string              `json:"path"`
+	Language string              `json:"language"`
+	Matches  []KoditGrepMatchDTO `json:"matches"`
+	Links    map[string]string   `json:"links"`
 }
 
 // KoditGrepMatchDTO is the JSON representation of a single grep match.
@@ -1376,7 +1376,6 @@ type KoditEnrichmentsMeta struct {
 	TotalPages     int    `json:"total_pages"`
 }
 
-
 // getKoditRepoEnrichments fetches enrichments by kodit repo ID directly.
 // Works for both git repo-backed and knowledge-backed kodit repositories.
 // @Summary Get enrichments by Kodit repo ID
@@ -1460,4 +1459,3 @@ func (apiServer *HelixAPIServer) getKoditRepoEnrichments(w http.ResponseWriter, 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
-

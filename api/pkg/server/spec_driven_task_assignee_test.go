@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
@@ -166,4 +167,53 @@ func (s *SpecTaskAssigneeSuite) TestStartPlanning_AssignsStarter() {
 	s.Equal(http.StatusOK, rr.Code)
 	s.Equal(starterID, task.AssigneeID)
 	s.Equal(starterID, task.PlanningStartedBy)
+}
+
+func (s *SpecTaskAssigneeSuite) TestStartPlanning_RetryReleasesFailedLaunchSession() {
+	const (
+		starterID = "user_starter"
+		projectID = "project1"
+		taskID    = "task1"
+		sessionID = "session_failed_launch"
+	)
+
+	task := &types.SpecTask{
+		ID:                taskID,
+		ProjectID:         projectID,
+		Status:            types.TaskStatusBacklog,
+		JustDoItMode:      true,
+		PlanningSessionID: sessionID,
+		ExternalAgentID:   "agent_failed_launch",
+		ZedInstanceID:     "zed_failed_launch",
+		Metadata: map[string]interface{}{
+			"error": "failed to sync base branch",
+		},
+	}
+	project := &types.Project{ID: projectID, UserID: starterID}
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+
+	s.store.EXPECT().GetSpecTask(gomock.Any(), taskID).Return(task, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(project, nil).Times(3)
+	executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(nil)
+	s.store.EXPECT().ReapWaitingInteractions(gomock.Any(), sessionID, types.InteractionStateInterrupted, "retrying failed spec task").Return(nil, nil)
+	s.store.EXPECT().UpdateSpecTask(gomock.Any(), task).DoAndReturn(
+		func(_ context.Context, updated *types.SpecTask) error {
+			s.Equal(types.TaskStatusQueuedImplementation, updated.Status)
+			s.Empty(updated.PlanningSessionID)
+			s.Empty(updated.ExternalAgentID)
+			s.Empty(updated.ZedInstanceID)
+			return nil
+		},
+	)
+	s.store.EXPECT().DeleteSession(gomock.Any(), sessionID).Return(&types.Session{ID: sessionID}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/"+taskID+"/start-planning", nil)
+	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID}))
+	rr := httptest.NewRecorder()
+
+	s.server.startPlanning(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
 }

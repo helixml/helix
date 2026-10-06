@@ -61,9 +61,9 @@ func TestServerAssetE2E(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var agents []orgapi.BotDTO
-	assetE2ERequest(t, ownerKey, http.MethodGet, "/api/v1/orgs/"+organization.Name+"/agents", nil, http.StatusOK, &agents)
-	require.Contains(t, agentIDs(agents), "chief-of-staff")
+	var bots []orgapi.BotDTO
+	assetE2ERequest(t, ownerKey, http.MethodGet, "/api/v1/orgs/"+organization.Name+"/bots", nil, http.StatusOK, &bots)
+	require.Contains(t, botIDs(bots), "chief-of-staff")
 
 	sshServer := startAssetE2ESSHServer(t, "ubuntu")
 	host, rawPort, err := net.SplitHostPort(sshServer.address())
@@ -72,7 +72,7 @@ func TestServerAssetE2E(t *testing.T) {
 	require.NoError(t, err)
 
 	createRequest := orgapi.CreateAssetRequest{
-		Name: "ci-server", Description: "CI asset server", NotesForAgents: "Use only the integration-test workspace.",
+		Name: "ci-server", Description: "CI asset server", NotesForBots: "Use only the integration-test workspace.",
 		Kind: asset.KindServer,
 		Server: &orgapi.ServerAssetWriteRequest{
 			Address: host, Port: uint16(port), User: "ubuntu", AuthType: asset.AuthSSHKey,
@@ -97,17 +97,17 @@ func TestServerAssetE2E(t *testing.T) {
 	require.True(t, health.SSHReachable, health.Error)
 
 	description := "Updated without losing server credentials"
-	notes := "Visible to the linked agent through MCP."
+	notes := "Visible to the linked Bot through MCP."
 	var updated orgapi.AssetDTO
 	assetE2ERequest(t, ownerKey, http.MethodPatch, assetItemPath(organization.Name, created.ID), orgapi.UpdateAssetRequest{
-		Description: &description, NotesForAgents: &notes,
+		Description: &description, NotesForBots: &notes,
 	}, http.StatusOK, &updated)
 	require.Equal(t, host, updated.Server.Address)
 	require.Equal(t, uint16(port), updated.Server.Port)
 	require.NotEmpty(t, updated.Server.HostKeyFingerprint)
 
 	assetE2ERequest(t, ownerKey, http.MethodPost, assetItemPath(organization.Name, created.ID)+"/links", orgapi.AssetLinkRequest{
-		AgentID: "chief-of-staff",
+		BotID: "chief-of-staff",
 	}, http.StatusCreated, nil)
 
 	sessionKey := createAssetE2ESessionKey(t, db, owner, organization.ID, "chief-of-staff")
@@ -123,10 +123,10 @@ func TestServerAssetE2E(t *testing.T) {
 
 	var discovered struct {
 		Assets []struct {
-			Name           string `json:"name"`
-			Description    string `json:"description"`
-			NotesForAgents string `json:"notes_for_agents"`
-			Server         struct {
+			Name         string `json:"name"`
+			Description  string `json:"description"`
+			NotesForBots string `json:"notes_for_bots"`
+			Server       struct {
 				Capabilities []string `json:"capabilities"`
 				SSHAccess    struct {
 					Available bool   `json:"available"`
@@ -138,7 +138,7 @@ func TestServerAssetE2E(t *testing.T) {
 	callAssetE2ETool(t, mcpSession, "list_assets", map[string]any{}, &discovered)
 	require.Len(t, discovered.Assets, 1)
 	require.Equal(t, description, discovered.Assets[0].Description)
-	require.Equal(t, notes, discovered.Assets[0].NotesForAgents)
+	require.Equal(t, notes, discovered.Assets[0].NotesForBots)
 	require.ElementsMatch(t, []string{"run_commands", "manage_detached_commands", "read_write_files", "ssh_via_helix_proxy"}, discovered.Assets[0].Server.Capabilities)
 	require.True(t, discovered.Assets[0].Server.SSHAccess.Available)
 	require.Equal(t, "server_ssh_access", discovered.Assets[0].Server.SSHAccess.Tool)
@@ -337,9 +337,9 @@ func mcpToolNames(tools []*mcp.Tool) []string {
 	return names
 }
 
-func agentIDs(agents []orgapi.BotDTO) []string {
-	ids := make([]string, 0, len(agents))
-	for _, value := range agents {
+func botIDs(bots []orgapi.BotDTO) []string {
+	ids := make([]string, 0, len(bots))
+	for _, value := range bots {
 		ids = append(ids, value.ID)
 	}
 	return ids

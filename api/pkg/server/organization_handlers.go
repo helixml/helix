@@ -198,13 +198,25 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 
 	organization, err := apiServer.lookupOrg(r.Context(), reference)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "Organization not found: "+reference, http.StatusNotFound)
+			return
+		}
 		log.Err(err).Msg("error getting organization")
 		http.Error(rw, "Could not get organization: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if _, err := apiServer.authorizeOrgMember(r.Context(), user, organization.ID); err != nil {
-		log.Err(err).Msg("error authorizing org member")
+		// Only a missing membership row is a permission answer. Any other
+		// store error (connection failure, timeout) is a server fault, and
+		// reporting it as 403 is actively harmful: the frontend treats 403 as
+		// permanent and evicts the user from an org they can fully access.
+		if !errors.Is(err, store.ErrNotFound) {
+			log.Err(err).Msg("error checking org membership")
+			http.Error(rw, "Could not check org membership: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
 		return
 	}
@@ -335,7 +347,7 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 		// Tell the creator their Chief of Staff is coming online, so a brand-new
 		// org isn't a silent wait while the agent boots before it asks its first
 		// question. Informational (no reply) — best-effort.
-		if err := (humanInbox{store: apiServer.Store}).NotifyInfo(ctx, createdOrg.ID, user.ID, string(chiefOfStaffBotID),
+		if err := (orgMemberNotifier{store: apiServer.Store}).NotifyInfo(ctx, createdOrg.ID, user.ID, string(chiefOfStaffBotID),
 			"Chief of Staff is starting up",
 			"I'm coming online now and setting things up. I'll reach out with a few questions once I'm ready — no action needed yet."); err != nil {
 			log.Warn().Err(err).Str("org_id", createdOrg.ID).Msg("notify chief-of-staff starting-up failed")
@@ -432,9 +444,26 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	// the rows that track them. DeleteOrganization only removes DB rows; the
 	// containers are owned by the sessions (which it does not delete), so
 	// without this they linger until the desktop idle reaper stops them
-	// (HELIX_DESKTOP_IDLE_TIMEOUT, default 1h). Best-effort: the reaper is the
-	// backstop, so a teardown failure must not block the org delete.
-	apiServer.stopOrgDesktops(r.Context(), orgID)
+	// (HELIX_DESKTOP_IDLE_TIMEOUT, default 1h).
+	if err := apiServer.stopOrgDesktops(r.Context(), orgID); err != nil {
+		http.Error(rw, "Could not stop organization desktops: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Public artifacts remain independently addressable, so deleting only the
+	// project rows would orphan live content. Remove every artifact route and
+	// blob owned by the organization before deleting its database graph.
+	artifacts, err := apiServer.Store.ListArtifacts(r.Context(), &store.ListArtifactsQuery{OrganizationID: orgID})
+	if err != nil {
+		http.Error(rw, "Could not list organization artifacts: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, artifact := range artifacts {
+		if err := apiServer.deleteArtifactResources(r.Context(), artifact); err != nil {
+			http.Error(rw, "Could not delete organization artifact: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 
 	err = apiServer.Store.DeleteOrganization(r.Context(), orgID)
 	if err != nil {
@@ -448,28 +477,27 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 
 // stopOrgDesktops stops and soft-deletes every running external-agent desktop
 // session in the org. Called on org delete so spec-task sandboxes are torn down
-// promptly instead of waiting for the idle reaper. Best-effort throughout —
-// every failure is logged and skipped; the idle reaper remains the backstop.
-func (apiServer *HelixAPIServer) stopOrgDesktops(ctx context.Context, orgID string) {
+// promptly instead of waiting for the idle reaper.
+func (apiServer *HelixAPIServer) stopOrgDesktops(ctx context.Context, orgID string) error {
 	sessions, _, err := apiServer.Store.ListSessions(ctx, store.ListSessionsQuery{
 		OrganizationID:        orgID,
 		IncludeExternalAgents: true,
 	})
 	if err != nil {
-		log.Warn().Err(err).Str("org_id", orgID).Msg("org delete: could not list sessions for desktop teardown; idle reaper will clean up")
-		return
+		return fmt.Errorf("list organization desktops: %w", err)
 	}
 	for _, session := range sessions {
 		if session.Metadata.DevContainerID == "" {
 			continue
 		}
 		if err := apiServer.externalAgentExecutor.StopDesktop(ctx, session.ID); err != nil {
-			log.Warn().Err(err).Str("org_id", orgID).Str("session_id", session.ID).Msg("org delete: failed to stop desktop; idle reaper will clean up")
+			return fmt.Errorf("stop desktop %s: %w", session.ID, err)
 		}
 		if _, err := apiServer.Store.DeleteSession(ctx, session.ID); err != nil {
-			log.Warn().Err(err).Str("org_id", orgID).Str("session_id", session.ID).Msg("org delete: failed to soft-delete desktop session")
+			return fmt.Errorf("delete desktop session %s: %w", session.ID, err)
 		}
 	}
+	return nil
 }
 
 // updateOrganization godoc

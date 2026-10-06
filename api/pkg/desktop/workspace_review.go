@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
+	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -171,9 +173,18 @@ func (s *Server) handleWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	workDir, workspace, err := resolveReviewWorkspace(r.URL.Query().Get("workspace"))
+	workDir, workspace, workRoot, err := resolveWorkspaceBrowseRoot(r.URL.Query().Get("root"), r.URL.Query().Get("workspace"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if workRoot {
+		entries, truncated, err := listSessionWorkRoot(workDir)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("list session work root: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, types.WorkspaceFilesResponse{Workspace: workspace, Entries: entries, Truncated: truncated})
 		return
 	}
 	// listTruncated matters: a workspace whose path listing exceeds the output
@@ -228,6 +239,10 @@ func (s *Server) handleWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut {
+		s.handleWorkspaceFileWrite(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -256,6 +271,200 @@ func (s *Server) handleWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 		Workspace: workspace, Path: rel, Contents: content, ByteLength: size,
 		ContentHash: hashString(content), Truncated: truncated, Binary: binary,
 	})
+}
+
+func (s *Server) handleWorkspaceFileDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	workDir, _, workRoot, err := resolveWorkspaceBrowseRoot(r.URL.Query().Get("root"), r.URL.Query().Get("workspace"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	resolved, rel, err := resolveWorkspaceFile(workDir, r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !workRoot && !workspaceFileIsBrowsable(r.Context(), workDir, rel) {
+		http.Error(w, "path is not a browsable workspace file", http.StatusBadRequest)
+		return
+	}
+	file, err := os.Open(resolved)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("open workspace file: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		http.Error(w, "path is not a regular file", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(rel)}))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, filepath.Base(rel), info.ModTime(), file)
+}
+
+func resolveWorkspaceBrowseRoot(rootMode, workspace string) (string, string, bool, error) {
+	if rootMode == "" {
+		workDir, resolvedWorkspace, err := resolveReviewWorkspace(workspace)
+		return workDir, resolvedWorkspace, false, err
+	}
+	if rootMode != "work" {
+		return "", "", false, fmt.Errorf("unknown workspace root %q", rootMode)
+	}
+	if workspace != "" {
+		return "", "", false, fmt.Errorf("workspace and root cannot be combined")
+	}
+	workDir := findAgentWorkspaceRoot()
+	if workDir == "" {
+		return "", "", false, fmt.Errorf("session work root not found")
+	}
+	return workDir, "work", true, nil
+}
+
+func listSessionWorkRoot(workDir string) ([]types.WorkspaceFileEntry, bool, error) {
+	entries := make([]types.WorkspaceFileEntry, 0)
+	truncated := false
+	err := filepath.WalkDir(workDir, func(pathValue string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if pathValue == workDir {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Name() == ".git" {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if len(entries) >= workspaceTreeEntryLimit {
+			truncated = true
+			return fs.SkipAll
+		}
+		rel, err := filepath.Rel(workDir, pathValue)
+		if err != nil {
+			return err
+		}
+		kind := "file"
+		var size int64
+		if entry.IsDir() {
+			kind = "directory"
+		} else {
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if !info.Mode().IsRegular() {
+				return nil
+			}
+			size = info.Size()
+		}
+		entries = append(entries, types.WorkspaceFileEntry{Path: filepath.ToSlash(rel), Kind: kind, Size: size})
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries, truncated, nil
+}
+
+func (s *Server) handleWorkspaceFileWrite(w http.ResponseWriter, r *http.Request) {
+	var request types.WorkspaceFileWriteRequest
+	decoder := json.NewDecoder(io.LimitReader(r.Body, int64(workspaceFileLimit*8)))
+	if err := decoder.Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if len(request.Contents) > workspaceFileLimit {
+		http.Error(w, "file exceeds the editable size limit", http.StatusRequestEntityTooLarge)
+		return
+	}
+	if request.ExpectedContentHash == "" {
+		http.Error(w, "expected_content_hash is required", http.StatusBadRequest)
+		return
+	}
+
+	workDir, workspace, err := resolveReviewWorkspace(request.Workspace)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	resolved, rel, err := resolveWorkspaceFile(workDir, request.Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !workspaceFileIsBrowsable(r.Context(), workDir, rel) {
+		http.Error(w, "path is not an editable workspace file", http.StatusBadRequest)
+		return
+	}
+	currentContents, _, truncated, binary, err := readBoundedFile(resolved, workspaceFileLimit)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("read workspace file before write: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if truncated || binary {
+		http.Error(w, "file is not editable", http.StatusBadRequest)
+		return
+	}
+	if hashString(currentContents) != request.ExpectedContentHash {
+		http.Error(w, "workspace file changed since it was opened", http.StatusConflict)
+		return
+	}
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("stat workspace file: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := replaceWorkspaceFile(resolved, []byte(request.Contents), info.Mode().Perm()); err != nil {
+		http.Error(w, fmt.Sprintf("write workspace file: %v", err), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, types.WorkspaceFileResponse{
+		Workspace:   workspace,
+		Path:        rel,
+		Contents:    request.Contents,
+		ByteLength:  int64(len(request.Contents)),
+		ContentHash: hashString(request.Contents),
+	})
+}
+
+func replaceWorkspaceFile(pathValue string, contents []byte, mode os.FileMode) error {
+	temporary, err := os.CreateTemp(filepath.Dir(pathValue), ".helix-file-edit-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer func() { _ = os.Remove(temporaryPath) }()
+	if err := temporary.Chmod(mode); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(contents); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, pathValue)
 }
 
 type workspaceSkillFrontmatter struct {
@@ -533,13 +742,23 @@ func resolveReviewWorkspace(name string) (string, string, error) {
 
 func resolveReviewBaseBranch(ctx context.Context, workDir, base string) string {
 	candidates := []string{base}
-	if !strings.HasPrefix(base, "origin/") {
-		candidates = append(candidates, "origin/"+base)
+	if base != "HEAD" && !strings.HasPrefix(base, "origin/") && !strings.HasPrefix(base, "refs/") {
+		baseArg, err := validateReviewRef(base)
+		resolved := ""
+		if err == nil {
+			resolved, err = gitText(ctx, workDir,
+				constGitArg("rev-parse"), constGitArg("--symbolic-full-name"), baseArg)
+		}
+		if err == nil && strings.TrimSpace(resolved) == "refs/heads/"+base {
+			candidates = []string{"origin/" + base, base}
+		} else {
+			candidates = append(candidates, "origin/"+base)
+		}
 	}
 	if base == "main" {
-		candidates = append(candidates, "master", "origin/master")
+		candidates = append(candidates, "origin/master", "master")
 	} else if base == "master" {
-		candidates = append(candidates, "main", "origin/main")
+		candidates = append(candidates, "origin/main", "main")
 	}
 	for _, candidate := range candidates {
 		arg, err := validateReviewRef(candidate)

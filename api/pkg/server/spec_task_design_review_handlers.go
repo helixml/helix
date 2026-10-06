@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -245,6 +246,243 @@ func (s *HelixAPIServer) getDesignReview(w http.ResponseWriter, r *http.Request)
 	w.Write(jsonBytes) //nolint:errcheck
 }
 
+var errDesignReviewDocumentChanged = errors.New("design review document changed since editing started")
+
+func designReviewDocumentFilename(documentType string) (string, error) {
+	switch documentType {
+	case "requirements":
+		return "requirements.md", nil
+	case "technical_design":
+		return "design.md", nil
+	case "implementation_plan":
+		return "tasks.md", nil
+	default:
+		return "", fmt.Errorf("unsupported document type %q", documentType)
+	}
+}
+
+func setDesignReviewDocumentContent(review *types.SpecTaskDesignReview, task *types.SpecTask, documentType, content string) {
+	switch documentType {
+	case "requirements":
+		review.RequirementsSpec = content
+		task.RequirementsSpec = content
+		if title := services.SpecTitleFromRequirements(content); title != "" {
+			task.Name = title
+		}
+	case "technical_design":
+		review.TechnicalDesign = content
+		task.TechnicalDesign = content
+	case "implementation_plan":
+		review.ImplementationPlan = content
+		task.ImplementationPlan = content
+	}
+}
+
+func designReviewDocumentUpdates(documentType, content string) (map[string]any, map[string]any) {
+	reviewUpdates := map[string]any{}
+	taskUpdates := map[string]any{}
+	switch documentType {
+	case "requirements":
+		reviewUpdates["requirements_spec"] = content
+		taskUpdates["requirements_spec"] = content
+		if title := services.SpecTitleFromRequirements(content); title != "" {
+			taskUpdates["name"] = title
+		}
+	case "technical_design":
+		reviewUpdates["technical_design"] = content
+		taskUpdates["technical_design"] = content
+	case "implementation_plan":
+		reviewUpdates["implementation_plan"] = content
+		taskUpdates["implementation_plan"] = content
+	}
+	return reviewUpdates, taskUpdates
+}
+
+// updateDesignReviewDocument persists a reviewer edit to the canonical
+// helix-specs file and refreshes both database snapshots.
+// @Summary Update a design review document
+// @Description Update one Markdown design document with optimistic concurrency
+// @Tags SpecTasks
+// @Accept json
+// @Produce json
+// @Param spec_task_id path string true "Spec Task ID"
+// @Param review_id path string true "Design Review ID"
+// @Param request body types.SpecTaskDesignReviewDocumentUpdateRequest true "Document edit"
+// @Success 200 {object} types.SpecTaskDesignReview
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 409 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/document [put]
+// @Security BearerAuth
+func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	specTaskID := vars["spec_task_id"]
+	reviewID := vars["review_id"]
+
+	var req types.SpecTaskDesignReviewDocumentUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+	filename, err := designReviewDocumentFilename(req.DocumentType)
+	if err != nil || req.OriginalContent == nil || strings.TrimSpace(req.Content) == "" {
+		http.Error(w, "document_type, non-empty content, and original_content are required", http.StatusBadRequest)
+		return
+	}
+
+	task, err := s.Store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if user.ID != task.CreatedBy {
+		if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	review, err := s.Store.GetSpecTaskDesignReview(ctx, reviewID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if review.SpecTaskID != task.ID {
+		http.Error(w, "design review does not belong to spec task", http.StatusBadRequest)
+		return
+	}
+	if review.Status == types.SpecTaskDesignReviewStatusApproved || review.Status == types.SpecTaskDesignReviewStatusSuperseded {
+		http.Error(w, "approved or superseded design reviews cannot be edited", http.StatusConflict)
+		return
+	}
+
+	project, err := s.Store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if project.DefaultRepoID == "" {
+		http.Error(w, "project has no primary repository", http.StatusBadRequest)
+		return
+	}
+	repo, err := s.gitRepositoryService.GetRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get primary repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	var taskDir string
+	if task.DesignDocPath != "" {
+		taskDir = "design/tasks/" + task.DesignDocPath
+	} else {
+		gitRepo, openErr := services.OpenGitRepo(repo.LocalPath)
+		if openErr != nil {
+			http.Error(w, fmt.Sprintf("failed to open primary repository: %s", openErr.Error()), http.StatusInternalServerError)
+			return
+		}
+		defer gitRepo.Close()
+		taskDir, err = gitRepo.FindTaskDirInBranch(services.SpecsBranchName, "", task.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	documentPath := taskDir + "/" + filename
+	commitHash := review.GitCommitHash
+
+	writeDocument := func() error {
+		currentContent, readErr := s.gitRepositoryService.GetFileContents(ctx, repo.ID, documentPath, services.SpecsBranchName)
+		if readErr != nil {
+			return fmt.Errorf("failed to read current document: %w", readErr)
+		}
+		if currentContent != *req.OriginalContent {
+			return errDesignReviewDocumentChanged
+		}
+		if currentContent == req.Content {
+			var hashErr error
+			commitHash, hashErr = s.gitRepositoryService.GetLocalBranchSHA(ctx, repo.ID, services.SpecsBranchName)
+			return hashErr
+		}
+
+		commitMessage := fmt.Sprintf("docs(specs): update %s from review", filename)
+		var writeErr error
+		commitHash, writeErr = s.gitRepositoryService.CreateOrUpdateFileContents(
+			ctx,
+			repo.ID,
+			documentPath,
+			services.SpecsBranchName,
+			[]byte(req.Content),
+			commitMessage,
+			user.GitAuthorName(),
+			user.GitAuthorEmail(),
+		)
+		return writeErr
+	}
+
+	if repo.IsExternal && repo.ExternalURL != "" {
+		err = s.gitRepositoryService.WithExternalRepoWrite(ctx, repo, services.ExternalRepoWriteOptions{
+			Branch:          services.SpecsBranchName,
+			FailOnSyncError: true,
+			FailOnPushError: true,
+		}, writeDocument)
+	} else {
+		err = s.gitRepositoryService.WithRepoLock(repo.ID, writeDocument)
+	}
+	if errors.Is(err, errDesignReviewDocumentChanged) {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to update design document: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	// Git writes can take seconds. Re-read both rows, revalidate ownership and
+	// editability, then update only document-owned columns.
+	task, err = s.Store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	review, err = s.Store.GetSpecTaskDesignReview(ctx, reviewID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if review.SpecTaskID != task.ID {
+		http.Error(w, "design review does not belong to spec task", http.StatusBadRequest)
+		return
+	}
+	if review.Status == types.SpecTaskDesignReviewStatusApproved || review.Status == types.SpecTaskDesignReviewStatusSuperseded {
+		http.Error(w, "approved or superseded design reviews cannot be edited", http.StatusConflict)
+		return
+	}
+
+	now := time.Now()
+	reviewUpdates, taskUpdates := designReviewDocumentUpdates(req.DocumentType, req.Content)
+	reviewUpdates["git_branch"] = services.SpecsBranchName
+	reviewUpdates["git_commit_hash"] = commitHash
+	reviewUpdates["git_pushed_at"] = now
+	if err := s.Store.UpdateSpecTaskDesignReviewDocument(ctx, review.ID, task.ID, reviewUpdates, taskUpdates); err != nil {
+		if errors.Is(err, store.ErrSpecTaskDesignReviewNotEditable) {
+			http.Error(w, "approved or superseded design reviews cannot be edited", http.StatusConflict)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	setDesignReviewDocumentContent(review, task, req.DocumentType, req.Content)
+	review.GitBranch = services.SpecsBranchName
+	review.GitCommitHash = commitHash
+	review.GitPushedAt = now
+	review.UpdatedAt = now
+
+	writeResponse(w, review, http.StatusOK)
+}
+
 // submitDesignReview approves or requests changes for a design review
 // @Summary Submit design review decision
 // @Description Approve or request changes for a design review
@@ -305,7 +543,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 	switch req.Decision {
 	case "approve":
-		if review.Status == types.SpecTaskDesignReviewStatusApproved {
+		if review.Status == types.SpecTaskDesignReviewStatusApproved && specTask.Status == types.TaskStatusImplementation {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(review)
 			return
@@ -318,6 +556,17 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 		switch specTask.Status {
 		case types.TaskStatusSpecReview, types.TaskStatusSpecRevision, types.TaskStatusSpecGeneration:
+			if reason, validationErr := s.validateSpecTaskAgentConfig(ctx, specTask, user.ID, types.SpecTaskPhaseImplementation); validationErr != nil {
+				http.Error(w, validationErr.Error(), http.StatusInternalServerError)
+				return
+			} else if reason != "" {
+				writeResponse(w, map[string]interface{}{
+					"error":   "agent_config_invalid",
+					"message": reason,
+				}, http.StatusUnprocessableEntity)
+				return
+			}
+
 			// Before advancing to implementation, validate the approver has
 			// provider OAuth so their credentials can be used for commits and
 			// push. Mirrors the check in approveSpecs/approveImplementation —
@@ -363,17 +612,25 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 				s.auditLogService.LogTaskApproved(ctx, specTask, user.ID, user.Email)
 			}
 
-			s.wg.Add(1)
-			go func() {
-				defer s.wg.Done()
-				if err := s.specDrivenTaskService.ApproveSpecs(context.Background(), specTask); err != nil {
-					log.Error().
-						Err(err).
-						Str("spec_task_id", specTask.ID).
-						Str("review_id", review.ID).
-						Msg("[DesignReview] Failed to process spec approval (orchestrator will retry)")
+			if err := s.specDrivenTaskService.ApproveSpecs(ctx, specTask); err != nil {
+				if errors.Is(err, services.ErrImplementationHandoffAlreadyClaimed) {
+					http.Error(w, err.Error(), http.StatusConflict)
+					return
 				}
-			}()
+				s.persistSpecApprovalError(ctx, specTask.ID, err)
+				http.Error(w, fmt.Sprintf("failed to start implementation: %v", err), http.StatusInternalServerError)
+				return
+			}
+		case types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued:
+			if err := s.specDrivenTaskService.ApproveSpecs(ctx, specTask); err != nil {
+				if errors.Is(err, services.ErrImplementationHandoffAlreadyClaimed) {
+					http.Error(w, err.Error(), http.StatusConflict)
+					return
+				}
+				s.persistSpecApprovalError(ctx, specTask.ID, err)
+				http.Error(w, fmt.Sprintf("failed to start implementation: %v", err), http.StatusInternalServerError)
+				return
+			}
 		default:
 			log.Info().
 				Str("spec_task_id", specTask.ID).
@@ -504,7 +761,7 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 	log.Info().
 		Str("comment_id", comment.ID).
 		Str("spec_task_id", specTask.ID).
-		Str("agent_session_id", specTask.AgentSessionID).
+		Str("planning_session_id", specTask.PlanningSessionID).
 		Msg("📝 Comment created, sending to agent...")
 
 	// Send comment to agent session synchronously so we can return the request_id
@@ -514,7 +771,7 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 			Err(err).
 			Str("comment_id", comment.ID).
 			Str("spec_task_id", specTask.ID).
-			Str("agent_session_id", specTask.AgentSessionID).
+			Str("planning_session_id", specTask.PlanningSessionID).
 			Msg("❌ Failed to send comment to agent (will retry via polling)")
 		// Don't fail the request - comment is still created, agent response will be linked via polling
 	} else {
@@ -699,14 +956,14 @@ func (s *HelixAPIServer) getDesignReviewCommentQueueStatus(w http.ResponseWriter
 		}
 	}
 
-	sessionID := specTask.AgentSessionID
+	sessionID := specTask.PlanningSessionID
 	currentCommentID := s.GetCurrentCommentForSession(sessionID)
 	queuedCommentIDs := s.GetCommentQueueForSession(sessionID)
 
 	response := &types.CommentQueueStatusResponse{
-		CurrentCommentID: currentCommentID,
-		QueuedCommentIDs: queuedCommentIDs,
-		AgentSessionID:   sessionID,
+		CurrentCommentID:  currentCommentID,
+		QueuedCommentIDs:  queuedCommentIDs,
+		PlanningSessionID: sessionID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -721,14 +978,14 @@ func (s *HelixAPIServer) queueCommentForAgent(
 	specTask *types.SpecTask,
 	comment *types.SpecTaskDesignReviewComment,
 ) error {
-	if specTask.AgentSessionID == "" {
+	if specTask.PlanningSessionID == "" {
 		log.Debug().
 			Str("spec_task_id", specTask.ID).
 			Msg("No planning session ID, skipping agent notification for comment")
 		return nil
 	}
 
-	sessionID := specTask.AgentSessionID
+	sessionID := specTask.PlanningSessionID
 
 	// Set QueuedAt to mark comment as queued for processing
 	now := time.Now()
@@ -883,7 +1140,7 @@ func (s *HelixAPIServer) armCommentTimer(sessionID, commentID string) {
 // processed) and true is returned. A genuinely in-flight comment whose
 // interaction is still waiting/streaming is left untouched and false is returned.
 func (s *HelixAPIServer) reconcileStuckInFlightComment(ctx context.Context, sessionID string) bool {
-	inFlight, err := s.Store.GetPendingCommentByAgentSessionID(ctx, sessionID)
+	inFlight, err := s.Store.GetPendingCommentByPlanningSessionID(ctx, sessionID)
 	if err != nil || inFlight == nil {
 		return false
 	}
@@ -1044,24 +1301,24 @@ func (s *HelixAPIServer) handleCommentTimeout(ctx context.Context, sessionID, co
 // It first tries the planning session ID, then searches for any connected session with matching spec task ID
 func (s *HelixAPIServer) findConnectedSessionForSpecTask(ctx context.Context, specTask *types.SpecTask) (string, error) {
 	// First, try the planning session ID directly
-	if specTask.AgentSessionID != "" {
-		if _, exists := s.externalAgentWSManager.getConnection(specTask.AgentSessionID); exists {
+	if specTask.PlanningSessionID != "" {
+		if _, exists := s.externalAgentWSManager.getConnection(specTask.PlanningSessionID); exists {
 			log.Debug().
 				Str("spec_task_id", specTask.ID).
-				Str("session_id", specTask.AgentSessionID).
+				Str("session_id", specTask.PlanningSessionID).
 				Msg("Found WebSocket connection for planning session ID")
-			return specTask.AgentSessionID, nil
+			return specTask.PlanningSessionID, nil
 		}
 	}
 
-	// AgentSessionID not connected - search for the most recently updated
+	// PlanningSessionID not connected - search for the most recently updated
 	// connected session with this spec task ID. A spectask can have multiple
 	// Zed threads (sessions), so we pick the most recent to route messages
 	// to the thread the agent is most likely actively working in.
 	log.Info().
 		Str("spec_task_id", specTask.ID).
-		Str("agent_session_id", specTask.AgentSessionID).
-		Msg("AgentSessionID not connected, searching for alternate connected session")
+		Str("planning_session_id", specTask.PlanningSessionID).
+		Msg("PlanningSessionID not connected, searching for alternate connected session")
 
 	connectedSessions := s.externalAgentWSManager.listConnections()
 
@@ -1085,14 +1342,14 @@ func (s *HelixAPIServer) findConnectedSessionForSpecTask(ctx context.Context, sp
 		log.Info().
 			Str("spec_task_id", specTask.ID).
 			Str("found_session_id", bestSessionConnID).
-			Str("original_agent_session_id", specTask.AgentSessionID).
+			Str("original_planning_session_id", specTask.PlanningSessionID).
 			Time("session_updated", bestSession.Updated).
 			Msg("✅ Found most recently updated connected session for spec task")
 		return bestSessionConnID, nil
 	}
 
 	return "", fmt.Errorf("no WebSocket connection found for spec task %s (tried planning session %s and %d other connected sessions)",
-		specTask.ID, specTask.AgentSessionID, len(connectedSessions))
+		specTask.ID, specTask.PlanningSessionID, len(connectedSessions))
 }
 
 // startDevContainerForSession boots the dev container for any zed_external session,
@@ -1219,12 +1476,12 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 // session, then delegates to startDevContainerForSession. Kept for callers that have
 // a SpecTask in hand but not the session.
 func (s *HelixAPIServer) startDevContainerForSpecTask(ctx context.Context, specTask *types.SpecTask) error {
-	if specTask.AgentSessionID == "" {
+	if specTask.PlanningSessionID == "" {
 		return fmt.Errorf("spec task %s has no planning session ID", specTask.ID)
 	}
-	session, err := s.Store.GetSession(ctx, specTask.AgentSessionID)
+	session, err := s.Store.GetSession(ctx, specTask.PlanningSessionID)
 	if err != nil {
-		return fmt.Errorf("failed to get planning session %s: %w", specTask.AgentSessionID, err)
+		return fmt.Errorf("failed to get planning session %s: %w", specTask.PlanningSessionID, err)
 	}
 	return s.startDevContainerForSession(ctx, session)
 }
@@ -1253,10 +1510,10 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 	// concurrently in the window before dispatch. backfillCommentLinkageForPrompt
 	// overwrites RequestID/InteractionID with the real interaction id at dispatch,
 	// which is what finalizeCommentResponse / streaming look up.
-	if specTask.AgentSessionID == "" {
-		return fmt.Errorf("cannot send comment to agent: spec task %s has no agent session", specTask.ID)
+	if specTask.PlanningSessionID == "" {
+		return fmt.Errorf("cannot send comment to agent: spec task %s has no planning session", specTask.ID)
 	}
-	promptID, err := s.persistQueuedPrompt(ctx, specTask.AgentSessionID, promptText, true, comment.CommentedBy, specTask.ID)
+	promptID, err := s.persistQueuedPrompt(ctx, specTask.PlanningSessionID, promptText, true, comment.CommentedBy, specTask.ID)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -1277,7 +1534,7 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 		// just won't finalize onto the comment.
 	}
 
-	s.nudgeSessionQueue(specTask.AgentSessionID)
+	s.nudgeSessionQueue(specTask.PlanningSessionID)
 
 	log.Info().
 		Str("spec_task_id", specTask.ID).
@@ -1307,7 +1564,7 @@ func (s *HelixAPIServer) GetCurrentCommentForSession(sessionID string) string {
 	}
 
 	// Find the comment that's being processed (has request_id set)
-	comment, err := s.Store.GetPendingCommentByAgentSessionID(context.Background(), sessionID)
+	comment, err := s.Store.GetPendingCommentByPlanningSessionID(context.Background(), sessionID)
 	if err != nil {
 		return ""
 	}
@@ -1493,14 +1750,14 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		return nil
 	}
 
-	if specTask.AgentSessionID == "" {
+	if specTask.PlanningSessionID == "" {
 		log.Warn().
 			Str("spec_task_id", specTask.ID).
-			Msg("⚠️ SpecTask has empty AgentSessionID - cannot process next comment")
+			Msg("⚠️ SpecTask has empty PlanningSessionID - cannot process next comment")
 		return nil
 	}
 
-	sessionID := specTask.AgentSessionID
+	sessionID := specTask.PlanningSessionID
 
 	// Cancel the timeout timer since we got a response
 	s.sessionCommentMutex.Lock()
@@ -1549,10 +1806,10 @@ func (s *HelixAPIServer) populateAgentResponseFromSession(ctx context.Context, c
 		return
 	}
 	specTask, err := s.Store.GetSpecTask(ctx, review.SpecTaskID)
-	if err != nil || specTask.AgentSessionID == "" {
+	if err != nil || specTask.PlanningSessionID == "" {
 		return
 	}
-	session, err := s.Store.GetSession(ctx, specTask.AgentSessionID)
+	session, err := s.Store.GetSession(ctx, specTask.PlanningSessionID)
 	if err != nil || len(session.Interactions) == 0 {
 		return
 	}
@@ -1747,9 +2004,9 @@ func (s *HelixAPIServer) backfillCommentLinkageForPrompt(ctx context.Context, pr
 // cancels-then-sends for interrupt=true) — this is the single sender path that
 // replaces the old immediate direct dispatch.
 func (s *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string) error {
-	if task.AgentSessionID == "" {
-		return fmt.Errorf("cannot enqueue message: spec task %s has no agent session", task.ID)
+	if task.PlanningSessionID == "" {
+		return fmt.Errorf("cannot enqueue message: spec task %s has no planning session", task.ID)
 	}
-	_, err := s.enqueueAgentMessage(ctx, task.AgentSessionID, message, interrupt, notifyUserID, task.ID)
+	_, err := s.enqueueAgentMessage(ctx, task.PlanningSessionID, message, interrupt, notifyUserID, task.ID)
 	return err
 }

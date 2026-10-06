@@ -60,7 +60,6 @@ import { useQuery } from "@tanstack/react-query";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import SpecTaskDetailContent from "./SpecTaskDetailContent";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
-import DesignReviewContent from "../spec-tasks/DesignReviewContent";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
 import RobustPromptInput from "../common/RobustPromptInput";
 import NewSpecTaskForm from "./NewSpecTaskForm";
@@ -341,7 +340,7 @@ const PanelTab: React.FC<PanelTabProps> = ({
   );
   const displayTask = tab.type === "task" ? refreshedTask || tab.task : null;
 
-  const hasSession = !!displayTask?.agent_session_id;
+  const hasSession = !!displayTask?.planning_session_id;
   const {
     isActive: isAgentActiveState,
     needsAttention,
@@ -350,15 +349,15 @@ const PanelTab: React.FC<PanelTabProps> = ({
 
   // Fetch session data with title history when hovering (only if session exists)
   const { data: sessionData } = useQuery({
-    queryKey: ["session-title-history", displayTask?.agent_session_id],
+    queryKey: ["session-title-history", displayTask?.planning_session_id],
     queryFn: async () => {
-      if (!displayTask?.agent_session_id) return null;
+      if (!displayTask?.planning_session_id) return null;
       const response = await api.get<TypesSession>(
-        `/api/v1/sessions/${displayTask.agent_session_id}`,
+        `/api/v1/sessions/${displayTask.planning_session_id}`,
       );
       return response;
     },
-    enabled: isHovered && !!displayTask?.agent_session_id,
+    enabled: isHovered && !!displayTask?.planning_session_id,
     staleTime: 30000, // Cache for 30 seconds
   });
 
@@ -976,13 +975,11 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       const response = await api
         .getApiClient()
         .v1SpecTasksApproveImplementationCreate(activeTask.id);
-      if (response.data?.repo_pull_requests && response.data.repo_pull_requests.length > 0) {
-        const prs = response.data.repo_pull_requests;
-        if (prs.length === 1 && prs[0].pr_url) {
-          snackbar.success(`Pull request opened! View PR: ${prs[0].pr_url}`);
-        } else {
-          snackbar.success(`${prs.length} pull request(s) opened - awaiting merge`);
-        }
+      if (response.status === 202) {
+        // External repo: the agent was asked to propose its pull request(s).
+        snackbar.success(
+          "Asked the agent to push and propose its pull request(s). Approve each proposal when it arrives.",
+        );
       } else {
         snackbar.success(
           "Implementation approved! Agent will merge to your primary branch...",
@@ -1472,25 +1469,20 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                   }}
                   placeholder="Send message to agent..."
                   enableSandboxCompletions
+                  showContextUsage
                 />
               </Box>
             </Box>
           ) : activeTab.type === "review" &&
             activeTab.taskId &&
             activeTab.reviewId ? (
-            <DesignReviewContent
+            <SpecTaskDetailContent
               key={`${panel.id}-${activeTab.id}`}
-              specTaskId={activeTab.taskId}
-              reviewId={activeTab.reviewId}
+              taskId={activeTab.taskId}
+              initialView="plan"
               onClose={() => onTabClose(panel.id, activeTab.id)}
-              onImplementationStarted={() => {
-                onTabClose(panel.id, activeTab.id);
-                const task = tasks.find((t) => t.id === activeTab.taskId);
-                if (task) {
-                  onAddTab(panel.id, task);
-                }
-              }}
-              hideTitle={true}
+              onTaskArchived={onTaskArchived}
+              syncViewWithUrl={false}
             />
           ) : activeTab.type === "create" ? (
             <NewSpecTaskForm
@@ -1510,9 +1502,6 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             <SpecTaskDetailContent
               key={`${panel.id}-${activeTab.id}`}
               taskId={activeTab.id}
-              onOpenReview={(taskId, reviewId, reviewTitle) =>
-                onOpenReview(taskId, reviewId, reviewTitle, panel.id)
-              }
               onTaskArchived={onTaskArchived}
               syncViewWithUrl={false}
             />
@@ -1845,7 +1834,7 @@ const TabsView: React.FC<TabsViewProps> = ({
       const desktopTabId = `desktop-${initialDesktopId}`;
       const isTeamDesktop = initialDesktopId === exploratorySessionId;
       const ownerTask = !isTeamDesktop
-        ? tasks.find((t) => t.agent_session_id === initialDesktopId)
+        ? tasks.find((t) => t.planning_session_id === initialDesktopId)
         : null;
       const desktopTitle = isTeamDesktop
         ? "Project Desktop"
@@ -1991,7 +1980,7 @@ const TabsView: React.FC<TabsViewProps> = ({
     const desktopTabId = `desktop-${initialDesktopId}`;
     const isTeamDesktop = initialDesktopId === exploratorySessionId;
     const ownerTask = !isTeamDesktop
-      ? tasks.find((t) => t.agent_session_id === initialDesktopId)
+      ? tasks.find((t) => t.planning_session_id === initialDesktopId)
       : null;
     const desktopTitle = isTeamDesktop
       ? "Project Desktop"

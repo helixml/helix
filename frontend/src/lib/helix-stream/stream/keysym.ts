@@ -248,28 +248,68 @@ export function keyToKeysym(key: string): number | null {
 }
 
 /**
+ * Characters that only exist on the Shift level of a US layout.
+ * Uppercase letters are handled separately (see isShiftedLevelChar).
+ */
+const SHIFTED_LEVEL_SYMBOLS = new Set([
+  '!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
+  '_', '+', '{', '}', '|', ':', '"', '<', '>', '?', '~',
+])
+
+function isShiftedLevelChar(key: string): boolean {
+  if (key.length !== 1) return false
+  if (key >= 'A' && key <= 'Z') return true
+  return SHIFTED_LEVEL_SYMBOLS.has(key)
+}
+
+/**
+ * Detect an event whose character cannot be reproduced from its key position
+ * plus its reported modifier state.
+ *
+ * A virtual keyboard emits the symbol directly and never sends a Shift key
+ * event, so `@` arrives as key="@", code="Digit2", shiftKey=false. Replaying
+ * that as the bare Digit2 position types "2" on the remote desktop — the exact
+ * reason logging in from a phone was impossible. A physical keyboard on a US
+ * layout can never produce this combination, so this check is inert on desktop.
+ *
+ * CapsLock is excluded: it legitimately produces uppercase letters with
+ * shiftKey=false, and the remote desktop already tracks the CapsLock state we
+ * forwarded to it, so those must stay on the keycode path.
+ */
+export function hasShiftLevelMismatch(event: KeyboardEvent): boolean {
+  if (!isShiftedLevelChar(event.key)) return false
+  if (event.shiftKey) return false
+  if (event.key >= 'A' && event.key <= 'Z' && event.getModifierState?.('CapsLock')) return false
+  return true
+}
+
+/**
  * Check if a keyboard event should use keysym mode.
  *
  * We use keysym mode when:
- * 1. event.code is empty (iOS virtual/physical keyboards)
- * 2. event.key contains a usable value (not "Unidentified")
+ * 1. event.code is empty (iOS virtual/physical keyboards), or
+ * 2. the character contradicts the reported modifier state (virtual keyboards
+ *    emitting a shifted symbol with no Shift key event)
+ *
+ * and event.key contains a usable value (not "Unidentified").
  *
  * @param event - The browser keyboard event
  * @returns true if keysym mode should be used
  */
 export function shouldUseKeysym(event: KeyboardEvent): boolean {
-  // If we have a valid event.code, prefer evdev keycode mode
-  if (event.code && event.code !== '' && event.code !== 'Unidentified') {
-    return false
-  }
-
-  // If event.key is empty or unidentified, we can't use keysym either
+  // If event.key is empty or unidentified, we can't use keysym
   if (!event.key || event.key === '' || event.key === 'Unidentified') {
     return false
   }
 
-  // Use keysym mode - we have event.key but no event.code
-  return true
+  // No usable event.code - keysym is the only option
+  if (!event.code || event.code === '' || event.code === 'Unidentified') {
+    return true
+  }
+
+  // We have a key position, but it cannot explain the character produced.
+  // Send the character the user meant, not the key they didn't press.
+  return hasShiftLevelMismatch(event)
 }
 
 /**

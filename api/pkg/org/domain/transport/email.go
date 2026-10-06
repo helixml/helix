@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// KindEmail is a bidirectional email transport. Provider credentials
+// KindEmail is an inbound email transport. Provider credentials
 // live at server level (see config.transport.postmark); per-topic
 // config carries only the routing identity (`alias`).
 //
@@ -16,12 +16,6 @@ import (
 // body becomes a Message envelope on that Topic — From=sender,
 // To=[recipient], Subject, Body, MessageID, InReplyTo, ThreadID
 // populated from the email's headers.
-//
-// Outbound: every Event appended to an email Topic is rendered to a
-// provider API call (Postmark /email today). The Message envelope's
-// From/To/Subject/InReplyTo/ThreadID drive the outbound headers; the
-// global `from` from server config is the envelope sender unless the
-// Topic's Message specifies otherwise.
 const KindEmail Kind = "email"
 
 // EmailConfig is the parsed shape of Transport.Config when
@@ -97,4 +91,31 @@ func isValidEmailAlias(s string) bool {
 		}
 	}
 	return true
+}
+
+func (email) Describe() Descriptor {
+	return Descriptor{
+		Kind:    KindEmail,
+		Label:   "Incoming email",
+		Summary: "Fires when mail arrives at this Trigger's address.",
+		Fields: []Field{{
+			Name:        "alias",
+			Label:       "Inbox alias",
+			Help:        "Lowercase letters, digits, dash and underscore only. No @, + or dots.",
+			Placeholder: "support",
+			Type:        FieldString,
+			Required:    true,
+			Direction:   Inbound,
+		}},
+		Activation: Activation{
+			Summary:         "Send mail to this address. Subject and body become the event.",
+			AddressTemplate: "{field:alias}@<your inbound domain>",
+			Note:            "The exact address depends on the Postmark setup: <hash>+<alias>@inbound.postmarkapp.com when no domain is configured, or <alias>@yourdomain.com when one is.",
+		},
+		Secrets: []SecretRef{{
+			Label:      "Postmark account (token, inbound address, from address)",
+			SettingKey: "transport.postmark",
+			Location:   "Organization Settings",
+		}},
+	}
 }

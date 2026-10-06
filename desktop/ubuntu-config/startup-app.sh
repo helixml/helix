@@ -3,18 +3,26 @@
 # Extracted from Dockerfile.ubuntu-helix for consistency with Sway's startup-app.sh
 source /opt/gow/bash-lib/utils.sh
 
-gow_log "[start] Starting Helix Desktop (Ubuntu GNOME Wayland)..."
+if [ "${HELIX_HEADLESS}" = "1" ]; then
+    gow_log "[start] Starting Helix headless agent..."
+else
+    gow_log "[start] Starting Helix Desktop (Ubuntu GNOME Wayland)..."
+fi
 
 # GPU detection - export HELIX_RENDER_NODE and LIBVA_DRIVER_NAME for GStreamer
 # The udev rule for Mutter was already created by the root init script,
 # but we need the env vars for the GStreamer pipelines in desktop-bridge
-if [ -f /usr/local/bin/detect-render-node.sh ]; then
+if [ "${HELIX_HEADLESS}" != "1" ] && [ -f /usr/local/bin/detect-render-node.sh ]; then
     source /usr/local/bin/detect-render-node.sh
     gow_log "[start] GPU: HELIX_RENDER_NODE=${HELIX_RENDER_NODE:-not set}, LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-not set}"
 fi
 
 # Create symlink to Zed binary if not exists
 if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
+    if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+        gow_log "[start] FATAL: rootless bootstrap did not install /usr/local/bin/zed"
+        exit 1
+    fi
     sudo ln -sf /zed-build/zed /usr/local/bin/zed
     gow_log "[start] Created symlink: /usr/local/bin/zed -> /zed-build/zed"
 fi
@@ -32,8 +40,10 @@ if [ ! -d /home/retro/work ]; then
     gow_log "[start] FATAL: /home/retro/work bind mount not present"
     exit 1
 fi
-sudo chown retro:retro "$WORKSPACE_DIR"
-sudo chown retro:retro /home/retro/work
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" != "1" ] && [ "${HELIX_CONTAINER_ENGINE:-}" != "none" ]; then
+    sudo chown retro:retro "$WORKSPACE_DIR"
+    sudo chown retro:retro /home/retro/work
+fi
 gow_log "[start] Workspace mounted at both $WORKSPACE_DIR and /home/retro/work"
 
 # Create Zed config symlinks
@@ -64,11 +74,15 @@ cat > ~/.config/fontconfig/fonts.conf << 'FONTCONFIG_EOF'
 </fontconfig>
 FONTCONFIG_EOF
 
-# Configure Qwen Code session persistence
-export QWEN_DATA_DIR=$WORK_DIR/.qwen-state
-mkdir -p $QWEN_DATA_DIR
-rm -rf ~/.qwen && ln -sf $QWEN_DATA_DIR ~/.qwen
-gow_log "[start] Qwen data directory set: QWEN_DATA_DIR=$QWEN_DATA_DIR"
+# Configure Qwen Code session persistence. QWEN_HOME and QWEN_RUNTIME_DIR are
+# also passed directly to the ACP server by settings-sync-daemon.
+QWEN_STATE_DIR=$WORK_DIR/.qwen-state
+mkdir -p $QWEN_STATE_DIR
+if [ ! -f $QWEN_STATE_DIR/settings.json ] && [ -f ~/.qwen/settings.json ]; then
+    cp ~/.qwen/settings.json $QWEN_STATE_DIR/settings.json
+fi
+rm -rf ~/.qwen && ln -sf $QWEN_STATE_DIR ~/.qwen
+gow_log "[start] Qwen state directory set: $QWEN_STATE_DIR"
 
 # Codex stores ACP rollouts under ~/.codex. Keep them with the session
 # workspace so a recreated desktop can resume the Zed thread it advertises.
@@ -79,6 +93,19 @@ if [ -d ~/.codex ] && [ ! -L ~/.codex ]; then
 fi
 rm -rf ~/.codex && ln -sf $CODEX_STATE_DIR ~/.codex
 gow_log "[start] Codex state directory set: $CODEX_STATE_DIR"
+
+if [ "${HELIX_HEADLESS}" = "1" ]; then
+    if [ "${HELIX_SERVER_SETUP}" = "1" ]; then
+        gow_log "[start] Starting headless server setup bridge without Zed"
+        exec dbus-run-session -- /usr/local/bin/start-headless-workspace-bridge.sh
+    fi
+    gow_log "[start] Starting headless Zed agent without GNOME or streaming services"
+    exec dbus-run-session -- bash -c '
+        /usr/local/bin/start-headless-workspace-bridge.sh &
+        /usr/local/bin/start-settings-sync-daemon.sh &
+        exec /usr/local/bin/start-zed-headless.sh
+    '
+fi
 
 # Note: RevDial client is now integrated into desktop-bridge
 
@@ -324,43 +351,6 @@ elif [ -x /zed-build/zed ]; then
     WAYLAND_DISPLAY=wayland-0 /usr/local/bin/start-zed-helix.sh
   ) &
 fi
-
-# Chrome auto-relaunch + heartbeat. Mirrors the sway-session.sh logic — see
-# helix-workspace-setup.sh for the persistent profile symlink and the
-# Dockerfile for the RestoreOnStartup=1 policy that makes tabs come back.
-# A heartbeat loop touches the marker every 30s while Chrome is up and removes
-# it as soon as Chrome stops. We relaunch on next session start iff the marker
-# exists, meaning Chrome was still running when the previous container stopped.
-# Works for both Chrome (amd64) and Chromium (arm64) — google-chrome-stable is
-# symlinked to chromium on arm64.
-(
-    CHROME_MARKER="/home/retro/work/.chrome-state/.was-running"
-    CHROME_LOG="/tmp/chrome-autolaunch.log"
-    # Wait for wayland-0 so Chrome can connect to the compositor.
-    for i in \$(seq 1 60); do
-        [ -S "\${XDG_RUNTIME_DIR}/wayland-0" ] && break
-        sleep 1
-    done
-    if [ -f "\$CHROME_MARKER" ]; then
-        # Hard container kill can leave singleton locks behind.
-        rm -f /home/retro/work/.chrome-state/Singleton* 2>/dev/null || true
-        gow_log "[start] Auto-launching Chrome (marker present from previous session)"
-        echo "[\$(date -Is)] Auto-launching Chrome (marker present)" >> "\$CHROME_LOG"
-        WAYLAND_DISPLAY=wayland-0 google-chrome-stable >>"\$CHROME_LOG" 2>&1 &
-    else
-        gow_log "[start] Skipping Chrome auto-launch (no marker; was closed or never opened)"
-        echo "[\$(date -Is)] Skipping Chrome auto-launch (no marker)" >> "\$CHROME_LOG"
-    fi
-    while true; do
-        if pgrep -x chrome >/dev/null 2>&1 || pgrep -x chromium >/dev/null 2>&1; then
-            mkdir -p /home/retro/work/.chrome-state
-            touch "\$CHROME_MARKER"
-        else
-            rm -f "\$CHROME_MARKER" 2>/dev/null || true
-        fi
-        sleep 30
-    done
-) >/dev/null 2>&1 &
 
 gow_log "[start] Virtual monitor: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}"
 

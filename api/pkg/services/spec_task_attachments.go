@@ -64,9 +64,9 @@ func (s *SpecDrivenTaskService) stageAttachmentsAndBuildPromptSection(
 // lost the race against start-planning was never committed and the agent never saw it.
 //
 // Safe to call at any point in the task lifecycle:
-//   - Planning not started yet (no AgentSessionID): the file is committed now, and
+//   - Planning not started yet (no PlanningSessionID): the file is committed now, and
 //     the planning prompt (built later) lists it via ListSpecTaskAttachments — no note.
-//   - Planning already running (AgentSessionID set): the prompt may already have been
+//   - Planning already running (PlanningSessionID set): the prompt may already have been
 //     built without this file, so we enqueue an "attachment added" note.
 func (s *SpecDrivenTaskService) StageUploadedAttachments(ctx context.Context, taskID string) error {
 	task, err := s.store.GetSpecTask(ctx, taskID)
@@ -113,7 +113,7 @@ func (s *SpecDrivenTaskService) StageUploadedAttachments(ctx context.Context, ta
 	// (or is being) built without these files — tell the agent to look. When there is no
 	// session yet, the planning prompt will list them; when nothing is new (re-stage), the
 	// agent has already been told.
-	if len(newlyArrived) > 0 && task.AgentSessionID != "" && s.EnqueueMessageToAgent != nil {
+	if len(newlyArrived) > 0 && task.PlanningSessionID != "" && s.EnqueueMessageToAgent != nil {
 		note := buildAttachmentAddedNote(newlyArrived, GetTaskDirName(task))
 		if err := s.EnqueueMessageToAgent(ctx, task, note, false, task.CreatedBy); err != nil {
 			return fmt.Errorf("enqueue attachment-added note: %w", err)

@@ -277,16 +277,6 @@ func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *ty
 		return nil, fmt.Errorf("forbidden: user does not own session")
 	}
 
-	// Get the app (agent) to find configured MCPs
-	if session.ParentApp == "" {
-		return nil, fmt.Errorf("session has no associated agent")
-	}
-
-	app, err := b.store.GetApp(ctx, session.ParentApp)
-	if err != nil {
-		return nil, fmt.Errorf("agent not found: %w", err)
-	}
-
 	var projectSkills *types.AssistantSkills
 	if session.ProjectID != "" {
 		project, err := b.store.GetProject(ctx, session.ProjectID)
@@ -296,8 +286,14 @@ func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *ty
 		projectSkills = project.Skills
 	}
 
-	// Find the MCP configuration by name
-	mcpConfig := b.findMCPConfig(app, projectSkills, mcpName)
+	mcpConfig := b.findMCPConfig(nil, projectSkills, mcpName)
+	if mcpConfig == nil && session.ParentApp != "" {
+		app, err := b.store.GetApp(ctx, session.ParentApp)
+		if err != nil {
+			return nil, fmt.Errorf("agent not found: %w", err)
+		}
+		mcpConfig = b.findMCPConfig(app, nil, mcpName)
+	}
 	if mcpConfig == nil {
 		return nil, fmt.Errorf("MCP server '%s' not configured for this agent", mcpName)
 	}
@@ -411,7 +407,7 @@ func (b *ExternalMCPBackend) findMCPConfig(app *types.App, projectSkills *types.
 		}
 	}
 
-	if app.Config.Helix.Assistants == nil {
+	if app == nil || app.Config.Helix.Assistants == nil {
 		return nil
 	}
 

@@ -11,6 +11,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -97,7 +98,13 @@ type SharedVideoSource struct {
 	startOnce sync.Once
 	stopOnce  sync.Once
 	startErr  error
-	startMu   sync.Mutex // Protects startOnce/startErr
+	startMu   sync.Mutex // Protects startOnce/startErr; held for the whole start
+	// startDone is set once start() has finished, successfully or not. Until
+	// then a source that is not running is starting, not dead: under CPU load
+	// pipeline construction has taken 75s, and treating that as dead made every
+	// reconnect evict the in-flight start and queue a second one behind it.
+	startDone atomic.Bool
+	stopped   atomic.Bool
 
 	// External frame source (scanout mode) — if set, pipeline is not used
 	externalSource FrameSource
@@ -123,6 +130,16 @@ type SharedVideoSource struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+}
+
+// alive reports whether the source can still deliver frames: its pipeline is
+// running, or its start has not finished yet. A new client must attach to an
+// alive source rather than replace it.
+func (s *SharedVideoSource) alive() bool {
+	if s.stopped.Load() {
+		return false
+	}
+	return s.running.Load() || !s.startDone.Load()
 }
 
 // sharedVideoClient represents a connected client receiving video frames
@@ -240,15 +257,16 @@ func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr strin
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Case 1: Active source exists - reuse if alive
+	// Case 1: Active source exists - reuse if alive (running, or still starting)
 	if source, exists := r.sources[nodeID]; exists {
-		if source.running.Load() {
+		if source.alive() {
 			source.clientsMu.RLock()
 			clientCount := len(source.clients)
 			source.clientsMu.RUnlock()
 			log.Info().
 				Uint32("node_id", nodeID).
 				Int("clients", clientCount).
+				Bool("starting", !source.running.Load()).
 				Msg("[SHARED_VIDEO] Reusing existing source")
 			return source
 		}
@@ -264,7 +282,7 @@ func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr strin
 		close(pending.cancelCh)
 		delete(r.pendingStops, nodeID)
 
-		if pending.source.running.Load() {
+		if pending.source.alive() {
 			r.sources[nodeID] = pending.source
 			r.cancelledStops.Add(1)
 			log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Cancelled pending stop, reusing pipeline (grace period saved!)")
@@ -300,7 +318,7 @@ func (r *SharedVideoSourceRegistry) GetExisting(nodeID uint32) *SharedVideoSourc
 	defer r.mu.Unlock()
 
 	if source, exists := r.sources[nodeID]; exists {
-		if source.running.Load() {
+		if source.alive() {
 			return source
 		}
 		// Source is dead (broadcaster exited) — clean up and return nil
@@ -312,7 +330,7 @@ func (r *SharedVideoSourceRegistry) GetExisting(nodeID uint32) *SharedVideoSourc
 	}
 	// Reactivate pending-stop source (cancel grace period timer)
 	if pending, exists := r.pendingStops[nodeID]; exists {
-		if pending.source.running.Load() {
+		if pending.source.alive() {
 			pending.timer.Stop()
 			close(pending.cancelCh)
 			r.sources[nodeID] = pending.source
@@ -341,7 +359,7 @@ func (r *SharedVideoSourceRegistry) GetOrCreateWithSource(nodeID uint32, source 
 
 	// Case 1: Active source exists - reuse if alive
 	if existing, exists := r.sources[nodeID]; exists {
-		if existing.running.Load() {
+		if existing.alive() {
 			existing.clientsMu.RLock()
 			clientCount := len(existing.clients)
 			existing.clientsMu.RUnlock()
@@ -362,7 +380,7 @@ func (r *SharedVideoSourceRegistry) GetOrCreateWithSource(nodeID uint32, source 
 		close(pending.cancelCh)
 		delete(r.pendingStops, nodeID)
 
-		if pending.source.running.Load() {
+		if pending.source.alive() {
 			r.sources[nodeID] = pending.source
 			r.cancelledStops.Add(1)
 			log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Cancelled pending stop for external source")
@@ -459,6 +477,20 @@ func (r *SharedVideoSourceRegistry) doStop(pending *pendingStop) {
 
 	// Remove from pending map before releasing lock
 	delete(r.pendingStops, pending.nodeID)
+
+	// A client can subscribe to a source after its last client left and the
+	// stop was scheduled: it got the pointer from GetOrCreate before the
+	// source moved to pendingStops. Stopping it would cut that viewer off, so
+	// put it back instead.
+	if pending.source.GetClientCount() > 0 {
+		if _, taken := r.sources[pending.nodeID]; !taken {
+			r.sources[pending.nodeID] = pending.source
+			r.cancelledStops.Add(1)
+			r.mu.Unlock()
+			log.Info().Uint32("node_id", pending.nodeID).Msg("[SHARED_VIDEO] Stop cancelled (clients attached during grace period)")
+			return
+		}
+	}
 	r.mu.Unlock()
 
 	// Stop the pipeline (outside lock - may take time for cleanup)
@@ -1007,6 +1039,18 @@ func (s *SharedVideoSource) start() error {
 
 	var startErr error
 	s.startOnce.Do(func() {
+		// Recorded inside Do (deferred, so early returns count): a later caller
+		// must see the first start's result, not overwrite it with the nil of
+		// its own no-op Do.
+		defer func() {
+			s.startErr = startErr
+			s.startDone.Store(true)
+		}()
+		if s.ctx.Err() != nil {
+			// stop() already ran; a pipeline built now would never be stopped.
+			startErr = fmt.Errorf("video source for node %d was stopped before it started", s.nodeID)
+			return
+		}
 		if s.externalSource != nil {
 			// External source mode (e.g., ScanoutSource) — no GStreamer pipeline
 			log.Info().Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Starting external source")
@@ -1019,11 +1063,13 @@ func (s *SharedVideoSource) start() error {
 			log.Info().Str("pipeline", s.pipelineStr).Msg("[SHARED_VIDEO] Pipeline string")
 
 			var err error
+			createStart := time.Now()
 			s.pipeline, err = NewGstPipelineWithOptions(s.pipelineStr, s.pipelineOpts)
 			if err != nil {
 				startErr = fmt.Errorf("create pipeline: %w", err)
 				return
 			}
+			created := time.Now()
 
 			if err = s.pipeline.Start(s.ctx); err != nil {
 				// Clean up the pipeline that was created but failed to start.
@@ -1034,6 +1080,11 @@ func (s *SharedVideoSource) start() error {
 				startErr = fmt.Errorf("start pipeline: %w", err)
 				return
 			}
+			log.Info().
+				Uint32("node_id", s.nodeID).
+				Dur("create", created.Sub(createStart)).
+				Dur("start", time.Since(created)).
+				Msg("[SHARED_VIDEO] Pipeline running")
 
 			s.running.Store(true)
 			s.wg.Add(1)
@@ -1041,8 +1092,7 @@ func (s *SharedVideoSource) start() error {
 		}
 	})
 
-	s.startErr = startErr
-	return startErr
+	return s.startErr
 }
 
 // stallRestartTimeout is the duration after which the pipeline is restarted if no frames arrive.
@@ -1065,6 +1115,11 @@ const stallRestartTimeout = 30 * time.Second
 // just re-sending an already-encoded H.264 frame of ~300 bytes) and gives clients
 // a steady ~10 FPS on static screens.
 const frameKeepaliveInterval = 100 * time.Millisecond
+
+// maxFirstFrameRetries bounds pipeline restarts after pipewirezerocopysrc's
+// first-frame deadline (10s each) before any frame has ever arrived. Together
+// they give a starved compositor about a minute, plus restart time.
+const maxFirstFrameRetries = 5
 
 // maxStallRestarts is the maximum number of pipeline restarts before giving up.
 // This prevents infinite restart loops if the pipeline keeps failing.
@@ -1121,6 +1176,7 @@ func (s *SharedVideoSource) broadcastFrames() {
 	var frameCount uint64
 	var keyframeCount uint64
 	var restartCount int
+	var firstFrameRetries int
 
 	// Stall detection timer - fires when no frames arrive for stallRestartTimeout
 	stallTimer := time.NewTimer(stallRestartTimeout)
@@ -1209,6 +1265,30 @@ func (s *SharedVideoSource) broadcastFrames() {
 			}
 
 		case pipelineErr := <-errorCh:
+			// The compositor has not delivered a first frame yet. Under CPU
+			// starvation mutter is alive but slow; restart rather than end every
+			// viewer's stream with an error. Clients keep getting "starting video"
+			// heartbeats meanwhile. Bounded: an idle/broken compositor still ends
+			// in the error after maxFirstFrameRetries.
+			if frameCount == 0 && errors.Is(pipelineErr, ErrNoFirstFrame) &&
+				firstFrameRetries < maxFirstFrameRetries && s.GetClientCount() > 0 {
+				firstFrameRetries++
+				log.Warn().
+					Uint32("node_id", s.nodeID).
+					Int("retry", firstFrameRetries).
+					Int("max", maxFirstFrameRetries).
+					Msg("[SHARED_VIDEO] No first frame from the compositor yet, restarting pipeline")
+				newPipeline, err := s.restartPipeline()
+				if err != nil {
+					log.Error().Err(err).Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Pipeline restart failed")
+					s.broadcastError(err)
+					return
+				}
+				frameCh = newPipeline.Frames()
+				errorCh = newPipeline.Errors()
+				stallTimer.Reset(stallRestartTimeout)
+				continue
+			}
 			// Pipeline error (e.g., GPU OOM) - broadcast to all clients
 			log.Error().Err(pipelineErr).Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Pipeline error")
 			s.broadcastError(pipelineErr)
@@ -1432,8 +1512,13 @@ func (s *SharedVideoSource) GetLastError() error {
 func (s *SharedVideoSource) stop() {
 	s.stopOnce.Do(func() {
 		log.Info().Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Stopping source")
-		s.running.Store(false)
+		s.stopped.Store(true)
 		s.cancel()
+		// Wait out an in-flight start: it holds startMu until s.pipeline is
+		// set, and stopping before then would leak the pipeline it creates.
+		s.startMu.Lock()
+		s.startMu.Unlock() //nolint:staticcheck // barrier, not a critical section
+		s.running.Store(false)
 
 		if s.externalSource != nil {
 			s.externalSource.Stop()

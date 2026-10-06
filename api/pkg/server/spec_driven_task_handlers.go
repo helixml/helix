@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -98,9 +99,14 @@ func (s *HelixAPIServer) validateAssigneeIsOrgMember(ctx context.Context, orgID,
 // @Param   request body types.CreateTaskRequest true "Task creation request"
 // @Success 201 {object} types.SpecTask
 // @Failure 400 {object} types.APIError
+// @Failure 413 {object} types.APIError
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/spec-tasks/from-prompt [post]
 func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Request) {
+	s.createTaskFromPromptWithMaxRequestBytes(w, r, specTaskFromPromptMaxRequestBytes())
+}
+
+func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.ResponseWriter, r *http.Request, requestMaxBytes int64) {
 	addCorsHeaders(w)
 	if r.Method == http.MethodOptions {
 		return
@@ -113,14 +119,24 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	}
 
 	var req types.CreateTaskRequest
+	r.Body = http.MaxBytesReader(w, r.Body, requestMaxBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("Failed to decode create task request")
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body exceeds inline attachment size limit", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	// Detach from request context so DB mutations complete even if client disconnects
-	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	timeout := 30 * time.Second
+	if len(req.Attachments) > 0 {
+		timeout = types.SpecTaskInlineAttachmentIngestionTimeout
+	}
+	ctx, cancel := detachContext(r.Context(), timeout)
 	defer cancel()
 
 	// Authorize user to create task in the project
@@ -152,6 +168,13 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	// Set user ID and email from context
 	req.UserID = user.ID
 	req.UserEmail = user.Email
+	orgBot, err := s.orgBotForRequestUser(ctx, user)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", user.SessionID).Msg("Failed to resolve Org Bot for task creation")
+		http.Error(w, fmt.Sprintf("failed to resolve creating agent: %v", err), http.StatusInternalServerError)
+		return
+	}
+	req.CreatedByOrgBot = orgBot
 
 	// Strip null bytes that Postgres rejects (SQLSTATE 22021)
 	req.Prompt = strings.ReplaceAll(req.Prompt, "\x00", "")
@@ -161,49 +184,97 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		http.Error(w, "prompt is required", http.StatusBadRequest)
 		return
 	}
-	if req.AppID == "" {
-		project, err := s.Store.GetProject(ctx, req.ProjectID)
-		if err != nil {
-			http.Error(w, "project not found", http.StatusBadRequest)
-			return
-		}
-		req.AppID = project.DefaultHelixAppID
-	}
-	if req.AppID == "" {
-		http.Error(w, "project has no default coding agent", http.StatusBadRequest)
-		return
-	}
-	app, err := s.Store.GetApp(ctx, req.AppID)
-	if err != nil {
-		http.Error(w, "selected agent not found", http.StatusBadRequest)
-		return
-	}
-	if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
-		return
-	}
-	if err := requireAgentKind(app, types.AgentKindCoding, "spec tasks"); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if req.AppID != "" || req.CodeAgentOverrides != nil {
+		http.Error(w, "app_id and code_agent_overrides are no longer supported; provide code_agent_config", http.StatusBadRequest)
 		return
 	}
 	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
 		http.Error(w, "sandbox size must be 1 CPU/2 GB, 4 CPU/8 GB, or 8 CPU/16 GB", http.StatusBadRequest)
 		return
 	}
-	if req.CodeAgentOverrides != nil {
-		candidate := &types.SpecTask{HelixAppID: req.AppID}
-		if err := s.validateTaskCodeAgentOverrides(ctx, candidate, req.CodeAgentOverrides, user.ID); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+	if !types.ValidSpecTaskSandboxRuntime(req.SandboxRuntime) {
+		http.Error(w, "sandbox runtime must be ubuntu-desktop or headless-ubuntu", http.StatusBadRequest)
+		return
+	}
+	// A task pinned to the streamed desktop can never start on a fleet with no
+	// render node. Say so now rather than letting it sit in the backlog and
+	// fail at placement. The runtime is immutable once the task exists, so
+	// this is the only chance to catch it.
+	if types.EffectiveSpecTaskSandboxRuntime(req.SandboxRuntime) == types.SandboxRuntimeUbuntuDesktop {
+		hasDisplay, err := s.sandboxController.HasDisplayCapableHost(ctx)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to check display-capable hosts; allowing desktop spec task")
+		} else if !hasDisplay {
+			http.Error(w, sandbox.ErrNoDisplayCapableHost.Error()+
+				" — create the task with sandbox_runtime \"headless-ubuntu\"", http.StatusBadRequest)
 			return
 		}
 	}
+	if req.CodeAgentConfig != nil || req.PlanningCodeAgentConfig != nil {
+		project, err := s.Store.GetProject(ctx, req.ProjectID)
+		if err != nil {
+			http.Error(w, "project not found", http.StatusBadRequest)
+			return
+		}
+		if req.CodeAgentConfig != nil {
+			if err := s.validateCodeAgentExecutionConfig(ctx, req.CodeAgentConfig, user.ID, user.ID, project.OrganizationID); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		if req.PlanningCodeAgentConfig != nil {
+			if err := s.validateCodeAgentExecutionConfig(ctx, req.PlanningCodeAgentConfig, user.ID, user.ID, project.OrganizationID); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+	}
+
+	if err := validateInlineSpecTaskAttachments(req.Attachments); err != nil {
+		writeSpecTaskAttachmentInputError(w, err)
+		return
+	}
+	inlineAttachments := req.Attachments
+	// Drop the encoded payload before passing the request deeper. Attachment-bearing
+	// tasks are first created in a durable, non-dispatchable preparing state.
+	req.Attachments = nil
 
 	// Create task via spec-driven service
-	task, err := s.specDrivenTaskService.CreateTaskFromPrompt(ctx, &req)
+	var task *types.SpecTask
+	if len(inlineAttachments) == 0 {
+		task, err = s.specDrivenTaskService.CreateTaskFromPrompt(ctx, &req)
+	} else {
+		task, err = s.specDrivenTaskService.CreateTaskFromPromptPreparingAttachments(ctx, &req)
+	}
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create task from prompt")
 		http.Error(w, fmt.Sprintf("failed to create task: %v", err), http.StatusInternalServerError)
 		return
+	}
+	if len(inlineAttachments) > 0 {
+		for i := range inlineAttachments {
+			attachment, prepareErr := prepareInlineSpecTaskAttachment(inlineAttachments[i])
+			inlineAttachments[i].ContentBase64 = ""
+			if prepareErr != nil {
+				s.cleanupFailedInlineSpecTask(ctx, task.ID)
+				writeSpecTaskAttachmentInputError(w, prepareErr)
+				return
+			}
+			_, persistErr := s.persistSpecTaskAttachment(ctx, task.ID, req.ProjectID, user.ID, attachment)
+			attachment.body = nil
+			if persistErr != nil {
+				s.cleanupFailedInlineSpecTask(ctx, task.ID)
+				log.Error().Err(persistErr).Str("task_id", task.ID).Msg("Failed to persist inline task attachment")
+				http.Error(w, "failed to save task attachments", http.StatusInternalServerError)
+				return
+			}
+		}
+		if err := s.specDrivenTaskService.PublishTaskFromPromptAttachments(ctx, task, &req); err != nil {
+			s.cleanupFailedInlineSpecTask(ctx, task.ID)
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to publish task after attachment ingestion")
+			http.Error(w, "failed to publish task attachments", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Log audit event for task creation
@@ -248,6 +319,10 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
+	if task.Status == types.TaskStatusPreparing {
+		http.Error(w, "SpecTask not found", http.StatusNotFound)
+		return
+	}
 
 	user := getRequestUser(r)
 	if user == nil {
@@ -271,23 +346,52 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Surface why a queued task hasn't started yet. getTask does not run the
-	// listTasks enrichment, so compute it explicitly here for the detail page.
+	// getTask does not go through the listTasks read path, so compute the same
+	// derived fields explicitly: why a queued task hasn't started yet, and the
+	// live sandbox/agent state. Without the second call sandbox_state comes back
+	// null here while the board reports "running" for the same task.
 	s.populateQueueReasons(ctx, task.ProjectID, []*types.SpecTask{task})
+	s.populateSessionState(ctx, []*types.SpecTask{task})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
 }
 
+func rejectPreparingSpecTaskMutation(w http.ResponseWriter, task *types.SpecTask) bool {
+	if task == nil || task.Status != types.TaskStatusPreparing {
+		return false
+	}
+	http.Error(w, "task attachment intake is still in progress", http.StatusConflict)
+	return true
+}
+
+// orgBotForRequestUser names the Org Bot behind a request, or "".
+// A Bot works with a session-scoped API key; the session it names carries
+// the Bot's org_worker_id. People and ordinary keys have no session. The
+// key→session binding is server-minted, so a session that cannot be loaded
+// is an inconsistency, not a case to attribute around.
+func (s *HelixAPIServer) orgBotForRequestUser(ctx context.Context, user *types.User) (string, error) {
+	if user == nil || user.SessionID == "" {
+		return "", nil
+	}
+	session, err := s.Store.GetSession(ctx, user.SessionID)
+	if err != nil {
+		return "", fmt.Errorf("load session %s for credential: %w", user.SessionID, err)
+	}
+	return session.Metadata.OrgWorkerID, nil
+}
+
 // listTasks godoc
 // @Summary List spec-driven tasks
-// @Description List spec-driven tasks with optional filtering by project, status, or user
+// @Description List spec-driven tasks with optional filtering by project, status, or user. Pass organization_id instead of project_id to list across every project the caller can access.
 // @Tags    spec-driven-tasks
 // @Produce json
-// @Param   project_id query string true "Project ID"
+// @Param   project_id query string false "Project ID (required unless organization_id is set)"
+// @Param   organization_id query string false "Organization slug or ID: list tasks across all accessible projects"
 // @Param   status query string false "Filter by status"
 // @Param   user_id query string false "Filter by user ID"
 // @Param   participant_ids query string false "Filter by creator or assignee user IDs (comma-separated, OR semantics)"
+// @Param   created_by_org_bot query string false "Only tasks created by this Org Bot handle"
 // @Param   include_archived query bool false "Include archived tasks" default(false)
 // @Param   with_depends_on query bool false "Include depends on tasks" default(false)
 // @Param   labels query string false "Filter by labels (comma-separated, AND semantics)"
@@ -302,9 +406,10 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
 	projectID := query.Get("project_id")
+	orgRef := query.Get("organization_id")
 
-	if projectID == "" {
-		http.Error(w, "project ID is required", http.StatusBadRequest)
+	if projectID == "" && orgRef == "" {
+		http.Error(w, "project_id or organization_id is required", http.StatusBadRequest)
 		return
 	}
 
@@ -320,10 +425,38 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authorize user to list tasks in the project
-	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionList); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
-		return
+	// A project listing is authorized against that project. An org-wide
+	// listing is bounded to the projects the caller can read, which is the
+	// same set the projects page shows them.
+	var (
+		filterProjectIDs bool
+		projectIDs       []string
+	)
+	if projectID != "" {
+		if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionList); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+	} else {
+		org, err := s.lookupOrg(ctx, orgRef)
+		if err != nil {
+			http.Error(w, "organization not found", http.StatusNotFound)
+			return
+		}
+		membership, err := s.authorizeOrgMember(ctx, user, org.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		projects, err := s.visibleOrganizationProjects(ctx, user, org.ID, membership, types.ActionList, false)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to list projects: %v", err), http.StatusInternalServerError)
+			return
+		}
+		filterProjectIDs = true
+		for _, project := range projects {
+			projectIDs = append(projectIDs, project.ID)
+		}
 	}
 
 	var labelFilter []string
@@ -357,6 +490,9 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		UserID:             query.Get("user_id"),
 		FilterParticipants: query.Has("participant_ids"),
 		ParticipantIDs:     participantIDs,
+		FilterProjectIDs:   filterProjectIDs,
+		ProjectIDs:         projectIDs,
+		CreatedByOrgBot:    query.Get("created_by_org_bot"),
 		WithDependsOn:      query.Get("with_depends_on") == "true",
 		Limit:              parseIntQuery(query.Get("limit"), 0), // 0 = no limit, return all tasks
 		Offset:             parseIntQuery(query.Get("offset"), 0),
@@ -364,6 +500,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		IncludeArchived:    query.Get("include_archived") == "true",
 		ArchivedOnly:       query.Get("archived_only") == "true",
 		Labels:             labelFilter,
+		ExcludeStatuses:    []types.SpecTaskStatus{types.TaskStatusPreparing},
 	}
 
 	tasks, err := s.Store.ListSpecTasks(ctx, filters)
@@ -378,35 +515,33 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		tasks = []*types.SpecTask{}
 	}
 
-	// Compute PR URLs for RepoPullRequests array
-	if projectID != "" {
-		// Batch load repos for RepoPullRequests URL computation
-		// Collect all unique repo IDs from all tasks
-		repoIDsMap := make(map[string]bool)
-		for _, task := range tasks {
-			for _, repoPR := range task.RepoPullRequests {
-				if repoPR.PRURL == "" && repoPR.PRID != "" {
-					repoIDsMap[repoPR.RepositoryID] = true
-				}
+	// Compute PR URLs for RepoPullRequests array.
+	// Batch load repos for RepoPullRequests URL computation
+	// Collect all unique repo IDs from all tasks
+	repoIDsMap := make(map[string]bool)
+	for _, task := range tasks {
+		for _, repoPR := range task.RepoPullRequests {
+			if repoPR.PRURL == "" && repoPR.PRID != "" {
+				repoIDsMap[repoPR.RepositoryID] = true
 			}
 		}
+	}
 
-		// Load repos and build lookup map
-		repoMap := make(map[string]*types.GitRepository)
-		for repoID := range repoIDsMap {
-			repo, err := s.Store.GetGitRepository(ctx, repoID)
-			if err == nil {
-				repoMap[repoID] = repo
-			}
+	// Load repos and build lookup map
+	repoMap := make(map[string]*types.GitRepository)
+	for repoID := range repoIDsMap {
+		repo, err := s.Store.GetGitRepository(ctx, repoID)
+		if err == nil {
+			repoMap[repoID] = repo
 		}
+	}
 
-		// Compute URLs for RepoPullRequests
-		for _, task := range tasks {
-			for i, repoPR := range task.RepoPullRequests {
-				if repoPR.PRURL == "" && repoPR.PRID != "" {
-					if repo, ok := repoMap[repoPR.RepositoryID]; ok && repo.ExternalURL != "" {
-						task.RepoPullRequests[i].PRURL = services.GetPullRequestURL(repo, repoPR.PRID)
-					}
+	// Compute URLs for RepoPullRequests
+	for _, task := range tasks {
+		for i, repoPR := range task.RepoPullRequests {
+			if repoPR.PRURL == "" && repoPR.PRID != "" {
+				if repo, ok := repoMap[repoPR.RepositoryID]; ok && repo.ExternalURL != "" {
+					task.RepoPullRequests[i].PRURL = services.GetPullRequestURL(repo, repoPR.PRID)
 				}
 			}
 		}
@@ -416,12 +551,42 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 	// Recomputed each read so it clears as the queue drains.
 	s.populateQueueReasons(ctx, projectID, tasks)
 
-	// Populate SessionUpdatedAt and AgentWorkState for agent activity detection
+	s.populateSessionState(ctx, tasks)
+
+	// ETag support: hash the response to avoid sending unchanged data
+	jsonBytes, err := json.Marshal(tasks)
+	if err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+
+	h := fnv.New64a()
+	h.Write(jsonBytes)
+	etag := fmt.Sprintf(`"%x"`, h.Sum64())
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonBytes) //nolint:errcheck
+}
+
+// populateSessionState fills the computed, non-persisted session fields on each
+// task: SessionUpdatedAt, SandboxState, SandboxStatusMessage and AgentWorkState.
+// Shared by listTasks and getTask so a single-task fetch reports the same
+// sandbox state the board does — callers polling GET /spec-tasks/{id} for
+// sandbox_state used to see null forever while the container was running.
+func (s *HelixAPIServer) populateSessionState(ctx context.Context, tasks []*types.SpecTask) {
 	// Collect all session IDs and batch query for efficiency
 	sessionIDs := make([]string, 0)
 	for _, task := range tasks {
-		if task.AgentSessionID != "" {
-			sessionIDs = append(sessionIDs, task.AgentSessionID)
+		if task.PlanningSessionID != "" {
+			sessionIDs = append(sessionIDs, task.PlanningSessionID)
 		}
 	}
 	if len(sessionIDs) > 0 {
@@ -436,34 +601,20 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			// Live-check the executor to avoid stale DB metadata after sandbox restarts
 			// (same pattern as getSession in session_handlers.go).
 			for _, task := range tasks {
-				if session, ok := sessionMap[task.AgentSessionID]; ok {
+				if session, ok := sessionMap[task.PlanningSessionID]; ok {
 					task.SessionUpdatedAt = &session.Updated
 
 					// Live-check container status against the executor, overriding stale DB values.
-					// Only flip "running" → "stopped" when the executor says the container is gone.
-					// Never upgrade "starting" to "running" — the container may be up in Docker
-					// but RevDial hasn't connected yet, causing ScreenshotViewer 503 errors.
+					// Shared with getSession — see liveExternalAgentStatus for the rule.
 					cfg := session.Metadata
-					if cfg.ContainerName != "" && s.externalAgentExecutor != nil {
-						// Live-check the executor for "running" and "" (stopped-but-not-yet-labelled)
-						// sessions. Skip "starting" (RevDial not yet connected — upgrading it to
-						// "running" causes ScreenshotViewer 503s) and "stopped" (already terminal).
-						if cfg.ExternalAgentStatus == "running" || cfg.ExternalAgentStatus == "" {
-							_, err := s.externalAgentExecutor.GetSession(session.ID)
-							if err != nil {
-								cfg.ExternalAgentStatus = "stopped"
-							}
-						}
-					} else if cfg.ContainerName != "" {
-						cfg.ExternalAgentStatus = "stopped"
-					}
+					cfg.ExternalAgentStatus = s.liveExternalAgentStatus(session)
 
 					status := cfg.ExternalAgentStatus
 					hasContainer := cfg.ContainerName != ""
 					switch {
 					case status == "stopped" || status == "terminated_idle":
 						task.SandboxState = "absent"
-					case status == "starting":
+					case status == "starting" || status == "restarting":
 						task.SandboxState = "starting"
 					case status == "running":
 						task.SandboxState = "running"
@@ -487,33 +638,11 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 				log.Warn().Err(err).Msg("failed to fetch latest interactions for agent_work_state derivation")
 			} else {
 				for _, task := range tasks {
-					task.AgentWorkState = deriveAgentWorkState(task, latestInteractions[task.AgentSessionID])
+					task.AgentWorkState = deriveAgentWorkState(task, latestInteractions[task.PlanningSessionID])
 				}
 			}
 		}
 	}
-
-	// ETag support: hash the response to avoid sending unchanged data
-	jsonBytes, err := json.Marshal(tasks)
-	if err != nil {
-		http.Error(w, "failed to encode response", http.StatusInternalServerError)
-		return
-	}
-
-	h := fnv.New64a()
-	h.Write(jsonBytes)
-	etag := fmt.Sprintf(`"%x"`, h.Sum64())
-
-	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
-
-	if match := r.Header.Get("If-None-Match"); match == etag {
-		w.WriteHeader(http.StatusNotModified)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(jsonBytes) //nolint:errcheck
 }
 
 // approveSpecs godoc
@@ -603,7 +732,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		// Refuse to queue implementation if the agent's provider/model
 		// snapshot is stale or empty — same backstop as start-planning, so
 		// post-spec approval can't sneak past with a broken config.
-		if reason, vErr := s.validateSpecTaskAgentConfig(ctx, existingTask, user.ID); vErr != nil {
+		if reason, vErr := s.validateSpecTaskAgentConfig(ctx, existingTask, user.ID, types.SpecTaskPhaseImplementation); vErr != nil {
 			log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with approval")
 		} else if reason != "" {
 			writeResponse(w, map[string]interface{}{
@@ -615,22 +744,61 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
+	req.TaskID = taskID
+	req.ApprovedBy = user.ID
+	req.ApprovedAt = now
 	existingTask.SpecApproval = &req
 	existingTask.StatusUpdatedAt = &now
+	specApprovalJSON, err := json.Marshal(req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to encode spec approval: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	var nextStatus types.SpecTaskStatus
+	var fromStatuses []types.SpecTaskStatus
+	extraFields := map[string]any{"spec_approval": string(specApprovalJSON)}
 	if req.Approved {
 		existingTask.SpecApprovedBy = user.ID
 		existingTask.SpecApprovedAt = &now
-		existingTask.Status = types.TaskStatusSpecApproved
+		nextStatus = types.TaskStatusSpecApproved
+		fromStatuses = []types.SpecTaskStatus{
+			types.TaskStatusSpecGeneration,
+			types.TaskStatusSpecReview,
+			types.TaskStatusSpecRevision,
+			types.TaskStatusSpecApproved,
+		}
+		extraFields["spec_approved_by"] = user.ID
+		extraFields["spec_approved_at"] = now
 	} else {
-		// Rejection — don't set approval tracking fields, go straight to revision
-		existingTask.Status = types.TaskStatusSpecRevision
+		nextStatus = types.TaskStatusSpecRevision
+		fromStatuses = []types.SpecTaskStatus{
+			types.TaskStatusSpecGeneration,
+			types.TaskStatusSpecReview,
+			types.TaskStatusSpecRevision,
+			types.TaskStatusSpecApproved,
+		}
 	}
 
-	err = s.Store.UpdateSpecTask(ctx, existingTask)
-	if err != nil {
-		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update task")
-		http.Error(w, fmt.Sprintf("failed to update task: %v", err), http.StatusInternalServerError)
-		return
+	if req.Approved && (existingTask.Status == types.TaskStatusImplementationQueued ||
+		existingTask.Status == types.TaskStatusImplementation ||
+		existingTask.Status == types.TaskStatusQueuedImplementation) {
+		// A previous request already claimed or completed the handoff. Do not
+		// write an older status back; ApproveSpecs will re-drive pending work.
+	} else {
+		transitioned, transitionErr := s.Store.TransitionSpecTaskStatus(
+			ctx, taskID, fromStatuses, nextStatus, extraFields,
+		)
+		if transitionErr != nil {
+			log.Error().Err(transitionErr).Str("task_id", taskID).Msg("Failed to update task approval")
+			http.Error(w, fmt.Sprintf("failed to update task approval: %v", transitionErr), http.StatusInternalServerError)
+			return
+		}
+		if !transitioned {
+			http.Error(w, "task is no longer awaiting spec approval", http.StatusConflict)
+			return
+		}
+		existingTask.Status = nextStatus
 	}
 
 	// Log audit event for spec approval
@@ -655,18 +823,22 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Process approval immediately in goroutine (don't wait for orchestrator polling)
-	// This sends the implementation instruction to the agent right away
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		if err := s.specDrivenTaskService.ApproveSpecs(context.Background(), existingTask); err != nil {
-			log.Error().
-				Err(err).
-				Str("task_id", taskID).
-				Msg("Failed to process spec approval (orchestrator will retry)")
+	// Approval is not complete until the durable implementation handoff exists.
+	// Returning 200 before this point leaves the approver with a task that can be
+	// stuck without any visible failure.
+	if err := s.specDrivenTaskService.ApproveSpecs(ctx, existingTask); err != nil {
+		if errors.Is(err, services.ErrImplementationHandoffAlreadyClaimed) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
 		}
-	}()
+		s.persistSpecApprovalError(ctx, taskID, err)
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to process spec approval")
+		http.Error(w, fmt.Sprintf("failed to start implementation: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if refreshed, refreshErr := s.Store.GetSpecTask(ctx, taskID); refreshErr == nil {
+		existingTask = refreshed
+	}
 
 	log.Info().
 		Str("task_id", taskID).
@@ -676,6 +848,24 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(existingTask)
+}
+
+func (s *HelixAPIServer) persistSpecApprovalError(ctx context.Context, taskID string, approvalErr error) {
+	ctx = context.WithoutCancel(ctx)
+	task, err := s.Store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to load task for approval error")
+		return
+	}
+	metadata := make(map[string]interface{}, len(task.Metadata)+2)
+	for key, value := range task.Metadata {
+		metadata[key] = value
+	}
+	metadata["error"] = approvalErr.Error()
+	metadata["error_timestamp"] = time.Now().Format(time.RFC3339)
+	if err := s.Store.UpdateSpecTaskFields(ctx, taskID, map[string]any{"metadata": metadata}); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to persist approval error")
+	}
 }
 
 // getTaskSpecs godoc
@@ -787,7 +977,7 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 		Specification: PhaseProgress{
 			Status:        getSpecificationStatus(task.Status),
 			Agent:         "", // No separate agent field needed
-			SessionID:     task.AgentSessionID,
+			SessionID:     task.PlanningSessionID,
 			StartedAt:     &task.CreatedAt, // Spec generation starts when task is created
 			CompletedAt:   task.SpecApprovedAt,
 			RevisionCount: task.SpecRevisionCount,
@@ -795,7 +985,7 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 		Implementation: PhaseProgress{
 			Status:    getImplementationStatus(task.Status),
 			Agent:     "",                     // No separate agent - reuses planning agent
-			SessionID: task.AgentSessionID, // Same session continues into implementation
+			SessionID: task.PlanningSessionID, // Same session continues into implementation
 			StartedAt: task.SpecApprovedAt,
 			// CompletedAt will be set when implementation is done
 		},
@@ -857,6 +1047,7 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 	tasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
 		ProjectID:       projectID,
 		IncludeArchived: false,
+		ExcludeStatuses: []types.SpecTaskStatus{types.TaskStatusPreparing},
 	})
 	if err != nil {
 		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to list tasks for batch progress")
@@ -878,14 +1069,14 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 			UpdatedAt: task.UpdatedAt,
 			Specification: PhaseProgress{
 				Status:        getSpecificationStatus(task.Status),
-				SessionID:     task.AgentSessionID,
+				SessionID:     task.PlanningSessionID,
 				StartedAt:     &task.CreatedAt,
 				CompletedAt:   task.SpecApprovedAt,
 				RevisionCount: task.SpecRevisionCount,
 			},
 			Implementation: PhaseProgress{
 				Status:    getImplementationStatus(task.Status),
-				SessionID: task.AgentSessionID,
+				SessionID: task.PlanningSessionID,
 				StartedAt: task.SpecApprovedAt,
 			},
 		}
@@ -1003,6 +1194,9 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
 
 	// Verify task is in backlog status
 	if task.Status != types.TaskStatusBacklog {
@@ -1036,7 +1230,11 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	// empty — otherwise the orchestrator would spawn a desktop that boots
 	// fine but can't reach a routable model, and the user has to dig
 	// through API logs to find the cause.
-	if reason, vErr := s.validateSpecTaskAgentConfig(ctx, task, user.ID); vErr != nil {
+	phase := types.SpecTaskPhasePlanning
+	if task.JustDoItMode {
+		phase = types.SpecTaskPhaseImplementation
+	}
+	if reason, vErr := s.validateSpecTaskAgentConfig(ctx, task, user.ID, phase); vErr != nil {
 		log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with planning")
 	} else if reason != "" {
 		writeResponse(w, map[string]interface{}{
@@ -1065,12 +1263,38 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	// pre-start assignment.
 	task.AssigneeID = user.ID
 
+	// A failed launch may still have created a desktop and session key. Tear it
+	// down before releasing the session claim for an explicit retry.
+	stalePlanningSessionID := ""
+	if task.PlanningSessionID != "" && task.Metadata != nil {
+		if errorMessage, ok := task.Metadata["error"].(string); ok && strings.TrimSpace(errorMessage) != "" {
+			stalePlanningSessionID = task.PlanningSessionID
+			if err := s.stopSessionAgent(ctx, stalePlanningSessionID, "retrying failed spec task"); err != nil {
+				log.Warn().Err(err).Str("task_id", task.ID).Str("session_id", stalePlanningSessionID).
+					Msg("Failed to stop agent session before retrying task")
+				http.Error(w, "failed to stop agent session", http.StatusInternalServerError)
+				return
+			}
+			task.PlanningSessionID = ""
+			task.ExternalAgentID = ""
+			task.ZedInstanceID = ""
+		}
+	}
+
 	// Save the task with queued status first (so response reflects immediate status)
 	err = s.Store.UpdateSpecTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update SpecTask to queued status")
 		http.Error(w, fmt.Sprintf("failed to update SpecTask: %v", err), http.StatusInternalServerError)
 		return
+	}
+	if stalePlanningSessionID != "" {
+		if _, err := s.Store.DeleteSession(ctx, stalePlanningSessionID); err != nil {
+			log.Warn().Err(err).
+				Str("task_id", task.ID).
+				Str("session_id", stalePlanningSessionID).
+				Msg("Failed to delete stale session while retrying task launch")
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1130,6 +1354,17 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
+	if updateReq.Status == types.TaskStatusPreparing {
+		http.Error(w, "preparing is an internal task status", http.StatusBadRequest)
+		return
+	}
+	resetPlanningSessionID := ""
+	if updateReq.Status == types.TaskStatusBacklog {
+		resetPlanningSessionID = task.PlanningSessionID
+	}
 
 	// Update fields if provided
 	if updateReq.Status != "" {
@@ -1159,7 +1394,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			task.SpecRevisionCount = 0
 			task.ImplementationApprovedBy = ""
 			task.ImplementationApprovedAt = nil
-			task.AgentSessionID = ""
+			task.PlanningSessionID = ""
 			task.ExternalAgentID = ""
 			task.ZedInstanceID = ""
 			task.LastPushCommitHash = ""
@@ -1189,39 +1424,8 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		task.JustDoItMode = *updateReq.JustDoItMode
 	}
 	if updateReq.HelixAppID != "" {
-		app, err := s.Store.GetApp(ctx, updateReq.HelixAppID)
-		if err != nil {
-			http.Error(w, "selected agent not found", http.StatusBadRequest)
-			return
-		}
-		if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		if err := requireAgentKind(app, types.AgentKindCoding, "spec tasks"); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		task.HelixAppID = updateReq.HelixAppID
-
-		// Sync session's ParentApp so restart uses new agent's display settings
-		if task.AgentSessionID != "" {
-			session, err := s.Store.GetSession(ctx, task.AgentSessionID)
-			if err == nil && session != nil && session.ParentApp != updateReq.HelixAppID {
-				session.ParentApp = updateReq.HelixAppID
-				if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
-					log.Warn().Err(err).
-						Str("session_id", task.AgentSessionID).
-						Str("new_agent", updateReq.HelixAppID).
-						Msg("Failed to update session ParentApp (continuing)")
-				} else {
-					log.Info().
-						Str("session_id", task.AgentSessionID).
-						Str("new_agent", updateReq.HelixAppID).
-						Msg("Updated session ParentApp to match spec task agent")
-				}
-			}
-		}
+		http.Error(w, "helix_app_id is no longer supported; use the execution-config endpoint", http.StatusBadRequest)
+		return
 	}
 	// Update user short title (pointer allows clearing with empty string)
 	if updateReq.UserShortTitle != nil {
@@ -1236,7 +1440,19 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.KeepAlive != nil {
 		task.KeepAlive = *updateReq.KeepAlive
 	}
+	if updateReq.AutoApprovePullRequests != nil {
+		// Proposals are auto-approved with the provider credentials of
+		// whoever turned this on.
+		task.AutoApprovePullRequests = *updateReq.AutoApprovePullRequests
+		if task.AutoApprovePullRequests {
+			task.AutoApprovePullRequestsBy = user.ID
+		}
+	}
 	// Update assignee (pointer allows clearing with empty string to unassign)
+	if updateReq.AgentTools != nil {
+		task.AgentTools = sanitizeAgentTools(*updateReq.AgentTools)
+	}
+
 	if updateReq.AssigneeID != nil {
 		newAssigneeID := *updateReq.AssigneeID
 		if err := s.validateAssigneeIsOrgMember(ctx, task.OrganizationID, newAssigneeID); err != nil {
@@ -1263,6 +1479,15 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	if resetPlanningSessionID != "" {
+		if err := s.stopSessionAgent(ctx, resetPlanningSessionID, "spec task reset to backlog"); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Str("session_id", resetPlanningSessionID).
+				Msg("Failed to stop agent session before resetting task")
+			http.Error(w, "failed to stop agent session", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	// Update in store
 	err = s.Store.UpdateSpecTask(ctx, task)
 	if err != nil {
@@ -1285,18 +1510,18 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// the orchestrator's handleDone() has already exited without stopping the
 	// desktop (because KeepAlive was true at the time). Release the desktop now
 	// so the user has an explicit way to free the resources after merge.
-	if previousKeepAlive && !task.KeepAlive && task.Status == types.TaskStatusDone && task.AgentSessionID != "" {
-		stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.AgentSessionID)
+	if previousKeepAlive && !task.KeepAlive && task.Status == types.TaskStatusDone && task.PlanningSessionID != "" {
+		stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.PlanningSessionID)
 		if stopErr != nil {
 			log.Warn().
 				Err(stopErr).
 				Str("task_id", taskID).
-				Str("session_id", task.AgentSessionID).
+				Str("session_id", task.PlanningSessionID).
 				Msg("Failed to stop desktop after KeepAlive turned off on Done task (continuing)")
 		} else {
 			log.Info().
 				Str("task_id", taskID).
-				Str("session_id", task.AgentSessionID).
+				Str("session_id", task.PlanningSessionID).
 				Msg("Stopped desktop after KeepAlive turned off on Done task")
 		}
 	}
@@ -1349,6 +1574,9 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
 
 	// It must be archived to be deleted
 	if !task.Archived {
@@ -1356,25 +1584,29 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Clean up attachment rows and the filestore prefix before deleting the task row
-	// itself. Best-effort: log and continue if either step fails so the task delete
-	// isn't blocked by orphaned blobs.
-	if err := s.Store.DeleteSpecTaskAttachmentsByTaskID(ctx, taskID); err != nil {
-		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment rows for task")
-	}
-	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(taskID); err != nil {
-		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment blobs for task")
-	}
-
-	// Delete the task
-	err = s.Store.DeleteSpecTask(ctx, taskID)
-	if err != nil {
+	if err := s.deleteSpecTaskCascade(ctx, taskID); err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to delete SpecTask")
 		http.Error(w, fmt.Sprintf("failed to delete SpecTask: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteSpecTaskCascade removes a spec task's attachment rows and filestore
+// blobs, then the task row (and its child rows) itself. Attachment cleanup is
+// best-effort — an orphaned blob must never block a delete — while the task
+// delete is authoritative and its error is returned. Shared by the task delete
+// endpoint and project deletion, so a project's tasks can never outlive the
+// project and churn through the orchestrator forever.
+func (s *HelixAPIServer) deleteSpecTaskCascade(ctx context.Context, taskID string) error {
+	if err := s.Store.DeleteSpecTaskAttachmentsByTaskID(ctx, taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment rows for task")
+	}
+	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(ctx, taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment blobs for task")
+	}
+	return s.Store.DeleteSpecTask(ctx, taskID)
 }
 
 // archiveSpecTask godoc
@@ -1430,51 +1662,62 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
 
-	// When archiving, stop any running external agents
+	// When archiving, stop any running external agents in the background.
+	// Stopping a desktop is slow (screenshot capture, container teardown,
+	// billing settle, key revocation) and must not block the archive response.
 	if req.Archived {
-		// Stop the external agent if it's running
-		if task.AgentSessionID != "" {
-			session, sessionErr := s.Store.GetSession(ctx, task.AgentSessionID)
-			if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
-				stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.AgentSessionID)
+		planningSessionID := task.PlanningSessionID
+		stopCtx, stopCancel := detachContext(r.Context(), 5*time.Minute)
+		go func() {
+			defer stopCancel()
+
+			// Stop the external agent if it's running
+			if planningSessionID != "" {
+				session, sessionErr := s.Store.GetSession(stopCtx, planningSessionID)
+				if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
+					stopErr := s.stopSessionAgent(stopCtx, planningSessionID, "spec task archived")
+					if stopErr != nil {
+						log.Warn().
+							Err(stopErr).
+							Str("task_id", taskID).
+							Str("session_id", planningSessionID).
+							Msg("Failed to stop agent session when archiving (continuing anyway)")
+					} else {
+						log.Info().
+							Str("task_id", taskID).
+							Str("session_id", planningSessionID).
+							Msg("Stopped agent session when archiving")
+					}
+				}
+			}
+
+			// Stop any implementation session agents
+			// Get all sessions for this task's project and stop ones related to this task
+			externalAgent, agentErr := s.Store.GetSpecTaskExternalAgent(stopCtx, taskID)
+			if agentErr == nil && externalAgent != nil && externalAgent.Status == "running" {
+				stopErr := s.externalAgentExecutor.StopDesktop(stopCtx, externalAgent.ID)
 				if stopErr != nil {
 					log.Warn().
 						Err(stopErr).
 						Str("task_id", taskID).
-						Str("session_id", task.AgentSessionID).
-						Msg("Failed to stop agent session when archiving (continuing anyway)")
+						Str("agent_id", externalAgent.ID).
+						Msg("Failed to stop external agent when archiving (continuing anyway)")
 				} else {
+					// Update agent status
+					externalAgent.Status = "stopped"
+					_ = s.Store.UpdateSpecTaskExternalAgent(stopCtx, externalAgent)
+
 					log.Info().
 						Str("task_id", taskID).
-						Str("session_id", task.AgentSessionID).
-						Msg("Stopped agent session before archiving")
+						Str("agent_id", externalAgent.ID).
+						Msg("Stopped external agent when archiving")
 				}
 			}
-		}
-
-		// Stop any implementation session agents
-		// Get all sessions for this task's project and stop ones related to this task
-		externalAgent, agentErr := s.Store.GetSpecTaskExternalAgent(ctx, taskID)
-		if agentErr == nil && externalAgent != nil && externalAgent.Status == "running" {
-			stopErr := s.externalAgentExecutor.StopDesktop(ctx, externalAgent.ID)
-			if stopErr != nil {
-				log.Warn().
-					Err(stopErr).
-					Str("task_id", taskID).
-					Str("agent_id", externalAgent.ID).
-					Msg("Failed to stop external agent when archiving (continuing anyway)")
-			} else {
-				// Update agent status
-				externalAgent.Status = "stopped"
-				_ = s.Store.UpdateSpecTaskExternalAgent(ctx, externalAgent)
-
-				log.Info().
-					Str("task_id", taskID).
-					Str("agent_id", externalAgent.ID).
-					Msg("Stopped external agent before archiving")
-			}
-		}
+		}()
 	}
 
 	// Update archived status

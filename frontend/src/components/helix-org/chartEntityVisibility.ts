@@ -2,10 +2,14 @@ export type ChartEntityKind = 'agents' | 'processors' | 'assets'
 
 export type HiddenChartEntityIDs = Record<ChartEntityKind, string[]>
 
-export const EMPTY_HIDDEN_CHART_ENTITY_IDS: HiddenChartEntityIDs = {
-  agents: [],
-  processors: [],
-  assets: [],
+export const selectedChartEntityIDs = (
+  kind: ChartEntityKind,
+  optionIDs: string[],
+  hiddenIDs: HiddenChartEntityIDs | null,
+): string[] => {
+  if (hiddenIDs === null) return kind === 'agents' ? optionIDs : []
+  const hidden = new Set(hiddenIDs[kind])
+  return optionIDs.filter((id) => !hidden.has(id))
 }
 
 const storageKey = (userID: string, orgID: string): string =>

@@ -17,6 +17,7 @@ export type HelixOrgSideDrawerProps = {
   /** Paper width in px. Default 460 (matches processor form). */
   width?: number
   headerAction?: ReactNode
+  footer?: ReactNode
   /** Keep the underlying chart interactive while this drawer is open. */
   allowInteractionBehind?: boolean
   /** Close persistent drawers on Escape. Temporary drawers handle this through MUI. */
@@ -30,6 +31,7 @@ const HelixOrgSideDrawer: FC<HelixOrgSideDrawerProps> = ({
   title,
   width = 460,
   headerAction,
+  footer,
   allowInteractionBehind = false,
   closeOnEscape = false,
   children,
@@ -87,7 +89,12 @@ const HelixOrgSideDrawer: FC<HelixOrgSideDrawerProps> = ({
             </IconButton>
           </Stack>
         </Stack>
-        <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>{children}</Box>
+        <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0, pt: 1.5 }}>{children}</Box>
+        {footer && (
+          <Box sx={{ flexShrink: 0, pt: 2 }}>
+            {footer}
+          </Box>
+        )}
       </Box>
     </Drawer>
   )

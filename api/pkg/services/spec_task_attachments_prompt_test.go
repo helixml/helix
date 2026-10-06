@@ -41,6 +41,27 @@ func TestBuildAttachmentsSection_Renders(t *testing.T) {
 	assert.Contains(t, out, "Read or view them BEFORE asking clarifying questions")
 }
 
+func TestBuildJustDoItPrompt_IncludesAttachments(t *testing.T) {
+	attachmentsSection := BuildAttachmentsSection([]*types.SpecTaskAttachment{
+		{Filename: "screenshot.png", MimeType: "image/png", SizeBytes: 42_730},
+	}, "000442_image-task")
+
+	out := buildJustDoItPrompt(
+		"Inspect the attached screenshot.",
+		"",
+		"helix-next",
+		"## Available Repositories\n\n",
+		attachmentsSection,
+		"",
+		"Verify the branch.",
+	)
+
+	assert.Contains(t, out, "Inspect the attached screenshot.")
+	assert.Contains(t, out, "/home/retro/work/helix-specs/design/tasks/000442_image-task/attachments/screenshot.png")
+	assert.Contains(t, out, "Read or view them BEFORE asking clarifying questions")
+	assert.Contains(t, out, "Verify the branch.")
+}
+
 func TestHumanSize(t *testing.T) {
 	assert.Equal(t, "999 B", humanSize(999))
 	assert.Equal(t, "1 KB", humanSize(1024))

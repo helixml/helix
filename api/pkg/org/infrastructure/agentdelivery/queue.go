@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -18,6 +20,7 @@ import (
 const (
 	streamName    = "HELIX_ORG_AGENT_ACTIVATIONS"
 	subjectPrefix = "helix-org.agent-activations"
+	maxRetryDelay = 30 * time.Minute
 )
 
 type envelope struct {
@@ -39,7 +42,18 @@ type Queue struct {
 	active  map[string]struct{}
 	removed map[string]struct{}
 	publish map[string]*sync.Mutex
+	running map[string]*inflight
 }
+
+// inflight is the activation a consumer is currently running.
+type inflight struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// maxInflightStopWait bounds how long removing an agent waits for its running
+// activation to observe cancellation.
+const maxInflightStopWait = 30 * time.Second
 
 func New(ctx context.Context, provider pubsub.DurablePubSub, spawn activation.Spawn, logger *slog.Logger) (*Queue, error) {
 	if logger == nil {
@@ -49,7 +63,7 @@ func New(ctx context.Context, provider pubsub.DurablePubSub, spawn activation.Sp
 		return nil, err
 	}
 	queueCtx, cancel := context.WithCancel(ctx)
-	return &Queue{ctx: queueCtx, cancel: cancel, pubsub: provider, spawn: spawn, logger: logger, active: map[string]struct{}{}, removed: map[string]struct{}{}, publish: map[string]*sync.Mutex{}}, nil
+	return &Queue{ctx: queueCtx, cancel: cancel, pubsub: provider, spawn: spawn, logger: logger, active: map[string]struct{}{}, removed: map[string]struct{}{}, publish: map[string]*sync.Mutex{}, running: map[string]*inflight{}}, nil
 }
 
 func (q *Queue) Close() { q.cancel() }
@@ -99,6 +113,21 @@ func (q *Queue) Enqueue(orgID string, agentID orgchart.NodeID, trigger activatio
 
 func (q *Queue) CleanupAgent(ctx context.Context, orgID string, agentID orgchart.NodeID) error {
 	name := consumerName(orgID, agentID)
+	if err := q.removeAgent(ctx, orgID, agentID, name); err != nil {
+		return err
+	}
+	// Wait outside the publish lock: Enqueue for a removed agent returns at
+	// once, and must not stall the dispatcher behind this wait.
+	if err := q.stopInflight(ctx, name); err != nil {
+		q.mu.Lock()
+		delete(q.removed, name)
+		q.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+func (q *Queue) removeAgent(ctx context.Context, orgID string, agentID orgchart.NodeID, name string) error {
 	lock := q.publishLock(name)
 	lock.Lock()
 	defer lock.Unlock()
@@ -122,6 +151,48 @@ func (q *Queue) CleanupAgent(ctx context.Context, orgID string, agentID orgchart
 		return err
 	}
 	return nil
+}
+
+// CancelOutstanding discards queued and in-flight deliveries without marking
+// the agent removed, so Restart can enqueue a clean activation immediately.
+func (q *Queue) CancelOutstanding(ctx context.Context, orgID string, agentID orgchart.NodeID) error {
+	name := consumerName(orgID, agentID)
+	lock := q.publishLock(name)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if err := q.pubsub.DeleteDurableConsumer(ctx, streamName, name); err != nil {
+		return err
+	}
+	q.mu.Lock()
+	delete(q.active, name)
+	q.mu.Unlock()
+	if err := q.pubsub.PurgeDurableSubject(ctx, streamName, subjectFor(orgID, agentID)); err != nil {
+		return err
+	}
+	return q.stopInflight(ctx, name)
+}
+
+// stopInflight cancels the agent's running activation and waits for it to
+// return, so nothing it does outlives a delete or restart of the agent.
+func (q *Queue) stopInflight(ctx context.Context, name string) error {
+	q.mu.Lock()
+	run := q.running[name]
+	q.mu.Unlock()
+	if run == nil {
+		return nil
+	}
+	run.cancel()
+	timer := time.NewTimer(maxInflightStopWait)
+	defer timer.Stop()
+	select {
+	case <-run.done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("wait for running activation of %s: %w", name, ctx.Err())
+	case <-timer.C:
+		return fmt.Errorf("running activation of %s did not stop within %s", name, maxInflightStopWait)
+	}
 }
 
 func (q *Queue) RestoreAgent(orgID string, agentID orgchart.NodeID) {
@@ -171,7 +242,7 @@ func (q *Queue) handle(msg *pubsub.Message) {
 	var delivery envelope
 	if err := json.Unmarshal(msg.Data, &delivery); err != nil {
 		q.logger.Error("agent delivery: decode", "err", err)
-		_ = msg.NakWithDelay(time.Second)
+		_ = msg.NakWithDelay(retryDelay(msg.NumDelivered))
 		return
 	}
 	done := make(chan struct{})
@@ -187,16 +258,63 @@ func (q *Queue) handle(msg *pubsub.Message) {
 			}
 		}
 	}()
-	err := q.spawn(context.Background(), delivery.OrganizationID, delivery.AgentID, []activation.Trigger{delivery.Trigger})
+	name := consumerName(delivery.OrganizationID, delivery.AgentID)
+	spawnCtx, cancel := context.WithCancel(context.Background())
+	run := &inflight{cancel: cancel, done: make(chan struct{})}
+	q.mu.Lock()
+	_, removed := q.removed[name]
+	if !removed {
+		q.running[name] = run
+	}
+	q.mu.Unlock()
+	if removed {
+		// Delivered just before the agent was removed; its cleanup did not
+		// see this activation, so it must not start.
+		cancel()
+		close(done)
+		return
+	}
+	err := q.spawn(spawnCtx, delivery.OrganizationID, delivery.AgentID, []activation.Trigger{delivery.Trigger})
+	cancelled := spawnCtx.Err() != nil
+	q.mu.Lock()
+	if q.running[name] == run {
+		delete(q.running, name)
+	}
+	q.mu.Unlock()
+	cancel()
+	close(run.done)
 	close(done)
+	if cancelled {
+		// The agent was removed or restarted; its consumer and queued
+		// deliveries are already gone.
+		q.logger.Info("agent delivery: activation cancelled", "agent", delivery.AgentID)
+		return
+	}
 	if err != nil {
 		q.logger.Warn("agent delivery: activation failed", "agent", delivery.AgentID, "err", err)
-		_ = msg.NakWithDelay(time.Second)
+		if errors.Is(err, activation.ErrNonRetryable) {
+			if ackErr := msg.Ack(); ackErr != nil {
+				q.logger.Error("agent delivery: ack terminal failure", "agent", delivery.AgentID, "err", ackErr)
+			}
+			return
+		}
+		_ = msg.NakWithDelay(retryDelay(msg.NumDelivered))
 		return
 	}
 	if err := msg.Ack(); err != nil {
 		q.logger.Error("agent delivery: ack", "agent", delivery.AgentID, "err", err)
 	}
+}
+
+func retryDelay(numDelivered uint64) time.Duration {
+	delay := time.Second
+	for delivered := uint64(1); delivered < numDelivered && delay < maxRetryDelay; delivered++ {
+		delay *= 2
+	}
+	if delay > maxRetryDelay {
+		return maxRetryDelay
+	}
+	return delay
 }
 
 func subjectFor(orgID string, agentID orgchart.NodeID) string {

@@ -11,18 +11,30 @@ import (
 
 // GetOrgComputeUsageQuery selects the sandbox-compute spend to summarise.
 //
-// Only the date range and the project narrow the result. The token-shaped
-// filters on the usage page (model, provider, session, user) have no analogue
-// for a container, so compute intentionally ignores them rather than
-// silently returning zero when one is set.
+// Date, project, and task narrow the result. The remaining token-shaped
+// filters (model, provider, session, user) have no container analogue.
 type GetOrgComputeUsageQuery struct {
 	OrganizationID string
 	ProjectID      string
+	TaskID         string
 	From           time.Time
 	To             time.Time
 	// SandboxLimit caps the per-sandbox breakdown. Defaults to 10.
 	SandboxLimit int
 }
+
+const computeTaskIDExpr = `COALESCE(
+	(
+		SELECT trigger_executions.trigger_configuration_id
+		FROM trigger_executions
+		WHERE trigger_executions.session_id = sandboxes.session_id
+		  AND sandboxes.session_id <> ''
+		ORDER BY trigger_executions.created DESC
+		LIMIT 1
+	),
+	NULLIF(sandboxes.spec_task_id, ''),
+	''
+)`
 
 // GetOrgComputeUsage summarises what an org spent on sandbox runtime.
 //
@@ -64,6 +76,9 @@ func (s *PostgresStore) GetOrgComputeUsage(ctx context.Context, q *GetOrgCompute
 			Where("transactions.created_at >= ? AND transactions.created_at <= ?", q.From, q.To)
 		if q.ProjectID != "" {
 			query = query.Where("sandboxes.project_id = ?", q.ProjectID)
+		}
+		if q.TaskID != "" {
+			query = query.Where(computeTaskIDExpr+" = ?", q.TaskID)
 		}
 		return query
 	}
@@ -147,6 +162,9 @@ func (s *PostgresStore) GetOrgComputeUsage(ctx context.Context, q *GetOrgCompute
 		Where("organization_id = ? AND deleted_at IS NULL AND status = ?", q.OrganizationID, types.SandboxStatusRunning)
 	if q.ProjectID != "" {
 		runningQuery = runningQuery.Where("project_id = ?", q.ProjectID)
+	}
+	if q.TaskID != "" {
+		runningQuery = runningQuery.Where(computeTaskIDExpr+" = ?", q.TaskID)
 	}
 	if err := runningQuery.Count(&running).Error; err != nil {
 		return nil, err

@@ -56,27 +56,29 @@ func TestSvgContainsScript(t *testing.T) {
 	assert.True(t, svgContainsScript([]byte(`<SVG><SCRIPT/></SVG>`)))
 }
 
-func TestSpecTaskAttachmentsLocked(t *testing.T) {
+func TestSpecTaskAttachmentUploadsStayOpenWhileAgentIsWorking(t *testing.T) {
 	for _, status := range []types.SpecTaskStatus{
 		types.TaskStatusBacklog,
 		types.TaskStatusQueuedSpecGeneration,
 		types.TaskStatusSpecGeneration,
 		types.TaskStatusSpecReview,
 		types.TaskStatusSpecRevision,
-	} {
-		assert.False(t, specTaskAttachmentsLocked(status), "expected unlocked for %s", status)
-	}
-	for _, status := range []types.SpecTaskStatus{
 		types.TaskStatusSpecApproved,
 		types.TaskStatusImplementationQueued,
 		types.TaskStatusImplementation,
 		types.TaskStatusImplementationReview,
-		types.TaskStatusPullRequest,
-		types.TaskStatusDone,
 		types.TaskStatusImplementationFailed,
 	} {
-		assert.True(t, specTaskAttachmentsLocked(status), "expected locked for %s", status)
+		assert.False(t, specTaskAttachmentUploadsLocked(status), "expected uploads unlocked for %s", status)
 	}
+	for _, status := range []types.SpecTaskStatus{
+		types.TaskStatusPreparing,
+		types.TaskStatusPullRequest,
+		types.TaskStatusDone,
+	} {
+		assert.True(t, specTaskAttachmentUploadsLocked(status), "expected uploads locked for %s", status)
+	}
+	assert.True(t, specTaskAttachmentDeletesLocked(types.TaskStatusImplementation))
 }
 
 func TestSpecTaskAttachmentLimits(t *testing.T) {
@@ -84,6 +86,7 @@ func TestSpecTaskAttachmentLimits(t *testing.T) {
 	// frontend both derive their enforcement/copy from this constant, so this
 	// catches an accidental regression to the old 10 MB.
 	assert.Equal(t, 100*1024*1024, types.SpecTaskAttachmentMaxBytes)
+	assert.Equal(t, 100*1024*1024, types.SpecTaskInlineAttachmentsMaxBytes)
 }
 
 func TestAllowedMimeTypes(t *testing.T) {

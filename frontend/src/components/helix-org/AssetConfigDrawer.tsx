@@ -19,6 +19,7 @@ import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
 
 import { AssetAuthType, AssetKind } from '../../api/api'
 import useSnackbar from '../../hooks/useSnackbar'
+import { copyTextToClipboard } from '../../utils/clipboard'
 import {
   AssetDTO,
   AssetHealthDTO,
@@ -74,8 +75,8 @@ const formFromAsset = (asset: AssetDTO): AssetForm => ({
   user: asset.server?.user ?? '',
   authType: asset.server?.auth_type ?? AssetAuthType.AuthSSHKey,
   password: '',
-  agentIDs: asset.agent_ids ?? [],
-  notes: asset.notes_for_agents ?? '',
+  agentIDs: asset.bot_ids ?? [],
+  notes: asset.notes_for_bots ?? '',
 })
 
 const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, agents, onClose, onCreated, onDelete }) => {
@@ -136,7 +137,7 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
             auth_type: form.authType,
             password: form.authType === AssetAuthType.AuthPassword ? form.password : undefined,
           },
-          notes_for_agents: form.notes.trim(),
+          notes_for_bots: form.notes.trim(),
         })
         setCreated(value)
         setEnabled(value.enabled !== false)
@@ -156,14 +157,14 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
           auth_type: form.authType,
           password: form.password || undefined,
         },
-        notes_for_agents: form.notes.trim(),
+        notes_for_bots: form.notes.trim(),
       })
 
-      const existing = new Set(asset.agent_ids ?? [])
+      const existing = new Set(asset.bot_ids ?? [])
       const selected = new Set(form.agentIDs)
       await Promise.all([
-        ...form.agentIDs.filter((id) => !existing.has(id)).map((agentID) => linkAsset.mutateAsync({ assetID: asset.id ?? '', agentID })),
-        ...(asset.agent_ids ?? []).filter((id) => !selected.has(id)).map((agentID) => unlinkAsset.mutateAsync({ assetID: asset.id ?? '', agentID })),
+        ...form.agentIDs.filter((id) => !existing.has(id)).map((botID) => linkAsset.mutateAsync({ assetID: asset.id ?? '', botID })),
+        ...(asset.bot_ids ?? []).filter((id) => !selected.has(id)).map((botID) => unlinkAsset.mutateAsync({ assetID: asset.id ?? '', botID })),
       ])
       setSavedForm({ ...form, password: '' })
       snackbar.success(`Saved asset ${form.name}`)
@@ -175,8 +176,12 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
 
   const copyPublicKey = async () => {
     if (!currentPublicKey) return
-    await navigator.clipboard.writeText(currentPublicKey)
-    snackbar.success('Public key copied')
+    try {
+      await copyTextToClipboard(currentPublicKey)
+      snackbar.success('Public key copied')
+    } catch {
+      snackbar.error('Failed to copy public key')
+    }
   }
 
   const toggleEnabled = async (nextEnabled: boolean) => {

@@ -15,7 +15,6 @@ import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import AgentConfigForm, { AgentConfigValue } from '../helix-org/BotRuntimeForm'
 import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
-import { orgLandingRoute } from '../../utils/organizations'
 
 export interface EditOrgWindowProps {
   open: boolean
@@ -29,6 +28,7 @@ const DEFAULT_AGENT_CONFIG: AgentConfigValue = {
   credentials: 'subscription',
   provider: '',
   model: '',
+  reasoning_effort: 'none',
 }
 
 const EditOrgWindow: FC<EditOrgWindowProps> = ({
@@ -47,7 +47,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false)
   const [errors, setErrors] = useState<{slug?: string, name?: string}>({})
 
-  // Default Agent Configuration is optional at creation: untouched means "write
+  // Default Runtime is optional at creation: untouched means "write
   // nothing, use the backend defaults" - so an org with no providers or Claude
   // subscription set up can still be created without picking anything.
   const [agentDefaults, setAgentDefaults] = useState<AgentConfigValue>(DEFAULT_AGENT_CONFIG)
@@ -118,6 +118,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
       code_agent_credential_type: agentDefaults.credentials,
       provider: agentDefaults.provider,
       model: agentDefaults.model,
+      reasoning_effort: agentDefaults.reasoning_effort || 'none',
     }) })
   }
 
@@ -152,18 +153,20 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
         try {
           await persistAgentDefaults(created.name)
         } catch (e) {
-          snackbar.error('Organization created, but saving the default agent configuration failed - set it in Settings.')
+          snackbar.error('Organization created, but saving the Default Runtime failed - set it in Settings.')
         }
       }
 
-      // Chief of Staff (+ the creator's human node) is now seeded by the
-      // backend on org create — see api/pkg/server/org_graph_seed.go. The
-      // frontend no longer creates it.
+      // The Chief of Staff is seeded by the backend on org create.
 
-      // Land the operator on the default page for the new organization.
+      // Open the new organization's Chief of Staff.
       if (!org && created && created.name) {
         localStorage.setItem(SELECTED_ORG_STORAGE_KEY, created.name)
-        router.navigate(orgLandingRoute(), { org_id: created.name })
+        router.navigate('org_bot_session', {
+          org_id: created.name,
+          bot_id: 'chief-of-staff',
+          intro: '1',
+        })
       }
 
       onClose()
@@ -210,15 +213,15 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
             helperText={errors.slug || "Unique identifier for the organization (no spaces allowed)"}
           />
 
-          {/* Default Agent Configuration - only when creating. */}
+          {/* Default Runtime - only when creating. */}
           {!org && (
             <Box sx={{ mt: 3 }}>
               <Divider sx={{ mb: 2 }} />
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                Default Agent Configuration
+                Default Runtime
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Optional agent settings copied to Bots when they are first provisioned.
+                Optional runtime settings copied to new Bots and new projects.
               </Typography>
               <AgentConfigForm
                 value={agentDefaults}
@@ -226,6 +229,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
                   setAgentDefaults((v) => ({ ...v, ...patch }))
                   setAgentDefaultsDirty(true)
                 }}
+                showReasoningEffort
               />
             </Box>
           )}

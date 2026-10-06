@@ -29,6 +29,7 @@ type TopUpSessionParams struct {
 	OrgName          string // Used for redirect URL (for example 'acme-org' for 'orgs/acme-org/billing')
 	UserID           string
 	Amount           float64
+	ReturnURL        string
 }
 
 func (s *Stripe) GetTopUpSessionURL(
@@ -38,19 +39,44 @@ func (s *Stripe) GetTopUpSessionURL(
 	if err != nil {
 		return "", err
 	}
-
 	// Convert amount to cents for Stripe
 	amountInCents := int64(math.Round(params.Amount * 100))
 	metadata := topUpMetadata(params.UserID, params.OrgID, amountInCents)
 
-	successURL := s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
+	defaultSuccessURL := s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
 	if params.OrgID != "" {
-		successURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
+		defaultSuccessURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
 	}
 
-	cancelURL := s.cfg.AppURL + "/account?canceled=true"
+	defaultCancelURL := s.cfg.AppURL + "/account?canceled=true"
 	if params.OrgID != "" {
-		cancelURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
+		defaultCancelURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
+	}
+	successURL, cancelURL, err := checkoutReturnURLs(
+		s.cfg.AppURL,
+		params.ReturnURL,
+		defaultSuccessURL,
+		defaultCancelURL,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	lineItem := &stripe.CheckoutSessionLineItemParams{Quantity: stripe.Int64(1)}
+	if amountInCents == 500 {
+		if s.cfg.PromoCreditPriceID == "" {
+			return "", fmt.Errorf("stripe promo credit price ID is required")
+		}
+		lineItem.Price = stripe.String(s.cfg.PromoCreditPriceID)
+	} else {
+		lineItem.PriceData = &stripe.CheckoutSessionLineItemPriceDataParams{
+			Currency: stripe.String("usd"),
+			ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
+				Name:        stripe.String("Helix Credits"),
+				Description: stripe.String(fmt.Sprintf("Top up of $%.2f", params.Amount)),
+			},
+			UnitAmount: stripe.Int64(amountInCents),
+		}
 	}
 
 	checkoutParams := &stripe.CheckoutSessionParams{
@@ -61,19 +87,7 @@ func (s *Stripe) GetTopUpSessionURL(
 		PaymentIntentData: &stripe.CheckoutSessionPaymentIntentDataParams{
 			Metadata: cloneMetadata(metadata),
 		},
-		LineItems: []*stripe.CheckoutSessionLineItemParams{
-			{
-				PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
-					Currency: stripe.String("usd"),
-					ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
-						Name:        stripe.String("Helix Credits"),
-						Description: stripe.String(fmt.Sprintf("Top up of $%.2f", params.Amount)),
-					},
-					UnitAmount: stripe.Int64(amountInCents),
-				},
-				Quantity: stripe.Int64(1),
-			},
-		},
+		LineItems:  []*stripe.CheckoutSessionLineItemParams{lineItem},
 		Customer:   stripe.String(params.StripeCustomerID),
 		SuccessURL: stripe.String(successURL),
 		CancelURL:  stripe.String(cancelURL),
@@ -108,7 +122,25 @@ func (s *Stripe) handleTopUpEvent(event stripe.Event) error {
 	// Check if this is a topup payment
 	paymentType := paymentIntent.Metadata[topUpMetadataType]
 	if paymentType != topUpMetadataTypeValue {
-		return fmt.Errorf("payment is not a topup")
+		// Not one of our payment intents (the webhook receives every
+		// payment_intent.succeeded on the account). Skip it — returning an
+		// error would make Stripe retry a delivery that can never succeed.
+		log.Info().
+			Str("payment_intent_id", paymentIntent.ID).
+			Msg("payment intent is not a topup, skipping")
+		return nil
+	}
+
+	// A zero-amount payment intent belongs to a fully discounted checkout
+	// session (the customer paid $0 and the receipt shows $0). Credit it only
+	// when the metadata carries the requested amount; without it this event
+	// alone cannot know what to credit, and checkout.session.completed — which
+	// holds the session metadata — owns the purchase instead.
+	if paymentIntent.Amount == 0 && paymentIntent.Metadata[topUpMetadataAmountCents] == "" {
+		log.Info().
+			Str("payment_intent_id", paymentIntent.ID).
+			Msg("zero amount topup without requested amount metadata, skipping")
+		return nil
 	}
 
 	amount, err := topUpAmountDollars(paymentIntent.Metadata, paymentIntent.Amount)
@@ -124,13 +156,15 @@ func (s *Stripe) handleTopUpEvent(event stripe.Event) error {
 	if wallet == nil {
 		return nil
 	}
-
-	_, err = s.store.UpdateWalletBalance(ctx, wallet.ID, amount, types.TransactionMetadata{
+	updatedWallet, err := s.store.UpdateWalletBalance(ctx, wallet.ID, amount, types.TransactionMetadata{
 		TransactionType:       types.TransactionTypeTopUp,
 		StripePaymentIntentID: paymentIntent.ID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create topup for user %s: %w", userID, err)
+	}
+	if updatedWallet != nil {
+		s.notifyTopUp(ctx, updatedWallet, userID, amount)
 	}
 
 	log.Info().
@@ -191,14 +225,16 @@ func (s *Stripe) handleTopUpCheckoutSessionCompletedEvent(event stripe.Event) er
 	if wallet == nil {
 		return nil
 	}
-
-	_, err = s.store.UpdateWalletBalance(ctx, wallet.ID, amount, types.TransactionMetadata{
+	updatedWallet, err := s.store.UpdateWalletBalance(ctx, wallet.ID, amount, types.TransactionMetadata{
 		TransactionType:         types.TransactionTypeTopUp,
 		StripePaymentIntentID:   paymentIntentIDFromCheckoutSession(&checkoutSession),
 		StripeCheckoutSessionID: checkoutSession.ID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create topup for checkout session %s: %w", checkoutSession.ID, err)
+	}
+	if updatedWallet != nil {
+		s.notifyTopUp(ctx, updatedWallet, userID, amount)
 	}
 
 	log.Info().
@@ -210,6 +246,16 @@ func (s *Stripe) handleTopUpCheckoutSessionCompletedEvent(event stripe.Event) er
 		Msg("topup checkout session completed successfully")
 
 	return nil
+}
+
+func (s *Stripe) notifyTopUp(ctx context.Context, wallet *types.Wallet, userID string, amount float64) {
+	if s.slack == nil {
+		return
+	}
+	account := s.billingAccount(ctx, wallet, userID)
+	if err := s.slack.SendSubscriptionMessage(fmt.Sprintf("💳 Credits added: %s — $%.2f", account, amount)); err != nil {
+		log.Error().Err(err).Str("account", account).Msg("failed to send Stripe top-up Slack notification")
+	}
 }
 
 func (s *Stripe) getTopUpWallet(ctx context.Context, userID, orgID, stripeCustomerID string) (*types.Wallet, error) {

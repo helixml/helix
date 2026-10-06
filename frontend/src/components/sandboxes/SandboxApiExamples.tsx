@@ -17,6 +17,7 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Check, Copy } from 'lucide-react'
 
 import useLightTheme from '../../hooks/useLightTheme'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>
 
@@ -251,7 +252,7 @@ const CodeBlock: FC<{ code: string; lang: Lang }> = ({ code, lang }) => {
   const [copied, setCopied] = useState(false)
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(code)
+      await copyTextToClipboard(code)
       setCopied(true)
       setTimeout(() => setCopied(false), 1200)
     } catch {

@@ -44,12 +44,13 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	"github.com/helixml/helix/api/pkg/org/internal/orgtest"
 )
 
 // orgActivation captures one Spawner invocation WITH its org, which is
@@ -60,10 +61,10 @@ type orgActivation struct {
 	WorkerID orgchart.NodeID
 }
 
-// seedTenant provisions one org with a worker + topic + subscription,
+// seedTenant provisions one org with a worker + Trigger + attachment,
 // all using caller-supplied ids. Call it twice with the SAME ids and
 // different orgs to set up a collision.
-func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.NodeID, topicID streaming.TopicID) {
+func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.NodeID, triggerID string) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -75,42 +76,45 @@ func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.No
 	if err := s.Nodes.Create(ctx, w); err != nil {
 		t.Fatalf("[%s] create bot: %v", orgID, err)
 	}
-	// A local topic (no outbound) so Dispatch's only effect is the
-	// subscriber activation we're asserting on.
-	topic, err := streaming.NewTopic(topicID, string(topicID), "", workerID, now, transport.LocalTransport(), orgID)
+	orgtest.Trigger(t, s, orgID, triggerID)
+	orgtest.AttachTrigger(t, s, orgID, workerID, triggerID)
+}
+
+// route builds the routed envelope for an appended event and hands it to
+// the dispatcher, mirroring what publishing does in production.
+func route(t *testing.T, d *dispatch.Dispatcher, ctx context.Context, triggerID string, e streaming.Event) {
+	t.Helper()
+	msg, err := e.Message()
 	if err != nil {
-		t.Fatalf("[%s] new topic: %v", orgID, err)
+		t.Fatalf("message: %v", err)
 	}
-	if err := s.Topics.Create(ctx, topic); err != nil {
-		t.Fatalf("[%s] create topic: %v", orgID, err)
-	}
-	sub, err := streaming.NewSubscription(string(workerID), topicID, now, orgID)
+	routed, err := eventsource.NewEvent(e.ID, e.OrganizationID, eventsource.Trigger(triggerID), msg, e.Source, e.CreatedAt)
 	if err != nil {
-		t.Fatalf("[%s] new subscription: %v", orgID, err)
+		t.Fatalf("build routed event: %v", err)
 	}
-	if err := s.Subscriptions.Create(ctx, sub); err != nil {
-		t.Fatalf("[%s] create subscription: %v", orgID, err)
+	if err := d.Route(ctx, routed); err != nil {
+		t.Fatalf("route: %v", err)
 	}
 }
 
-// TestDispatch_IsolatesCollidingIDsAcrossOrgs is the integration leg of
-// the gate: two orgs with the SAME worker id ("w-owner") subscribed to
-// the SAME topic id ("s-general"). An event for org-a must activate
+// TestRoute_IsolatesCollidingIDsAcrossOrgs is the integration leg of
+// the gate: two orgs with the SAME worker id ("w-owner") attached to
+// the SAME Trigger id ("s-general"). An event for org-a must activate
 // ONLY org-a's worker, under org-a — never org-b's identically-named
-// worker. This exercises the real Dispatcher.Dispatch →
-// Subscriptions.ListForTopic(org) → Queue.Enqueue(org) → Spawner(org)
+// worker. This exercises the real Dispatcher.Route →
+// WorkerAttachments.Find(org) → Queue.Enqueue(org) → Spawner(org)
 // path, catching any call site that drops or crosses the org.
-func TestDispatch_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
+func TestRoute_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := orggorm.GetOrgTestDB(t)
 
 	const (
-		workerID = orgchart.NodeID("w-owner")     // identical across orgs
-		topicID  = streaming.TopicID("s-general") // identical across orgs
+		workerID  = orgchart.NodeID("w-owner") // identical across orgs
+		triggerID = "s-general"                // identical across orgs
 	)
-	seedTenant(t, s, "org-a", workerID, topicID)
-	seedTenant(t, s, "org-b", workerID, topicID)
+	seedTenant(t, s, "org-a", workerID, triggerID)
+	seedTenant(t, s, "org-b", workerID, triggerID)
 
 	rec := make(chan orgActivation, 16)
 	spawner := runtime.Spawner(func(_ context.Context, orgID string, wid orgchart.NodeID, _ []activation.Trigger) error {
@@ -135,12 +139,12 @@ func TestDispatch_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
 
 	// Event for org-a only. NewMessageEvent encodes the canonical
 	// Message envelope the dispatcher parses before fan-out.
-	eA, err := streaming.NewMessageEvent("e-a-1", topicID, "external",
+	eA, err := streaming.NewMessageEvent("e-a-1", triggerID, "external",
 		streaming.Message{From: "external", Body: "for org-a"}, time.Now().UTC(), "org-a")
 	if err != nil {
 		t.Fatalf("new event a: %v", err)
 	}
-	d.Dispatch(ctx, eA)
+	route(t, d, ctx, triggerID, eA)
 
 	got := drain(500 * time.Millisecond)
 	if len(got) != 1 {
@@ -151,12 +155,12 @@ func TestDispatch_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
 	}
 
 	// Now org-b: must activate org-b's worker, under org-b.
-	eB, err := streaming.NewMessageEvent("e-b-1", topicID, "external",
+	eB, err := streaming.NewMessageEvent("e-b-1", triggerID, "external",
 		streaming.Message{From: "external", Body: "for org-b"}, time.Now().UTC(), "org-b")
 	if err != nil {
 		t.Fatalf("new event b: %v", err)
 	}
-	d.Dispatch(ctx, eB)
+	route(t, d, ctx, triggerID, eB)
 
 	got = drain(500 * time.Millisecond)
 	if len(got) != 1 {
@@ -178,17 +182,17 @@ func TestDispatch_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
 // w-owner would share one lane and the second would queue behind the
 // first — only one entry would arrive while blocked and this test would
 // time out.
-func TestDispatch_CollidingIDsActivateConcurrently(t *testing.T) {
+func TestRoute_CollidingIDsActivateConcurrently(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := orggorm.GetOrgTestDB(t)
 
 	const (
-		workerID = orgchart.NodeID("w-owner")
-		topicID  = streaming.TopicID("s-general")
+		workerID  = orgchart.NodeID("w-owner")
+		triggerID = "s-general"
 	)
-	seedTenant(t, s, "org-a", workerID, topicID)
-	seedTenant(t, s, "org-b", workerID, topicID)
+	seedTenant(t, s, "org-a", workerID, triggerID)
+	seedTenant(t, s, "org-b", workerID, triggerID)
 
 	entered := make(chan string, 2) // orgID of each activation that started
 	release := make(chan struct{})
@@ -200,15 +204,15 @@ func TestDispatch_CollidingIDsActivateConcurrently(t *testing.T) {
 	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	mkEvent := func(id streaming.EventID, org string) streaming.Event {
-		e, err := streaming.NewMessageEvent(id, topicID, "external",
+		e, err := streaming.NewMessageEvent(id, triggerID, "external",
 			streaming.Message{From: "external", Body: "x"}, time.Now().UTC(), org)
 		if err != nil {
 			t.Fatalf("new event: %v", err)
 		}
 		return e
 	}
-	d.Dispatch(ctx, mkEvent("e-a", "org-a"))
-	d.Dispatch(ctx, mkEvent("e-b", "org-b"))
+	route(t, d, ctx, triggerID, mkEvent("e-a", "org-a"))
+	route(t, d, ctx, triggerID, mkEvent("e-b", "org-b"))
 
 	// Both must enter concurrently — collect two distinct orgs before
 	// releasing either. A shared lane would deliver only one here.

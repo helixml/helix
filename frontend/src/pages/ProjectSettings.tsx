@@ -47,25 +47,29 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import MoveUpIcon from "@mui/icons-material/MoveUp";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import HubIcon from "@mui/icons-material/Hub";
-import SettingsIcon from "@mui/icons-material/Settings";
+import { Settings, Trash2, Wrench } from "lucide-react";
+
+import AgentToolsPicker from "../components/tools/AgentToolsPicker";
 
 import Skills from "../components/app/Skills";
-import { TypesAssistantSkills, TypesCreateAccessGrantRequest, TypesProject, TypesSecretScope, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
+import {
+  TypesAssistantSkills,
+  TypesCreateAccessGrantRequest,
+  TypesProject,
+  TypesSecretScope,
+  TypesZFSTree,
+  TypesZFSTreeNode,
+} from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
+import SettingRow from "../components/widgets/SettingRow";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
 import WebServiceTab from "../components/project/WebServiceTab";
-import CodingAgentForm from "../components/agent/CodingAgentForm";
-import {
-  AppsContext,
-  CodeAgentRuntime,
-  generateAgentName,
-} from "../contexts/apps";
+import { AppsContext } from "../contexts/apps";
 import { IApp, IAppFlatState, AGENT_TYPE_ZED_EXTERNAL } from "../types";
-import { selectCodingAgents } from "../utils/apps";
-import { RECOMMENDED_CODING_MODELS } from "../constants/models";
-import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
 import AttachProjectRepositoryDialog from "../components/project/AttachProjectRepositoryDialog";
+import ProjectTaskDefaults from "../components/project/ProjectTaskDefaults";
+import ProjectCodeAgentDefaults from "../components/project/ProjectCodeAgentDefaults";
 import AgentDropdown from "../components/agent/AgentDropdown";
 import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
 import AccessManagement from "../components/app/AccessManagement";
@@ -98,6 +102,11 @@ import {
   useGetProjectGuidelinesHistory,
 } from "../services";
 import { isProjectAccessDeniedError } from "../services/projectService";
+import {
+  goldenBuildStatusDetail,
+  goldenBuildStatusLabel,
+  isGoldenBuildActive,
+} from "../utils/goldenBuildStatus";
 
 interface ProjectSettingsProps {
   projectId: string;
@@ -115,6 +124,16 @@ const secretScopeLabel = (scope?: TypesSecretScope): string => {
     default:
       return "Dev";
   }
+};
+
+// Standard toolbar geometry (18px glyph in a 30x30 button) for the per-agent
+// settings shortcut.
+const agentSettingsButtonSx = {
+  width: 30,
+  height: 30,
+  flexShrink: 0,
+  color: "text.secondary",
+  "&:hover": { color: "text.primary" },
 };
 
 const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' }) => {
@@ -194,7 +213,14 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [startupScript, setStartupScript] = useState("");
   const [guidelines, setGuidelines] = useState("");
   const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false);
+  const [autoArchiveCompletedTasks, setAutoArchiveCompletedTasks] =
+    useState(false);
+  const [archiveStaleTasksEnabled, setArchiveStaleTasksEnabled] =
+    useState(false);
+  const [archiveStaleTasksDays, setArchiveStaleTasksDays] = useState(6);
   const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] =
+    useState(false);
+  const [autoApprovePullRequests, setAutoApprovePullRequests] =
     useState(false);
   const [koditEnabled, setKoditEnabled] = useState(true);
   const [autoWarmDockerCache, setAutoWarmDockerCache] = useState(false);
@@ -220,7 +246,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   // Per-sandbox golden cache state
   const sandboxCacheMap = project?.metadata?.docker_cache_status?.sandboxes ?? {};
   const sandboxEntries = Object.entries(sandboxCacheMap);
-  const anyBuilding = sandboxEntries.some(([, s]) => s.status === "building");
+  const anyBuilding = sandboxEntries.some(([, s]) => isGoldenBuildActive(s));
   const anyReady = sandboxEntries.some(([, s]) => s.status === "ready");
   const anyFailed = sandboxEntries.some(([, s]) => s.status === "failed");
 
@@ -260,14 +286,15 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     refetchInterval: 30000,
   });
 
-  // Poll project status while any golden build is running and viewer is open
+  // Poll project status while any golden build is running or waiting to
+  // retry, so attempts, interruptions and the outcome show up live.
   useEffect(() => {
-    if (!showGoldenBuildViewer || !anyBuilding) return;
+    if (!anyBuilding) return;
     const interval = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     }, 10000);
     return () => clearInterval(interval);
-  }, [showGoldenBuildViewer, anyBuilding, projectId]);
+  }, [anyBuilding, projectId]);
 
   // After Prime Cache is clicked, the dev container takes several seconds to
   // provision before the sandbox flips to "building". Poll fast for up to 60s
@@ -382,6 +409,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   // Project skills
   const [projectSkills, setProjectSkills] = useState<TypesAssistantSkills | undefined>(undefined);
+  const [projectAgentTools, setProjectAgentTools] = useState<string[]>([]);
 
   // Project secrets query
   const { data: projectSecrets = [], refetch: refetchSecrets } = useQuery({
@@ -420,21 +448,52 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       refetchSecrets();
     },
     onError: (err: any) => {
-      const message = err?.response?.data?.error || "Failed to create secret";
+      const data = err?.response?.data;
+      const message =
+        (typeof data === "string"
+          ? data.trim()
+          : typeof data?.error === "string"
+            ? data.error
+            : "") ||
+        "Failed to create secret";
       snackbar.error(message);
     },
   });
 
-  // Delete secret mutation
+  // Delete secret mutation. The server refuses with 409 while the secret
+  // is granted to an agent; that refusal becomes the confirm dialog, and
+  // confirming retries with force so the grants are revoked with it.
+  const [secretDeleteConflict, setSecretDeleteConflict] = useState<{
+    secretId: string;
+    message: string;
+  } | null>(null);
   const deleteSecretMutation = useMutation({
-    mutationFn: async (secretId: string) => {
-      await api.getApiClient().v1SecretsDelete(secretId);
+    mutationFn: async ({
+      secretId,
+      force,
+    }: {
+      secretId: string;
+      force?: boolean;
+    }) => {
+      await api
+        .getApiClient()
+        .v1SecretsDelete(secretId, force ? { force: true } : undefined);
     },
     onSuccess: () => {
+      setSecretDeleteConflict(null);
       snackbar.success("Secret deleted");
       refetchSecrets();
     },
-    onError: () => {
+    onError: (error: any, variables) => {
+      if (error?.response?.status === 409) {
+        setSecretDeleteConflict({
+          secretId: variables.secretId,
+          message:
+            error.response.data ||
+            "This secret is granted to one or more agents.",
+        });
+        return;
+      }
       snackbar.error("Failed to delete secret");
     },
   });
@@ -560,31 +619,12 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     implementation: 5,
   });
 
-  // Default agent state
-  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
   const [selectedProjectManagerAgentId, setSelectedProjectManagerAgentId] =
     useState<string>("");
   const [
     selectedPullRequestReviewerAgentId,
     setSelectedPullRequestReviewerAgentId,
   ] = useState<string>("");
-  const [showCreateAgentForm, setShowCreateAgentForm] = useState(false);
-  const [codeAgentRuntime, setCodeAgentRuntime] =
-    useState<CodeAgentRuntime>("zed_agent");
-  const [claudeCodeMode, setClaudeCodeMode] =
-    useState<"subscription" | "api_key">("subscription");
-  const [selectedProvider, setSelectedProvider] = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
-  const [newAgentName, setNewAgentName] = useState("-");
-  const [userModifiedName, setUserModifiedName] = useState(false);
-  const [creatingAgent, setCreatingAgent] = useState(false);
-  const codingAgentFormRef = useRef<CodingAgentFormHandle>(null);
-
-  const sortedApps = useMemo(() => {
-    if (!apps) return [];
-    return selectCodingAgents(apps);
-  }, [apps]);
-
   const primaryRepoIsExternal = useMemo(() => {
     if (!project?.default_repo_id || repositories.length === 0) return false;
     const primaryRepo = repositories.find(
@@ -597,12 +637,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     loadApps();
   }, [loadApps]);
 
-  useEffect(() => {
-    if (!userModifiedName && showCreateAgentForm) {
-      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
-    }
-  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
-
   // Initialize form from server data
   useEffect(() => {
     if (project) {
@@ -611,14 +645,17 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       setStartupScript(project.startup_script || "");
       setGuidelines(project.guidelines || "");
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false);
+      setAutoArchiveCompletedTasks(project.auto_archive_completed_tasks || false);
+      setArchiveStaleTasksEnabled(project.archive_stale_tasks_enabled || false);
+      setArchiveStaleTasksDays(project.archive_stale_tasks_days || 6);
       setPullRequestReviewsEnabled(
         project.pull_request_reviews_enabled || false,
       );
+      setAutoApprovePullRequests(project.auto_approve_pull_requests || false);
       setKoditEnabled(project.kodit_enabled !== false);
       setAutoWarmDockerCache(
         project.metadata?.auto_warm_docker_cache || false,
       );
-      setSelectedAgentId(project.default_helix_app_id || "");
       setSelectedProjectManagerAgentId(
         project.project_manager_helix_app_id || "",
       );
@@ -636,8 +673,9 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       }
 
       setProjectSkills(project.skills);
+      setProjectAgentTools(project.agent_tools ?? []);
     }
-  }, [project]);
+  }, [project?.id, project?.updated_at]);
 
   const handleSave = async (showSuccessMessage = true) => {
     if (savingProject) return false;
@@ -655,6 +693,12 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         startup_script: startupScript,
         guidelines,
         auto_start_backlog_tasks: autoStartBacklogTasks,
+        auto_archive_completed_tasks: autoArchiveCompletedTasks,
+        archive_stale_tasks_enabled: archiveStaleTasksEnabled,
+        archive_stale_tasks_days: Math.min(
+          365,
+          Math.max(1, archiveStaleTasksDays || 6),
+        ),
         pull_request_reviews_enabled: pullRequestReviewsEnabled,
         metadata: {
           board_settings: {
@@ -678,17 +722,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const handleFieldBlur = () => {
     handleSave(false);
-  };
-
-  const handleCreateAgent = async () => {
-    const createdAgent = await codingAgentFormRef.current?.handleCreateAgent();
-    if (!createdAgent?.id) return;
-    setSelectedAgentId(createdAgent.id);
-    setShowCreateAgentForm(false);
-    await updateProjectMutation.mutateAsync({
-      default_helix_app_id: createdAgent.id,
-    });
-    snackbar.success("Agent created and set as default");
   };
 
   const handleSetPrimaryRepo = async (repoId: string) => {
@@ -787,6 +820,12 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     default_agent_type: AGENT_TYPE_ZED_EXTERNAL,
   }), [projectSkills]);
 
+  const handleAgentToolsUpdate = async (tools: string[]) => {
+    setProjectAgentTools(tools);
+    await updateProjectMutation.mutateAsync({ agent_tools: tools });
+    snackbar.success("Agent tools updated");
+  };
+
   const handleSkillsUpdate = async (updates: IAppFlatState) => {
     const newSkills: TypesAssistantSkills = {
       apis: updates.apiTools,
@@ -858,23 +897,59 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         </Typography>
         <Divider sx={{ mb: 3 }} />
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <TextField
-            label="Project Name"
-            fullWidth
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={handleFieldBlur}
+          <SettingRow
+            title="Project Name"
+            description="Shown wherever this project is listed."
             required
-          />
-          <TextField
-            label="Description"
-            fullWidth
-            multiline
-            rows={3}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onBlur={handleFieldBlur}
-          />
+          >
+            <TextField
+              fullWidth
+              size="small"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={handleFieldBlur}
+              required
+              inputProps={{ "aria-label": "Project name" }}
+            />
+          </SettingRow>
+          <SettingRow
+            title="Description"
+            description="Optional summary of what this project is for."
+            align="start"
+          >
+            <TextField
+              fullWidth
+              size="small"
+              multiline
+              minRows={2}
+              maxRows={5}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onBlur={handleFieldBlur}
+              inputProps={{ "aria-label": "Project description" }}
+            />
+          </SettingRow>
+          <SettingRow
+            title="Agents"
+            description="Planning and implementation runtime defaults for new tasks. Available runtimes are managed for the organization under Providers."
+            align="start"
+          >
+            <ProjectCodeAgentDefaults
+              project={project}
+              disabled={updateProjectMutation.isPending}
+              onUpdate={updateProjectMutation.mutateAsync}
+            />
+          </SettingRow>
+          <SettingRow
+            title="Compute"
+            description="Sandbox size and desktop environment allocated to each new task."
+          >
+            <ProjectTaskDefaults
+              project={project}
+              disabled={updateProjectMutation.isPending}
+              onUpdate={updateProjectMutation.mutateAsync}
+            />
+          </SettingRow>
         </Box>
       </Box>
 
@@ -911,6 +986,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           implementation, and exploratory sessions.
         </Typography>
         <Divider sx={{ mb: 3 }} />
+        {/* Prose, not a value — there is no label column to align it against,
+            so this one keeps the full width. */}
         <TextField
           fullWidth
           multiline
@@ -1009,6 +1086,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const renderSandboxTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      {/* Compute defaults live on the General tab next to the agent defaults —
+          they are two halves of "what a new task starts on". */}
       {/* Startup Script */}
       <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
         <Box sx={{ flex: showTestSession ? undefined : 1, width: showTestSession ? 600 : undefined, flexShrink: 0 }}>
@@ -1175,10 +1254,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                         sx={{ fontFamily: "monospace", fontSize: "0.7rem" }}
                       />
                       <Typography variant="caption" color="text.secondary">
-                        {sbState.status === "ready" && "Ready"}
-                        {sbState.status === "building" && "Building..."}
-                        {sbState.status === "failed" && "Failed"}
-                        {sbState.status === "none" && "No cache"}
+                        {goldenBuildStatusLabel(sbState)}
+                        {sbState.pending_rebuild && sbState.status === "building" && (
+                          <> &middot; rebuild queued</>
+                        )}
                         {sbState.status === "building" && (sbState.size_bytes ?? 0) > 0 && (
                           <> &middot; {((sbState.size_bytes ?? 0) / 1e9).toFixed(1)} GB</>
                         )}
@@ -1214,11 +1293,19 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                         </Button>
                       )}
                     </Box>
-                    {sbState.error && (
-                      <Typography variant="caption" color="error" component="div" sx={{ mt: 0.25, ml: 1 }}>
-                        {sbState.error}
-                      </Typography>
-                    )}
+                    {(() => {
+                      const detail = goldenBuildStatusDetail(sbState);
+                      return detail ? (
+                        <Typography
+                          variant="caption"
+                          color={detail.severity === "error" ? "error" : "warning.main"}
+                          component="div"
+                          sx={{ mt: 0.25, ml: 1 }}
+                        >
+                          {detail.text}
+                        </Typography>
+                      ) : null;
+                    })()}
                   </Box>
                 ))
               )}
@@ -1410,207 +1497,91 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           Agent Configuration
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Set agents for this project. Agents are used for working on spec
-          tasks, managing the project and reviewing pull requests.
+          Optional agents that act on this project. Spec tasks use their own
+          code-agent configuration.
         </Typography>
         <Divider sx={{ mb: 3 }} />
 
-        {!showCreateAgentForm ? (
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {/* Default Agent with settings button */}
-            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
-              <Box sx={{ flex: 1 }}>
-                <AgentDropdown
-                  value={selectedAgentId}
-                  onChange={(newAgentId) => {
-                    setSelectedAgentId(newAgentId);
-                    updateProjectMutation.mutate({
-                      default_helix_app_id: newAgentId || undefined,
-                    });
-                  }}
-                  agents={sortedApps}
-                  label="Default Agent"
-                />
-              </Box>
-              <Tooltip title="Open agent settings">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={!selectedAgentId}
-                    onClick={() =>
-                      selectedAgentId && handleOpenAgentSettings(selectedAgentId)
-                    }
-                    sx={{ mt: 0.5 }}
-                    aria-label="Open default agent settings"
-                  >
-                    <SettingsIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </Box>
-
-            {/* Project Manager Agent with settings button */}
-            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
-              <Box sx={{ flex: 1 }}>
-                <AgentDropdown
-                  value={selectedProjectManagerAgentId}
-                  onChange={(newAgentId) => {
-                    setSelectedProjectManagerAgentId(newAgentId);
-                    updateProjectMutation.mutate({
-                      project_manager_helix_app_id: newAgentId || undefined,
-                    });
-                  }}
-                  agents={sortedApps}
-                  label="Project Manager Agent"
-                />
-              </Box>
-              <Tooltip title="Open agent settings">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={!selectedProjectManagerAgentId}
-                    onClick={() =>
-                      selectedProjectManagerAgentId &&
-                      handleOpenAgentSettings(selectedProjectManagerAgentId)
-                    }
-                    sx={{ mt: 0.5 }}
-                    aria-label="Open project manager agent settings"
-                  >
-                    <SettingsIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </Box>
-
-            {/* PR Reviewer Agent with settings button */}
-            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
-              <Box sx={{ flex: 1 }}>
-                <AgentDropdown
-                  value={selectedPullRequestReviewerAgentId}
-                  onChange={(newAgentId) => {
-                    setSelectedPullRequestReviewerAgentId(newAgentId);
-                    updateProjectMutation.mutate({
-                      pull_request_reviewer_helix_app_id:
-                        newAgentId || undefined,
-                    });
-                  }}
-                  agents={sortedApps}
-                  label="Pull Request Reviewer Agent"
-                  disabled={!primaryRepoIsExternal}
-                  helperText={
-                    !primaryRepoIsExternal
-                      ? "Requires an external repository (GitHub, GitLab, etc.) as the primary repository"
-                      : undefined
-                  }
-                />
-              </Box>
-              <Tooltip title="Open agent settings">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={!selectedPullRequestReviewerAgentId}
-                    onClick={() =>
-                      selectedPullRequestReviewerAgentId &&
-                      handleOpenAgentSettings(
-                        selectedPullRequestReviewerAgentId,
-                      )
-                    }
-                    sx={{ mt: 0.5 }}
-                    aria-label="Open pull request reviewer agent settings"
-                  >
-                    <SettingsIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </Box>
-
-            <Button
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={() => setShowCreateAgentForm(true)}
-              sx={{ alignSelf: "flex-start" }}
-            >
-              Create new agent
-            </Button>
-          </Box>
-        ) : (
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <Typography variant="subtitle2">Create New Agent</Typography>
-            <CodingAgentForm
-              ref={codingAgentFormRef}
-              value={{
-                codeAgentRuntime,
-                claudeCodeMode,
-                selectedProvider,
-                selectedModel,
-                agentName: newAgentName,
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <SettingRow
+            title="Project Manager Agent"
+            description="Plans, refines and triages tasks on this project's board."
+          >
+            <AgentDropdown
+              value={selectedProjectManagerAgentId}
+              onChange={(newAgentId) => {
+                setSelectedProjectManagerAgentId(newAgentId);
+                updateProjectMutation.mutate({
+                  project_manager_helix_app_id: newAgentId || undefined,
+                });
               }}
-              onChange={(nextValue) => {
-                setCodeAgentRuntime(nextValue.codeAgentRuntime);
-                setClaudeCodeMode(nextValue.claudeCodeMode);
-                setSelectedProvider(nextValue.selectedProvider);
-                setSelectedModel(nextValue.selectedModel);
-                if (nextValue.agentName !== newAgentName) {
-                  setUserModifiedName(true);
-                }
-                setNewAgentName(nextValue.agentName);
-              }}
-              disabled={creatingAgent}
-              recommendedModels={RECOMMENDED_CODING_MODELS}
-              createAgentDescription="Code development agent for spec tasks"
-              onCreateStateChange={setCreatingAgent}
-              onAgentCreated={(app) => setSelectedAgentId(app.id)}
-              showCreateButton={false}
-              modelPickerHint="Choose a capable model for agentic coding."
-              modelPickerDisplayMode="short"
+              agents={apps || []}
+              kind="helix"
             />
-
-            <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
-              {sortedApps.length > 0 && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => setShowCreateAgentForm(false)}
-                  disabled={creatingAgent}
+            <Tooltip title="Open agent settings">
+              <span>
+                <IconButton
+                  disabled={!selectedProjectManagerAgentId}
+                  onClick={() =>
+                    selectedProjectManagerAgentId &&
+                    handleOpenAgentSettings(selectedProjectManagerAgentId)
+                  }
+                  sx={agentSettingsButtonSx}
+                  aria-label="Open project manager agent settings"
                 >
-                  Cancel
-                </Button>
-              )}
-              <Button
-                size="small"
-                variant="outlined"
-                color="secondary"
-                onClick={handleCreateAgent}
-                disabled={
-                  creatingAgent ||
-                  !newAgentName.trim() ||
-                  (!(
-                    codeAgentRuntime === "claude_code" &&
-                    claudeCodeMode === "subscription"
-                  ) &&
-                    (!selectedModel || !selectedProvider))
-                }
-                startIcon={
-                  creatingAgent ? (
-                    <CircularProgress size={16} />
-                  ) : undefined
-                }
-              >
-                {creatingAgent ? "Creating..." : "Create Agent"}
-              </Button>
-            </Box>
-          </Box>
-        )}
+                  <Settings size={18} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </SettingRow>
+
+          <SettingRow
+            title="Pull Request Reviewer Agent"
+            description={
+              primaryRepoIsExternal
+                ? "Reviews pull requests opened against this project's repository."
+                : "Requires an external repository (GitHub, GitLab, etc.) as the primary repository."
+            }
+          >
+            <AgentDropdown
+              value={selectedPullRequestReviewerAgentId}
+              onChange={(newAgentId) => {
+                setSelectedPullRequestReviewerAgentId(newAgentId);
+                updateProjectMutation.mutate({
+                  pull_request_reviewer_helix_app_id: newAgentId || undefined,
+                });
+              }}
+              agents={apps || []}
+              kind="helix"
+              disabled={!primaryRepoIsExternal}
+            />
+            <Tooltip title="Open agent settings">
+              <span>
+                <IconButton
+                  disabled={!selectedPullRequestReviewerAgentId}
+                  onClick={() =>
+                    selectedPullRequestReviewerAgentId &&
+                    handleOpenAgentSettings(selectedPullRequestReviewerAgentId)
+                  }
+                  sx={agentSettingsButtonSx}
+                  aria-label="Open pull request reviewer agent settings"
+                >
+                  <Settings size={18} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </SettingRow>
+        </Box>
       </Box>
     </Box>
   );
 
   const renderBoardTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      {/* Kanban Board Settings */}
+      {/* Board Automation */}
       <Box>
         <Typography variant="h6" gutterBottom>
-          Kanban Board Settings
+          Board Automation
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Configure work-in-progress (WIP) limits for the Kanban board
@@ -1712,6 +1683,95 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           >
             <Box sx={{ flex: 1, mr: 2 }}>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                Automatically archive completed tasks
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Archive tasks immediately when they enter Done.
+              </Typography>
+            </Box>
+            <Switch
+              checked={autoArchiveCompletedTasks}
+              onChange={(e) => {
+                const newValue = e.target.checked;
+                setAutoArchiveCompletedTasks(newValue);
+                updateProjectMutation.mutate({
+                  auto_archive_completed_tasks: newValue,
+                });
+              }}
+            />
+          </Box>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Box sx={{ flex: 1, mr: 2 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                Archive stale tasks
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Archive tasks with no new messages or activity for a number of
+                days.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                flexShrink: 0,
+              }}
+            >
+              {archiveStaleTasksEnabled && (
+                <TextField
+                  label="Days"
+                  value={archiveStaleTasksDays}
+                  onChange={(e) => {
+                    const parsed = parseInt(e.target.value, 10);
+                    setArchiveStaleTasksDays(
+                      Number.isNaN(parsed) ? 0 : parsed,
+                    );
+                  }}
+                  onBlur={() => {
+                    const clamped = Math.min(
+                      365,
+                      Math.max(1, archiveStaleTasksDays || 6),
+                    );
+                    setArchiveStaleTasksDays(clamped);
+                    updateProjectMutation.mutate({
+                      archive_stale_tasks_days: clamped,
+                    });
+                  }}
+                  size="small"
+                  sx={{ width: 110 }}
+                />
+              )}
+              <Switch
+                checked={archiveStaleTasksEnabled}
+                onChange={(e) => {
+                  const newValue = e.target.checked;
+                  setArchiveStaleTasksEnabled(newValue);
+                  updateProjectMutation.mutate({
+                    archive_stale_tasks_enabled: newValue,
+                    ...(newValue && archiveStaleTasksDays < 1
+                      ? { archive_stale_tasks_days: 6 }
+                      : {}),
+                  });
+                }}
+              />
+            </Box>
+          </Box>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Box sx={{ flex: 1, mr: 2 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
                 Pull request reviews
               </Typography>
               <Typography variant="caption" color="text.secondary">
@@ -1741,6 +1801,37 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               GitLab, etc.) as the primary repository.
             </Typography>
           )}
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Box sx={{ flex: 1, mr: 2 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                Auto-approve pull requests
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                New tasks approve their agent's pull request proposals without
+                asking, using the credentials of the person who created the
+                task. You can still change it per task. Existing tasks keep
+                their own setting.
+              </Typography>
+            </Box>
+            <Switch
+              checked={autoApprovePullRequests}
+              inputProps={{ "aria-label": "Auto-approve pull requests" }}
+              onChange={(e) => {
+                const newValue = e.target.checked;
+                setAutoApprovePullRequests(newValue);
+                updateProjectMutation.mutate({
+                  auto_approve_pull_requests: newValue,
+                });
+              }}
+              disabled={!primaryRepoIsExternal}
+            />
+          </Box>
           <Box
             sx={{
               display: "flex",
@@ -1825,7 +1916,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                     size="small"
                     color="error"
                     onClick={() =>
-                      secret.id && deleteSecretMutation.mutate(secret.id)
+                      secret.id &&
+                      deleteSecretMutation.mutate({ secretId: secret.id })
                     }
                     disabled={deleteSecretMutation.isPending}
                     startIcon={<DeleteIcon />}
@@ -1873,6 +1965,23 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const renderSkillsTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <Box>
+        <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+          <Wrench size={20} style={{ marginRight: 8, color: "#10B981" }} />
+          <Typography variant="h6">Agent tools</Typography>
+        </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Helix capabilities every spec task in this project can call — including
+          creating and steering other spec tasks as sub-agents. Individual tasks
+          can add more on top.
+        </Typography>
+        <Divider sx={{ mb: 2 }} />
+        <AgentToolsPicker
+          selectedTools={projectAgentTools}
+          onChange={handleAgentToolsUpdate}
+          helperText="Applied to every spec task in this project."
+        />
+      </Box>
       <Box>
         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
           <HubIcon sx={{ mr: 1, color: "#10B981" }} />
@@ -1967,14 +2076,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const renderDangerTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      <Box
-        sx={{
-          border: "2px solid",
-          borderColor: "error.main",
-          borderRadius: 1,
-          p: 2,
-        }}
-      >
+      <Box>
         <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
           <WarningIcon sx={{ mr: 1, color: "error.main" }} />
           <Typography variant="h6" color="error">
@@ -2032,27 +2134,30 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
             borderRadius: 1,
             border: "1px solid",
             borderColor: "error.light",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 2,
           }}
         >
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-            Delete Project
-          </Typography>
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ mb: 2 }}
-          >
-            Once you delete a project, there is no going back. This will
-            permanently delete the project, all its tasks, and associated
-            data.
-          </Typography>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+              Delete Project
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Once you delete a project, there is no going back. This will
+              permanently delete the project, all its tasks, and associated
+              data.
+            </Typography>
+          </Box>
           <Button
             variant="outlined"
             color="error"
-            startIcon={<DeleteForeverIcon />}
+            startIcon={<Trash2 size={18} />}
             onClick={() => setDeleteDialogOpen(true)}
+            sx={{ flexShrink: 0 }}
           >
-            Delete This Project
+            Delete project
           </Button>
         </Box>
       </Box>
@@ -2629,6 +2734,31 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
             }
           >
             {moveProjectMutation.isPending ? "Moving..." : "Move Project"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Secret delete confirmation — raised by the server's 409 */}
+      <Dialog
+        open={Boolean(secretDeleteConflict)}
+        onClose={() => setSecretDeleteConflict(null)}
+      >
+        <DialogTitle>Delete secret?</DialogTitle>
+        <DialogContent>{secretDeleteConflict?.message}</DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSecretDeleteConflict(null)}>Cancel</Button>
+          <Button
+            color="error"
+            disabled={deleteSecretMutation.isPending}
+            onClick={() =>
+              secretDeleteConflict &&
+              deleteSecretMutation.mutate({
+                secretId: secretDeleteConflict.secretId,
+                force: true,
+              })
+            }
+          >
+            Delete anyway
           </Button>
         </DialogActions>
       </Dialog>

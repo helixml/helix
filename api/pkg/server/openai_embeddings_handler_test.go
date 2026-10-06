@@ -159,4 +159,3 @@ func (s *OpenAIEmbeddingsSuite) TestCreateEmbeddingsWithChatFormat() {
 
 	s.Equal(http.StatusOK, rec.Code)
 }
-
