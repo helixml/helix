@@ -192,6 +192,17 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
     return () => mql.removeEventListener('change', handler)
   }, [api])
 
+  // Inside Helix for Mac the UI is an iframe, and the app draws its own window
+  // chrome around it. Tell the app the mode in effect and whether the user
+  // pinned it with the toggle, so its chrome and native appearance follow.
+  useEffect(() => {
+    if (window.parent === window) return
+    window.parent.postMessage(
+      { type: 'helix:theme', mode, explicit: storedThemeMode() !== null || themePinnedByQuery() },
+      '*',
+    )
+  }, [mode])
+
   const isLight = mode === 'light'
 
   const theme = useMemo(() => {

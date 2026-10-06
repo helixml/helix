@@ -87,6 +87,32 @@ describe('theme mode preference', () => {
   })
 })
 
+describe('Helix for Mac theme bridge', () => {
+  function renderFramed(parent: { postMessage: ReturnType<typeof vi.fn> } | Window) {
+    Object.defineProperty(window, 'parent', { value: parent, configurable: true })
+    return render(React.createElement(ThemeProviderWrapper, null, React.createElement(ThemeToggle)))
+  }
+
+  it('reports the system mode, then a toggled mode as pinned, to the embedding app', () => {
+    const parent = { postMessage: vi.fn() }
+    renderFramed(parent)
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'helix:theme', mode: 'light', explicit: false }, '*')
+
+    fireEvent.click(screen.getByRole('button', { name: 'light' }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'helix:theme', mode: 'dark', explicit: true }, '*')
+    Object.defineProperty(window, 'parent', { value: window, configurable: true })
+  })
+
+  it('posts nothing when not embedded', () => {
+    const postMessage = vi.spyOn(window, 'postMessage')
+    renderFramed(window)
+    expect(postMessage).not.toHaveBeenCalled()
+    postMessage.mockRestore()
+  })
+})
+
 describe('tooltip theme', () => {
   it('uses the compact bordered surface in dark mode', () => {
     expect(getTooltipStyleOverrides(false)).toMatchObject({

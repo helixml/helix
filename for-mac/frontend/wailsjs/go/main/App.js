@@ -166,6 +166,10 @@ export function SendConsoleInput(arg1) {
   return window['go']['main']['App']['SendConsoleInput'](arg1);
 }
 
+export function SetAppearance(arg1, arg2) {
+  return window['go']['main']['App']['SetAppearance'](arg1, arg2);
+}
+
 export function SetClipboardImagePNG(arg1) {
   return window['go']['main']['App']['SetClipboardImagePNG'](arg1);
 }

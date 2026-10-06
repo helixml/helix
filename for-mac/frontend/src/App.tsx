@@ -18,6 +18,7 @@ import {
   CheckForUpdate,
   StartVM,
   SetCursor,
+  SetAppearance,
   SetClipboardImagePNG,
   GetClipboardImagePNG,
   DownloadVMUpdate,
@@ -262,6 +263,17 @@ export function App() {
       }
     });
 
+    // Until the user pins a theme in the Helix UI, follow macOS: keep the
+    // native window background in step with the system appearance.
+    const systemTheme = window.matchMedia('(prefers-color-scheme: light)');
+    const followSystemTheme = () => {
+      if (!document.documentElement.dataset.theme) {
+        SetAppearance(systemTheme.matches ? 'light' : 'dark', false);
+      }
+    };
+    followSystemTheme();
+    systemTheme.addEventListener('change', followSystemTheme);
+
     // Listen for messages from the Helix iframe
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'open-external-url' && typeof event.data.url === 'string') {
@@ -285,6 +297,20 @@ export function App() {
         } else if (typeof event.data.text === 'string') {
           ClipboardSetText(event.data.text);
         }
+      }
+      // Theme bridge: the Helix UI reports its mode, and whether the user
+      // pinned it with its theme toggle. Pinned overrides macOS for the whole
+      // app (data-theme for our CSS, NSAppearance for the native window);
+      // otherwise both follow macOS.
+      if (event.data?.type === 'helix:theme' &&
+          (event.data.mode === 'light' || event.data.mode === 'dark')) {
+        const explicit = event.data.explicit === true;
+        if (explicit) {
+          document.documentElement.dataset.theme = event.data.mode;
+        } else {
+          delete document.documentElement.dataset.theme;
+        }
+        SetAppearance(event.data.mode, explicit);
       }
       // Cursor bridge: WKWebView doesn't render CSS resize cursors from
       // cross-origin iframes. The iframe detects cursor changes and we
@@ -341,6 +367,7 @@ export function App() {
       EventsOff("update:combined-progress");
       EventsOff("update:combined-ready");
       window.removeEventListener('message', handleMessage);
+      systemTheme.removeEventListener('change', followSystemTheme);
     };
   }, []);
 
@@ -416,10 +443,6 @@ export function App() {
           className={`titlebar${isFullscreen ? " fullscreen" : ""}`}
           onDoubleClick={WindowToggleMaximise}
         >
-          <div className="titlebar-logo">
-            <img src="/helix-logo.png" alt="Helix" />
-            <span>Helix</span>
-          </div>
           <div className="titlebar-spacer" />
         </header>
         <main className="content">
@@ -443,11 +466,6 @@ export function App() {
         className={`titlebar${isFullscreen ? " fullscreen" : ""}`}
         onDoubleClick={WindowToggleMaximise}
       >
-        <div className="titlebar-logo">
-          <img src="/helix-logo.png" alt="Helix" />
-          <span>Helix</span>
-        </div>
-
         <div
           className="titlebar-status"
           onDoubleClick={(e) => e.stopPropagation()}

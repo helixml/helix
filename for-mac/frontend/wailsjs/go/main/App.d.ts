@@ -84,6 +84,8 @@ export function SaveSettings(arg1:main.AppSettings):Promise<void>;
 
 export function SendConsoleInput(arg1:string):Promise<void>;
 
+export function SetAppearance(arg1:string,arg2:boolean):Promise<void>;
+
 export function SetClipboardImagePNG(arg1:string):Promise<void>;
 
 export function SetCursor(arg1:string):Promise<void>;
