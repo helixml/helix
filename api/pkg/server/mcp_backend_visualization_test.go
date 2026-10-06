@@ -10,7 +10,6 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/visualization"
@@ -19,15 +18,13 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// VisualizationMCPSuite covers the html_render tool on the session MCP backend.
+// VisualizationMCPSuite covers the html_render tool on the visualization MCP backend.
 type VisualizationMCPSuite struct {
 	suite.Suite
 	ctrl      *gomock.Controller
 	mockStore *store.MockStore
-	notifier  *notification.MockNotifier
 	appCtrl   *controller.Controller
-	backend   *SessionMCPBackend
-	tmpDir    string
+	backend   *VisualizationMCPBackend
 }
 
 func TestVisualizationMCPSuite(t *testing.T) {
@@ -37,17 +34,14 @@ func TestVisualizationMCPSuite(t *testing.T) {
 func (suite *VisualizationMCPSuite) SetupTest() {
 	suite.ctrl = gomock.NewController(suite.T())
 	suite.mockStore = store.NewMockStore(suite.ctrl)
-	suite.notifier = notification.NewMockNotifier(suite.ctrl)
-	suite.tmpDir = suite.T().TempDir()
-
-	fs := filestore.NewFileSystemStorage(suite.tmpDir, "http://localhost", "test-secret")
+	fs := filestore.NewFileSystemStorage(suite.T().TempDir(), "http://localhost", "test-secret")
 	cfg := &config.ServerConfig{}
 	cfg.Controller.FilePrefixGlobal = "dev"
 	suite.appCtrl = &controller.Controller{
 		Ctx:     context.Background(),
 		Options: controller.Options{Filestore: fs, Config: cfg},
 	}
-	suite.backend = NewSessionMCPBackend(suite.mockStore, suite.notifier, suite.appCtrl)
+	suite.backend = NewVisualizationMCPBackend(suite.mockStore, suite.appCtrl)
 }
 
 func (suite *VisualizationMCPSuite) TearDownTest() {
@@ -126,12 +120,4 @@ func (suite *VisualizationMCPSuite) TestNotAuthorized() {
 	suite.NoError(err)
 	suite.True(result.IsError)
 	suite.Contains(result.Content[0].(mcp.TextContent).Text, "not authorized")
-}
-
-func (suite *VisualizationMCPSuite) TestNoControllerDisabled() {
-	backend := NewSessionMCPBackend(suite.mockStore, suite.notifier, nil)
-	result, err := backend.handleHTMLRender(suite.renderCtx(), suite.renderReq(map[string]any{"html": "<p>x</p>", "title": "t"}))
-	suite.NoError(err)
-	suite.True(result.IsError)
-	suite.Contains(result.Content[0].(mcp.TextContent).Text, "not available")
 }

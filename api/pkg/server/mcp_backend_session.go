@@ -9,12 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/helixml/helix/api/pkg/visualization"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/rs/zerolog/log"
@@ -25,19 +22,15 @@ import (
 type SessionMCPBackend struct {
 	store      store.Store
 	notifier   notification.Notifier
-	controller *controller.Controller
 	mcpServer  *server.MCPServer
 	httpServer *server.StreamableHTTPServer
 }
 
-// NewSessionMCPBackend creates a new session MCP backend. The controller is
-// used by the html_render visualization tool to store pages in the filestore;
-// it may be nil in tests that do not exercise that tool.
-func NewSessionMCPBackend(s store.Store, notifier notification.Notifier, ctrl *controller.Controller) *SessionMCPBackend {
+// NewSessionMCPBackend creates a new session MCP backend
+func NewSessionMCPBackend(s store.Store, notifier notification.Notifier) *SessionMCPBackend {
 	backend := &SessionMCPBackend{
-		store:      s,
-		notifier:   notifier,
-		controller: ctrl,
+		store:    s,
+		notifier: notifier,
 	}
 
 	// Create MCP server
@@ -108,28 +101,6 @@ func NewSessionMCPBackend(s store.Store, notifier notification.Notifier, ctrl *c
 	)
 	backend.mcpServer.AddTool(taskCompletedTool, backend.handleTaskCompleted)
 
-	// Add html_render tool. Publishes a self-contained HTML page (chart, table,
-	// diagram, collage, mockup) inline in the current thread, above the agent's
-	// final text reply. It reaches spec tasks and ordinary chat automatically
-	// (the base Zed config always wires helix-session), and org bots only when
-	// their instance profile keeps helix-session (minimal-by-default strips it).
-	// See design/2026-10-06-agent-visualizations.md for the availability matrix.
-	htmlRenderTool := mcp.NewTool(visualization.ToolName,
-		mcp.WithDescription("Show a finished HTML page (chart, table, diagram, collage, mockup) inline in this thread, above your final text reply; call it before writing that reply. The reader already sees the page, so the reply should not announce it, say where it is, or restate it: add only what the page doesn't say. Write one self-contained document with inline <style> and <script>; remote http(s) URLs such as a CDN chart library load as-is. The frame fits the page's height automatically. "+visualization.LayoutGuide+" "+visualization.ThemeGuide),
-		mcp.WithString("html",
-			mcp.Required(),
-			mcp.Description("A complete, self-contained HTML document."),
-		),
-		mcp.WithString("title",
-			mcp.Required(),
-			mcp.Description("Short name for the page."),
-		),
-		mcp.WithNumber("height",
-			mcp.Description(fmt.Sprintf("Optional frame height in CSS pixels, %d-%d. The frame auto-fits the page, so this is only an initial hint; omit it to let the page set its own height.", visualization.MinHeight, visualization.MaxHeight)),
-		),
-	)
-	backend.mcpServer.AddTool(htmlRenderTool, backend.handleHTMLRender)
-
 	// Create Streamable HTTP server for direct POST support
 	// Use stateless mode so each request is independent (no session tracking required)
 	backend.httpServer = server.NewStreamableHTTPServer(backend.mcpServer,
@@ -199,67 +170,6 @@ func (b *SessionMCPBackend) handleTaskCompleted(ctx context.Context, request mcp
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Recurring task execution %s marked complete.", execution.ID)), nil
-}
-
-// handleHTMLRender publishes an agent-authored HTML page as a visualization
-// stored in the session's filestore folder, rendered inline by the frontend.
-func (b *SessionMCPBackend) handleHTMLRender(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	sessionID := b.getSessionID(ctx, "")
-	if sessionID == "" {
-		return mcp.NewToolResultError("session_id is required"), nil
-	}
-	if b.controller == nil {
-		return mcp.NewToolResultError("visualizations are not available on this server"), nil
-	}
-
-	html, err := request.RequireString("html")
-	if err != nil {
-		return mcp.NewToolResultError("html is required"), nil
-	}
-	if strings.TrimSpace(html) == "" {
-		return mcp.NewToolResultError("html must not be empty"), nil
-	}
-	if len(html) > visualization.MaxHTMLBytes {
-		return mcp.NewToolResultError(fmt.Sprintf("html is %d bytes; the limit is %d", len(html), visualization.MaxHTMLBytes)), nil
-	}
-
-	title := visualization.CleanTitle(request.GetString("title", ""))
-	// A height of 0 means "let the page set its own height"; the client fits the
-	// frame to the page's reported content height either way.
-	height := 0
-	if raw := request.GetFloat("height", 0); raw > 0 {
-		height = visualization.ClampHeight(int(raw))
-	}
-
-	session, err := b.store.GetSession(ctx, sessionID)
-	if err != nil {
-		return mcp.NewToolResultError("failed to get session: " + err.Error()), nil
-	}
-	user, ok := ctx.Value("user").(*types.User)
-	if !ok || user == nil || session.Owner != user.ID {
-		return mcp.NewToolResultError("not authorized to publish to this session"), nil
-	}
-
-	vizID := "viz_" + system.GenerateID()
-	prepared := visualization.InjectBootstrap(html)
-	if _, err := b.controller.FilestoreVisualizationWrite(ctx, session.Owner, sessionID, vizID, strings.NewReader(prepared)); err != nil {
-		return mcp.NewToolResultError("failed to store visualization: " + err.Error()), nil
-	}
-
-	ref := visualization.Reference{ID: vizID, Title: title, Height: height}
-	payload, err := json.Marshal(ref)
-	if err != nil {
-		return mcp.NewToolResultError("failed to encode visualization reference: " + err.Error()), nil
-	}
-
-	// The marker lets the frontend find the reference no matter how a harness
-	// wraps tool output. The human-readable line reminds the agent not to
-	// restate the page in its reply.
-	result := fmt.Sprintf(
-		"%s %s\nShown to the reader above your reply. Don't mention or describe the page; reply with only what it doesn't already say.",
-		visualization.ResultMarker, string(payload),
-	)
-	return mcp.NewToolResultText(result), nil
 }
 
 func (b *SessionMCPBackend) notifyTaskCompleted(ctx context.Context, session *types.Session, execution *types.TriggerExecution, summary string) error {

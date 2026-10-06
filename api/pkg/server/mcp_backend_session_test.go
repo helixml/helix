@@ -34,7 +34,7 @@ func (suite *SessionMCPBackendSuite) SetupTest() {
 	suite.ctrl = gomock.NewController(suite.T())
 	suite.mockStore = store.NewMockStore(suite.ctrl)
 	suite.notifier = notification.NewMockNotifier(suite.ctrl)
-	suite.backend = NewSessionMCPBackend(suite.mockStore, suite.notifier, nil)
+	suite.backend = NewSessionMCPBackend(suite.mockStore, suite.notifier)
 }
 
 func (suite *SessionMCPBackendSuite) TearDownTest() {

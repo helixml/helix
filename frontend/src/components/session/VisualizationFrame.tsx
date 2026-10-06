@@ -2,6 +2,7 @@ import { FC, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react
 import Box from '@mui/material/Box'
 import { useTheme } from '@mui/material/styles'
 
+import { getEmbedAccessToken } from '../../hooks/useApi'
 import {
   readVisualizationContentHeight,
   readVisualizationLinkRequest,
@@ -18,14 +19,6 @@ const DEFAULT_HEIGHT = 320
 
 const clampHeight = (height: number) =>
   Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.round(height)))
-
-// When the app page was loaded through the embed flow (?access_token=...), the
-// iframe has no session cookie, so the token must ride on the URL. The normal
-// app uses the BFF session cookie and needs nothing extra.
-const embedAccessToken = (): string | null => {
-  if (typeof window === 'undefined') return null
-  return new URLSearchParams(window.location.search).get('access_token')
-}
 
 /**
  * Renders an agent-published HTML visualization inline in the chat. The page is
@@ -46,10 +39,12 @@ const VisualizationFrame: FC<{
   // The URL is fixed for the frame's lifetime: a changed src reloads the page,
   // and theme changes are delivered by postMessage instead.
   const src = useMemo(() => {
-    const base = `/api/v1/sessions/${encodeURIComponent(sessionId)}/visualizations/${encodeURIComponent(visualization.id)}`
-    const token = embedAccessToken()
-    const withToken = token ? `${base}?access_token=${encodeURIComponent(token)}` : base
-    return `${withToken}${visualizationThemeFragment(vizTheme)}`
+    const query = new URLSearchParams({ viz_id: visualization.id })
+    // The normal app authenticates the iframe with its session cookie; an
+    // embedded page has no cookie, so its key rides on the URL.
+    const token = getEmbedAccessToken()
+    if (token) query.set('access_token', token)
+    return `/api/v1/sessions/${encodeURIComponent(sessionId)}/visualization?${query.toString()}${visualizationThemeFragment(vizTheme)}`
     // vizTheme is intentionally only read on first mount; live updates go via postMessage.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, visualization.id])

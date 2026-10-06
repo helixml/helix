@@ -25,14 +25,13 @@ var visualizationIDPattern = regexp.MustCompile(`^viz_[a-z0-9]{1,40}$`)
 // @Tags    sessions
 // @Produce text/html
 // @Param id path string true "Session ID"
-// @Param viz_id path string true "Visualization ID"
+// @Param viz_id query string true "Visualization ID"
 // @Success 200 {string} string "HTML document"
-// @Router /api/v1/sessions/{id}/visualizations/{viz_id} [get]
+// @Router /api/v1/sessions/{id}/visualization [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getSessionVisualization(rw http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	sessionID := vars["id"]
-	vizID := vars["viz_id"]
+	sessionID := mux.Vars(req)["id"]
+	vizID := req.URL.Query().Get("viz_id")
 	if sessionID == "" || vizID == "" {
 		http.Error(rw, "session id and visualization id are required", http.StatusBadRequest)
 		return

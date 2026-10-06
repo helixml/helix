@@ -39,12 +39,12 @@ Mirror the shape, reuse existing Helix infrastructure, add no new service.
 - The bootstrap is injected at **publish time** so the stored file is
   self-contained and renders themed even on a direct open.
 
-### Server (`mcp_backend_session.go`)
+### Server (`mcp_backend_visualization.go`)
 
-- Add an `html_render` tool to the existing **session MCP backend**, which is
-  already wired to every external-agent session as the `helix-session` context
-  server (`zed_config.go`). So every harness gets the tool automatically with no
-  per-harness change.
+- An `html_render` tool on a dedicated **visualization MCP backend**, wired into
+  every agent config as the `helix-viz` context server (`zed_config.go`). Every
+  harness gets the tool from the same config with no per-harness change. See
+  Availability below for why it is not a `helix-session` tool.
 - Handler: resolve current session + owner from context, validate/clamp inputs,
   inject the bootstrap, write the HTML to the session's filestore folder at
   `visualizations/<viz_id>.html`, and return a tool-result string carrying a
@@ -58,12 +58,9 @@ Mirror the shape, reuse existing Helix infrastructure, add no new service.
   (The marker is robust to ACP/harness formatting differences; we do not parse
   free-form tool-call content.)
 
-- `NewSessionMCPBackend` gains the `*controller.Controller` (for `Filestore` +
-  `GetFilestoreSessionPath` + presign config).
-
 ### Server serving endpoint
 
-- `GET /api/v1/sessions/{id}/visualizations/{viz_id}` on `subRouter` (same auth
+- `GET /api/v1/sessions/{id}/visualization?viz_id=…` on `subRouter` (same auth
   surface as `getSession`: bearer / `access_token` cookie / `access_token` query
   — so an iframe loads it with the SPA's cookie). Authorizes via
   `authorizeUserToSession(ActionGet)`, reads the stored HTML from filestore, and
@@ -95,27 +92,44 @@ Mirror the shape, reuse existing Helix infrastructure, add no new service.
 
 ## Availability (which agents can publish)
 
-Rendering is universal — spec-task detail, the org-bot chat panel, and ordinary
-chat all go through the same `AgentChat → EmbeddedSessionView → Interaction →
-InteractionInference` path, so a published visualization shows inline everywhere.
+Rendering is universal — spec-task detail, the org-bot chat panel, embedded
+chats and ordinary chat all go through `AgentChat → EmbeddedSessionView →
+Interaction → InteractionInference`.
 
-Whether an agent *has* the `html_render` tool depends on whether its Zed config
-includes the `helix-session` context server (which hosts the tool):
+`html_render` lives on its **own** MCP backend (`/api/v1/mcp/visualization`),
+wired into every agent config as the `helix-viz` context server. It started out
+as a tool on `helix-session`, but org-bot instances strip every context server
+their profile doesn't list (`DefaultBotInstanceProfile()` keeps only
+`chrome-devtools`), so bots could not visualize — and enabling `helix-session`
+for a bot would also have granted session navigation. Found on a live
+chief-of-staff session whose served config was `[chrome-devtools, helix]`; the
+agent fell back to writing a local HTML file and screenshotting it.
 
-| Surface | Gets `html_render`? | Why |
+| Surface | Gets `html_render`? | Mechanism |
 |---|---|---|
-| Spec tasks | **Yes, automatic** | `GenerateZedMCPConfig` always wires `helix-session`; spec-task sessions have no `BotInstance`, so `ApplyBotInstanceProfile(nil)` strips nothing. |
-| Ordinary chat sessions | **Yes, automatic** | Same base config, no instance profile. |
-| Org bots | **Opt-in** | Org-bot instances run `ApplyBotInstanceProfile`, which deletes every context server not in `profile.MCPServers`. `DefaultBotInstanceProfile()` keeps only `chrome-devtools`. |
+| Spec tasks, ordinary chat | Yes | `GenerateZedMCPConfig` always adds `helix-viz` |
+| Org bots | Yes | `ApplyBotInstanceProfile` always keeps `helix-viz` |
 
-To enable visualizations for an org bot, add `helix-session` to the bot's
-instance-profile `MCPServers` (e.g. via `helix org bots profile`/the instance
-profile editor, or `--mcp …,helix-session` in `bots_build`). This is consistent
-with the org design philosophy ("instances are minimal by default"); we do not
-auto-grant it. Note that enabling `helix-session` also grants the session-
-navigation tools (`session_toc`, `search_session`, …); there is no way to grant
-only `html_render` today. A future split onto its own always-wired context
-server would decouple the two — tracked as a follow-up.
+Auth surfaces that had to change with it:
+
+- **Bot-instance keys** are fail-closed per MCP backend
+  (`auth_bot_instance_key.go`). `visualization` is allowed only when the request
+  names the key's own `session_id`. This must ship with the config change: the
+  sandbox readiness gate OPTIONS-probes every remote context server before
+  launching Zed and fails on 401/403, so a denied `helix-viz` would stop every
+  bot instance from starting.
+- **Embed keys** (`auth_embed_key.go`) allow `GET
+  /api/v1/sessions/{id}/visualization` for the key's own session only. The
+  serving route takes `viz_id` as a query parameter so the suffix-based embed
+  matcher can scope it.
+- The settings-sync-daemon treats `helix-viz` as Helix-owned so a stale on-disk
+  entry can never override the API's config (takes effect with the next
+  `build-ubuntu`; not needed for the server to work).
+
+A bot instance serves untrusted users and reads untrusted pages, so a
+prompt-injected bot can publish attacker-chosen HTML into its own chat. It runs
+in the sandboxed opaque-origin iframe and can only open links on a real user
+click — no capability beyond what the bot's chat text already has.
 
 ## Security notes
 

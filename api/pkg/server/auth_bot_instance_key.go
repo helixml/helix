@@ -22,7 +22,8 @@ import (
 //   - its own session plumbing: Zed config, startup/config reports, the user
 //     websocket, the agent sync websocket and the desktop bridge's RevDial;
 //   - the LLM proxy;
-//   - the MCP servers its instance profile keeps;
+//   - the MCP servers its instance profile keeps, plus helix-viz for its own
+//     session;
 //   - read-only git on its project's repositories (enforced by the git server,
 //     see GitHTTPServer.botInstanceGitAllows).
 //
@@ -118,6 +119,11 @@ func (auth *authMiddleware) botInstanceMCPAllows(ctx context.Context, sessionID,
 	}
 	if server == "helix-org" {
 		return true
+	}
+	// Every instance keeps helix-viz; it only writes into its own chat, so the
+	// request must name the key's session explicitly.
+	if server == types.MCPBackendVisualization {
+		return querySessionID == sessionID
 	}
 	session, err := auth.store.GetSession(ctx, sessionID)
 	if err != nil || session.Metadata.BotInstance == nil {
