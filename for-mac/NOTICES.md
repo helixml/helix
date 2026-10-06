@@ -17,10 +17,13 @@ bundled QEMU binary is available at the repository linked above.
 
 ## virglrenderer (MIT)
 
-GPU 3D rendering translation layer for virtual machines.
+GPU 3D rendering translation layer for virtual machines, including
+`virgl_render_server`.
 
 - License: MIT
-- Source: https://gitlab.freedesktop.org/virgl/virglrenderer
+- Source: https://github.com/utmapp/virglrenderer (UTM's fork of https://gitlab.freedesktop.org/virgl/virglrenderer)
+- Modified: `virgl_render_server` is built with the patches in
+  `for-mac/qemu-helix/patches/virglrenderer/` in the Helix source.
 
 ## SPICE (LGPL v2.1)
 

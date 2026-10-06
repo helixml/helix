@@ -36,10 +36,10 @@ QEMU_PREFIX="${QEMU_PREFIX:-$SYSROOT}"
 # qemu-helix/UTM_VERSION, matching the utm-edition QEMU we build.
 UTM_APP="${UTM_APP:-$("$FOR_MAC_DIR/qemu-helix/fetch-utm-app.sh")}"
 UTM_FRAMEWORKS="$UTM_APP/Contents/Frameworks"
-UTM_RENDER_SERVER="$UTM_APP/Contents/XPCServices/QEMUHelper.xpc/Contents/MacOS/QEMURenderServer.app/Contents/MacOS/QEMURenderServer"
-# Except MoltenVK: the same UTM commit rebuilt with our SPIRV-Cross fixes
-# (qemu-helix/patches/spirv-cross), without which wgpu apps such as Zed can't render.
+# Except MoltenVK and the render server: the same UTM commits rebuilt with our
+# fixes (qemu-helix/patches/), without which Zed and GPU Chromium can't render.
 MOLTENVK_FRAMEWORK="${MOLTENVK_FRAMEWORK:-$("$FOR_MAC_DIR/qemu-helix/build-moltenvk.sh")}"
+RENDER_SERVER="${RENDER_SERVER:-$("$FOR_MAC_DIR/qemu-helix/build-render-server.sh")}"
 EFI_CODE="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
 EFI_VARS_TEMPLATE="/opt/homebrew/share/qemu/edk2-arm-vars.fd"
 
@@ -169,9 +169,9 @@ log "  Copied QEMU dylib ($(du -h "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" | a
 
 # virglrenderer spawns this for Venus/Neptune contexts; vm.go points
 # RENDER_SERVER_EXEC_PATH at it, as UTM's QEMUHelper does.
-cp -f "$UTM_RENDER_SERVER" "$MACOS_DIR/virgl_render_server"
+cp -f "$RENDER_SERVER" "$MACOS_DIR/virgl_render_server"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/virgl_render_server"
-log "  Copied virgl_render_server from UTM"
+log "  Copied virgl_render_server from $RENDER_SERVER"
 
 # =============================================================================
 # Step 3: Copy required frameworks

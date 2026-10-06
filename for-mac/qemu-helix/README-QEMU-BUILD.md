@@ -22,7 +22,8 @@ Host Vulkan driver behind Venus: **MoltenVK**, UTM's default
 "Patches on top of UTM"). KosmicKrisp is bundled but opt-in
 (`HELIX_VULKAN_DRIVER=kosmickrisp`) and currently crashes on images.
 
-Every component comes from UTM as shipped, except MoltenVK (see below).
+Every component comes from UTM as shipped, except MoltenVK and
+`virgl_render_server` (see below).
 
 All three must come from the same UTM release. A QEMU from one release with
 frameworks from another fails in confusing ways (for example: blob resources
@@ -47,8 +48,35 @@ guest app waits forever, e.g. Zed's window never maps.
    bounds-checks struct arrays with a stride of 4.
 2. Passing an array taken out of a struct to a function doesn't compile
    (also in upstream SPIRV-Cross).
+3. robustBufferAccess2 on descriptor arrays of buffers (Zink's uniforms)
+   checks the descriptor index against the buffer size and uses the
+   per-descriptor size array as a single size.
+4. The geometry-to-mesh wrapper passes a discrete buffer descriptor array by
+   its (undeclared) array name instead of per element.
 
-Both leave SPIRV-Cross's own MSL reference tests unchanged. Drop a patch once
+All leave SPIRV-Cross's own MSL reference tests unchanged.
+
+**`virgl_render_server`** is rebuilt from the virglrenderer commit UTM pins
+(`VIRGLRENDERER_COMMIT`) with [`patches/virglrenderer/`](patches/virglrenderer)
+by [`build-render-server.sh`](build-render-server.sh), with UTM's meson cross
+file and options (needs the sysroot). On macOS dma_buf is emulated with shm,
+and UTM's render server rejected importing a shm resource
+(`VK_ERROR_INVALID_EXTERNAL_HANDLE`), so a guest that shares buffers between
+processes (Chromium on Zink) loses its Venus context. The patch imports such
+resources as host memory.
+
+### Chromium
+
+Chromium in the desktop renders through Zink (GL on Vulkan) over Venus, chosen
+by `desktop/shared/helix-chromium.sh` when the render node is virtio-gpu. Its
+GPU process needs robust GL contexts, which virgl doesn't provide, so on virgl
+it falls back to software (canvas benchmark: ~11 fps vs ~62 fps on Zink).
+`ZINK_DEBUG=optimal_keys` keeps Zink from emulating last-vertex provoking
+vertex with a geometry shader per draw (MoltenVK has no
+`VK_EXT_provoking_vertex`); flat varyings then take the first vertex. WebGL is
+unavailable, as before: Zink advertises GLES 3.1 but MoltenVK's transform
+feedback has one buffer, below the 4 GLES 3.0 requires, so Chromium refuses
+WebGL contexts. Drop a patch once
 the UTM release we follow ships the fix; check with
 `build-moltenvk.sh` — `git am` fails on a patch that is already applied.
 
