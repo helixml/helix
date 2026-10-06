@@ -1,0 +1,74 @@
+From e1aab11da05d5e30562eb55f7d95a89e9eeec4d7 Mon Sep 17 00:00:00 2001
+From: Luke Marsden <luke@mlops.consulting>
+Date: Tue, 6 Oct 2026 10:56:06 +0100
+Subject: [PATCH 2/2] MSL: Copy struct-extracted arrays passed as function
+ arguments
+
+Array members of structs are declared as plain C arrays, but by-value
+array parameters are spvUnsafeArray<T, N>, so passing an array
+extracted from a struct to a function failed to compile:
+  no known conversion from 'const device T[2]' to 'spvUnsafeArray<T, 2>'
+Copy such arguments element-wise into a thread-local spvUnsafeArray.
+---
+ spirv_msl.cpp | 25 +++++++++++++++++++++++++
+ spirv_msl.hpp |  1 +
+ 2 files changed, 26 insertions(+)
+
+diff --git a/spirv_msl.cpp b/spirv_msl.cpp
+index 47f325f5..1c85069e 100644
+--- a/spirv_msl.cpp
++++ b/spirv_msl.cpp
+@@ -14425,6 +14425,22 @@ static string create_swizzle(MSLComponentSwizzle swizzle)
+ 	}
+ }
+ 
++bool CompilerMSL::needs_array_arg_copy(uint32_t id, const SPIRType &type)
++{
++	// Array members of structs are declared as plain C arrays, so an array extracted from a
++	// struct value can't bind to a by-value spvUnsafeArray parameter.
++	if (msl_options.force_native_arrays || !is_array(type) || is_pointer(type) || type.array.size() != 1 ||
++	    !type.array_size_literal.back() || is_runtime_size_array(type) || maybe_get<SPIRVariable>(id) ||
++	    maybe_get<SPIRConstant>(id))
++		return false;
++	if (!maybe_get<SPIRExpression>(id))
++		return false;
++	// A load of a whole local array variable already is a spvUnsafeArray.
++	auto *var = maybe_get_backing_variable(id);
++	return !(var && (var->storage == StorageClassFunction || var->storage == StorageClassPrivate) &&
++	         is_array(get_variable_data_type(*var)));
++}
++
+ // Returns a string representation of the ID, usable as a function arg.
+ // Manufacture automatic sampler arg for SampledImage texture.
+ string CompilerMSL::to_func_call_arg(const SPIRFunction::Parameter &arg, uint32_t id)
+@@ -14459,6 +14475,15 @@ string CompilerMSL::to_func_call_arg(const SPIRFunction::Parameter &arg, uint32_
+ 			constants.push_back(id);
+ 		}
+ 	}
++	else if (needs_array_arg_copy(id, type))
++	{
++		// Copy into a thread-local spvUnsafeArray the parameter can bind to.
++		string src = CompilerGLSL::to_func_call_arg(arg, id);
++		arg_str = join("_", id, "_arg_copy", ir.increase_bound_by(1));
++		statement(type_to_glsl(type), " ", arg_str, ";");
++		for (uint32_t i = 0; i < to_array_size_literal(type); i++)
++			statement(arg_str, "[", i, "] = ", enclose_expression(src), "[", i, "];");
++	}
+ 	// Dereference pointer variables where needed.
+ 	// FIXME: This dereference is actually backwards. We should really just support passing pointer variables between functions.
+ 	else if (should_dereference_caller_param(id))
+diff --git a/spirv_msl.hpp b/spirv_msl.hpp
+index 94a23dea..4cdeb2da 100644
+--- a/spirv_msl.hpp
++++ b/spirv_msl.hpp
+@@ -1003,6 +1003,7 @@ protected:
+ 	std::string sampler_type(const SPIRType &type, uint32_t id, bool member);
+ 	std::string builtin_to_glsl(BuiltIn builtin, StorageClass storage) override;
+ 	std::string to_func_call_arg(const SPIRFunction::Parameter &arg, uint32_t id) override;
++	bool needs_array_arg_copy(uint32_t id, const SPIRType &type);
+ 	std::string to_name(uint32_t id, bool allow_alias = true) const override;
+ 	std::string to_function_name(const TextureFunctionNameArguments &args) override;
+ 	std::string to_function_args(const TextureFunctionArguments &args, bool *p_forward) override;
+-- 
+2.50.1 (Apple Git-155)
+
