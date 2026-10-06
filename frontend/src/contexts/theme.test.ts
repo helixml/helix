@@ -73,6 +73,39 @@ describe('theme mode preference', () => {
     expect(screen.getByRole('button', { name: 'dark' })).toBeInTheDocument()
   })
 
+  it('goes back to following the OS when toggled to the OS mode', () => {
+    render(React.createElement(ThemeProviderWrapper, null, React.createElement(ThemeToggle)))
+
+    fireEvent.click(screen.getByRole('button', { name: 'light' }))
+    fireEvent.click(screen.getByRole('button', { name: 'dark' }))
+    expect(localStorage.getItem('themeMode')).toBeNull()
+
+    act(() => systemThemeHandler?.({ matches: false } as MediaQueryListEvent))
+    expect(screen.getByRole('button', { name: 'dark' })).toBeInTheDocument()
+  })
+
+  it('drops an override once the OS reaches it, then follows the OS again', () => {
+    render(React.createElement(ThemeProviderWrapper, null, React.createElement(ThemeToggle)))
+    fireEvent.click(screen.getByRole('button', { name: 'light' }))
+    expect(localStorage.getItem('themeMode')).toBe('dark')
+
+    act(() => systemThemeHandler?.({ matches: false } as MediaQueryListEvent))
+    expect(localStorage.getItem('themeMode')).toBeNull()
+    expect(screen.getByRole('button', { name: 'dark' })).toBeInTheDocument()
+
+    act(() => systemThemeHandler?.({ matches: true } as MediaQueryListEvent))
+    expect(screen.getByRole('button', { name: 'light' })).toBeInTheDocument()
+  })
+
+  it('drops a stored mode that matches the OS on load', () => {
+    localStorage.setItem('themeMode', 'light')
+    render(React.createElement(ThemeProviderWrapper, null, React.createElement(ThemeToggle)))
+
+    expect(localStorage.getItem('themeMode')).toBeNull()
+    act(() => systemThemeHandler?.({ matches: false } as MediaQueryListEvent))
+    expect(screen.getByRole('button', { name: 'dark' })).toBeInTheDocument()
+  })
+
   it('gives an explicit query mode precedence over the stored mode', () => {
     localStorage.setItem('themeMode', 'dark')
     window.history.replaceState({}, '', '/?theme=light')
@@ -93,7 +126,7 @@ describe('Helix for Mac theme bridge', () => {
     return render(React.createElement(ThemeProviderWrapper, null, React.createElement(ThemeToggle)))
   }
 
-  it('reports the system mode, then a toggled mode as pinned, to the embedding app', () => {
+  it('reports the OS mode, a toggled override, and the OS catching up to the embedding app', () => {
     const parent = { postMessage: vi.fn() }
     renderFramed(parent)
     expect(parent.postMessage).toHaveBeenLastCalledWith(
@@ -102,6 +135,10 @@ describe('Helix for Mac theme bridge', () => {
     fireEvent.click(screen.getByRole('button', { name: 'light' }))
     expect(parent.postMessage).toHaveBeenLastCalledWith(
       { type: 'helix:theme', mode: 'dark', explicit: true }, '*')
+
+    act(() => systemThemeHandler?.({ matches: false } as MediaQueryListEvent))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'helix:theme', mode: 'dark', explicit: false }, '*')
     Object.defineProperty(window, 'parent', { value: window, configurable: true })
   })
 

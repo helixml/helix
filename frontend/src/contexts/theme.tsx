@@ -26,6 +26,20 @@ function storedThemeMode(): PaletteMode | null {
   }
 }
 
+function systemThemeMode(): PaletteMode {
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+}
+
+// The OS theme is the default. A stored mode is the user's override, and only
+// exists while it differs from the OS: picking (or the OS reaching) the same
+// mode goes back to following the OS.
+function setStoredThemeMode(mode: PaletteMode | null) {
+  try {
+    if (mode) localStorage.setItem(THEME_MODE_KEY, mode)
+    else localStorage.removeItem(THEME_MODE_KEY)
+  } catch { /* ignore */ }
+}
+
 function getInitialMode(): PaletteMode {
   // An explicit ?theme= wins over the browser override and OS preference.
   //
@@ -39,11 +53,10 @@ function getInitialMode(): PaletteMode {
     if (q === 'dark' || q === 'light') return q
   } catch { /* malformed query string — fall through to the browser override */ }
 
+  const system = systemThemeMode()
   const stored = storedThemeMode()
-  if (stored) return stored
-
-  if (window.matchMedia('(prefers-color-scheme: light)').matches) return 'light'
-  return 'dark'
+  if (stored === system) setStoredThemeMode(null)
+  return stored ?? system
 }
 
 export const ThemeContext = React.createContext({
@@ -172,6 +185,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const themeConfig = useThemeConfig()
   const api = useApi()
   const [mode, setMode] = useState<PaletteMode>(getInitialMode)
+  const [overridden, setOverridden] = useState(() => storedThemeMode() !== null)
 
   // Live OS preference sync while the browser has no explicit override.
   useEffect(() => {
@@ -182,8 +196,14 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
 
     const mql = window.matchMedia('(prefers-color-scheme: light)')
     const handler = (e: MediaQueryListEvent) => {
-      if (storedThemeMode()) return
       const next: PaletteMode = e.matches ? 'light' : 'dark'
+      const stored = storedThemeMode()
+      // A user override the OS has now caught up with is no longer an override.
+      if (stored === next) {
+        setStoredThemeMode(null)
+        setOverridden(false)
+      }
+      if (stored) return
       setMode(next)
       api.getApiClient().v1UsersMeColorSchemeUpdate({ color_scheme: next })
         .catch(() => { /* non-fatal: anonymous users / transient errors */ })
@@ -193,15 +213,15 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   }, [api])
 
   // Inside Helix for Mac the UI is an iframe, and the app draws its own window
-  // chrome around it. Tell the app the mode in effect and whether the user
-  // pinned it with the toggle, so its chrome and native appearance follow.
+  // chrome around it. Tell the app the mode in effect and whether it is the
+  // user's override of the OS theme, so its chrome follows.
   useEffect(() => {
     if (window.parent === window) return
     window.parent.postMessage(
-      { type: 'helix:theme', mode, explicit: storedThemeMode() !== null || themePinnedByQuery() },
+      { type: 'helix:theme', mode, explicit: overridden || themePinnedByQuery() },
       '*',
     )
-  }, [mode])
+  }, [mode, overridden])
 
   const isLight = mode === 'light'
 
@@ -598,7 +618,9 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const toggleMode = () => {
     setMode((prevMode) => {
       const next = prevMode === 'dark' ? 'light' : 'dark'
-      try { localStorage.setItem(THEME_MODE_KEY, next) } catch { /* ignore */ }
+      const override = next !== systemThemeMode()
+      setStoredThemeMode(override ? next : null)
+      setOverridden(override)
       // Fire-and-forget: persist to the user's account so any spec-task
       // sessions they own can mirror the theme into GNOME and Zed within
       // ~100ms via the settings-sync-daemon's WS subscription.

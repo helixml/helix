@@ -166,10 +166,6 @@ export function SendConsoleInput(arg1) {
   return window['go']['main']['App']['SendConsoleInput'](arg1);
 }
 
-export function SetAppearance(arg1, arg2) {
-  return window['go']['main']['App']['SetAppearance'](arg1, arg2);
-}
-
 export function SetClipboardImagePNG(arg1) {
   return window['go']['main']['App']['SetClipboardImagePNG'](arg1);
 }
@@ -180,6 +176,10 @@ export function SetCursor(arg1) {
 
 export function SetVMConfig(arg1) {
   return window['go']['main']['App']['SetVMConfig'](arg1);
+}
+
+export function SetWindowTheme(arg1) {
+  return window['go']['main']['App']['SetWindowTheme'](arg1);
 }
 
 export function StartCombinedUpdate() {
