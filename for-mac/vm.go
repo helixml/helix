@@ -795,10 +795,9 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		"-qmp", fmt.Sprintf("tcp:localhost:%d,server,nowait", vm.config.QMPPort),
 	)
 
-	// Find QEMU binary: bundled in app > system PATH
 	qemuPath := vm.findQEMUBinary()
 	if qemuPath == "" {
-		vm.setError(fmt.Errorf("QEMU not found. Install via 'brew install qemu' or use the bundled app"))
+		vm.setError(fmt.Errorf("QEMU not found in the app bundle (%q); reinstall Helix", vm.getAppBundlePath()))
 		return
 	}
 	if _, err := os.Stat(renderServerPath(qemuPath)); err != nil {
@@ -1719,10 +1718,14 @@ func (vm *VMManager) getAppBundlePath() string {
 
 // findQEMUBinary locates the QEMU binary. Search order:
 //  1. HELIX_QEMU_PATH environment variable (explicit override)
-//  2. Standalone dev QEMU: build/dev-qemu/qemu-system-aarch64
+//  2. Dev builds only: standalone dev QEMU build/dev-qemu/qemu-system-aarch64
 //     (signed independently — immune to wails dev breaking the app bundle seal)
-//  3. Bundled in app: Contents/MacOS/qemu-system-aarch64 (production mode)
-//  4. System PATH: qemu-system-aarch64
+//  3. Bundled in app: Contents/MacOS/qemu-system-aarch64
+//  4. Dev builds only: system PATH
+//
+// Release builds only ever run the bundled QEMU: a build/dev-qemu relative to
+// the launch directory, or a Homebrew QEMU on PATH, doesn't match the bundled
+// frameworks and render server.
 //
 // getGPUHostMem returns the hostmem size for virtio-gpu-gl-pci, scaled by
 // system RAM.
@@ -1764,18 +1767,21 @@ func (vm *VMManager) findQEMUBinary() string {
 		}
 	}
 
-	// Check standalone dev QEMU (signed independently of app bundle — works
-	// even when wails dev has broken the bundle's CodeResources seal)
-	devQemu := filepath.Join("build", "dev-qemu", "qemu-system-aarch64")
-	if _, err := os.Stat(devQemu); err == nil {
-		if abs, err := filepath.Abs(devQemu); err == nil {
-			log.Printf("Using dev QEMU: %s", abs)
-			return abs
+	dev := isDevMode()
+
+	// Standalone dev QEMU (signed independently of app bundle — works even
+	// when wails dev has broken the bundle's CodeResources seal)
+	if dev {
+		devQemu := filepath.Join("build", "dev-qemu", "qemu-system-aarch64")
+		if _, err := os.Stat(devQemu); err == nil {
+			if abs, err := filepath.Abs(devQemu); err == nil {
+				log.Printf("Using dev QEMU: %s", abs)
+				return abs
+			}
+			return devQemu
 		}
-		return devQemu
 	}
 
-	// Check app bundle (production mode — only reached when dev-qemu doesn't exist)
 	appPath := vm.getAppBundlePath()
 	if appPath != "" {
 		bundled := filepath.Join(appPath, "Contents", "MacOS", "qemu-system-aarch64")
@@ -1784,10 +1790,10 @@ func (vm *VMManager) findQEMUBinary() string {
 		}
 	}
 
-	// Fall back to system PATH
-	path, err := exec.LookPath("qemu-system-aarch64")
-	if err == nil {
-		return path
+	if dev {
+		if path, err := exec.LookPath("qemu-system-aarch64"); err == nil {
+			return path
+		}
 	}
 
 	return ""
