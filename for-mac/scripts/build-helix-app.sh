@@ -37,6 +37,9 @@ QEMU_PREFIX="${QEMU_PREFIX:-$SYSROOT}"
 UTM_APP="${UTM_APP:-$("$FOR_MAC_DIR/qemu-helix/fetch-utm-app.sh")}"
 UTM_FRAMEWORKS="$UTM_APP/Contents/Frameworks"
 UTM_RENDER_SERVER="$UTM_APP/Contents/XPCServices/QEMUHelper.xpc/Contents/MacOS/QEMURenderServer.app/Contents/MacOS/QEMURenderServer"
+# Except MoltenVK: the same UTM commit rebuilt with our SPIRV-Cross fixes
+# (qemu-helix/patches/spirv-cross), without which wgpu apps such as Zed can't render.
+MOLTENVK_FRAMEWORK="${MOLTENVK_FRAMEWORK:-$("$FOR_MAC_DIR/qemu-helix/build-moltenvk.sh")}"
 EFI_CODE="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
 EFI_VARS_TEMPLATE="/opt/homebrew/share/qemu/edk2-arm-vars.fd"
 
@@ -219,7 +222,6 @@ REQUIRED_FRAMEWORKS=(
     "gstbase-1.0.0"
     "vulkan.1"
     "vulkan_kosmickrisp"
-    "MoltenVK"
     # GStreamer deps needed by spice-server at runtime
     "gthread-2.0.0"
     "gpg-error.0"
@@ -244,6 +246,8 @@ for fw in "${REQUIRED_FRAMEWORKS[@]}"; do
     fi
 done
 log "  Copied $COPIED frameworks, $SKIPPED not found as framework bundles"
+cp -R "$MOLTENVK_FRAMEWORK" "$FRAMEWORKS_DIR/"
+log "  Copied MoltenVK from $MOLTENVK_FRAMEWORK"
 
 # =============================================================================
 # Step 4: Copy EFI firmware

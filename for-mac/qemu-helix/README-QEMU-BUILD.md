@@ -18,15 +18,46 @@ Everything is pinned to one UTM release, in [`UTM_VERSION`](UTM_VERSION):
 | Launch environment (`RENDER_SERVER_EXEC_PATH`, `ANGLE_DEFAULT_PLATFORM`, `VK_DRIVER_FILES`) | UTM's `QEMUHelper/QEMUHelper.m` | `for-mac/vm.go` `buildQEMUEnv` |
 
 Host Vulkan driver behind Venus: **MoltenVK**, UTM's default
-(`UTMQemuSystem.m` `setVulkanDriver`). KosmicKrisp is bundled but opt-in
-(`HELIX_VULKAN_DRIVER=kosmickrisp`): since UTM 5.0.6 the render server imports
-all host-visible memory through `VK_EXT_external_memory_host`, which
-KosmicKrisp only supports for buffers, so Venus images get no Metal texture and
-the render server crashes (Zed's adapter test hits it immediately).
+(`UTMQemuSystem.m` `setVulkanDriver`), built with our SPIRV-Cross patches (see
+"Patches on top of UTM"). KosmicKrisp is bundled but opt-in
+(`HELIX_VULKAN_DRIVER=kosmickrisp`) and currently crashes on images.
+
+Every component comes from UTM as shipped, except MoltenVK (see below).
 
 All three must come from the same UTM release. A QEMU from one release with
 frameworks from another fails in confusing ways (for example: blob resources
 fail with `ERR_UNSPEC` and the video stream never starts).
+
+### Patches on top of UTM
+
+**MoltenVK** is rebuilt from the commit UTM pins (`MOLTENVK_COMMIT` in UTM's
+`patches/sources`) with the SPIRV-Cross fixes in
+[`patches/spirv-cross/`](patches/spirv-cross) applied, by
+[`build-moltenvk.sh`](build-moltenvk.sh) (cached per commit + patch set, ~10
+minutes cold). `build-helix-app.sh` bundles it in place of UTM.app's MoltenVK.
+
+Without them, UTM's MoltenVK generates invalid Metal for the shaders of wgpu
+apps (Zed, and wgpu's own validation shaders): pipeline creation fails on the
+host, Venus doesn't report it, the render server kills the context at the next
+`vkCmdBindPipeline` (`vkr: failed to look up object N of type 19`) and the
+guest app waits forever, e.g. Zed's window never maps.
+
+1. robustBufferAccess2 (UTM's SPIRV-Cross `a9a8d4a4`, which wgpu enables
+   whenever offered) zero-fills out-of-bounds struct loads with `T(0)` and
+   bounds-checks struct arrays with a stride of 4.
+2. Passing an array taken out of a struct to a function doesn't compile
+   (also in upstream SPIRV-Cross).
+
+Both leave SPIRV-Cross's own MSL reference tests unchanged. Drop a patch once
+the UTM release we follow ships the fix; check with
+`build-moltenvk.sh` — `git am` fails on a patch that is already applied.
+
+Why not KosmicKrisp: since UTM 5.0.6 the render server runs out of process and
+backs all host-visible memory with shm imported via
+`VK_EXT_external_memory_host`. KosmicKrisp has a single, host-visible memory
+type and can only use imported host memory for buffers, so every image gets a
+nil texture and the render server crashes. MoltenVK gives images their own
+storage and is unaffected.
 
 ### Updating to a new UTM release
 
@@ -40,11 +71,14 @@ fail with `ERR_UNSPEC` and the video stream never starts).
    `hw/display/helix/helix-frame-export.m`.
 2. **Pins:** set `UTM_RELEASE` and `UTM_COMMIT` in `UTM_VERSION` (`UTM_COMMIT`
    must carry the same `patches/sources` as the release tag), and
-   `QEMU_UTM_COMMIT` to the merge commit.
+   `QEMU_UTM_COMMIT` to the merge commit. Run `build-moltenvk.sh` and drop or
+   rebase any `patches/spirv-cross` patch the new MoltenVK pin already has.
 3. **Launch:** diff UTM's `QEMUHelper.m` / `UTMQemuSystem.m` against
    `vm.go` for new environment or arguments.
 4. **Test** before pinning: video stream, multiple desktops, idle CPU
-   (`sudo powermetrics --samplers tasks -i 5000 -n 3 | grep qemu`).
+   (`sudo powermetrics --samplers tasks -i 5000 -n 3 | grep qemu`), and that
+   Zed's window maps and renders (a `vkcube` that runs proves little: it
+   doesn't use the shader features wgpu does).
 
 UTM's QEMU release tarball plus its `patches/qemu-*-utm.patch` equals the
 `utm-edition` branch tip, so merging the branch is equivalent to what UTM ships.
