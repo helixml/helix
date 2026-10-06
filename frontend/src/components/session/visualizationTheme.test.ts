@@ -10,6 +10,7 @@ import {
   visualizationThemeMessage,
   VISUALIZATION_RESULT_MARKER,
 } from "./visualizationTheme";
+import { getChatColors } from "./chatStyles";
 
 describe("parseVisualizationReference", () => {
   it("extracts a reference from a marked tool result", () => {
@@ -49,15 +50,18 @@ describe("visualization theme mapping", () => {
     const theme = createTheme({ palette: { mode: "dark" } });
     const viz = visualizationThemeFromMui(theme);
     expect(viz.appearance).toBe("dark");
-    expect(viz.variables["--background"]).toBe(theme.palette.background.default);
-    expect(viz.variables["--foreground"]).toBe(theme.palette.text.primary);
+    expect(viz.variables["--background"]).toBe(getChatColors(theme).canvas);
+    expect(viz.variables["--foreground"]).toBe(getChatColors(theme).assistantForeground);
     expect(viz.variables["--chart-1"]).toBeTruthy();
     expect(viz.variables["--chart-6"]).toBeTruthy();
   });
 
-  it("derives light appearance from a light MUI theme", () => {
-    const viz = visualizationThemeFromMui(createTheme({ palette: { mode: "light" } }));
+  it("matches the chat canvas, not the page background, in light mode", () => {
+    const theme = createTheme({ palette: { mode: "light" } });
+    const viz = visualizationThemeFromMui(theme);
     expect(viz.appearance).toBe("light");
+    // The chat column paints #fafafa over MUI's #fff page background.
+    expect(viz.variables["--background"]).toBe("#fafafa");
   });
 
   it("round-trips the theme through the URL fragment", () => {

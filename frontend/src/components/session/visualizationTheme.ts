@@ -1,5 +1,7 @@
 import type { Theme } from '@mui/material/styles'
 
+import { getChatColors } from './chatStyles'
+
 // Agent visualizations (the html_render MCP tool) are self-contained HTML pages
 // rendered inline in the chat, inside a sandboxed iframe. The page reads the
 // active app theme as CSS custom properties — once from the URL fragment before
@@ -32,10 +34,16 @@ const CHART_COLORS = {
   dark: ['#2dd4bf', '#fbbf24', '#c084fc', '#fb7185', '#a3e635', '#38bdf8'],
 }
 
-/** Builds the resolved theme handed to a visualization from the active MUI theme. */
+/**
+ * Builds the resolved theme handed to a visualization. Surface tokens come from
+ * the chat's own palette — the page sits in the chat column, so `--background`
+ * must equal the thread around the frame — and semantic colours from the MUI
+ * palette.
+ */
 export function visualizationThemeFromMui(theme: Theme): VisualizationTheme {
   const appearance = theme.palette.mode === 'light' ? 'light' : 'dark'
   const p = theme.palette
+  const chat = getChatColors(theme)
   const chart = CHART_COLORS[appearance]
   const accent = p.secondary?.main || p.primary.main
   const sans = theme.typography.fontFamily || 'system-ui, sans-serif'
@@ -44,14 +52,14 @@ export function visualizationThemeFromMui(theme: Theme): VisualizationTheme {
     '"SF Mono", Menlo, Consolas, monospace'
 
   const variables: Record<string, string> = {
-    '--background': p.background.default,
-    '--foreground': p.text.primary,
-    '--muted': p.action.hover,
-    '--muted-foreground': p.text.secondary,
-    '--card': p.background.paper,
-    '--card-foreground': p.text.primary,
-    '--border': p.divider,
-    '--input': p.divider,
+    '--background': chat.canvas,
+    '--foreground': chat.assistantForeground,
+    '--muted': chat.surfaceRaised,
+    '--muted-foreground': chat.subtle,
+    '--card': chat.surface,
+    '--card-foreground': chat.foreground,
+    '--border': chat.border,
+    '--input': chat.borderStrong,
     '--ring': p.primary.main,
     '--primary': p.primary.main,
     '--primary-foreground': p.primary.contrastText,
@@ -65,8 +73,8 @@ export function visualizationThemeFromMui(theme: Theme): VisualizationTheme {
     '--success-foreground': p.success.contrastText,
     '--info': p.info.main,
     '--info-foreground': p.info.contrastText,
-    '--code-background': p.background.paper,
-    '--code-foreground': p.text.primary,
+    '--code-background': chat.codeSurface,
+    '--code-foreground': chat.codeForeground,
     '--chart-1': accent,
     '--radius': '0.625rem',
     '--font-sans': sans,
