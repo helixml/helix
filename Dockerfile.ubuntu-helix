@@ -980,11 +980,8 @@ if [ "${TARGETARCH}" = "arm64" ]; then
     # Remove the snap transitional chromium-browser if it got pulled in as a dependency
     apt-get remove -y chromium-browser 2>/dev/null || true
 
-    # Wrap chromium binary with --password-store=basic to bypass gnome-keyring
-    # (prevents "Choose password for new keyring" dialog in containers)
+    # /usr/bin/chromium becomes desktop/shared/helix-chromium.sh (added below).
     mv /usr/bin/chromium /usr/bin/chromium.real
-    printf '#!/bin/sh\nexec /usr/bin/chromium.real --password-store=basic --disable-dev-shm-usage "$@"\n' > /usr/bin/chromium
-    chmod +x /usr/bin/chromium
 
     # Create compatibility wrappers pointing to the wrapped /usr/bin/chromium.
     # chrome-devtools-mcp and other tools expect google-chrome / google-chrome-stable.
@@ -1581,6 +1578,9 @@ ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
 ADD desktop/shared/helix-chrome-devtools-mcp.sh /usr/local/bin/helix-chrome-devtools-mcp
+# arm64 only: Chromium launcher (amd64 ships Google Chrome, which has no chromium.real)
+RUN --mount=type=bind,source=desktop/shared/helix-chromium.sh,target=/tmp/helix-chromium.sh \
+    if [ -x /usr/bin/chromium.real ]; then install -m 755 /tmp/helix-chromium.sh /usr/bin/chromium; fi
 ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-headless-workspace-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh

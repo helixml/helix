@@ -71,7 +71,7 @@ If `FRONTEND_URL=/www` in `.env`, frontend is served from `./frontend/dist:/www:
 
 ### UTM Virtual Machines
 
-**Helix for Mac follows UTM — not upstream QEMU.** QEMU comes from `utmapp/qemu` `utm-edition` *merged* (never rebased) into helixml/qemu-utm; the sysroot, bundled frameworks and `virgl_render_server` come from the UTM release pinned in `for-mac/qemu-helix/UTM_VERSION`; launch env mirrors UTM's `QEMUHelper.m`. All must be from one UTM release. Sole exception: MoltenVK is rebuilt from UTM's pinned commit with SPIRV-Cross fixes (`for-mac/qemu-helix/build-moltenvk.sh`, `patches/spirv-cross/`) — without them Zed can't render. Upgrade procedure: `for-mac/qemu-helix/README-QEMU-BUILD.md` ("Following UTM").
+**Helix for Mac follows UTM — not upstream QEMU.** QEMU comes from `utmapp/qemu` `utm-edition` *merged* (never rebased) into helixml/qemu-utm; the sysroot, bundled frameworks and `virgl_render_server` come from the UTM release pinned in `for-mac/qemu-helix/UTM_VERSION`; launch env mirrors UTM's `QEMUHelper.m`. All must be from one UTM release. Exceptions: MoltenVK and `virgl_render_server` are rebuilt from UTM's pinned commits with our fixes (`for-mac/qemu-helix/build-moltenvk.sh`, `build-render-server.sh`, `patches/`) — without them Zed and GPU-accelerated Chromium (Zink over Venus) can't render. Upgrade procedure: `for-mac/qemu-helix/README-QEMU-BUILD.md` ("Following UTM").
 See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 
 - Control VMs: `utmctl list|start|stop|status <UUID>` (in `/Applications/UTM.app/Contents/MacOS/`)

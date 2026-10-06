@@ -1,7 +1,7 @@
 From f96224bd380ab5ca9b34dd70b038febf540465b3 Mon Sep 17 00:00:00 2001
 From: Luke Marsden <luke@mlops.consulting>
 Date: Tue, 6 Oct 2026 10:56:06 +0100
-Subject: [PATCH 1/2] MSL: Fix robustBufferAccess2 for struct and array
+Subject: [PATCH 1/4] MSL: Fix robustBufferAccess2 for struct and array
  elements
 
 The out-of-bounds value for a robust load was T(0), which does not
