@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi'
-import type { TypesGitProviderConnection, TypesGitProviderConnectionCreateRequest } from '../api/api'
+import type { TypesGitProviderConnectionCreateRequest, TypesGitProviderConnectionUpdateRequest } from '../api/api'
 
 // Query keys
 const CONNECTIONS_KEY = ['git-provider-connections']
@@ -37,6 +37,19 @@ export function useCreateGitProviderConnection() {
   })
 }
 
+export function useUpdateGitProviderConnection() {
+  const api = useApi()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ id, request }: { id: string; request: TypesGitProviderConnectionUpdateRequest }) => {
+      const response = await api.getApiClient().v1GitProviderConnectionsUpdate(id, request)
+      return response.data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: CONNECTIONS_KEY }),
+  })
+}
+
 // Delete a git provider connection
 export function useDeleteGitProviderConnection() {
   const api = useApi()
@@ -47,9 +60,7 @@ export function useDeleteGitProviderConnection() {
       const apiClient = api.getApiClient()
       await apiClient.v1GitProviderConnectionsDelete(id)
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: CONNECTIONS_KEY })
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: CONNECTIONS_KEY }),
   })
 }
 

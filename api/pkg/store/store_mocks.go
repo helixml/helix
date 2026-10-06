@@ -7104,6 +7104,20 @@ func (mr *MockStoreMockRecorder) UpdateEvaluationSuite(ctx, suite any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEvaluationSuite", reflect.TypeOf((*MockStore)(nil).UpdateEvaluationSuite), ctx, suite)
 }
 
+// UpdateGitProviderConnection mocks base method.
+func (m *MockStore) UpdateGitProviderConnection(ctx context.Context, connection *types.GitProviderConnection) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateGitProviderConnection", ctx, connection)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateGitProviderConnection indicates an expected call of UpdateGitProviderConnection.
+func (mr *MockStoreMockRecorder) UpdateGitProviderConnection(ctx, connection any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateGitProviderConnection", reflect.TypeOf((*MockStore)(nil).UpdateGitProviderConnection), ctx, connection)
+}
+
 // UpdateGitRepository mocks base method.
 func (m *MockStore) UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error {
 	m.ctrl.T.Helper()

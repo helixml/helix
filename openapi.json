@@ -6455,6 +6455,92 @@
             }
         },
         "/api/v1/git-provider-connections/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Validate and replace the token for an existing connection. Stored tokens are never returned. Linked repositories retain their own credentials.",
+                "tags": [
+                    "git-provider-connections"
+                ],
+                "summary": "Replace git provider connection token",
+                "parameters": [
+                    {
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.GitProviderConnectionUpdateRequest"
+                            }
+                        }
+                    },
+                    "description": "New token",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.GitProviderConnection"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "delete": {
                 "security": [
                     {
@@ -38004,6 +38090,14 @@
                     "provider_type": {
                         "$ref": "#/components/schemas/types.ExternalRepositoryType"
                     },
+                    "token": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.GitProviderConnectionUpdateRequest": {
+                "type": "object",
+                "properties": {
                     "token": {
                         "type": "string"
                     }

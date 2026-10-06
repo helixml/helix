@@ -6716,6 +6716,11 @@ definitions:
       token:
         type: string
     type: object
+  types.GitProviderConnectionUpdateRequest:
+    properties:
+      token:
+        type: string
+    type: object
   types.GitRepository:
     properties:
       azure_devops:
@@ -18223,6 +18228,51 @@ paths:
       security:
       - BearerAuth: []
       summary: Delete git provider connection
+      tags:
+      - git-provider-connections
+    put:
+      consumes:
+      - application/json
+      description: Validate and replace the token for an existing connection. Stored
+        tokens are never returned. Linked repositories retain their own credentials.
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.GitProviderConnectionUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.GitProviderConnection'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Replace git provider connection token
       tags:
       - git-provider-connections
   /api/v1/git-provider-connections/{id}/repositories:
