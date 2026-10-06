@@ -104,7 +104,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const [visibility, setVisibility] = useState<GroupVisibility>('unknown')
   const projectId = project?.id
   const groupId = projectId || 'default'
-  const groupName = project?.name || 'No project'
+  const groupName = project?.name || 'Untitled project'
   const pagination = useSidebarItemPagination(visibleThreadCount)
   const requestCount = pagination.requestCount
   // A collapsed group probes once to determine whether the current participant

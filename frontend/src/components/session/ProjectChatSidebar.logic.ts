@@ -2,6 +2,7 @@ import type { TypesOrganizationMembership, TypesProject, TypesSessionMetadata, T
 import type { BotDTO, BotInstanceDTO } from '../../services/helixOrgService'
 import type { SpecTask } from '../../services/specTaskService'
 import { deriveSandboxState } from '../external-agent/sandboxState'
+import { CHIEF_OF_STAFF_BOT_ID } from '../../utils/organizations'
 import { matchesAllTokens } from '../../utils/searchUtils'
 
 export type SidebarStatus = {
@@ -518,7 +519,6 @@ export const buildProjectChatGroups = (
   sortOrder: SidebarThreadSortOrder = 'updated_at',
   pinnedAtByItemKey: ReadonlyMap<string, string> = new Map(),
 ): SidebarGroup[] => {
-  const defaultGroup: SidebarGroup = { id: 'default', name: 'No project', items: [] }
   const groupsByProjectId = new Map<string, SidebarGroup>()
   projects.forEach((project) => {
     if (!project.id) return
@@ -575,7 +575,8 @@ export const buildProjectChatGroups = (
     const projectGroup = metadata?.project_id
       ? groupsByProjectId.get(metadata.project_id)
       : undefined
-    const group = projectGroup || defaultGroup
+    if (!projectGroup) return
+    const group = projectGroup
     group.items.push({
       id: session.session_id,
       kind: 'session',
@@ -596,8 +597,7 @@ export const buildProjectChatGroups = (
       return rightActivity - leftActivity || left.name.localeCompare(right.name)
     })
 
-  return [defaultGroup, ...projectGroups]
-    .filter((group) => group.items.length > 0)
+  return projectGroups
     .map((group) => ({
       ...group,
       items: [...group.items].sort((left, right) => (
@@ -654,7 +654,9 @@ export const toSidebarBots = (bots: BotDTO[]): SidebarBot[] => (
       sessionId: bot.session_id || undefined,
     }))
     .sort((left, right) => (
-      Number(right.running) - Number(left.running) || left.name.localeCompare(right.name)
+      Number(right.id === CHIEF_OF_STAFF_BOT_ID) - Number(left.id === CHIEF_OF_STAFF_BOT_ID)
+      || Number(right.running) - Number(left.running)
+      || left.name.localeCompare(right.name)
     ))
 )
 

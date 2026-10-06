@@ -28,6 +28,32 @@ const (
 
 var ErrImplementationHandoffAlreadyClaimed = errors.New("implementation handoff is already being started")
 
+// Approval-handoff errors that no amount of orchestrator retries can fix:
+// the task owner must correct the task/project configuration and recreate the
+// task (implementation_failed is terminal — nothing reopens it). The
+// orchestrator fails tasks that hit these instead of re-driving them every 10s
+// tick (see handleSpecApproved and handleImplementationQueued) — a dangling
+// default repository kept one task retrying invisibly for 7 months (2026-03 →
+// 2026-10) because the wrapped store.ErrNotFound made isDeletedProjectError
+// classify it as a deleted-project skip.
+var (
+	ErrApprovalNoCodeAgentConfig   = errors.New("task has no implementation code-agent configuration")
+	ErrApprovalNoDefaultRepo       = errors.New("default repository not set for project")
+	ErrApprovalDefaultRepoNotFound = errors.New("default repository not found")
+	ErrApprovalNoDefaultBranch     = errors.New("default branch not set for repository, please set it")
+	ErrApprovalNoPlanningSession   = errors.New("task has no planning session for implementation handoff")
+)
+
+// IsPermanentApprovalConfigError reports whether an ApproveSpecs error is one
+// of the permanent misconfigurations above, so callers can stop retrying.
+func IsPermanentApprovalConfigError(err error) bool {
+	return errors.Is(err, ErrApprovalNoCodeAgentConfig) ||
+		errors.Is(err, ErrApprovalNoDefaultRepo) ||
+		errors.Is(err, ErrApprovalDefaultRepoNotFound) ||
+		errors.Is(err, ErrApprovalNoDefaultBranch) ||
+		errors.Is(err, ErrApprovalNoPlanningSession)
+}
+
 // RequestMappingRegistrar is a function type for registering request-to-session mappings
 type RequestMappingRegistrar func(requestID, sessionID string)
 
@@ -1342,20 +1368,32 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		}
 
 		if task.CodeAgentConfig == nil {
-			return fmt.Errorf("task has no implementation code-agent configuration")
+			return ErrApprovalNoCodeAgentConfig
 		}
 
 		if project.DefaultRepoID == "" {
-			return fmt.Errorf("default repository not set for project")
+			return ErrApprovalNoDefaultRepo
 		}
 
 		repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
 		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("%w: %s", ErrApprovalDefaultRepoNotFound, project.DefaultRepoID)
+			}
 			return fmt.Errorf("failed to get default repository: %w", err)
 		}
 
 		if repo.DefaultBranch == "" {
-			return fmt.Errorf("default branch not set for repository, please set it")
+			return ErrApprovalNoDefaultBranch
+		}
+
+		// Validate the planning session with the other permanent conditions,
+		// BEFORE the claim below moves the task to implementation_queued: the
+		// branch checkout and the agent instruction after the claim both need
+		// it, so a task that claims with no planning session can never be
+		// driven to completion and would be retried forever instead.
+		if task.PlanningSessionID == "" && !s.testMode {
+			return ErrApprovalNoPlanningSession
 		}
 
 		effectiveBaseBranch := TaskTargetBranch(repo, task, project.DefaultRepoID)
@@ -1519,8 +1557,6 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				Str("branch_name", branchName).
 				Str("base_branch", effectiveBaseBranch).
 				Msg("Specs approved - started implementation on a fresh agent thread")
-		} else if sessionID == "" && !s.testMode {
-			return fmt.Errorf("task has no planning session for implementation handoff")
 		}
 
 		// Only now is it safe to commit the durable implementation status: the

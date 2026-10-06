@@ -300,6 +300,12 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 		types.TaskStatusImplementation:       true,
 	}
 
+	// isDeletedProjectError matches any wrapped store.ErrNotFound — including
+	// lookups of other entities (a project's deleted default repository, for
+	// example) — so cache the real project-existence answer per tick and only
+	// silence errors for tasks whose project is actually gone.
+	missingProjects := make(map[string]bool)
+
 	for _, task := range tasks {
 		if !activeStatuses[task.Status] {
 			continue
@@ -307,8 +313,10 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 
 		err := o.processTask(ctx, task)
 		if err != nil {
-			// Tasks with deleted projects are expected - don't spam logs
-			if isDeletedProjectError(err) {
+			// Tasks with deleted projects can never progress — expected, don't
+			// spam logs. Everything else (including not-found errors raised by
+			// other lookups) is a real failure and must stay visible.
+			if isDeletedProjectError(err) && o.projectMissing(ctx, task.ProjectID, missingProjects) {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
@@ -323,6 +331,19 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// projectMissing reports whether the task's project row is really gone. The
+// cache map is per orchestration tick: tasks sharing a project only pay one
+// lookup, and stale answers never outlive the tick.
+func (o *SpecTaskOrchestrator) projectMissing(ctx context.Context, projectID string, cache map[string]bool) bool {
+	if missing, ok := cache[projectID]; ok {
+		return missing
+	}
+	_, err := o.store.GetProject(ctx, projectID)
+	missing := isDeletedProjectError(err)
+	cache[projectID] = missing
+	return missing
 }
 
 // processTask processes a single task through its workflow.
@@ -932,7 +953,18 @@ func (o *SpecTaskOrchestrator) handleImplementationQueued(ctx context.Context, t
 	log.Info().
 		Str("task_id", task.ID).
 		Msg("Retrying pending implementation handoff")
-	return o.specTaskService.ApproveSpecs(ctx, task)
+	err := o.specTaskService.ApproveSpecs(ctx, task)
+	if err != nil {
+		// The claim already moved this task to implementation_queued, so a
+		// permanent misconfiguration discovered on retry (e.g. the default
+		// repository was deleted between the claim and now) can never succeed
+		// here either. Fail the task instead of re-driving it every tick.
+		if IsPermanentApprovalConfigError(err) {
+			return o.failApprovalHandoff(ctx, task, err)
+		}
+		return err
+	}
+	return nil
 }
 
 // NOTE: Implementation prompts are now handled by agent_instruction_service.go:SendApprovalInstruction
@@ -1036,8 +1068,60 @@ func (o *SpecTaskOrchestrator) handleSpecApproved(ctx context.Context, task *typ
 	// Task is approved, move to implementation
 	err := o.specTaskService.ApproveSpecs(ctx, task)
 	if err != nil {
+		// Permanent misconfiguration (no code-agent config, dangling default
+		// repository, missing default branch, no planning session) can never be
+		// fixed by retrying every tick. Before this, such tasks retried forever —
+		// invisibly, because the deleted-repo case wraps store.ErrNotFound and
+		// isDeletedProjectError swallowed it as a deleted-project skip (one
+		// prod task retried every 10s for seven months). Fail the task with the
+		// reason so it leaves the active set and the owner gets the failure
+		// event; implementation_failed is terminal, so the task is recreated
+		// after the project configuration is fixed.
+		if IsPermanentApprovalConfigError(err) {
+			return o.failApprovalHandoff(ctx, task, err)
+		}
 		return fmt.Errorf("failed to approve specs: %w", err)
 	}
+	return nil
+}
+
+// failApprovalHandoff moves a spec_approved or implementation_queued task to
+// implementation_failed with the handoff cause in metadata, so the orchestrator
+// stops re-driving it every tick and the failure is visible to the owner
+// (status + attention event). implementation_failed is terminal — after fixing
+// the project configuration the task must be recreated.
+func (o *SpecTaskOrchestrator) failApprovalHandoff(ctx context.Context, task *types.SpecTask, cause error) error {
+	metadata := make(map[string]interface{}, len(task.Metadata)+2)
+	for key, value := range task.Metadata {
+		metadata[key] = value
+	}
+	metadata["error"] = fmt.Sprintf("implementation handoff failed: %s", cause)
+	metadata["error_timestamp"] = time.Now().Format(time.RFC3339)
+
+	transitioned, err := o.store.TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		// implementation_queued is included because permanent conditions can
+		// also be discovered on handoff retries, after the claim already moved
+		// the task out of spec_approved.
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
+		types.TaskStatusImplementationFailed,
+		map[string]any{"metadata": metadata},
+	)
+	if err != nil {
+		// Surface as a normal processing error; next tick retries the failover.
+		return fmt.Errorf("failed to record stuck approval handoff failure: %w", err)
+	}
+	if !transitioned {
+		// A concurrent transition moved the task on — nothing to do.
+		return nil
+	}
+
+	log.Error().
+		Err(cause).
+		Str("task_id", task.ID).
+		Str("project_id", task.ProjectID).
+		Msg("Failed spec-approved task: implementation handoff can never succeed (fix the project configuration, then recreate the task)")
 	return nil
 }
 

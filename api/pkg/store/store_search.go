@@ -181,6 +181,7 @@ func (s *PostgresStore) searchSessions(ctx context.Context, query string, req *t
 			ResourceName:        sess.Name,
 			ResourceDescription: "",
 			Contents:            contents,
+			ParentID:            sess.Metadata.ProjectID,
 		})
 	}
 	return results, nil

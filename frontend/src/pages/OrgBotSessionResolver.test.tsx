@@ -199,11 +199,11 @@ describe('OrgBotSessionResolver', () => {
     expect(mocks.activate).not.toHaveBeenCalled()
   })
 
-  it('returns to Chat when the landing Chief of Staff no longer exists', async () => {
+  it('returns to Projects when the landing Chief of Staff no longer exists', async () => {
     mocks.listError = true
     render(<OrgBotSessionResolver />)
 
-    await waitFor(() => expect(mocks.navigateReplace).toHaveBeenCalledWith('org_chat', {
+    await waitFor(() => expect(mocks.navigateReplace).toHaveBeenCalledWith('org_projects', {
       org_id: 'my-org',
     }))
     expect(mocks.activate).not.toHaveBeenCalled()

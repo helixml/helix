@@ -1227,6 +1227,14 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 					}()
 				}
 			}(task, repo, commitHash)
+		case types.TaskStatusDone:
+			now := time.Now()
+			task.LastPushCommitHash = commitHash
+			task.LastPushAt = &now
+			task.UpdatedAt = now
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to record follow-up push")
+			}
 		default:
 			continue
 		}

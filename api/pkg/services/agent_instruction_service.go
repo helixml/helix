@@ -313,6 +313,8 @@ Don't treat the original plan as fixed - update it based on what you learn.
 ## Pull Request Description (IMPORTANT)
 
 Before you finish, create PR description files in your task directory. These will be used as the PR title and description when pull requests are created.
+
+Before each follow-up pull request, replace the relevant ` + "`pull_request*.md`" + ` title and body. Describe only the changes that are not already merged. Do not append to or reuse the previous pull request's title or body.
 {{if .NonPrimaryRepoNames}}
 **This is a multi-repo project.** Create a separate PR description for EACH repository, describing only the changes in that repo:
 

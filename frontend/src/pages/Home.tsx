@@ -10,14 +10,13 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import { ChevronDown, Folder, FolderPlus, Hammer, ListTodo, MessageCircle } from 'lucide-react'
+import { ChevronDown, Folder, FolderPlus, Hammer, ListTodo } from 'lucide-react'
 
 import {
   TypesCodeAgentExecutionConfig,
   TypesSandboxResourceOverrides,
   TypesSandboxRuntime,
 } from '../api/api'
-import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import RobustPromptInput from '../components/common/RobustPromptInput'
 import ChatWelcome, { WELCOME_FONT_FAMILY } from '../components/session/ChatWelcome'
 import CodeAgentExecutionControls from '../components/agent/CodeAgentExecutionControls'
@@ -26,16 +25,12 @@ import { CodeAgentConfigChangeSource } from '../utils/codeAgentExecutionConfig'
 import ManagedCreateProjectDialog from '../components/project/ManagedCreateProjectDialog'
 import Page from '../components/system/Page'
 import { useAccount } from '../contexts/account'
-import { useStreaming } from '../contexts/streaming'
 import { getBrowserLocale } from '../hooks/useBrowserLocale'
 import useIsPhone from '../hooks/useIsPhone'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import { useListProjects } from '../services'
-import { useListProviders } from '../services/providersService'
-import { useHelixOrgSettings } from '../services/helixOrgService'
-import { invalidateSessionsQuery } from '../services/sessionService'
 import {
   SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
   SPEC_TASK_ATTACHMENT_MAX_BYTES,
@@ -46,20 +41,11 @@ import {
   useCreateSpecTaskFromPrompt,
   useStartSpecTaskPlanning,
 } from '../services/specTaskService'
-import { SESSION_TYPE_TEXT } from '../types'
-import { useQueryClient } from '@tanstack/react-query'
 import {
   buildNewChatTaskRequest,
-  chooseNewChatModel,
-  modelSupportsReasoningEffort,
-  NEW_CHAT_REASONING_EFFORT_OPTIONS,
   newChatHeading,
-  newChatModelStorageKey,
   newChatTaskModeStorageKey,
-  NewChatReasoningEffort,
   NewChatTaskMode,
-  parseOrgDefaultRuntime,
-  readNewChatModelSelection,
   readNewChatTaskMode,
 } from './newChatLogic'
 import {
@@ -119,27 +105,20 @@ const Home: FC = () => {
   const lightTheme = useLightTheme()
   const router = useRouter()
   const snackbar = useSnackbar()
-  const queryClient = useQueryClient()
-  const { NewInference } = useStreaming()
   const orgId = account.organizationTools.organization?.id || ''
-  const requestedProjectId = router.params.project_id || ''
+  const requestedProjectId = router.params.id || ''
   const userId = account.user?.id || ''
 
   const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
     enabled: !!userId && !!orgId,
   })
-  const { data: providers = [], isLoading: providersLoading } = useListProviders({
-    loadModels: true,
-    orgId,
-    enabled: !!userId && !!orgId,
-  })
-  const { data: orgSettings, isLoading: orgSettingsLoading } = useHelixOrgSettings()
   const selectedProject = projects.find((project) => project.id === requestedProjectId)
   const selectedProjectId = selectedProject?.id || ''
 
-  const [selectedProvider, setSelectedProvider] = useState('')
-  const [selectedModel, setSelectedModel] = useState('')
-  const [reasoningEffort, setReasoningEffort] = useState<NewChatReasoningEffort>('medium')
+  useEffect(() => {
+    if (!projectsLoading && projects.length > 0 && !selectedProject) account.orgNavigate('projects')
+  }, [account, projectsLoading, projects.length, selectedProject])
+
   const [taskCodeAgentConfig, setTaskCodeAgentConfig] = useState<TypesCodeAgentExecutionConfig>()
   // Synced below from the per-project preference or project default. It remains
   // undefined when neither exists so the server can resolve its live default.
@@ -150,7 +129,6 @@ const Home: FC = () => {
   )
   const [taskMode, setTaskMode] = useState<NewChatTaskMode>('build')
   const [modeMenuAnchor, setModeMenuAnchor] = useState<HTMLElement | null>(null)
-  const [effortMenuAnchor, setEffortMenuAnchor] = useState<HTMLElement | null>(null)
   const [projectMenuAnchor, setProjectMenuAnchor] = useState<HTMLElement | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
@@ -163,33 +141,6 @@ const Home: FC = () => {
   const projectPlanningCodeAgentConfigKey = JSON.stringify(
     selectedProject?.planning_code_agent_config ?? selectedProject?.code_agent_config ?? null,
   )
-
-  const modelStorageKey = newChatModelStorageKey(userId, orgId)
-  const orgDefaultValue = orgSettings?.specs?.find((spec) => spec.key === 'agent.default')?.value
-  const orgDefaultConfig = React.useMemo(
-    () => parseOrgDefaultRuntime(orgDefaultValue),
-    [orgDefaultValue],
-  )
-
-  useEffect(() => {
-    if (!userId || !orgId || providersLoading || orgSettingsLoading) return
-    const selection = chooseNewChatModel(
-      providers,
-      readNewChatModelSelection(localStorage.getItem(modelStorageKey)),
-      orgDefaultConfig,
-    )
-    setSelectedProvider(selection?.provider || '')
-    setSelectedModel(selection?.model || '')
-    setReasoningEffort(selection?.reasoningEffort || 'medium')
-  }, [
-    userId,
-    orgId,
-    modelStorageKey,
-    providersLoading,
-    orgSettingsLoading,
-    providers,
-    orgDefaultConfig,
-  ])
 
   useEffect(() => {
     if (!userId || !orgId || !selectedProjectId) return
@@ -265,52 +216,9 @@ const Home: FC = () => {
     setModeMenuAnchor(null)
   }
 
-  const isProjectContext = !!selectedProjectId
-  const supportsReasoningEffort = modelSupportsReasoningEffort(
-    providers,
-    selectedProvider,
-    selectedModel,
-  )
-
-  const openProject = (projectId?: string) => {
+  const openProject = (projectId: string) => {
     setProjectMenuAnchor(null)
-    if (projectId) account.orgNavigate('chat', {}, { project_id: projectId })
-    else account.orgNavigate('chat')
-  }
-
-  const handleNormalChat = async (message: string, _interrupt?: boolean, attachments: File[] = []) => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return false
-    }
-    if (!selectedProvider || !selectedModel) {
-      snackbar.error('Select a model before starting this chat')
-      return false
-    }
-
-    setSubmitting(true)
-    try {
-      const session = await NewInference({
-        regenerate: false,
-        type: SESSION_TYPE_TEXT,
-        message,
-        messages: [],
-        provider: selectedProvider,
-        modelName: selectedModel,
-        reasoningEffort: supportsReasoningEffort ? reasoningEffort : undefined,
-        attachedImages: attachments,
-        orgId,
-      })
-      if (!session?.id) return false
-      invalidateSessionsQuery(queryClient)
-      account.orgNavigate('session', { session_id: session.id })
-      return true
-    } catch (error) {
-      snackbar.error(errorMessage(error, 'Failed to start chat'))
-      return false
-    } finally {
-      setSubmitting(false)
-    }
+    account.orgNavigate('project-new', { id: projectId })
   }
 
   const handleProjectTask = async (message: string, _interrupt?: boolean, attachments: File[] = []) => {
@@ -431,82 +339,11 @@ const Home: FC = () => {
     </Box>
   )
 
-  const modelSelector = (
-    <AdvancedModelPicker
-      selectedProvider={selectedProvider}
-      selectedModelId={selectedModel}
-      onSelectModel={(provider, model) => {
-        setSelectedProvider(provider)
-        setSelectedModel(model)
-        localStorage.setItem(modelStorageKey, JSON.stringify({ provider, model, reasoningEffort }))
-      }}
-      currentType={SESSION_TYPE_TEXT}
-      displayMode="short"
-      buttonVariant="text"
-      autoSelectFirst={false}
-    />
-  )
-
-  const effortSelector = supportsReasoningEffort ? (
-    <>
-      <Tooltip title={`Reasoning effort: ${reasoningEffort}`}>
-        <Button
-          disabled={submitting}
-          endIcon={<ChevronDown size={13} />}
-          onClick={(event) => setEffortMenuAnchor(event.currentTarget)}
-          sx={selectorButtonSx}
-        >
-          {NEW_CHAT_REASONING_EFFORT_OPTIONS.find((option) => option.value === reasoningEffort)?.label}
-        </Button>
-      </Tooltip>
-      <Menu
-        anchorEl={effortMenuAnchor}
-        open={!!effortMenuAnchor}
-        onClose={() => setEffortMenuAnchor(null)}
-      >
-        {NEW_CHAT_REASONING_EFFORT_OPTIONS.map((option) => (
-          <MenuItem
-            key={option.value}
-            selected={option.value === reasoningEffort}
-            onClick={() => {
-              setReasoningEffort(option.value)
-              if (selectedProvider && selectedModel) {
-                localStorage.setItem(modelStorageKey, JSON.stringify({
-                  provider: selectedProvider,
-                  model: selectedModel,
-                  reasoningEffort: option.value,
-                }))
-              }
-              setEffortMenuAnchor(null)
-            }}
-          >
-            <ListItemText primary={option.label} />
-          </MenuItem>
-        ))}
-      </Menu>
-    </>
-  ) : null
-
-  const modelActions = (
-    <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-      {modelSelector}
-      {effortSelector && (
-        <>
-          <Box
-            aria-hidden="true"
-            sx={{ width: '1px', height: 16, mx: 0.5, flexShrink: 0, bgcolor: 'divider', opacity: 0.65 }}
-          />
-          {effortSelector}
-        </>
-      )}
-    </Box>
-  )
-
   if (projectsLoading) {
     return (
       <Page
-        breadcrumbs={[{ title: 'No project' }]}
-        breadcrumbTitle="New thread"
+        breadcrumbs={[{ title: 'Projects' }]}
+        breadcrumbTitle="New task"
         breadcrumbShowHome={false}
         disableContentScroll
         px={2}
@@ -577,17 +414,19 @@ const Home: FC = () => {
           onClose={() => setCreateProjectOpen(false)}
           onSuccess={(projectId) => {
             setCreateProjectOpen(false)
-            account.orgNavigate('chat', {}, { project_id: projectId })
+            account.orgNavigate('project-new', { id: projectId })
           }}
         />
       </>
     )
   }
 
+  if (!selectedProject) return null
+
   return (
     <Page
-      breadcrumbs={[{ title: selectedProject?.name || 'No project' }]}
-      breadcrumbTitle={isProjectContext ? 'New task' : 'New thread'}
+      breadcrumbs={[{ title: selectedProject?.name || 'Untitled project' }]}
+      breadcrumbTitle="New task"
       breadcrumbShowHome={false}
       disableContentScroll
       px={2}
@@ -595,22 +434,18 @@ const Home: FC = () => {
       <ChatWelcome heading={newChatHeading(selectedProject?.name)} footer={(
         <>
               <Button
-                startIcon={isProjectContext ? <Folder size={14} /> : <MessageCircle size={14} />}
+                startIcon={<Folder size={14} />}
                 endIcon={<ChevronDown size={12} />}
                 onClick={(event) => setProjectMenuAnchor(event.currentTarget)}
                 sx={{ ...selectorButtonSx, fontSize: isPhone ? '0.8rem' : '0.7rem' }}
               >
-                {selectedProject?.name || 'No project'}
+                {selectedProject?.name || 'Untitled project'}
               </Button>
               <Menu
                 anchorEl={projectMenuAnchor}
                 open={!!projectMenuAnchor}
                 onClose={() => setProjectMenuAnchor(null)}
               >
-                <MenuItem selected={!isProjectContext} onClick={() => openProject()}>
-                  <ListItemIcon><MessageCircle size={16} /></ListItemIcon>
-                  <ListItemText primary="None" secondary="Start a normal chat" />
-                </MenuItem>
                 {projects.map((project) => (
                   <MenuItem
                     key={project.id}
@@ -630,22 +465,20 @@ const Home: FC = () => {
             </Box>
           ) : (
             <RobustPromptInput
-              key={selectedProjectId || 'none'}
-              sessionId={`new-thread:${selectedProjectId || 'none'}`}
+              key={selectedProjectId}
+              sessionId={`new-thread:${selectedProjectId}`}
               sendMode="direct"
               autoFocus
               fill={isPhone}
-              disabled={submitting
-                || (isProjectContext ? !taskCodeAgentConfig?.model : !selectedModel)}
-              placeholder={isProjectContext ? 'Describe what you want to build' : 'Ask anything'}
-              inlineImageAttachments={!isProjectContext}
-              deferredFileAttachments={isProjectContext}
-              attachmentAccept={isProjectContext ? TASK_ATTACHMENT_ACCEPT : undefined}
-              attachmentMaxBytes={isProjectContext ? SPEC_TASK_ATTACHMENT_MAX_BYTES : undefined}
-              attachmentMaxCount={isProjectContext ? SPEC_TASK_ATTACHMENT_MAX_PER_TASK : undefined}
-              validateAttachment={isProjectContext ? taskAttachmentValidation : undefined}
-              leadingActions={isProjectContext ? projectActions : modelActions}
-              onSend={isProjectContext ? handleProjectTask : handleNormalChat}
+              disabled={submitting || !taskCodeAgentConfig?.model}
+              placeholder="Describe what you want to build"
+              deferredFileAttachments
+              attachmentAccept={TASK_ATTACHMENT_ACCEPT}
+              attachmentMaxBytes={SPEC_TASK_ATTACHMENT_MAX_BYTES}
+              attachmentMaxCount={SPEC_TASK_ATTACHMENT_MAX_PER_TASK}
+              validateAttachment={taskAttachmentValidation}
+              leadingActions={projectActions}
+              onSend={handleProjectTask}
             />
           )}
       </ChatWelcome>
