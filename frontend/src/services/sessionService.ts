@@ -235,6 +235,11 @@ export const SESSION_EXECUTION_CONFIG_QUERY_KEY = (sessionId: string) => [
 // The session's current coding identity (agent, runtime, provider, model,
 // reasoning effort) — the same shape a spec task reports, because both run the
 // same external coding agent.
+//
+// Polled lightly: the server can change this config OUTSIDE this page — a bot
+// runtime edit applied elsewhere, or the pre-turn app reconciliation that
+// drops a stale session-level snapshot. Without a refetch the composer keeps
+// showing what the agent started with until the page is remounted.
 export function useGetSessionExecutionConfig(sessionId: string, enabled = true) {
   const api = useApi()
   const apiClient = api.getApiClient()
@@ -243,6 +248,7 @@ export function useGetSessionExecutionConfig(sessionId: string, enabled = true) 
     queryKey: SESSION_EXECUTION_CONFIG_QUERY_KEY(sessionId),
     queryFn: () => apiClient.v1SessionsExecutionConfigDetail(sessionId).then((res) => res.data),
     enabled: enabled && !!sessionId,
+    refetchInterval: 15000,
   })
 }
 

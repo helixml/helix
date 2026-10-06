@@ -1183,6 +1183,19 @@ func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, ses
 			session.ModelName = modelName
 			changed = true
 		}
+		// The Bot owns this session's coding identity. A point-in-time
+		// code_agent_config snapshot left by an earlier session-level edit
+		// keeps overriding the app's live configuration in /zed-config and
+		// /sessions/{id}/execution-config, so the desktop and the agent
+		// picker keep showing what the agent started with after the Bot's
+		// config changed. Drop the drifted snapshot; the app is authoritative.
+		if appConfig, cfgErr := external_agent.MaterializeCodeAgentConfig(app, nil); cfgErr == nil &&
+			session.Metadata.CodeAgentConfig != nil &&
+			sessionCodeAgentIdentityDiffers(session.Metadata.CodeAgentConfig, appConfig) {
+			session.Metadata.CodeAgentConfig = nil
+			session.Metadata.CodeAgentOverrides = nil
+			changed = true
+		}
 	}
 	if changed {
 		if _, err := c.server.Store.UpdateSession(ctx, *session); err != nil {

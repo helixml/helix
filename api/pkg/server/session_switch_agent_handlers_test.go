@@ -142,6 +142,118 @@ func TestSwitchAgentInPlace_PhaseHandoffCarriesPlannerTranscript(t *testing.T) {
 	assert.Equal(t, "Implement the approved plan.", handoff.PromptMessage)
 }
 
+// An app-driven switch must drop the session's point-in-time coding-identity
+// snapshot. A snapshot left by an earlier session-level edit keeps overriding
+// the app's live configuration in /zed-config and
+// /sessions/{id}/execution-config, so every surface keeps showing what the
+// agent started with after the app (bot) changed.
+func TestSwitchAgentInPlace_AdoptsAppIdentity(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+	mem.SeedApp(&types.App{ID: "app_target", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeQwenCode, Model: "qwen-test",
+		}},
+	}}})
+	session := newTestParentSession("user_a")
+	session.Metadata.CodeAgentConfig = &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeClaudeCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "anthropic",
+		Model:          "claude-opus-4-7",
+	}
+	session.Metadata.CodeAgentOverrides = &types.CodeAgentOverrides{Model: "claude-opus-4-7"}
+	seedParentWithInteractions(t, mem, session, 1)
+
+	httpErr := srv.switchAgentInPlace(ctx, session, types.CodeAgentRuntimeQwenCode, "app_target")
+	require.Nil(t, httpErr)
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Nil(t, updated.Metadata.CodeAgentConfig, "an app-driven switch must drop the stale session config snapshot")
+	assert.Nil(t, updated.Metadata.CodeAgentOverrides, "an app-driven switch must drop stale overrides")
+	assert.Equal(t, types.CodeAgentRuntimeQwenCode, updated.Metadata.CodeAgentRuntime)
+}
+
+// A bot whose model was edited (runtime unchanged) must reconcile: the
+// session's stored code_agent_config snapshot describes the model the agent
+// started with and would keep overriding the app everywhere.
+func TestReconcileSessionAgentWithApp_ModelDriftReconciles(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+
+	mem.SeedApp(&types.App{ID: "app_opencode", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			ID: "0", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider:                "prov_1", Model: "glm-5.3",
+		}},
+	}}})
+	session := newTestParentSession("user_a")
+	session.ParentApp = "app_opencode"
+	session.Metadata.AssistantID = "0"
+	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeOpenCode
+	session.Metadata.ZedAgentName = types.CodeAgentRuntimeOpenCode.ZedAgentName()
+	session.Metadata.ZedThreadID = "thread_on_old_model"
+	session.Metadata.CodeAgentConfig = &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeOpenCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "prov_1",
+		Model:          "glm-5.3-flash",
+	}
+	seedParentWithInteractions(t, mem, session, 1)
+
+	httpErr := srv.reconcileSessionAgentWithApp(ctx, session)
+	require.Nil(t, httpErr)
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Nil(t, updated.Metadata.CodeAgentConfig, "reconciliation must drop the drifted snapshot so the app's model applies")
+	assert.Nil(t, updated.Metadata.CodeAgentOverrides)
+	assert.Empty(t, updated.Metadata.ZedThreadID, "the next turn must start a thread on the app's model")
+	assert.False(t, updated.Metadata.AgentSwitchedAt.IsZero())
+}
+
+// A session whose stored snapshot already matches the app's live config must
+// not be reconciled — no thread replacement, no switch marker.
+func TestReconcileSessionAgentWithApp_MatchingConfigIsNoop(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+
+	mem.SeedApp(&types.App{ID: "app_opencode", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			ID: "0", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider:                "prov_1", Model: "glm-5.3",
+		}},
+	}}})
+	session := newTestParentSession("user_a")
+	session.ParentApp = "app_opencode"
+	session.Metadata.AssistantID = "0"
+	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeOpenCode
+	session.Metadata.ZedAgentName = types.CodeAgentRuntimeOpenCode.ZedAgentName()
+	session.Metadata.ZedThreadID = "healthy_thread"
+	session.Metadata.CodeAgentConfig = &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeOpenCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "prov_1",
+		Model:          "glm-5.3",
+	}
+	seedParentWithInteractions(t, mem, session, 1)
+
+	httpErr := srv.reconcileSessionAgentWithApp(ctx, session)
+	require.Nil(t, httpErr)
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, updated.Metadata.CodeAgentConfig, "a matching snapshot is a deliberate session choice and must be kept")
+	assert.Equal(t, "healthy_thread", updated.Metadata.ZedThreadID)
+	assert.True(t, updated.Metadata.AgentSwitchedAt.IsZero())
+}
+
 func TestSwitchAgentInPlace_ImplementationHandoffRunsWithSameRuntime(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()

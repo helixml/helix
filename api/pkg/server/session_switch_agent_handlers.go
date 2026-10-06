@@ -26,6 +26,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/data"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -128,8 +129,9 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 		}
 	}
 	if switchErr := apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, targetAppID, agentSwitchOptions{
-		createHandoff: live,
-		deliverLive:   live,
+		createHandoff:    live,
+		deliverLive:      live,
+		adoptAppIdentity: true,
 	}); switchErr != nil {
 		return nil, switchErr
 	}
@@ -299,8 +301,9 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 	targetAppID string,
 ) *system.HTTPError {
 	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, targetAppID, agentSwitchOptions{
-		createHandoff: true,
-		deliverLive:   true,
+		createHandoff:    true,
+		deliverLive:      true,
+		adoptAppIdentity: true,
 	})
 }
 
@@ -318,6 +321,15 @@ type agentSwitchOptions struct {
 	keepTranscriptEnds bool
 	deliverLive        bool
 	clearParentApp     bool
+	// adoptAppIdentity drops the session's point-in-time coding-identity
+	// snapshot (code_agent_config + code_agent_overrides) so the app's live
+	// configuration is authoritative again. App-driven switches set it: the
+	// caller picked an Agent, and a stored deviation now describes an agent
+	// configuration nothing is running — it would keep overriding the app in
+	// /zed-config and /sessions/{id}/execution-config forever. Session-driven
+	// switches (the composer PATCH) must NOT set it: there the snapshot is the
+	// change being applied.
+	adoptAppIdentity bool
 }
 
 func (apiServer *HelixAPIServer) hasImplementationHandoff(ctx context.Context, session *types.Session, prompt string) bool {
@@ -375,6 +387,12 @@ func (apiServer *HelixAPIServer) hasImplementationInstruction(ctx context.Contex
 // while a durable org-bot or spec-task session is offline. Reconciliation runs
 // before the next user turn, so that turn itself becomes the first message on
 // the replacement thread; no synthetic handoff turn is needed.
+//
+// Drift covers the whole coding identity, not just the runtime: a bot whose
+// model was edited (runtime unchanged) must reconcile too, or the session's
+// point-in-time code_agent_config snapshot keeps overriding the app in
+// /zed-config and /sessions/{id}/execution-config and every surface keeps
+// showing what the agent started with.
 func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Context, session *types.Session) *system.HTTPError {
 	if session == nil || session.Metadata.AgentType != string(types.AgentTypeZedExternal) || session.ParentApp == "" {
 		return nil
@@ -392,7 +410,16 @@ func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Contex
 	if targetRuntime == "" {
 		targetRuntime = types.CodeAgentRuntimeZedAgent
 	}
-	if sessionUsesAgentRuntime(session, targetRuntime) {
+	appConfig, err := external_agent.MaterializeCodeAgentConfig(app, nil)
+	if err != nil {
+		// No runnable coding assistant config on the app — nothing to
+		// reconcile the snapshot against; keep the runtime-only repair below.
+		appConfig = nil
+	}
+	runtimeDrift := !sessionUsesAgentRuntime(session, targetRuntime)
+	configDrift := session.Metadata.CodeAgentConfig != nil && appConfig != nil &&
+		sessionCodeAgentIdentityDiffers(session.Metadata.CodeAgentConfig, appConfig)
+	if !runtimeDrift && !configDrift {
 		return nil
 	}
 
@@ -403,11 +430,25 @@ func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Contex
 		Str("stored_agent_name", session.Metadata.ZedAgentName).
 		Str("target_runtime", string(targetRuntime)).
 		Str("target_agent_name", targetRuntime.ZedAgentName()).
+		Bool("runtime_drift", runtimeDrift).
+		Bool("config_drift", configDrift).
 		Msg("reconciling stale session agent binding before next turn")
 
 	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, session.ParentApp, agentSwitchOptions{
-		deliverLive: true,
+		deliverLive:      true,
+		adoptAppIdentity: true,
 	})
+}
+
+// sessionCodeAgentIdentityDiffers reports whether a session's stored
+// coding-identity snapshot selects a different agent or model than the app's
+// live configuration. Reasoning effort and goose recipes are tuning that
+// follows the app without by itself forcing a thread replacement.
+func sessionCodeAgentIdentityDiffers(stored, app *types.CodeAgentExecutionConfig) bool {
+	return stored.Runtime != app.Runtime ||
+		stored.CredentialType != app.CredentialType ||
+		stored.ProviderRef != app.ProviderRef ||
+		stored.Model != app.Model
 }
 
 func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
@@ -472,6 +513,14 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	session.Metadata.ZedAgentName = targetRuntime.ZedAgentName()
 	session.Metadata.ZedThreadID = ""
 	session.Metadata.AgentSwitchedAt = now
+	if options.adoptAppIdentity {
+		// The switch was driven by the app, so the app's live coding identity
+		// wins. A snapshot left behind by an earlier session-level edit would
+		// otherwise keep overriding that app in /zed-config and
+		// /sessions/{id}/execution-config — the "stale agent list".
+		session.Metadata.CodeAgentConfig = nil
+		session.Metadata.CodeAgentOverrides = nil
+	}
 	session.Updated = now
 	session.Metadata.HelixVersion = data.GetHelixVersion()
 	if _, err := apiServer.Store.UpdateSession(ctx, *session); err != nil {

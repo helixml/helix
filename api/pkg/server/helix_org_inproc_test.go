@@ -729,6 +729,101 @@ func TestInProcSpawnerClient_SyncAgentProfileRenamesStoppedSession(t *testing.T)
 	require.Equal(t, "instructions", got.Metadata.RuntimeInstructions)
 }
 
+// TestInProcSpawnerClient_SyncAgentProfileDropsDriftedCodeAgentSnapshot pins
+// the bot-side fix for the stale agent list: after the Bot's model was edited,
+// a session-level code_agent_config snapshot left over from an earlier
+// session-level edit must not keep overriding the app's live configuration in
+// /zed-config and /sessions/{id}/execution-config.
+func TestInProcSpawnerClient_SyncAgentProfileDropsDriftedCodeAgentSnapshot(t *testing.T) {
+	_, store, client, _, ctx := newInProcTestSetup(t)
+	store.SeedApp(&types.App{ID: "app_bot", Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			ID: "0", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider:                "prov_1", Model: "glm-5.3",
+		}},
+	}}})
+	_, err := store.CreateSession(ctx, types.Session{
+		ID:        "ses_profile_cfg",
+		Name:      "Hello Bot",
+		ParentApp: "app_bot",
+		Metadata: types.SessionMetadata{
+			AgentType:        string(types.AgentTypeZedExternal),
+			AssistantID:      "0",
+			CodeAgentRuntime: types.CodeAgentRuntimeOpenCode,
+			ZedAgentName:     types.CodeAgentRuntimeOpenCode.ZedAgentName(),
+			CodeAgentConfig: &types.CodeAgentExecutionConfig{
+				Runtime:        types.CodeAgentRuntimeOpenCode,
+				CredentialType: types.CodeAgentCredentialTypeAPIKey,
+				ProviderRef:    "prov_1",
+				Model:          "glm-5.3-flash",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	launch := runtimehelix.SessionLaunchConfig{
+		SandboxRuntime:   types.SandboxRuntimeHeadlessUbuntu,
+		SandboxResources: types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192},
+	}
+	// SyncAgentProfile errors at the very end (no executor in this harness),
+	// after the session row has been persisted — the same shape the existing
+	// rename test above relies on.
+	_ = client.SyncAgentProfile(ctx, "ses_profile_cfg", "Hello Bot", "w-bot", "instructions", launch)
+
+	got, err := store.GetSession(ctx, "ses_profile_cfg")
+	require.NoError(t, err)
+	require.Nil(t, got.Metadata.CodeAgentConfig, "the drifted snapshot must be dropped so the Bot's model applies")
+	require.Nil(t, got.Metadata.CodeAgentOverrides)
+	// Runtime and model projections still follow the app.
+	require.Equal(t, types.CodeAgentRuntimeOpenCode, got.Metadata.CodeAgentRuntime)
+	require.Equal(t, "glm-5.3", got.ModelName)
+}
+
+// TestInProcSpawnerClient_SyncAgentProfileKeepsMatchingCodeAgentSnapshot
+// confirms the drop is limited to genuine drift: a snapshot that already
+// matches the Bot's app is a deliberate session-level choice and survives.
+func TestInProcSpawnerClient_SyncAgentProfileKeepsMatchingCodeAgentSnapshot(t *testing.T) {
+	_, store, client, _, ctx := newInProcTestSetup(t)
+	store.SeedApp(&types.App{ID: "app_bot_match", Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			ID: "0", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider:                "prov_1", Model: "glm-5.3",
+		}},
+	}}})
+	_, err := store.CreateSession(ctx, types.Session{
+		ID:        "ses_profile_match",
+		Name:      "Hello Bot",
+		ParentApp: "app_bot_match",
+		Metadata: types.SessionMetadata{
+			AgentType:        string(types.AgentTypeZedExternal),
+			AssistantID:      "0",
+			CodeAgentRuntime: types.CodeAgentRuntimeOpenCode,
+			ZedAgentName:     types.CodeAgentRuntimeOpenCode.ZedAgentName(),
+			CodeAgentConfig: &types.CodeAgentExecutionConfig{
+				Runtime:        types.CodeAgentRuntimeOpenCode,
+				CredentialType: types.CodeAgentCredentialTypeAPIKey,
+				ProviderRef:    "prov_1",
+				Model:          "glm-5.3",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	launch := runtimehelix.SessionLaunchConfig{
+		SandboxRuntime:   types.SandboxRuntimeHeadlessUbuntu,
+		SandboxResources: types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192},
+	}
+	_ = client.SyncAgentProfile(ctx, "ses_profile_match", "Hello Bot", "w-bot", "instructions", launch)
+
+	got, err := store.GetSession(ctx, "ses_profile_match")
+	require.NoError(t, err)
+	require.NotNil(t, got.Metadata.CodeAgentConfig, "a snapshot matching the app is not drift and must be kept")
+}
+
 // TestParseEnvVarsToMap pins the KEY=value split that backs
 // ListProjectSecrets / list_secrets. A value containing `=` (base64,
 // tokens, URL query strings) must survive intact — Cut on the FIRST `=`
