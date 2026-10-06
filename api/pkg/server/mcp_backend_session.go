@@ -110,8 +110,10 @@ func NewSessionMCPBackend(s store.Store, notifier notification.Notifier, ctrl *c
 
 	// Add html_render tool. Publishes a self-contained HTML page (chart, table,
 	// diagram, collage, mockup) inline in the current thread, above the agent's
-	// final text reply. Available to every external-agent harness because the
-	// session backend is wired as the helix-session context server.
+	// final text reply. It reaches spec tasks and ordinary chat automatically
+	// (the base Zed config always wires helix-session), and org bots only when
+	// their instance profile keeps helix-session (minimal-by-default strips it).
+	// See design/2026-10-06-agent-visualizations.md for the availability matrix.
 	htmlRenderTool := mcp.NewTool(visualization.ToolName,
 		mcp.WithDescription("Show a finished HTML page (chart, table, diagram, collage, mockup) inline in this thread, above your final text reply; call it before writing that reply. The reader already sees the page, so the reply should not announce it, say where it is, or restate it: add only what the page doesn't say. Write one self-contained document with inline <style> and <script>; remote http(s) URLs such as a CDN chart library load as-is. The frame fits the page's height automatically. "+visualization.LayoutGuide+" "+visualization.ThemeGuide),
 		mcp.WithString("html",

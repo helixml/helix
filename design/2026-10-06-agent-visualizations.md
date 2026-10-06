@@ -93,6 +93,30 @@ Mirror the shape, reuse existing Helix infrastructure, add no new service.
   the page without the server pre-measuring heights, so preview is not needed
   for correct rendering. Tracked as a follow-up.
 
+## Availability (which agents can publish)
+
+Rendering is universal — spec-task detail, the org-bot chat panel, and ordinary
+chat all go through the same `AgentChat → EmbeddedSessionView → Interaction →
+InteractionInference` path, so a published visualization shows inline everywhere.
+
+Whether an agent *has* the `html_render` tool depends on whether its Zed config
+includes the `helix-session` context server (which hosts the tool):
+
+| Surface | Gets `html_render`? | Why |
+|---|---|---|
+| Spec tasks | **Yes, automatic** | `GenerateZedMCPConfig` always wires `helix-session`; spec-task sessions have no `BotInstance`, so `ApplyBotInstanceProfile(nil)` strips nothing. |
+| Ordinary chat sessions | **Yes, automatic** | Same base config, no instance profile. |
+| Org bots | **Opt-in** | Org-bot instances run `ApplyBotInstanceProfile`, which deletes every context server not in `profile.MCPServers`. `DefaultBotInstanceProfile()` keeps only `chrome-devtools`. |
+
+To enable visualizations for an org bot, add `helix-session` to the bot's
+instance-profile `MCPServers` (e.g. via `helix org bots profile`/the instance
+profile editor, or `--mcp …,helix-session` in `bots_build`). This is consistent
+with the org design philosophy ("instances are minimal by default"); we do not
+auto-grant it. Note that enabling `helix-session` also grants the session-
+navigation tools (`session_toc`, `search_session`, …); there is no way to grant
+only `html_render` today. A future split onto its own always-wired context
+server would decouple the two — tracked as a follow-up.
+
 ## Security notes
 
 - The iframe is sandboxed without `allow-same-origin`; the page cannot read the
