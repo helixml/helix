@@ -42,6 +42,8 @@ git -C "$UTM_DIR" checkout -q --detach "$UTM_COMMIT"
 brew install --quiet bison pkg-config gettext glib-utils libgpg-error nasm make meson cmake \
     llvm spirv-llvm-translator spirv-tools libxcb libxrandr
 pip3 install --quiet --break-system-packages --user six pyparsing pyyaml setuptools distlib mako
+# Xcode 26 ships the Metal compiler as a separate component; ANGLE needs it.
+xcrun metal --version >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
 
 echo "Building UTM sysroot from $UTM_COMMIT ($UTM_RELEASE) into $SYSROOT"
 (cd "$UTM_DIR" && PATH="$(brew --prefix bison)/bin:$PATH" \
