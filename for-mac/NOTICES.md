@@ -36,6 +36,16 @@ General-purpose utility libraries.
 - License: GNU Lesser General Public License v2.1
 - Source: https://gitlab.gnome.org/GNOME/glib
 
+## MoltenVK (Apache 2.0)
+
+Vulkan on Metal; the default host Vulkan driver behind virtio-gpu Venus.
+Includes SPIRV-Cross (Apache 2.0, https://github.com/KhronosGroup/SPIRV-Cross).
+
+- License: Apache License 2.0
+- Source: https://github.com/utmapp/MoltenVK (UTM's fork of https://github.com/KhronosGroup/MoltenVK)
+- Modified: its SPIRV-Cross is patched to fix Metal shader generation; the patches
+  are in `for-mac/qemu-helix/patches/spirv-cross/` in the Helix source.
+
 ## Mesa Vulkan Driver — KosmicKrisp (MIT)
 
 Mesa-based Vulkan driver for virtio-gpu Venus protocol.
