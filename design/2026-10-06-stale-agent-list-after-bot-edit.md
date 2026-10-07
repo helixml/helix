@@ -32,7 +32,10 @@ written by the session composer's `PATCH /sessions/{id}/execution-config`)
 - `getAgentNameForSession`: the snapshot app wins when picking the agent for a
   new thread.
 
-Meanwhile the bot/app update paths never refresh that snapshot:
+The snapshot is not always staleness — a composer PATCH on an App-backed
+session deliberately stores a deviation, and the deviation is the feature. It
+becomes stale when the app changes AFTER it was written; nothing told the
+session apart:
 
 - `reconcileSessionAgentWithApp` compared only the flat runtime, so a
   model-only bot edit (runtime unchanged) was invisible to it.
@@ -49,8 +52,9 @@ visible once config identity was compared.
 
 ## Fix
 
-App-driven identity changes now adopt the app's live configuration; the
-point-in-time snapshot is dropped when it would contradict it.
+App-driven identity changes now adopt the app's live configuration, and a
+point-in-time snapshot yields to the app only when the app actually changed
+since the snapshot was written.
 
 1. `agentSwitchOptions.adoptAppIdentity` — `switchAgentInPlaceForNextTurn`
    clears `Metadata.CodeAgentConfig` + `CodeAgentOverrides` when the switch is
@@ -60,16 +64,27 @@ point-in-time snapshot is dropped when it would contradict it.
 2. `reconcileSessionAgentWithApp` now also fires on config drift:
    `MaterializeCodeAgentConfig(app)` is compared against the stored snapshot
    (`sessionCodeAgentIdentityDiffers` — runtime, credential type, provider
-   ref, model). A drifted snapshot reconciles exactly like a runtime drift:
+   ref, model). Drifted snapshots reconcile exactly like runtime drifts:
    thread cleared, fork_seed seeded, next turn starts on the app's config.
-3. `SyncAgentProfile` drops a drifted snapshot before the bot's next
-   activation clears the ACP thread, so the restarted desktop resolves its
-   config from the app.
-4. Frontend: `useGetSessionExecutionConfig` polls every 15s so the composer's
+3. Drift is gated on WHEN the snapshot was written
+   (`sessionCodeAgentSnapshotStale`): a snapshot written AFTER the app's last
+   change (`CodeAgentConfigAt` vs `app.Updated`) is a deliberate session-level
+   deviation from the composer PATCH and must survive reconciliation —
+   differing from the app alone is not staleness. Snapshots predating the
+   `CodeAgentConfigAt` field (zero time) are treated as stale when they
+   contradict the app, so pre-existing bot sessions get the fix without
+   migration.
+4. `applySessionCodeAgentExecutionConfig` records `CodeAgentConfigAt` whenever
+   it writes the snapshot (rolled back with the rest on failure).
+5. `SyncAgentProfile` drops a drifted snapshot before the bot's next
+   activation clears the ACP thread — under the same timing gate, so a
+   session-level deviation chosen after the last bot edit survives
+   re-activation.
+6. Frontend: `useGetSessionExecutionConfig` polls every 15s so the composer's
    picker converges after a server-side reconciliation without a page reload
    (the desktop daemon already re-polls `/zed-config` every 30s).
 
-Reasoning effort / goose recipes are intentionally NOT part of the drift
+Reasoning effort and goose recipes are intentionally NOT part of the drift
 predicate: they are tuning that follows the app on the next config render, not
 identity, and normalizing them (`""` vs `"none"`) would produce false drift.
 
@@ -77,19 +92,25 @@ identity, and normalizing them (`""` vs `"none"`) would produce false drift.
 
 - Focused Go tests: `TestSwitchAgentInPlace_AdoptsAppIdentity`,
   `TestReconcileSessionAgentWithApp_ModelDriftReconciles`,
+  `TestReconcileSessionAgentWithApp_ComposerDeviationKeptWhenAppUnchanged`,
   `TestReconcileSessionAgentWithApp_MatchingConfigIsNoop`,
   `TestInProcSpawnerClient_SyncAgentProfileDropsDriftedCodeAgentSnapshot`,
+  `TestInProcSpawnerClient_SyncAgentProfileKeepsDeviationNewerThanApp`,
   `TestInProcSpawnerClient_SyncAgentProfileKeepsMatchingCodeAgentSnapshot`.
-- Full `go test ./pkg/server/` passes (includes all switch/phase/execution-config suites).
+- Full `go test ./pkg/server/` passes (4 consecutive green runs; one earlier
+  run aborted with a timer-runtime panic and no failing test — not
+  reproducible since, presumed an unrelated timing flake).
 - `yarn build` (frontend) passes.
-- Live inner-Helix check (API level): app-backed zed_external session with a
-  stored snapshot (model A) + app edited to model B:
-  - before: `GET /execution-config` → A (stale snapshot wins);
-  - `POST /sessions/{id}/messages` → reconcile logged
-    `config_drift=true runtime_drift=false`, snapshot cleared,
-    `AgentSwitchedAt` set, thread pointer cleared, fork_seed marker written;
-  - after: `GET /execution-config` → B (app's live model).
-  Test session/app deleted afterwards; no containers leaked.
+- Live inner-Helix checks (API level):
+  - Stale case — app-backed session with a snapshot (model A) predating the
+    app edit (model B): `GET /execution-config` reported A; the next message
+    logged `config_drift=true runtime_drift=false`, cleared the snapshot, set
+    `AgentSwitchedAt`, cleared the thread pointer, wrote a fork_seed, and
+    `GET /execution-config` then reported B.
+  - Deviation case — session snapshot (model A) written AFTER the app's last
+    change: the next message kept the snapshot (`agent_switched_at` zero, no
+    thread replacement) and `GET /execution-config` still reported A.
+  Test sessions/apps deleted afterwards; no containers leaked.
 
 WARNING: not yet tested end-to-end with a LIVE connected desktop (no real Zed
 turn was driven through the reconciled thread). The reconcile/switch lifecycle

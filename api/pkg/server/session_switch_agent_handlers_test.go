@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
@@ -177,13 +178,15 @@ func TestSwitchAgentInPlace_AdoptsAppIdentity(t *testing.T) {
 }
 
 // A bot whose model was edited (runtime unchanged) must reconcile: the
-// session's stored code_agent_config snapshot describes the model the agent
-// started with and would keep overriding the app everywhere.
+// session's stored code_agent_config snapshot was written BEFORE the app
+// change, describes the model the agent started with, and would keep
+// overriding the app everywhere.
 func TestReconcileSessionAgentWithApp_ModelDriftReconciles(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
+	appUpdatedAt := time.Now()
 
-	mem.SeedApp(&types.App{ID: "app_opencode", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
+	mem.SeedApp(&types.App{ID: "app_opencode", Updated: appUpdatedAt, AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{
 			ID: "0", AgentType: types.AgentTypeZedExternal,
 			CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
@@ -197,6 +200,7 @@ func TestReconcileSessionAgentWithApp_ModelDriftReconciles(t *testing.T) {
 	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeOpenCode
 	session.Metadata.ZedAgentName = types.CodeAgentRuntimeOpenCode.ZedAgentName()
 	session.Metadata.ZedThreadID = "thread_on_old_model"
+	session.Metadata.CodeAgentConfigAt = appUpdatedAt.Add(-1 * time.Hour)
 	session.Metadata.CodeAgentConfig = &types.CodeAgentExecutionConfig{
 		Runtime:        types.CodeAgentRuntimeOpenCode,
 		CredentialType: types.CodeAgentCredentialTypeAPIKey,
@@ -214,6 +218,48 @@ func TestReconcileSessionAgentWithApp_ModelDriftReconciles(t *testing.T) {
 	assert.Nil(t, updated.Metadata.CodeAgentOverrides)
 	assert.Empty(t, updated.Metadata.ZedThreadID, "the next turn must start a thread on the app's model")
 	assert.False(t, updated.Metadata.AgentSwitchedAt.IsZero())
+}
+
+// A composer PATCH deliberately stores a session-level deviation. A snapshot
+// written AFTER the app's last change is that live deviation — differing from
+// the app alone must NOT reconcile it away or replace the thread.
+func TestReconcileSessionAgentWithApp_ComposerDeviationKeptWhenAppUnchanged(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+	appUpdatedAt := time.Now().Add(-2 * time.Hour)
+
+	mem.SeedApp(&types.App{ID: "app_opencode", Updated: appUpdatedAt, AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			ID: "0", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider:                "prov_1", Model: "glm-5.3",
+		}},
+	}}})
+	session := newTestParentSession("user_a")
+	session.ParentApp = "app_opencode"
+	session.Metadata.AssistantID = "0"
+	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeOpenCode
+	session.Metadata.ZedAgentName = types.CodeAgentRuntimeOpenCode.ZedAgentName()
+	session.Metadata.ZedThreadID = "healthy_thread"
+	session.Metadata.CodeAgentConfigAt = appUpdatedAt.Add(1 * time.Hour)
+	session.Metadata.CodeAgentConfig = &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeOpenCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "prov_1",
+		Model:          "glm-5.3-flash",
+	}
+	seedParentWithInteractions(t, mem, session, 1)
+
+	httpErr := srv.reconcileSessionAgentWithApp(ctx, session)
+	require.Nil(t, httpErr)
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, updated.Metadata.CodeAgentConfig, "a deviation written after the app's last change is a live choice and must be kept")
+	assert.Equal(t, "glm-5.3-flash", updated.Metadata.CodeAgentConfig.Model)
+	assert.Equal(t, "healthy_thread", updated.Metadata.ZedThreadID, "no app change since the snapshot — no thread replacement")
+	assert.True(t, updated.Metadata.AgentSwitchedAt.IsZero())
 }
 
 // A session whose stored snapshot already matches the app's live config must

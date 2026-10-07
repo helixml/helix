@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/store"
@@ -440,16 +441,20 @@ func (s *HelixAPIServer) applySessionCodeAgentExecutionConfig(
 
 	oldConfig := session.Metadata.CodeAgentConfig
 	oldOverrides := session.Metadata.CodeAgentOverrides
+	oldConfigAt := session.Metadata.CodeAgentConfigAt
 	session.Metadata.CodeAgentConfig = config
 	session.Metadata.CodeAgentOverrides = nil
+	session.Metadata.CodeAgentConfigAt = time.Now()
 	if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
 		session.Metadata.CodeAgentConfig = oldConfig
 		session.Metadata.CodeAgentOverrides = oldOverrides
+		session.Metadata.CodeAgentConfigAt = oldConfigAt
 		return false, false, system.NewHTTPError500(fmt.Sprintf("failed to save code-agent config: %v", err))
 	}
 	rollback := func() {
 		session.Metadata.CodeAgentConfig = oldConfig
 		session.Metadata.CodeAgentOverrides = oldOverrides
+		session.Metadata.CodeAgentConfigAt = oldConfigAt
 		if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
 			log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to roll back session code-agent config")
 		}

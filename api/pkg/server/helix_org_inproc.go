@@ -1183,15 +1183,14 @@ func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, ses
 			session.ModelName = modelName
 			changed = true
 		}
-		// The Bot owns this session's coding identity. A point-in-time
-		// code_agent_config snapshot left by an earlier session-level edit
-		// keeps overriding the app's live configuration in /zed-config and
-		// /sessions/{id}/execution-config, so the desktop and the agent
-		// picker keep showing what the agent started with after the Bot's
-		// config changed. Drop the drifted snapshot; the app is authoritative.
+		// The Bot owns this session's coding identity — but only edits made
+		// after the snapshot was written. A composer PATCH on the session
+		// after the last Bot edit is a deliberate deviation, not staleness,
+		// and must survive re-activation. A drifted snapshot predating this
+		// timestamp field (zero time) yields to the Bot: bot edits must win.
 		if appConfig, cfgErr := external_agent.MaterializeCodeAgentConfig(app, nil); cfgErr == nil &&
-			session.Metadata.CodeAgentConfig != nil &&
-			sessionCodeAgentIdentityDiffers(session.Metadata.CodeAgentConfig, appConfig) {
+			sessionCodeAgentSnapshotStale(
+				session.Metadata.CodeAgentConfig, appConfig, app.Updated, session.Metadata.CodeAgentConfigAt) {
 			session.Metadata.CodeAgentConfig = nil
 			session.Metadata.CodeAgentOverrides = nil
 			changed = true

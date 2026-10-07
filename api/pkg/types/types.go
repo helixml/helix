@@ -527,16 +527,16 @@ type SessionMetadata struct {
 	// Anything embedding a session — Find AI presented a chat box to candidates
 	// on this basis — needs to know it can send, not merely that a machine
 	// exists. Computed per request, never stored.
-	ExternalAgentConnected  bool                 `json:"external_agent_connected"`
-	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
-	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
-	GoldenBuild             bool                 `json:"golden_build,omitempty"`              // Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped
-	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
-	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
-	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
-	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
-	CodeAgentRuntime        CodeAgentRuntime     `json:"code_agent_runtime,omitempty"`        // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
-	StatusMessage           string               `json:"status_message,omitempty"`            // Transient status message shown during startup (e.g., "Unpacking build cache (2.1/7.0 GB)")
+	ExternalAgentConnected bool             `json:"external_agent_connected"`
+	Phase                  string           `json:"phase,omitempty"`                  // NEW: SpecTask phase (planning, implementation)
+	DevContainerID         string           `json:"dev_container_id,omitempty"`       // Dev container ID for streaming
+	GoldenBuild            bool             `json:"golden_build,omitempty"`           // Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped
+	SwayVersion            string           `json:"sway_version,omitempty"`           // helix-sway image version (commit hash) running in this session
+	GPUVendor              string           `json:"gpu_vendor,omitempty"`             // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
+	RenderNode             string           `json:"render_node,omitempty"`            // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
+	PausedScreenshotPath   string           `json:"paused_screenshot_path,omitempty"` // Path to saved screenshot when agent is paused
+	CodeAgentRuntime       CodeAgentRuntime `json:"code_agent_runtime,omitempty"`     // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
+	StatusMessage          string           `json:"status_message,omitempty"`         // Transient status message shown during startup (e.g., "Unpacking build cache (2.1/7.0 GB)")
 
 	// CodeAgentOverrides customizes the coding model for THIS session without
 	// mutating its Agent. Set from the chat composer's execution controls on
@@ -550,6 +550,13 @@ type SessionMetadata struct {
 	// supplies instructions/tools; this value owns runtime, credentials, model,
 	// and reasoning. SpecTask sessions keep this nil and read the task instead.
 	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+
+	// CodeAgentConfigAt records when CodeAgentConfig was last written by a
+	// session-level edit. Agent reconciliation gates snapshot-drift on it: a
+	// snapshot written after the app's last change is a deliberate session
+	// deviation, not staleness. Snapshots predating this field (zero time) are
+	// treated as stale when they contradict the app — bot edits must win.
+	CodeAgentConfigAt time.Time `json:"code_agent_config_at,omitempty"`
 
 	// SandboxRuntime and SandboxResourceOverrides are the container runtime and
 	// size for an org-worker session. The org spawner writes them from the Bot

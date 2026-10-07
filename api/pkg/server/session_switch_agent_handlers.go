@@ -417,8 +417,8 @@ func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Contex
 		appConfig = nil
 	}
 	runtimeDrift := !sessionUsesAgentRuntime(session, targetRuntime)
-	configDrift := session.Metadata.CodeAgentConfig != nil && appConfig != nil &&
-		sessionCodeAgentIdentityDiffers(session.Metadata.CodeAgentConfig, appConfig)
+	configDrift := sessionCodeAgentSnapshotStale(
+		session.Metadata.CodeAgentConfig, appConfig, app.Updated, session.Metadata.CodeAgentConfigAt)
 	if !runtimeDrift && !configDrift {
 		return nil
 	}
@@ -432,6 +432,8 @@ func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Contex
 		Str("target_agent_name", targetRuntime.ZedAgentName()).
 		Bool("runtime_drift", runtimeDrift).
 		Bool("config_drift", configDrift).
+		Time("snapshot_at", session.Metadata.CodeAgentConfigAt).
+		Time("app_updated_at", app.Updated).
 		Msg("reconciling stale session agent binding before next turn")
 
 	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, session.ParentApp, agentSwitchOptions{
@@ -449,6 +451,23 @@ func sessionCodeAgentIdentityDiffers(stored, app *types.CodeAgentExecutionConfig
 		stored.CredentialType != app.CredentialType ||
 		stored.ProviderRef != app.ProviderRef ||
 		stored.Model != app.Model
+}
+
+// sessionCodeAgentSnapshotStale reports whether a stored coding-identity
+// snapshot must yield to the app. Differing from the app alone is NOT enough:
+// the composer PATCH deliberately stores session-level deviations, so a
+// snapshot written after the app's last change is a live choice and must
+// survive reconciliation. Only an app change since the snapshot was written
+// makes it stale. Snapshots predating the timestamp field (zero time) are
+// treated as stale when they contradict the app — bot edits must win.
+func sessionCodeAgentSnapshotStale(
+	snapshot, appConfig *types.CodeAgentExecutionConfig,
+	appUpdatedAt, snapshotAt time.Time,
+) bool {
+	if snapshot == nil || appConfig == nil || !sessionCodeAgentIdentityDiffers(snapshot, appConfig) {
+		return false
+	}
+	return snapshotAt.IsZero() || appUpdatedAt.After(snapshotAt)
 }
 
 func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
