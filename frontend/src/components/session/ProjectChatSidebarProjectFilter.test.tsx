@@ -91,7 +91,8 @@ describe('ProjectChatSidebarProjectFilter', () => {
   it('keeps the user out of the label when the filter is not in effect', () => {
     renderFilter({ selectedUserId: 'user-alice', showUserFilter: false })
 
-    expect(screen.getByRole('button', { name: 'Filter tasks by project' }))
-      .toHaveTextContent('All projects')
+    const label = screen.getByRole('button', { name: 'Filter tasks by project' })
+    expect(label).toHaveTextContent('All projects')
+    expect(label).not.toHaveTextContent('Alice')
   })
 })

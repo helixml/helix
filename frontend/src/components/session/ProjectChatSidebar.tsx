@@ -645,7 +645,7 @@ const ProjectChatSidebar: FC<{
           selectedProjectId={projectFilter}
           archived={showArchived}
           members={sidebarMembers}
-          selectedUserId={groupBy === 'project' ? userFilter : ALL_USERS_FILTER}
+          selectedUserId={userFilter}
           showUserFilter={groupBy === 'project'}
           onChange={selectProjectFilter}
           onUserChange={selectUserFilter}
@@ -793,7 +793,7 @@ const ProjectChatSidebar: FC<{
             selectedProjectId={projectFilter}
             archived={showArchived}
             members={sidebarMembers}
-            selectedUserId={groupBy === 'project' ? userFilter : ALL_USERS_FILTER}
+            selectedUserId={userFilter}
             showUserFilter={groupBy === 'project'}
             onChange={selectProjectFilter}
             onUserChange={selectUserFilter}

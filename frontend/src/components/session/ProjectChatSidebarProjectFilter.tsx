@@ -47,7 +47,10 @@ const ProjectChatSidebarProjectFilter: FC<ProjectChatSidebarProjectFilterProps> 
   const sidebarColors = getSidebarColors(lightTheme.isLight)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const selectedProject = projects.find((project) => project.id === selectedProjectId)
-  const selectedMember = members.find((member) => member.userId === selectedUserId)
+  // When the user section is not offered the stored choice must not leak into
+  // the label or the menu — the caller keeps it, but it is not in effect here.
+  const effectiveUserId = showUserFilter ? selectedUserId : ALL_USERS_FILTER
+  const selectedMember = members.find((member) => member.userId === effectiveUserId)
   const projectLabel = selectedProject?.name || 'All projects'
   const selectedLabel = selectedMember
     ? `${projectLabel} · ${sidebarMemberLabel(selectedMember)}`
@@ -170,24 +173,24 @@ const ProjectChatSidebarProjectFilter: FC<ProjectChatSidebarProjectFilterProps> 
               Filter by user
             </Typography>
             <MenuItem
-              selected={selectedUserId === ALL_USERS_FILTER}
+              selected={effectiveUserId === ALL_USERS_FILTER}
               onClick={() => selectUser(ALL_USERS_FILTER)}
               sx={{ gap: 1, fontSize: TYPOGRAPHY.sidebar.controlFontSize }}
             >
               <Box sx={{ width: 18, display: 'inline-flex', justifyContent: 'center' }}>
-                {selectedUserId === ALL_USERS_FILTER ? <Check size={14} /> : <Users size={14} />}
+                {effectiveUserId === ALL_USERS_FILTER ? <Check size={14} /> : <Users size={14} />}
               </Box>
               Everyone
             </MenuItem>
             {members.map((member) => (
               <MenuItem
                 key={member.userId}
-                selected={selectedUserId === member.userId}
+                selected={effectiveUserId === member.userId}
                 onClick={() => selectUser(member.userId)}
                 sx={{ gap: 1, fontSize: TYPOGRAPHY.sidebar.controlFontSize }}
               >
                 <Box sx={{ width: 18, display: 'inline-flex', justifyContent: 'center' }}>
-                  {selectedUserId === member.userId ? <Check size={14} /> : (
+                  {effectiveUserId === member.userId ? <Check size={14} /> : (
                     <Avatar sx={{ width: 16, height: 16, fontSize: '0.5rem' }}>
                       {getUserInitials(member.user)}
                     </Avatar>
