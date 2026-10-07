@@ -208,8 +208,9 @@ func TestUpdateAppRejectsMismatchedBodyID(t *testing.T) {
 	require.Contains(t, httpErr.Message, "does not match URL")
 }
 
-// stampUpdateAppTestApp builds an org-bot-shaped coding app whose identity can
-// be edited through updateAgent with the minimal mock scaffolding.
+// stampUpdateAppTestApp PUTs a body shaped like a real client: it carries the
+// app ID and config only — no server-managed fields (Created, AgentKind,
+// CodeAgentConfigAt, Updated). The callback edits the config copy.
 func stampUpdateAppTestApp(t *testing.T, ctrl *gomock.Controller, existing *types.App, update func(*types.App)) *types.App {
 	t.Helper()
 	helixStore := store.NewMockStore(ctrl)
@@ -231,7 +232,8 @@ func stampUpdateAppTestApp(t *testing.T, ctrl *gomock.Controller, existing *type
 	helixStore.EXPECT().ListTriggerConfigurations(gomock.Any(), gomock.Any()).Return(nil, nil)
 	helixStore.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return(nil, nil)
 
-	edited := *existing
+	edited := types.App{ID: existing.ID}
+	edited.Config = existing.Config
 	edited.Config.Helix.Assistants = append([]types.AssistantConfig(nil), existing.Config.Helix.Assistants...)
 	update(&edited)
 
@@ -249,10 +251,10 @@ func stampUpdateAppTestApp(t *testing.T, ctrl *gomock.Controller, existing *type
 	return updated
 }
 
-// A non-identity app write (instructions) must NOT move CodeAgentConfigAt —
-// the timestamp is the session-snapshot staleness gate, and prompt/tool/skill
-// edits would otherwise expire a session's deliberate composer deviation.
-func TestUpdateAppPromptEditDoesNotMoveCodeAgentConfigAt(t *testing.T) {
+// A client PUT carries no CodeAgentConfigAt (server-managed), and UpdateApp is
+// a full-row save: an identity-unchanged save must preserve the stored clock
+// rather than reset it to zero and disarm the staleness gate.
+func TestUpdateAppPreservesCodeAgentConfigAtOnIdentityUnchangedSave(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	identityAt := time.Now().Add(-24 * time.Hour)
 	existing := &types.App{
@@ -273,7 +275,8 @@ func TestUpdateAppPromptEditDoesNotMoveCodeAgentConfigAt(t *testing.T) {
 
 	// .Equal, not assert.Equal: the update body round-trips JSON, which strips
 	// time.Time's monotonic reading and breaks reflect-based equality.
-	assert.True(t, updated.CodeAgentConfigAt.Equal(identityAt), "a prompt/tool edit is not a coding-identity change")
+	assert.True(t, updated.CodeAgentConfigAt.Equal(identityAt),
+		"an identity-unchanged save must carry the stored clock across the full-row save")
 }
 
 // A coding-identity edit (model) moves CodeAgentConfigAt, which is what makes

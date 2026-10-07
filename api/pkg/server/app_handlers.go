@@ -1180,6 +1180,11 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	update.OwnerType = existing.OwnerType
 	update.Created = existing.Created
 	update.AgentKind = existing.AgentKind
+	// UpdateApp is a full-row save, and API clients don't send this
+	// server-managed clock — carry it across so an identity-unchanged save
+	// doesn't reset it to zero and disarm the session-snapshot staleness gate.
+	// stampAppCodeAgentConfigAt below overwrites it when the identity changes.
+	update.CodeAgentConfigAt = existing.CodeAgentConfigAt
 
 	err = s.authorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
 	if err != nil {
