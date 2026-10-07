@@ -76,7 +76,6 @@ import ProjectChatProjectContextMenu from './ProjectChatProjectContextMenu'
 import ProjectChatGroupByControl from './ProjectChatGroupByControl'
 import ProjectChatSidebarOptions from './ProjectChatSidebarOptions'
 import ProjectChatSidebarProjectFilter from './ProjectChatSidebarProjectFilter'
-import ProjectChatSidebarUserFilter from './ProjectChatSidebarUserFilter'
 import SortableProject from './SortableProject'
 import useProjectChatSidebarDrag from './useProjectChatSidebarDrag'
 import useProjectChatSidebarPreferences from './useProjectChatSidebarPreferences'
@@ -625,18 +624,12 @@ const ProjectChatSidebar: FC<{
   const groupsOfferNewTask = !showArchived && !isPhone
 
   const effectiveCollapsedGroups = query ? new Set<string>() : collapsedGroups
-  // The user filter narrows the project view to one member's chats and tasks.
-  // The person grouping already is a per-user view, so it does not apply there.
+  // The user filter narrows the project view to one member's chats and tasks;
+  // it is chosen inside the project filter's menu. The person grouping already
+  // is a per-user view, so it does not apply there.
   const userFilterId = groupBy === 'project' && userFilter !== ALL_USERS_FILTER
     ? userFilter
     : undefined
-  const userFilterControl = groupBy === 'project' && (
-    <ProjectChatSidebarUserFilter
-      members={sidebarMembers}
-      selectedUserId={userFilter}
-      onChange={selectUserFilter}
-    />
-  )
   // The desktop toolbar's controls, reused verbatim in the phone's filter sheet
   // so the two surfaces cannot offer different filters.
   const filterControls = (
@@ -645,9 +638,12 @@ const ProjectChatSidebar: FC<{
           projects={sidebarProjects}
           selectedProjectId={projectFilter}
           archived={showArchived}
+          members={sidebarMembers}
+          selectedUserId={groupBy === 'project' ? userFilter : ALL_USERS_FILTER}
+          showUserFilter={groupBy === 'project'}
           onChange={selectProjectFilter}
+          onUserChange={selectUserFilter}
         />
-        {userFilterControl}
         {!focusMode && (
           <ProjectChatSidebarOptions
             projectSortOrder={preferences.projectSortOrder}
@@ -790,9 +786,12 @@ const ProjectChatSidebar: FC<{
             projects={sidebarProjects}
             selectedProjectId={projectFilter}
             archived={showArchived}
+            members={sidebarMembers}
+            selectedUserId={groupBy === 'project' ? userFilter : ALL_USERS_FILTER}
+            showUserFilter={groupBy === 'project'}
             onChange={selectProjectFilter}
+            onUserChange={selectUserFilter}
           />
-          {userFilterControl}
           {!focusMode && (
             <ProjectChatSidebarOptions
               projectSortOrder={preferences.projectSortOrder}
