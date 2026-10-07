@@ -141,11 +141,12 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(ctx context.Context) {
 	log.Println("Helix Desktop shutting down...")
 
-	// Kill QEMU first, before anything else that might block.
+	// Stop QEMU first, before anything else that might block.
 	// tray.Stop() dispatches to the macOS main thread which can deadlock when
 	// called from the Wails shutdown callback (already on the main thread).
 	// QEMU must be dead before any potentially-blocking cleanup runs.
-	a.vm.ForceStop()
+	// A clean power-down takes ~5s; the timeout bounds a wedged guest.
+	a.vm.Shutdown(30 * time.Second)
 
 	// Stop system tray
 	if a.tray != nil {
@@ -845,6 +846,8 @@ func (a *App) ApplyVMUpdate() error {
 	if err := a.updater.ApplyVMUpdate(a.vm, a.settings); err != nil {
 		return err
 	}
+	// The staged update is installed: clear the "ready to install" prompts.
+	wailsRuntime.EventsEmit(a.ctx, "update:vm-applied")
 	// Start the VM with new disk
 	return a.StartVM()
 }
