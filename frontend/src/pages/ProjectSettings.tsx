@@ -220,6 +220,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [archiveStaleTasksDays, setArchiveStaleTasksDays] = useState(6);
   const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] =
     useState(false);
+  const [autoApprovePullRequests, setAutoApprovePullRequests] =
+    useState(false);
   const [koditEnabled, setKoditEnabled] = useState(true);
   const [autoWarmDockerCache, setAutoWarmDockerCache] = useState(false);
   const [showGoldenBuildViewer, setShowGoldenBuildViewer] = useState(false);
@@ -649,6 +651,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       setPullRequestReviewsEnabled(
         project.pull_request_reviews_enabled || false,
       );
+      setAutoApprovePullRequests(project.auto_approve_pull_requests || false);
       setKoditEnabled(project.kodit_enabled !== false);
       setAutoWarmDockerCache(
         project.metadata?.auto_warm_docker_cache || false,
@@ -1798,6 +1801,38 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               GitLab, etc.) as the primary repository.
             </Typography>
           )}
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Box sx={{ flex: 1, mr: 2 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                Auto-approve pull requests
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                New tasks approve their agent's pull request proposals without
+                asking, using the credentials of the person who created the
+                task, and are marked done as soon as the agent says it is
+                finished. You can still change it per task. Existing tasks keep
+                their own setting.
+              </Typography>
+            </Box>
+            <Switch
+              checked={autoApprovePullRequests}
+              inputProps={{ "aria-label": "Auto-approve pull requests" }}
+              onChange={(e) => {
+                const newValue = e.target.checked;
+                setAutoApprovePullRequests(newValue);
+                updateProjectMutation.mutate({
+                  auto_approve_pull_requests: newValue,
+                });
+              }}
+              disabled={!primaryRepoIsExternal}
+            />
+          </Box>
           <Box
             sx={{
               display: "flex",

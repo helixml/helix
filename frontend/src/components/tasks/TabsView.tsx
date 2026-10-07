@@ -972,21 +972,12 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
 
     setIsActioning(true);
     try {
-      const response = await api
+      await api
         .getApiClient()
         .v1SpecTasksApproveImplementationCreate(activeTask.id);
-      if (response.data?.repo_pull_requests && response.data.repo_pull_requests.length > 0) {
-        const prs = response.data.repo_pull_requests;
-        if (prs.length === 1 && prs[0].pr_url) {
-          snackbar.success(`Pull request opened! View PR: ${prs[0].pr_url}`);
-        } else {
-          snackbar.success(`${prs.length} pull request(s) opened - awaiting merge`);
-        }
-      } else {
-        snackbar.success(
-          "Implementation approved! Agent will merge to your primary branch...",
-        );
-      }
+      snackbar.success(
+        "Implementation approved! Agent will merge to your primary branch...",
+      );
     } catch (err: any) {
       console.error("Failed to approve implementation:", err);
       snackbar.error(

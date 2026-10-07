@@ -1373,6 +1373,14 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		// Update StatusUpdatedAt so task appears at top of new column in Kanban
 		now := time.Now()
 		task.StatusUpdatedAt = &now
+		// Moving the task by hand answers any pending completion request.
+		if updateReq.Status != previousStatus && task.CompletionRequestedAt != nil {
+			if err := s.Store.DismissAttentionEventByKey(ctx, services.CompletionRequestAttentionKey(task)); err != nil {
+				log.Warn().Err(err).Str("task_id", task.ID).Msg("Failed to dismiss completion request")
+			}
+			task.CompletionRequestedAt = nil
+			task.CompletionRequestSummary = ""
+		}
 		if previousStatus == types.TaskStatusDone && updateReq.Status != types.TaskStatusDone {
 			task.CompletedAt = nil
 			task.MergedToMain = false
@@ -1439,6 +1447,14 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	previousKeepAlive := task.KeepAlive
 	if updateReq.KeepAlive != nil {
 		task.KeepAlive = *updateReq.KeepAlive
+	}
+	if updateReq.AutoApprovePullRequests != nil {
+		// Proposals are auto-approved with the provider credentials of
+		// whoever turned this on.
+		task.AutoApprovePullRequests = *updateReq.AutoApprovePullRequests
+		if task.AutoApprovePullRequests {
+			task.AutoApprovePullRequestsBy = user.ID
+		}
 	}
 	// Update assignee (pointer allows clearing with empty string to unassign)
 	if updateReq.AgentTools != nil {

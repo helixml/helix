@@ -258,7 +258,6 @@ interface SpecTaskKanbanBoardProps {
   };
   focusTaskId?: string; // Task ID to focus "Start Planning" button on (for newly created tasks)
   hasExternalRepo?: boolean; // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
-  externalRepoType?: string; // The external repo type (e.g. "github", "ado")
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
@@ -280,7 +279,6 @@ const DroppableColumn: React.FC<{
   focusTaskId?: string;
   archivingTaskId?: string | null;
   hasExternalRepo?: boolean;
-  externalRepoType?: string;
   showMetrics?: boolean;
   theme: any;
   onHeaderClick?: () => void;
@@ -309,7 +307,6 @@ const DroppableColumn: React.FC<{
   focusTaskId,
   archivingTaskId,
   hasExternalRepo,
-  externalRepoType,
   showMetrics,
   theme,
   onHeaderClick,
@@ -355,7 +352,6 @@ const DroppableColumn: React.FC<{
         focusStartPlanning={task.id === focusTaskId}
         isArchiving={task.id === archivingTaskId}
         hasExternalRepo={hasExternalRepo}
-        externalRepoType={externalRepoType}
         showMetrics={showMetrics}
         progressData={batchProgressData?.[task.id]}
         usageData={batchUsageData?.[task.id]}
@@ -581,7 +577,7 @@ const DroppableColumn: React.FC<{
               onArchiveAllMerged &&
               column.tasks.length > 0 && (
                 <Tooltip
-                  title={`Archive all ${column.tasks.length} merged task${column.tasks.length === 1 ? "" : "s"}`}
+                  title={`Archive all ${column.tasks.length} done task${column.tasks.length === 1 ? "" : "s"}`}
                   arrow
                 >
                   <Box
@@ -676,7 +672,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   wipLimits = { planning: 3, review: 2, implementation: 5 },
   focusTaskId,
   hasExternalRepo = false,
-  externalRepoType,
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
@@ -1057,7 +1052,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         title: "Pull Request",
         color: "#8b5cf6",
         backgroundColor: "rgba(139, 92, 246, 0.08)",
-        description: "Awaiting merge in external repo",
+        description: "Has one or more pull requests — open, merged or closed",
         tasks: sortWithAttentionFirst(filteredTasks.filter(
           (t) =>
             (t as any).phase === "pull_request" || t.status === "pull_request",
@@ -1068,10 +1063,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     if (showMergedProp) {
       baseColumns.push({
         id: "completed",
-        title: "Merged",
+        title: "Done",
         color: "#6b7280",
         backgroundColor: "transparent",
-        description: "Merged to main",
+        description: "Finished — marked done",
         tasks: filteredTasks.filter(
           (t) => (t as any).phase === "completed" || t.status === "done",
         ),
@@ -1988,7 +1983,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 focusTaskId={focusTaskId}
                 archivingTaskId={archivingTaskId}
                 hasExternalRepo={hasExternalRepo}
-                externalRepoType={externalRepoType}
                 showMetrics={showMetrics}
                 highlightedTaskIds={highlightedDependencyTaskIds}
                 onDependencyHoverStart={setHighlightedDependencyTaskIds}
@@ -2034,7 +2028,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               focusTaskId={focusTaskId}
               archivingTaskId={archivingTaskId}
               hasExternalRepo={hasExternalRepo}
-              externalRepoType={externalRepoType}
               showMetrics={showMetrics}
               highlightedTaskIds={highlightedDependencyTaskIds}
               onDependencyHoverStart={setHighlightedDependencyTaskIds}

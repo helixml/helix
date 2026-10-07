@@ -229,6 +229,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.SpecTaskZedThread{},
 		&types.SpecTaskExternalAgent{},
 		&types.SpecTaskDesignReview{},
+		&types.SpecTaskPRProposal{},
 		&types.SpecTaskDesignReviewComment{},
 		&types.SpecTaskDesignReviewCommentReply{},
 		&types.SpecTaskGitPushEvent{},

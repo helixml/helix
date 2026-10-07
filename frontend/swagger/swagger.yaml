@@ -3766,24 +3766,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - helix_events
-    - gitlab
-    - slack
-    - github
-    - local
     - webhook
-    - cron
     - email
+    - helix_events
+    - github
+    - slack
+    - local
+    - gitlab
+    - cron
     type: string
     x-enum-varnames:
-    - KindHelixEvents
-    - KindGitLab
-    - KindSlack
-    - KindGitHub
-    - KindLocal
     - KindWebhook
-    - KindCron
     - KindEmail
+    - KindHelixEvents
+    - KindGitHub
+    - KindSlack
+    - KindLocal
+    - KindGitLab
+    - KindCron
   transport.ResolvedActivation:
     properties:
       address:
@@ -4772,6 +4772,8 @@ definitions:
     - spec_failed
     - implementation_failed
     - pr_ready
+    - pr_proposal
+    - completion_request
     - org_message
     - ci_passed
     - ci_failed
@@ -4782,6 +4784,8 @@ definitions:
     - AttentionEventSpecFailed
     - AttentionEventImplementationFailed
     - AttentionEventPRReady
+    - AttentionEventPRProposal
+    - AttentionEventCompletionRequest
     - AttentionEventOrgMessage
     - AttentionEventCIPassed
     - AttentionEventCIFailed
@@ -5691,6 +5695,14 @@ definitions:
           type: string
         type: array
     type: object
+  types.CompletionDecisionRequest:
+    properties:
+      comment:
+        type: string
+      decision:
+        description: '"approve" or "reject"'
+        type: string
+    type: object
   types.ContainerDiskUsage:
     properties:
       container_id:
@@ -5967,6 +5979,11 @@ definitions:
         items:
           $ref: '#/definitions/types.SpecTaskInlineAttachment'
         type: array
+      auto_approve_pull_requests:
+        description: |-
+          Optional: approve the agent's pull request proposals without asking.
+          Unset takes the project's auto_approve_pull_requests default.
+        type: boolean
       auto_start:
         description: 'Optional: Skip backlog and start immediately, regardless of
           project auto-start setting'
@@ -8511,6 +8528,27 @@ definitions:
     - OwnerTypeSystem
     - OwnerTypeSocket
     - OwnerTypeOrg
+  types.PRProposalDecisionRequest:
+    properties:
+      auto_approve_future:
+        description: |-
+          AutoApproveFuture, with an approval, approves this task's later
+          proposals without asking, as the deciding user.
+        type: boolean
+      base_branch:
+        type: string
+      body:
+        type: string
+      comment:
+        type: string
+      decision:
+        description: '"approve" or "reject"'
+        type: string
+      head_branch:
+        type: string
+      title:
+        type: string
+    type: object
   types.PaginatedInteractions:
     properties:
       interactions:
@@ -8688,6 +8726,12 @@ definitions:
         type: integer
       archive_stale_tasks_enabled:
         description: Archive tasks idle for ArchiveStaleTasksDays
+        type: boolean
+      auto_approve_pull_requests:
+        description: |-
+          AutoApprovePullRequests is the default for new spec tasks: their agents'
+          pull request proposals are approved without asking. Each task keeps its
+          own setting, so changing this does not affect existing tasks.
         type: boolean
       auto_archive_completed_tasks:
         description: Archive automation, reconciled by the spec task orchestrator
@@ -9114,6 +9158,9 @@ definitions:
         type: integer
       archive_stale_tasks_enabled:
         description: Archive tasks idle for ArchiveStaleTasksDays
+        type: boolean
+      auto_approve_pull_requests:
+        description: 'Default for new spec tasks: auto-approve agent PR proposals'
         type: boolean
       auto_archive_completed_tasks:
         description: Archive tasks immediately when they enter Done
@@ -9743,6 +9790,12 @@ definitions:
         type: string
       ci_url:
         type: string
+      head_branch:
+        description: |-
+          HeadBranch is the branch the PR was opened from. ProposalID links PRs
+          opened from an approved SpecTaskPRProposal; their title and body come from
+          the approved proposal rather than the helix-specs pull_request*.md files.
+        type: string
       pr_id:
         type: string
       pr_number:
@@ -9751,6 +9804,8 @@ definitions:
         description: '"open", "closed", "merged"'
         type: string
       pr_url:
+        type: string
+      proposal_id:
         type: string
       repository_id:
         type: string
@@ -11687,6 +11742,14 @@ definitions:
       assignee_id:
         description: Team member assigned to work on this task
         type: string
+      auto_approve_pull_requests:
+        description: |-
+          AutoApprovePullRequests approves the agent's PR proposals without asking.
+          They are approved as AutoApprovePullRequestsBy, whose provider
+          credentials push and open the PR; it is the user who turned this on.
+        type: boolean
+      auto_approve_pull_requests_by:
+        type: string
       base_branch:
         description: The base branch this was created from
         type: string
@@ -11719,6 +11782,13 @@ definitions:
         description: Legacy migration source; cleared together with HelixAppID on
           task start.
       completed_at:
+        type: string
+      completion_request_summary:
+        type: string
+      completion_requested_at:
+        description: |-
+          CompletionRequestedAt is set while the agent's request to mark the task
+          done (mark_task_complete) awaits the user's decision.
         type: string
       created_at:
         type: string
@@ -12286,6 +12356,67 @@ definitions:
     - content_base64
     - name
     type: object
+  types.SpecTaskPRProposal:
+    properties:
+      auto_approved:
+        type: boolean
+      base_branch:
+        type: string
+      body:
+        type: string
+      created_at:
+        type: string
+      decided_at:
+        type: string
+      decided_by:
+        type: string
+      decision_comment:
+        type: string
+      error:
+        type: string
+      head_branch:
+        type: string
+      id:
+        type: string
+      pr_id:
+        type: string
+      pr_number:
+        type: integer
+      pr_url:
+        type: string
+      project_id:
+        type: string
+      proposed_by_session:
+        type: string
+      reason:
+        type: string
+      repository_id:
+        type: string
+      repository_name:
+        type: string
+      spec_task_id:
+        type: string
+      status:
+        $ref: '#/definitions/types.SpecTaskPRProposalStatus'
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  types.SpecTaskPRProposalStatus:
+    enum:
+    - pending
+    - approved
+    - opened
+    - rejected
+    - failed
+    type: string
+    x-enum-varnames:
+    - PRProposalStatusPending
+    - PRProposalStatusApproved
+    - PRProposalStatusOpened
+    - PRProposalStatusRejected
+    - PRProposalStatusFailed
   types.SpecTaskPhase:
     enum:
     - planning
@@ -12370,6 +12501,10 @@ definitions:
       assignee_id:
         description: Pointer to allow clearing (set to empty string to unassign)
         type: string
+      auto_approve_pull_requests:
+        description: Approve the agent's PR proposals without asking, as the updating
+          user
+        type: boolean
       depends_on:
         description: IDs of tasks this task depends on
         items:
@@ -12416,6 +12551,14 @@ definitions:
       assignee_id:
         description: Team member assigned to work on this task
         type: string
+      auto_approve_pull_requests:
+        description: |-
+          AutoApprovePullRequests approves the agent's PR proposals without asking.
+          They are approved as AutoApprovePullRequestsBy, whose provider
+          credentials push and open the PR; it is the user who turned this on.
+        type: boolean
+      auto_approve_pull_requests_by:
+        type: string
       base_branch:
         description: The base branch this was created from
         type: string
@@ -12448,6 +12591,13 @@ definitions:
         description: Legacy migration source; cleared together with HelixAppID on
           task start.
       completed_at:
+        type: string
+      completion_request_summary:
+        type: string
+      completion_requested_at:
+        description: |-
+          CompletionRequestedAt is set while the agent's request to mark the task
+          done (mark_task_complete) awaits the user's decision.
         type: string
       created_at:
         type: string
@@ -27804,9 +27954,45 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/types.SpecTask'
+        "202":
+          description: 'External repo: the agent was asked to push and propose its
+            pull request(s)'
+          schema:
+            $ref: '#/definitions/types.SpecTask'
       security:
       - BearerAuth: []
       summary: Approve implementation and merge to main
+      tags:
+      - spec-tasks
+  /api/v1/spec-tasks/{spec_task_id}/completion/decide:
+    post:
+      consumes:
+      - application/json
+      description: Approving moves the task to done (which stops its desktop), whether
+        or not the agent asked to finish with mark_task_complete. Rejecting clears
+        the agent's pending request and sends the comment to it as feedback.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CompletionDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+      security:
+      - BearerAuth: []
+      summary: Mark a spec task done, or send the agent's completion request back
       tags:
       - spec-tasks
   /api/v1/spec-tasks/{spec_task_id}/design-reviews:
@@ -28134,6 +28320,66 @@ paths:
       summary: Submit design review decision
       tags:
       - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/pr-proposals:
+    get:
+      description: Every pull request a spec task opens starts as an agent proposal
+        awaiting user approval.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskPRProposal'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List a spec task's pull request proposals
+      tags:
+      - spec-tasks
+  /api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide:
+    post:
+      consumes:
+      - application/json
+      description: Approving grants the agent push rights to the proposal's head branch
+        and opens the pull request as soon as the branch has commits beyond the base.
+        Edited fields override the agent's proposal. Rejecting withdraws push rights.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Proposal ID
+        in: path
+        name: proposal_id
+        required: true
+        type: string
+      - description: Decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.PRProposalDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskPRProposal'
+      security:
+      - BearerAuth: []
+      summary: Approve or reject a pull request proposal
+      tags:
+      - spec-tasks
   /api/v1/spec-tasks/{spec_task_id}/stop-agent:
     post:
       description: Stop the running agent session for a spec task

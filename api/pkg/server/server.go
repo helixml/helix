@@ -198,6 +198,7 @@ type HelixAPIServer struct {
 	streamingRateLimiterMutex  sync.RWMutex
 	specTaskOrchestrator       *services.SpecTaskOrchestrator
 	attentionService           *services.AttentionService
+	prProposals                *services.PRProposalService
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
@@ -591,7 +592,8 @@ func NewServer(
 	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController, apiServer.authorizeUserToApp))
 
 	// Register Session MCP backend (session navigation and context tools)
-	apiServer.mcpGateway.RegisterBackend("session", NewSessionMCPBackend(store, appController.Options.Notifier))
+	sessionMCPBackend := NewSessionMCPBackend(store, appController.Options.Notifier)
+	apiServer.mcpGateway.RegisterBackend("session", sessionMCPBackend)
 
 	// Register External MCP backend (user-configured MCP servers)
 	// This proxies requests from Zed to external MCP servers configured in agents
@@ -670,6 +672,12 @@ func NewServer(
 	apiServer.attentionService = services.NewAttentionService(store, cfg)
 	apiServer.gitHTTPServer.SetAttentionService(apiServer.attentionService)
 
+	// Every spec-task PR is opened from an agent proposal a user approved.
+	apiServer.prProposals = services.NewPRProposalService(store, gitRepositoryService, apiServer.attentionService, cfg.WebServer.URL)
+	apiServer.prProposals.SetMessageEnqueuer(apiServer.enqueueSpecTaskAgentMessage)
+	apiServer.gitHTTPServer.SetPRProposals(apiServer.prProposals)
+	sessionMCPBackend.SetPRProposals(apiServer.prProposals)
+
 	// Initialize SpecTask Orchestrator components
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
@@ -685,7 +693,7 @@ func NewServer(
 		apiServer.specDrivenTaskService,
 	)
 	apiServer.specTaskOrchestrator.SetGoldenBuildService(apiServer.goldenBuildService)
-	apiServer.specTaskOrchestrator.SetEnsurePRsFunc(apiServer.ensurePullRequestsForAllRepos)
+	apiServer.specTaskOrchestrator.SetPRProposals(apiServer.prProposals)
 	apiServer.specTaskOrchestrator.SetAttentionService(apiServer.attentionService)
 	apiServer.specTaskOrchestrator.SetCINotifier(services.NewEnqueueCINotifier(apiServer.enqueueSpecTaskAgentMessage))
 
@@ -1713,6 +1721,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// Workflow automation routes
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/approve-implementation", apiServer.approveImplementation).Methods(http.MethodPost) // MOVE
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/pr-proposals", apiServer.listSpecTaskPRProposals).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide", apiServer.decideSpecTaskPRProposal).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/completion/decide", apiServer.decideSpecTaskCompletion).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/stop-agent", apiServer.stopAgentSession).Methods(http.MethodPost)
 
 	// Design review routes

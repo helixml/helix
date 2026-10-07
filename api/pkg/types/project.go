@@ -260,6 +260,11 @@ type Project struct {
 	PullRequestReviewsEnabled     bool   `json:"pull_request_reviews_enabled"`
 	KoditEnabled                  bool   `json:"kodit_enabled" gorm:"default:true"`
 
+	// AutoApprovePullRequests is the default for new spec tasks: their agents'
+	// pull request proposals are approved without asking. Each task keeps its
+	// own setting, so changing this does not affect existing tasks.
+	AutoApprovePullRequests bool `json:"auto_approve_pull_requests" gorm:"default:false"`
+
 	// Guidelines for AI agents - project-specific style guides, conventions, and instructions
 	// Combined with organization guidelines when constructing prompts
 	Guidelines          string    `json:"guidelines"`
@@ -423,6 +428,7 @@ type ProjectUpdateRequest struct {
 	ProjectManagerHelixAppID        *string                   `json:"project_manager_helix_app_id,omitempty"`       // Project manager agent
 	PullRequestReviewerHelixAppID   *string                   `json:"pull_request_reviewer_helix_app_id,omitempty"` // Pull request reviewer agent
 	PullRequestReviewsEnabled       *bool                     `json:"pull_request_reviews_enabled,omitempty"`       // Whether pull request reviews are enabled
+	AutoApprovePullRequests         *bool                     `json:"auto_approve_pull_requests,omitempty"`         // Default for new spec tasks: auto-approve agent PR proposals
 	KoditEnabled                    *bool                     `json:"kodit_enabled,omitempty"`                      // Whether Kodit code intelligence is enabled
 	Guidelines                      *string                   `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
 	Skills                          *AssistantSkills          `json:"skills,omitempty"`                             // Project-level skills
