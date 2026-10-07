@@ -991,7 +991,12 @@ func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKe
 	if s.prProposals != nil {
 		granted, err := s.prProposals.AllowedPushBranches(ctx, task.ID, repoID)
 		if err != nil {
-			return nil, fmt.Errorf("load approved PR proposal branches: %w", err)
+			// Fail closed: the caller treats an error as "no restriction".
+			log.Error().Err(err).Str("task_id", task.ID).Str("repo_id", repoID).Msg("Failed to load approved PR proposal branches")
+			return &BranchRestriction{
+				IsAgentKey:   true,
+				ErrorMessage: "could not load the branches this agent may push to; try again",
+			}, nil
 		}
 		for _, branch := range granted {
 			if !slices.Contains(allowedBranches, branch) {
