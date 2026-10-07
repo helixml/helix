@@ -2669,7 +2669,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get API keys",
+                "description": "Get the caller's own API keys. With no filter, returns (creating it if needed) the caller's personal key. A caller authenticated with a scoped (org, project, session or app) API key cannot use the unfiltered form, and sees only the prefix of keys broader than the one it presents.",
                 "tags": [
                     "api-keys"
                 ],
@@ -8911,7 +8911,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List API keys for an organization. Owners see all keys, members see only their own.",
+                "description": "List API keys for an organization. Owners see all keys, members see only their own. Key secrets are never returned; each key has a non-secret id and key_prefix.",
                 "tags": [
                     "organizations"
                 ],
@@ -8931,7 +8931,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/types.ApiKey"
+                                "$ref": "#/definitions/server.orgAPIKeyResponse"
                             }
                         }
                     }
@@ -8998,7 +8998,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "API key to delete",
+                        "description": "ID of the API key to delete (the id field from the list)",
                         "name": "key",
                         "in": "path",
                         "required": true
@@ -16929,6 +16929,34 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sandbox-desktop-types": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Desktop types (e.g. ubuntu, sway) offered by registered sandboxes",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sandbox"
+                ],
+                "summary": "List available sandbox desktop types",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -29122,6 +29150,45 @@ const docTemplate = `{
                 }
             }
         },
+        "server.orgAPIKeyResponse": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID is a stable, non-secret handle for the key, derived from a hash of\nthe secret. Use it to delete a key you did not create.",
+                    "type": "string"
+                },
+                "key_prefix": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "owner_email": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "$ref": "#/definitions/types.OwnerType"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.APIKeyType"
+                }
+            }
+        },
         "server.runnerProfileAssignRequest": {
             "type": "object",
             "properties": {
@@ -29432,23 +29499,23 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "gitlab",
-                "github",
-                "local",
-                "helix_events",
                 "webhook",
                 "email",
+                "helix_events",
+                "github",
                 "slack",
+                "local",
+                "gitlab",
                 "cron"
             ],
             "x-enum-varnames": [
-                "KindGitLab",
-                "KindGitHub",
-                "KindLocal",
-                "KindHelixEvents",
                 "KindWebhook",
                 "KindEmail",
+                "KindHelixEvents",
+                "KindGitHub",
                 "KindSlack",
+                "KindLocal",
+                "KindGitLab",
                 "KindCron"
             ]
         },

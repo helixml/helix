@@ -11,7 +11,6 @@ import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import IconButton from '@mui/material/IconButton'
-import Tooltip from '@mui/material/Tooltip'
 import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
@@ -23,7 +22,7 @@ import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import { Copy, Check, Trash2, Plus } from 'lucide-react'
+import { Trash2, Plus } from 'lucide-react'
 
 import Page from '../components/system/Page'
 import ApiCodeExamples from '../components/widgets/ApiCodeExamples'
@@ -31,33 +30,13 @@ import CreatedOrgApiKeyDialog from '../components/orgs/CreatedOrgApiKeyDialog'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import { useListOrgApiKeys, useCreateOrgApiKey, useDeleteOrgApiKey } from '../services/orgApiKeyService'
-import { copyTextToClipboard } from '../utils/clipboard'
 
-function maskKey(key: string): string {
-  if (key.length <= 8) return key
-  return key.slice(0, 5) + '...' + key.slice(-3)
-}
+// The list never carries key secrets, so code examples opened from a row
+// use a placeholder the reader replaces with the key they saved at creation.
+const API_KEY_PLACEHOLDER = '<YOUR_API_KEY>'
 
-const CopyKeyButton: FC<{ apiKey: string }> = ({ apiKey }) => {
-  const [copied, setCopied] = useState(false)
-
-  const handleCopy = async () => {
-    try {
-      await copyTextToClipboard(apiKey)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch (err) {
-      console.error('Failed to copy:', err)
-    }
-  }
-
-  return (
-    <Tooltip title={copied ? 'Copied!' : 'Copy API key'}>
-      <IconButton size="small" onClick={handleCopy} aria-label="Copy API key">
-        {copied ? <Check size={16} /> : <Copy size={16} />}
-      </IconButton>
-    </Tooltip>
-  )
+function maskedKey(keyPrefix?: string): string {
+  return keyPrefix ? keyPrefix + '...' : '••••••••'
 }
 
 const OrgApiKeys: FC = () => {
@@ -70,7 +49,7 @@ const OrgApiKeys: FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
   const [menuKeyId, setMenuKeyId] = useState<string | null>(null)
-  const [examplesDialogKey, setExamplesDialogKey] = useState<string | null>(null)
+  const [examplesDialogOpen, setExamplesDialogOpen] = useState(false)
   const [createdKey, setCreatedKey] = useState<string | null>(null)
 
   const organization = account.organizationTools.organization
@@ -180,27 +159,24 @@ const OrgApiKeys: FC = () => {
                     </TableRow>
                   ) : (
                     apiKeys.map((key) => (
-                      <TableRow key={key.key} hover>
+                      <TableRow key={key.id} hover>
                         <TableCell>
                           <Typography
                             variant="body2"
                             fontWeight={500}
                             sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-                            onClick={() => setExamplesDialogKey(key.key || '')}
+                            onClick={() => setExamplesDialogOpen(true)}
                           >
                             {key.name || 'Unnamed'}
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Chip
-                              label={maskKey(key.key || '')}
-                              size="small"
-                              variant="outlined"
-                              sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
-                            />
-                            <CopyKeyButton apiKey={key.key || ''} />
-                          </Box>
+                          <Chip
+                            label={maskedKey(key.key_prefix)}
+                            size="small"
+                            variant="outlined"
+                            sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
+                          />
                         </TableCell>
                         {isOrgOwner && (
                           <TableCell>
@@ -217,7 +193,7 @@ const OrgApiKeys: FC = () => {
                         <TableCell align="right">
                           <IconButton
                             size="small"
-                            onClick={(e) => handleMenuOpen(e, key.key || '')}
+                            onClick={(e) => handleMenuOpen(e, key.id || '')}
                           >
                             <MoreVertIcon fontSize="small" />
                           </IconButton>
@@ -248,19 +224,20 @@ const OrgApiKeys: FC = () => {
 
       {/* Code Examples Dialog */}
       <Dialog
-        open={Boolean(examplesDialogKey)}
-        onClose={() => setExamplesDialogKey(null)}
+        open={examplesDialogOpen}
+        onClose={() => setExamplesDialogOpen(false)}
         maxWidth="md"
         fullWidth
       >
         <DialogTitle>API Usage Examples</DialogTitle>
         <DialogContent>
-          {examplesDialogKey && (
-            <ApiCodeExamples apiKey={examplesDialogKey} />
-          )}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Replace {API_KEY_PLACEHOLDER} with the key you saved when you created it. Key secrets are only shown once.
+          </Typography>
+          <ApiCodeExamples apiKey={API_KEY_PLACEHOLDER} />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setExamplesDialogKey(null)}>Close</Button>
+          <Button onClick={() => setExamplesDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
 

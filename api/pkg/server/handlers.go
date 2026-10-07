@@ -1305,11 +1305,54 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 		newAPIKey.AppID = &sql.NullString{String: apiKeyStr, Valid: true}
 	}
 
+	// A scoped key must not mint an unscoped one: the new key would drop the
+	// org/project/session scope (and, for an org key, the loss of global admin
+	// that goes with it) and outlive the session it was issued for. App keys
+	// stay allowed: they are confined to the chat endpoints, and the CLI mints
+	// them for bots.
+	if isScopedAPIKeyCaller(user) && newAPIKey.Type != types.APIkeytypeApp {
+		return "", system.NewHTTPError403("a scoped API key cannot create API keys; use a personal API key or sign in")
+	}
+
 	createdKey, err := apiServer.Controller.CreateAPIKey(ctx, user, newAPIKey)
 	if err != nil {
 		return "", err
 	}
 	return createdKey.Key, nil
+}
+
+// isScopedAPIKeyCaller reports whether the request was authenticated with an
+// API key bound to an org, project, spec task, session or app. Such a key
+// grants less than its owner's personal key, so it must not be able to read
+// or create one.
+func isScopedAPIKeyCaller(user *types.User) bool {
+	if user == nil || user.TokenType != types.TokenTypeAPIKey {
+		return false
+	}
+	return user.OrganizationID != "" || user.ProjectID != "" || user.SpecTaskID != "" ||
+		user.SessionID != "" || user.AppID != "" ||
+		(user.APIKeyType != types.APIkeytypeAPI && user.APIKeyType != types.APIkeytypeNone)
+}
+
+// redactAPIKeysForScopedCaller strips the secret from every key a scoped
+// caller could use to widen its access. App, embed and bot-instance keys are
+// confined by the auth middleware, so they are returned as they are; any
+// other key (personal, org, project or session) is reduced to its prefix,
+// except the key the caller is presenting.
+func redactAPIKeysForScopedCaller(user *types.User, keys []*types.ApiKey) []*types.ApiKey {
+	if !isScopedAPIKeyCaller(user) {
+		return keys
+	}
+	out := make([]*types.ApiKey, 0, len(keys))
+	for _, key := range keys {
+		if key.Type == types.APIkeytypeAPI && key.Key != user.Token {
+			redacted := *key
+			redacted.Key = key.Summary().KeyPrefix
+			key = &redacted
+		}
+		out = append(out, key)
+	}
+	return out
 }
 
 func containsType(keyType string, typesParam string) bool {
@@ -1338,7 +1381,7 @@ func isPersonalAPIKey(key *types.ApiKey) bool {
 
 // getAPIKeys godoc
 // @Summary Get API keys
-// @Description Get API keys
+// @Description Get the caller's own API keys. With no filter, returns (creating it if needed) the caller's personal key. A caller authenticated with a scoped (org, project, session or app) API key cannot use the unfiltered form, and sees only the prefix of keys broader than the one it presents.
 // @Tags    api-keys
 // @Param types query string false "Filter by types (comma-separated list)"
 // @Param app_id query string false "Filter by app ID"
@@ -1349,13 +1392,17 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 	user := getRequestUser(req)
 	ctx := req.Context()
 
+	typesParam := req.URL.Query().Get("types")
+	appIDParam := req.URL.Query().Get("app_id")
+	if typesParam == "" && appIDParam == "" && isScopedAPIKeyCaller(user) {
+		return nil, system.NewHTTPError403("a scoped API key cannot read the personal API key; use a personal API key or sign in")
+	}
+
 	apiKeys, err := apiServer.Controller.GetAPIKeys(ctx, user)
 	if err != nil {
 		return nil, err
 	}
 
-	typesParam := req.URL.Query().Get("types")
-	appIDParam := req.URL.Query().Get("app_id")
 	if typesParam == "" && appIDParam == "" {
 		var latest *types.ApiKey
 		for _, key := range apiKeys {
@@ -1392,9 +1439,8 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 		}
 		filteredAPIKeys = append(filteredAPIKeys, key)
 	}
-	apiKeys = filteredAPIKeys
 
-	return apiKeys, nil
+	return redactAPIKeysForScopedCaller(user, filteredAPIKeys), nil
 }
 
 // deleteAPIKey godoc
