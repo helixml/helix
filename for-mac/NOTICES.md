@@ -46,8 +46,9 @@ Includes SPIRV-Cross (Apache 2.0, https://github.com/KhronosGroup/SPIRV-Cross).
 
 - License: Apache License 2.0
 - Source: https://github.com/utmapp/MoltenVK (UTM's fork of https://github.com/KhronosGroup/MoltenVK)
-- Modified: its SPIRV-Cross is patched to fix Metal shader generation; the patches
-  are in `for-mac/qemu-helix/patches/spirv-cross/` in the Helix source.
+- Modified: built with `MVK_USE_METAL_PRIVATE_API=1`, with the patches in
+  `for-mac/qemu-helix/patches/moltenvk/` and its SPIRV-Cross patched to fix Metal
+  shader generation (`for-mac/qemu-helix/patches/spirv-cross/`) in the Helix source.
 
 ## Mesa Vulkan Driver — KosmicKrisp (MIT)
 
