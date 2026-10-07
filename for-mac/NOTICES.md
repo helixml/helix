@@ -17,10 +17,13 @@ bundled QEMU binary is available at the repository linked above.
 
 ## virglrenderer (MIT)
 
-GPU 3D rendering translation layer for virtual machines.
+GPU 3D rendering translation layer for virtual machines, including
+`virgl_render_server`.
 
 - License: MIT
-- Source: https://gitlab.freedesktop.org/virgl/virglrenderer
+- Source: https://github.com/utmapp/virglrenderer (UTM's fork of https://gitlab.freedesktop.org/virgl/virglrenderer)
+- Modified: `virgl_render_server` is built with the patches in
+  `for-mac/qemu-helix/patches/virglrenderer/` in the Helix source.
 
 ## SPICE (LGPL v2.1)
 
@@ -43,8 +46,9 @@ Includes SPIRV-Cross (Apache 2.0, https://github.com/KhronosGroup/SPIRV-Cross).
 
 - License: Apache License 2.0
 - Source: https://github.com/utmapp/MoltenVK (UTM's fork of https://github.com/KhronosGroup/MoltenVK)
-- Modified: its SPIRV-Cross is patched to fix Metal shader generation; the patches
-  are in `for-mac/qemu-helix/patches/spirv-cross/` in the Helix source.
+- Modified: built with `MVK_USE_METAL_PRIVATE_API=1`, with the patches in
+  `for-mac/qemu-helix/patches/moltenvk/` and its SPIRV-Cross patched to fix Metal
+  shader generation (`for-mac/qemu-helix/patches/spirv-cross/`) in the Helix source.
 
 ## Mesa Vulkan Driver — KosmicKrisp (MIT)
 

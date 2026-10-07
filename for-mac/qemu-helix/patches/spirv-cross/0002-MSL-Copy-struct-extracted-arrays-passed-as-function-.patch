@@ -1,7 +1,7 @@
 From e1aab11da05d5e30562eb55f7d95a89e9eeec4d7 Mon Sep 17 00:00:00 2001
 From: Luke Marsden <luke@mlops.consulting>
 Date: Tue, 6 Oct 2026 10:56:06 +0100
-Subject: [PATCH 2/2] MSL: Copy struct-extracted arrays passed as function
+Subject: [PATCH 2/4] MSL: Copy struct-extracted arrays passed as function
  arguments
 
 Array members of structs are declared as plain C arrays, but by-value
