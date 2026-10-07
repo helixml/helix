@@ -19,6 +19,25 @@ export const ACTIONABLE_PR_PROPOSAL_STATUSES: ReadonlySet<string> = new Set([
   TypesSpecTaskPRProposalStatus.PRProposalStatusFailed,
 ]);
 
+/**
+ * Proposals that need the user (pending, or failed and awaiting a retry) and
+ * have not been revealed yet. Their cards live in the chat panel, so the task
+ * view opens it once per proposal.
+ */
+export function proposalsToReveal(
+  proposals: TypesSpecTaskPRProposal[],
+  revealed: ReadonlySet<string>,
+): string[] {
+  return proposals
+    .filter(
+      (p) =>
+        p.status === TypesSpecTaskPRProposalStatus.PRProposalStatusPending ||
+        p.status === TypesSpecTaskPRProposalStatus.PRProposalStatusFailed,
+    )
+    .map((p) => p.id || "")
+    .filter((id) => id && !revealed.has(id));
+}
+
 /** Whether a project's agents open pull requests (any external repository). */
 export function projectHasPullRequests(
   repositories: { is_external?: boolean; external_url?: string }[],

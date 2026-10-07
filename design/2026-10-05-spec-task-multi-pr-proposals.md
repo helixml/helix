@@ -27,7 +27,9 @@ pending ─approve─▶ approved ─(branch has commits beyond base)─▶ open
 - **User** sees a card above the chat composer (same affordance as agent
   questions), can edit head/base/title/body and add a note, then approves or
   rejects. A `pr_proposal` attention event (Needs Attention / Slack) is raised and
-  dismissed on decision. Approval requires the approver's GitHub/GitLab OAuth
+  dismissed on decision. When a proposal needs the user (pending, or failed), the task view
+  opens the chat panel once per proposal: it expands a collapsed chat on wide
+  screens and switches to the Chat tab on narrow ones. Collapsing it again sticks. Approval requires the approver's GitHub/GitLab OAuth
   connection; the PR is opened with their credentials.
 - **Push rights** (pre-receive allow-list, now per repository): `helix-specs`, the
   task branch, plus the head branch of every approved/opened/failed proposal.

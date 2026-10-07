@@ -169,6 +169,7 @@ import { useDesignReviews } from "../../services/designReviewService";
 import {
   ACTIONABLE_PR_PROPOSAL_STATUSES,
   projectHasPullRequests,
+  proposalsToReveal,
   useSpecTaskPRProposals,
 } from "../../services/specTaskPRProposalService";
 import PRProposalCard from "./PRProposalCard";
@@ -2514,6 +2515,27 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const actionablePRProposals = (prProposals ?? []).filter((p) =>
     ACTIONABLE_PR_PROPOSAL_STATUSES.has(p.status ?? ""),
   );
+  // A proposal waiting on the user is only visible in the chat panel, so open
+  // it (or switch to the Chat tab) once per new proposal. Once per proposal,
+  // so a user who collapses the panel again is not fought on every poll.
+  const revealedProposalIdsRef = useRef<Set<string>>(new Set());
+  const proposalsToRevealKey = proposalsToReveal(
+    prProposals ?? [],
+    revealedProposalIdsRef.current,
+  ).join(",");
+  useEffect(() => {
+    if (!proposalsToRevealKey) return;
+    proposalsToRevealKey
+      .split(",")
+      .forEach((id) => revealedProposalIdsRef.current.add(id));
+    if (isBigScreen) {
+      setChatCollapsed(false); // restores the split: chat sits on the left
+    } else {
+      handleViewChange("chat");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposalsToRevealKey]);
+
   const prProposalHeader =
     task?.id && actionablePRProposals.length > 0 ? (
       <>
