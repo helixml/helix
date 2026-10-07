@@ -26,6 +26,7 @@ import { TYPOGRAPHY } from '../../styles/typography'
 import {
   buildProjectChatGroups,
   filterProjectChatGroups,
+  sessionDetailToSummary,
 } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 import type { SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
@@ -155,15 +156,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
       queryKey: ['pinned-chat-detail', pin.kind, pin.id],
       queryFn: async () => {
         if (pin.kind === 'spec-task') return (await api.getApiClient().v1SpecTasksDetail(pin.id!)).data
-        const session = (await api.getApiClient().v1SessionsDetail(pin.id!)).data
-        return {
-          session_id: session.id,
-          name: session.name,
-          created: session.created,
-          updated: session.updated,
-          metadata: session.config,
-          archived: session.archived,
-        } satisfies TypesSessionSummary
+        return sessionDetailToSummary((await api.getApiClient().v1SessionsDetail(pin.id!)).data)
       },
       enabled: queriesEnabled && !!pin.id,
       staleTime: 10000,

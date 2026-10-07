@@ -1,4 +1,4 @@
-import type { TypesOrganizationMembership, TypesProject, TypesSessionMetadata, TypesSessionSummary } from '../../api/api'
+import type { TypesOrganizationMembership, TypesProject, TypesSession, TypesSessionMetadata, TypesSessionSummary } from '../../api/api'
 import type { BotDTO, BotInstanceDTO } from '../../services/helixOrgService'
 import type { SpecTask } from '../../services/specTaskService'
 import { deriveSandboxState } from '../external-agent/sandboxState'
@@ -859,3 +859,17 @@ export const buildPersonChatItems = (
 export const pinnedAtByItemKeyFrom = (pinnedChats: Array<{ kind?: string; id?: string; pinned_at?: string }>): Map<string, string> => (
   new Map(pinnedChats.map((pin) => [`${pin.kind}:${pin.id}`, pin.pinned_at || '']))
 )
+
+// The pinned-chat detail fetch returns a full TypesSession; the sidebar rows
+// run on the summary shape. Keep every field the rows or filters read — the
+// owner filter matches on `owner`, so dropping it would hide every pinned
+// chat the moment a member filter is chosen.
+export const sessionDetailToSummary = (session: TypesSession): TypesSessionSummary => ({
+  session_id: session.id,
+  name: session.name,
+  created: session.created,
+  updated: session.updated,
+  metadata: session.config,
+  archived: session.archived,
+  owner: session.owner,
+})

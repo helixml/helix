@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { TypesAgentWorkState, TypesCodeAgentRuntime, TypesSpecTaskStatus } from '../../api/api'
-import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary } from '../../api/api'
+import type { TypesOrganizationMembership, TypesProject, TypesSession, TypesSessionSummary } from '../../api/api'
 import type { SpecTask } from '../../services/specTaskService'
 import {
   buildProjectChatGroups,
@@ -29,6 +29,7 @@ import {
   resolveSidebarProjectFilter,
   resolveSidebarUserFilter,
   reorderProjectIds,
+  sessionDetailToSummary,
   serializeCollapsedGroupIds,
   serializeSidebarPreferences,
   serializeSidebarParticipantIds,
@@ -258,6 +259,27 @@ describe('ProjectChatSidebar logic', () => {
     expect(resolveSidebarUserFilter('user-one', memberUserIds)).toBe('user-one')
     expect(resolveSidebarUserFilter('former-member', memberUserIds)).toBe(ALL_USERS_FILTER)
     expect(resolveSidebarUserFilter('former-member', new Set())).toBe(ALL_USERS_FILTER)
+  })
+
+  it('keeps the owner when mapping a session detail onto the summary shape', () => {
+    const detail: TypesSession = {
+      id: 'ses_one',
+      name: 'Pinned chat',
+      created: '2026-10-07T10:00:00Z',
+      updated: '2026-10-07T11:00:00Z',
+      config: { project_id: 'project-one' },
+      archived: false,
+      owner: 'user-one',
+    }
+    expect(sessionDetailToSummary(detail)).toEqual({
+      session_id: 'ses_one',
+      name: 'Pinned chat',
+      created: '2026-10-07T10:00:00Z',
+      updated: '2026-10-07T11:00:00Z',
+      metadata: { project_id: 'project-one' },
+      archived: false,
+      owner: 'user-one',
+    })
   })
 
   it('sorts projects by activity, creation, and persisted manual order', () => {
