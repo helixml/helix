@@ -102,7 +102,7 @@ const PasswordResetComplete: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: (lightTheme.isLight ? themeConfig.lightBackgroundImage : themeConfig.darkBackgroundImage) || `linear-gradient(135deg, ${lightTheme.backgroundColor} 0%, ${themeConfig.neutral800} 100%)`,
+          backgroundColor: lightTheme.backgroundColor,
           p: 3,
         }}
       >
@@ -139,7 +139,7 @@ const PasswordResetComplete: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: (lightTheme.isLight ? themeConfig.lightBackgroundImage : themeConfig.darkBackgroundImage) || `linear-gradient(135deg, ${lightTheme.backgroundColor} 0%, ${themeConfig.neutral800} 100%)`,
+          backgroundColor: lightTheme.backgroundColor,
           p: 3,
         }}
       >
