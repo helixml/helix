@@ -159,6 +159,7 @@ func TestDefaultBotToolsGolden(t *testing.T) {
 		ApproveSpecTaskSpecName,
 		RequestSpecTaskChangesName,
 		CreateSpecTaskPRsName,
+		CompleteSpecTaskName,
 		ManagersName,
 		ReportsName,
 		ListBotsName,
@@ -228,5 +229,19 @@ func TestCreateSpecTaskPRsIsBotOnly(t *testing.T) {
 	}
 	if !slices.Contains(DefaultBotTools(), CreateSpecTaskPRsName) {
 		t.Fatal("bots must keep create_spectask_prs")
+	}
+}
+
+// A spec-task agent finishes only through mark_task_complete, which its user
+// confirms; complete_spectask would let it finish any task in its project.
+func TestCompleteSpecTaskIsBotOnly(t *testing.T) {
+	if IsSpecTaskAgentTool(CompleteSpecTaskName) {
+		t.Fatal("complete_spectask must not be offered to spec-task agents")
+	}
+	if !IsSpecTaskBlockedTool(CompleteSpecTaskName) {
+		t.Fatal("complete_spectask must be blocked on spec-task surfaces (including bound-agent tools)")
+	}
+	if !slices.Contains(DefaultBotTools(), CompleteSpecTaskName) {
+		t.Fatal("bots need complete_spectask to finish the tasks they manage")
 	}
 }

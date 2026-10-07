@@ -1070,12 +1070,17 @@ Follow these guidelines when making changes:
 - Verify: `+"`git branch --show-current`"+` should show %s
 - Make your changes
 - Push: `+"`git push origin %s`", branchName, branchName)
+	hasPullRequests := false
 	for _, repo := range projectRepos {
 		if repo.ExternalURL != "" {
-			gitInstructions += "\n\n" + PullRequestProposalGuidance(branchName)
+			hasPullRequests = true
 			break
 		}
 	}
+	if hasPullRequests {
+		gitInstructions += "\n\n" + PullRequestProposalGuidance(branchName)
+	}
+	gitInstructions += "\n\n" + MarkTaskCompleteGuidance(hasPullRequests)
 
 	// Build repository section listing local + Kodit repos for the agent
 	repoSection := s.buildRepositorySectionForTask(ctx, task, project)

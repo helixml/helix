@@ -47,6 +47,9 @@ const (
 	// AttentionEventPRProposal asks the user to approve or reject an agent's
 	// request to push a branch and open a pull request from it.
 	AttentionEventPRProposal AttentionEventType = "pr_proposal"
+	// AttentionEventCompletionRequest asks the user to confirm that a task the
+	// agent says is finished can be marked done.
+	AttentionEventCompletionRequest AttentionEventType = "completion_request"
 	// AttentionEventOrgMessage is an informational Org Bot message for an org
 	// member. It has no spec task / project — ProjectID and SpecTaskID are empty.
 	AttentionEventOrgMessage AttentionEventType = "org_message"

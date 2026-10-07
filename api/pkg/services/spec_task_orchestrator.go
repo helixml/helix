@@ -1120,28 +1120,6 @@ func (o *SpecTaskOrchestrator) failApprovalHandoff(ctx context.Context, task *ty
 	return nil
 }
 
-// projectHasExternalRepo reports whether any repository in the project is external
-// (GitHub/GitLab/ADO). Pull requests are only possible for those; a project whose
-// repos are all internal (Helix-hosted) can never produce one, so a "PR could not
-// be created" message would be misleading rather than actionable.
-//
-// Errors are treated as "assume external" so a transient store failure downgrades
-// to the pre-existing generic message instead of asserting something false.
-func (o *SpecTaskOrchestrator) projectHasExternalRepo(ctx context.Context, projectID string) bool {
-	repos, err := o.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: projectID,
-	})
-	if err != nil {
-		return true
-	}
-	for _, repo := range repos {
-		if repo.IsExternal && repo.ExternalURL != "" {
-			return true
-		}
-	}
-	return false
-}
-
 // handlePullRequest polls external repo for PR merge status
 // Called from the dedicated PR polling scheduler.
 func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
@@ -1155,57 +1133,19 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 		}
 	}
 
-	if !task.HasAnyPR() {
-		log.Warn().
-			Str("task_id", task.ID).
-			Msg("Task in pull_request status but no PRs tracked in RepoPullRequests")
-
-		// If the task has been in pull_request status for over 5 minutes with no
-		// PRs, the agent likely failed to push the branch. Surface an error.
-		if task.StatusUpdatedAt != nil && time.Since(*task.StatusUpdatedAt) > 5*time.Minute {
-			if task.Metadata == nil {
-				task.Metadata = make(map[string]interface{})
-			}
-			if _, hasErr := task.Metadata["error"]; !hasErr {
-				// Distinguish "we cannot open a PR for this repo at all" from
-				// "the agent did not push". Blaming the agent for a push it
-				// actually made sent two people hunting a non-existent failure
-				// for most of a call: on an internal repo the branch was pushed
-				// fine, but CreatePullRequest rejects any repo with no
-				// ExternalURL, so a PR was never possible in the first place.
-				msg := "Pull request could not be created - the agent may not have pushed the feature branch. Check the agent session for errors."
-				if !o.projectHasExternalRepo(ctx, task.ProjectID) {
-					msg = "No pull request can be created for this project: its repositories are internal (Helix-hosted), and pull requests are only supported for external GitHub/GitLab/Azure DevOps repositories. The branch may well have been pushed successfully. Internal repositories land work by merging the feature branch into the default branch instead."
-				}
-				task.Metadata["error"] = msg
-				if err := o.store.UpdateSpecTask(ctx, task); err != nil {
-					log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to save PR timeout error to task metadata")
-				}
-			}
-		}
-	}
-
-	// Process tracked PRs. With none tracked, this leaves the task pending so
-	// an unchanged branch cannot be mistaken for merged work.
 	return o.processExternalPullRequestStatus(ctx, task)
 }
 
 func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Context, task *types.SpecTask) error {
-	// Check each tracked PR across all repos. A task may carry several PRs,
-	// opened one proposal at a time. It is done once every PR is settled
-	// (merged, or closed by a human) with at least one merged, and no proposal
-	// still expects a PR — stopping the agent earlier would strand later slices.
-	// If ALL are closed (without merge), leave it for the user.
-	anyOpen := false
-	allSettled := true
-	anyMerged := false
-	allClosed := true
+	// Refresh each tracked PR's state for display. Merges never complete the
+	// task — the agent asks to (mark_task_complete) — but the agent is told
+	// when a PR merges or closes so it can follow up or finish.
 	updated := false
+	var settled []types.RepoPR
+	anyMerged := false
 
 	for i, repoPR := range task.RepoPullRequests {
 		if repoPR.PRID == "" {
-			allSettled = false
-			allClosed = false
 			continue
 		}
 		pr, err := o.gitService.GetPullRequest(ctx, repoPR.RepositoryID, repoPR.PRID)
@@ -1216,14 +1156,6 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 				Str("repo_id", repoPR.RepositoryID).
 				Str("pr_id", repoPR.PRID).
 				Msg("Failed to get pull request status, skipping")
-			// Can't confirm either state. Symmetric: must clear BOTH flags,
-			// otherwise a poll where every PR errors leaves allMerged at its
-			// `true` default and the task wrongly transitions to Done.
-			// Pod restarts (cold DNS/TLS/token caches) and transient GitLab
-			// 5xx/429/404s are realistic triggers for "all PRs error in one
-			// cycle". See design/2026-05-26-pr-merge-error-symmetry.md.
-			allSettled = false
-			allClosed = false
 			continue
 		}
 
@@ -1232,6 +1164,10 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		if task.RepoPullRequests[i].PRState != newState {
 			task.RepoPullRequests[i].PRState = newState
 			updated = true
+			if pr.State == types.PullRequestStateMerged || pr.State == types.PullRequestStateClosed {
+				settled = append(settled, task.RepoPullRequests[i])
+				anyMerged = anyMerged || pr.State == types.PullRequestStateMerged
+			}
 		}
 		if pr.Number > 0 && task.RepoPullRequests[i].PRNumber != pr.Number {
 			task.RepoPullRequests[i].PRNumber = pr.Number
@@ -1248,23 +1184,7 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			updated = true
 		}
 
-		switch pr.State {
-		case types.PullRequestStateOpen:
-			anyOpen = true
-			allSettled = false
-			allClosed = false
-			log.Trace().
-				Str("task_id", task.ID).
-				Str("repo_id", repoPR.RepositoryID).
-				Str("pr_id", repoPR.PRID).
-				Msg("PR still active, awaiting merge")
-		case types.PullRequestStateMerged:
-			anyMerged = true
-			allClosed = false
-		case types.PullRequestStateClosed:
-		case types.PullRequestStateUnknown:
-			allSettled = false
-			allClosed = false
+		if pr.State == types.PullRequestStateUnknown {
 			log.Warn().
 				Str("task_id", task.ID).
 				Str("repo_id", repoPR.RepositoryID).
@@ -1273,56 +1193,25 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		}
 	}
 
-	outstanding := false
-	if o.prProposals != nil && allSettled && anyMerged {
-		var err error
-		if outstanding, err = o.prProposals.HasOutstanding(ctx, task.ID); err != nil {
-			outstanding = true // cannot confirm; never complete on a failed read
-			log.Warn().Err(err).Str("task_id", task.ID).Msg("Could not check PR proposals; not completing task")
-		}
-	}
-
-	if allSettled && anyMerged && !outstanding && len(task.RepoPullRequests) > 0 {
-		// Every PR merged or closed, at least one merged - move to done
-		now := time.Now()
-		task.Status = types.TaskStatusDone
-		task.StatusUpdatedAt = &now
-		task.MergedToMain = true
-		task.MergedAt = &now
-		task.CompletedAt = &now
-		task.UpdatedAt = now
-		log.Info().
-			Str("task_id", task.ID).
-			Msg("PR merged! Moving task to done")
-
-		// Trigger golden Docker cache build if enabled for this project
-		if o.goldenBuildService != nil && task.ProjectID != "" {
-			project, err := o.store.GetProject(ctx, task.ProjectID)
-			if err == nil && project != nil {
-				o.goldenBuildService.TriggerGoldenBuild(ctx, project)
-			}
-		}
-
-		if err := o.store.UpdateSpecTask(ctx, task); err != nil {
-			return err
-		}
-		DismissTaskAttentionEvents(ctx, o.store, task.ID)
+	if !updated {
 		return nil
 	}
-
-	if allClosed && !anyOpen && len(task.RepoPullRequests) > 0 {
-		// All PRs closed — log but don't auto-archive. Let the user decide.
-		log.Info().
-			Str("task_id", task.ID).
-			Msg("All PRs closed, task remains in pull_request status")
+	task.UpdatedAt = time.Now()
+	if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+		return err
 	}
 
-	// Persist any state updates
-	if updated {
-		task.UpdatedAt = time.Now()
-		return o.store.UpdateSpecTask(ctx, task)
+	// Refresh the golden Docker cache from the newly merged code.
+	if anyMerged && o.goldenBuildService != nil && task.ProjectID != "" {
+		if project, err := o.store.GetProject(ctx, task.ProjectID); err == nil && project != nil {
+			o.goldenBuildService.TriggerGoldenBuild(ctx, project)
+		}
 	}
-
+	if o.prProposals != nil {
+		for _, pr := range settled {
+			o.prProposals.NotifyPRSettled(ctx, task, pr)
+		}
+	}
 	return nil
 }
 
@@ -1589,8 +1478,10 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 		for _, pr := range prs {
 			branchMatches := pr.SourceBranch == branchRef || pr.SourceBranch == task.BranchName
 
-			// Check if PR is open and matches our branch
-			if pr.State == types.PullRequestStateOpen && branchMatches {
+			// Track a PR someone opened (or already merged) from the task
+			// branch outside Helix. A merge does not complete the task; the
+			// agent is told about it and decides.
+			if (pr.State == types.PullRequestStateOpen || pr.State == types.PullRequestStateMerged) && branchMatches {
 				log.Info().
 					Str("task_id", task.ID).
 					Str("pr_id", pr.ID).
@@ -1615,6 +1506,12 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 					return err
 				}
 
+				if pr.State == types.PullRequestStateMerged {
+					if o.prProposals != nil {
+						o.prProposals.NotifyPRSettled(ctx, task, task.RepoPullRequests[len(task.RepoPullRequests)-1])
+					}
+					return nil
+				}
 				if o.attentionService != nil {
 					go func(t *types.SpecTask, prID string, prURL string) {
 						_, emitErr := o.attentionService.EmitEvent(
@@ -1637,35 +1534,6 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 				return nil
 			}
 
-			// Check if PR is already merged
-			if pr.State == types.PullRequestStateMerged && branchMatches {
-				log.Info().
-					Str("task_id", task.ID).
-					Str("pr_id", pr.ID).
-					Str("branch", task.BranchName).
-					Str("repo_name", repo.Name).
-					Msg("Detected merged PR, moving task to done status")
-
-				now := time.Now()
-				task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
-					RepositoryID:   repo.ID,
-					RepositoryName: repo.Name,
-					PRID:           pr.ID,
-					PRNumber:       pr.Number,
-					PRURL:          pr.URL,
-					PRState:        string(pr.State),
-				})
-				task.Status = types.TaskStatusDone
-				task.MergedToMain = true
-				task.MergedAt = &now
-				task.CompletedAt = &now
-				task.UpdatedAt = now
-				if err := o.store.UpdateSpecTask(ctx, task); err != nil {
-					return err
-				}
-				DismissTaskAttentionEvents(ctx, o.store, task.ID)
-				return nil
-			}
 		}
 	}
 
@@ -1770,12 +1638,41 @@ func (o *SpecTaskOrchestrator) handleDone(ctx context.Context, task *types.SpecT
 				Str("task_id", task.ID).
 				Msg("Task in done status - stopping desktop")
 		}
+		if err := o.settleFinishedAgent(ctx, task); err != nil {
+			stopErr = errors.Join(stopErr, err)
+		}
 	}
 
 	if err := o.archiveCompletedTask(ctx, task); err != nil {
 		return err
 	}
 	return stopErr
+}
+
+// settleFinishedAgent leaves nothing that would start a done task's agent
+// again: a turn still waiting reads to auto-wake as an agent that never
+// connected, and the prompt queue resumes the desktop to deliver anything
+// undelivered. Starting the agent reopens the task, so either would undo the
+// completion. Messages sent after completion are kept: sending one is a
+// deliberate request to carry on.
+func (o *SpecTaskOrchestrator) settleFinishedAgent(ctx context.Context, task *types.SpecTask) error {
+	if _, err := o.store.ReapWaitingInteractions(ctx, task.PlanningSessionID, types.InteractionStateInterrupted, "task marked done"); err != nil {
+		return fmt.Errorf("reap waiting interactions: %w", err)
+	}
+	entries, err := o.store.ListPromptHistoryBySession(ctx, task.PlanningSessionID)
+	if err != nil {
+		return fmt.Errorf("list queued prompts: %w", err)
+	}
+	for _, entry := range entries {
+		undelivered := entry.Status == "pending" || entry.Status == "failed"
+		if !undelivered || entry.DeletedAt != nil || (task.CompletedAt != nil && entry.CreatedAt.After(*task.CompletedAt)) {
+			continue
+		}
+		if err := o.store.DeletePromptHistoryEntry(ctx, entry.ID); err != nil {
+			return fmt.Errorf("drop queued prompt %s: %w", entry.ID, err)
+		}
+	}
+	return nil
 }
 
 func (o *SpecTaskOrchestrator) archiveCompletedTask(ctx context.Context, task *types.SpecTask) error {

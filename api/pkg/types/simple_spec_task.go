@@ -453,6 +453,11 @@ type SpecTask struct {
 	AutoApprovePullRequests   bool   `json:"auto_approve_pull_requests" gorm:"default:false"`
 	AutoApprovePullRequestsBy string `json:"auto_approve_pull_requests_by,omitempty" gorm:"size:255"`
 
+	// CompletionRequestedAt is set while the agent's request to mark the task
+	// done (mark_task_complete) awaits the user's decision.
+	CompletionRequestedAt    *time.Time `json:"completion_requested_at,omitempty"`
+	CompletionRequestSummary string     `json:"completion_request_summary,omitempty" gorm:"type:text"`
+
 	// Goose recipe binding (Phase 2b). When the parent project's agent uses
 	// the goose_code runtime and the user picked a recipe at task-creation
 	// time, GooseRecipeName names the AssistantGooseRecipe to invoke and

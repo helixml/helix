@@ -127,6 +127,18 @@ func NewSessionMCPBackend(s store.Store, notifier notification.Notifier) *Sessio
 	)
 	backend.mcpServer.AddTool(listProposalsTool, backend.handleListPullRequestProposals)
 
+	// Spec tasks never complete on their own (not even when PRs merge): the
+	// agent says when the work is finished and the user confirms.
+	markCompleteTool := mcp.NewTool("mark_task_complete",
+		mcp.WithDescription("Ask to mark your spec task done because the work is finished — or because the user told you it is. "+
+			"This is the only way the task finishes; merged pull requests do not finish it. "+
+			"Do not call it while your pull requests are still open: users merge them on GitHub/GitLab/Azure DevOps, so tell the user which ones need merging and wait. "+
+			"The user confirms (unless the task auto-approves); once done, your desktop shuts down. If the user sends it back, their feedback arrives as a message in this session."),
+		mcp.WithString("summary", mcp.Required(),
+			mcp.Description("What was delivered (pull requests, docs, findings) and why the task is finished. Shown to the user next to the Mark done button.")),
+	)
+	backend.mcpServer.AddTool(markCompleteTool, backend.handleMarkTaskComplete)
+
 	// Create Streamable HTTP server for direct POST support
 	// Use stateless mode so each request is independent (no session tracking required)
 	backend.httpServer = server.NewStreamableHTTPServer(backend.mcpServer,
@@ -179,7 +191,7 @@ func (b *SessionMCPBackend) specTaskForCall(ctx context.Context) (*types.Session
 		return nil, nil, errors.New("not authorized for this session")
 	}
 	if session.Metadata.SpecTaskID == "" {
-		return nil, nil, errors.New("this session is not working on a spec task; pull requests are only proposed from spec tasks")
+		return nil, nil, errors.New("this session is not working on a spec task")
 	}
 	task, err := b.store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
 	if err != nil {
@@ -231,6 +243,31 @@ func (b *SessionMCPBackend) handleProposePullRequest(ctx context.Context, reques
 		"Proposal %s is awaiting the user's approval: open a pull request in %s from %s into %s titled %q. %s"+
 			"You will receive a message in this session when the user decides; keep working meanwhile.",
 		p.ID, p.RepositoryName, p.HeadBranch, p.BaseBranch, p.Title, pushNote)), nil
+}
+
+func (b *SessionMCPBackend) handleMarkTaskComplete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if b.proposals == nil {
+		return mcp.NewToolResultError("task completion is not available on this server"), nil
+	}
+	_, task, err := b.specTaskForCall(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	out, err := b.proposals.RequestCompletion(ctx, task.ID, request.GetString("summary", ""))
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if out.Done {
+		return mcp.NewToolResultText("The task is marked done (it auto-approves without asking). Your desktop will shut down shortly; stop working."), nil
+	}
+	msg := "Asked the user to mark the task done. Wait for their decision: if they send it back, their feedback arrives as a message in this session."
+	switch n := len(out.OpenPRs); {
+	case n == 1:
+		msg += " Note: one of your pull requests is still open; the user sees that next to your request."
+	case n > 1:
+		msg += fmt.Sprintf(" Note: %d of your pull requests are still open; the user sees that next to your request.", n)
+	}
+	return mcp.NewToolResultText(msg), nil
 }
 
 func (b *SessionMCPBackend) handleListPullRequestProposals(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {

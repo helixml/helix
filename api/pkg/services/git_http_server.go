@@ -1134,11 +1134,6 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 			s.handleFeatureBranchPush(ctx, repo, pushedBranch, commitHash, repoPath, gitRepo)
 		}
 
-		// Main branch push detection
-		if repo.DefaultBranch != "" && pushedBranch == repo.DefaultBranch {
-			s.handleMainBranchPush(ctx, repo, commitHash, repoPath, gitRepo)
-		}
-
 		// Process design docs
 		s.processDesignDocsForBranch(ctx, repo, repoPath, pushedBranch, commitHash, gitRepo)
 
@@ -1453,53 +1448,6 @@ func (s *GitHTTPServer) tryAutoMergeBotRun(ctx context.Context, taskID string, r
 		Str("source_branch", task.BranchName).
 		Str("target_branch", repo.DefaultBranch).
 		Msg("bot auto-merge: fast-forward merged autonomous run into default branch")
-}
-
-// handleMainBranchPush transitions task from implementation_review → done
-func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.GitRepository, commitHash, repoPath string, gitRepo *GitRepo) {
-	log.Info().Str("repo_id", repo.ID).Str("commit", commitHash).Msg("Detected push to main branch")
-
-	projectIDs, err := s.store.GetProjectsForRepository(ctx, repo.ID)
-	if err != nil || len(projectIDs) == 0 {
-		return
-	}
-
-	var allTasks []*types.SpecTask
-	for _, projectID := range projectIDs {
-		tasks, _ := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: projectID})
-		allTasks = append(allTasks, tasks...)
-	}
-
-	for _, task := range allTasks {
-		if task == nil || task.BranchName == "" || task.Status != types.TaskStatusImplementationReview {
-			continue
-		}
-
-		// Check if branch is merged
-		merged, err := gitRepo.IsBranchMergedInto(task.BranchName, repo.DefaultBranch)
-		if err != nil {
-			log.Debug().Err(err).Str("branch", task.BranchName).Msg("Could not check merge status")
-			continue
-		}
-
-		if merged {
-			log.Info().Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Branch merged to main - transitioning to done")
-
-			now := time.Now()
-			task.Status = types.TaskStatusDone
-			task.StatusUpdatedAt = &now
-			task.MergedToMain = true
-			task.MergedAt = &now
-			task.MergeCommitHash = commitHash
-			task.CompletedAt = &now
-			task.UpdatedAt = now
-			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
-				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
-				continue
-			}
-			DismissTaskAttentionEvents(ctx, s.store, task.ID)
-		}
-	}
 }
 
 // parsePullRequestMarkdown parses a pull_request.md file content into title and description.

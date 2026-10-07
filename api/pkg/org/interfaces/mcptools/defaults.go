@@ -142,9 +142,10 @@ func DefaultBotTools() []tool.Name {
 		GetAssetName,
 	}
 	standard = append(standard, SpecTaskAgentTools...)
-	// Bots may open PRs for the tasks they manage; spec-task agents may not
-	// (see SpecTaskBlockedTools), so this sits outside SpecTaskAgentTools.
-	standard = append(standard, CreateSpecTaskPRsName)
+	// Bots may open PRs for and complete the tasks they manage; spec-task
+	// agents may not (see SpecTaskBlockedTools), so these sit outside
+	// SpecTaskAgentTools.
+	standard = append(standard, CreateSpecTaskPRsName, CompleteSpecTaskName)
 	return MergeBaseReadTools(standard)
 }
 
@@ -223,6 +224,9 @@ var SpecTaskBlockedTools = []tool.Name{
 	// A spec task's PRs open only from proposals its user approved
 	// (propose_pull_request); this tool would open them without approval.
 	CreateSpecTaskPRsName,
+	// A task finishes when its user confirms the agent's mark_task_complete
+	// request; this tool would finish it without asking.
+	CompleteSpecTaskName,
 }
 
 func IsSpecTaskBlockedTool(name tool.Name) bool {

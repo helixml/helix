@@ -89,3 +89,26 @@ func TestBuildApprovalInstructionPrompt_PullRequestsViaProposals(t *testing.T) {
 		t.Error("internal-only projects have no pull requests to propose")
 	}
 }
+
+// Tasks never finish on their own, so every implementation prompt must tell the
+// agent how to finish — and, with pull requests, not to while they are open.
+func TestBuildApprovalInstructionPrompt_MarkTaskComplete(t *testing.T) {
+	task := &types.SpecTask{ID: "spt_test", ProjectID: "prj_test", Name: "x", DesignDocPath: "000001_x"}
+
+	external := BuildApprovalInstructionPrompt(task, "feature/x", "main", "", "app", "", "", "", nil, "", true)
+	for _, want := range []string{"7. **Finishing the task:**", "`mark_task_complete`", "never marked done automatically", "Do not call it while your pull requests are still open"} {
+		if !strings.Contains(external, want) {
+			t.Errorf("external-repo prompt is missing %q", want)
+		}
+	}
+
+	internal := BuildApprovalInstructionPrompt(task, "feature/x", "main", "", "app", "", "", "", nil, "", false)
+	for _, want := range []string{"7. **Finishing the task:**", "Accept in Helix", "`mark_task_complete`"} {
+		if !strings.Contains(internal, want) {
+			t.Errorf("internal-repo prompt is missing %q", want)
+		}
+	}
+	if strings.Contains(internal, "pull requests are still open") {
+		t.Error("internal-only projects have no pull requests to wait for")
+	}
+}

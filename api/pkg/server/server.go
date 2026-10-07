@@ -1723,6 +1723,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/approve-implementation", apiServer.approveImplementation).Methods(http.MethodPost) // MOVE
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/pr-proposals", apiServer.listSpecTaskPRProposals).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide", apiServer.decideSpecTaskPRProposal).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/completion/decide", apiServer.decideSpecTaskCompletion).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/stop-agent", apiServer.stopAgentSession).Methods(http.MethodPost)
 
 	// Design review routes

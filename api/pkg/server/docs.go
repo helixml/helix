@@ -20395,6 +20395,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{spec_task_id}/completion/decide": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approving moves the task to done (which stops its desktop), whether or not the agent asked to finish with mark_task_complete. Rejecting clears the agent's pending request and sends the comment to it as feedback.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "Mark a spec task done, or send the agent's completion request back",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Decision",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CompletionDecisionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{spec_task_id}/design-reviews": {
             "get": {
                 "security": [
@@ -29386,24 +29432,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "cron",
-                "slack",
+                "gitlab",
                 "github",
                 "local",
                 "helix_events",
+                "webhook",
                 "email",
-                "gitlab",
-                "webhook"
+                "slack",
+                "cron"
             ],
             "x-enum-varnames": [
-                "KindCron",
-                "KindSlack",
+                "KindGitLab",
                 "KindGitHub",
                 "KindLocal",
                 "KindHelixEvents",
+                "KindWebhook",
                 "KindEmail",
-                "KindGitLab",
-                "KindWebhook"
+                "KindSlack",
+                "KindCron"
             ]
         },
         "transport.ResolvedActivation": {
@@ -30762,6 +30808,7 @@ const docTemplate = `{
                 "implementation_failed",
                 "pr_ready",
                 "pr_proposal",
+                "completion_request",
                 "org_message",
                 "ci_passed",
                 "ci_failed"
@@ -30773,6 +30820,7 @@ const docTemplate = `{
                 "AttentionEventImplementationFailed",
                 "AttentionEventPRReady",
                 "AttentionEventPRProposal",
+                "AttentionEventCompletionRequest",
                 "AttentionEventOrgMessage",
                 "AttentionEventCIPassed",
                 "AttentionEventCIFailed"
@@ -31950,6 +31998,18 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "types.CompletionDecisionRequest": {
+            "type": "object",
+            "properties": {
+                "comment": {
+                    "type": "string"
+                },
+                "decision": {
+                    "description": "\"approve\" or \"reject\"",
+                    "type": "string"
                 }
             }
         },
@@ -40086,6 +40146,13 @@ const docTemplate = `{
                 "completed_at": {
                     "type": "string"
                 },
+                "completion_request_summary": {
+                    "type": "string"
+                },
+                "completion_requested_at": {
+                    "description": "CompletionRequestedAt is set while the agent's request to mark the task\ndone (mark_task_complete) awaits the user's decision.",
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -41131,6 +41198,13 @@ const docTemplate = `{
                     ]
                 },
                 "completed_at": {
+                    "type": "string"
+                },
+                "completion_request_summary": {
+                    "type": "string"
+                },
+                "completion_requested_at": {
+                    "description": "CompletionRequestedAt is set while the agent's request to mark the task\ndone (mark_task_complete) awaits the user's decision.",
                     "type": "string"
                 },
                 "created_at": {

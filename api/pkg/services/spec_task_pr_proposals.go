@@ -564,12 +564,7 @@ func (s *PRProposalService) attachPR(ctx context.Context, p *types.SpecTaskPRPro
 		now := time.Now()
 		switch task.Status {
 		case types.TaskStatusImplementation, types.TaskStatusImplementationReview, types.TaskStatusDone:
-			task.Status = types.TaskStatusPullRequest
-			task.StatusUpdatedAt = &now
-			task.CompletedAt = nil
-			task.MergedToMain = false
-			task.MergedAt = nil
-			task.MergeCommitHash = ""
+			setTaskStatus(task, types.TaskStatusPullRequest, now)
 		}
 		if task.ImplementationApprovedBy == "" {
 			task.ImplementationApprovedBy = p.DecidedBy

@@ -292,6 +292,8 @@ func buildTitle(eventType types.AttentionEventType, task *types.SpecTask) string
 		return "Pull request ready"
 	case types.AttentionEventPRProposal:
 		return "Pull request awaiting approval"
+	case types.AttentionEventCompletionRequest:
+		return "Agent says the task is finished"
 	case types.AttentionEventCIPassed:
 		return "CI passed"
 	case types.AttentionEventCIFailed:
@@ -323,6 +325,8 @@ func buildDescription(eventType types.AttentionEventType, task *types.SpecTask) 
 		return fmt.Sprintf("Pull request opened for \"%s\" — awaiting merge", name)
 	case types.AttentionEventPRProposal:
 		return fmt.Sprintf("Agent working on \"%s\" wants to push a branch and open a pull request — approve or reject it", name)
+	case types.AttentionEventCompletionRequest:
+		return fmt.Sprintf("Agent says \"%s\" is finished — mark it done or send it back", name)
 	case types.AttentionEventCIPassed:
 		return fmt.Sprintf("CI passed for \"%s\"", name)
 	case types.AttentionEventCIFailed:
@@ -344,6 +348,8 @@ func eventEmoji(eventType types.AttentionEventType) string {
 		return "🔀"
 	case types.AttentionEventPRProposal:
 		return "🙋"
+	case types.AttentionEventCompletionRequest:
+		return "🏁"
 	case types.AttentionEventCIPassed:
 		return "✅"
 	default:

@@ -89,6 +89,7 @@ type ApprovalPromptData struct {
 	ApprovalComments      string   // Reviewer's comments when approving (may be empty)
 	ScreenshotBaseURL     string   // Raw content URL prefix for screenshots on helix-specs branch (empty if no external repo)
 	HasPullRequests       bool     // Project has an external repo, so work ships as agent-proposed pull requests
+	FinishGuidance        string   // How the task finishes (mark_task_complete)
 }
 
 // CommentPromptData contains data for design review comment prompts
@@ -192,7 +193,8 @@ git push origin helix-specs
 5. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
 {{if .HasPullRequests}}6. **Pull requests are opened only through ` + "`propose_pull_request`" + `** (never ` + "`gh pr create`" + `, the GitHub API or GitHub MCP tools). Helix never opens one on its own: when work is ready for review, push it and propose the pull request; the user approves each proposal (see "Pull Requests" below).
 {{else}}6. **Do NOT create pull requests yourself** (no ` + "`gh pr create`" + `, no GitHub MCP tools). Pushing to the branch is sufficient; the user lands your branch from Helix.
-{{end}}
+{{end}}7. {{.FinishGuidance}}
+
 ## How Pushing Works (Read This Before Debugging Any Push Failure)
 
 ` + "`origin`" + ` in every repo under ` + "`/home/retro/work/`" + ` points at the Helix-hosted intermediate git server over HTTPS. Credentials come from ` + "`~/.git-credentials`" + ` via the ` + "`store`" + ` credential helper. There is no SSH, no SSH agent, no SSH keys, and no GitHub CLI in this environment. The Helix API relays your pushes to the external GitHub/GitLab/ADO repo using the OAuth credential the user configured.
@@ -538,6 +540,7 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 
 	data := ApprovalPromptData{
 		HasPullRequests:       hasPullRequests,
+		FinishGuidance:        MarkTaskCompleteGuidance(hasPullRequests),
 		Guidelines:            guidelinesSection,
 		KoditSection:          koditSection,
 		AgentToolsSection:     agentToolsSection,

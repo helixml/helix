@@ -3738,24 +3738,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - cron
-    - slack
+    - gitlab
     - github
     - local
     - helix_events
-    - email
-    - gitlab
     - webhook
+    - email
+    - slack
+    - cron
     type: string
     x-enum-varnames:
-    - KindCron
-    - KindSlack
+    - KindGitLab
     - KindGitHub
     - KindLocal
     - KindHelixEvents
-    - KindEmail
-    - KindGitLab
     - KindWebhook
+    - KindEmail
+    - KindSlack
+    - KindCron
   transport.ResolvedActivation:
     properties:
       address:
@@ -4745,6 +4745,7 @@ definitions:
     - implementation_failed
     - pr_ready
     - pr_proposal
+    - completion_request
     - org_message
     - ci_passed
     - ci_failed
@@ -4756,6 +4757,7 @@ definitions:
     - AttentionEventImplementationFailed
     - AttentionEventPRReady
     - AttentionEventPRProposal
+    - AttentionEventCompletionRequest
     - AttentionEventOrgMessage
     - AttentionEventCIPassed
     - AttentionEventCIFailed
@@ -5664,6 +5666,14 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  types.CompletionDecisionRequest:
+    properties:
+      comment:
+        type: string
+      decision:
+        description: '"approve" or "reject"'
+        type: string
     type: object
   types.ContainerDiskUsage:
     properties:
@@ -11745,6 +11755,13 @@ definitions:
           task start.
       completed_at:
         type: string
+      completion_request_summary:
+        type: string
+      completion_requested_at:
+        description: |-
+          CompletionRequestedAt is set while the agent's request to mark the task
+          done (mark_task_complete) awaits the user's decision.
+        type: string
       created_at:
         type: string
       created_by:
@@ -12546,6 +12563,13 @@ definitions:
         description: Legacy migration source; cleared together with HelixAppID on
           task start.
       completed_at:
+        type: string
+      completion_request_summary:
+        type: string
+      completion_requested_at:
+        description: |-
+          CompletionRequestedAt is set while the agent's request to mark the task
+          done (mark_task_complete) awaits the user's decision.
         type: string
       created_at:
         type: string
@@ -27889,6 +27913,37 @@ paths:
       security:
       - BearerAuth: []
       summary: Approve implementation and merge to main
+      tags:
+      - spec-tasks
+  /api/v1/spec-tasks/{spec_task_id}/completion/decide:
+    post:
+      consumes:
+      - application/json
+      description: Approving moves the task to done (which stops its desktop), whether
+        or not the agent asked to finish with mark_task_complete. Rejecting clears
+        the agent's pending request and sends the comment to it as feedback.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CompletionDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+      security:
+      - BearerAuth: []
+      summary: Mark a spec task done, or send the agent's completion request back
       tags:
       - spec-tasks
   /api/v1/spec-tasks/{spec_task_id}/design-reviews:

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -116,4 +117,53 @@ func (s *HelixAPIServer) authorizedSpecTaskForProposals(w http.ResponseWriter, r
 		return nil, false
 	}
 	return task, true
+}
+
+// reopenDoneTaskForAgentStart moves a done spec task back to work before its
+// agent's desktop starts; left done, the desktop would be stopped on the
+// task's next update.
+func (s *HelixAPIServer) reopenDoneTaskForAgentStart(ctx context.Context, specTaskID string) error {
+	if specTaskID == "" || s.prProposals == nil {
+		return nil
+	}
+	if err := s.prProposals.ReopenForAgent(ctx, specTaskID); err != nil {
+		return fmt.Errorf("reopen done task %s: %w", specTaskID, err)
+	}
+	return nil
+}
+
+// decideSpecTaskCompletion godoc
+// @Summary Mark a spec task done, or send the agent's completion request back
+// @Description Approving moves the task to done (which stops its desktop), whether or not the agent asked to finish with mark_task_complete. Rejecting clears the agent's pending request and sends the comment to it as feedback.
+// @Tags spec-tasks
+// @Accept json
+// @Produce json
+// @Param spec_task_id path string true "SpecTask ID"
+// @Param request body types.CompletionDecisionRequest true "Decision"
+// @Success 200 {object} types.SpecTask
+// @Router /api/v1/spec-tasks/{spec_task_id}/completion/decide [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) decideSpecTaskCompletion(w http.ResponseWriter, r *http.Request) {
+	task, ok := s.authorizedSpecTaskForProposals(w, r, types.ActionUpdate)
+	if !ok {
+		return
+	}
+	var req types.CompletionDecisionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrResponse(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+		return
+	}
+	updated, err := s.prProposals.DecideCompletion(r.Context(), getRequestUser(r), task.ID, &req)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrPRProposalInvalid):
+			writeErrResponse(w, err, http.StatusBadRequest)
+		case errors.Is(err, services.ErrPRProposalConflict):
+			writeErrResponse(w, err, http.StatusConflict)
+		default:
+			writeErrResponse(w, err, http.StatusInternalServerError)
+		}
+		return
+	}
+	writeResponse(w, updated, http.StatusOK)
 }

@@ -2413,14 +2413,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindCron = "cron",
-  KindSlack = "slack",
+  KindGitLab = "gitlab",
   KindGitHub = "github",
   KindLocal = "local",
   KindHelixEvents = "helix_events",
-  KindEmail = "email",
-  KindGitLab = "gitlab",
   KindWebhook = "webhook",
+  KindEmail = "email",
+  KindSlack = "slack",
+  KindCron = "cron",
 }
 
 export interface TransportResolvedActivation {
@@ -3032,6 +3032,7 @@ export enum TypesAttentionEventType {
   AttentionEventImplementationFailed = "implementation_failed",
   AttentionEventPRReady = "pr_ready",
   AttentionEventPRProposal = "pr_proposal",
+  AttentionEventCompletionRequest = "completion_request",
   AttentionEventOrgMessage = "org_message",
   AttentionEventCIPassed = "ci_passed",
   AttentionEventCIFailed = "ci_failed",
@@ -3622,6 +3623,12 @@ export interface TypesCommentQueueStatusResponse {
   planning_session_id?: string;
   /** Comments waiting in queue */
   queued_comment_ids?: string[];
+}
+
+export interface TypesCompletionDecisionRequest {
+  comment?: string;
+  /** "approve" or "reject" */
+  decision?: string;
 }
 
 export interface TypesContainerDiskUsage {
@@ -7483,6 +7490,12 @@ export interface TypesSpecTask {
   /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
+  completion_request_summary?: string;
+  /**
+   * CompletionRequestedAt is set while the agent's request to mark the task
+   * done (mark_task_complete) awaits the user's decision.
+   */
+  completion_requested_at?: string;
   created_at?: string;
   /** Metadata */
   created_by?: string;
@@ -7947,6 +7960,12 @@ export interface TypesSpecTaskWithProject {
   /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
+  completion_request_summary?: string;
+  /**
+   * CompletionRequestedAt is set while the agent's request to mark the task
+   * done (mark_task_complete) awaits the user's decision.
+   */
+  completion_requested_at?: string;
   created_at?: string;
   /** Metadata */
   created_by?: string;
@@ -18985,6 +19004,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${specTaskId}/approve-implementation`,
         method: "POST",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Approving moves the task to done (which stops its desktop), whether or not the agent asked to finish with mark_task_complete. Rejecting clears the agent's pending request and sends the comment to it as feedback.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksCompletionDecideCreate
+     * @summary Mark a spec task done, or send the agent's completion request back
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/completion/decide
+     * @secure
+     */
+    v1SpecTasksCompletionDecideCreate: (
+      specTaskId: string,
+      request: TypesCompletionDecisionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTask, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/completion/decide`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

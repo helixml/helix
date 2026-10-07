@@ -23,3 +23,5 @@ Pull requests this task already has (pushing to an open one's branch updates it;
 {{- end }}
 
 You will get a message in this session when the user approves or rejects each proposal. Do not create pull requests any other way.
+
+This task is not finished when its pull requests merge: once they are merged and nothing else is needed, call `mark_task_complete` with a summary. Until then, tell the user which pull requests are waiting to be merged.

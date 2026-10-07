@@ -85,6 +85,13 @@ func TestBuildPlanningPrompt_HelixSkills(t *testing.T) {
 	}
 }
 
+func TestBuildPlanningPrompt_NoCodeTasksCanFinish(t *testing.T) {
+	task := &types.SpecTask{ID: "spt_test", ProjectID: "prj_test", Name: "x", DesignDocPath: "000001_x"}
+	if out := BuildPlanningPrompt(task, "", "", "", "", ""); !strings.Contains(out, "`mark_task_complete`") {
+		t.Error("planning prompt must tell research-only tasks how to finish")
+	}
+}
+
 func TestBuildJustDoItPrompt_HelixSkills(t *testing.T) {
 	out := buildJustDoItPrompt("do x", "", "repo", "", "", "", "")
 
