@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
@@ -142,9 +143,17 @@ type fakeProvider struct {
 	createErr error
 	oauthErr  error
 	nextPR    int
+	// onCreate, if set, runs inside CreatePullRequest (e.g. to pause it).
+	onCreate func()
+	locks    sync.Map // key -> *sync.Mutex, like GitRepositoryService
 }
 
-func (f *fakeProvider) WithRepoLock(_ string, fn func() error) error { return fn() }
+func (f *fakeProvider) WithRepoLock(key string, fn func() error) error {
+	m, _ := f.locks.LoadOrStore(key, &sync.Mutex{})
+	m.(*sync.Mutex).Lock()
+	defer m.(*sync.Mutex).Unlock()
+	return fn()
+}
 func (f *fakeProvider) PushBranchToRemote(_ context.Context, _ string, branch string, _ bool, _ ...string) error {
 	f.pushed = append(f.pushed, branch)
 	return nil
@@ -157,6 +166,9 @@ func (f *fakeProvider) GetPullRequest(_ context.Context, _ string, id string) (*
 	return &types.PullRequest{ID: id, Number: n, URL: "https://github.example/pull/" + id, State: types.PullRequestStateOpen}, nil
 }
 func (f *fakeProvider) CreatePullRequest(_ context.Context, _ string, title, _, head, _ string, _ string) (string, error) {
+	if f.onCreate != nil {
+		f.onCreate()
+	}
 	if f.createErr != nil {
 		return "", f.createErr
 	}
@@ -562,4 +574,41 @@ func (s *PRProposalSuite) TestRejectingIgnoresAutoApproveFuture() {
 	})
 	s.Require().NoError(err)
 	s.False(s.task("spt_1").AutoApprovePullRequests)
+}
+
+// A reject that arrives while the pull request is being opened must not leave
+// it open upstream with the proposal rejected and the task not tracking it.
+func (s *PRProposalSuite) TestRejectDuringOpenWaitsAndIsRefused() {
+	p, err := s.propose(ProposePRInput{Title: "Slice 1"})
+	s.Require().NoError(err)
+
+	creating, release := make(chan struct{}), make(chan struct{})
+	s.provider.onCreate = func() {
+		close(creating)
+		<-release
+	}
+	approved := make(chan error, 1)
+	go func() {
+		_, err := s.svc.Decide(s.ctx, s.user, p.ID, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove})
+		approved <- err
+	}()
+	<-creating // the PR is being created upstream
+
+	rejected := make(chan error, 1)
+	go func() {
+		_, err := s.svc.Decide(s.ctx, s.user, p.ID, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionReject})
+		rejected <- err
+	}()
+	select {
+	case err := <-rejected:
+		s.FailNow("reject did not wait for the open to finish", "err=%v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+
+	s.Require().NoError(<-approved)
+	s.ErrorIs(<-rejected, ErrPRProposalConflict)
+	got, _ := s.store.GetSpecTaskPRProposal(s.ctx, p.ID)
+	s.Equal(types.PRProposalStatusOpened, got.Status)
+	s.Require().Len(s.task("spt_1").RepoPullRequests, 1, "the opened PR is tracked on the task")
 }

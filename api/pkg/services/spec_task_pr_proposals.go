@@ -231,17 +231,33 @@ func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *
 
 	switch req.Decision {
 	case types.PRProposalDecisionReject:
-		if from == types.PRProposalStatusOpened || from == types.PRProposalStatusRejected {
-			return nil, conflictingProposal("proposal is already %s", from)
-		}
-		p.Status = types.PRProposalStatusRejected
-		p.DecidedBy, p.DecidedAt, p.DecisionComment = user.ID, &now, req.Comment
-		ok, err := s.store.UpdateSpecTaskPRProposal(ctx, p, from)
+		// Under tryOpen's lock: a reject racing an open would otherwise leave
+		// the PR open upstream with the proposal rejected and the task not
+		// tracking it. Either the reject lands first and nothing opens, or the
+		// PR is opened and tracked and the reject is refused.
+		err := s.git.WithRepoLock("pr-proposal:"+p.ID, func() error {
+			cur, err := s.store.GetSpecTaskPRProposal(ctx, p.ID)
+			if err != nil {
+				return err
+			}
+			from := cur.Status
+			if from == types.PRProposalStatusOpened || from == types.PRProposalStatusRejected {
+				return conflictingProposal("proposal is already %s", from)
+			}
+			cur.Status = types.PRProposalStatusRejected
+			cur.DecidedBy, cur.DecidedAt, cur.DecisionComment = user.ID, &now, req.Comment
+			ok, err := s.store.UpdateSpecTaskPRProposal(ctx, cur, from)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return conflictingProposal("proposal changed while deciding; reload and try again")
+			}
+			p = cur
+			return nil
+		})
 		if err != nil {
 			return nil, err
-		}
-		if !ok {
-			return nil, conflictingProposal("proposal changed while deciding; reload and try again")
 		}
 		s.dismissApprovalRequest(ctx, p)
 		s.notifyAgent(ctx, task, p, user, nil)
