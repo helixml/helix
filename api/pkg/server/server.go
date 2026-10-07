@@ -975,6 +975,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	adminRouter := authRouter.MatcherFunc(matchAllRoutes).Subrouter()
 	adminRouter.Use(requireAdmin)
 
+	// admin-or-runner router: infrastructure reads/ops shared by the admin UI
+	// and sandbox hosts (which authenticate with the runner token)
+	adminOrRunnerRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
+	adminOrRunnerRouter.Use(requireAdminOrRunner)
+
 	// helix-org: register the helix-org HTTP surface. All of its routing +
 	// lifecycle wiring lives in registerHelixOrgRoutes (helix_org.go).
 	// Route registration does not depend on a deployment-wide service user.
@@ -1252,12 +1257,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspaces", apiServer.getExternalAgentWorkspaces).Methods("GET") // List git workspaces in container
 
 	// Sandbox instance registry routes (multi-sandbox support)
-	authRouter.HandleFunc("/sandboxes/register", apiServer.registerSandbox).Methods("POST")
-	authRouter.HandleFunc("/sandboxes/{id}/heartbeat", apiServer.sandboxHeartbeat).Methods("POST")
-	authRouter.HandleFunc("/sandboxes/{id}/disk-history", apiServer.getDiskUsageHistory).Methods("GET")
-	authRouter.HandleFunc("/sandboxes/{id}/containers/{session_id}/blkio", apiServer.getContainerBlkioStats).Methods("GET")
-	authRouter.HandleFunc("/sandboxes", apiServer.listSandboxes).Methods("GET")
-	authRouter.HandleFunc("/sandboxes/{id}", apiServer.deregisterSandbox).Methods("DELETE")
+	apiServer.registerSandboxRegistryRoutes(authRouter, runnerRouter, adminOrRunnerRouter)
 	// Reverse dial endpoint for user sandboxes (spec tasks, PDEs)
 	// Accepts user API tokens with session ownership validation
 	authRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
