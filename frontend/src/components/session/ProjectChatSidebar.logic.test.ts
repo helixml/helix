@@ -5,6 +5,7 @@ import type { SpecTask } from '../../services/specTaskService'
 import {
   buildProjectChatGroups,
   ALL_PROJECTS_FILTER,
+  ALL_USERS_FILTER,
   clampVisibleThreadCount,
   collapsedGroupsStorageKey,
   compactRelativeTime,
@@ -23,7 +24,9 @@ import {
   parseSidebarPreferences,
   parseSidebarParticipantIds,
   parseSidebarProjectFilter,
+  parseSidebarUserFilter,
   resolveSidebarProjectFilter,
+  resolveSidebarUserFilter,
   reorderProjectIds,
   serializeCollapsedGroupIds,
   serializeSidebarPreferences,
@@ -32,6 +35,7 @@ import {
   sidebarPreferencesStorageKey,
   sidebarExpandedPeopleStorageKey,
   sidebarProjectFilterStorageKey,
+  sidebarUserFilterStorageKey,
   sortSidebarProjects,
   specTaskSortKey,
 } from './ProjectChatSidebar.logic'
@@ -240,6 +244,19 @@ describe('ProjectChatSidebar logic', () => {
     expect(parseSidebarProjectFilter(' project-one ')).toBe('project-one')
     expect(resolveSidebarProjectFilter('project-one', projects)).toBe('project-one')
     expect(resolveSidebarProjectFilter('deleted-project', projects)).toBe(ALL_PROJECTS_FILTER)
+  })
+
+  it('persists the user filter per organization', () => {
+    expect(sidebarUserFilterStorageKey('org-one'))
+      .toBe('helix:project-chat-sidebar:user-filter:org-one')
+    expect(parseSidebarUserFilter(null)).toBe(ALL_USERS_FILTER)
+    expect(parseSidebarUserFilter('')).toBe(ALL_USERS_FILTER)
+    expect(parseSidebarUserFilter(' user-one ')).toBe('user-one')
+    const memberUserIds = new Set(['user-one', 'user-two'])
+    expect(resolveSidebarUserFilter(ALL_USERS_FILTER, memberUserIds)).toBe(ALL_USERS_FILTER)
+    expect(resolveSidebarUserFilter('user-one', memberUserIds)).toBe('user-one')
+    expect(resolveSidebarUserFilter('former-member', memberUserIds)).toBe(ALL_USERS_FILTER)
+    expect(resolveSidebarUserFilter('former-member', new Set())).toBe(ALL_USERS_FILTER)
   })
 
   it('sorts projects by activity, creation, and persisted manual order', () => {

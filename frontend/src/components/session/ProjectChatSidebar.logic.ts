@@ -103,6 +103,26 @@ export const resolveSidebarProjectFilter = (
     : ALL_PROJECTS_FILTER
 )
 
+export const ALL_USERS_FILTER = 'all-users'
+
+// Whose chats and tasks the project view lists: everyone's, or one member's.
+export const sidebarUserFilterStorageKey = (orgId: string): string => (
+  `helix:project-chat-sidebar:user-filter:${orgId}`
+)
+
+export const parseSidebarUserFilter = (storedValue: string | null): string => (
+  storedValue?.trim() || ALL_USERS_FILTER
+)
+
+export const resolveSidebarUserFilter = (
+  userId: string,
+  memberUserIds: ReadonlySet<string>,
+): string => (
+  userId === ALL_USERS_FILTER || memberUserIds.has(userId)
+    ? userId
+    : ALL_USERS_FILTER
+)
+
 export const parseSidebarParticipantIds = (storedValue: string | null): string[] | null => {
   if (storedValue === null) return null
   try {
