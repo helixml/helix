@@ -328,32 +328,21 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   // Query sandboxes to determine which desktop types are available
   const apiHook = useApi()
-  const { data: sandboxInstances } = useQuery({
-    queryKey: ['sandbox-instances-desktop-types'],
+  const { data: sandboxDesktopTypes } = useQuery({
+    queryKey: ['sandbox-desktop-types'],
     queryFn: async () => {
-      const response = await apiHook.getApiClient().v1SandboxesList()
+      const response = await apiHook.getApiClient().v1SandboxDesktopTypesList()
       return response.data
     },
     staleTime: 60000,
   })
 
   const availableDesktopTypes = useMemo(() => {
-    const types = new Set<string>()
-    if (sandboxInstances) {
-      for (const sandbox of sandboxInstances) {
-        // desktop_versions is Record<string, string> from the API but typed as number[] due to codegen bug
-        const versions = sandbox.desktop_versions as unknown as Record<string, string> | undefined
-        if (versions) {
-          for (const key of Object.keys(versions)) {
-            types.add(key)
-          }
-        }
-      }
-    }
+    const types = new Set<string>(sandboxDesktopTypes ?? [])
     // Always include ubuntu as it's the default
     types.add('ubuntu')
     return types
-  }, [sandboxInstances])
+  }, [sandboxDesktopTypes])
 
   // Update local state ONLY on initial mount, not when app prop changes
   useEffect(() => {

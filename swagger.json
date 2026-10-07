@@ -16930,6 +16930,34 @@
                 }
             }
         },
+        "/api/v1/sandbox-desktop-types": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Desktop types (e.g. ubuntu, sway) offered by registered sandboxes",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sandbox"
+                ],
+                "summary": "List available sandbox desktop types",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sandbox-runtimes": {
             "get": {
                 "security": [
@@ -29286,24 +29314,24 @@
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "cron",
-                "email",
-                "local",
+                "helix_events",
                 "gitlab",
-                "webhook",
-                "github",
                 "slack",
-                "helix_events"
+                "github",
+                "local",
+                "webhook",
+                "cron",
+                "email"
             ],
             "x-enum-varnames": [
-                "KindCron",
-                "KindEmail",
-                "KindLocal",
+                "KindHelixEvents",
                 "KindGitLab",
-                "KindWebhook",
-                "KindGitHub",
                 "KindSlack",
-                "KindHelixEvents"
+                "KindGitHub",
+                "KindLocal",
+                "KindWebhook",
+                "KindCron",
+                "KindEmail"
             ]
         },
         "transport.ResolvedActivation": {
