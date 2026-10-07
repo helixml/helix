@@ -758,7 +758,7 @@ type Store interface {
 	GetCloneGroup(ctx context.Context, id string) (*types.CloneGroup, error)
 	ListCloneGroupsForTask(ctx context.Context, taskID string) ([]*types.CloneGroup, error)
 	GetCloneGroupProgress(ctx context.Context, groupID string) (*types.CloneGroupProgress, error)
-	ListReposWithoutProjects(ctx context.Context, organizationID string) ([]*types.GitRepository, error)
+	ListReposWithoutProjects(ctx context.Context, organizationID, ownerID string) ([]*types.GitRepository, error)
 
 	// Agent runner methods
 	CreateAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)

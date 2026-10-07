@@ -355,12 +355,37 @@ func (s *HelixAPIServer) getCloneGroupProgress(w http.ResponseWriter, r *http.Re
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) listReposWithoutProjects(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	user := getRequestUser(r)
 	orgID := r.URL.Query().Get("organization_id")
 
-	repos, err := s.Store.ListReposWithoutProjects(ctx, orgID)
+	// Mirrors listGitRepositories: an org scope requires membership, and
+	// without one the list is confined to the caller's own repositories.
+	var ownerID string
+	isOrgOwner := false
+	if orgID != "" {
+		org, err := s.lookupOrg(ctx, orgID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusNotFound)
+			return
+		}
+		orgID = org.ID
+		membership, err := s.authorizeOrgMember(ctx, user, orgID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+		isOrgOwner = membership.Role == types.OrganizationRoleOwner
+	} else if !isAdmin(user) {
+		ownerID = user.ID
+	}
+
+	repos, err := s.Store.ListReposWithoutProjects(ctx, orgID, ownerID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to list repositories: %v", err), http.StatusInternalServerError)
 		return
+	}
+	if !isAdmin(user) && !isOrgOwner {
+		repos = s.filterReadableRepositories(ctx, user, repos)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
