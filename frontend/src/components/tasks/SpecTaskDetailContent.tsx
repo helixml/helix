@@ -2539,13 +2539,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const prProposalHeader =
     task?.id && actionablePRProposals.length > 0 ? (
       <>
-        {actionablePRProposals.map((proposal, idx) => (
-          <PRProposalCard
-            key={proposal.id}
-            specTaskId={task.id!}
-            proposal={proposal}
-            attachedAbove={idx > 0}
-          />
+        {actionablePRProposals.map((proposal) => (
+          <PRProposalCard key={proposal.id} specTaskId={task.id!} proposal={proposal} />
         ))}
       </>
     ) : undefined;
@@ -2826,7 +2821,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     />
                   )}
                   footerContent={taskChatMetadata}
-                  composerHeader={prProposalHeader}
+                  actionCards={prProposalHeader}
                   placeholder={
                     sessionData?.config?.paused
                       ? "This session is paused — open the forked child to keep chatting"
@@ -3167,7 +3162,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     />
                   )}
                   footerContent={taskChatMetadata}
-                  composerHeader={prProposalHeader}
+                  actionCards={prProposalHeader}
                   placeholder={
                     sessionData?.config?.paused
                       ? "This session is paused — open the forked child to keep chatting"

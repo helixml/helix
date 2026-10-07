@@ -38,11 +38,9 @@ const { PRProposalStatusPending, PRProposalStatusApproved, PRProposalStatusFaile
 export default function PRProposalCard({
   specTaskId,
   proposal,
-  attachedAbove = false,
 }: {
   specTaskId: string;
   proposal: TypesSpecTaskPRProposal;
-  attachedAbove?: boolean;
 }) {
   const theme = useTheme();
   const colors = getChatColors(theme);
@@ -145,10 +143,10 @@ export default function PRProposalCard({
         position: "relative",
         zIndex: 0,
         overflow: "hidden",
+        flexShrink: 0,
         border: "1px solid",
-        borderBottom: 0,
         borderColor: colors.border,
-        borderRadius: attachedAbove ? 0 : "20px 20px 0 0",
+        borderRadius: "16px",
         backgroundColor: colors.composerSurface,
         color: colors.foreground,
       }}

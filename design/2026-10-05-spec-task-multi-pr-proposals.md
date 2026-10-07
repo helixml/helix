@@ -24,8 +24,8 @@ pending ─approve─▶ approved ─(branch has commits beyond base)─▶ open
   agent; identity = the session's owner + `session.Metadata.SpecTaskID`). Head
   defaults to the task branch, base to `TaskTargetBranch`. `list_pull_request_proposals`
   shows state. Re-proposing a pending head updates it in place.
-- **User** sees a card above the chat composer (same affordance as agent
-  questions), can edit head/base/title/body and add a note, then approves or
+- **User** sees a card at the end of the chat thread (alongside agent
+  questions; both scroll with the thread so any number stay reachable), can edit head/base/title/body and add a note, then approves or
   rejects. A `pr_proposal` attention event (Needs Attention / Slack) is raised and
   dismissed on decision. When a proposal needs the user (pending, or failed), the task view
   opens the chat panel once per proposal: it expands a collapsed chat on wide

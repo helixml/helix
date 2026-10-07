@@ -60,8 +60,11 @@ vi.mock("../common/RobustPromptInput", () => ({
 }));
 
 vi.mock("./EmbeddedSessionView", () => ({
-  default: React.forwardRef(function EmbeddedSessionView() {
-    return <div data-testid="session-view" />;
+  default: React.forwardRef(function EmbeddedSessionView(
+    { trailingContent }: { trailingContent?: React.ReactNode },
+    _ref,
+  ) {
+    return <div data-testid="session-view">{trailingContent}</div>;
   }),
 }));
 
@@ -78,15 +81,29 @@ vi.mock("./useSessionPromptQueue", () => ({
 }));
 
 describe("AgentChat pending question placement", () => {
-  it("attaches the pending question immediately above the composer", () => {
+  it("puts the pending question at the end of the scrolling thread", () => {
     render(<AgentChat sessionId="session-1" />);
 
     const question = screen.getByTestId("pending-question");
-    const composer = screen.getByTestId("composer");
+    expect(screen.getByTestId("session-view")).toContainElement(question);
+    expect(screen.getByTestId("composer")).toHaveAttribute(
+      "data-has-attached-header",
+      "false",
+    );
+  });
 
-    expect(question.compareDocumentPosition(composer)).toBe(
+  it("puts action cards in the thread, before the pending question", () => {
+    render(
+      <AgentChat
+        sessionId="session-1"
+        actionCards={<div data-testid="pr-proposal" />}
+      />,
+    );
+
+    const card = screen.getByTestId("pr-proposal");
+    expect(screen.getByTestId("session-view")).toContainElement(card);
+    expect(card.compareDocumentPosition(screen.getByTestId("pending-question"))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(composer).toHaveAttribute("data-has-attached-header", "true");
   });
 });

@@ -34,8 +34,8 @@ interface AgentChatProps {
   appendText?: string
   leadingActions?: ReactNode
   footerContent?: ReactNode
-  /** Requests attached above the composer (e.g. PR proposals awaiting approval). */
-  composerHeader?: ReactNode
+  /** Requests shown after the last message (e.g. PR proposals awaiting approval). */
+  actionCards?: ReactNode
   reviewComments?: readonly WorkspaceReviewComment[]
   onRemoveReviewComment?: (commentId: string) => void
   onReviewCommentsSent?: () => void
@@ -69,7 +69,7 @@ const AgentChat: FC<AgentChatProps> = ({
   appendText,
   leadingActions,
   footerContent,
-  composerHeader,
+  actionCards,
   reviewComments,
   onRemoveReviewComment,
   onReviewCommentsSent,
@@ -214,7 +214,7 @@ const AgentChat: FC<AgentChatProps> = ({
       onRemoveReviewComment={onRemoveReviewComment}
       onReviewCommentsSent={onReviewCommentsSent}
       hasAttachedHeader={
-        !!pendingQuestion || (showComposerPlan && composerPlanExpanded) || hasSessionQueue || !!composerHeader
+        (showComposerPlan && composerPlanExpanded) || hasSessionQueue
       }
     />
   )
@@ -262,6 +262,19 @@ const AgentChat: FC<AgentChatProps> = ({
           enableInteractionDebugCopy={enableInteractionDebugCopy}
           minimal={minimal}
           hasBriefingTurn={hasBriefingTurn}
+          trailingContent={
+            actionCards || (pendingQuestion && latestInteractionId) ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {actionCards}
+                {pendingQuestion && latestInteractionId && (
+                  <PendingQuestionCard
+                    interactionId={latestInteractionId}
+                    pendingQuestion={pendingQuestion}
+                  />
+                )}
+              </Box>
+            ) : undefined
+          }
         />
       </Box>
 
@@ -300,14 +313,6 @@ const AgentChat: FC<AgentChatProps> = ({
                 entries={sessionQueue.entries}
                 onRemove={sessionQueue.remove}
                 onRestartAgent={sessionQueue.restartAgent}
-              />
-            )}
-            {composerHeader}
-            {pendingQuestion && latestInteractionId && (
-              <PendingQuestionCard
-                interactionId={latestInteractionId}
-                pendingQuestion={pendingQuestion}
-                attachedAbove={hasSessionQueue || (showComposerPlan && composerPlanExpanded) || !!composerHeader}
               />
             )}
             {composer}
