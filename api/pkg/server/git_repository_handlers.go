@@ -387,6 +387,16 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 		orgID = user.OrganizationID
 	}
 
+	// Without an org or project scope the list is confined to the caller's
+	// own repositories; only admins may list across tenants.
+	if orgID == "" && projectID == "" && !isAdmin(user) {
+		if ownerID != "" && ownerID != user.ID {
+			writeErrResponse(w, errors.New("cannot list another user's repositories"), http.StatusForbidden)
+			return
+		}
+		ownerID = user.ID
+	}
+
 	var orgMembership *types.OrganizationMembership
 	if orgID != "" {
 		var err error
@@ -434,20 +444,26 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 		repositories = filtered
 	}
 
-	// For org-scoped queries, filter repositories by authorization
-	// Org owners see all, others only see repos they have access to
-	if orgID != "" && orgMembership != nil && orgMembership.Role != types.OrganizationRoleOwner {
-		var authorizedRepos []*types.GitRepository
-		for _, repo := range repositories {
-			if err := s.authorizeUserToRepository(ctx, user, repo, types.ActionGet); err != nil {
-				continue
-			}
-			authorizedRepos = append(authorizedRepos, repo)
-		}
-		repositories = authorizedRepos
+	// Org owners see every repository in their org. Owner-scoped lists are
+	// filtered too, so repositories in orgs the caller has left drop out.
+	isOrgOwner := orgMembership != nil && orgMembership.Role == types.OrganizationRoleOwner
+	if !isAdmin(user) && !isOrgOwner && (orgID != "" || projectID == "") {
+		repositories = s.filterReadableRepositories(ctx, user, repositories)
 	}
 
 	writeResponseWithETag(w, r, redactGitRepositories(repositories))
+}
+
+// filterReadableRepositories returns the repositories the user may read.
+func (s *HelixAPIServer) filterReadableRepositories(ctx context.Context, user *types.User, repositories []*types.GitRepository) []*types.GitRepository {
+	readable := make([]*types.GitRepository, 0, len(repositories))
+	for _, repo := range repositories {
+		if err := s.authorizeUserToRepository(ctx, user, repo, types.ActionGet); err != nil {
+			continue
+		}
+		readable = append(readable, repo)
+	}
+	return readable
 }
 
 // createSampleRepository creates a sample/demo repository
