@@ -795,15 +795,18 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		"-qmp", fmt.Sprintf("tcp:localhost:%d,server,nowait", vm.config.QMPPort),
 	)
 
-	// Find QEMU binary: bundled in app > system PATH
 	qemuPath := vm.findQEMUBinary()
 	if qemuPath == "" {
-		vm.setError(fmt.Errorf("QEMU not found. Install via 'brew install qemu' or use the bundled app"))
+		vm.setError(fmt.Errorf("QEMU not found in the app bundle (%q); reinstall Helix", vm.getAppBundlePath()))
+		return
+	}
+	if _, err := os.Stat(renderServerPath(qemuPath)); err != nil {
+		vm.setError(fmt.Errorf("virgl_render_server missing next to %s (needed for GPU): %w", qemuPath, err))
 		return
 	}
 
 	vm.cmd = exec.CommandContext(ctx, qemuPath, args...)
-	vm.cmd.Env = vm.buildQEMUEnv()
+	vm.cmd.Env = vm.buildQEMUEnv(qemuPath)
 	// Place QEMU in its own process group so ForceStop can kill the whole group.
 	vm.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
@@ -1634,6 +1637,31 @@ func (vm *VMManager) Stop() error {
 	return nil
 }
 
+// Shutdown powers the guest down cleanly (ACPI, like pressing the power button)
+// so Docker, ZFS and the writeback-cached disks are flushed, then kills
+// whatever is left. If the guest hasn't powered off within timeout, it is
+// killed anyway: quitting must never hang or leave QEMU running.
+func (vm *VMManager) Shutdown(timeout time.Duration) {
+	if vm.cmd != nil && vm.cmd.Process != nil {
+		pid := vm.cmd.Process.Pid
+		if err := vm.sendQMPCommand("system_powerdown"); err != nil {
+			log.Printf("Shutdown: QMP system_powerdown failed (%v), killing QEMU", err)
+		} else {
+			log.Printf("Shutdown: powering the VM down (up to %s)...", timeout)
+			start := time.Now()
+			for time.Since(start) < timeout && syscall.Kill(pid, 0) == nil {
+				time.Sleep(200 * time.Millisecond)
+			}
+			if syscall.Kill(pid, 0) == nil {
+				log.Printf("Shutdown: VM still running after %s, killing QEMU", timeout)
+			} else {
+				log.Printf("Shutdown: VM powered off after %s", time.Since(start).Round(100*time.Millisecond))
+			}
+		}
+	}
+	vm.ForceStop()
+}
+
 // ForceStop immediately kills the QEMU process regardless of VM state.
 // Called during app shutdown to ensure no orphaned QEMU process remains.
 // Unlike Stop(), it skips the graceful QMP shutdown and the 5-second grace period.
@@ -1715,10 +1743,14 @@ func (vm *VMManager) getAppBundlePath() string {
 
 // findQEMUBinary locates the QEMU binary. Search order:
 //  1. HELIX_QEMU_PATH environment variable (explicit override)
-//  2. Standalone dev QEMU: build/dev-qemu/qemu-system-aarch64
+//  2. Dev builds only: standalone dev QEMU build/dev-qemu/qemu-system-aarch64
 //     (signed independently — immune to wails dev breaking the app bundle seal)
-//  3. Bundled in app: Contents/MacOS/qemu-system-aarch64 (production mode)
-//  4. System PATH: qemu-system-aarch64
+//  3. Bundled in app: Contents/MacOS/qemu-system-aarch64
+//  4. Dev builds only: system PATH
+//
+// Release builds only ever run the bundled QEMU: a build/dev-qemu relative to
+// the launch directory, or a Homebrew QEMU on PATH, doesn't match the bundled
+// frameworks and render server.
 //
 // getGPUHostMem returns the hostmem size for virtio-gpu-gl-pci, scaled by
 // system RAM.
@@ -1760,18 +1792,21 @@ func (vm *VMManager) findQEMUBinary() string {
 		}
 	}
 
-	// Check standalone dev QEMU (signed independently of app bundle — works
-	// even when wails dev has broken the bundle's CodeResources seal)
-	devQemu := filepath.Join("build", "dev-qemu", "qemu-system-aarch64")
-	if _, err := os.Stat(devQemu); err == nil {
-		if abs, err := filepath.Abs(devQemu); err == nil {
-			log.Printf("Using dev QEMU: %s", abs)
-			return abs
+	dev := isDevMode()
+
+	// Standalone dev QEMU (signed independently of app bundle — works even
+	// when wails dev has broken the bundle's CodeResources seal)
+	if dev {
+		devQemu := filepath.Join("build", "dev-qemu", "qemu-system-aarch64")
+		if _, err := os.Stat(devQemu); err == nil {
+			if abs, err := filepath.Abs(devQemu); err == nil {
+				log.Printf("Using dev QEMU: %s", abs)
+				return abs
+			}
+			return devQemu
 		}
-		return devQemu
 	}
 
-	// Check app bundle (production mode — only reached when dev-qemu doesn't exist)
 	appPath := vm.getAppBundlePath()
 	if appPath != "" {
 		bundled := filepath.Join(appPath, "Contents", "MacOS", "qemu-system-aarch64")
@@ -1780,10 +1815,10 @@ func (vm *VMManager) findQEMUBinary() string {
 		}
 	}
 
-	// Fall back to system PATH
-	path, err := exec.LookPath("qemu-system-aarch64")
-	if err == nil {
-		return path
+	if dev {
+		if path, err := exec.LookPath("qemu-system-aarch64"); err == nil {
+			return path
+		}
 	}
 
 	return ""
@@ -1821,12 +1856,19 @@ func (vm *VMManager) findFirmware(name string) string {
 	return ""
 }
 
-// findVulkanICD locates the KosmicKrisp Vulkan ICD JSON. Search order:
-//  1. Bundled in app: Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json
-//  2. Build output: build/bin/Helix.app/Contents/Resources/vulkan/icd.d/... (dev mode)
-//  3. UTM.app: /Applications/UTM.app/Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json
+// findVulkanICD locates the ICD JSON of the host Vulkan driver behind Venus.
+// As in UTM (UTMQemuSystem.m setVulkanDriver), MoltenVK is the default and
+// KosmicKrisp is opt-in (HELIX_VULKAN_DRIVER=kosmickrisp). KosmicKrisp is not
+// usable with UTM's render server: it imports all host-visible memory from
+// host pointers, which KosmicKrisp only supports for buffers, so every Venus
+// image has no Metal texture and the render server crashes using it.
+// Search order: app bundle, build output (dev mode), /Applications/UTM.app.
 func (vm *VMManager) findVulkanICD() string {
-	icdRel := filepath.Join("vulkan", "icd.d", "kosmickrisp_mesa_icd.json")
+	icdName := "MoltenVK_icd.json"
+	if os.Getenv("HELIX_VULKAN_DRIVER") == "kosmickrisp" {
+		icdName = "kosmickrisp_mesa_icd.json"
+	}
+	icdRel := filepath.Join("vulkan", "icd.d", icdName)
 
 	// Check app bundle first
 	appPath := vm.getAppBundlePath()
@@ -1855,11 +1897,13 @@ func (vm *VMManager) findVulkanICD() string {
 	return ""
 }
 
+// renderServerPath is the virgl_render_server shipped next to the QEMU binary.
+func renderServerPath(qemuPath string) string {
+	return filepath.Join(filepath.Dir(qemuPath), "virgl_render_server")
+}
+
 // buildQEMUEnv returns the environment variables for the QEMU process.
-// Sets VK_DRIVER_FILES to use KosmicKrisp (Mesa Vulkan) instead of MoltenVK.
-// KosmicKrisp produces dramatically better rendering quality under concurrent
-// GNOME sessions with virglrenderer's Venus Vulkan path.
-func (vm *VMManager) buildQEMUEnv() []string {
+func (vm *VMManager) buildQEMUEnv(qemuPath string) []string {
 	// Start with inherited environment but override HOME to the Helix data dir.
 	// Glib's g_get_home_dir() stat()s $HOME on init, which triggers the macOS
 	// TCC "access data from other apps" dialog when $HOME is the real home dir.
@@ -1878,11 +1922,15 @@ func (vm *VMManager) buildQEMUEnv() []string {
 	// UTMQemuSystem.m's setRendererBackend().
 	env = append(env, "ANGLE_DEFAULT_PLATFORM=metal")
 
-	// Use KosmicKrisp Vulkan driver — check bundled location first, then UTM.app
 	icdPath := vm.findVulkanICD()
 	if icdPath != "" {
 		env = append(env, "VK_DRIVER_FILES="+icdPath)
 	}
+
+	// virglrenderer spawns a render server for Venus/Neptune contexts. Its
+	// compiled-in path points at UTM's build machine, so point it at the copy
+	// shipped next to QEMU, as UTM's QEMUHelper does.
+	env = append(env, "RENDER_SERVER_EXEC_PATH="+renderServerPath(qemuPath))
 
 	return env
 }

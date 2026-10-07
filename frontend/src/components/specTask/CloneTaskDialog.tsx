@@ -24,6 +24,7 @@ import {
 import { Wand2, ChevronDown, ChevronRight, FolderGit2, Check, ExternalLink } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import useApi from '../../hooks/useApi';
+import useAccount from '../../hooks/useAccount';
 import { useCloneTask, useReposWithoutProjects, CloneTaskResponse } from '../../services/specTaskService';
 import { TypesProject, TypesGitRepository } from '../../api/api';
 import CloneGroupProgressFull from './CloneGroupProgress';
@@ -46,6 +47,8 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
   onCloneComplete,
 }) => {
   const api = useApi();
+  const account = useAccount();
+  const orgId = account.organizationTools.organization?.id;
   const cloneTaskMutation = useCloneTask();
 
   // Selected targets
@@ -84,7 +87,7 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
   }, [projectsData, sourceProjectId]);
 
   // Fetch repos without projects — only when the dialog is open
-  const { data: reposWithoutProjects, isLoading: loadingRepos } = useReposWithoutProjects(undefined, open);
+  const { data: reposWithoutProjects, isLoading: loadingRepos } = useReposWithoutProjects(orgId, open);
 
   // Filtered projects based on search
   const filteredProjects = useMemo(() => {

@@ -5383,18 +5383,18 @@ func (mr *MockStoreMockRecorder) ListProviderEndpoints(ctx, q any) *gomock.Call 
 }
 
 // ListReposWithoutProjects mocks base method.
-func (m *MockStore) ListReposWithoutProjects(ctx context.Context, organizationID string) ([]*types.GitRepository, error) {
+func (m *MockStore) ListReposWithoutProjects(ctx context.Context, organizationID, ownerID string) ([]*types.GitRepository, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListReposWithoutProjects", ctx, organizationID)
+	ret := m.ctrl.Call(m, "ListReposWithoutProjects", ctx, organizationID, ownerID)
 	ret0, _ := ret[0].([]*types.GitRepository)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListReposWithoutProjects indicates an expected call of ListReposWithoutProjects.
-func (mr *MockStoreMockRecorder) ListReposWithoutProjects(ctx, organizationID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ListReposWithoutProjects(ctx, organizationID, ownerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListReposWithoutProjects", reflect.TypeOf((*MockStore)(nil).ListReposWithoutProjects), ctx, organizationID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListReposWithoutProjects", reflect.TypeOf((*MockStore)(nil).ListReposWithoutProjects), ctx, organizationID, ownerID)
 }
 
 // ListRoles mocks base method.

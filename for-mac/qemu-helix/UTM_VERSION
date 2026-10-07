@@ -1,0 +1,6 @@
+# The UTM release Helix for Mac follows. See README-QEMU-BUILD.md "Following UTM".
+# UTM_RELEASE: UTM.dmg we take frameworks + QEMURenderServer from.
+# UTM_COMMIT:  utmapp/UTM commit whose scripts build the sysroot QEMU compiles
+#              against. Must carry the same patches/sources pins as UTM_RELEASE.
+UTM_RELEASE=v5.0.6
+UTM_COMMIT=7eadb056ae0f91d979059544d0ddcd2d5a40be92
