@@ -2413,14 +2413,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
+  KindHelixEvents = "helix_events",
+  KindGitLab = "gitlab",
+  KindSlack = "slack",
+  KindGitHub = "github",
+  KindLocal = "local",
+  KindWebhook = "webhook",
   KindCron = "cron",
   KindEmail = "email",
-  KindLocal = "local",
-  KindGitLab = "gitlab",
-  KindWebhook = "webhook",
-  KindGitHub = "github",
-  KindSlack = "slack",
-  KindHelixEvents = "helix_events",
 }
 
 export interface TransportResolvedActivation {
@@ -17457,6 +17457,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Desktop types (e.g. ubuntu, sway) offered by registered sandboxes
+     *
+     * @tags sandbox
+     * @name V1SandboxDesktopTypesList
+     * @summary List available sandbox desktop types
+     * @request GET:/api/v1/sandbox-desktop-types
+     * @secure
+     */
+    v1SandboxDesktopTypesList: (params: RequestParams = {}) =>
+      this.request<string[], any>({
+        path: `/api/v1/sandbox-desktop-types`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
