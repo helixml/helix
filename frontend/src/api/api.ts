@@ -2286,6 +2286,24 @@ export interface ServerOpenaiModelsResponse {
   object?: string;
 }
 
+export interface ServerOrgAPIKeyResponse {
+  app_id?: string;
+  created?: string;
+  /**
+   * ID is a stable, non-secret handle for the key, derived from a hash of
+   * the secret. Use it to delete a key you did not create.
+   */
+  id?: string;
+  key_prefix?: string;
+  name?: string;
+  organization_id?: string;
+  owner?: string;
+  owner_email?: string;
+  owner_type?: TypesOwnerType;
+  project_id?: string;
+  type?: TypesAPIKeyType;
+}
+
 export interface ServerRunnerProfileAssignRequest {
   profile_id?: string;
 }
@@ -10623,7 +10641,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get API keys
+     * @description Get the caller's own API keys. With no filter, returns (creating it if needed) the caller's personal key. A caller authenticated with a scoped (org, project, session or app) API key cannot use the unfiltered form, and sees only the prefix of keys broader than the one it presents.
      *
      * @tags api-keys
      * @name V1ApiKeysList
@@ -13636,7 +13654,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List API keys for an organization. Owners see all keys, members see only their own.
+     * @description List API keys for an organization. Owners see all keys, members see only their own. Key secrets are never returned; each key has a non-secret id and key_prefix.
      *
      * @tags organizations
      * @name V1OrganizationsApiKeysDetail
@@ -13645,7 +13663,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1OrganizationsApiKeysDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesApiKey[], any>({
+      this.request<ServerOrgAPIKeyResponse[], any>({
         path: `/api/v1/organizations/${id}/api_keys`,
         method: "GET",
         secure: true,
