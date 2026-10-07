@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type ListOrganizationsQuery struct {
@@ -80,7 +81,11 @@ func (s *Store) CreateOrganization(ctx context.Context, org *types.Organization)
 			Msg("renamed user slug due to organization name conflict")
 	}
 
-	err = s.gdb.WithContext(ctx).Create(org).Error
+	// Omit associations so request-supplied nested memberships, teams and roles
+	// cannot be mass-assigned through this create. The org's owner membership is
+	// created explicitly by the caller; nested identity writes here would let a
+	// non-admin mint arbitrary users (including admins) and cross-org team rows.
+	err = s.gdb.WithContext(ctx).Omit(clause.Associations).Create(org).Error
 	if err != nil {
 		return nil, err
 	}
