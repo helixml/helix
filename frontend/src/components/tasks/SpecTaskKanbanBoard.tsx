@@ -1057,7 +1057,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         title: "Pull Request",
         color: "#8b5cf6",
         backgroundColor: "rgba(139, 92, 246, 0.08)",
-        description: "Awaiting merge in external repo",
+        description: "Has one or more pull requests — open, merged or closed",
         tasks: sortWithAttentionFirst(filteredTasks.filter(
           (t) =>
             (t as any).phase === "pull_request" || t.status === "pull_request",

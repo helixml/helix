@@ -79,8 +79,9 @@ often has follow-up work after a merge — deploy, test, fix). This replaces the
   agent (Start, restart, upload, or a queued message waking it) reopens the task
   — to `pull_request` if it has PRs, else `implementation` — because a done
   task's desktop is stopped on its next update. Reopen does the same.
-- Columns: Implementation = no PR yet; Pull Request = at least one PR (stays
-  after merges); Done (was "Merged") = someone said it is finished.
+- Columns: Implementation = no PR yet; Pull Request = has one or more PRs,
+  even if all are merged or closed; Done (was "Merged") = someone said it is
+  finished.
 
 Next step (not built): let the agent merge its own PRs through the provider.
 
