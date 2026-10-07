@@ -27,6 +27,16 @@ vi.mock("../../services/oauthProvidersService", () => ({
   useListOAuthConnections: () => ({ data: [] }),
 }));
 
+const decideCompletion = { mutate: vi.fn(), isPending: false };
+vi.mock("../../services/specTaskCompletionService", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../services/specTaskCompletionService")>()),
+  useDecideCompletion: () => decideCompletion,
+}));
+
+vi.mock("../../hooks/useSnackbar", () => ({
+  default: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }),
+}));
+
 vi.mock("../../hooks/useOAuthFlow", () => ({
   useOAuthFlow: () => ({ startOAuthFlow: vi.fn(), isLoading: false }),
 }));
@@ -300,5 +310,58 @@ describe("SpecTaskActionButtons pull request label", () => {
       "https://github.com/ayghri/birding-3/pull/19",
     );
     expect(screen.queryByText("PR: birding-3")).not.toBeInTheDocument();
+  });
+});
+
+// Merged pull requests never finish a task, so a task with PRs can always be
+// marked done by hand — including to abandon it.
+describe("SpecTaskActionButtons mark done", () => {
+  beforeEach(() => decideCompletion.mutate.mockClear());
+
+  it.each(["inline", "stacked"] as const)(
+    "offers Mark done on a pull request task (%s) and confirms first",
+    (variant) => {
+      render(
+        <SpecTaskActionButtons
+          task={implementationTask({
+            status: "pull_request",
+            repo_pull_requests: [
+              { pr_number: 1, pr_url: "https://github.com/a/b/pull/1", pr_state: "merged" },
+              { pr_number: 2, pr_url: "https://github.com/a/b/pull/2", pr_state: "open" },
+            ],
+          })}
+          variant={variant}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Mark done" }));
+      expect(decideCompletion.mutate).not.toHaveBeenCalled();
+      expect(screen.getByText(/1 pull request is still open/)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Mark done" }));
+      expect(decideCompletion.mutate).toHaveBeenCalledWith(
+        { decision: "approve" },
+        expect.anything(),
+      );
+    },
+  );
+
+  it("is not offered before a pull request exists or once archived", () => {
+    const { rerender } = render(
+      <SpecTaskActionButtons task={implementationTask()} variant="inline" />,
+    );
+    expect(screen.queryByRole("button", { name: "Mark done" })).not.toBeInTheDocument();
+
+    rerender(
+      <SpecTaskActionButtons
+        task={implementationTask({
+          status: "pull_request",
+          archived: true,
+          repo_pull_requests: [{ pr_number: 1, pr_url: "https://github.com/a/b/pull/1", pr_state: "merged" }],
+        })}
+        variant="inline"
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Mark done" })).not.toBeInTheDocument();
   });
 });

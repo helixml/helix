@@ -1310,9 +1310,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                       Auto-approve PRs
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Open this task&apos;s pull requests without asking you
-                      first. You can change it later in the task&apos;s
-                      details.
+                      Open this task&apos;s pull requests, and mark it done when
+                      the agent says it is finished, without asking you first.
+                      You can change it later in the task&apos;s details.
                     </Typography>
                   </Box>
                 }

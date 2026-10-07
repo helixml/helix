@@ -145,14 +145,18 @@ export function useReopenTask(specTaskId: string) {
   const snackbar = useSnackbar();
 
   return useMutation({
-    mutationFn: async () => {
+    // A task with pull requests goes back to Pull Request, where its PRs are
+    // tracked; one without goes back to implementation.
+    mutationFn: async ({ hasPullRequests }: { hasPullRequests: boolean }) => {
       const response = await apiClient.v1SpecTasksUpdate(specTaskId, {
-        status: TypesSpecTaskStatus.TaskStatusImplementation,
+        status: hasPullRequests
+          ? TypesSpecTaskStatus.TaskStatusPullRequest
+          : TypesSpecTaskStatus.TaskStatusImplementation,
       });
       return response.data;
     },
     onSuccess: () => {
-      snackbar.success("Task reopened - moved back to in progress");
+      snackbar.success("Task reopened");
       queryClient.invalidateQueries({ queryKey: ["spec-tasks", specTaskId] });
       queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
     },

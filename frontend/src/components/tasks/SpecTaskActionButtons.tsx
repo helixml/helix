@@ -14,6 +14,7 @@ import {
 import {
   ArchiveRestore,
   CircleCheck as ApproveIcon,
+  Flag,
   FileText as SpecIcon,
   GitPullRequest,
   Play as PlayIcon,
@@ -33,6 +34,8 @@ import { useListOAuthProviders, useListOAuthConnections } from "../../services/o
 import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes, vcsScopesForProvider } from "../../utils/oauthProviders";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import CIStatusIcon from "./CIStatusIcon";
+import MarkDoneDialog from "./MarkDoneDialog";
+import { openPullRequestCount } from "../../services/specTaskCompletionService";
 import type { ToolbarDensity } from "./SpecTaskViewToolbar";
 
 export interface RepoPR {
@@ -336,8 +339,74 @@ function CompactActionButton({
  * Shared action buttons for spec tasks.
  * Displays appropriate action buttons based on task status.
  * Used in both TaskCard (Kanban) and SpecTaskDetailContent (detail view).
+ *
+ * A task with pull requests also gets Mark done: tasks never finish on their
+ * own when PRs merge, because the agent may still have follow-up work.
  */
-export default function SpecTaskActionButtons({
+export default function SpecTaskActionButtons(props: SpecTaskActionButtonsProps) {
+  const { task, variant = "stacked", density = "comfortable" } = props;
+  const [markDoneOpen, setMarkDoneOpen] = useState(false);
+  const statusButtons = <StatusActionButtons {...props} />;
+  if (task.status !== "pull_request" || task.archived) {
+    return statusButtons;
+  }
+  const isInline = variant === "inline";
+  const openPRs = openPullRequestCount(task);
+  const tooltip =
+    openPRs > 0
+      ? "Finish the task and stop its agent. Its open pull requests stay open."
+      : "Finish the task and stop its agent";
+  return (
+    <Box
+      sx={
+        isInline
+          ? { display: "flex", alignItems: "center", gap: density === "comfortable" ? 1 : 0.5, flexShrink: 0 }
+          : { display: "flex", flexDirection: "column", gap: 1, width: "100%" }
+      }
+    >
+      {statusButtons}
+      {isInline ? (
+        <CompactActionButton
+          density={density}
+          tooltip={tooltip}
+          variant="outlined"
+          color="success"
+          icon={<Flag size={18} />}
+          label="Mark done"
+          onClick={(e) => {
+            e.stopPropagation();
+            setMarkDoneOpen(true);
+          }}
+        />
+      ) : (
+        <Tooltip describeChild title={tooltip} placement="top">
+          <Button
+            size="small"
+            variant="outlined"
+            color="success"
+            startIcon={<Flag size={18} />}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMarkDoneOpen(true);
+            }}
+            fullWidth
+            sx={{ whiteSpace: "nowrap" }}
+          >
+            Mark done
+          </Button>
+        </Tooltip>
+      )}
+      <MarkDoneDialog
+        open={markDoneOpen}
+        onClose={() => setMarkDoneOpen(false)}
+        taskId={task.id}
+        openPullRequests={openPRs}
+      />
+    </Box>
+  );
+}
+
+function StatusActionButtons({
   task,
   variant = "stacked",
   density = "comfortable",
@@ -1274,7 +1343,7 @@ export default function SpecTaskActionButtons({
           width: isInline ? "auto" : "100%",
         }}
       >
-        <Tooltip title={isArchived ? "Task is archived" : "Reopen task and move back to in progress"}>
+        <Tooltip title={isArchived ? "Task is archived" : "Reopen the task so its agent can carry on. Starting its desktop or sending it a message also reopens it."}>
           <span>
             <Button
               variant="outlined"
@@ -1289,7 +1358,9 @@ export default function SpecTaskActionButtons({
               }
               onClick={(e) => {
                 e.stopPropagation();
-                reopenTaskMutation.mutate();
+                reopenTaskMutation.mutate({
+                  hasPullRequests: (task.repo_pull_requests?.length ?? 0) > 0,
+                });
               }}
               disabled={isArchived || isReopening}
               fullWidth={!isInline}

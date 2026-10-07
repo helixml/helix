@@ -581,7 +581,7 @@ const DroppableColumn: React.FC<{
               onArchiveAllMerged &&
               column.tasks.length > 0 && (
                 <Tooltip
-                  title={`Archive all ${column.tasks.length} merged task${column.tasks.length === 1 ? "" : "s"}`}
+                  title={`Archive all ${column.tasks.length} done task${column.tasks.length === 1 ? "" : "s"}`}
                   arrow
                 >
                   <Box
@@ -1068,10 +1068,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     if (showMergedProp) {
       baseColumns.push({
         id: "completed",
-        title: "Merged",
+        title: "Done",
         color: "#6b7280",
         backgroundColor: "transparent",
-        description: "Merged to main",
+        description: "Finished — marked done",
         tasks: filteredTasks.filter(
           (t) => (t as any).phase === "completed" || t.status === "done",
         ),

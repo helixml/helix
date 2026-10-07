@@ -138,6 +138,7 @@ import {
   PanelRight,
   Wand2,
   Share,
+  Flag,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -173,6 +174,13 @@ import {
   useSpecTaskPRProposals,
 } from "../../services/specTaskPRProposalService";
 import PRProposalCard from "./PRProposalCard";
+import CompletionRequestCard from "./CompletionRequestCard";
+import MarkDoneDialog from "./MarkDoneDialog";
+import {
+  canMarkDone,
+  completionRequestKey,
+  openPullRequestCount,
+} from "../../services/specTaskCompletionService";
 import {
   isSpecTaskPlanningWorkspace,
   shouldLoadSpecTaskDesignReviews,
@@ -627,6 +635,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // (auto-open tracking is handled by sessionStorage so it persists across page refreshes)
 
+  const [markDoneOpen, setMarkDoneOpen] = useState(false);
   // Clone dialog state
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [selectedCloneGroupId, setSelectedCloneGroupId] = useState<
@@ -2038,8 +2047,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 {task?.auto_approve_pull_requests
                   ? `The agent's proposals open without asking, using ${
                       autoApprover?.full_name || autoApprover?.email || "the approver"
-                    }'s credentials.`
-                  : "You're asked to approve each pull request the agent proposes."}
+                    }'s credentials, and the task is marked done as soon as the agent says it is finished.`
+                  : "You're asked to approve each pull request the agent proposes, and to confirm when it says the task is finished."}
               </Typography>
             </Box>
             <Switch
@@ -2518,11 +2527,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // A proposal waiting on the user is only visible in the chat panel, so open
   // it (or switch to the Chat tab) once per new proposal. Once per proposal,
   // so a user who collapses the panel again is not fought on every poll.
+  // The agent's request to finish the task is revealed the same way.
   const revealedProposalIdsRef = useRef<Set<string>>(new Set());
-  const proposalsToRevealKey = proposalsToReveal(
-    prProposals ?? [],
-    revealedProposalIdsRef.current,
-  ).join(",");
+  const pendingCompletionKey = completionRequestKey(task);
+  const proposalsToRevealKey = [
+    ...proposalsToReveal(prProposals ?? [], revealedProposalIdsRef.current),
+    ...(pendingCompletionKey && !revealedProposalIdsRef.current.has(pendingCompletionKey)
+      ? [pendingCompletionKey]
+      : []),
+  ].join(",");
   useEffect(() => {
     if (!proposalsToRevealKey) return;
     proposalsToRevealKey
@@ -2537,11 +2550,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   }, [proposalsToRevealKey]);
 
   const prProposalHeader =
-    task?.id && actionablePRProposals.length > 0 ? (
+    task?.id && (actionablePRProposals.length > 0 || pendingCompletionKey) ? (
       <>
         {actionablePRProposals.map((proposal) => (
           <PRProposalCard key={proposal.id} specTaskId={task.id!} proposal={proposal} />
         ))}
+        {pendingCompletionKey && (
+          <CompletionRequestCard
+            specTaskId={task.id}
+            summary={task.completion_request_summary ?? ""}
+            openPullRequests={openPullRequestCount(task)}
+          />
+        )}
       </>
     ) : undefined;
 
@@ -2587,6 +2607,22 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             <Wand2 size={18} />
           </ListItemIcon>
           <ListItemText>Clone Task</ListItemText>
+        </MenuItem>,
+      );
+    }
+    if (task && canMarkDone(task)) {
+      items.push(
+        <MenuItem
+          key="mark-done"
+          onClick={() => {
+            closeMenu();
+            setMarkDoneOpen(true);
+          }}
+        >
+          <ListItemIcon>
+            <Flag size={18} />
+          </ListItemIcon>
+          <ListItemText>Mark done</ListItemText>
         </MenuItem>,
       );
     }
@@ -3387,6 +3423,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
+
+      <MarkDoneDialog
+        open={markDoneOpen}
+        onClose={() => setMarkDoneOpen(false)}
+        taskId={task.id || ""}
+        openPullRequests={openPullRequestCount(task)}
+      />
 
       {/* Clone Task Dialog */}
       <CloneTaskDialog

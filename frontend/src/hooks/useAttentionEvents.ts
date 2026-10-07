@@ -29,6 +29,7 @@ export type AttentionEventType =
   | 'implementation_failed'
   | 'pr_ready'
   | 'pr_proposal'
+  | 'completion_request'
   | 'ci_passed'
   | 'ci_failed'
   | 'org_message'

@@ -320,7 +320,7 @@ export default function PRProposalCard({
 
           {(isPending || status === PRProposalStatusFailed) && (
             <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 1 }}>
-              <Tooltip describeChild title="Later proposals from this task's agent are approved without asking, using your credentials. Turn it off in the task's details.">
+              <Tooltip describeChild title="Later proposals from this task's agent are approved without asking, using your credentials, and the task is marked done when the agent says it is finished. Turn it off in the task's details.">
                 <FormControlLabel
                   disabled={busy}
                   control={

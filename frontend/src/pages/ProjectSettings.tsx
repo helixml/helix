@@ -1815,7 +1815,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               <Typography variant="caption" color="text.secondary">
                 New tasks approve their agent's pull request proposals without
                 asking, using the credentials of the person who created the
-                task. You can still change it per task. Existing tasks keep
+                task, and are marked done as soon as the agent says it is
+                finished. You can still change it per task. Existing tasks keep
                 their own setting.
               </Typography>
             </Box>

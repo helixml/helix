@@ -353,7 +353,7 @@ const Home: FC = () => {
       />
       {modeSelector}
       {showAutoApprovePRs && (
-        <Tooltip describeChild title="Approve this task's pull requests without asking. You can change it later in the task's details.">
+        <Tooltip describeChild title="Approve this task's pull requests, and mark it done when the agent says it is finished, without asking. You can change it later in the task's details.">
           <FormControlLabel
             disabled={submitting}
             control={
