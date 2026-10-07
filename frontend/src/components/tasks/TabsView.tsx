@@ -972,19 +972,12 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
 
     setIsActioning(true);
     try {
-      const response = await api
+      await api
         .getApiClient()
         .v1SpecTasksApproveImplementationCreate(activeTask.id);
-      if (response.status === 202) {
-        // External repo: the agent was asked to propose its pull request(s).
-        snackbar.success(
-          "Asked the agent to push and propose its pull request(s). Approve each proposal when it arrives.",
-        );
-      } else {
-        snackbar.success(
-          "Implementation approved! Agent will merge to your primary branch...",
-        );
-      }
+      snackbar.success(
+        "Implementation approved! Agent will merge to your primary branch...",
+      );
     } catch (err: any) {
       console.error("Failed to approve implementation:", err);
       snackbar.error(

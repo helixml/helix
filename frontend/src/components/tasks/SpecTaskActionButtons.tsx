@@ -1,4 +1,4 @@
-import React, { RefObject, useEffect, useState } from "react";
+import React, { RefObject, useState } from "react";
 import {
   Alert,
   Box,
@@ -30,9 +30,6 @@ import {
   useReopenTask,
 } from "../../services/specTaskWorkflowService";
 import { useUpdateSpecTask } from "../../services/specTaskService";
-import { useListOAuthProviders, useListOAuthConnections } from "../../services/oauthProvidersService";
-import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes, vcsScopesForProvider } from "../../utils/oauthProviders";
-import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import CIStatusIcon from "./CIStatusIcon";
 import MarkDoneDialog from "./MarkDoneDialog";
 import { openPullRequestCount } from "../../services/specTaskCompletionService";
@@ -194,8 +191,6 @@ interface SpecTaskActionButtonsProps {
   onReject?: (shiftKey?: boolean) => void;
   /** Whether the connected project has an external repo (affects Accept vs Open PR text) */
   hasExternalRepo?: boolean;
-  /** The external repository type (e.g. "github", "ado") -- used to decide provider-specific OAuth checks */
-  externalRepoType?: string;
   /** Whether archive/reject is in progress */
   isArchiving?: boolean;
   /**
@@ -222,7 +217,7 @@ interface SpecTaskActionButtonsProps {
 }
 
 export const SANDBOX_STOPPED_TOOLTIP =
-  "Nothing has been pushed yet and the sandbox is stopped, so there is nothing to open a PR from. Start the sandbox so the agent can commit and push.";
+  "Nothing has been pushed yet and the sandbox is stopped, so there is nothing to merge. Start the sandbox so the agent can commit and push.";
 
 const COMPACT_BUTTON_METRICS: Record<
   ToolbarDensity,
@@ -415,7 +410,6 @@ function StatusActionButtons({
   onReviewSpec,
   onReject,
   hasExternalRepo = false,
-  externalRepoType,
   isArchiving = false,
   onUnarchive,
   isUnarchiving = false,
@@ -433,48 +427,10 @@ function StatusActionButtons({
   const updateSpecTaskMutation = useUpdateSpecTask();
   const [isReviewingSpec, setIsReviewingSpec] = useState(false);
   const [prMenuAnchor, setPrMenuAnchor] = useState<null | HTMLElement>(null);
-  const [showOAuthPrompt, setShowOAuthPrompt] = useState(false);
-  const { data: oauthProviders } = useListOAuthProviders();
-  const { data: oauthConnections } = useListOAuthConnections();
-  const { startOAuthFlow, isLoading: isOAuthLoading } = useOAuthFlow();
-
-  const oauthProviderType = externalRepoType === "gitlab" ? "gitlab" : "github";
-  const oauthProviderName = oauthProviderType === "gitlab" ? "GitLab" : "GitHub";
-  const oauthConnection = findOAuthConnectionForProvider(oauthConnections, oauthProviderType);
-  const oauthScopes = vcsScopesForProvider(oauthProviderType, null) || [];
-  const hasOAuthWithRequiredScopes = !!oauthConnection && hasRequiredScopes(oauthConnection.scopes, oauthScopes);
-  const oauthProvider = findOAuthProviderForType(oauthProviders, oauthProviderType);
-
-  // Detect oauth_required error from the backend (enforcement fallback)
-  useEffect(() => {
-    if (approveImplementationMutation.error) {
-      const data = (approveImplementationMutation.error as any)?.response?.data;
-      if (data?.error === "oauth_required") {
-        setShowOAuthPrompt(true);
-      }
-    }
-  }, [approveImplementationMutation.error]);
-
-  const handleOpenPR = (e: React.MouseEvent) => {
+  // Accept: the server merges the task branch (internal repos / direct push).
+  // External repos have no button: PRs open from the agent's proposals.
+  const handleAccept = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!isDirectPush && hasExternalRepo && externalRepoType === "github" && !hasOAuthWithRequiredScopes) {
-      if (oauthProvider?.id) {
-        startOAuthFlow({
-          providerId: oauthProvider.id,
-          scopes: oauthScopes,
-          onSuccess: () => {
-            setShowOAuthPrompt(false);
-            approveImplementationMutation.mutate();
-          },
-          onError: () => {
-            setShowOAuthPrompt(true);
-          },
-        });
-      } else {
-        setShowOAuthPrompt(true);
-      }
-      return;
-    }
     approveImplementationMutation.mutate();
   };
 
@@ -525,11 +481,9 @@ function StatusActionButtons({
         ? hasPushed
           ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
           : "Agent is committing and pushing — this will complete automatically."
-        : isDirectPush
-          ? !hasPushed
-            ? "The agent will commit and push its changes before the merge."
-            : ""
-          : "Ask the agent to push its work and propose pull request(s). Nothing opens until you approve each proposal.";
+        : !hasPushed
+          ? "The agent will commit and push its changes before the merge."
+          : "";
 
   const openPRDisabled =
     isArchived ||
@@ -587,58 +541,6 @@ function StatusActionButtons({
     );
   }
 
-  if (
-    showOAuthPrompt &&
-    (task.status === "implementation" || task.status === "done")
-  ) {
-    return (
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 1,
-          width: "100%",
-        }}
-      >
-        <Alert severity="warning" sx={{ py: 0.5 }}>
-          {oauthProvider?.id
-            ? `Connect your ${oauthProviderName} account to open PRs under your name.`
-            : `${oauthProviderName} OAuth is not configured. Ask your administrator to set it up so PRs can be opened under your name.`}
-        </Alert>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          {oauthProvider?.id && (
-            <Button
-              variant="contained"
-              size="small"
-              disabled={isOAuthLoading}
-              onClick={() => {
-                startOAuthFlow({
-                  providerId: oauthProvider.id!,
-                  scopes: oauthScopes,
-                  onSuccess: () => {
-                    setShowOAuthPrompt(false);
-                    approveImplementationMutation.mutate();
-                  },
-                  onError: () => {
-                    // Keep showing the prompt
-                  },
-                });
-              }}
-            >
-              {isOAuthLoading ? "Connecting..." : `Connect ${oauthProviderName}`}
-            </Button>
-          )}
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={() => setShowOAuthPrompt(false)}
-          >
-            Cancel
-          </Button>
-        </Box>
-      </Box>
-    );
-  }
 
   // Backlog phase: Start Planning button
   if (task.status === "backlog") {
@@ -881,7 +783,7 @@ function StatusActionButtons({
     if (isInline) {
       return (
         <Box sx={inlineRowSx}>
-          <CompactActionButton
+          {isDirectPush && <CompactActionButton
             density={density}
             tooltip={openPRTooltip}
             variant="contained"
@@ -896,17 +798,13 @@ function StatusActionButtons({
             }
             label={
               approveImplementationMutation.isPending
-                ? isDirectPush
-                  ? "Merging..."
-                  : "Requesting..."
+                ? "Merging..."
                 : rebasePending
                   ? pendingPushLabel
-                  : isDirectPush
-                    ? "Accept"
-                    : "Request PR"
+                  : "Accept"
             }
-            onClick={handleOpenPR}
-          />
+            onClick={handleAccept}
+          />}
           {hasDesignDocs && onReviewSpec && (
             <CompactActionButton
               density={density}
@@ -962,7 +860,7 @@ function StatusActionButtons({
             </span>
           </Tooltip>
 
-          <Tooltip title={openPRTooltip} placement="top">
+          {isDirectPush && <Tooltip title={openPRTooltip} placement="top">
             <span style={{ flex: 1 }}>
               <Button
                 size={buttonSize}
@@ -975,23 +873,19 @@ function StatusActionButtons({
                     <ApproveIcon size={18} />
                   )
                 }
-                onClick={handleOpenPR}
+                onClick={handleAccept}
                 disabled={openPRDisabled}
                 fullWidth
                 sx={buttonSx}
               >
                 {approveImplementationMutation.isPending
-                  ? isDirectPush
-                    ? "Merging..."
-                    : "Requesting..."
+                  ? "Merging..."
                   : rebasePending
                     ? pendingPushLabel
-                    : isDirectPush
-                      ? "Accept"
-                      : "Request PR"}
+                    : "Accept"}
               </Button>
             </span>
-          </Tooltip>
+          </Tooltip>}
 
           {hasDesignDocs && onReviewSpec && (
             <Tooltip
@@ -1034,22 +928,11 @@ function StatusActionButtons({
   ];
   const hasMultiplePRs = pullRequests.length > 1;
   const hasAnyPR = pullRequests.length > 0;
-  const mergedPullRequests = currentPullRequests.filter(
-    (pullRequest) => normalizePRState(pullRequest.pr_state) === "merged",
-  );
   const allPRsMerged =
     hasAnyPR &&
     pullRequests.every(
       (pullRequest) => normalizePRState(pullRequest.pr_state) === "merged",
     );
-  const followUpBoundary = task.merged_at || task.completed_at;
-  const followUpReady =
-    task.status === "done" &&
-    mergedPullRequests.length > 0 &&
-    !!task.last_push_at &&
-    !!followUpBoundary &&
-    new Date(task.last_push_at).getTime() > new Date(followUpBoundary).getTime();
-  const isCreatingFollowUp = approveImplementationMutation.isPending;
 
   if (
     task.status === "pull_request" &&
@@ -1089,103 +972,6 @@ function StatusActionButtons({
   }
 
   if ((task.status === "pull_request" || task.status === "done") && hasAnyPR) {
-    if (followUpReady) {
-      return (
-        <Box
-          sx={
-            isInline
-              ? inlineRowSx
-              : { display: "flex", alignItems: "center", gap: 0.75, mt: 1.5 }
-          }
-        >
-          {isInline ? (
-            <CompactActionButton
-              density={density}
-              tooltip={
-                isArchived
-                  ? "Task is archived"
-                  : "Ask the agent to propose a pull request for its new changes"
-              }
-              variant="contained"
-              color="secondary"
-              disabled={isArchived || isCreatingFollowUp}
-              icon={
-                isCreatingFollowUp ? (
-                  <CircularProgress size={18} color="inherit" />
-                ) : (
-                  <GitPullRequest size={18} />
-                )
-              }
-              label={isCreatingFollowUp ? "Requesting..." : "Request PR"}
-              onClick={handleOpenPR}
-            />
-          ) : (
-            <Button
-              size={buttonSize}
-              variant="contained"
-              color="secondary"
-              startIcon={
-                isCreatingFollowUp ? (
-                  <CircularProgress size={18} color="inherit" />
-                ) : (
-                  <GitPullRequest size={18} />
-                )
-              }
-              onClick={handleOpenPR}
-              disabled={isArchived || isCreatingFollowUp}
-              fullWidth
-              sx={buttonSx}
-            >
-              {isCreatingFollowUp ? "Requesting..." : "Request PR"}
-            </Button>
-          )}
-          {isInline ? (
-            <CompactActionButton
-              density={density}
-              tooltip="View all pull requests"
-              variant="outlined"
-              disabled={isArchived}
-              icon={<GitPullRequest size={18} />}
-              label={`PRs (${pullRequests.length})`}
-              onClick={(e) => {
-                e.stopPropagation();
-                setPrMenuAnchor(e.currentTarget);
-              }}
-            />
-          ) : (
-            <Button
-              size={buttonSize}
-              variant="outlined"
-              startIcon={<GitPullRequest size={18} />}
-              onClick={(e) => {
-                e.stopPropagation();
-                setPrMenuAnchor(e.currentTarget);
-              }}
-              disabled={isArchived}
-              sx={buttonSx}
-            >
-              {`PRs (${pullRequests.length})`}
-            </Button>
-          )}
-          <Menu
-            anchorEl={prMenuAnchor}
-            open={Boolean(prMenuAnchor)}
-            onClose={() => setPrMenuAnchor(null)}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {pullRequests.map((pr, idx) => (
-              <PRMenuItem
-                key={pr.pr_id || pr.pr_url || idx}
-                pr={pr}
-                idx={idx}
-                onSelect={() => setPrMenuAnchor(null)}
-              />
-            ))}
-          </Menu>
-        </Box>
-      );
-    }
-
     // Single PR case
     if (pullRequests.length === 1) {
       const onlyPR = pullRequests[0];

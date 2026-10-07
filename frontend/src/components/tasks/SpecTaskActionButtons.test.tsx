@@ -53,73 +53,72 @@ const implementationTask = (
   ...overrides,
 });
 
-const openPRButton = () => screen.getByRole("button", { name: /Request PR/i });
+const acceptButton = () => screen.getByRole("button", { name: /Accept/i });
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe.each(["inline", "stacked"] as const)(
-  "SpecTaskActionButtons (%s) Request PR gating",
+  "SpecTaskActionButtons (%s) Accept gating",
   (variant) => {
+    // Internal repos: Accept merges the task branch on the server.
     const renderButtons = (task: SpecTaskForActions) =>
-      render(
-        <SpecTaskActionButtons task={task} variant={variant} hasExternalRepo />,
-      );
+      render(<SpecTaskActionButtons task={task} variant={variant} />);
 
-    it("enables Request PR while the sandbox is running", () => {
+    it("enables Accept while the sandbox is running", () => {
       renderButtons(implementationTask());
 
-      expect(openPRButton()).toBeEnabled();
+      expect(acceptButton()).toBeEnabled();
     });
 
     // The commits already reached the control plane's copy of the repo, so it
     // can push them to the remote and open the PR without the sandbox. This is
     // the common "agent finished, container was reaped" case.
-    it("enables Request PR once the sandbox has stopped, if the agent pushed", () => {
+    it("enables Accept once the sandbox has stopped, if the agent pushed", () => {
       renderButtons(implementationTask({ sandbox_state: "absent" }));
 
-      expect(openPRButton()).toBeEnabled();
+      expect(acceptButton()).toBeEnabled();
     });
 
     // Nothing has reached the server, but a live agent can still be told to
     // commit and push before the PR opens.
-    it("enables Request PR before the first push while the sandbox is live", () => {
+    it("enables Accept before the first push while the sandbox is live", () => {
       renderButtons(
         implementationTask({ last_push_at: undefined, sandbox_state: "running" }),
       );
 
-      expect(openPRButton()).toBeEnabled();
+      expect(acceptButton()).toBeEnabled();
     });
 
     // Neither source of commits exists: nothing pushed, and no agent to push.
-    it("disables Request PR when nothing was pushed and the sandbox is gone", () => {
+    it("disables Accept when nothing was pushed and the sandbox is gone", () => {
       renderButtons(
         implementationTask({ last_push_at: undefined, sandbox_state: "absent" }),
       );
 
-      expect(openPRButton()).toBeDisabled();
+      expect(acceptButton()).toBeDisabled();
     });
 
     // "starting" means the container exists but the agent has not connected
     // yet, so it cannot receive the commit-and-push instruction.
-    it("disables Request PR before the first push while the sandbox is starting", () => {
+    it("disables Accept before the first push while the sandbox is starting", () => {
       renderButtons(
         implementationTask({ last_push_at: undefined, sandbox_state: "starting" }),
       );
 
-      expect(openPRButton()).toBeDisabled();
+      expect(acceptButton()).toBeDisabled();
     });
 
-    it("disables Request PR when the task never had a sandbox or a push", () => {
+    it("disables Accept when the task never had a sandbox or a push", () => {
       renderButtons(
         implementationTask({ last_push_at: undefined, sandbox_state: undefined }),
       );
 
-      expect(openPRButton()).toBeDisabled();
+      expect(acceptButton()).toBeDisabled();
     });
 
-    it("explains why Request PR is unavailable", async () => {
+    it("explains why Accept is unavailable", async () => {
       renderButtons(
         implementationTask({ last_push_at: undefined, sandbox_state: "absent" }),
       );
@@ -134,120 +133,35 @@ describe.each(["inline", "stacked"] as const)(
   },
 );
 
+// PRs open only from the agent's proposals, so there is no button that asks
+// the agent for one — the user can simply tell it.
 describe.each(["inline", "stacked"] as const)(
-  "SpecTaskActionButtons (%s) completed follow-up",
+  "SpecTaskActionButtons (%s) external repositories",
   (variant) => {
-    const doneTask = (): SpecTaskForActions => ({
-      id: "spt_1",
-      status: "done",
-      base_branch: "main",
-      branch_name: "feature/follow-up",
-      sandbox_state: "absent",
-      merged_at: "2026-08-20T10:00:00.000Z",
-      completed_at: "2026-08-20T10:00:00.000Z",
-      last_push_at: "2026-08-20T10:01:00.000Z",
-      repo_pull_requests: [
-        {
-          repository_id: "repo-1",
-          pr_id: "67",
-          pr_number: 67,
-          pr_url: "https://github.com/helixml/helix/pull/67",
-          pr_state: "merged",
-        },
-      ],
-      repo_pull_request_history: [
-        {
-          repository_id: "repo-1",
-          pr_id: "66",
-          pr_number: 66,
-          pr_url: "https://github.com/helixml/helix/pull/66",
-          pr_state: "merged",
-        },
-      ],
-    });
-
-    it("shows Request PR and enforces OAuth", () => {
+    it("offers no approve button: PRs come from the agent's proposals", () => {
       render(
-        <SpecTaskActionButtons
-          task={doneTask()}
-          variant={variant}
-          hasExternalRepo
-          externalRepoType="github"
-        />,
+        <SpecTaskActionButtons task={implementationTask()} variant={variant} hasExternalRepo />,
       );
-
-      const createButton = screen.getByRole("button", { name: /Request PR/i });
-      fireEvent.click(createButton);
-      expect(
-        screen.getByText(/GitHub OAuth is not configured/i),
-      ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Accept|Request PR/i })).not.toBeInTheDocument();
     });
 
-    it("keeps all pull requests in the adjacent menu", () => {
-      render(<SpecTaskActionButtons task={doneTask()} variant={variant} />);
+    it("lists every pull request of a task, merged or open", () => {
+      const task = implementationTask({
+        status: "pull_request",
+        repo_pull_requests: [
+          { repository_id: "repo-1", pr_id: "67", pr_number: 67, pr_url: "https://github.com/helixml/helix/pull/67", pr_state: "open" },
+          { repository_id: "repo-1", pr_id: "66", pr_number: 66, pr_url: "https://github.com/helixml/helix/pull/66", pr_state: "merged" },
+        ],
+      });
+      render(<SpecTaskActionButtons task={task} variant={variant} hasExternalRepo />);
 
-      expect(screen.getByRole("button", { name: /Request PR/i })).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "PRs (2)" }));
-      expect(
-        screen
-          .getAllByRole("menuitem")
-          .map((item) => item.getAttribute("href")),
-      ).toEqual([
+      fireEvent.click(screen.getByRole("button", { name: /2 (PRs|Pull Requests)/i }));
+      expect(screen.getAllByRole("menuitem").map((item) => item.getAttribute("href"))).toEqual([
         "https://github.com/helixml/helix/pull/67",
         "https://github.com/helixml/helix/pull/66",
       ]);
+      expect(screen.queryByRole("button", { name: /Request PR/i })).not.toBeInTheDocument();
     });
-
-    it("does not offer a new PR when the tracked PR is not merged", () => {
-      const task = doneTask();
-      task.repo_pull_requests![0].pr_state = "open";
-      render(<SpecTaskActionButtons task={task} variant={variant} />);
-
-      expect(
-        screen.queryByRole("button", { name: /Request PR/i }),
-      ).not.toBeInTheDocument();
-    });
-
-    it("does not offer a new PR without a push after the merge", () => {
-      const task = doneTask();
-      task.last_push_at = task.merged_at;
-      render(<SpecTaskActionButtons task={task} variant={variant} />);
-
-      expect(
-        screen.queryByRole("button", { name: /New PR/i }),
-      ).not.toBeInTheDocument();
-    });
-
-    it("shows pull request history while the current PR is open", () => {
-      const task = doneTask();
-      task.status = "pull_request";
-      task.repo_pull_requests![0].pr_state = "open";
-      render(<SpecTaskActionButtons task={task} variant={variant} />);
-
-      fireEvent.click(
-        screen.getByRole("button", { name: /2 (PRs|Pull Requests)/i }),
-      );
-      expect(screen.getAllByRole("menuitem")).toHaveLength(2);
-    });
-
-    it("waits for the new PR URL instead of linking to the merged PR", () => {
-      const task = doneTask();
-      task.status = "pull_request";
-      task.repo_pull_requests = [
-        {
-          repository_id: "repo-1",
-          repository_name: "helix",
-          pr_state: "unknown",
-        },
-      ];
-      render(<SpecTaskActionButtons task={task} variant={variant} />);
-
-      expect(
-        screen.getByRole("button", { name: "Creating PR..." }),
-      ).toBeDisabled();
-      expect(screen.queryByRole("link")).not.toBeInTheDocument();
-    });
-
   },
 );
 
@@ -277,15 +191,11 @@ describe("SpecTaskForActions", () => {
 
   // The production case from 2026-08-19: the agent had pushed and the sandbox
   // was live, but the call site never forwarded sandbox_state.
-  it("enables Request PR when the sandbox is running and the agent has pushed", () => {
+  it("enables Accept when the sandbox is running and the agent has pushed", () => {
     render(
-      <SpecTaskActionButtons
-        task={implementationTask({ sandbox_state: "running" })}
-        hasExternalRepo
-        externalRepoType="github"
-      />,
+      <SpecTaskActionButtons task={implementationTask({ sandbox_state: "running" })} />,
     );
-    expect(screen.getByRole("button", { name: /Request PR/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Accept/i })).toBeEnabled();
   });
 });
 

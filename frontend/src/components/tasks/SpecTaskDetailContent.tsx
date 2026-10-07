@@ -1519,9 +1519,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             repository.external_type ||
             repository.external_url,
         )}
-        externalRepoType={projectRepositories.find(
-          (repository) => repository.external_type,
-        )?.external_type}
         isStartingPlanning={isStartingPlanning}
         onUnarchive={performUnarchive}
         isUnarchiving={isUnarchiving}

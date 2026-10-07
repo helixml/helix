@@ -44,8 +44,9 @@ pending ─approve─▶ approved ─(branch has commits beyond base)─▶ open
   non-interrupting message. Edits made by the user are spelled out.
 - **Task lifecycle**: the first opened PR moves the task to `pull_request`
   (reopening a `done` task). Merges never complete it — see "Completion".
-- **Request PR** (was "Open PR" / "New PR") on external repos only asks the agent
-  to push and propose; the endpoint answers 202. Internal repos keep the
+- **No "Open PR" button** on external repos: the agent proposes when its work is
+  ready (its prompts say so), and the user can ask it in the chat. The approve-
+  implementation endpoint answers 409 for them; internal repos keep the
   server-side merge on Accept.
 - `create_spectask_prs` is blocked on spec-task surfaces (it would bypass
   approval); org Bots keep it.
@@ -60,8 +61,8 @@ often has follow-up work after a merge — deploy, test, fix). This replaces the
   completion request (`spec_tasks.completion_requested_at` + summary), raises a
   `completion_request` attention event, and shows a card in the chat with **Mark
   done** / **Send back** (note goes to the agent). Refused while a PR proposal is
-  pending/approved/failed. Prompts (planning, implementation handoff, Just Do It,
-  Request PR) tell the agent not to call it while its PRs are open: people merge
+  pending/approved/failed. Prompts (planning, implementation handoff, Just Do It)
+  tell the agent not to call it while its PRs are open: people merge
   on GitHub/GitLab/ADO, and the agent tells them which PRs are waiting.
 - **PR settled**: the PR poller tells the agent when a tracked PR merges or
   closes (non-interrupting message), listing what is still open and, when none
@@ -117,8 +118,7 @@ stack had no working model access (outer token rejected with "code-agent task ha
 no API provider selected"): unapproved push refused → first PR proposed/approved
 → PR #1; second slice proposed, renamed in the UI, old name refused, new name
 pushed → PR #2 auto-opened; third proposal rejected → push refused; merge #1 →
-task stays open; merge #2 → done; Request PR on done → 202 + instruction;
-follow-up proposal → push → PR #3 reopens task; pending proposal blocks
+task stays open; merge #2 → done; follow-up proposal → push → PR #3 reopens task; pending proposal blocks
 completion after #3 merged; rejecting it → done.
 
 Auto-approval, live: project switch on → composer pre-ticked → task created with

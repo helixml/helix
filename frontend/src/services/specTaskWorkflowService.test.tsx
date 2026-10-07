@@ -30,14 +30,8 @@ vi.mock("../hooks/useSnackbar", () => ({
 describe("useApproveImplementation", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("reports a 202 as a request to the agent, not an opened PR", async () => {
-    mocks.approve.mockResolvedValue({
-      status: 202,
-      data: {
-        status: "done",
-        repo_pull_requests: [{ repository_id: "repo-1", pr_state: "merged", pr_url: "https://example/pull/1" }],
-      },
-    });
+  it("reports a server-side merge of an internal repo", async () => {
+    mocks.approve.mockResolvedValue({ status: 200, data: { status: "done" } });
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
@@ -50,13 +44,7 @@ describe("useApproveImplementation", () => {
 
     await act(async () => result.current.mutateAsync());
 
-    expect(mocks.success).toHaveBeenCalledWith(
-      "Asked the agent to push and propose its pull request(s). Approve each proposal here when it arrives.",
-    );
-    expect(mocks.success).not.toHaveBeenCalledWith(
-      "Implementation approved and merged!",
-    );
-    expect(mocks.info).not.toHaveBeenCalled();
+    expect(mocks.success).toHaveBeenCalledWith("Implementation approved and merged!");
   });
 
   it("shows the server message when the request fails", async () => {

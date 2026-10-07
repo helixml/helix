@@ -13,16 +13,10 @@ export function useApproveImplementation(specTaskId: string) {
     mutationFn: async () => {
       const response =
         await apiClient.v1SpecTasksApproveImplementationCreate(specTaskId);
-      // 202: external repo — nothing merged or opened; the agent was asked to
-      // push and propose its pull request(s) for approval.
-      return { task: response.data, prsRequested: response.status === 202 };
+      return response.data;
     },
-    onSuccess: ({ task: response, prsRequested }: { task: TypesSpecTask; prsRequested: boolean }) => {
-      if (prsRequested) {
-        snackbar.success(
-          "Asked the agent to push and propose its pull request(s). Approve each proposal here when it arrives.",
-        );
-      } else if (response.status === "done") {
+    onSuccess: (response: TypesSpecTask) => {
+      if (response.status === "done") {
         // Internal repo - merge succeeded
         snackbar.success("Implementation approved and merged!");
       } else if (response.status === "implementation_review") {
