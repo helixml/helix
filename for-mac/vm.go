@@ -1637,6 +1637,31 @@ func (vm *VMManager) Stop() error {
 	return nil
 }
 
+// Shutdown powers the guest down cleanly (ACPI, like pressing the power button)
+// so Docker, ZFS and the writeback-cached disks are flushed, then kills
+// whatever is left. If the guest hasn't powered off within timeout, it is
+// killed anyway: quitting must never hang or leave QEMU running.
+func (vm *VMManager) Shutdown(timeout time.Duration) {
+	if vm.cmd != nil && vm.cmd.Process != nil {
+		pid := vm.cmd.Process.Pid
+		if err := vm.sendQMPCommand("system_powerdown"); err != nil {
+			log.Printf("Shutdown: QMP system_powerdown failed (%v), killing QEMU", err)
+		} else {
+			log.Printf("Shutdown: powering the VM down (up to %s)...", timeout)
+			start := time.Now()
+			for time.Since(start) < timeout && syscall.Kill(pid, 0) == nil {
+				time.Sleep(200 * time.Millisecond)
+			}
+			if syscall.Kill(pid, 0) == nil {
+				log.Printf("Shutdown: VM still running after %s, killing QEMU", timeout)
+			} else {
+				log.Printf("Shutdown: VM powered off after %s", time.Since(start).Round(100*time.Millisecond))
+			}
+		}
+	}
+	vm.ForceStop()
+}
+
 // ForceStop immediately kills the QEMU process regardless of VM state.
 // Called during app shutdown to ensure no orphaned QEMU process remains.
 // Unlike Stop(), it skips the graceful QMP shutdown and the 5-second grace period.
