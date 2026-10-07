@@ -15,6 +15,11 @@ type prTestStore struct {
 	store.Store
 	oauthConnections []*types.OAuthConnection
 	oauthConnection  *types.OAuthConnection
+	repository       *types.GitRepository
+}
+
+func (s *prTestStore) GetGitRepository(_ context.Context, _ string) (*types.GitRepository, error) {
+	return s.repository, nil
 }
 
 func (s *prTestStore) ListOAuthConnections(_ context.Context, q *store.ListOAuthConnectionsQuery) ([]*types.OAuthConnection, error) {
@@ -105,6 +110,98 @@ func TestGetGitHubClient_UserWithoutOAuth_ReturnsError(t *testing.T) {
 	}
 	if oauthErr.ProviderType != "github" {
 		t.Fatalf("expected provider_type 'github', got '%s'", oauthErr.ProviderType)
+	}
+}
+
+func TestUpdateGitHubPullRequest_UsesActingUserOAuth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer user-token" {
+			t.Errorf("expected acting user's OAuth token, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{}`)
+	}))
+	defer server.Close()
+
+	repo := &types.GitRepository{
+		ExternalURL:  server.URL + "/org/repo",
+		ExternalType: types.ExternalRepositoryTypeGitHub,
+		Password:     "repo-token",
+		GitHub:       &types.GitHub{BaseURL: server.URL + "/"},
+	}
+	svc := newPRTestService(&prTestStore{
+		repository: repo,
+		oauthConnections: []*types.OAuthConnection{
+			{UserID: "user-b", AccessToken: "user-token", Provider: types.OAuthProvider{Type: types.OAuthProviderTypeGitHub}},
+		},
+	})
+
+	if err := svc.UpdatePullRequest(context.Background(), "repo-id", 7, "title", "body", "user-b"); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestUpdateGitHubPullRequest_RequiresActingUser(t *testing.T) {
+	repo := &types.GitRepository{
+		ExternalURL:  "https://github.com/org/repo",
+		ExternalType: types.ExternalRepositoryTypeGitHub,
+		Password:     "repo-token",
+	}
+	svc := newPRTestService(&prTestStore{repository: repo})
+
+	err := svc.UpdatePullRequest(context.Background(), "repo-id", 7, "title", "body", "")
+	oauthErr, ok := err.(*OAuthRequiredError)
+	if !ok || oauthErr.ProviderType != "github" {
+		t.Fatalf("expected GitHub OAuthRequiredError, got %T: %v", err, err)
+	}
+}
+
+func TestUpdateGitHubPullRequest_DoesNotFallBackToRepoCredentials(t *testing.T) {
+	repo := &types.GitRepository{
+		ExternalURL:  "https://github.com/org/repo",
+		ExternalType: types.ExternalRepositoryTypeGitHub,
+		Password:     "repo-token",
+	}
+	svc := newPRTestService(&prTestStore{repository: repo})
+
+	err := svc.UpdatePullRequest(context.Background(), "repo-id", 7, "title", "body", "user-b")
+	oauthErr, ok := err.(*OAuthRequiredError)
+	if !ok || oauthErr.ProviderType != "github" {
+		t.Fatalf("expected GitHub OAuthRequiredError, got %T: %v", err, err)
+	}
+}
+
+func TestUpdateGitLabMergeRequest_DoesNotFallBackToRepoCredentials(t *testing.T) {
+	repo := &types.GitRepository{
+		ExternalURL:  "https://gitlab.com/org/repo",
+		ExternalType: types.ExternalRepositoryTypeGitLab,
+		GitLab:       &types.GitLab{PersonalAccessToken: "repo-token"},
+	}
+	svc := newPRTestService(&prTestStore{repository: repo})
+
+	err := svc.UpdatePullRequest(context.Background(), "repo-id", 7, "title", "body", "user-b")
+	oauthErr, ok := err.(*OAuthRequiredError)
+	if !ok || oauthErr.ProviderType != "gitlab" {
+		t.Fatalf("expected GitLab OAuthRequiredError, got %T: %v", err, err)
+	}
+}
+
+func TestUpdatePullRequest_RejectsProvidersWithoutUserCredentials(t *testing.T) {
+	for _, provider := range []types.ExternalRepositoryType{
+		types.ExternalRepositoryTypeADO,
+		types.ExternalRepositoryTypeBitbucket,
+	} {
+		t.Run(string(provider), func(t *testing.T) {
+			repo := &types.GitRepository{
+				ExternalURL:  "https://example.com/org/repo",
+				ExternalType: provider,
+			}
+			svc := newPRTestService(&prTestStore{repository: repo})
+
+			if err := svc.UpdatePullRequest(context.Background(), "repo-id", 7, "title", "body", "user-b"); err == nil {
+				t.Fatal("expected unsupported acting-user credential error")
+			}
+		})
 	}
 }
 
@@ -237,7 +334,7 @@ func TestGetGitLabClient_UserWithoutOAuthOrRepoPATReturnsError(t *testing.T) {
 		ExternalType: types.ExternalRepositoryTypeGitLab,
 	}
 
-	_, err := newPRTestService(&prTestStore{}).getGitLabClient(context.Background(), repo, "user-x")
+	_, err := newPRTestService(&prTestStore{}).getGitLabClient(context.Background(), repo, "user-x", false)
 	oauthErr, ok := err.(*OAuthRequiredError)
 	if !ok || oauthErr.ProviderType != "gitlab" {
 		t.Fatalf("expected GitLab OAuthRequiredError, got %T: %v", err, err)
@@ -251,7 +348,7 @@ func TestGetGitLabClient_AgentFallsBackToRepoCredentials(t *testing.T) {
 		GitLab:       &types.GitLab{PersonalAccessToken: "repo-pat"},
 	}
 
-	client, err := newPRTestService(&prTestStore{}).getGitLabClient(context.Background(), repo, "")
+	client, err := newPRTestService(&prTestStore{}).getGitLabClient(context.Background(), repo, "", false)
 	if err != nil || client == nil {
 		t.Fatalf("expected repo credential fallback, got client %v and error %v", client, err)
 	}
