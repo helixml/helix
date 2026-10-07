@@ -208,6 +208,97 @@ func TestUpdateAppRejectsMismatchedBodyID(t *testing.T) {
 	require.Contains(t, httpErr.Message, "does not match URL")
 }
 
+// stampUpdateAppTestApp builds an org-bot-shaped coding app whose identity can
+// be edited through updateAgent with the minimal mock scaffolding.
+func stampUpdateAppTestApp(t *testing.T, ctrl *gomock.Controller, existing *types.App, update func(*types.App)) *types.App {
+	t.Helper()
+	helixStore := store.NewMockStore(ctrl)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	user := types.User{ID: existing.Owner, Type: existing.OwnerType}
+
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID:         existing.Owner,
+		OrganizationID: existing.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	providerManager.EXPECT().ListProviderEndpointsForOwner(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*types.ProviderEndpoint{{ID: "provider-qwen", Name: "qwen"}}, nil)
+	helixStore.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, app *types.App) (*types.App, error) {
+		return app, nil
+	})
+	helixStore.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return(nil, nil)
+	helixStore.EXPECT().ListTriggerConfigurations(gomock.Any(), gomock.Any()).Return(nil, nil)
+	helixStore.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	edited := *existing
+	edited.Config.Helix.Assistants = append([]types.AssistantConfig(nil), existing.Config.Helix.Assistants...)
+	update(&edited)
+
+	body, err := json.Marshal(edited)
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPut, "/api/v1/agents/"+existing.ID, bytes.NewReader(body))
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+	req = req.WithContext(setRequestUser(req.Context(), user))
+	server := &HelixAPIServer{Store: helixStore, providerManager: providerManager}
+
+	updated, httpErr := server.updateAgent(nil, req)
+	require.Nil(t, httpErr)
+	require.NotNil(t, updated)
+	return updated
+}
+
+// A non-identity app write (instructions) must NOT move CodeAgentConfigAt —
+// the timestamp is the session-snapshot staleness gate, and prompt/tool/skill
+// edits would otherwise expire a session's deliberate composer deviation.
+func TestUpdateAppPromptEditDoesNotMoveCodeAgentConfigAt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	identityAt := time.Now().Add(-24 * time.Hour)
+	existing := &types.App{
+		ID: "app-bot", Owner: "usr-owner", OwnerType: types.OwnerTypeUser,
+		OrganizationID: "org-test", AgentKind: types.AgentKindOrg,
+		CodeAgentConfigAt: identityAt,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			Name: "Bot", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime: types.CodeAgentRuntimeOpenCode, CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider: "provider-qwen", Model: "qwen3.8-27b",
+		}}}},
+	}
+
+	updated := stampUpdateAppTestApp(t, ctrl, existing, func(a *types.App) {
+		a.Config.Helix.Assistants[0].SystemPrompt = "new instructions"
+		a.Config.Helix.Assistants[0].Tools = []*types.Tool{{Name: "some_tool"}}
+	})
+
+	// .Equal, not assert.Equal: the update body round-trips JSON, which strips
+	// time.Time's monotonic reading and breaks reflect-based equality.
+	assert.True(t, updated.CodeAgentConfigAt.Equal(identityAt), "a prompt/tool edit is not a coding-identity change")
+}
+
+// A coding-identity edit (model) moves CodeAgentConfigAt, which is what makes
+// the app expire session snapshots written before it.
+func TestUpdateAppModelEditMovesCodeAgentConfigAt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	identityAt := time.Now().Add(-24 * time.Hour)
+	existing := &types.App{
+		ID: "app-bot", Owner: "usr-owner", OwnerType: types.OwnerTypeUser,
+		OrganizationID: "org-test", AgentKind: types.AgentKindOrg,
+		CodeAgentConfigAt: identityAt,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			Name: "Bot", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime: types.CodeAgentRuntimeOpenCode, CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider: "provider-qwen", Model: "qwen3.8-27b",
+		}}}},
+	}
+
+	updated := stampUpdateAppTestApp(t, ctrl, existing, func(a *types.App) {
+		a.Config.Helix.Assistants[0].Model = "glm-5.3"
+	})
+
+	require.True(t, updated.CodeAgentConfigAt.After(identityAt), "a model edit must move the coding-identity timestamp")
+}
+
 func TestUpdateAppPreservesAgentKind(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	helixStore := store.NewMockStore(ctrl)

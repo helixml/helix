@@ -3124,6 +3124,7 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				appHelixConfig.ExternalAgentConfig = agentApp.Config.Helix.ExternalAgentConfig
 			}
 			agentApp.Config.Helix = appHelixConfig
+			stampAppCodeAgentConfigAt(&previousApp, agentApp)
 			updatedApp, err := s.Store.UpdateApp(r.Context(), agentApp)
 			if err != nil {
 				return nil, system.NewHTTPError500(fmt.Sprintf("failed to update agent app: %v", err))

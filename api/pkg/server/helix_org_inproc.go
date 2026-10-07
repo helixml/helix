@@ -150,6 +150,7 @@ func (c *inProcHelixClient) ApplyAgentDefaults(ctx context.Context, appID string
 	if err := types.ValidateCodeAgentModelCompatibility(*assistant); err != nil {
 		return fmt.Errorf("apply agent defaults: %w", err)
 	}
+	stampAppCodeAgentConfigAt(&previous, app)
 	updated, err := c.server.Store.UpdateApp(ctx, app)
 	if err != nil {
 		return err
@@ -752,13 +753,18 @@ func (c *inProcHelixClient) GetApp(ctx context.Context, id string) (*types.App, 
 	return c.server.Store.GetApp(ctx, id)
 }
 
-// UpdateAppConfig persists a mutated app config.
+// UpdateAppConfig persists a mutated app config. Called by org MCP tools
+// editing the bot, so a coding-identity change here must move
+// CodeAgentConfigAt (the session-snapshot staleness gate) just like the
+// public update endpoint does.
 func (c *inProcHelixClient) UpdateAppConfig(ctx context.Context, id string, cfg types.AppConfig) error {
 	app, err := c.server.Store.GetApp(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get app %s: %w", id, err)
 	}
+	previous := *app
 	app.Config = cfg
+	stampAppCodeAgentConfigAt(&previous, app)
 	if _, err := c.server.Store.UpdateApp(ctx, app); err != nil {
 		return fmt.Errorf("update app %s: %w", id, err)
 	}
@@ -1183,14 +1189,16 @@ func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, ses
 			session.ModelName = modelName
 			changed = true
 		}
-		// The Bot owns this session's coding identity — but only edits made
-		// after the snapshot was written. A composer PATCH on the session
-		// after the last Bot edit is a deliberate deviation, not staleness,
-		// and must survive re-activation. A drifted snapshot predating this
-		// timestamp field (zero time) yields to the Bot: bot edits must win.
+		// The Bot owns this session's coding identity — but only writes made
+		// after the snapshot was recorded. A composer PATCH on the session
+		// after the Bot's last coding-identity edit is a deliberate deviation,
+		// not staleness, and must survive re-activation; generic app writes
+		// (tools, MCPs, skills, avatars) never move the gate. A drifted
+		// snapshot predating this timestamp field (zero time) yields to the
+		// Bot: bot edits must win.
 		if appConfig, cfgErr := external_agent.MaterializeCodeAgentConfig(app, nil); cfgErr == nil &&
 			sessionCodeAgentSnapshotStale(
-				session.Metadata.CodeAgentConfig, appConfig, app.Updated, session.Metadata.CodeAgentConfigAt) {
+				session.Metadata.CodeAgentConfig, appConfig, app.CodeAgentConfigAt, session.Metadata.CodeAgentConfigAt) {
 			session.Metadata.CodeAgentConfig = nil
 			session.Metadata.CodeAgentOverrides = nil
 			changed = true

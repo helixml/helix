@@ -730,15 +730,15 @@ func TestInProcSpawnerClient_SyncAgentProfileRenamesStoppedSession(t *testing.T)
 }
 
 // TestInProcSpawnerClient_SyncAgentProfileDropsDriftedCodeAgentSnapshot pins
-// the bot-side fix for the stale agent list: after the Bot's model was edited
-// (app.Updated newer than the snapshot), a session-level code_agent_config
-// snapshot left over from an earlier session-level edit must not keep
-// overriding the app's live configuration in /zed-config and
+// the bot-side fix for the stale agent list: after the Bot's coding identity
+// was edited (CodeAgentConfigAt newer than the snapshot), a session-level
+// code_agent_config snapshot left over from an earlier session-level edit must
+// not keep overriding the app's live configuration in /zed-config and
 // /sessions/{id}/execution-config.
 func TestInProcSpawnerClient_SyncAgentProfileDropsDriftedCodeAgentSnapshot(t *testing.T) {
 	_, store, client, _, ctx := newInProcTestSetup(t)
 	appUpdatedAt := time.Now().Add(-1 * time.Hour)
-	store.SeedApp(&types.App{ID: "app_bot", Updated: appUpdatedAt, Config: types.AppConfig{Helix: types.AppHelixConfig{
+	store.SeedApp(&types.App{ID: "app_bot", CodeAgentConfigAt: appUpdatedAt, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{
 			ID: "0", AgentType: types.AgentTypeZedExternal,
 			CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
@@ -785,12 +785,13 @@ func TestInProcSpawnerClient_SyncAgentProfileDropsDriftedCodeAgentSnapshot(t *te
 }
 
 // TestInProcSpawnerClient_SyncAgentProfileKeepsDeviationNewerThanApp pins the
-// flip side: a composer PATCH written AFTER the Bot's last edit is a
-// deliberate session-level deviation and must survive re-activation.
+// flip side: a composer PATCH written AFTER the Bot's last coding-identity
+// edit is a deliberate session-level deviation and must survive
+// re-activation.
 func TestInProcSpawnerClient_SyncAgentProfileKeepsDeviationNewerThanApp(t *testing.T) {
 	_, store, client, _, ctx := newInProcTestSetup(t)
 	appUpdatedAt := time.Now().Add(-2 * time.Hour)
-	store.SeedApp(&types.App{ID: "app_bot_fresh", Updated: appUpdatedAt, Config: types.AppConfig{Helix: types.AppHelixConfig{
+	store.SeedApp(&types.App{ID: "app_bot_fresh", CodeAgentConfigAt: appUpdatedAt, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{
 			ID: "0", AgentType: types.AgentTypeZedExternal,
 			CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,

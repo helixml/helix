@@ -68,18 +68,28 @@ since the snapshot was written.
    thread cleared, fork_seed seeded, next turn starts on the app's config.
 3. Drift is gated on WHEN the snapshot was written
    (`sessionCodeAgentSnapshotStale`): a snapshot written AFTER the app's last
-   change (`CodeAgentConfigAt` vs `app.Updated`) is a deliberate session-level
-   deviation from the composer PATCH and must survive reconciliation —
-   differing from the app alone is not staleness. Snapshots predating the
+   CODING-IDENTITY change is a deliberate session-level deviation from the
+   composer PATCH and must survive reconciliation — differing from the app
+   alone is not staleness. The app-side clock is a dedicated
+   `App.CodeAgentConfigAt`, NOT `app.Updated`: the latter moves on every
+   app-row write (tool/MCP edits via `UpdateAppConfig`, skill enable, avatar
+   upload, legacy provider-ref heal), and any of those would wrongly expire a
+   deliberate deviation and fork a new thread. The identity clock moves only
+   when the assistant's runtime/credential/provider/model/effort actually
+   changes (`stampAppCodeAgentConfigAt`, wired into `updateAgent`,
+   `applyProject`, the org-MCP `UpdateAppConfig` and `ApplyAgentDefaults`).
+   Prompt edits deliberately do NOT move it — they arm the restart-required
+   banner but are not identity changes. Snapshots predating the
    `CodeAgentConfigAt` field (zero time) are treated as stale when they
    contradict the app, so pre-existing bot sessions get the fix without
-   migration.
+   migration; a zero APP timestamp (no recorded identity edit) never expires a
+   snapshot on its own.
 4. `applySessionCodeAgentExecutionConfig` records `CodeAgentConfigAt` whenever
    it writes the snapshot (rolled back with the rest on failure).
 5. `SyncAgentProfile` drops a drifted snapshot before the bot's next
    activation clears the ACP thread — under the same timing gate, so a
-   session-level deviation chosen after the last bot edit survives
-   re-activation.
+   session-level deviation chosen after the bot's last coding-identity edit
+   survives re-activation.
 6. Frontend: `useGetSessionExecutionConfig` polls every 15s so the composer's
    picker converges after a server-side reconciliation without a page reload
    (the desktop daemon already re-polls `/zed-config` every 30s).
@@ -94,23 +104,28 @@ identity, and normalizing them (`""` vs `"none"`) would produce false drift.
   `TestReconcileSessionAgentWithApp_ModelDriftReconciles`,
   `TestReconcileSessionAgentWithApp_ComposerDeviationKeptWhenAppUnchanged`,
   `TestReconcileSessionAgentWithApp_MatchingConfigIsNoop`,
+  `TestUpdateAppPromptEditDoesNotMoveCodeAgentConfigAt`,
+  `TestUpdateAppModelEditMovesCodeAgentConfigAt`,
   `TestInProcSpawnerClient_SyncAgentProfileDropsDriftedCodeAgentSnapshot`,
   `TestInProcSpawnerClient_SyncAgentProfileKeepsDeviationNewerThanApp`,
   `TestInProcSpawnerClient_SyncAgentProfileKeepsMatchingCodeAgentSnapshot`.
-- Full `go test ./pkg/server/` passes (4 consecutive green runs; one earlier
-  run aborted with a timer-runtime panic and no failing test — not
-  reproducible since, presumed an unrelated timing flake).
+- Full `go test ./pkg/server/` passes (several consecutive green runs; one run
+  aborted with a timer-runtime panic and no failing test — not reproducible
+  since, presumed an unrelated timing flake).
 - `yarn build` (frontend) passes.
-- Live inner-Helix checks (API level):
-  - Stale case — app-backed session with a snapshot (model A) predating the
-    app edit (model B): `GET /execution-config` reported A; the next message
-    logged `config_drift=true runtime_drift=false`, cleared the snapshot, set
-    `AgentSwitchedAt`, cleared the thread pointer, wrote a fork_seed, and
-    `GET /execution-config` then reported B.
-  - Deviation case — session snapshot (model A) written AFTER the app's last
-    change: the next message kept the snapshot (`agent_switched_at` zero, no
-    thread replacement) and `GET /execution-config` still reported A.
-  Test sessions/apps deleted afterwards; no containers leaked.
+- Live inner-Helix checks (API level), one coding-agent app edited
+  `glm-5.3-flash → glm-5.3` through the real `PUT /agents/{id}` (which stamped
+  `App.CodeAgentConfigAt`):
+  - Stale case — session snapshot (`glm-5.3-flash`) written 1s BEFORE the app
+    edit: the next message logged `config_drift=true runtime_drift=false`
+    (`app_identity_updated_at` newer than `snapshot_at`), cleared the
+    snapshot, set `AgentSwitchedAt`, cleared the thread pointer, and
+    `GET /execution-config` then reported `glm-5.3`.
+  - Deviation case — session snapshot (`glm-5.3-flash`) written AFTER the app
+    edit: the next message kept the snapshot (`agent_switched_at` zero, no
+    thread replacement) and `GET /execution-config` still reported
+    `glm-5.3-flash`.
+  Test sessions/app deleted afterwards; no containers leaked.
 
 WARNING: not yet tested end-to-end with a LIVE connected desktop (no real Zed
 turn was driven through the reconciled thread). The reconcile/switch lifecycle

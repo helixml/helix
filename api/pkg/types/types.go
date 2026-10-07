@@ -2105,6 +2105,15 @@ type Agent struct {
 
 	// AgentKind classifies where an agent belongs in the product.
 	AgentKind string `json:"agent_kind" gorm:"not null;default:helix_agent;index"`
+
+	// CodeAgentConfigAt records when this app's coding identity (the
+	// assistant's runtime, credential, provider, model, effort) was last
+	// written. Agent reconciliation gates a session's code_agent_config
+	// staleness on it: generic app writes (tools, MCPs, skills, avatars,
+	// legacy provider-ref heals) must not expire a session's deliberate
+	// composer deviation. Zero means no coding-identity edit has been
+	// recorded, which never expires a snapshot on its own.
+	CodeAgentConfigAt time.Time `json:"code_agent_config_at,omitempty"`
 }
 
 func (Agent) TableName() string { return "apps" }

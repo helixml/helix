@@ -178,29 +178,31 @@ func TestSwitchAgentInPlace_AdoptsAppIdentity(t *testing.T) {
 }
 
 // A bot whose model was edited (runtime unchanged) must reconcile: the
-// session's stored code_agent_config snapshot was written BEFORE the app
-// change, describes the model the agent started with, and would keep
-// overriding the app everywhere.
+// session's stored code_agent_config snapshot was written BEFORE the app's
+// coding-identity edit, describes the model the agent started with, and would
+// keep overriding the app everywhere.
 func TestReconcileSessionAgentWithApp_ModelDriftReconciles(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
-	appUpdatedAt := time.Now()
+	identityEditedAt := time.Now()
 
-	mem.SeedApp(&types.App{ID: "app_opencode", Updated: appUpdatedAt, AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
-		Assistants: []types.AssistantConfig{{
-			ID: "0", AgentType: types.AgentTypeZedExternal,
-			CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
-			CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
-			Provider:                "prov_1", Model: "glm-5.3",
-		}},
-	}}})
+	mem.SeedApp(&types.App{
+		ID: "app_opencode", CodeAgentConfigAt: identityEditedAt, AgentKind: types.AgentKindCoding,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: []types.AssistantConfig{{
+				ID: "0", AgentType: types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+				Provider:                "prov_1", Model: "glm-5.3",
+			}},
+		}}})
 	session := newTestParentSession("user_a")
 	session.ParentApp = "app_opencode"
 	session.Metadata.AssistantID = "0"
 	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeOpenCode
 	session.Metadata.ZedAgentName = types.CodeAgentRuntimeOpenCode.ZedAgentName()
 	session.Metadata.ZedThreadID = "thread_on_old_model"
-	session.Metadata.CodeAgentConfigAt = appUpdatedAt.Add(-1 * time.Hour)
+	session.Metadata.CodeAgentConfigAt = identityEditedAt.Add(-1 * time.Hour)
 	session.Metadata.CodeAgentConfig = &types.CodeAgentExecutionConfig{
 		Runtime:        types.CodeAgentRuntimeOpenCode,
 		CredentialType: types.CodeAgentCredentialTypeAPIKey,
@@ -221,28 +223,31 @@ func TestReconcileSessionAgentWithApp_ModelDriftReconciles(t *testing.T) {
 }
 
 // A composer PATCH deliberately stores a session-level deviation. A snapshot
-// written AFTER the app's last change is that live deviation — differing from
-// the app alone must NOT reconcile it away or replace the thread.
+// written AFTER the app's last coding-identity edit is that live deviation —
+// differing from the app alone must NOT reconcile it away or replace the
+// thread.
 func TestReconcileSessionAgentWithApp_ComposerDeviationKeptWhenAppUnchanged(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
-	appUpdatedAt := time.Now().Add(-2 * time.Hour)
+	identityEditedAt := time.Now().Add(-2 * time.Hour)
 
-	mem.SeedApp(&types.App{ID: "app_opencode", Updated: appUpdatedAt, AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
-		Assistants: []types.AssistantConfig{{
-			ID: "0", AgentType: types.AgentTypeZedExternal,
-			CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
-			CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
-			Provider:                "prov_1", Model: "glm-5.3",
-		}},
-	}}})
+	mem.SeedApp(&types.App{
+		ID: "app_opencode", CodeAgentConfigAt: identityEditedAt, AgentKind: types.AgentKindCoding,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: []types.AssistantConfig{{
+				ID: "0", AgentType: types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+				Provider:                "prov_1", Model: "glm-5.3",
+			}},
+		}}})
 	session := newTestParentSession("user_a")
 	session.ParentApp = "app_opencode"
 	session.Metadata.AssistantID = "0"
 	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeOpenCode
 	session.Metadata.ZedAgentName = types.CodeAgentRuntimeOpenCode.ZedAgentName()
 	session.Metadata.ZedThreadID = "healthy_thread"
-	session.Metadata.CodeAgentConfigAt = appUpdatedAt.Add(1 * time.Hour)
+	session.Metadata.CodeAgentConfigAt = identityEditedAt.Add(1 * time.Hour)
 	session.Metadata.CodeAgentConfig = &types.CodeAgentExecutionConfig{
 		Runtime:        types.CodeAgentRuntimeOpenCode,
 		CredentialType: types.CodeAgentCredentialTypeAPIKey,
@@ -256,9 +261,9 @@ func TestReconcileSessionAgentWithApp_ComposerDeviationKeptWhenAppUnchanged(t *t
 
 	updated, err := mem.GetSession(ctx, session.ID)
 	require.NoError(t, err)
-	assert.NotNil(t, updated.Metadata.CodeAgentConfig, "a deviation written after the app's last change is a live choice and must be kept")
+	assert.NotNil(t, updated.Metadata.CodeAgentConfig, "a deviation written after the app's last identity edit is a live choice and must be kept")
 	assert.Equal(t, "glm-5.3-flash", updated.Metadata.CodeAgentConfig.Model)
-	assert.Equal(t, "healthy_thread", updated.Metadata.ZedThreadID, "no app change since the snapshot — no thread replacement")
+	assert.Equal(t, "healthy_thread", updated.Metadata.ZedThreadID, "no identity edit since the snapshot — no thread replacement")
 	assert.True(t, updated.Metadata.AgentSwitchedAt.IsZero())
 }
 

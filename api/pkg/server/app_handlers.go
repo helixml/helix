@@ -1089,6 +1089,53 @@ func appAgentRuntimeConfig(app *types.App) agentRuntimeConfig {
 	}
 }
 
+// agentCodeAgentIdentity is the assistant fields that decide which agent and
+// model an app's sessions run — the subset of agentRuntimeConfig that moves
+// App.CodeAgentConfigAt. Deliberately excludes the system prompt: prompt edits
+// arm the restart-required banner but are not a coding-identity change, and
+// must not expire a session's composer deviation.
+type agentCodeAgentIdentity struct {
+	codeAgentRuntime        types.CodeAgentRuntime
+	codeAgentCredentialType types.CodeAgentCredentialType
+	provider                string
+	model                   string
+	reasoningEffort         string
+	generationModelProvider string
+	generationModel         string
+	claudeSubscriptionModel string
+}
+
+func appCodeAgentIdentity(app *types.App) agentCodeAgentIdentity {
+	if app == nil || len(app.Config.Helix.Assistants) == 0 {
+		return agentCodeAgentIdentity{}
+	}
+	a := app.Config.Helix.Assistants[0]
+	return agentCodeAgentIdentity{
+		codeAgentRuntime:        a.CodeAgentRuntime,
+		codeAgentCredentialType: a.CodeAgentCredentialType,
+		provider:                a.Provider,
+		model:                   a.Model,
+		reasoningEffort:         a.ReasoningEffort,
+		generationModelProvider: a.GenerationModelProvider,
+		generationModel:         a.GenerationModel,
+		claudeSubscriptionModel: a.ClaudeSubscriptionModel,
+	}
+}
+
+// stampAppCodeAgentConfigAt moves next.CodeAgentConfigAt when the write
+// changes the app's coding identity. Generic app writes (tools, MCPs, skills,
+// avatars, legacy provider-ref heals) leave the timestamp alone, so they never
+// expire a session's deliberate composer deviation. A nil previous (creation)
+// stamps whenever the new app carries a coding assistant.
+func stampAppCodeAgentConfigAt(previous, next *types.App) {
+	if next == nil {
+		return
+	}
+	if appCodeAgentIdentity(previous) != appCodeAgentIdentity(next) {
+		next.CodeAgentConfigAt = time.Now()
+	}
+}
+
 // updateAgent godoc
 // @Summary Update an existing agent
 // @Description Update existing agent
@@ -1172,6 +1219,7 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	}
 
 	updatedWithTools.Updated = time.Now()
+	stampAppCodeAgentConfigAt(existing, updatedWithTools)
 
 	// Validate and default tools
 	for idx := range updatedWithTools.Config.Helix.Assistants {

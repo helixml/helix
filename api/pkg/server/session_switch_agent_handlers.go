@@ -418,7 +418,7 @@ func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Contex
 	}
 	runtimeDrift := !sessionUsesAgentRuntime(session, targetRuntime)
 	configDrift := sessionCodeAgentSnapshotStale(
-		session.Metadata.CodeAgentConfig, appConfig, app.Updated, session.Metadata.CodeAgentConfigAt)
+		session.Metadata.CodeAgentConfig, appConfig, app.CodeAgentConfigAt, session.Metadata.CodeAgentConfigAt)
 	if !runtimeDrift && !configDrift {
 		return nil
 	}
@@ -433,7 +433,7 @@ func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Contex
 		Bool("runtime_drift", runtimeDrift).
 		Bool("config_drift", configDrift).
 		Time("snapshot_at", session.Metadata.CodeAgentConfigAt).
-		Time("app_updated_at", app.Updated).
+		Time("app_identity_updated_at", app.CodeAgentConfigAt).
 		Msg("reconciling stale session agent binding before next turn")
 
 	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, session.ParentApp, agentSwitchOptions{
@@ -456,18 +456,21 @@ func sessionCodeAgentIdentityDiffers(stored, app *types.CodeAgentExecutionConfig
 // sessionCodeAgentSnapshotStale reports whether a stored coding-identity
 // snapshot must yield to the app. Differing from the app alone is NOT enough:
 // the composer PATCH deliberately stores session-level deviations, so a
-// snapshot written after the app's last change is a live choice and must
-// survive reconciliation. Only an app change since the snapshot was written
-// makes it stale. Snapshots predating the timestamp field (zero time) are
-// treated as stale when they contradict the app — bot edits must win.
+// snapshot written after the app's last CODING-IDENTITY change is a live
+// choice and must survive reconciliation. Only a coding-identity change on the
+// app since the snapshot was written makes it stale (generic app writes —
+// tools, MCPs, skills, avatars — never do). A zero app timestamp means no
+// coding-identity edit has been recorded, which never expires a snapshot on
+// its own; a zero snapshot time means it was written before the field existed,
+// and bot edits must win.
 func sessionCodeAgentSnapshotStale(
 	snapshot, appConfig *types.CodeAgentExecutionConfig,
-	appUpdatedAt, snapshotAt time.Time,
+	appIdentityUpdatedAt, snapshotAt time.Time,
 ) bool {
 	if snapshot == nil || appConfig == nil || !sessionCodeAgentIdentityDiffers(snapshot, appConfig) {
 		return false
 	}
-	return snapshotAt.IsZero() || appUpdatedAt.After(snapshotAt)
+	return snapshotAt.IsZero() || appIdentityUpdatedAt.After(snapshotAt)
 }
 
 func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
