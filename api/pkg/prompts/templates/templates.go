@@ -16,9 +16,6 @@ var FinetuningTemplate string
 //go:embed agent_implementation_approved_push.tmpl
 var ImplementationApprovedPushPrompt string
 
-//go:embed agent_request_pull_requests.tmpl
-var RequestPullRequestsPrompt string
-
 //go:embed agent_rebase_required.tmpl
 var RebaseRequiredPrompt string
 
