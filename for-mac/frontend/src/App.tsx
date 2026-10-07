@@ -241,6 +241,12 @@ export function App() {
       setVmUpdateReady(true);
     });
 
+    EventsOn("update:vm-applied", () => {
+      setVmUpdateAvailable(null);
+      setVmUpdateProgress(null);
+      setVmUpdateReady(false);
+    });
+
     EventsOn("update:combined-progress", (progress: any) => {
       if (progress?.error) {
         setCombinedUpdateProgress(null);
@@ -362,6 +368,7 @@ export function App() {
       EventsOff("update:vm-progress");
       EventsOff("update:vm-available");
       EventsOff("update:vm-ready");
+      EventsOff("update:vm-applied");
       EventsOff("update:combined-progress");
       EventsOff("update:combined-ready");
       window.removeEventListener('message', handleMessage);

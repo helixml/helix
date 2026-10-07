@@ -845,6 +845,8 @@ func (a *App) ApplyVMUpdate() error {
 	if err := a.updater.ApplyVMUpdate(a.vm, a.settings); err != nil {
 		return err
 	}
+	// The staged update is installed: clear the "ready to install" prompts.
+	wailsRuntime.EventsEmit(a.ctx, "update:vm-applied")
 	// Start the VM with new disk
 	return a.StartVM()
 }
