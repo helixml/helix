@@ -874,6 +874,92 @@ func TestInProcSpawnerClient_SyncAgentProfileKeepsMatchingCodeAgentSnapshot(t *t
 	require.NotNil(t, got.Metadata.CodeAgentConfig, "a snapshot matching the app is not drift and must be kept")
 }
 
+// TestInProcSpawnerClient_SyncAgentProfileDropsLegacySnapshot covers the
+// zero-time branch: a snapshot written before CodeAgentConfigAt existed has no
+// recorded write time, and must yield to the Bot when it contradicts it —
+// this is the pre-existing-session path the staleness gate relies on.
+func TestInProcSpawnerClient_SyncAgentProfileDropsLegacySnapshot(t *testing.T) {
+	_, store, client, _, ctx := newInProcTestSetup(t)
+	store.SeedApp(&types.App{ID: "app_bot_legacy", CodeAgentConfigAt: time.Now().Add(-1 * time.Hour), Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			ID: "0", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider:                "prov_1", Model: "glm-5.3",
+		}},
+	}}})
+	_, err := store.CreateSession(ctx, types.Session{
+		ID:        "ses_profile_legacy",
+		Name:      "Hello Bot",
+		ParentApp: "app_bot_legacy",
+		Metadata: types.SessionMetadata{
+			AgentType:        string(types.AgentTypeZedExternal),
+			AssistantID:      "0",
+			CodeAgentRuntime: types.CodeAgentRuntimeOpenCode,
+			ZedAgentName:     types.CodeAgentRuntimeOpenCode.ZedAgentName(),
+			// CodeAgentConfigAt deliberately zero: pre-existing snapshot.
+			CodeAgentConfig: &types.CodeAgentExecutionConfig{
+				Runtime:        types.CodeAgentRuntimeOpenCode,
+				CredentialType: types.CodeAgentCredentialTypeAPIKey,
+				ProviderRef:    "prov_1",
+				Model:          "glm-5.3-flash",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	launch := runtimehelix.SessionLaunchConfig{
+		SandboxRuntime:   types.SandboxRuntimeHeadlessUbuntu,
+		SandboxResources: types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192},
+	}
+	_ = client.SyncAgentProfile(ctx, "ses_profile_legacy", "Hello Bot", "w-bot", "instructions", launch)
+
+	got, err := store.GetSession(ctx, "ses_profile_legacy")
+	require.NoError(t, err)
+	require.Nil(t, got.Metadata.CodeAgentConfig, "a legacy (zero-time) snapshot that contradicts the Bot must yield")
+}
+
+// TestInProcSpawnerClient_SyncAgentProfileDropsStaleOverrides covers the
+// overrides half of the staleness gate: overrides written before the Bot's
+// last coding-identity edit block the edit from reaching /zed-config and must
+// be dropped on activation.
+func TestInProcSpawnerClient_SyncAgentProfileDropsStaleOverrides(t *testing.T) {
+	_, store, client, _, ctx := newInProcTestSetup(t)
+	appUpdatedAt := time.Now().Add(-1 * time.Hour)
+	store.SeedApp(&types.App{ID: "app_bot_overrides", CodeAgentConfigAt: appUpdatedAt, Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			ID: "0", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider:                "prov_1", Model: "glm-5.3",
+		}},
+	}}})
+	_, err := store.CreateSession(ctx, types.Session{
+		ID:        "ses_profile_stale_ovr",
+		Name:      "Hello Bot",
+		ParentApp: "app_bot_overrides",
+		Metadata: types.SessionMetadata{
+			AgentType:            string(types.AgentTypeZedExternal),
+			AssistantID:          "0",
+			CodeAgentRuntime:     types.CodeAgentRuntimeOpenCode,
+			ZedAgentName:         types.CodeAgentRuntimeOpenCode.ZedAgentName(),
+			CodeAgentOverridesAt: appUpdatedAt.Add(-1 * time.Hour),
+			CodeAgentOverrides:   &types.CodeAgentOverrides{Model: "glm-5.3-flash"},
+		},
+	})
+	require.NoError(t, err)
+
+	launch := runtimehelix.SessionLaunchConfig{
+		SandboxRuntime:   types.SandboxRuntimeHeadlessUbuntu,
+		SandboxResources: types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192},
+	}
+	_ = client.SyncAgentProfile(ctx, "ses_profile_stale_ovr", "Hello Bot", "w-bot", "instructions", launch)
+
+	got, err := store.GetSession(ctx, "ses_profile_stale_ovr")
+	require.NoError(t, err)
+	require.Nil(t, got.Metadata.CodeAgentOverrides, "stale overrides must yield so the Bot's model reaches /zed-config")
+}
+
 // TestParseEnvVarsToMap pins the KEY=value split that backs
 // ListProjectSecrets / list_secrets. A value containing `=` (base64,
 // tokens, URL query strings) must survive intact — Cut on the FIRST `=`

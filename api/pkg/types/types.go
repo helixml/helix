@@ -545,6 +545,12 @@ type SessionMetadata struct {
 	// authoritative there, so there is exactly one source of truth per session.
 	CodeAgentOverrides *CodeAgentOverrides `json:"code_agent_overrides,omitempty"`
 
+	// CodeAgentOverridesAt records when CodeAgentOverrides was last written by
+	// a session-level edit. Agent reconciliation gates override staleness on
+	// it, the same way CodeAgentConfigAt gates a snapshot: only an app
+	// coding-identity change after the write expires the deviation.
+	CodeAgentOverridesAt time.Time `json:"code_agent_overrides_at,omitempty"`
+
 	// CodeAgentConfig is the complete coding runtime selected for a general
 	// external-agent session. ParentApp remains the Helix Agent identity and
 	// supplies instructions/tools; this value owns runtime, credentials, model,

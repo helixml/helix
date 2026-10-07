@@ -66,6 +66,13 @@ since the snapshot was written.
    (`sessionCodeAgentIdentityDiffers` — runtime, credential type, provider
    ref, model). Drifted snapshots reconcile exactly like runtime drifts:
    thread cleared, fork_seed seeded, next turn starts on the app's config.
+   The same staleness rule covers composer deviations stored as
+   `CodeAgentOverrides` (no snapshot): they gate on their own write time
+   (`CodeAgentOverridesAt`, recorded by `persistSessionCodeAgentConfig`),
+   because even an override pinning the app's current values blocks later app
+   edits from reaching `/zed-config`. Overrides are cleared by the existing
+   `adoptAppIdentity` path; `applySessionCodeAgentExecutionConfig` resets
+   their timestamp when a snapshot replaces them (rollback restores both).
 3. Drift is gated on WHEN the snapshot was written
    (`sessionCodeAgentSnapshotStale`): a snapshot written AFTER the app's last
    CODING-IDENTITY change is a deliberate session-level deviation from the
@@ -78,8 +85,12 @@ since the snapshot was written.
    when the assistant's runtime/credential/provider/model/effort actually
    changes (`stampAppCodeAgentConfigAt`, wired into `updateAgent`,
    `applyProject`, the org-MCP `UpdateAppConfig` and `ApplyAgentDefaults`).
-   Prompt edits deliberately do NOT move it — they arm the restart-required
-   banner but are not identity changes. Snapshots predating the
+   Prompt edits and effort-only edits deliberately do NOT move it — they arm
+   the restart-required banner (prompt) or count as tuning (effort) but are
+   not identity changes; the identity tuple deliberately mirrors the fields
+   the staleness predicate compares. `updateAgent` also carries the stored
+   clock across the full-row save (API PUTs omit it — a full-row save would
+   otherwise reset it to zero and disarm the gate). Snapshots predating the
    `CodeAgentConfigAt` field (zero time) are treated as stale when they
    contradict the app, so pre-existing bot sessions get the fix without
    migration; a zero APP timestamp (no recorded identity edit) never expires a
@@ -102,30 +113,46 @@ identity, and normalizing them (`""` vs `"none"`) would produce false drift.
 
 - Focused Go tests: `TestSwitchAgentInPlace_AdoptsAppIdentity`,
   `TestReconcileSessionAgentWithApp_ModelDriftReconciles`,
+  `TestReconcileSessionAgentWithApp_LegacySnapshotReconciles` (zero-time
+  snapshot, the pre-existing-session branch),
   `TestReconcileSessionAgentWithApp_ComposerDeviationKeptWhenAppUnchanged`,
+  `TestReconcileSessionAgentWithApp_StaleOverridesReconcile`,
+  `TestReconcileSessionAgentWithApp_FreshOverridesKept`,
   `TestReconcileSessionAgentWithApp_MatchingConfigIsNoop`,
   `TestUpdateAppPromptEditDoesNotMoveCodeAgentConfigAt`,
   `TestUpdateAppModelEditMovesCodeAgentConfigAt`,
+  `TestUpdateAppEffortEditDoesNotMoveCodeAgentConfigAt`,
+  `TestUpdateAppPreservesCodeAgentConfigAtOnIdentityUnchangedSave`,
   `TestInProcSpawnerClient_SyncAgentProfileDropsDriftedCodeAgentSnapshot`,
+  `TestInProcSpawnerClient_SyncAgentProfileDropsLegacySnapshot`,
   `TestInProcSpawnerClient_SyncAgentProfileKeepsDeviationNewerThanApp`,
+  `TestInProcSpawnerClient_SyncAgentProfileDropsStaleOverrides`,
   `TestInProcSpawnerClient_SyncAgentProfileKeepsMatchingCodeAgentSnapshot`.
-- Full `go test ./pkg/server/` passes (several consecutive green runs; one run
-  aborted with a timer-runtime panic and no failing test — not reproducible
-  since, presumed an unrelated timing flake).
+- Full `go test ./pkg/server/` passes (multiple consecutive green runs). One
+  earlier run aborted with `panic: Fail in goroutine after
+  TestWebSocketSyncSuite has completed`: a pre-existing race from the
+  trailing-edge DB flush timer (main, 6ff541aa6, 2026-07-03) firing into a
+  finished test's gomock controller under load. Not reproducible on demand,
+  the suite passes in isolation, and CI (which runs the same suite) has been
+  green throughout. A proper fix belongs to the test harness, not this PR.
 - `yarn build` (frontend) passes.
-- Live inner-Helix checks (API level), one coding-agent app edited
-  `glm-5.3-flash → glm-5.3` through the real `PUT /agents/{id}` (which stamped
-  `App.CodeAgentConfigAt`):
-  - Stale case — session snapshot (`glm-5.3-flash`) written 1s BEFORE the app
-    edit: the next message logged `config_drift=true runtime_drift=false`
+- Live inner-Helix checks (API level), against real coding-agent apps edited
+  through `PUT /agents/{id}`:
+  - Stale snapshot case — snapshot written 1s BEFORE the app's model edit:
+    the next message logged `deviation_stale=true runtime_drift=false`
     (`app_identity_updated_at` newer than `snapshot_at`), cleared the
     snapshot, set `AgentSwitchedAt`, cleared the thread pointer, and
-    `GET /execution-config` then reported `glm-5.3`.
-  - Deviation case — session snapshot (`glm-5.3-flash`) written AFTER the app
+    `GET /execution-config` then reported the app's model.
+  - Fresh deviation case — snapshot written AFTER the app's last identity
     edit: the next message kept the snapshot (`agent_switched_at` zero, no
-    thread replacement) and `GET /execution-config` still reported
-    `glm-5.3-flash`.
-  Test sessions/app deleted afterwards; no containers leaked.
+    thread replacement) and `GET /execution-config` still reported the
+    deviating model.
+  - Overrides cases — an effort-only app edit did NOT expire overrides
+    (kept, no thread replacement); a model identity edit after the overrides
+    fired `deviation_stale=true` (`overrides_at` older than
+    `app_identity_updated_at`), cleared them, replaced the thread, and the
+    picker followed the app's model.
+  Test sessions/apps deleted afterwards; no containers leaked.
 
 WARNING: not yet tested end-to-end with a LIVE connected desktop (no real Zed
 turn was driven through the reconciled thread). The reconcile/switch lifecycle

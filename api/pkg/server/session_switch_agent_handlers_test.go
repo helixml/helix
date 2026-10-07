@@ -305,6 +305,126 @@ func TestReconcileSessionAgentWithApp_MatchingConfigIsNoop(t *testing.T) {
 	assert.True(t, updated.Metadata.AgentSwitchedAt.IsZero())
 }
 
+// A deviation predating the write-time fields (zero snapshot time — a
+// session edited before CodeAgentConfigAt existed) yields to the bot: this is
+// the pre-existing-session path the staleness gate relies on.
+func TestReconcileSessionAgentWithApp_LegacySnapshotReconciles(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+
+	mem.SeedApp(&types.App{
+		ID: "app_opencode", CodeAgentConfigAt: time.Now(), AgentKind: types.AgentKindCoding,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: []types.AssistantConfig{{
+				ID: "0", AgentType: types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+				Provider:                "prov_1", Model: "glm-5.3",
+			}},
+		}}})
+	session := newTestParentSession("user_a")
+	session.ParentApp = "app_opencode"
+	session.Metadata.AssistantID = "0"
+	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeOpenCode
+	session.Metadata.ZedAgentName = types.CodeAgentRuntimeOpenCode.ZedAgentName()
+	session.Metadata.ZedThreadID = "legacy_thread"
+	// CodeAgentConfigAt deliberately left zero: the snapshot predates the
+	// field, so it must yield despite the missing write time.
+	session.Metadata.CodeAgentConfig = &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeOpenCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "prov_1",
+		Model:          "glm-5.3-flash",
+	}
+	seedParentWithInteractions(t, mem, session, 1)
+
+	httpErr := srv.reconcileSessionAgentWithApp(ctx, session)
+	require.Nil(t, httpErr)
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Nil(t, updated.Metadata.CodeAgentConfig, "a legacy (zero-time) snapshot that contradicts the app must yield")
+	assert.Empty(t, updated.Metadata.ZedThreadID)
+	assert.False(t, updated.Metadata.AgentSwitchedAt.IsZero())
+}
+
+// Overrides are the other composer deviation storage. When the app's coding
+// identity changed after they were written, they are stale and must reconcile
+// even without a snapshot.
+func TestReconcileSessionAgentWithApp_StaleOverridesReconcile(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+	identityEditedAt := time.Now()
+
+	mem.SeedApp(&types.App{
+		ID: "app_opencode", CodeAgentConfigAt: identityEditedAt, AgentKind: types.AgentKindCoding,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: []types.AssistantConfig{{
+				ID: "0", AgentType: types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+				Provider:                "prov_1", Model: "glm-5.3",
+			}},
+		}}})
+	session := newTestParentSession("user_a")
+	session.ParentApp = "app_opencode"
+	session.Metadata.AssistantID = "0"
+	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeOpenCode
+	session.Metadata.ZedAgentName = types.CodeAgentRuntimeOpenCode.ZedAgentName()
+	session.Metadata.ZedThreadID = "thread_on_overrides"
+	session.Metadata.CodeAgentOverridesAt = identityEditedAt.Add(-1 * time.Hour)
+	session.Metadata.CodeAgentOverrides = &types.CodeAgentOverrides{Model: "glm-5.3-flash"}
+	seedParentWithInteractions(t, mem, session, 1)
+
+	httpErr := srv.reconcileSessionAgentWithApp(ctx, session)
+	require.Nil(t, httpErr)
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Nil(t, updated.Metadata.CodeAgentOverrides, "stale overrides must yield to the app's model edit")
+	assert.Nil(t, updated.Metadata.CodeAgentConfig)
+	assert.Empty(t, updated.Metadata.ZedThreadID, "the next turn must start a thread on the app's model")
+	assert.False(t, updated.Metadata.AgentSwitchedAt.IsZero())
+}
+
+// Overrides written after the app's last coding-identity edit are a live
+// deviation and must survive reconciliation untouched.
+func TestReconcileSessionAgentWithApp_FreshOverridesKept(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+	identityEditedAt := time.Now().Add(-2 * time.Hour)
+
+	mem.SeedApp(&types.App{
+		ID: "app_opencode", CodeAgentConfigAt: identityEditedAt, AgentKind: types.AgentKindCoding,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: []types.AssistantConfig{{
+				ID: "0", AgentType: types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+				Provider:                "prov_1", Model: "glm-5.3",
+			}},
+		}}})
+	session := newTestParentSession("user_a")
+	session.ParentApp = "app_opencode"
+	session.Metadata.AssistantID = "0"
+	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeOpenCode
+	session.Metadata.ZedAgentName = types.CodeAgentRuntimeOpenCode.ZedAgentName()
+	session.Metadata.ZedThreadID = "healthy_thread"
+	session.Metadata.CodeAgentOverridesAt = identityEditedAt.Add(1 * time.Hour)
+	session.Metadata.CodeAgentOverrides = &types.CodeAgentOverrides{Model: "glm-5.3-flash"}
+	seedParentWithInteractions(t, mem, session, 1)
+
+	httpErr := srv.reconcileSessionAgentWithApp(ctx, session)
+	require.Nil(t, httpErr)
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, updated.Metadata.CodeAgentOverrides, "overrides written after the app's last identity edit are a live choice")
+	assert.Equal(t, "glm-5.3-flash", updated.Metadata.CodeAgentOverrides.Model)
+	assert.Equal(t, "healthy_thread", updated.Metadata.ZedThreadID)
+	assert.True(t, updated.Metadata.AgentSwitchedAt.IsZero())
+}
+
 func TestSwitchAgentInPlace_ImplementationHandoffRunsWithSameRuntime(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()

@@ -442,19 +442,23 @@ func (s *HelixAPIServer) applySessionCodeAgentExecutionConfig(
 	oldConfig := session.Metadata.CodeAgentConfig
 	oldOverrides := session.Metadata.CodeAgentOverrides
 	oldConfigAt := session.Metadata.CodeAgentConfigAt
+	oldOverridesAt := session.Metadata.CodeAgentOverridesAt
 	session.Metadata.CodeAgentConfig = config
 	session.Metadata.CodeAgentOverrides = nil
+	session.Metadata.CodeAgentOverridesAt = time.Time{}
 	session.Metadata.CodeAgentConfigAt = time.Now()
 	if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
 		session.Metadata.CodeAgentConfig = oldConfig
 		session.Metadata.CodeAgentOverrides = oldOverrides
 		session.Metadata.CodeAgentConfigAt = oldConfigAt
+		session.Metadata.CodeAgentOverridesAt = oldOverridesAt
 		return false, false, system.NewHTTPError500(fmt.Sprintf("failed to save code-agent config: %v", err))
 	}
 	rollback := func() {
 		session.Metadata.CodeAgentConfig = oldConfig
 		session.Metadata.CodeAgentOverrides = oldOverrides
 		session.Metadata.CodeAgentConfigAt = oldConfigAt
+		session.Metadata.CodeAgentOverridesAt = oldOverridesAt
 		if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
 			log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to roll back session code-agent config")
 		}
@@ -558,12 +562,14 @@ type codeAgentConfigTarget struct {
 
 // persistSessionCodeAgentConfig writes a coding identity onto a session row.
 // The agent id is ignored on purpose: switchAgentInPlaceForNextTurn repoints
-// ParentApp itself, and it owns that binding.
+// ParentApp itself, and it owns that binding. The write time is recorded so
+// agent reconciliation can gate override staleness on it.
 func (s *HelixAPIServer) persistSessionCodeAgentConfig(
 	session *types.Session,
 ) func(context.Context, string, *types.CodeAgentOverrides) error {
 	return func(ctx context.Context, _ string, overrides *types.CodeAgentOverrides) error {
 		session.Metadata.CodeAgentOverrides = overrides
+		session.Metadata.CodeAgentOverridesAt = time.Now()
 		_, err := s.Store.UpdateSession(ctx, *session)
 		return err
 	}

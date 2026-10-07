@@ -302,6 +302,31 @@ func TestUpdateAppModelEditMovesCodeAgentConfigAt(t *testing.T) {
 	require.True(t, updated.CodeAgentConfigAt.After(identityAt), "a model edit must move the coding-identity timestamp")
 }
 
+// An effort-only bot edit must NOT move CodeAgentConfigAt: the staleness
+// predicate treats effort as tuning, so a clock move here would expire a
+// session's model deviation without the model ever changing.
+func TestUpdateAppEffortEditDoesNotMoveCodeAgentConfigAt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	identityAt := time.Now().Add(-24 * time.Hour)
+	existing := &types.App{
+		ID: "app-bot", Owner: "usr-owner", OwnerType: types.OwnerTypeUser,
+		OrganizationID: "org-test", AgentKind: types.AgentKindOrg,
+		CodeAgentConfigAt: identityAt,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			Name: "Bot", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime: types.CodeAgentRuntimeOpenCode, CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider: "provider-qwen", Model: "qwen3.8-27b", ReasoningEffort: "low",
+		}}}},
+	}
+
+	updated := stampUpdateAppTestApp(t, ctrl, existing, func(a *types.App) {
+		a.Config.Helix.Assistants[0].ReasoningEffort = "xhigh"
+	})
+
+	assert.True(t, updated.CodeAgentConfigAt.Equal(identityAt),
+		"an effort-only edit is tuning, not a coding-identity change")
+}
+
 func TestUpdateAppPreservesAgentKind(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	helixStore := store.NewMockStore(ctrl)

@@ -417,9 +417,8 @@ func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Contex
 		appConfig = nil
 	}
 	runtimeDrift := !sessionUsesAgentRuntime(session, targetRuntime)
-	configDrift := sessionCodeAgentSnapshotStale(
-		session.Metadata.CodeAgentConfig, appConfig, app.CodeAgentConfigAt, session.Metadata.CodeAgentConfigAt)
-	if !runtimeDrift && !configDrift {
+	deviationStale := sessionCodeAgentDeviationStale(session, appConfig, app.CodeAgentConfigAt)
+	if !runtimeDrift && !deviationStale {
 		return nil
 	}
 
@@ -431,8 +430,9 @@ func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Contex
 		Str("target_runtime", string(targetRuntime)).
 		Str("target_agent_name", targetRuntime.ZedAgentName()).
 		Bool("runtime_drift", runtimeDrift).
-		Bool("config_drift", configDrift).
+		Bool("deviation_stale", deviationStale).
 		Time("snapshot_at", session.Metadata.CodeAgentConfigAt).
+		Time("overrides_at", session.Metadata.CodeAgentOverridesAt).
 		Time("app_identity_updated_at", app.CodeAgentConfigAt).
 		Msg("reconciling stale session agent binding before next turn")
 
@@ -453,24 +453,39 @@ func sessionCodeAgentIdentityDiffers(stored, app *types.CodeAgentExecutionConfig
 		stored.Model != app.Model
 }
 
-// sessionCodeAgentSnapshotStale reports whether a stored coding-identity
-// snapshot must yield to the app. Differing from the app alone is NOT enough:
-// the composer PATCH deliberately stores session-level deviations, so a
-// snapshot written after the app's last CODING-IDENTITY change is a live
-// choice and must survive reconciliation. Only a coding-identity change on the
-// app since the snapshot was written makes it stale (generic app writes —
-// tools, MCPs, skills, avatars — never do). A zero app timestamp means no
-// coding-identity edit has been recorded, which never expires a snapshot on
-// its own; a zero snapshot time means it was written before the field existed,
-// and bot edits must win.
-func sessionCodeAgentSnapshotStale(
-	snapshot, appConfig *types.CodeAgentExecutionConfig,
-	appIdentityUpdatedAt, snapshotAt time.Time,
-) bool {
-	if snapshot == nil || appConfig == nil || !sessionCodeAgentIdentityDiffers(snapshot, appConfig) {
+// sessionCodeAgentDeviationStale reports whether a session's stored
+// coding-identity deviation — a composer-written CodeAgentConfig snapshot, or
+// legacy CodeAgentOverrides — must yield to the app. Differing from the app
+// alone is NOT enough: the composer deliberately stores session-level
+// deviations, so a deviation written after the app's last CODING-IDENTITY
+// change is a live choice and must survive reconciliation. Only a
+// coding-identity change on the app since the deviation was written makes it
+// stale (generic app writes — tools, MCPs, skills, avatars — never do).
+//
+// A zero app timestamp means no coding-identity edit has been recorded, which
+// never expires a deviation on its own. A zero deviation time means it was
+// written before the field existed, and bot edits must win.
+//
+// Overrides gate on their write time alone: they need not differ from the app
+// to matter, because even a pin on the app's current values blocks later app
+// edits from reaching /zed-config.
+func sessionCodeAgentDeviationStale(session *types.Session, appConfig *types.CodeAgentExecutionConfig, appIdentityUpdatedAt time.Time) bool {
+	if session == nil {
 		return false
 	}
-	return snapshotAt.IsZero() || appIdentityUpdatedAt.After(snapshotAt)
+	identityChangedSince := func(writtenAt time.Time) bool {
+		return writtenAt.IsZero() || appIdentityUpdatedAt.After(writtenAt)
+	}
+	if snapshot := session.Metadata.CodeAgentConfig; snapshot != nil && appConfig != nil &&
+		sessionCodeAgentIdentityDiffers(snapshot, appConfig) &&
+		identityChangedSince(session.Metadata.CodeAgentConfigAt) {
+		return true
+	}
+	if session.Metadata.CodeAgentOverrides != nil &&
+		identityChangedSince(session.Metadata.CodeAgentOverridesAt) {
+		return true
+	}
+	return false
 }
 
 func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
@@ -537,11 +552,13 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	session.Metadata.AgentSwitchedAt = now
 	if options.adoptAppIdentity {
 		// The switch was driven by the app, so the app's live coding identity
-		// wins. A snapshot left behind by an earlier session-level edit would
+		// wins. A deviation left behind by an earlier session-level edit would
 		// otherwise keep overriding that app in /zed-config and
 		// /sessions/{id}/execution-config — the "stale agent list".
 		session.Metadata.CodeAgentConfig = nil
+		session.Metadata.CodeAgentConfigAt = time.Time{}
 		session.Metadata.CodeAgentOverrides = nil
+		session.Metadata.CodeAgentOverridesAt = time.Time{}
 	}
 	session.Updated = now
 	session.Metadata.HelixVersion = data.GetHelixVersion()

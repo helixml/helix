@@ -1091,15 +1091,16 @@ func appAgentRuntimeConfig(app *types.App) agentRuntimeConfig {
 
 // agentCodeAgentIdentity is the assistant fields that decide which agent and
 // model an app's sessions run — the subset of agentRuntimeConfig that moves
-// App.CodeAgentConfigAt. Deliberately excludes the system prompt: prompt edits
-// arm the restart-required banner but are not a coding-identity change, and
-// must not expire a session's composer deviation.
+// App.CodeAgentConfigAt. Deliberately excludes the system prompt (prompt edits
+// arm the restart-required banner but are not a coding-identity change) and
+// reasoning effort: the staleness predicate it feeds
+// (sessionCodeAgentIdentityDiffers) treats effort as tuning, so an effort-only
+// bot edit must not expire a session's composer deviation either.
 type agentCodeAgentIdentity struct {
 	codeAgentRuntime        types.CodeAgentRuntime
 	codeAgentCredentialType types.CodeAgentCredentialType
 	provider                string
 	model                   string
-	reasoningEffort         string
 	generationModelProvider string
 	generationModel         string
 	claudeSubscriptionModel string
@@ -1115,7 +1116,6 @@ func appCodeAgentIdentity(app *types.App) agentCodeAgentIdentity {
 		codeAgentCredentialType: a.CodeAgentCredentialType,
 		provider:                a.Provider,
 		model:                   a.Model,
-		reasoningEffort:         a.ReasoningEffort,
 		generationModelProvider: a.GenerationModelProvider,
 		generationModel:         a.GenerationModel,
 		claudeSubscriptionModel: a.ClaudeSubscriptionModel,

@@ -1190,15 +1190,14 @@ func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, ses
 			changed = true
 		}
 		// The Bot owns this session's coding identity — but only writes made
-		// after the snapshot was recorded. A composer PATCH on the session
-		// after the Bot's last coding-identity edit is a deliberate deviation,
-		// not staleness, and must survive re-activation; generic app writes
-		// (tools, MCPs, skills, avatars) never move the gate. A drifted
-		// snapshot predating this timestamp field (zero time) yields to the
-		// Bot: bot edits must win.
+		// after the deviation was recorded. A composer PATCH (snapshot or
+		// overrides) after the Bot's last coding-identity edit is a
+		// deliberate deviation, not staleness, and must survive
+		// re-activation; generic app writes never move the gate. A deviation
+		// predating the write-time fields (zero time) yields to the Bot: bot
+		// edits must win.
 		if appConfig, cfgErr := external_agent.MaterializeCodeAgentConfig(app, nil); cfgErr == nil &&
-			sessionCodeAgentSnapshotStale(
-				session.Metadata.CodeAgentConfig, appConfig, app.CodeAgentConfigAt, session.Metadata.CodeAgentConfigAt) {
+			sessionCodeAgentDeviationStale(session, appConfig, app.CodeAgentConfigAt) {
 			session.Metadata.CodeAgentConfig = nil
 			session.Metadata.CodeAgentOverrides = nil
 			changed = true
