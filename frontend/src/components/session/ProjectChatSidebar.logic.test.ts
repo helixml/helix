@@ -4,6 +4,7 @@ import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary } f
 import type { SpecTask } from '../../services/specTaskService'
 import {
   buildProjectChatGroups,
+  chatRouteAfterLeavingItem,
   ALL_PROJECTS_FILTER,
   ALL_USERS_FILTER,
   clampVisibleThreadCount,
@@ -702,5 +703,15 @@ describe('ProjectChatSidebar bots and people', () => {
       ['task_old', 'Alpha'],
     ])
     expect(items[1].session?.session_id).toBe('ses_task')
+  })
+})
+
+describe('chatRouteAfterLeavingItem', () => {
+  it('stays in chat by opening a new chat in the same project', () => {
+    expect(chatRouteAfterLeavingItem('prj_1')).toEqual({ name: 'project-new', params: { id: 'prj_1' } })
+  })
+
+  it('falls back to the org-level new chat when the item has no project', () => {
+    expect(chatRouteAfterLeavingItem(undefined)).toEqual({ name: 'new', params: {} })
   })
 })

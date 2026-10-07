@@ -3521,6 +3521,34 @@ definitions:
       object:
         type: string
     type: object
+  server.orgAPIKeyResponse:
+    properties:
+      app_id:
+        type: string
+      created:
+        type: string
+      id:
+        description: |-
+          ID is a stable, non-secret handle for the key, derived from a hash of
+          the secret. Use it to delete a key you did not create.
+        type: string
+      key_prefix:
+        type: string
+      name:
+        type: string
+      organization_id:
+        type: string
+      owner:
+        type: string
+      owner_email:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
+      project_id:
+        type: string
+      type:
+        $ref: '#/definitions/types.APIKeyType'
+    type: object
   server.runnerProfileAssignRequest:
     properties:
       profile_id:
@@ -16418,7 +16446,10 @@ paths:
       tags:
       - api-keys
     get:
-      description: Get API keys
+      description: Get the caller's own API keys. With no filter, returns (creating
+        it if needed) the caller's personal key. A caller authenticated with a scoped
+        (org, project, session or app) API key cannot use the unfiltered form, and
+        sees only the prefix of keys broader than the one it presents.
       parameters:
       - description: Filter by types (comma-separated list)
         in: query
@@ -20418,7 +20449,8 @@ paths:
   /api/v1/organizations/{id}/api_keys:
     get:
       description: List API keys for an organization. Owners see all keys, members
-        see only their own.
+        see only their own. Key secrets are never returned; each key has a non-secret
+        id and key_prefix.
       parameters:
       - description: Organization ID
         in: path
@@ -20430,7 +20462,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/types.ApiKey'
+              $ref: '#/definitions/server.orgAPIKeyResponse'
             type: array
       security:
       - BearerAuth: []
@@ -20472,7 +20504,7 @@ paths:
         name: id
         required: true
         type: string
-      - description: API key to delete
+      - description: ID of the API key to delete (the id field from the list)
         in: path
         name: key
         required: true

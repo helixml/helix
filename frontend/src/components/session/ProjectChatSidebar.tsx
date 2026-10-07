@@ -42,6 +42,7 @@ import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import {
   ALL_PROJECTS_FILTER,
   ALL_USERS_FILTER,
+  chatRouteAfterLeavingItem,
   collapsedGroupsStorageKey,
   getChatShortcutNumber,
   isChatShortcutModifier,
@@ -504,6 +505,11 @@ const ProjectChatSidebar: FC<{
     })
   }
 
+  const leaveActiveItem = (item: SidebarItem) => {
+    const target = chatRouteAfterLeavingItem(item.projectId)
+    account.orgNavigate(target.name, target.params)
+  }
+
   const performArchive = async (item: SidebarItem) => {
     if (archivingItemId) return
     // In the Archived view the same control restores the item instead.
@@ -517,7 +523,7 @@ const ProjectChatSidebar: FC<{
         await archiveSession.mutateAsync({ sessionId: item.id, archived })
       }
       setArchiveConfirmation(null)
-      if (archived && item.id === activeItemId) account.orgNavigate('projects')
+      if (archived && item.id === activeItemId) leaveActiveItem(item)
     } catch (error: any) {
       const message = typeof error?.response?.data === 'string'
         ? error.response.data
@@ -536,7 +542,7 @@ const ProjectChatSidebar: FC<{
     try {
       await deleteBotInstance.mutateAsync({ botId: item.botInstanceOf, sessionId: item.id })
       setDeleteInstanceConfirmation(null)
-      if (item.id === activeItemId) account.orgNavigate('projects')
+      if (item.id === activeItemId) leaveActiveItem(item)
     } catch (error: any) {
       snackbar.error(error?.response?.data?.error || error?.message || 'Failed to delete instance')
     } finally {

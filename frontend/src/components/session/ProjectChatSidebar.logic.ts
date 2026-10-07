@@ -29,6 +29,19 @@ export type SidebarItem = {
   botInstanceOf?: string
 }
 
+/**
+ * Where to land after the open thread disappears from the chat list (archived
+ * or deleted): a fresh chat in the same project, so you stay in the chat view
+ * instead of being bounced to the org's projects page.
+ */
+export const chatRouteAfterLeavingItem = (
+  projectId?: string,
+): { name: string; params: Record<string, string> } => (
+  projectId
+    ? { name: 'project-new', params: { id: projectId } }
+    : { name: 'new', params: {} }
+)
+
 export type SidebarGroup = {
   id: string
   name: string
