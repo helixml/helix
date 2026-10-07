@@ -42,14 +42,47 @@ pending ─approve─▶ approved ─(branch has commits beyond base)─▶ open
 - **Agent feedback**: every outcome (opened + link, approved-awaiting-push with the
   exact branch to use, failed + error, rejected + note) is enqueued as a
   non-interrupting message. Edits made by the user are spelled out.
-- **Task lifecycle**: an opened PR moves the task to `pull_request` (reopening a
-  `done` task). The task is `done` when every tracked PR is merged or closed, at
-  least one merged, and no proposal is pending/approved/failed.
+- **Task lifecycle**: the first opened PR moves the task to `pull_request`
+  (reopening a `done` task). Merges never complete it — see "Completion".
 - **Request PR** (was "Open PR" / "New PR") on external repos only asks the agent
   to push and propose; the endpoint answers 202. Internal repos keep the
   server-side merge on Accept.
 - `create_spectask_prs` is blocked on spec-task surfaces (it would bypass
   approval); org Bots keep it.
+
+## Completion
+
+A task is done only when someone says so; PR merges never complete it (an agent
+often has follow-up work after a merge — deploy, test, fix). This replaces the
+"all PRs merged" rule and the branch-merged-into-main rule, both removed.
+
+- **Agent**: `mark_task_complete(summary)` (helix-session MCP) records a
+  completion request (`spec_tasks.completion_requested_at` + summary), raises a
+  `completion_request` attention event, and shows a card in the chat with **Mark
+  done** / **Send back** (note goes to the agent). Refused while a PR proposal is
+  pending/approved/failed. Prompts (planning, implementation handoff, Just Do It,
+  Request PR) tell the agent not to call it while its PRs are open: people merge
+  on GitHub/GitLab/ADO, and the agent tells them which PRs are waiting.
+- **PR settled**: the PR poller tells the agent when a tracked PR merges or
+  closes (non-interrupting message), listing what is still open and, when none
+  are, suggesting `mark_task_complete`.
+- **User**: **Mark done** at any time, with a confirmation dialog — a button on
+  Pull Request tasks (header and card) and a menu item on any task an agent works
+  on (spec generation → pull request), which is also how a task is abandoned.
+  `POST /spec-tasks/{id}/completion/decide` (`approve` works without a request;
+  `reject` needs one).
+- **Org bots**: `complete_spectask` (bot-only; blocked on spec-task surfaces).
+- **Auto-approve** (the task's PR auto-approve flag) also completes the task
+  immediately when the agent asks.
+- **Done** stops the desktop, ends a waiting turn (so auto-wake does not boot it
+  again) and drops messages queued before completion. **Starting** a done task's
+  agent (Start, restart, upload, or a queued message waking it) reopens the task
+  — to `pull_request` if it has PRs, else `implementation` — because a done
+  task's desktop is stopped on its next update. Reopen does the same.
+- Columns: Implementation = no PR yet; Pull Request = at least one PR (stays
+  after merges); Done (was "Merged") = someone said it is finished.
+
+Next step (not built): let the agent merge its own PRs through the provider.
 
 ## Auto-approval
 
@@ -95,3 +128,19 @@ Kanban form pre-ticked, unticking created a task with auto-approve off.
 
 Not exercised live: an LLM agent choosing to call the tool (blocked by the model
 access issue above).
+
+## Verified end to end: completion (2026-10-07)
+
+Inner Helix, agent side via the helix-session MCP as the session owner:
+`mark_task_complete` refused while proposals were outstanding → after clearing
+them, request recorded + attention event + card at the end of the chat (open-PR
+warning) → Send back with a note → request cleared, note queued to the agent →
+second request → Mark done on the card → done, all attention dismissed, waiting
+turn interrupted, desktop stopped → Start desktop on the done task → reopened to
+`pull_request`, desktop stayed up → header Mark done (dialog) → done → board
+shows "Done" → auto-approve on + request → done immediately → card-menu Mark
+done on a PR-less task → done → Needs Attention entry opens the task with the
+card visible.
+
+Not exercised live: the PR-merged message to the agent (needs a merge on
+GitHub; covered by the orchestrator unit test).
