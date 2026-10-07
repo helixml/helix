@@ -87,11 +87,17 @@ func TestPersonalAPIKeyRejectsScopedKeys(t *testing.T) {
 	}
 }
 
+// fakeAPIKey builds a key-shaped test fixture at runtime, so no
+// secret-looking literal is committed for the secret scanner to flag.
+func fakeAPIKey(fill string) string {
+	return types.APIKeyPrefix + strings.Repeat(fill, 44)
+}
+
 func orgScopedKeyUser() types.User {
 	return types.User{
 		ID:             "user_1",
 		Type:           types.OwnerTypeUser,
-		Token:          "hl-orgscopedorgscopedorgscopedorgscoped",
+		Token:          fakeAPIKey("g"),
 		TokenType:      types.TokenTypeAPIKey,
 		APIKeyType:     types.APIkeytypeAPI,
 		OrganizationID: "org_1",
@@ -109,11 +115,11 @@ func TestGetAPIKeys_ScopedKeyCannotReadPersonalKey(t *testing.T) {
 	for name, user := range map[string]types.User{
 		"organization": orgScopedKeyUser(),
 		"session": {
-			ID: "user_1", Type: types.OwnerTypeUser, Token: "hl-sessionsessionsessionsessionsession",
+			ID: "user_1", Type: types.OwnerTypeUser, Token: fakeAPIKey("s"),
 			TokenType: types.TokenTypeAPIKey, APIKeyType: types.APIkeytypeAPI, SessionID: "ses_1",
 		},
 		"project": {
-			ID: "user_1", Type: types.OwnerTypeUser, Token: "hl-projectprojectprojectprojectproject",
+			ID: "user_1", Type: types.OwnerTypeUser, Token: fakeAPIKey("j"),
 			TokenType: types.TokenTypeAPIKey, APIKeyType: types.APIkeytypeAPI, ProjectID: "prj_1",
 		},
 	} {
@@ -138,9 +144,9 @@ func TestGetAPIKeys_ScopedKeyListIsRedacted(t *testing.T) {
 		Controller: &controller.Controller{Options: controller.Options{Store: mockStore}},
 	}
 	user := orgScopedKeyUser()
-	personal := &types.ApiKey{Owner: user.ID, OwnerType: user.Type, Key: "hl-PERSONALpersonalPERSONALpersonalPERSONAL", Type: types.APIkeytypeAPI}
+	personal := &types.ApiKey{Owner: user.ID, OwnerType: user.Type, Key: fakeAPIKey("p"), Type: types.APIkeytypeAPI}
 	self := &types.ApiKey{Owner: user.ID, OwnerType: user.Type, Key: user.Token, Type: types.APIkeytypeAPI, OrganizationID: "org_1"}
-	app := &types.ApiKey{Owner: user.ID, OwnerType: user.Type, Key: "hl-appkeyappkeyappkeyappkeyappkey", Type: types.APIkeytypeApp,
+	app := &types.ApiKey{Owner: user.ID, OwnerType: user.Type, Key: fakeAPIKey("a"), Type: types.APIkeytypeApp,
 		AppID: &sql.NullString{String: "app_1", Valid: true}}
 	all := []*types.ApiKey{personal, self, app}
 	mockStore.EXPECT().ListAPIKeys(gomock.Any(), gomock.Any()).Return(all, nil).Times(2)
@@ -150,11 +156,11 @@ func TestGetAPIKeys_ScopedKeyListIsRedacted(t *testing.T) {
 	keys, err := server.getAPIKeys(nil, req)
 	require.NoError(t, err)
 	require.Len(t, keys, 3)
-	require.Equal(t, "hl-PERS", keys[0].Key)
+	require.Equal(t, "hl-pppp", keys[0].Key)
 	require.Equal(t, user.Token, keys[1].Key)
 	require.Equal(t, app.Key, keys[2].Key)
 	// The store's copy must not be mutated.
-	require.Equal(t, "hl-PERSONALpersonalPERSONALpersonalPERSONAL", personal.Key)
+	require.Equal(t, fakeAPIKey("p"), personal.Key)
 }
 
 // A scoped key must not be able to mint an unscoped personal key.

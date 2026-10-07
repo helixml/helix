@@ -516,8 +516,8 @@ func TestListOrgAPIKeys_NeverReturnsSecrets(t *testing.T) {
 
 	orgID := "org_123"
 	ownerID := "user_owner"
-	ownerSecret := "hl-OWNERSECRETownersecretOWNERSECRETownersecret="
-	memberSecret := "hl-MEMBERSECRETmembersecretMEMBERSECRETmembers="
+	ownerSecret := fakeAPIKey("o")
+	memberSecret := fakeAPIKey("m")
 
 	expectResolveOrganizationByID(mockStore, orgID)
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
@@ -551,7 +551,7 @@ func TestListOrgAPIKeys_NeverReturnsSecrets(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &keys))
 	require.Len(t, keys, 2)
 	require.Equal(t, types.APIKeyID(ownerSecret), keys[0]["id"])
-	require.Equal(t, "hl-OWNE", keys[0]["key_prefix"])
+	require.Equal(t, "hl-oooo", keys[0]["key_prefix"])
 	require.Equal(t, types.APIKeyID(memberSecret), keys[1]["id"])
 	require.Equal(t, "user_member", keys[1]["owner"])
 }
@@ -566,7 +566,7 @@ func TestDeleteOrgAPIKey_ByID(t *testing.T) {
 
 	orgID := "org_123"
 	ownerID := "user_owner"
-	secret := "hl-MEMBERSECRETmembersecretMEMBERSECRETmembers="
+	secret := fakeAPIKey("m")
 
 	expectResolveOrganizationByID(mockStore, orgID)
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
@@ -578,7 +578,7 @@ func TestDeleteOrgAPIKey_ByID(t *testing.T) {
 		OrganizationID: orgID,
 		Type:           types.APIkeytypeAPI,
 	}).Return([]*types.ApiKey{
-		{Key: "hl-otherkeyotherkeyotherkeyotherkeyotherkey", Owner: ownerID, OrganizationID: orgID},
+		{Key: fakeAPIKey("x"), Owner: ownerID, OrganizationID: orgID},
 		{Key: secret, Owner: "user_member", OrganizationID: orgID},
 	}, nil)
 	mockStore.EXPECT().DeleteAPIKey(gomock.Any(), secret).Return(nil)
@@ -611,7 +611,7 @@ func TestDeleteOrgAPIKey_UnknownIDNotFound(t *testing.T) {
 		Role:           types.OrganizationRoleOwner,
 	}, nil)
 	mockStore.EXPECT().ListAPIKeys(gomock.Any(), gomock.Any()).Return([]*types.ApiKey{
-		{Key: "hl-otherkeyotherkeyotherkeyotherkeyotherkey", Owner: ownerID, OrganizationID: orgID},
+		{Key: fakeAPIKey("x"), Owner: ownerID, OrganizationID: orgID},
 	}, nil)
 
 	keyID := types.APIKeyID("hl-somewhereelse")
@@ -634,7 +634,7 @@ func TestDeleteOrgAPIKey_RawSecretRejected(t *testing.T) {
 
 	orgID := "org_123"
 	ownerID := "user_owner"
-	secret := "hl-MEMBERSECRETmembersecretMEMBERSECRETmembers="
+	secret := fakeAPIKey("m")
 
 	expectResolveOrganizationByID(mockStore, orgID)
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
