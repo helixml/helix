@@ -3738,24 +3738,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
+    - helix_events
+    - gitlab
+    - slack
+    - github
+    - local
+    - webhook
     - cron
     - email
-    - local
-    - gitlab
-    - webhook
-    - github
-    - slack
-    - helix_events
     type: string
     x-enum-varnames:
+    - KindHelixEvents
+    - KindGitLab
+    - KindSlack
+    - KindGitHub
+    - KindLocal
+    - KindWebhook
     - KindCron
     - KindEmail
-    - KindLocal
-    - KindGitLab
-    - KindWebhook
-    - KindGitHub
-    - KindSlack
-    - KindHelixEvents
   transport.ResolvedActivation:
     properties:
       address:
@@ -25561,6 +25561,23 @@ paths:
       summary: Create sample repository
       tags:
       - samples
+  /api/v1/sandbox-desktop-types:
+    get:
+      description: Desktop types (e.g. ubuntu, sway) offered by registered sandboxes
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List available sandbox desktop types
+      tags:
+      - sandbox
   /api/v1/sandbox-runtimes:
     get:
       description: List the sandbox runtimes available on this server
