@@ -256,6 +256,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	if err := h.resolveSpecTaskLaunchConfig(ctx, agent); err != nil {
 		return nil, err
 	}
+	if err := validateDesktopRootlessLaunch(agent.DesktopType, agent.CustomImage, agent.GoldenBuild, agent.NoContainerEngine, h.desktopRootless); err != nil {
+		return nil, err
+	}
 
 	// Check legacy external-agent desktop limits for full desktops. Headless
 	// tasks are enforced by the headless sandbox limit in beginSandboxMetering.
@@ -474,11 +477,11 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		GoldenBuild:             agent.GoldenBuild,
 		// Hydra's golden build monitor uses the API's deadline.
 		GoldenBuildTimeoutSeconds: agent.GoldenBuildTimeoutSeconds,
-		VCPUs:                   agent.VCPUs,
-		MemoryMB:                agent.MemoryMB,
-		DiskSizeGB:              agent.DiskSizeGB,
-		PidsLimit:               agent.PidsLimit,
-		NoNewPrivileges:         agent.NoNewPrivileges,
+		VCPUs:                     agent.VCPUs,
+		MemoryMB:                  agent.MemoryMB,
+		DiskSizeGB:                agent.DiskSizeGB,
+		PidsLimit:                 agent.PidsLimit,
+		NoNewPrivileges:           agent.NoNewPrivileges,
 	}
 
 	// Create dev container via Hydra
@@ -1749,6 +1752,27 @@ func externalAgentIsolation(containerType string, noContainerEngine, desktopRoot
 		return containerIsolation{desktopRootless: true}
 	}
 	return containerIsolation{privileged: true}
+}
+
+func validateDesktopRootlessLaunch(desktopType, customImage string, goldenBuild, noContainerEngine, desktopRootless bool) error {
+	if !desktopRootless {
+		return nil
+	}
+	if goldenBuild {
+		return fmt.Errorf("desktop rootless mode does not support golden builds")
+	}
+	if noContainerEngine || strings.EqualFold(desktopType, "headless") {
+		return nil
+	}
+	if customImage != "" {
+		return fmt.Errorf("desktop rootless mode does not support custom images")
+	}
+	switch strings.ToLower(desktopType) {
+	case "", "ubuntu", "gnome":
+		return nil
+	default:
+		return fmt.Errorf("desktop rootless mode does not support desktop type %q", desktopType)
+	}
 }
 
 func setContainerEnv(env []string, key, value string) []string {

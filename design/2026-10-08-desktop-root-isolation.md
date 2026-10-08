@@ -153,7 +153,11 @@ The durable enforcement boundary is in Go and is fully unit-tested here:
 - `CreateDevContainerRequest.DesktopRootless` (new, `api/pkg/hydra/types.go`).
 - `buildHostConfig` treats a desktop with `DesktopRootless` as the unprivileged
   rootless-engine posture above, and rejects the illegal combinations
-  (`DesktopRootless` + `Privileged`, `DesktopRootless` on a headless type).
+  (`DesktopRootless` + `Privileged`, non-Ubuntu container types, and golden
+  builds). The external-agent launch path rejects unsupported desktop types,
+  custom images, and golden builds before provisioning. Headless agents and
+  no-container-engine browser sandboxes keep their existing handling because
+  they do not use the desktop rootless engine path.
 - `config.Sandboxes.DesktopRootless` (`HELIX_SANDBOX_DESKTOP_ROOTLESS`, default
   **false**) plumbed through the runtime registry → `provision()` for
   user-facing desktops, and through `HydraExecutorConfig` →
@@ -187,6 +191,14 @@ The rootless engine's storage volume is mounted at
 buildMounts. The CPU-tier setup (`16-cpu-tiers.sh`) self-skips in an
 unprivileged container (cgroup2 is read-only), so a rootless desktop does not
 get the display/agent CPU prioritisation — an accepted tradeoff for now.
+
+When `CONTAINER_DOCKER_PATH` is configured, Hydra redirects the stable
+`docker-data-<session>` volume source by name, so the redirect also applies to
+the Podman destination. Rootless sessions use a separate `podman` data
+directory and are never seeded from the legacy Docker golden cache; Docker and
+Podman storage formats are incompatible. This gives rootless sessions their
+own persistent storage across restarts without importing privileged-engine
+state.
 
 ## 4. What desktop users can and cannot reach (documentation)
 
@@ -292,8 +304,18 @@ The flag ships **false**. With it off, desktops are byte-for-byte unchanged
 unit tests in `api/pkg/hydra/devcontainer_test.go` and
 `api/pkg/sandbox/controller_*_test.go`.
 
+The review fixes are covered by unit tests for source-keyed Podman storage
+redirects, isolation from the Docker golden cache, duplicate environment
+variable removal, and fail-closed launch validation for unsupported desktop
+types, custom images, and golden builds. The ZFS-backed rootless storage path
+has not been exercised on a live runner yet.
+
 No normal web-service replacement was tested. The Prime run left existing
 `9b480c` desktops in place and restarted one autonomous desktop onto `dd5b27`.
+
+The Prime image validation above predates the review-fix changes in this
+section. It therefore does not count as live validation of the new ZFS storage
+redirect or the fail-closed launch checks.
 
 ## SaaS migration semantics
 
@@ -302,5 +324,8 @@ is built. Enabling it does not mutate existing desktop sessions or existing
 web-service sandboxes; those containers remain privileged. A normal web-service
 redeploy reuses its existing sandbox and therefore remains privileged as well.
 A true sandbox replacement provisions the new container with the rootless
-HostConfig when the flag is enabled, but a live web-service compose replacement
-has not been tested.
+HostConfig when the flag is enabled. Fresh unsupported launches fail closed
+before provisioning rather than falling back to privileged mode. The launch
+validation runs after existing-session reuse and runtime resolution, so an
+already-running container is not retroactively replaced or hardened. A live
+web-service compose replacement has not been tested.

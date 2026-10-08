@@ -229,7 +229,20 @@ func TestBuildHostConfigRejectsInvalidDesktopRootlessModes(t *testing.T) {
 		ContainerType:   DevContainerTypeHeadless,
 		DesktopRootless: true,
 	})
-	require.EqualError(t, err, "desktop rootless mode requires a desktop container type")
+	require.EqualError(t, err, "desktop rootless mode only supports ubuntu containers")
+
+	_, err = dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:   DevContainerTypeSway,
+		DesktopRootless: true,
+	})
+	require.EqualError(t, err, "desktop rootless mode only supports ubuntu containers")
+
+	_, err = dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:   DevContainerTypeUbuntu,
+		DesktopRootless: true,
+		GoldenBuild:     true,
+	})
+	require.EqualError(t, err, "desktop rootless mode does not support golden builds")
 
 	_, err = dm.buildHostConfig(&CreateDevContainerRequest{
 		ContainerType:           DevContainerTypeUbuntu,
@@ -257,9 +270,17 @@ func TestBuildEnvDesktopRootlessSetsPodmanAndSudoSignal(t *testing.T) {
 	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
 		ContainerType:   DevContainerTypeUbuntu,
 		DesktopRootless: true,
+		Env: []string{
+			"HELIX_DESKTOP_ROOTLESS=0",
+			"HELIX_DESKTOP_ROOTLESS=attacker",
+			"DOCKER_HOST=tcp://attacker:2375",
+			"DOCKER_HOST=unix:///attacker.sock",
+		},
 	})
+	require.Equal(t, 1, countEnvVar(env, "HELIX_DESKTOP_ROOTLESS"))
 	require.Contains(t, env, "HELIX_ROOTLESS_CONTAINER_ENGINE=1")
 	require.Contains(t, env, "HELIX_DESKTOP_ROOTLESS=1")
+	require.Equal(t, 1, countEnvVar(env, "DOCKER_HOST"))
 	require.Contains(t, env, "DOCKER_HOST=unix:///run/user/1000/podman/podman.sock")
 }
 
@@ -363,6 +384,62 @@ func TestBuildMountsOmitSharedBuildKitCache(t *testing.T) {
 	for _, item := range mounts {
 		require.NotEqual(t, "/buildkit-cache", item.Target)
 	}
+}
+
+func TestBuildMountsRedirectsRootlessStorageWithoutGoldenCache(t *testing.T) {
+	t.Setenv("CONTAINER_DOCKER_PATH", "/container-docker")
+	originalSessionsBaseDir := sessionsBaseDir
+	sessionsBaseDir = t.TempDir()
+	t.Cleanup(func() { sessionsBaseDir = originalSessionsBaseDir })
+
+	resetZFSState()
+	zfsAvailableOnce.Do(func() {})
+	t.Cleanup(resetZFSState)
+	legacyDockerDir := filepath.Join(sessionsBaseDir, "docker-data-ses_rootless", "docker")
+	require.NoError(t, os.MkdirAll(legacyDockerDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(legacyDockerDir, "legacy-layer"), []byte("docker"), 0600))
+
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	mounts, err := dm.buildMounts(&CreateDevContainerRequest{
+		SessionID:               "ses_rootless",
+		ProjectID:               "prj_with_docker_golden",
+		ContainerType:           DevContainerTypeHeadless,
+		RootlessContainerEngine: true,
+		Mounts: []MountConfig{{
+			Source:      "docker-data-ses_rootless",
+			Destination: "/home/retro/.local/share/containers",
+			Type:        "volume",
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, mounts, 1)
+	require.Equal(t, "bind", string(mounts[0].Type))
+	require.Equal(t, filepath.Join(sessionsBaseDir, "docker-data-ses_rootless", "podman"), mounts[0].Source)
+	require.Equal(t, "/home/retro/.local/share/containers", mounts[0].Target)
+	require.NoFileExists(t, filepath.Join(mounts[0].Source, goldenCopyCompleteMarker))
+	require.NoFileExists(t, filepath.Join(mounts[0].Source, "legacy-layer"))
+
+	sentinel := filepath.Join(mounts[0].Source, "session-layer")
+	require.NoError(t, os.WriteFile(sentinel, []byte("kept"), 0600))
+	mounts, err = dm.buildMounts(&CreateDevContainerRequest{
+		SessionID:               "ses_rootless",
+		ContainerType:           DevContainerTypeHeadless,
+		RootlessContainerEngine: true,
+		Mounts: []MountConfig{{
+			Source:      "docker-data-ses_rootless",
+			Destination: "/home/retro/.local/share/containers",
+			Type:        "volume",
+		}},
+	})
+	require.NoError(t, err)
+	require.FileExists(t, sentinel)
+	require.Equal(t, "/home/retro/.local/share/containers", mounts[0].Target)
+}
+
+func TestUsesGoldenContainerCache(t *testing.T) {
+	require.True(t, usesGoldenContainerCache(&CreateDevContainerRequest{}))
+	require.False(t, usesGoldenContainerCache(&CreateDevContainerRequest{RootlessContainerEngine: true}))
+	require.False(t, usesGoldenContainerCache(&CreateDevContainerRequest{DesktopRootless: true}))
 }
 
 func TestBuildHostConfigDesktopUsesPrivateIPC(t *testing.T) {
