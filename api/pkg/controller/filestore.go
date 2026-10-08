@@ -53,6 +53,56 @@ func GetSessionResultsFolder(sessionID string) string {
 	return filepath.Join(GetSessionFolder(sessionID), "results")
 }
 
+// GetSessionVisualizationsFolder holds agent-published HTML visualizations for a
+// session (the html_render MCP tool). Pages are stored here and served inline.
+func GetSessionVisualizationsFolder(sessionID string) string {
+	return filepath.Join(GetSessionFolder(sessionID), "visualizations")
+}
+
+// visualizationPath resolves the absolute filestore path of a single
+// visualization file, scoped to the session owner.
+func (c *Controller) visualizationPath(owner, sessionID, vizID string) (string, error) {
+	return c.GetFilestoreUserPath(
+		types.OwnerContext{Owner: owner},
+		filepath.Join(GetSessionVisualizationsFolder(sessionID), vizID+".html"),
+	)
+}
+
+// FilestoreVisualizationWrite stores a prepared (bootstrap-injected) HTML
+// visualization for a session and returns its absolute filestore path.
+func (c *Controller) FilestoreVisualizationWrite(ctx context.Context, owner, sessionID, vizID string, r io.Reader) (string, error) {
+	path, err := c.visualizationPath(owner, sessionID, vizID)
+	if err != nil {
+		return "", err
+	}
+	if _, err := c.Options.Filestore.WriteFile(ctx, path, r); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// FilestoreVisualizationRead opens a stored visualization for a session.
+func (c *Controller) FilestoreVisualizationRead(ctx context.Context, owner, sessionID, vizID string) (io.ReadCloser, error) {
+	path, err := c.visualizationPath(owner, sessionID, vizID)
+	if err != nil {
+		return nil, err
+	}
+	return c.Options.Filestore.OpenFile(ctx, path)
+}
+
+// FilestoreVisualizationsDelete removes all visualizations stored for a session.
+// Best-effort cleanup for session deletion; a missing folder is not an error.
+func (c *Controller) FilestoreVisualizationsDelete(ctx context.Context, owner, sessionID string) error {
+	folder, err := c.GetFilestoreUserPath(
+		types.OwnerContext{Owner: owner},
+		GetSessionVisualizationsFolder(sessionID),
+	)
+	if err != nil {
+		return err
+	}
+	return c.Options.Filestore.Delete(ctx, folder)
+}
+
 func (c *Controller) GetFilestoreUserPath(ctx types.OwnerContext, path string) (string, error) {
 	userPrefix := filestore.GetUserPrefix(c.Options.Config.Controller.FilePrefixGlobal, ctx.Owner)
 	return filestore.JoinScopedPath(userPrefix, path)
