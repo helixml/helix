@@ -698,7 +698,13 @@ func sameProviderURL(a, b string) bool {
 		if err != nil || u.Host == "" {
 			return strings.TrimRight(strings.ToLower(strings.TrimSpace(raw)), "/")
 		}
-		return strings.ToLower(u.Scheme + "://" + u.Host + strings.TrimRight(u.Path, "/"))
+		normalized := strings.ToLower(u.Scheme + "://" + u.Host + strings.TrimRight(u.Path, "/"))
+		switch normalized {
+		case "https://github.com", "https://gitlab.com", "https://bitbucket.org":
+			return ""
+		default:
+			return normalized
+		}
 	}
 	return normalize(a) == normalize(b)
 }

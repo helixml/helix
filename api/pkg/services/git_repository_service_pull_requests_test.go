@@ -19,9 +19,12 @@ type prTestStore struct {
 	oauthConnection  *types.OAuthConnection
 	gitConnections   []*types.GitProviderConnection
 	repository       *types.GitRepository
+	oauthListCalls   int
+	gitListCalls     int
 }
 
 func (s *prTestStore) ListGitProviderConnections(_ context.Context, userID string) ([]*types.GitProviderConnection, error) {
+	s.gitListCalls++
 	var result []*types.GitProviderConnection
 	for _, conn := range s.gitConnections {
 		if conn.UserID == userID {
@@ -54,6 +57,7 @@ func (s *prTestStore) UpdateGitRepository(_ context.Context, repo *types.GitRepo
 }
 
 func (s *prTestStore) ListOAuthConnections(_ context.Context, q *store.ListOAuthConnectionsQuery) ([]*types.OAuthConnection, error) {
+	s.oauthListCalls++
 	var result []*types.OAuthConnection
 	for _, conn := range s.oauthConnections {
 		if q.UserID != "" && conn.UserID != q.UserID {
@@ -350,6 +354,11 @@ func TestValidateUserOAuth_AcceptsMatchingSavedPATs(t *testing.T) {
 			connection: &types.GitProviderConnection{BaseURL: "https://github.example.com/"},
 		},
 		{
+			name:       "GitHub SaaS explicit root",
+			repo:       &types.GitRepository{ExternalURL: "https://github.com/org/repo", ExternalType: types.ExternalRepositoryTypeGitHub},
+			connection: &types.GitProviderConnection{BaseURL: "https://github.com/"},
+		},
+		{
 			name: "GitLab",
 			repo: &types.GitRepository{ExternalURL: "https://gitlab.example.com/org/repo", ExternalType: types.ExternalRepositoryTypeGitLab,
 				GitLab: &types.GitLab{BaseURL: "https://gitlab.example.com/api/v4"}},
@@ -362,10 +371,20 @@ func TestValidateUserOAuth_AcceptsMatchingSavedPATs(t *testing.T) {
 			connection: &types.GitProviderConnection{OrganizationURL: "https://dev.azure.com/acme"},
 		},
 		{
+			name:       "GitLab SaaS explicit root",
+			repo:       &types.GitRepository{ExternalURL: "https://gitlab.com/org/repo", ExternalType: types.ExternalRepositoryTypeGitLab},
+			connection: &types.GitProviderConnection{BaseURL: "https://gitlab.com/"},
+		},
+		{
 			name: "Bitbucket",
 			repo: &types.GitRepository{ExternalURL: "https://bitbucket.example.com/projects/acme/repos/repo", ExternalType: types.ExternalRepositoryTypeBitbucket,
 				Bitbucket: &types.Bitbucket{BaseURL: "https://bitbucket.example.com/"}},
 			connection: &types.GitProviderConnection{BaseURL: "https://bitbucket.example.com"},
+		},
+		{
+			name:       "Bitbucket SaaS explicit root",
+			repo:       &types.GitRepository{ExternalURL: "https://bitbucket.org/acme/repo", ExternalType: types.ExternalRepositoryTypeBitbucket},
+			connection: &types.GitProviderConnection{BaseURL: "https://bitbucket.org/"},
 		},
 	}
 	for _, tt := range tests {
@@ -381,6 +400,33 @@ func TestValidateUserOAuth_AcceptsMatchingSavedPATs(t *testing.T) {
 				t.Fatalf("expected matching saved PAT to pass preflight: %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateUserOAuth_RejectsGitHubSaaSOAuthForEnterprise(t *testing.T) {
+	repo := &types.GitRepository{ExternalURL: "https://github.example.com/org/repo", ExternalType: types.ExternalRepositoryTypeGitHub}
+	connection := &types.OAuthConnection{
+		UserID:      "user-x",
+		AccessToken: "oauth-token",
+		Provider: types.OAuthProvider{
+			Type:    types.OAuthProviderTypeGitHub,
+			AuthURL: "https://github.com/login/oauth/authorize",
+		},
+	}
+	err := newPRTestService(&prTestStore{oauthConnections: []*types.OAuthConnection{connection}}).ValidateUserOAuth(context.Background(), repo, "user-x")
+	if _, ok := err.(*OAuthRequiredError); !ok {
+		t.Fatalf("expected GitHub Enterprise repo to reject github.com OAuth, got %T: %v", err, err)
+	}
+}
+
+func TestValidatePushCredentials_InternalRepoSkipsCredentialLookup(t *testing.T) {
+	fs := &prTestStore{}
+	err := newPRTestService(fs).ValidatePushCredentials(context.Background(), &types.GitRepository{}, "user-x")
+	if err != nil {
+		t.Fatalf("expected internal repository to need no push credentials: %v", err)
+	}
+	if fs.oauthListCalls != 0 || fs.gitListCalls != 0 {
+		t.Fatalf("expected no credential lookup, got %d OAuth and %d PAT lookups", fs.oauthListCalls, fs.gitListCalls)
 	}
 }
 

@@ -2837,6 +2837,9 @@ func (s *GitRepositoryService) getPushCredentialsForRepo(ctx context.Context, gi
 }
 
 func (s *GitRepositoryService) ValidatePushCredentials(ctx context.Context, gitRepo *types.GitRepository, userID string) error {
+	if !gitRepo.IsExternal {
+		return nil
+	}
 	_, password, err := s.getPushCredentialsForRepo(ctx, gitRepo, userID)
 	if err != nil {
 		return err
