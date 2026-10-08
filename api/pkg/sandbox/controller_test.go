@@ -302,6 +302,47 @@ func TestRuntimeRegistryNamesIncludesAllRegistered(t *testing.T) {
 	}
 }
 
+func TestRuntimeRegistryDesktopRootlessFlagFlipsBuiltinDesktop(t *testing.T) {
+	// Default: desktop is privileged, as today.
+	def, err := NewRuntimeRegistry(config.Sandboxes{
+		Runtimes:       "headless-ubuntu=ubuntu:22.04",
+		DefaultRuntime: "headless-ubuntu",
+	})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	spec, err := def.Resolve(&types.CreateSandboxRequest{Runtime: types.SandboxRuntimeUbuntuDesktop})
+	if err != nil {
+		t.Fatalf("resolve desktop: %v", err)
+	}
+	if !spec.Privileged || spec.DesktopRootless {
+		t.Fatalf("default desktop should be privileged and not rootless, got privileged=%v rootless=%v", spec.Privileged, spec.DesktopRootless)
+	}
+
+	// Flag on: desktop runs unprivileged via rootless Podman.
+	hardened, err := NewRuntimeRegistry(config.Sandboxes{
+		Runtimes:        "headless-ubuntu=ubuntu:22.04",
+		DefaultRuntime:  "headless-ubuntu",
+		DesktopRootless: true,
+	})
+	if err != nil {
+		t.Fatalf("setup hardened: %v", err)
+	}
+	spec, err = hardened.Resolve(&types.CreateSandboxRequest{Runtime: types.SandboxRuntimeUbuntuDesktop})
+	if err != nil {
+		t.Fatalf("resolve hardened desktop: %v", err)
+	}
+	if spec.Privileged || !spec.DesktopRootless {
+		t.Fatalf("hardened desktop should be rootless and not privileged, got privileged=%v rootless=%v", spec.Privileged, spec.DesktopRootless)
+	}
+
+	// The package-level builtin must be untouched by either registry so the
+	// two do not leak into each other (shared-pointer regression guard).
+	if !builtinDesktop.Privileged || builtinDesktop.DesktopRootless {
+		t.Fatalf("builtinDesktop global was mutated: privileged=%v rootless=%v", builtinDesktop.Privileged, builtinDesktop.DesktopRootless)
+	}
+}
+
 func TestRuntimeRegistryFallsBackToFirstHeadlessRuntime(t *testing.T) {
 	// No DefaultRuntime set — registry should auto-pick the first headless
 	// runtime so the operator doesn't trip over a missing config.

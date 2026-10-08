@@ -918,12 +918,18 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// container engine.
 	env = removeEnvVar(env, "BUILDKIT_HOST")
 	env = removeEnvVar(env, "HELIX_REGISTRY")
-	if req.RootlessContainerEngine {
+	env = overrideEnvVar(env, "HELIX_DESKTOP_ROOTLESS", "0")
+	if req.RootlessContainerEngine || req.DesktopRootless {
 		env = overrideEnvVar(env, "HELIX_ROOTLESS_CONTAINER_ENGINE", "1")
 		env = overrideEnvVar(env, "DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock")
 		env = overrideEnvVar(env, "CONTAINER_HOST", "unix:///run/user/1000/podman/podman.sock")
 		env = overrideEnvVar(env, "DOCKER_BUILDKIT", "0")
 		env = overrideEnvVar(env, "BUILDX_BUILDER", "helix-rootless")
+	}
+	if req.DesktopRootless {
+		// The desktop entrypoint uses this to keep sudo while running rootless:
+		// it must NOT take the headless setpriv --nnp privilege-drop branch.
+		env = overrideEnvVar(env, "HELIX_DESKTOP_ROOTLESS", "1")
 	}
 
 	// Add display settings if this is not a headless container
@@ -1058,16 +1064,9 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	return env
 }
 
-// overrideEnvVar replaces an environment variable if it exists, or appends it if not
+// overrideEnvVar removes every caller-supplied value and appends one canonical value.
 func overrideEnvVar(env []string, key, value string) []string {
-	prefix := key + "="
-	for i, e := range env {
-		if strings.HasPrefix(e, prefix) {
-			env[i] = prefix + value
-			return env
-		}
-	}
-	return append(env, prefix+value)
+	return append(removeEnvVar(env, key), key+"="+value)
 }
 
 func removeEnvVar(env []string, key string) []string {
@@ -1094,6 +1093,9 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.NoNewPrivileges && req.Privileged {
 		return nil, fmt.Errorf("no-new-privileges cannot be combined with privileged mode")
 	}
+	if req.DesktopRootless && req.RootlessContainerEngine {
+		return nil, fmt.Errorf("desktop rootless mode already implies the rootless engine; set only one")
+	}
 	if req.RootlessContainerEngine && req.ContainerType != DevContainerTypeHeadless {
 		return nil, fmt.Errorf("rootless container engine requires a headless container")
 	}
@@ -1103,9 +1105,25 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.BrowserSandbox && (req.Privileged || req.RootlessContainerEngine) {
 		return nil, fmt.Errorf("browser sandbox is for unprivileged containers without a container engine")
 	}
+	if req.DesktopRootless && req.Privileged {
+		return nil, fmt.Errorf("desktop rootless mode cannot be combined with privileged mode")
+	}
+	if req.DesktopRootless && req.ContainerType != DevContainerTypeUbuntu {
+		return nil, fmt.Errorf("desktop rootless mode only supports ubuntu containers")
+	}
+	if req.DesktopRootless && req.GoldenBuild {
+		return nil, fmt.Errorf("desktop rootless mode does not support golden builds")
+	}
 	if !usesIsolatedSandboxNetwork(req.Network) {
 		return nil, fmt.Errorf("unsupported sandbox network %q", req.Network)
 	}
+
+	// A desktop in rootless mode runs the same unprivileged rootless Podman
+	// posture as a headless agent (no --privileged), plus the desktop's
+	// display/input/GPU device grants and private IPC namespace handled by the
+	// ContainerType != Headless branches below. rootlessEngine unifies the two
+	// so the capability/seccomp/device logic is written once.
+	rootlessEngine := req.RootlessContainerEngine || req.DesktopRootless
 
 	resources := container.Resources{
 		Ulimits: []*units.Ulimit{
@@ -1115,7 +1133,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.ContainerType != DevContainerTypeHeadless {
 		resources.DeviceCgroupRules = dm.getDeviceCgroupRules()
 	}
-	if req.RootlessContainerEngine {
+	if rootlessEngine {
 		resources.Devices = append(resources.Devices,
 			container.DeviceMapping{PathOnHost: "/dev/fuse", PathInContainer: "/dev/fuse", CgroupPermissions: "rwm"},
 			container.DeviceMapping{PathOnHost: "/dev/net/tun", PathInContainer: "/dev/net/tun", CgroupPermissions: "rwm"},
@@ -1147,7 +1165,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		hostConfig.SecurityOpt = []string{"seccomp=unconfined", "apparmor=unconfined"}
 	} else {
 		hostConfig.CapDrop = []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
-		if req.RootlessContainerEngine {
+		if rootlessEngine {
 			// The trusted init process needs SYS_ADMIN in its bounding set so
 			// rootless Podman can create its subordinate user namespace. Before
 			// the agent starts, the image drops SYS_ADMIN from the agent's
@@ -1228,13 +1246,18 @@ func sandboxResourceLimits(vcpus, memoryMB int) (nanoCPUs, memory, memorySwap in
 // fail the container creation rather than silently starting with no cache.
 func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerRequest, volumeName string) (string, error) {
 	sessionID := strings.TrimPrefix(volumeName, "docker-data-")
+	useGoldenCache := usesGoldenContainerCache(req)
+	dataDirName := "docker"
+	if !useGoldenCache {
+		dataDirName = "podman"
+	}
 
 	// Strategy 1: ZFS zvol clone (instant)
 	// When ZFS is available, we ALWAYS use it — never fall back to file-copy.
 	// If a ZFS operation fails, return an error so the session creation fails
 	// with a clear message instead of silently starting with no cache.
 	if ZFSAvailable() {
-		if GoldenZvolExists(req.ProjectID) {
+		if useGoldenCache && GoldenZvolExists(req.ProjectID) {
 			dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
 			if err != nil {
 				return "", fmt.Errorf("ZFS golden clone failed for project %s: %w", req.ProjectID, err)
@@ -1245,7 +1268,7 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 				Str("mount", dockerDir).
 				Msg("Using ZFS zvol clone for inner dockerd (instant golden cache)")
 			return dockerDir, nil
-		} else if req.GoldenBuild {
+		} else if useGoldenCache && req.GoldenBuild {
 			dockerDir, err := CreateSessionZvol(sessionID)
 			if err != nil {
 				return "", fmt.Errorf("failed to create session zvol for golden build: %w", err)
@@ -1264,7 +1287,7 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 				Str("mount", dockerDir).
 				Msg("Using ZFS zvol for golden build")
 			return dockerDir, nil
-		} else if GoldenExists(req.ProjectID) {
+		} else if useGoldenCache && GoldenExists(req.ProjectID) {
 			if err := MigrateGoldenToZvol(req.ProjectID); err != nil {
 				return "", fmt.Errorf("failed to migrate golden to zvol for project %s: %w", req.ProjectID, err)
 			}
@@ -1283,10 +1306,13 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 			// to wait for any in-progress golden promotion (issue #7 from ZFS deployment).
 			// PromoteSessionToGoldenZvol holds the write lock while renaming/snapshotting,
 			// so if we race we block here until promotion finishes, then re-check.
-			lock := getGoldenLock(req.ProjectID)
-			lock.RLock()
-			goldenNowExists := GoldenZvolExists(req.ProjectID)
-			lock.RUnlock()
+			goldenNowExists := false
+			if useGoldenCache {
+				lock := getGoldenLock(req.ProjectID)
+				lock.RLock()
+				goldenNowExists = GoldenZvolExists(req.ProjectID)
+				lock.RUnlock()
+			}
 
 			if goldenNowExists {
 				// Promotion finished while we waited — clone from the new golden instead.
@@ -1305,6 +1331,12 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 			if err != nil {
 				return "", fmt.Errorf("failed to create session zvol: %w", err)
 			}
+			if !useGoldenCache {
+				dockerDir = filepath.Join(dockerDir, dataDirName)
+				if err := os.MkdirAll(dockerDir, 0755); err != nil {
+					return "", fmt.Errorf("failed to create rootless container data dir: %w", err)
+				}
+			}
 			log.Info().
 				Str("session_id", sessionID).
 				Str("mount", dockerDir).
@@ -1314,7 +1346,18 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 	}
 
 	// Strategy 2: File-copy golden cache (reflinks when available)
-	sessionDir := filepath.Join("/container-docker/sessions", volumeName, "docker")
+	sessionDir := filepath.Join(sessionsBaseDir, volumeName, dataDirName)
+
+	// Podman and Docker storage layouts are incompatible. Rootless engines
+	// reuse only their own session directory and always start cold otherwise.
+	if !useGoldenCache {
+		if err := os.MkdirAll(sessionDir, 0755); err != nil {
+			log.Warn().Err(err).Str("path", sessionDir).
+				Msg("Failed to create rootless container data dir, falling back to named volume")
+			return "", nil
+		}
+		return sessionDir, nil
+	}
 
 	// Reuse existing session dir on restart (skip re-copy)
 	if !req.GoldenBuild {
@@ -1370,6 +1413,10 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 	return sessionDir, nil
 }
 
+func usesGoldenContainerCache(req *CreateDevContainerRequest) bool {
+	return !req.RootlessContainerEngine && !req.DesktopRootless
+}
+
 // buildMounts builds the mount configuration
 func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mount.Mount, error) {
 	var mounts []mount.Mount
@@ -1386,14 +1433,15 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mo
 			mountType = mount.TypeVolume
 		}
 
-		// Redirect inner dockerd volumes to ZFS-backed bind mounts when configured.
-		// The API sends docker-data-{sessionID} as a named volume for /var/lib/docker;
-		// we convert it to a bind mount from /container-docker/sessions/{volumeName}/docker/.
+		// Redirect legacy Docker storage and hardened desktop Podman storage to
+		// ZFS-backed bind mounts when configured. Headless Podman keeps its prior
+		// named-volume storage.
 		//
-		// When a golden Docker cache exists for the project, copy it into the
-		// session's Docker data directory. This pre-populates the inner dockerd
-		// with cached images so builds start warm instead of cold.
-		if containerDockerPath != "" && m.Destination == "/var/lib/docker" && m.Type == "volume" {
+		// Legacy Docker engines may seed from the project's golden cache. Rootless
+		// Podman storage is incompatible and remains fresh per session.
+		if containerDockerPath != "" && m.Type == "volume" &&
+			(m.Destination == "/var/lib/docker" ||
+				req.DesktopRootless && m.Source == "docker-data-"+req.SessionID) {
 			volumeName := m.Source // e.g. "docker-data-{sessionID}"
 
 			dockerDir, err := dm.resolveDockerDataDir(req, volumeName)

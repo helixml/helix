@@ -723,7 +723,15 @@ if [ "$(id -u)" = "0" ]; then
         source "${init_script}"
     done
 fi
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+drop_desktop_sys_admin=()
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
+    drop_desktop_sys_admin=(setpriv --bounding-set=-sys_admin --)
+fi
+# A desktop in rootless mode (HELIX_DESKTOP_ROOTLESS=1) also sets
+# HELIX_ROOTLESS_CONTAINER_ENGINE=1 so 17-start-dockerd.sh starts rootless
+# Podman, but it must NOT take this headless privilege-drop branch: the GNOME
+# session runs as root and keeps sudo (design/2026-10-08-desktop-root-isolation.md).
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" != "1" ] && { [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; }; then
     if [ -f /zed-build/zed ] && [ ! -e /usr/local/bin/zed ]; then
         ln -sf /zed-build/zed /usr/local/bin/zed
     fi
@@ -765,12 +773,12 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENG
     exec "${drop_privileges[@]}" gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
 fi
 if [ -n "${@:-}" ]; then
-    /bin/bash -c "$@"
+    "${drop_desktop_sys_admin[@]}" /bin/bash -c "$@"
     exit $?
 fi
 gow_log "Launching the container's startup script as user '${UNAME}'"
 chmod +x /opt/gow/startup.sh 2>/dev/null || true
-exec gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
+exec "${drop_desktop_sys_admin[@]}" gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
 _ENTRYPOINT
 RUN chmod +x /entrypoint.sh /etc/cont-init.d/*.sh /opt/gow/bash-lib/utils.sh
 
@@ -802,9 +810,12 @@ ENV LANG=en_US.UTF-8 \
     CLUTTER_DEFAULT_FPS=60
 
 # GOW dbus init script
-COPY <<_DBUS_INIT /etc/cont-init.d/99-startdbus.sh
+COPY <<'_DBUS_INIT' /etc/cont-init.d/99-startdbus.sh
 #!/bin/bash
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+# Rootless desktops keep sudo, so drop sys_admin without no_new_privs.
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
+    setpriv --bounding-set=-sys_admin -- service dbus start 2>/dev/null || true
+elif [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     setpriv --bounding-set=-sys_admin --nnp -- service dbus start 2>/dev/null || true
 else
     service dbus start 2>/dev/null || true
