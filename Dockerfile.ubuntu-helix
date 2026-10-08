@@ -808,7 +808,9 @@ ENV LANG=en_US.UTF-8 \
 # GOW dbus init script
 COPY <<_DBUS_INIT /etc/cont-init.d/99-startdbus.sh
 #!/bin/bash
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+# A desktop in rootless mode runs the full GNOME session as root and must start
+# dbus normally; only the headless rootless bootstrap drops sys_admin/nnp here.
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] && [ "${HELIX_DESKTOP_ROOTLESS:-0}" != "1" ]; then
     setpriv --bounding-set=-sys_admin --nnp -- service dbus start 2>/dev/null || true
 else
     service dbus start 2>/dev/null || true

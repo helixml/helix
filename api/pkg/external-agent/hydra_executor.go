@@ -1795,8 +1795,11 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 	}
 
 	if !agent.NoContainerEngine {
+		// Rootless engines (headless agents, and desktops in rootless mode)
+		// run Podman, whose storage lives under the user's home rather than
+		// /var/lib/docker.
 		containerDataDestination := "/var/lib/docker"
-		if containerType == "headless" {
+		if containerType == "headless" || h.desktopRootless {
 			containerDataDestination = "/home/retro/.local/share/containers"
 		}
 		mounts = append(mounts, hydra.MountConfig{
