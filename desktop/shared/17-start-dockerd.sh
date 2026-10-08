@@ -66,10 +66,15 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
         CONTAINERS_CONF=/home/retro/.config/containers/containers.conf \
         PODMAN_SOCKET="${PODMAN_SOCKET}" \
         bash -c '
+        podman_command=(podman)
+        if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
+            # Keep the API service in the subordinate user namespace it manages.
+            podman_command+=(unshare podman)
+        fi
         while true; do
             echo "[$(date -Iseconds)] Starting rootless Podman API service..."
             env -u CONTAINER_HOST -u DOCKER_HOST \
-                podman system service --time=0 "unix://${PODMAN_SOCKET}"
+                "${podman_command[@]}" system service --time=0 "unix://${PODMAN_SOCKET}"
             EXIT_CODE=$?
             echo "[$(date -Iseconds)] Podman API service exited with code ${EXIT_CODE}, restarting in 2s..."
             sleep 2

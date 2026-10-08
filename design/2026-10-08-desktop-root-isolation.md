@@ -2,10 +2,10 @@
 
 **Date:** 2026-10-08
 **Status:** investigation complete + first hardening slice implemented behind a
-default-off flag, and **validated live** on the inner Helix (2026-10-08): a
-rootless `ubuntu-desktop` sandbox boots under the hardened HostConfig and the
-escalation paths are gone. See "Live validation". Nothing here flips production
-behaviour on its own (flag defaults off).
+default-off flag. The final image `dd5b27` was validated on Prime in a
+disposable `ubuntu-desktop`; the Go HostConfig and the image capability drops
+were exercised live. Nothing here flips production behaviour on its own (flag
+defaults off).
 
 **Why this doc exists:** it is the first written record of the finding. Priya
 Samuel raised it (Oct 6, relayed from a Slack exchange outside the indexed
@@ -105,28 +105,36 @@ The hardened desktop HostConfig (produced by `buildHostConfig` when the new
   to open or mount.
 - **Capabilities.** `CapDrop` the host-level set
   (`SYS_NICE,SYS_PTRACE,NET_RAW,MKNOD,NET_ADMIN`); `CapAdd` only `SYS_ADMIN`,
-  which rootless Podman needs to create its subordinate user namespace. The
-  effective bounding set drops from the full privileged 40 caps to 13 —
-  critically **`SYS_MODULE`, `SYS_RAWIO`, `MKNOD` and `NET_ADMIN` are gone**.
-  So `SYS_ADMIN`'s residual mount power has no host block device to target
-  (device allow-list), raw disk I/O is denied (`SYS_RAWIO`), a device node
-  cannot be fabricated to reach one (`MKNOD`), and the kernel cannot be
-  modified (`SYS_MODULE`). These two controls together are what make the mode
-  non-escalating, and they are portable — they do not depend on the host LSM.
-- **AppArmor is a bonus, not the boundary.** On a runner with AppArmor
-  enabled, dropping `apparmor=unconfined` lets Docker's default profile deny
-  `mount` as well. But a nested runner (helix-sandbox) exposes no AppArmor to
-  delegate, so the container shows `runc (unconfined)` there — exactly as the
-  privileged desktop already did. The design therefore does **not** rely on
-  AppArmor; the device allow-list and capability drops stand alone.
+  which rootless Podman needs during trusted init to create its subordinate
+  user namespace. The desktop image then uses `setpriv --bounding-set=-sys_admin
+  --` at the user startup and explicit command handoff, so the desktop session
+  does not retain `SYS_ADMIN`. The remaining capabilities critically exclude
+  **`SYS_MODULE`, `SYS_RAWIO`, `MKNOD` and `NET_ADMIN`**. Raw disk I/O is denied
+  (`SYS_RAWIO`), a device node cannot be fabricated to reach one (`MKNOD`), and
+  the kernel cannot be modified (`SYS_MODULE`). These controls close the
+  direct host-block-device path without depending on a host LSM. The residual
+  boundary of the rootless engine processes still needs review.
+- **AppArmor is not available on the Prime nested runner.** The container
+  shows `runc (unconfined)` there, so the rootless boundary must not claim that
+  AppArmor denies `mount`. A pre-fix rootless desktop could mount a container
+  local `tmpfs` even while `mknod` was denied and host block devices were
+  absent. The boundary is the device allow-list and capability drops: there is
+  no host block device to mount, and the session loses `SYS_ADMIN` at handoff.
 - `IpcMode: private`, a private IPC namespace (unchanged from today's desktop).
 - `seccomp=unconfined` is retained for the rootless-engine posture only
   (Podman needs syscalls the default profile blocks); matches the
   already-shipping headless rootless path.
+- **Engine process boundary.** The long-running Podman API service runs inside
+  Podman's subordinate user namespace. Dropping host `SYS_ADMIN` before that
+  namespace exists prevents `newuidmap` from creating it. On Prime, the outer
+  Podman parent had `CapEff=0` in the initial UID map; the service child ran in
+  its subordinate map (`0 -> 1000`, `1 -> 100000/65536`). BuildKit showed a
+  similar residual namespace boundary and retains its existing RootlessKit
+  setup.
 
-Net effect: the desktop keeps GPU, input, its own inner container engine
-(rootless Podman) and sudo, while losing every path to the runner host and to
-sibling tenants.
+Net effect: the tested HostConfig closes the direct host-block-device path while
+keeping GPU, input, the rootless Podman engine and sudo. It does not yet prove
+that every rootless engine process path is non-escalating.
 
 ### Credential / network domain (ties into cross-org disclosure)
 
@@ -152,16 +160,26 @@ The durable enforcement boundary is in Go and is fully unit-tested here:
   `externalAgentIsolation()` for spec-task desktops. When the flag is off,
   desktops are byte-for-byte what they are today.
 
-Image side (validated live, see below): a rootless desktop sets
+Image side (validated with Prime image `dd5b27`): a rootless desktop sets
 `HELIX_ROOTLESS_CONTAINER_ENGINE=1` **and** `HELIX_DESKTOP_ROOTLESS=1`
-(`buildEnv`). The `17-start-dockerd.sh` rootless-Podman branch runs as before,
-but three desktop-image paths are gated so the full GNOME-as-root session with
-sudo survives rather than taking the headless privilege-drop path:
+(`buildEnv`). The `17-start-dockerd.sh` rootless-Podman branch is extended, and
+the desktop image has four relevant paths so the full GNOME session runs as
+`retro` via `gosu` with sudo available rather than taking the headless
+privilege-drop path:
 
-- the `Dockerfile.ubuntu-helix` entrypoint `setpriv --nnp` drop branch,
+- the `Dockerfile.ubuntu-helix` entrypoint user startup and explicit CMD
+  handoff now drop `SYS_ADMIN` without `no_new_privs`,
 - the `startup-app.sh` zed-symlink FATAL (a rootless desktop has sudo and
   creates the symlink itself) and the workspace `chown`,
-- the `99-startdbus.sh` `setpriv` dbus branch.
+- the `99-startdbus.sh` and virtio scanout `17-scanout-setup.sh` system D-Bus
+  branches, which start D-Bus after the same bounding-set drop.
+- the long-running Podman API service in `17-start-dockerd.sh`, which enters a
+  subordinate user namespace before exposing its socket. The RootlessKit
+  preflight and BuildKit launch retain their existing rootless boundary.
+
+The D-Bus init keeps the existing headless and flag-off startup behavior; only
+a rootless desktop uses the desktop `SYS_ADMIN` bounding-set drop. The virtio
+scanout D-Bus change is gated by the same flag.
 
 The rootless engine's storage volume is mounted at
 `/home/retro/.local/share/containers` (Podman), not `/var/lib/docker`, in both
@@ -178,19 +196,42 @@ With `HELIX_SANDBOX_DESKTOP_ROOTLESS=true`:
 through the inner rootless Podman/BuildKit; use the GPU, keyboard/mouse input
 and the display; reach the public internet and the Helix API proxy per the
 egress policy; read/write their own `/home/retro/work` and workspace volumes.
+The final image denied both container-local `tmpfs` mounts and `mknod`; the
+device allow-list and capability drops remain the isolation boundary.
 
-**Cannot:** open any host block device (none are in the device cgroup —
+**Cannot via the tested direct path:** open any host block device (none are in the device cgroup -
 runner root fs, other tenants' `docker-data` zvols); fabricate a device node to
 reach one (`MKNOD` dropped); raw disk I/O (`SYS_RAWIO` dropped); write
-`/dev/mem` or load kernel modules (`SYS_MODULE` dropped); see the full host
-capability set; reach sibling sandboxes or the runner host's
-sockets/credentials.
+`/dev/mem` or load kernel modules (`SYS_MODULE` dropped); or see the full host
+capability set. The tested HostConfig has no host Docker socket mounts. The
+Podman API service is confined to its subordinate user namespace; BuildKit
+retains its existing RootlessKit boundary.
 
-## Live validation (2026-10-08, inner Helix)
+## Live validation (2026-10-08, Prime, image `dd5b27`)
 
-Built the desktop image with the gating above, redeployed hydra with the
-`buildHostConfig` change, set `HELIX_SANDBOX_DESKTOP_ROOTLESS=true`, and created
-an `ubuntu-desktop` sandbox. Observed:
+A disposable `ubuntu-desktop` booted GNOME with the hardened HostConfig and
+the generated D-Bus runtime check present and passing. The final image smoke
+checks recorded:
+
+- PID 1, GNOME, and system D-Bus had `CapBnd=a00405fb`; `SYS_ADMIN` was absent.
+- `sudo` remained available; `nvidia-smi` reported **NVIDIA GeForce RTX 4090**.
+- Rootless `docker run` succeeded. `mount` and `mknod` were denied.
+- `docker inspect` reported `Privileged=false`, no AppArmor profile, and no
+  host block devices.
+- The sandbox heartbeat advertised image `dd5b27`.
+- Three older `9b480c` desktops stayed running. One autonomous desktop was
+  restarted onto `dd5b27`.
+
+The Podman parent had `CapEff=0` in the initial UID map. Its API service ran
+in the subordinate map (`0 -> 1000`, `1 -> 100000/65536`). BuildKit showed a
+similar residual namespace boundary.
+
+The prior image `89fca5` passed `apt update`, Buildx build and run, and Compose
+up, ps, and down. The final `dd5b27` image had only the `docker run` smoke
+check; those earlier workflow results must not be attributed to `dd5b27`.
+
+Earlier inner-Helix validation (not Prime, and using the earlier image)
+recorded the following HostConfig and in-container checks:
 
 - **HostConfig** (`docker inspect`): `Privileged=false`,
   `SecurityOpt=["seccomp=unconfined"]` (no `apparmor=unconfined`),
@@ -237,20 +278,29 @@ A `ubuntu-desktop` spec task on the forked sample project, flag on:
   only retries its *initial* cursor send, and the desktop-bridge creates the
   socket when the first stream client connects.
 
-### Residual risk: `SYS_ADMIN` in the session
+### Residual risk: rootless engine process boundary
 
-Root inside a rootless desktop still holds `SYS_ADMIN` (rootless Podman needs
-it for its user namespace), and on runners without AppArmor nothing denies
-`mount`: `sudo mount -t tmpfs` succeeds. With no host block device in the
-device cgroup and `MKNOD`/`SYS_RAWIO` dropped, that does not reach the runner
-filesystem or sibling zvols, but it is kernel attack surface beyond Docker's
-default. Follow-up: drop `SYS_ADMIN` from the session's bounding set after the
-engine starts (as headless does with `setpriv --bounding-set=-sys_admin`)
-while keeping sudo, and/or ship a seccomp profile narrower than
-`unconfined`. Both need their own live validation.
+The final image removed `SYS_ADMIN` from PID 1, GNOME, and system D-Bus, and
+the Podman API service ran in its subordinate UID map. BuildKit retains a
+similar namespace-specific residual boundary. The engine paths therefore
+remain the part requiring deeper validation; the Prime runner exposes no
+AppArmor profile, and seccomp remains unconfined for rootless engine support.
 
 The flag ships **false**. With it off, desktops are byte-for-byte unchanged
 (verified: `TestBuildHostConfigPrivilegedDesktopUnchanged`,
 `TestProvisionDesktopBuildsFullEnvAndMounts`). The Go boundary is covered by
 unit tests in `api/pkg/hydra/devcontainer_test.go` and
 `api/pkg/sandbox/controller_*_test.go`.
+
+No normal web-service replacement was tested. The Prime run left existing
+`9b480c` desktops in place and restarted one autonomous desktop onto `dd5b27`.
+
+## SaaS migration semantics
+
+`HELIX_SANDBOX_DESKTOP_ROOTLESS` is evaluated when a new container HostConfig
+is built. Enabling it does not mutate existing desktop sessions or existing
+web-service sandboxes; those containers remain privileged. A normal web-service
+redeploy reuses its existing sandbox and therefore remains privileged as well.
+A true sandbox replacement provisions the new container with the rootless
+HostConfig when the flag is enabled, but a live web-service compose replacement
+has not been tested.
