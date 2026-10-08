@@ -31,7 +31,7 @@ func TestGitRepositoryPushSuiteADO(t *testing.T) {
 	suite.Run(t, new(GitRepositoryPushSuiteADO))
 }
 
-func TestPushBranchToRemote_GitLabUserWithoutOAuthFallsBackToPAT(t *testing.T) {
+func TestPushBranchToRemote_GitLabUserWithoutConnectionFallsBackToRepoPAT(t *testing.T) {
 	tests := []struct {
 		name     string
 		gitlab   *types.GitLab
@@ -62,16 +62,11 @@ func TestPushBranchToRemote_GitLabUserWithoutOAuthFallsBackToPAT(t *testing.T) {
 				Password:      tt.password,
 			}
 			mockStore.EXPECT().GetGitRepository(gomock.Any(), repo.ID).Return(repo, nil)
-			mockStore.EXPECT().ListOAuthConnections(gomock.Any(), &store.ListOAuthConnectionsQuery{UserID: "user-x"}).Return(nil, nil).Times(2)
-
 			err := service.PushBranchToRemote(context.Background(), repo.ID, "feature", true, "user-x")
 
-			if err == nil {
-				t.Fatal("expected push to the test repository to fail")
-			}
 			var oauthErr *OAuthRequiredError
 			if errors.As(err, &oauthErr) {
-				t.Fatalf("expected GitLab PAT fallback, got %v", err)
+				t.Fatalf("expected repository PAT fallback, got %v", err)
 			}
 		})
 	}

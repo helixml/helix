@@ -92,6 +92,9 @@ func (f *fakeGitRepoService) CloneRepositoryAsync(_ *types.GitRepository, _ ...f
 func (f *fakeGitRepoService) ValidateUserOAuth(_ context.Context, _ *types.GitRepository, _ string) error {
 	panic("ValidateUserOAuth unexpected")
 }
+func (f *fakeGitRepoService) ValidatePushCredentials(_ context.Context, _ *types.GitRepository, _ string) error {
+	panic("ValidatePushCredentials unexpected")
+}
 func (f *fakeGitRepoService) CreateRepository(_ context.Context, _ *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
 	panic("CreateRepository unexpected")
 }

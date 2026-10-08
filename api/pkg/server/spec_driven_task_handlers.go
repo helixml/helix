@@ -698,8 +698,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// When approving specs, validate the approver has provider OAuth so their
-	// credentials can be used for commits and push during implementation.
+	// Ensure implementation can push with the approver's or repository's credentials.
 	if req.Approved {
 		project, err := s.Store.GetProject(ctx, existingTask.ProjectID)
 		if err != nil {
@@ -712,7 +711,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, fmt.Sprintf("Failed to get repository: %v", err), http.StatusInternalServerError)
 				return
 			}
-			if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
+			if err := s.gitRepositoryService.ValidatePushCredentials(ctx, repo, user.ID); err != nil {
 				var oauthErr *services.OAuthRequiredError
 				if errors.As(err, &oauthErr) {
 					writeResponse(w, map[string]interface{}{
@@ -722,10 +721,8 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 					}, http.StatusUnprocessableEntity)
 					return
 				}
-				// Non-OAuthRequired error (usually transient store error).
-				// Don't block approval on infra hiccups; the downstream push
-				// will surface any real auth failure to the user.
-				log.Warn().Err(err).Str("task_id", taskID).Msg("Non-OAuthRequired error validating approver OAuth; proceeding with approval")
+				writeErrResponse(w, err, http.StatusUnprocessableEntity)
+				return
 			}
 		}
 
@@ -1204,13 +1201,10 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The user who starts planning becomes the actor for planning-phase
-	// commits/pushes, so their provider OAuth must be connected up front.
-	// Otherwise the agent would push specs using either no credentials or
-	// the task creator's token — both are wrong.
+	// Ensure planning can push with the planner's or repository's credentials.
 	if project, projErr := s.Store.GetProject(ctx, task.ProjectID); projErr == nil && project.DefaultRepoID != "" {
 		if repo, repoErr := s.Store.GetGitRepository(ctx, project.DefaultRepoID); repoErr == nil {
-			if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
+			if err := s.gitRepositoryService.ValidatePushCredentials(ctx, repo, user.ID); err != nil {
 				var oauthErr *services.OAuthRequiredError
 				if errors.As(err, &oauthErr) {
 					writeResponse(w, map[string]interface{}{
@@ -1220,8 +1214,8 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 					}, http.StatusUnprocessableEntity)
 					return
 				}
-				log.Warn().Err(err).Str("task_id", taskID).
-					Msg("Non-OAuthRequired error validating planner OAuth; proceeding with planning")
+				writeErrResponse(w, err, http.StatusUnprocessableEntity)
+				return
 			}
 		}
 	}

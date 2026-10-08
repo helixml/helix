@@ -15,6 +15,7 @@ type gitRepositoryServicer interface {
 	SetKoditService(koditService services.KoditServicer)
 	CloneRepositoryAsync(gitRepo *types.GitRepository, postClone ...func(localPath string))
 	ValidateUserOAuth(ctx context.Context, repo *types.GitRepository, userID string) error
+	ValidatePushCredentials(ctx context.Context, repo *types.GitRepository, userID string) error
 	CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error)
 	GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error)
 	GetRepositoryMetadata(ctx context.Context, repoID string) (*types.GitRepository, error)

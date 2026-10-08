@@ -29,8 +29,11 @@ import {
   useReopenTask,
 } from "../../services/specTaskWorkflowService";
 import { useUpdateSpecTask } from "../../services/specTaskService";
-import { useListOAuthProviders, useListOAuthConnections } from "../../services/oauthProvidersService";
-import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes, vcsScopesForProvider } from "../../utils/oauthProviders";
+import { useListOAuthProviders } from "../../services/oauthProvidersService";
+import {
+  findOAuthProviderForType,
+  vcsScopesForProvider,
+} from "../../utils/oauthProviders";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import CIStatusIcon from "./CIStatusIcon";
 import type { ToolbarDensity } from "./SpecTaskViewToolbar";
@@ -360,15 +363,18 @@ export default function SpecTaskActionButtons({
   const [isReviewingSpec, setIsReviewingSpec] = useState(false);
   const [prMenuAnchor, setPrMenuAnchor] = useState<null | HTMLElement>(null);
   const [showOAuthPrompt, setShowOAuthPrompt] = useState(false);
+  const [requiredConnectionProvider, setRequiredConnectionProvider] =
+    useState<string>();
   const { data: oauthProviders } = useListOAuthProviders();
-  const { data: oauthConnections } = useListOAuthConnections();
   const { startOAuthFlow, isLoading: isOAuthLoading } = useOAuthFlow();
 
-  const oauthProviderType = externalRepoType === "gitlab" ? "gitlab" : "github";
+  const connectionProviderType = requiredConnectionProvider || externalRepoType;
+  const requiresPATConnection =
+    connectionProviderType === "ado" || connectionProviderType === "bitbucket";
+  const oauthProviderType =
+    connectionProviderType === "gitlab" ? "gitlab" : "github";
   const oauthProviderName = oauthProviderType === "gitlab" ? "GitLab" : "GitHub";
-  const oauthConnection = findOAuthConnectionForProvider(oauthConnections, oauthProviderType);
   const oauthScopes = vcsScopesForProvider(oauthProviderType, null) || [];
-  const hasOAuthWithRequiredScopes = !!oauthConnection && hasRequiredScopes(oauthConnection.scopes, oauthScopes);
   const oauthProvider = findOAuthProviderForType(oauthProviders, oauthProviderType);
 
   // Detect oauth_required error from the backend (enforcement fallback)
@@ -376,31 +382,14 @@ export default function SpecTaskActionButtons({
     if (approveImplementationMutation.error) {
       const data = (approveImplementationMutation.error as any)?.response?.data;
       if (data?.error === "oauth_required") {
+        setRequiredConnectionProvider(data.provider_type || externalRepoType);
         setShowOAuthPrompt(true);
       }
     }
-  }, [approveImplementationMutation.error]);
+  }, [approveImplementationMutation.error, externalRepoType]);
 
   const handleOpenPR = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!isDirectPush && hasExternalRepo && externalRepoType === "github" && !hasOAuthWithRequiredScopes) {
-      if (oauthProvider?.id) {
-        startOAuthFlow({
-          providerId: oauthProvider.id,
-          scopes: oauthScopes,
-          onSuccess: () => {
-            setShowOAuthPrompt(false);
-            approveImplementationMutation.mutate();
-          },
-          onError: () => {
-            setShowOAuthPrompt(true);
-          },
-        });
-      } else {
-        setShowOAuthPrompt(true);
-      }
-      return;
-    }
     approveImplementationMutation.mutate();
   };
 
@@ -525,12 +514,16 @@ export default function SpecTaskActionButtons({
         }}
       >
         <Alert severity="warning" sx={{ py: 0.5 }}>
-          {oauthProvider?.id
-            ? `Connect your ${oauthProviderName} account to open PRs under your name.`
-            : `${oauthProviderName} OAuth is not configured. Ask your administrator to set it up so PRs can be opened under your name.`}
+          {connectionProviderType === "ado"
+            ? "Add a personal Azure DevOps PAT connection in Project Settings > Repositories > Attach > Browse Providers, then retry."
+            : connectionProviderType === "bitbucket"
+              ? "Add a personal Bitbucket app-password connection in Project Settings > Repositories > Attach > Browse Providers, then retry."
+              : oauthProvider?.id
+                ? `Connect your ${oauthProviderName} account to open PRs under your name.`
+                : `${oauthProviderName} OAuth is not configured. Ask your administrator to set it up so PRs can be opened under your name.`}
         </Alert>
         <Box sx={{ display: "flex", gap: 1 }}>
-          {oauthProvider?.id && (
+          {!requiresPATConnection && oauthProvider?.id && (
             <Button
               variant="contained"
               size="small"
@@ -541,6 +534,7 @@ export default function SpecTaskActionButtons({
                   scopes: oauthScopes,
                   onSuccess: () => {
                     setShowOAuthPrompt(false);
+                    setRequiredConnectionProvider(undefined);
                     approveImplementationMutation.mutate();
                   },
                   onError: () => {
@@ -555,7 +549,10 @@ export default function SpecTaskActionButtons({
           <Button
             variant="outlined"
             size="small"
-            onClick={() => setShowOAuthPrompt(false)}
+            onClick={() => {
+              setShowOAuthPrompt(false);
+              setRequiredConnectionProvider(undefined);
+            }}
           >
             Cancel
           </Button>

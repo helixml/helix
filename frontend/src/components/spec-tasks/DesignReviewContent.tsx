@@ -1398,7 +1398,16 @@ export default function DesignReviewContent({
       const respData = error?.response?.data;
       if (respData?.error === "oauth_required") {
         setShowSubmitDialog(false);
-        const providerType = respData?.provider_type === "gitlab" ? "gitlab" : "github";
+        const requiredProviderType = respData?.provider_type;
+        if (requiredProviderType === "ado" || requiredProviderType === "bitbucket") {
+          snackbar.error(
+            requiredProviderType === "ado"
+              ? "Add a personal Azure DevOps PAT connection in Project Settings > Repositories > Attach > Browse Providers, then click Approve again."
+              : "Add a personal Bitbucket app-password connection in Project Settings > Repositories > Attach > Browse Providers, then click Approve again.",
+          );
+          return;
+        }
+        const providerType = requiredProviderType === "gitlab" ? "gitlab" : "github";
         const providerName = providerType === "gitlab" ? "GitLab" : "GitHub";
         const oauthProvider = findOAuthProviderForType(oauthProviders, providerType);
         if (oauthProvider?.id) {

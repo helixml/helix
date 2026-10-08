@@ -2700,13 +2700,13 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 
 // buildAuthenticatedCloneURLForRepo returns the external URL with embedded credentials for native git clone
 // This is used by gitea/git module which expects credentials in the URL
-func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) string {
+func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Context, gitRepo *types.GitRepository) string {
 	if gitRepo.ExternalURL == "" {
 		return ""
 	}
 
 	// Get credentials based on repository type and OAuth connection
-	username, password := s.getCredentialsForRepo(ctx, gitRepo, userID...)
+	username, password := s.getCredentialsForRepo(ctx, gitRepo)
 	if password == "" {
 		return gitRepo.ExternalURL
 	}
@@ -2722,26 +2722,11 @@ func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Con
 }
 
 // getCredentialsForRepo returns username and password/token for a repository
-func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) (username, password string) {
-	// If an acting user is specified (user-initiated), use their OAuth token
-	actingUserID := ""
-	if len(userID) > 0 {
-		actingUserID = userID[0]
+func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRepo *types.GitRepository) (username, password string) {
+	if hasSharedRepositoryPAT(gitRepo) {
+		username, password, _ := repositoryPATCredentials(gitRepo)
+		return username, password
 	}
-	providerType := OAuthProviderTypeForRepo(gitRepo.ExternalType)
-	if actingUserID != "" && providerType != types.OAuthProviderTypeUnknown {
-		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
-			UserID: actingUserID,
-		})
-		if err == nil {
-			for _, conn := range connections {
-				if oauthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
-					return oauthGitUsername(gitRepo.ExternalType), conn.AccessToken
-				}
-			}
-		}
-	}
-
 	// Repo-level credentials: use the pinned OAuth connection.
 	if gitRepo.OAuthConnectionID != "" {
 		conn, err := s.store.GetOAuthConnection(ctx, gitRepo.OAuthConnectionID)
@@ -2762,36 +2747,104 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 		}
 	}
 
-	// Fall back to provider-specific PAT or username/password
-	switch gitRepo.ExternalType {
+	username, password, _ = repositoryPATCredentials(gitRepo)
+	return username, password
+}
+
+func repositoryPATCredentials(repo *types.GitRepository) (string, string, bool) {
+	switch repo.ExternalType {
 	case types.ExternalRepositoryTypeADO:
-		if gitRepo.AzureDevOps != nil && gitRepo.AzureDevOps.PersonalAccessToken != "" {
-			return "PAT", gitRepo.AzureDevOps.PersonalAccessToken
+		if repo.AzureDevOps != nil && repo.AzureDevOps.PersonalAccessToken != "" {
+			return "PAT", repo.AzureDevOps.PersonalAccessToken, true
 		}
-		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return gitRepo.Username, gitRepo.Password
+		if repo.Username != "" && repo.Password != "" {
+			return repo.Username, repo.Password, true
 		}
 	case types.ExternalRepositoryTypeGitHub:
-		if gitRepo.GitHub != nil && gitRepo.GitHub.PersonalAccessToken != "" {
-			return "x-access-token", gitRepo.GitHub.PersonalAccessToken
+		if repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "" {
+			return "x-access-token", repo.GitHub.PersonalAccessToken, true
 		}
-		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return gitRepo.Username, gitRepo.Password
+		if repo.Password != "" {
+			username := repo.Username
+			if username == "" {
+				username = "x-access-token"
+			}
+			return username, repo.Password, true
 		}
 	case types.ExternalRepositoryTypeGitLab:
-		if gitRepo.GitLab != nil && gitRepo.GitLab.PersonalAccessToken != "" {
-			return "oauth2", gitRepo.GitLab.PersonalAccessToken
+		if repo.GitLab != nil && repo.GitLab.PersonalAccessToken != "" {
+			return "oauth2", repo.GitLab.PersonalAccessToken, true
 		}
-		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return gitRepo.Username, gitRepo.Password
+		if repo.Password != "" {
+			username := repo.Username
+			if username == "" {
+				username = "oauth2"
+			}
+			return username, repo.Password, true
 		}
 	case types.ExternalRepositoryTypeBitbucket:
-		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return gitRepo.Username, gitRepo.Password
+		if repo.Bitbucket != nil && repo.Bitbucket.Username != "" && repo.Bitbucket.AppPassword != "" {
+			return repo.Bitbucket.Username, repo.Bitbucket.AppPassword, true
+		}
+		if repo.Username != "" && repo.Password != "" {
+			return repo.Username, repo.Password, true
 		}
 	}
+	return "", "", false
+}
 
-	return "", ""
+func hasSharedRepositoryPAT(repo *types.GitRepository) bool {
+	if repo.GitProviderConnectionID == "" && repo.OAuthConnectionID != "" {
+		return false
+	}
+	_, _, ok := repositoryPATCredentials(repo)
+	return ok
+}
+
+func (s *GitRepositoryService) getPushCredentialsForRepo(ctx context.Context, gitRepo *types.GitRepository, userID string) (string, string, error) {
+	if hasSharedRepositoryPAT(gitRepo) {
+		username, password, _ := repositoryPATCredentials(gitRepo)
+		return username, password, nil
+	}
+	if userID != "" && (gitRepo.ExternalType == types.ExternalRepositoryTypeGitHub || gitRepo.ExternalType == types.ExternalRepositoryTypeGitLab) {
+		providerType := OAuthProviderTypeForRepo(gitRepo.ExternalType)
+		token, err := s.getActingUserOAuthToken(ctx, gitRepo, userID, providerType)
+		if err != nil {
+			return "", "", err
+		}
+		if token != "" {
+			return oauthGitUsername(gitRepo.ExternalType), token, nil
+		}
+	}
+	if userID != "" {
+		username, token, err := s.getActingUserPAT(ctx, gitRepo, userID)
+		if err == nil {
+			switch gitRepo.ExternalType {
+			case types.ExternalRepositoryTypeADO:
+				return "PAT", token, nil
+			case types.ExternalRepositoryTypeGitHub:
+				return "x-access-token", token, nil
+			case types.ExternalRepositoryTypeGitLab:
+				return "oauth2", token, nil
+			case types.ExternalRepositoryTypeBitbucket:
+				return username, token, nil
+			}
+		}
+		return "", "", err
+	}
+	username, password := s.getCredentialsForRepo(ctx, gitRepo)
+	return username, password, nil
+}
+
+func (s *GitRepositoryService) ValidatePushCredentials(ctx context.Context, gitRepo *types.GitRepository, userID string) error {
+	_, password, err := s.getPushCredentialsForRepo(ctx, gitRepo, userID)
+	if err != nil {
+		return err
+	}
+	if password == "" {
+		return fmt.Errorf("no credentials configured for %s push", gitRepo.ExternalType)
+	}
+	return nil
 }
 
 // oauthGitUsername returns the basic-auth username git expects when an OAuth
@@ -2865,6 +2918,27 @@ func OAuthProviderTypeForRepo(t types.ExternalRepositoryType) types.OAuthProvide
 func oauthConnectionMatchesProvider(conn *types.OAuthConnection, providerType types.OAuthProviderType) bool {
 	return conn != nil && (conn.Provider.Type == providerType ||
 		(conn.Provider.Type == types.OAuthProviderTypeCustom && strings.Contains(strings.ToLower(conn.Provider.Name), string(providerType))))
+}
+
+func oauthConnectionMatchesRepo(conn *types.OAuthConnection, providerType types.OAuthProviderType, repo *types.GitRepository) bool {
+	if !oauthConnectionMatchesProvider(conn, providerType) {
+		return false
+	}
+	repoURL, err := url.Parse(repo.ExternalURL)
+	if err != nil || repoURL.Hostname() == "" {
+		return false
+	}
+	for _, raw := range []string{conn.Provider.AuthURL, conn.Provider.TokenURL, conn.Provider.UserInfoURL} {
+		providerURL, err := url.Parse(raw)
+		if err == nil && providerURL.Hostname() != "" {
+			return strings.EqualFold(providerURL.Hostname(), repoURL.Hostname())
+		}
+	}
+	if conn.Provider.Type == types.OAuthProviderTypeCustom {
+		return false
+	}
+	return (providerType == types.OAuthProviderTypeGitHub && strings.EqualFold(repoURL.Hostname(), "github.com")) ||
+		(providerType == types.OAuthProviderTypeGitLab && strings.EqualFold(repoURL.Hostname(), "gitlab.com"))
 }
 
 // RepoOwnerName returns the "owner/repo" slug parsed from a repo's external URL,

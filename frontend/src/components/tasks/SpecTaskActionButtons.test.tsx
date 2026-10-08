@@ -156,7 +156,7 @@ describe.each(["inline", "stacked"] as const)(
       ],
     });
 
-    it("shows New PR and enforces OAuth", () => {
+    it("sends New PR to the backend before prompting for OAuth", () => {
       render(
         <SpecTaskActionButtons
           task={doneTask()}
@@ -168,9 +168,8 @@ describe.each(["inline", "stacked"] as const)(
 
       const createButton = screen.getByRole("button", { name: /New PR/i });
       fireEvent.click(createButton);
-      expect(
-        screen.getByText(/GitHub OAuth is not configured/i),
-      ).toBeInTheDocument();
+      expect(idleMutation.mutate).toHaveBeenCalledOnce();
+      expect(screen.queryByText(/GitHub OAuth is not configured/i)).not.toBeInTheDocument();
     });
 
     it("keeps all pull requests in the adjacent menu", () => {

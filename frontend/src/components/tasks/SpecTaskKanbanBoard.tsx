@@ -1465,7 +1465,16 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           response.status === 422 &&
           errorData?.error === "oauth_required"
         ) {
-          const providerType = errorData?.provider_type === "gitlab" ? "gitlab" : "github";
+          const requiredProviderType = errorData?.provider_type;
+          if (requiredProviderType === "ado" || requiredProviderType === "bitbucket") {
+            snackbar.error(
+              requiredProviderType === "ado"
+                ? "Add a personal Azure DevOps PAT connection in Project Settings > Repositories > Attach > Browse Providers, then click Start Planning again."
+                : "Add a personal Bitbucket app-password connection in Project Settings > Repositories > Attach > Browse Providers, then click Start Planning again.",
+            );
+            return;
+          }
+          const providerType = requiredProviderType === "gitlab" ? "gitlab" : "github";
           const providerName = providerType === "gitlab" ? "GitLab" : "GitHub";
           const oauthProvider = findOAuthProviderForType(oauthProviders, providerType);
           if (oauthProvider?.id) {

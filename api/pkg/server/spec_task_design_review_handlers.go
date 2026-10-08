@@ -567,15 +567,10 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 				return
 			}
 
-			// Before advancing to implementation, validate the approver has
-			// provider OAuth so their credentials can be used for commits and
-			// push. Mirrors the check in approveSpecs/approveImplementation —
-			// the UI goes through this endpoint, so omitting the check here
-			// lets an approver without OAuth silently drive the task to
-			// implementation and commits would then fall back to the creator.
+			// Ensure implementation can push with the approver's or repository's credentials.
 			if project, projErr := s.Store.GetProject(ctx, specTask.ProjectID); projErr == nil && project.DefaultRepoID != "" {
 				if repo, repoErr := s.Store.GetGitRepository(ctx, project.DefaultRepoID); repoErr == nil {
-					if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
+					if err := s.gitRepositoryService.ValidatePushCredentials(ctx, repo, user.ID); err != nil {
 						var oauthErr *services.OAuthRequiredError
 						if errors.As(err, &oauthErr) {
 							writeResponse(w, map[string]interface{}{
@@ -585,8 +580,8 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 							}, http.StatusUnprocessableEntity)
 							return
 						}
-						log.Warn().Err(err).Str("task_id", specTask.ID).
-							Msg("Non-OAuthRequired error validating approver OAuth at design-review submit; proceeding with approval")
+						writeErrResponse(w, err, http.StatusUnprocessableEntity)
+						return
 					}
 				}
 			}

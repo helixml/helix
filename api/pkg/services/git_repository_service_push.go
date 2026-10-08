@@ -55,14 +55,11 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 	if branchName == "" {
 		return fmt.Errorf("branch name is required")
 	}
-	if actingUserID != "" {
-		if err := s.ValidateUserOAuth(ctx, gitRepo, actingUserID); err != nil {
-			return err
-		}
-	}
 
-	// Get credentials for the external URL using the acting user's OAuth.
-	username, password := s.getCredentialsForRepo(ctx, gitRepo, actingUserID)
+	username, password, err := s.getPushCredentialsForRepo(ctx, gitRepo, actingUserID)
+	if err != nil {
+		return err
+	}
 	authType := "none"
 	if password != "" {
 		authType = fmt.Sprintf("basic:%s", username)
@@ -77,8 +74,10 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 			Msg("[GitPush] WARNING: No auth configured for push!")
 	}
 
-	// Build authenticated URL for push
-	pushURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo, actingUserID)
+	pushURL, err := BuildAuthenticatedURL(gitRepo.ExternalURL, username, password)
+	if err != nil {
+		return fmt.Errorf("failed to build authenticated push URL: %w", err)
+	}
 
 	log.Info().
 		Str("repo_id", gitRepo.ID).
