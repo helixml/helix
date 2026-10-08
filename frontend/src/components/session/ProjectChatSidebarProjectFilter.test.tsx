@@ -42,17 +42,18 @@ const renderFilter = (
 })
 
 describe('ProjectChatSidebarProjectFilter', () => {
-  it('lists projects alphabetically and then the user filter section', () => {
+  it('keeps the user filter above alphabetized projects', () => {
     renderFilter()
 
     fireEvent.click(screen.getByRole('button', { name: 'Filter tasks by project' }))
 
     expect(screen.getByRole('menuitem', { name: 'All projects' })).toBeInTheDocument()
     const items = screen.getAllByRole('menuitem').map((item) => item.textContent?.trim() || '')
-    expect(items.slice(0, 4)).toEqual(['All projects', 'Alpha project', 'Beta project', 'Everyone'])
+    expect(items.slice(0, 2)).toEqual(['All projects', 'Everyone'])
     // Member rows carry an initials avatar before the label.
-    expect(items[4]).toContain('me@helix.local (you)')
-    expect(items[5]).toContain('Alice Example')
+    expect(items[2]).toContain('me@helix.local (you)')
+    expect(items[3]).toContain('Alice Example')
+    expect(items.slice(4)).toEqual(['Alpha project', 'Beta project'])
     expect(screen.getByText('Filter by user')).toBeInTheDocument()
   })
 
@@ -70,6 +71,18 @@ describe('ProjectChatSidebarProjectFilter', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Filter tasks by project' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Everyone' }))
     expect(onUserChange).toHaveBeenCalledWith(ALL_USERS_FILTER)
+  })
+
+  it('opens at the top when a project is selected', () => {
+    const manyProjects = Array.from({ length: 30 }, (_, index) => ({
+      id: `project-${index}`,
+      name: `Project ${index}`,
+    }))
+    renderFilter({ projects: manyProjects, selectedProjectId: 'project-29' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter tasks by project' }))
+
+    expect(screen.getByRole('menuitem', { name: 'All projects' })).toHaveFocus()
   })
 
   it('marks the button label with the active user filter', () => {

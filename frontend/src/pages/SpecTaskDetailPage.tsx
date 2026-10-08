@@ -19,6 +19,7 @@ import { useGetProject } from "../services";
 import useAccount from "../hooks/useAccount";
 import { cacheTaskName } from "../lib/navHistory";
 import { shouldAutoOpenSpecTaskReview } from "../lib/specTaskAutoOpen";
+import NotFound from "./NotFound";
 
 /**
  * SpecTaskDetailPage - Standalone page for viewing spec task details
@@ -43,8 +44,10 @@ const SpecTaskDetailPage: FC = () => {
   });
 
   useEffect(() => {
-    if (taskId && task?.name) cacheTaskName(taskId, task.name)
-  }, [taskId, task?.name])
+    if (taskId && task?.name && task.project_id === projectId) {
+      cacheTaskName(taskId, task.name);
+    }
+  }, [projectId, taskId, task?.name, task?.project_id]);
 
   const { data: project, isLoading: projectLoading } = useGetProject(
     projectId,
@@ -87,6 +90,10 @@ const SpecTaskDetailPage: FC = () => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [createDialogOpen]);
+
+  if (task && task.project_id !== projectId) {
+    return <NotFound />;
+  }
 
   if (taskLoading || projectLoading) {
     return (
