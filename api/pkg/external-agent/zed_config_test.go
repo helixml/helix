@@ -865,6 +865,7 @@ func TestApplyBotInstanceProfile(t *testing.T) {
 			"helix":           {URL: "http://api/mcp/helix-org"},
 			"kodit":           {URL: "http://api/mcp/kodit"},
 			"my-crm":          {URL: "http://api/mcp/external/my-crm"},
+			"helix-viz":       {URL: "http://api/mcp/visualization"},
 		}
 	}
 	keys := func(c ZedMCPConfig) []string {
@@ -879,18 +880,18 @@ func TestApplyBotInstanceProfile(t *testing.T) {
 	t.Run("not an instance keeps everything", func(t *testing.T) {
 		c := ZedMCPConfig{ContextServers: servers()}
 		c.ApplyBotInstanceProfile(nil)
-		require.Len(t, c.ContextServers, 5)
+		require.Len(t, c.ContextServers, 6)
 	})
-	t.Run("default profile keeps only the browser", func(t *testing.T) {
+	t.Run("default profile keeps only the browser and visualizations", func(t *testing.T) {
 		c := ZedMCPConfig{ContextServers: servers()}
 		profile := types.DefaultBotInstanceProfile()
 		c.ApplyBotInstanceProfile(&profile)
-		require.Equal(t, []string{"chrome-devtools"}, keys(c))
+		require.Equal(t, []string{"chrome-devtools", "helix-viz"}, keys(c))
 	})
 	t.Run("tools bring the org server, project MCPs by name", func(t *testing.T) {
 		c := ZedMCPConfig{ContextServers: servers()}
 		profile := types.BotInstanceProfile{MCPServers: []string{"chrome-devtools", "My CRM"}, Tools: []string{"chat"}}
 		c.ApplyBotInstanceProfile(&profile)
-		require.Equal(t, []string{"chrome-devtools", "helix", "my-crm"}, keys(c))
+		require.Equal(t, []string{"chrome-devtools", "helix", "helix-viz", "my-crm"}, keys(c))
 	})
 }

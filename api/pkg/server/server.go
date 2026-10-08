@@ -601,6 +601,10 @@ func NewServer(
 	sessionMCPBackend := NewSessionMCPBackend(store, appController.Options.Notifier)
 	apiServer.mcpGateway.RegisterBackend("session", sessionMCPBackend)
 
+	// Register Visualization MCP backend (html_render inline pages). Wired into
+	// every agent config as helix-viz, independent of instance profiles.
+	apiServer.mcpGateway.RegisterBackend(types.MCPBackendVisualization, NewVisualizationMCPBackend(store, appController))
+
 	// Register External MCP backend (user-configured MCP servers)
 	// This proxies requests from Zed to external MCP servers configured in agents
 	// Route: /api/v1/mcp/external/{mcp_name}/{path...}
@@ -1133,6 +1137,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.listSessions)).Methods(http.MethodGet)
 	subRouter.HandleFunc("/sessions/{id}", apiServer.getSession).Methods(http.MethodGet)
+	// Serve agent-published inline visualizations. On subRouter (not authRouter)
+	// so an iframe can load it with the SPA's access_token cookie; the handler
+	// authorizes the session itself.
+	subRouter.HandleFunc("/sessions/{id}/visualization", apiServer.getSessionVisualization).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.deleteSession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.updateSession)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/sessions/{id}/archive", system.Wrapper(apiServer.archiveSession)).Methods(http.MethodPatch)
