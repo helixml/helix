@@ -723,7 +723,11 @@ if [ "$(id -u)" = "0" ]; then
         source "${init_script}"
     done
 fi
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+# A desktop in rootless mode (HELIX_DESKTOP_ROOTLESS=1) also sets
+# HELIX_ROOTLESS_CONTAINER_ENGINE=1 so 17-start-dockerd.sh starts rootless
+# Podman, but it must NOT take this headless privilege-drop branch: the GNOME
+# session runs as root and keeps sudo (design/2026-10-08-desktop-root-isolation.md).
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" != "1" ] && { [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; }; then
     if [ -f /zed-build/zed ] && [ ! -e /usr/local/bin/zed ]; then
         ln -sf /zed-build/zed /usr/local/bin/zed
     fi

@@ -143,14 +143,22 @@ func TestBuildEnvVarsEmitsCanonicalSandboxAPIURL(t *testing.T) {
 }
 
 func TestExternalAgentIsolation(t *testing.T) {
-	require.Equal(t, containerIsolation{rootlessContainerEngine: true}, externalAgentIsolation("headless", false))
+	require.Equal(t, containerIsolation{rootlessContainerEngine: true}, externalAgentIsolation("headless", false, false))
 	for _, containerType := range []string{"ubuntu", "sway", "zorin", "xfce", "kde"} {
-		require.Equal(t, containerIsolation{privileged: true}, externalAgentIsolation(containerType, false), containerType)
+		require.Equal(t, containerIsolation{privileged: true}, externalAgentIsolation(containerType, false, false), containerType)
 	}
-	// Bot instances: unprivileged and engine-free, desktop or not.
+	// Bot instances: unprivileged and engine-free, desktop or not. A
+	// no-container-engine (browser) instance wins over desktopRootless.
 	for _, containerType := range []string{"headless", "ubuntu"} {
-		require.Equal(t, containerIsolation{browserSandbox: true}, externalAgentIsolation(containerType, true), containerType)
+		require.Equal(t, containerIsolation{browserSandbox: true}, externalAgentIsolation(containerType, true, false), containerType)
+		require.Equal(t, containerIsolation{browserSandbox: true}, externalAgentIsolation(containerType, true, true), containerType)
 	}
+	// desktopRootless on: desktops go unprivileged via rootless Podman; headless
+	// is unaffected (it is already rootless).
+	for _, containerType := range []string{"ubuntu", "sway", "zorin", "xfce", "kde"} {
+		require.Equal(t, containerIsolation{desktopRootless: true}, externalAgentIsolation(containerType, false, true), containerType)
+	}
+	require.Equal(t, containerIsolation{rootlessContainerEngine: true}, externalAgentIsolation("headless", false, true))
 }
 
 func TestBuildMountsUsesContainerEngineStorageForRuntime(t *testing.T) {

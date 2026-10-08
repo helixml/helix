@@ -918,12 +918,17 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// container engine.
 	env = removeEnvVar(env, "BUILDKIT_HOST")
 	env = removeEnvVar(env, "HELIX_REGISTRY")
-	if req.RootlessContainerEngine {
+	if req.RootlessContainerEngine || req.DesktopRootless {
 		env = overrideEnvVar(env, "HELIX_ROOTLESS_CONTAINER_ENGINE", "1")
 		env = overrideEnvVar(env, "DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock")
 		env = overrideEnvVar(env, "CONTAINER_HOST", "unix:///run/user/1000/podman/podman.sock")
 		env = overrideEnvVar(env, "DOCKER_BUILDKIT", "0")
 		env = overrideEnvVar(env, "BUILDX_BUILDER", "helix-rootless")
+	}
+	if req.DesktopRootless {
+		// The desktop entrypoint uses this to keep sudo while running rootless:
+		// it must NOT take the headless setpriv --nnp privilege-drop branch.
+		env = overrideEnvVar(env, "HELIX_DESKTOP_ROOTLESS", "1")
 	}
 
 	// Add display settings if this is not a headless container
@@ -1094,6 +1099,9 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.NoNewPrivileges && req.Privileged {
 		return nil, fmt.Errorf("no-new-privileges cannot be combined with privileged mode")
 	}
+	if req.DesktopRootless && req.RootlessContainerEngine {
+		return nil, fmt.Errorf("desktop rootless mode already implies the rootless engine; set only one")
+	}
 	if req.RootlessContainerEngine && req.ContainerType != DevContainerTypeHeadless {
 		return nil, fmt.Errorf("rootless container engine requires a headless container")
 	}
@@ -1103,9 +1111,22 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.BrowserSandbox && (req.Privileged || req.RootlessContainerEngine) {
 		return nil, fmt.Errorf("browser sandbox is for unprivileged containers without a container engine")
 	}
+	if req.DesktopRootless && req.Privileged {
+		return nil, fmt.Errorf("desktop rootless mode cannot be combined with privileged mode")
+	}
+	if req.DesktopRootless && req.ContainerType == DevContainerTypeHeadless {
+		return nil, fmt.Errorf("desktop rootless mode requires a desktop container type")
+	}
 	if !usesIsolatedSandboxNetwork(req.Network) {
 		return nil, fmt.Errorf("unsupported sandbox network %q", req.Network)
 	}
+
+	// A desktop in rootless mode runs the same unprivileged rootless Podman
+	// posture as a headless agent (no --privileged), plus the desktop's
+	// display/input/GPU device grants and private IPC namespace handled by the
+	// ContainerType != Headless branches below. rootlessEngine unifies the two
+	// so the capability/seccomp/device logic is written once.
+	rootlessEngine := req.RootlessContainerEngine || req.DesktopRootless
 
 	resources := container.Resources{
 		Ulimits: []*units.Ulimit{
@@ -1115,7 +1136,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.ContainerType != DevContainerTypeHeadless {
 		resources.DeviceCgroupRules = dm.getDeviceCgroupRules()
 	}
-	if req.RootlessContainerEngine {
+	if rootlessEngine {
 		resources.Devices = append(resources.Devices,
 			container.DeviceMapping{PathOnHost: "/dev/fuse", PathInContainer: "/dev/fuse", CgroupPermissions: "rwm"},
 			container.DeviceMapping{PathOnHost: "/dev/net/tun", PathInContainer: "/dev/net/tun", CgroupPermissions: "rwm"},
@@ -1147,7 +1168,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		hostConfig.SecurityOpt = []string{"seccomp=unconfined", "apparmor=unconfined"}
 	} else {
 		hostConfig.CapDrop = []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
-		if req.RootlessContainerEngine {
+		if rootlessEngine {
 			// The trusted init process needs SYS_ADMIN in its bounding set so
 			// rootless Podman can create its subordinate user namespace. Before
 			// the agent starts, the image drops SYS_ADMIN from the agent's

@@ -205,6 +205,7 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		DisplayFPS:          sandbox.DisplayFPS,
 		Network:             "bridge",
 		Privileged:          spec.Privileged,
+		DesktopRootless:     spec.DesktopRootless,
 		UserID:              sandbox.Owner,
 		VCPUs:               sandbox.VCPUs,
 		MemoryMB:            sandbox.MemoryMB,

@@ -166,6 +166,103 @@ func TestBuildHostConfigRootlessContainerEngine(t *testing.T) {
 	require.Equal(t, "rwm", hostConfig.Resources.Devices[1].CgroupPermissions)
 }
 
+// TestBuildHostConfigDesktopRootlessIsNonEscalating proves the hardened
+// desktop HostConfig cannot reach the runner host or sibling tenants: it is
+// unprivileged, carries no host block devices, keeps AppArmor enforced (not
+// unconfined), and drops the host-level capabilities. See
+// design/2026-10-08-desktop-root-isolation.md.
+func TestBuildHostConfigDesktopRootlessIsNonEscalating(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:   DevContainerTypeUbuntu,
+		DesktopRootless: true,
+	})
+	require.NoError(t, err)
+
+	// Not privileged: this is the whole point — no all-caps, no allow-all
+	// device cgroup, no host device bind access.
+	require.False(t, hostConfig.Privileged)
+
+	// AppArmor stays enforced (Docker default). --privileged would have set
+	// apparmor=unconfined, which is what let a root desktop user mount a
+	// sibling tenant's zvol or the host root fs.
+	require.NotContains(t, hostConfig.SecurityOpt, "apparmor=unconfined")
+
+	// Same capability posture as the headless rootless engine: SYS_ADMIN only
+	// (rootless Podman needs it to create its subordinate userns), host-level
+	// caps dropped.
+	require.Equal(t, []string{"SYS_ADMIN"}, []string(hostConfig.CapAdd))
+	require.Equal(t, []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}, []string(hostConfig.CapDrop))
+
+	// Desktop still gets its private IPC namespace and shared-memory sizing.
+	require.Equal(t, "private", string(hostConfig.IpcMode))
+	require.Equal(t, int64(desktopShmSizeBytes), hostConfig.ShmSize)
+
+	// The device cgroup is an explicit allow-list: only the rootless-engine
+	// nodes (fuse/tun) plus display input-device major rules. Crucially, NO
+	// host block devices (/dev/nvme*, /dev/zd* zvols, /dev/mem, /dev/zfs).
+	for _, dev := range hostConfig.Resources.Devices {
+		require.Contains(t, []string{"/dev/fuse", "/dev/net/tun"}, dev.PathOnHost,
+			"unexpected host device %q granted to a hardened desktop", dev.PathOnHost)
+	}
+	for _, rule := range hostConfig.Resources.DeviceCgroupRules {
+		// getDeviceCgroupRules only ever emits char-device ("c ...") rules for
+		// hidraw/input. A block ("b ...") or allow-all ("a ...") rule would be
+		// a host-reaching regression.
+		require.True(t, strings.HasPrefix(rule, "c "),
+			"device cgroup rule %q is not a char-device allow rule", rule)
+	}
+}
+
+func TestBuildHostConfigRejectsInvalidDesktopRootlessModes(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	_, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:   DevContainerTypeUbuntu,
+		DesktopRootless: true,
+		Privileged:      true,
+	})
+	require.EqualError(t, err, "desktop rootless mode cannot be combined with privileged mode")
+
+	_, err = dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:   DevContainerTypeHeadless,
+		DesktopRootless: true,
+	})
+	require.EqualError(t, err, "desktop rootless mode requires a desktop container type")
+
+	_, err = dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:           DevContainerTypeUbuntu,
+		DesktopRootless:         true,
+		RootlessContainerEngine: true,
+	})
+	require.EqualError(t, err, "desktop rootless mode already implies the rootless engine; set only one")
+}
+
+// TestBuildHostConfigPrivilegedDesktopUnchanged pins the legacy privileged
+// desktop shape so the default-off path is provably untouched by this change.
+func TestBuildHostConfigPrivilegedDesktopUnchanged(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeUbuntu,
+		Privileged:    true,
+	})
+	require.NoError(t, err)
+	require.True(t, hostConfig.Privileged)
+	require.Equal(t, []string{"seccomp=unconfined", "apparmor=unconfined"}, hostConfig.SecurityOpt)
+}
+
+func TestBuildEnvDesktopRootlessSetsPodmanAndSudoSignal(t *testing.T) {
+	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
+		ContainerType:   DevContainerTypeUbuntu,
+		DesktopRootless: true,
+	})
+	require.Contains(t, env, "HELIX_ROOTLESS_CONTAINER_ENGINE=1")
+	require.Contains(t, env, "HELIX_DESKTOP_ROOTLESS=1")
+	require.Contains(t, env, "DOCKER_HOST=unix:///run/user/1000/podman/podman.sock")
+}
+
 func TestBuildHostConfigRejectsInvalidRootlessContainerEngineModes(t *testing.T) {
 	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
 
