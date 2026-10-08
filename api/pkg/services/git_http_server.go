@@ -1617,7 +1617,7 @@ func (s *GitHTTPServer) SyncOpenPRDescriptions(ctx context.Context, task *types.
 		}
 		description = AppendPRFooter(description, footer)
 
-		if err := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.PRNumber, title, description); err != nil {
+		if err := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.PRNumber, title, description, task.ImplementationApprovedBy); err != nil {
 			log.Error().Err(err).
 				Str("task_id", task.ID).
 				Str("repo_id", repo.ID).
