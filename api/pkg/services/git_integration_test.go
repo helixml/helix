@@ -443,6 +443,7 @@ func (s *GitIntegrationSuite) TestAgentHelixSpecsPushSurvivesUserOAuthFailure() 
 		return &result, nil
 	}).AnyTimes()
 	s.mockStore.EXPECT().ListOAuthConnections(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.mockStore.EXPECT().ListGitProviderConnections(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	s.mockStore.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, updated *types.SpecTask) error {
 		stateMu.Lock()
 		defer stateMu.Unlock()
