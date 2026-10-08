@@ -19,6 +19,7 @@ import { useGetProject } from '../services'
 import useAccount from '../hooks/useAccount'
 import { cacheTaskName } from '../lib/navHistory'
 import { addAutoOpenedSpecTask } from '../lib/specTaskAutoOpen'
+import NotFound from './NotFound'
 
 /**
  * SpecTaskReviewPage - Standalone page for spec review
@@ -45,15 +46,19 @@ const SpecTaskReviewPage: FC = () => {
   const { data: project, isLoading: projectLoading } = useGetProject(projectId, !!projectId)
 
   useEffect(() => {
-    if (taskId && task?.name) cacheTaskName(taskId, task.name)
-  }, [taskId, task?.name])
+    if (taskId && task?.name && task.project_id === projectId) {
+      cacheTaskName(taskId, task.name)
+    }
+  }, [projectId, taskId, task?.name, task?.project_id])
 
   // Mark this task so navigating back to the task detail page does not re-trigger
   // the spec review auto-open useEffect in SpecTaskDetailContent. Covers any way
   // the user reached this page (deep link, notification, breadcrumb, post-approval redirect).
   useEffect(() => {
-    if (taskId) addAutoOpenedSpecTask(taskId)
-  }, [taskId])
+    if (taskId && task?.project_id === projectId) {
+      addAutoOpenedSpecTask(taskId)
+    }
+  }, [projectId, taskId, task?.project_id])
 
   // Fetch review data
   const { isLoading: reviewLoading } = useDesignReview(taskId, reviewId, {
@@ -74,6 +79,10 @@ const SpecTaskReviewPage: FC = () => {
   const handleOpenInWorkspace = () => {
     // Navigate to project specs page with split screen view and open this review
     account.orgNavigate('project-specs', { id: projectId, tab: 'workspace', openTask: taskId, openReview: reviewId })
+  }
+
+  if (task && task.project_id !== projectId) {
+    return <NotFound />
   }
 
   if (taskLoading || projectLoading || reviewLoading) {
