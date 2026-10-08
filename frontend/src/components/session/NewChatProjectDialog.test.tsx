@@ -77,6 +77,24 @@ describe('NewChatProjectDialog', () => {
     expect(onSelect).toHaveBeenCalledWith({ projectId: 'prj_b' })
   })
 
+  it('scrolls the highlighted row into view as the cursor moves', () => {
+    const scrollIntoView = vi.fn()
+    // jsdom has no scrollIntoView; stand one in so we can assert it fires.
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+    try {
+      renderDialog()
+      const search = screen.getByLabelText('Search projects')
+      scrollIntoView.mockClear()
+      fireEvent.keyDown(search, { key: 'ArrowDown' })
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    } finally {
+      delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView
+    }
+  })
+
   it('wraps around the ends rather than sticking', () => {
     const { onSelect } = renderDialog()
     const search = screen.getByLabelText('Search projects')
