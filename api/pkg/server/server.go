@@ -301,6 +301,11 @@ func NewServer(
 			OfflineAccess:       cfg.Auth.OIDC.OfflineAccess,
 			Waitlist:            cfg.Auth.Waitlist,
 			AllowedEmailDomains: auth.ParseEmailDomains(cfg.Auth.OIDC.AllowedEmailDomains),
+
+			WaitlistOutsideAllowedDomains: cfg.Auth.OIDC.WaitlistOutsideAllowedDomains,
+		}
+		if oidcCfg.WaitlistOutsideAllowedDomains && len(oidcCfg.AllowedEmailDomains) == 0 {
+			log.Warn().Msg("OIDC_WAITLIST_OUTSIDE_ALLOWED_DOMAINS has no effect without OIDC_ALLOWED_EMAIL_DOMAINS")
 		}
 		if adminAlerter != nil {
 			oidcCfg.EventHandler = &oidcSignupNotifier{alerter: adminAlerter}

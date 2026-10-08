@@ -1214,22 +1214,38 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 		return nil, system.NewHTTPError404("user not found")
 	}
 
+	updatedUser, err := apiServer.approveWaitlistedUser(ctx, targetUser, adminUser, "admin")
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	return updatedUser, nil
+}
+
+// approveWaitlistedUser takes a user off the waitlist and sends the
+// EventWaitlistApproved email. It is the single approval path, used by the
+// admin approve endpoint and by an org owner adding a waitlisted user to their
+// org (an invitation vouches for the invitee). via is recorded in the log.
+func (apiServer *HelixAPIServer) approveWaitlistedUser(ctx context.Context, targetUser *types.User, approver *types.User, via string) (*types.User, error) {
 	targetUser.Waitlisted = false
 
 	updatedUser, err := apiServer.Store.UpdateUser(ctx, targetUser)
 	if err != nil {
-		return nil, system.NewHTTPError500("failed to update user: " + err.Error())
+		return nil, fmt.Errorf("failed to update user: %w", err)
 	}
 
 	log.Info().
-		Str("admin_id", adminUser.ID).
-		Str("admin_email", adminUser.Email).
-		Str("approved_user_id", targetUserID).
+		Str("approver_id", approver.ID).
+		Str("approver_email", approver.Email).
+		Str("via", via).
+		Str("approved_user_id", targetUser.ID).
 		Str("approved_user_email", targetUser.Email).
-		Msg("admin approved user")
+		Msg("approved waitlisted user")
 
-	// Send approval notification email. If the user had a trial pre-stashed
-	// by admin (via the trial-activate endpoint), surface it in the email.
+	if apiServer.Controller == nil || apiServer.Controller.Options.Notifier == nil {
+		return updatedUser, nil
+	}
+	// If the user had a trial pre-stashed by admin (via the trial-activate
+	// endpoint), surface it in the email.
 	firstName := strings.Split(targetUser.FullName, " ")[0]
 	trialDays := 0
 	if targetUser.TrialDaysOnFirstOrg != nil && *targetUser.TrialDaysOnFirstOrg > 0 {
@@ -1245,7 +1261,7 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 	if notifyErr != nil {
 		log.Error().
 			Err(notifyErr).
-			Str("user_id", targetUserID).
+			Str("user_id", targetUser.ID).
 			Str("email", targetUser.Email).
 			Msg("failed to send waitlist approval notification")
 	}
