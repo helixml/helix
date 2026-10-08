@@ -284,6 +284,29 @@ func TestBuildEnvDesktopRootlessSetsPodmanAndSudoSignal(t *testing.T) {
 	require.Contains(t, env, "DOCKER_HOST=unix:///run/user/1000/podman/podman.sock")
 }
 
+func TestBuildEnvFlagOffDisablesCallerSuppliedDesktopRootless(t *testing.T) {
+	for name, req := range map[string]*CreateDevContainerRequest{
+		"no engine": {
+			ContainerType: DevContainerTypeHeadless,
+			Env:           []string{"HELIX_CONTAINER_ENGINE=none"},
+		},
+		"rootless engine": {
+			ContainerType:           DevContainerTypeHeadless,
+			RootlessContainerEngine: true,
+		},
+	} {
+		req.Env = append(req.Env,
+			"HELIX_DESKTOP_ROOTLESS=1",
+			"HELIX_DESKTOP_ROOTLESS=attacker",
+		)
+		t.Run(name, func(t *testing.T) {
+			env := (&DevContainerManager{}).buildEnv(req)
+			require.Equal(t, 1, countEnvVar(env, "HELIX_DESKTOP_ROOTLESS"))
+			require.Contains(t, env, "HELIX_DESKTOP_ROOTLESS=0")
+		})
+	}
+}
+
 func TestBuildHostConfigRejectsInvalidRootlessContainerEngineModes(t *testing.T) {
 	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
 
@@ -386,7 +409,7 @@ func TestBuildMountsOmitSharedBuildKitCache(t *testing.T) {
 	}
 }
 
-func TestBuildMountsRedirectsRootlessStorageWithoutGoldenCache(t *testing.T) {
+func TestBuildMountsRedirectsDesktopRootlessStorageWithoutGoldenCache(t *testing.T) {
 	t.Setenv("CONTAINER_DOCKER_PATH", "/container-docker")
 	originalSessionsBaseDir := sessionsBaseDir
 	sessionsBaseDir = t.TempDir()
@@ -401,10 +424,10 @@ func TestBuildMountsRedirectsRootlessStorageWithoutGoldenCache(t *testing.T) {
 
 	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
 	mounts, err := dm.buildMounts(&CreateDevContainerRequest{
-		SessionID:               "ses_rootless",
-		ProjectID:               "prj_with_docker_golden",
-		ContainerType:           DevContainerTypeHeadless,
-		RootlessContainerEngine: true,
+		SessionID:       "ses_rootless",
+		ProjectID:       "prj_with_docker_golden",
+		ContainerType:   DevContainerTypeUbuntu,
+		DesktopRootless: true,
 		Mounts: []MountConfig{{
 			Source:      "docker-data-ses_rootless",
 			Destination: "/home/retro/.local/share/containers",
@@ -422,6 +445,25 @@ func TestBuildMountsRedirectsRootlessStorageWithoutGoldenCache(t *testing.T) {
 	sentinel := filepath.Join(mounts[0].Source, "session-layer")
 	require.NoError(t, os.WriteFile(sentinel, []byte("kept"), 0600))
 	mounts, err = dm.buildMounts(&CreateDevContainerRequest{
+		SessionID:       "ses_rootless",
+		ContainerType:   DevContainerTypeUbuntu,
+		DesktopRootless: true,
+		Mounts: []MountConfig{{
+			Source:      "docker-data-ses_rootless",
+			Destination: "/home/retro/.local/share/containers",
+			Type:        "volume",
+		}},
+	})
+	require.NoError(t, err)
+	require.FileExists(t, sentinel)
+	require.Equal(t, "/home/retro/.local/share/containers", mounts[0].Target)
+}
+
+func TestBuildMountsKeepsHeadlessRootlessStorageAsNamedVolume(t *testing.T) {
+	t.Setenv("CONTAINER_DOCKER_PATH", "/container-docker")
+
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	mounts, err := dm.buildMounts(&CreateDevContainerRequest{
 		SessionID:               "ses_rootless",
 		ContainerType:           DevContainerTypeHeadless,
 		RootlessContainerEngine: true,
@@ -432,8 +474,34 @@ func TestBuildMountsRedirectsRootlessStorageWithoutGoldenCache(t *testing.T) {
 		}},
 	})
 	require.NoError(t, err)
-	require.FileExists(t, sentinel)
-	require.Equal(t, "/home/retro/.local/share/containers", mounts[0].Target)
+	require.Len(t, mounts, 1)
+	require.Equal(t, "volume", string(mounts[0].Type))
+	require.Equal(t, "docker-data-ses_rootless", mounts[0].Source)
+}
+
+func TestBuildMountsRedirectsLegacyDockerStorage(t *testing.T) {
+	t.Setenv("CONTAINER_DOCKER_PATH", "/container-docker")
+	originalSessionsBaseDir := sessionsBaseDir
+	sessionsBaseDir = t.TempDir()
+	t.Cleanup(func() { sessionsBaseDir = originalSessionsBaseDir })
+
+	resetZFSState()
+	zfsAvailableOnce.Do(func() {})
+	t.Cleanup(resetZFSState)
+
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	mounts, err := dm.buildMounts(&CreateDevContainerRequest{
+		SessionID: "ses_legacy",
+		Mounts: []MountConfig{{
+			Source:      "docker-data-ses_legacy",
+			Destination: "/var/lib/docker",
+			Type:        "volume",
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, mounts, 1)
+	require.Equal(t, "bind", string(mounts[0].Type))
+	require.Equal(t, filepath.Join(sessionsBaseDir, "docker-data-ses_legacy", "docker"), mounts[0].Source)
 }
 
 func TestUsesGoldenContainerCache(t *testing.T) {

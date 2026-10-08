@@ -815,6 +815,8 @@ COPY <<'_DBUS_INIT' /etc/cont-init.d/99-startdbus.sh
 # Rootless desktops keep sudo, so drop sys_admin without no_new_privs.
 if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
     setpriv --bounding-set=-sys_admin -- service dbus start 2>/dev/null || true
+elif [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+    setpriv --bounding-set=-sys_admin --nnp -- service dbus start 2>/dev/null || true
 else
     service dbus start 2>/dev/null || true
 fi

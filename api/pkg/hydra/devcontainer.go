@@ -918,6 +918,7 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// container engine.
 	env = removeEnvVar(env, "BUILDKIT_HOST")
 	env = removeEnvVar(env, "HELIX_REGISTRY")
+	env = overrideEnvVar(env, "HELIX_DESKTOP_ROOTLESS", "0")
 	if req.RootlessContainerEngine || req.DesktopRootless {
 		env = overrideEnvVar(env, "HELIX_ROOTLESS_CONTAINER_ENGINE", "1")
 		env = overrideEnvVar(env, "DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock")
@@ -1432,13 +1433,15 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mo
 			mountType = mount.TypeVolume
 		}
 
-		// Redirect per-session container-engine volumes to ZFS-backed bind mounts
-		// when configured. Match the stable docker-data source name so Docker's
-		// /var/lib/docker and Podman's rootless destination both use the redirect.
+		// Redirect legacy Docker storage and hardened desktop Podman storage to
+		// ZFS-backed bind mounts when configured. Headless Podman keeps its prior
+		// named-volume storage.
 		//
 		// Legacy Docker engines may seed from the project's golden cache. Rootless
 		// Podman storage is incompatible and remains fresh per session.
-		if containerDockerPath != "" && m.Type == "volume" && m.Source == "docker-data-"+req.SessionID {
+		if containerDockerPath != "" && m.Type == "volume" &&
+			(m.Destination == "/var/lib/docker" ||
+				req.DesktopRootless && m.Source == "docker-data-"+req.SessionID) {
 			volumeName := m.Source // e.g. "docker-data-{sessionID}"
 
 			dockerDir, err := dm.resolveDockerDataDir(req, volumeName)

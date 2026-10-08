@@ -162,7 +162,9 @@ The durable enforcement boundary is in Go and is fully unit-tested here:
   **false**) plumbed through the runtime registry → `provision()` for
   user-facing desktops, and through `HydraExecutorConfig` →
   `externalAgentIsolation()` for spec-task desktops. When the flag is off,
-  desktops are byte-for-byte what they are today.
+  Hydra forces `HELIX_DESKTOP_ROOTLESS=0` after removing duplicate caller
+  values, so project or image environment cannot select the desktop rootless
+  startup path.
 
 Image side (validated with Prime image `dd5b27`): a rootless desktop sets
 `HELIX_ROOTLESS_CONTAINER_ENGINE=1` **and** `HELIX_DESKTOP_ROOTLESS=1`
@@ -176,14 +178,15 @@ privilege-drop path:
 - the `startup-app.sh` zed-symlink FATAL (a rootless desktop has sudo and
   creates the symlink itself) and the workspace `chown`,
 - the `99-startdbus.sh` and virtio scanout `17-scanout-setup.sh` system D-Bus
-  branches, which start D-Bus after the same bounding-set drop.
+  branches. Headless rootless sessions retain the `SYS_ADMIN` drop with
+  `no_new_privs`; rootless desktops drop `SYS_ADMIN` without `no_new_privs` so
+  the GNOME session keeps sudo.
 - the long-running Podman API service in `17-start-dockerd.sh`, which enters a
   subordinate user namespace before exposing its socket. The RootlessKit
   preflight and BuildKit launch retain their existing rootless boundary.
 
-The D-Bus init keeps the existing headless and flag-off startup behavior; only
-a rootless desktop uses the desktop `SYS_ADMIN` bounding-set drop. The virtio
-scanout D-Bus change is gated by the same flag.
+Flag-off desktops keep their existing startup behavior. The virtio scanout
+D-Bus change is gated by the desktop rootless flag.
 
 The rootless engine's storage volume is mounted at
 `/home/retro/.local/share/containers` (Podman), not `/var/lib/docker`, in both
@@ -192,13 +195,14 @@ buildMounts. The CPU-tier setup (`16-cpu-tiers.sh`) self-skips in an
 unprivileged container (cgroup2 is read-only), so a rootless desktop does not
 get the display/agent CPU prioritisation — an accepted tradeoff for now.
 
-When `CONTAINER_DOCKER_PATH` is configured, Hydra redirects the stable
-`docker-data-<session>` volume source by name, so the redirect also applies to
-the Podman destination. Rootless sessions use a separate `podman` data
-directory and are never seeded from the legacy Docker golden cache; Docker and
-Podman storage formats are incompatible. This gives rootless sessions their
-own persistent storage across restarts without importing privileged-engine
-state.
+When `CONTAINER_DOCKER_PATH` is configured, Hydra redirects legacy
+`/var/lib/docker` volumes by destination and the DesktopRootless Podman volume
+by its stable `docker-data-<session>` source name. DesktopRootless sessions use
+a separate `podman` data directory and are never seeded from the legacy Docker golden
+cache; Docker and Podman storage formats are incompatible. Existing headless
+rootless sessions keep their named-volume storage. This gives DesktopRootless
+sessions their own persistent storage across restarts without importing
+privileged-engine state.
 
 ## 4. What desktop users can and cannot reach (documentation)
 
@@ -298,8 +302,10 @@ similar namespace-specific residual boundary. The engine paths therefore
 remain the part requiring deeper validation; the Prime runner exposes no
 AppArmor profile, and seccomp remains unconfined for rootless engine support.
 
-The flag ships **false**. With it off, desktops are byte-for-byte unchanged
-(verified: `TestBuildHostConfigPrivilegedDesktopUnchanged`,
+The flag ships **false**. With it off, desktop behavior is unchanged, and the
+canonical `HELIX_DESKTOP_ROOTLESS=0` prevents caller or image environment from
+selecting the rootless desktop path (verified:
+`TestBuildHostConfigPrivilegedDesktopUnchanged`,
 `TestProvisionDesktopBuildsFullEnvAndMounts`). The Go boundary is covered by
 unit tests in `api/pkg/hydra/devcontainer_test.go` and
 `api/pkg/sandbox/controller_*_test.go`.
