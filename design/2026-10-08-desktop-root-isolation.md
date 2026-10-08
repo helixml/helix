@@ -211,14 +211,43 @@ an `ubuntu-desktop` sandbox. Observed:
   - Inner `docker info` → engine rootless, works **without** sudo.
   - GPU usable: `nvidia-smi` reports "NVIDIA RTX 2000 Ada Generation";
     `renderD128` present.
-- **Not covered:** the sandbox-API screenshot endpoint returned 503 ("desktop
-  bridge not connected") — a pre-existing sandbox-API-desktop limitation
-  (CLAUDE.md flags sandbox-API desktops as not wired for streaming),
-  independent of this change: the compositor and GPU stack are demonstrably
-  running. Full GPU-stream frame capture should be re-confirmed on the
-  **spec-task** desktop path (which wires the desktop-bridge) before enabling
-  the flag in production, along with an `apt install` through the public egress
-  and a build on the inner rootless engine.
+- The sandbox-API screenshot endpoint returned 503 ("desktop bridge not
+  connected") — a pre-existing sandbox-API-desktop limitation, covered by the
+  spec-task run below.
+
+### Spec-task desktop (hydra baked via `./stack build-sandbox`)
+
+A `ubuntu-desktop` spec task on the forked sample project, flag on:
+
+- HostConfig identical to the above; mounts include
+  `/home/retro/.local/share/containers`; env carries
+  `HELIX_ROOTLESS_CONTAINER_ENGINE=1`, `HELIX_DESKTOP_ROOTLESS=1` and the Podman
+  `DOCKER_HOST`.
+- Full desktop: GNOME, Zed with the agent thread, Chrome showing the project's
+  dev server started by the project startup script.
+- `helix spectask screenshot` works; `helix spectask benchmark --duration 20`:
+  1167 frames, 25–61 fps, 97% of target, 0 gaps >50 ms.
+- Agent runs as `retro`; `sudo` → root; `sudo apt-get install` succeeds;
+  `docker build`/`docker run` on the inner rootless engine succeeds without
+  sudo. `CapBnd` 13 caps, zero host block devices, `mknod` denied, no host
+  Docker socket.
+- `spectask stop` removes the container, the `docker-data-<session>` volume and
+  the session's API keys.
+- The HelixCursor "Socket not ready (30/30)" log is unrelated: the extension
+  only retries its *initial* cursor send, and the desktop-bridge creates the
+  socket when the first stream client connects.
+
+### Residual risk: `SYS_ADMIN` in the session
+
+Root inside a rootless desktop still holds `SYS_ADMIN` (rootless Podman needs
+it for its user namespace), and on runners without AppArmor nothing denies
+`mount`: `sudo mount -t tmpfs` succeeds. With no host block device in the
+device cgroup and `MKNOD`/`SYS_RAWIO` dropped, that does not reach the runner
+filesystem or sibling zvols, but it is kernel attack surface beyond Docker's
+default. Follow-up: drop `SYS_ADMIN` from the session's bounding set after the
+engine starts (as headless does with `setpriv --bounding-set=-sys_admin`)
+while keeping sudo, and/or ship a seccomp profile narrower than
+`unconfined`. Both need their own live validation.
 
 The flag ships **false**. With it off, desktops are byte-for-byte unchanged
 (verified: `TestBuildHostConfigPrivilegedDesktopUnchanged`,
