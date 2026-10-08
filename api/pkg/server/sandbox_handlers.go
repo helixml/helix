@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +14,24 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// registerSandboxRegistryRoutes wires the sandbox host registry. The registry
+// holds the host inventory (hostnames, internal addresses, GPUs), so it is not
+// open to ordinary users:
+//   - register/heartbeat are host-side calls and require the runner token
+//   - list/deregister/disk-history require a global admin or the runner token
+//   - blkio is also used by project members watching a golden build, so it is
+//     on authRouter and authorised per-session inside the handler
+//   - desktop-types exposes only the desktop type names any user may pick
+func (apiServer *HelixAPIServer) registerSandboxRegistryRoutes(authRouter, runnerRouter, adminOrRunnerRouter *mux.Router) {
+	runnerRouter.HandleFunc("/sandboxes/register", apiServer.registerSandbox).Methods(http.MethodPost)
+	runnerRouter.HandleFunc("/sandboxes/{id}/heartbeat", apiServer.sandboxHeartbeat).Methods(http.MethodPost)
+	adminOrRunnerRouter.HandleFunc("/sandboxes/{id}/disk-history", apiServer.getDiskUsageHistory).Methods(http.MethodGet)
+	adminOrRunnerRouter.HandleFunc("/sandboxes", apiServer.listSandboxes).Methods(http.MethodGet)
+	adminOrRunnerRouter.HandleFunc("/sandboxes/{id}", apiServer.deregisterSandbox).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/sandboxes/{id}/containers/{session_id}/blkio", apiServer.getContainerBlkioStats).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sandbox-desktop-types", apiServer.listSandboxDesktopTypes).Methods(http.MethodGet)
+}
 
 // registerSandbox handles sandbox registration requests
 // @Summary Register a sandbox instance
@@ -211,6 +230,18 @@ func (apiServer *HelixAPIServer) getContainerBlkioStats(rw http.ResponseWriter, 
 	sandboxID := vars["id"]
 	sessionID := vars["session_id"]
 
+	// Admins and sandbox hosts may read any container. Anyone else must be
+	// authorised on the session, and only for the sandbox it is running on.
+	user := getRequestUser(req)
+	if !isAdmin(user) && !isRunner(user) {
+		session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+		if err != nil || session.SandboxID != sandboxID ||
+			apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet) != nil {
+			http.Error(rw, "Forbidden", http.StatusForbidden)
+			return
+		}
+	}
+
 	hydraClient := hydra.NewRevDialClient(apiServer.connman, fmt.Sprintf("hydra-%s", sandboxID))
 	ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
 	defer cancel()
@@ -223,4 +254,41 @@ func (apiServer *HelixAPIServer) getContainerBlkioStats(rw http.ResponseWriter, 
 
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(stats)
+}
+
+// listSandboxDesktopTypes returns the desktop types reported by any registered
+// sandbox, without exposing the host inventory itself.
+// @Summary List available sandbox desktop types
+// @Description Desktop types (e.g. ubuntu, sway) offered by registered sandboxes
+// @Tags sandbox
+// @Produce json
+// @Success 200 {array} string
+// @Router /api/v1/sandbox-desktop-types [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) listSandboxDesktopTypes(rw http.ResponseWriter, req *http.Request) {
+	instances, err := apiServer.Store.ListSandboxInstances(req.Context())
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list sandboxes for desktop types")
+		http.Error(rw, "Failed to list desktop types", http.StatusInternalServerError)
+		return
+	}
+
+	seen := map[string]bool{}
+	desktopTypes := []string{}
+	for _, instance := range instances {
+		var versions map[string]string
+		if len(instance.DesktopVersions) == 0 || json.Unmarshal(instance.DesktopVersions, &versions) != nil {
+			continue
+		}
+		for desktopType := range versions {
+			if !seen[desktopType] {
+				seen[desktopType] = true
+				desktopTypes = append(desktopTypes, desktopType)
+			}
+		}
+	}
+	sort.Strings(desktopTypes)
+
+	rw.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(rw).Encode(desktopTypes)
 }

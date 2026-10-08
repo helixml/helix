@@ -677,6 +677,13 @@ type OIDC struct {
 	// customer deployments. Set it (e.g. on meta.helix.ml) to lock sign-in to a
 	// specific organisation's domain(s).
 	AllowedEmailDomains string `envconfig:"OIDC_ALLOWED_EMAIL_DOMAINS" default:""`
+	// WaitlistOutsideAllowedDomains softens OIDC_ALLOWED_EMAIL_DOMAINS: instead of
+	// rejecting verified emails outside the allowed domains, let them sign in as
+	// waitlisted users that an admin must approve (pending org invitations still
+	// pre-approve them). Allowed-domain users are never waitlisted in this mode,
+	// regardless of AUTH_WAITLIST_ENABLED. Unverified emails are still rejected.
+	// No effect when OIDC_ALLOWED_EMAIL_DOMAINS is empty. Default false (hard reject).
+	WaitlistOutsideAllowedDomains bool `envconfig:"OIDC_WAITLIST_OUTSIDE_ALLOWED_DOMAINS" default:"false"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen

@@ -227,6 +227,7 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 	}
+	task.InitAutoApprovePullRequests(nil, project, meta.UserID)
 
 	// Assign task number immediately at creation time so it's always visible in UI
 	// Task numbers are globally unique across the entire deployment

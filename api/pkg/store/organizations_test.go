@@ -364,3 +364,48 @@ func (suite *OrganizationsTestSuite) TestListOrganizations() {
 		}
 	})
 }
+
+// TestCreateOrganization_OmitsNestedAssociations is a regression test for the
+// mass-assignment gap where a request body's nested memberships (each embedding
+// a full User) and teams were upserted by GORM, letting a non-admin create
+// arbitrary users — including admins — and rewrite cross-org team rows.
+// CreateOrganization must persist only the organization row itself.
+func (suite *OrganizationsTestSuite) TestCreateOrganization_OmitsNestedAssociations() {
+	id := system.GenerateOrganizationID()
+	plantedUserID := "usr_planted_" + id
+	org := &types.Organization{
+		ID:    id,
+		Name:  "Test Organization " + id,
+		Owner: "test-user",
+		Memberships: []types.OrganizationMembership{
+			{
+				OrganizationID: id,
+				UserID:         plantedUserID,
+				Role:           types.OrganizationRoleOwner,
+				User: types.User{
+					ID:    plantedUserID,
+					Email: plantedUserID + "@attacker.test",
+					Admin: true,
+				},
+			},
+		},
+	}
+
+	createdOrg, err := suite.db.CreateOrganization(suite.ctx, org)
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() {
+		suite.NoError(suite.db.DeleteOrganization(suite.ctx, createdOrg.ID))
+	})
+
+	// No user row may have been created from the nested association.
+	planted, err := suite.db.GetUser(suite.ctx, &GetUserQuery{ID: plantedUserID})
+	suite.Require().ErrorIs(err, ErrNotFound, "nested User must not be mass-assigned")
+	suite.Nil(planted)
+
+	// No membership row may have been created from the nested association.
+	members, err := suite.db.ListOrganizationMemberships(suite.ctx, &ListOrganizationMembershipsQuery{
+		OrganizationID: createdOrg.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Empty(members, "nested membership must not be mass-assigned")
+}

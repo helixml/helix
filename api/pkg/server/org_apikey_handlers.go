@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -11,18 +12,20 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// orgAPIKeyResponse extends ApiKey with the owner's email for display purposes.
+// orgAPIKeyResponse is an org API key's metadata plus the owner's email for
+// display. It never carries the key secret: an owner lists every member's
+// keys, and a member's secret is shown only to them, once, at creation.
 type orgAPIKeyResponse struct {
-	*types.ApiKey
+	*types.APIKeySummary
 	OwnerEmail string `json:"owner_email,omitempty"`
 }
 
 // listOrgAPIKeys godoc
 // @Summary List organization API keys
-// @Description List API keys for an organization. Owners see all keys, members see only their own.
+// @Description List API keys for an organization. Owners see all keys, members see only their own. Key secrets are never returned; each key has a non-secret id and key_prefix.
 // @Tags    organizations
 // @Param   id path string true "Organization ID"
-// @Success 200 {array} types.ApiKey
+// @Success 200 {array} server.orgAPIKeyResponse
 // @Router /api/v1/organizations/{id}/api_keys [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listOrgAPIKeys(rw http.ResponseWriter, r *http.Request) {
@@ -91,8 +94,8 @@ func (apiServer *HelixAPIServer) listOrgAPIKeys(rw http.ResponseWriter, r *http.
 	result := make([]orgAPIKeyResponse, 0, len(filtered))
 	for _, key := range filtered {
 		result = append(result, orgAPIKeyResponse{
-			ApiKey:     key,
-			OwnerEmail: emailByOwner[key.Owner],
+			APIKeySummary: key.Summary(),
+			OwnerEmail:    emailByOwner[key.Owner],
 		})
 	}
 
@@ -168,7 +171,7 @@ func (apiServer *HelixAPIServer) createOrgAPIKey(rw http.ResponseWriter, r *http
 // @Description Delete an API key. Owners can delete any org key, members only their own.
 // @Tags    organizations
 // @Param   id path string true "Organization ID"
-// @Param   key path string true "API key to delete"
+// @Param   key path string true "ID of the API key to delete (the id field from the list)"
 // @Success 200 {string} string
 // @Router /api/v1/organizations/{id}/api_keys/{key} [delete]
 // @Security BearerAuth
@@ -179,7 +182,7 @@ func (apiServer *HelixAPIServer) deleteOrgAPIKey(rw http.ResponseWriter, r *http
 		http.Error(rw, "Organization not found", http.StatusNotFound)
 		return
 	}
-	keyStr := mux.Vars(r)["key"]
+	keyID := mux.Vars(r)["key"]
 	ctx := r.Context()
 
 	membership, err := apiServer.authorizeOrgMember(ctx, user, orgID)
@@ -189,8 +192,7 @@ func (apiServer *HelixAPIServer) deleteOrgAPIKey(rw http.ResponseWriter, r *http
 		return
 	}
 
-	// Look up the key
-	fetchedKey, err := apiServer.Store.GetAPIKey(ctx, &types.ApiKey{Key: keyStr})
+	fetchedKey, err := apiServer.findOrgAPIKey(ctx, orgID, keyID)
 	if err != nil {
 		if err == store.ErrNotFound {
 			http.Error(rw, "API key not found", http.StatusNotFound)
@@ -222,4 +224,25 @@ func (apiServer *HelixAPIServer) deleteOrgAPIKey(rw http.ResponseWriter, r *http
 	}
 
 	writeResponse(rw, map[string]string{"status": "deleted"}, http.StatusOK)
+}
+
+// findOrgAPIKey finds an org API key by the non-secret ID the list endpoint
+// returns. Secrets never appear in the URL.
+func (apiServer *HelixAPIServer) findOrgAPIKey(ctx context.Context, orgID, keyID string) (*types.ApiKey, error) {
+	if !types.IsAPIKeyID(keyID) {
+		return nil, store.ErrNotFound
+	}
+	keys, err := apiServer.Store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
+		OrganizationID: orgID,
+		Type:           types.APIkeytypeAPI,
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range keys {
+		if types.APIKeyID(key.Key) == keyID {
+			return key, nil
+		}
+	}
+	return nil, store.ErrNotFound
 }

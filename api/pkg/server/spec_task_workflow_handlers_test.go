@@ -1,11 +1,18 @@
 package server
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/types"
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func TestIsRebasePending(t *testing.T) {
@@ -133,35 +140,37 @@ func TestShouldOpenPullRequest(t *testing.T) {
 	}
 }
 
-func TestResetRepoPullRequests_PreservesUnchangedRepositories(t *testing.T) {
-	repoPRs := []types.RepoPR{
-		{RepositoryID: "changed", RepositoryName: "changed repo", PRID: "67", PRState: "merged"},
-		{RepositoryID: "unchanged", PRID: "68", PRState: "merged"},
-	}
-	repos := []*types.GitRepository{
-		{ID: "changed", Name: "changed repo"},
-		{ID: "unchanged", Name: "unchanged repo"},
-		{ID: "new", Name: "new repo"},
-	}
-
-	assert.Equal(t, []types.RepoPR{
-		{RepositoryID: "changed", RepositoryName: "changed repo", PRState: "unknown"},
-		{RepositoryID: "unchanged", PRID: "68", PRState: "merged"},
-		{RepositoryID: "new", RepositoryName: "new repo", PRState: "unknown"},
-	}, resetRepoPullRequests(repoPRs, repos, map[string]bool{"changed": true, "new": true}))
-}
-
-func TestAppendRepoPullRequestHistory(t *testing.T) {
-	history := []types.RepoPR{{RepositoryID: "changed", PRID: "66", PRURL: "https://example/pull/66"}}
-	current := []types.RepoPR{
-		{RepositoryID: "changed", PRID: "66", PRURL: "https://example/pull/66"},
-		{RepositoryID: "changed", PRID: "67", PRURL: "https://example/pull/67", PRState: "merged"},
-		{RepositoryID: "unchanged", PRID: "68", PRURL: "https://example/pull/68", PRState: "merged"},
-		{RepositoryID: "pending", PRState: "unknown"},
+// External repos land work only through PRs the agent proposes; approving
+// implementation has nothing to do there, and must say so rather than queue a
+// templated prompt for the agent. Done tasks are not approvable either.
+func TestApproveImplementationRefusesExternalReposAndDoneTasks(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	s := &HelixAPIServer{Store: st}
+	const userID = "usr_1"
+	project := &types.Project{ID: "prj_1", UserID: userID, DefaultRepoID: "repo_1"}
+	repo := &types.GitRepository{
+		ID:                "repo_1",
+		ExternalType:      types.ExternalRepositoryTypeGitHub,
+		OAuthConnectionID: "conn_1",
 	}
 
-	assert.Equal(t, []types.RepoPR{
-		{RepositoryID: "changed", PRID: "66", PRURL: "https://example/pull/66"},
-		{RepositoryID: "changed", PRID: "67", PRURL: "https://example/pull/67", PRState: "merged"},
-	}, appendRepoPullRequestHistory(history, current, map[string]bool{"changed": true, "pending": true}))
+	call := func(status types.SpecTaskStatus) *httptest.ResponseRecorder {
+		st.EXPECT().GetSpecTask(gomock.Any(), "spt_1").Return(&types.SpecTask{ID: "spt_1", ProjectID: "prj_1", Status: status}, nil)
+		st.EXPECT().GetProject(gomock.Any(), "prj_1").Return(project, nil)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/spt_1/approve-implementation", nil)
+		req = mux.SetURLVars(req, map[string]string{"spec_task_id": "spt_1"})
+		req = req.WithContext(setRequestUser(req.Context(), types.User{ID: userID}))
+		rec := httptest.NewRecorder()
+		s.approveImplementation(rec, req)
+		return rec
+	}
+
+	st.EXPECT().GetGitRepository(gomock.Any(), "repo_1").Return(repo, nil)
+	rec := call(types.TaskStatusImplementation)
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Contains(t, rec.Body.String(), "agent's proposals")
+
+	rec = call(types.TaskStatusDone)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 }

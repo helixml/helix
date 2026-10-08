@@ -2367,6 +2367,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 func (s *HelixAPIServer) resumeSessionInternal(ctx context.Context, user *types.User, session *types.Session) (*types.SessionResumeResponse, error) {
 	id := session.ID
 	specTaskID := session.Metadata.SpecTaskID
+	if err := s.reopenDoneTaskForAgentStart(ctx, specTaskID); err != nil {
+		return nil, err
+	}
 
 	agent := &types.DesktopAgent{
 		SessionID:   id,

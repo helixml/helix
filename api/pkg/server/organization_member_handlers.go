@@ -180,6 +180,22 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 		return
 	}
 
+	// An org owner adding a waitlisted user vouches for them, exactly like an
+	// invitation consumed at sign-up: take them off the waitlist and skip the
+	// onboarding wizard (they now have an org). Done after the membership is
+	// created so a failed add never approves anyone.
+	if newMember.Waitlisted {
+		if !newMember.OnboardingCompleted {
+			newMember.OnboardingCompleted = true
+			newMember.OnboardingCompletedAt = time.Now()
+		}
+		if _, err := apiServer.approveWaitlistedUser(r.Context(), newMember, user, "org_invitation:"+orgID); err != nil {
+			log.Err(err).Str("user_id", newMember.ID).Msg("error approving waitlisted user added to organization")
+			http.Error(rw, "Member added but approval failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	writeResponse(rw, &types.AddOrganizationMemberResponse{
 		Membership: membership,
 	}, http.StatusCreated)

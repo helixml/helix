@@ -1214,22 +1214,38 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 		return nil, system.NewHTTPError404("user not found")
 	}
 
+	updatedUser, err := apiServer.approveWaitlistedUser(ctx, targetUser, adminUser, "admin")
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	return updatedUser, nil
+}
+
+// approveWaitlistedUser takes a user off the waitlist and sends the
+// EventWaitlistApproved email. It is the single approval path, used by the
+// admin approve endpoint and by an org owner adding a waitlisted user to their
+// org (an invitation vouches for the invitee). via is recorded in the log.
+func (apiServer *HelixAPIServer) approveWaitlistedUser(ctx context.Context, targetUser *types.User, approver *types.User, via string) (*types.User, error) {
 	targetUser.Waitlisted = false
 
 	updatedUser, err := apiServer.Store.UpdateUser(ctx, targetUser)
 	if err != nil {
-		return nil, system.NewHTTPError500("failed to update user: " + err.Error())
+		return nil, fmt.Errorf("failed to update user: %w", err)
 	}
 
 	log.Info().
-		Str("admin_id", adminUser.ID).
-		Str("admin_email", adminUser.Email).
-		Str("approved_user_id", targetUserID).
+		Str("approver_id", approver.ID).
+		Str("approver_email", approver.Email).
+		Str("via", via).
+		Str("approved_user_id", targetUser.ID).
 		Str("approved_user_email", targetUser.Email).
-		Msg("admin approved user")
+		Msg("approved waitlisted user")
 
-	// Send approval notification email. If the user had a trial pre-stashed
-	// by admin (via the trial-activate endpoint), surface it in the email.
+	if apiServer.Controller == nil || apiServer.Controller.Options.Notifier == nil {
+		return updatedUser, nil
+	}
+	// If the user had a trial pre-stashed by admin (via the trial-activate
+	// endpoint), surface it in the email.
 	firstName := strings.Split(targetUser.FullName, " ")[0]
 	trialDays := 0
 	if targetUser.TrialDaysOnFirstOrg != nil && *targetUser.TrialDaysOnFirstOrg > 0 {
@@ -1245,7 +1261,7 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 	if notifyErr != nil {
 		log.Error().
 			Err(notifyErr).
-			Str("user_id", targetUserID).
+			Str("user_id", targetUser.ID).
 			Str("email", targetUser.Email).
 			Msg("failed to send waitlist approval notification")
 	}
@@ -1305,11 +1321,54 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 		newAPIKey.AppID = &sql.NullString{String: apiKeyStr, Valid: true}
 	}
 
+	// A scoped key must not mint an unscoped one: the new key would drop the
+	// org/project/session scope (and, for an org key, the loss of global admin
+	// that goes with it) and outlive the session it was issued for. App keys
+	// stay allowed: they are confined to the chat endpoints, and the CLI mints
+	// them for bots.
+	if isScopedAPIKeyCaller(user) && newAPIKey.Type != types.APIkeytypeApp {
+		return "", system.NewHTTPError403("a scoped API key cannot create API keys; use a personal API key or sign in")
+	}
+
 	createdKey, err := apiServer.Controller.CreateAPIKey(ctx, user, newAPIKey)
 	if err != nil {
 		return "", err
 	}
 	return createdKey.Key, nil
+}
+
+// isScopedAPIKeyCaller reports whether the request was authenticated with an
+// API key bound to an org, project, spec task, session or app. Such a key
+// grants less than its owner's personal key, so it must not be able to read
+// or create one.
+func isScopedAPIKeyCaller(user *types.User) bool {
+	if user == nil || user.TokenType != types.TokenTypeAPIKey {
+		return false
+	}
+	return user.OrganizationID != "" || user.ProjectID != "" || user.SpecTaskID != "" ||
+		user.SessionID != "" || user.AppID != "" ||
+		(user.APIKeyType != types.APIkeytypeAPI && user.APIKeyType != types.APIkeytypeNone)
+}
+
+// redactAPIKeysForScopedCaller strips the secret from every key a scoped
+// caller could use to widen its access. App, embed and bot-instance keys are
+// confined by the auth middleware, so they are returned as they are; any
+// other key (personal, org, project or session) is reduced to its prefix,
+// except the key the caller is presenting.
+func redactAPIKeysForScopedCaller(user *types.User, keys []*types.ApiKey) []*types.ApiKey {
+	if !isScopedAPIKeyCaller(user) {
+		return keys
+	}
+	out := make([]*types.ApiKey, 0, len(keys))
+	for _, key := range keys {
+		if key.Type == types.APIkeytypeAPI && key.Key != user.Token {
+			redacted := *key
+			redacted.Key = key.Summary().KeyPrefix
+			key = &redacted
+		}
+		out = append(out, key)
+	}
+	return out
 }
 
 func containsType(keyType string, typesParam string) bool {
@@ -1338,7 +1397,7 @@ func isPersonalAPIKey(key *types.ApiKey) bool {
 
 // getAPIKeys godoc
 // @Summary Get API keys
-// @Description Get API keys
+// @Description Get the caller's own API keys. With no filter, returns (creating it if needed) the caller's personal key. A caller authenticated with a scoped (org, project, session or app) API key cannot use the unfiltered form, and sees only the prefix of keys broader than the one it presents.
 // @Tags    api-keys
 // @Param types query string false "Filter by types (comma-separated list)"
 // @Param app_id query string false "Filter by app ID"
@@ -1349,13 +1408,17 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 	user := getRequestUser(req)
 	ctx := req.Context()
 
+	typesParam := req.URL.Query().Get("types")
+	appIDParam := req.URL.Query().Get("app_id")
+	if typesParam == "" && appIDParam == "" && isScopedAPIKeyCaller(user) {
+		return nil, system.NewHTTPError403("a scoped API key cannot read the personal API key; use a personal API key or sign in")
+	}
+
 	apiKeys, err := apiServer.Controller.GetAPIKeys(ctx, user)
 	if err != nil {
 		return nil, err
 	}
 
-	typesParam := req.URL.Query().Get("types")
-	appIDParam := req.URL.Query().Get("app_id")
 	if typesParam == "" && appIDParam == "" {
 		var latest *types.ApiKey
 		for _, key := range apiKeys {
@@ -1392,9 +1455,8 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 		}
 		filteredAPIKeys = append(filteredAPIKeys, key)
 	}
-	apiKeys = filteredAPIKeys
 
-	return apiKeys, nil
+	return redactAPIKeysForScopedCaller(user, filteredAPIKeys), nil
 }
 
 // deleteAPIKey godoc
