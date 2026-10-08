@@ -251,6 +251,33 @@ func stampUpdateAppTestApp(t *testing.T, ctrl *gomock.Controller, existing *type
 	return updated
 }
 
+// A prompt-only bot edit is not a coding-identity change: it must not move
+// CodeAgentConfigAt, or it would expire session composer deviations even
+// though the model never changed. Mirrors the effort-only test below.
+func TestUpdateAppPromptEditDoesNotMoveCodeAgentConfigAt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	identityAt := time.Now().Add(-24 * time.Hour)
+	existing := &types.App{
+		ID: "app-bot", Owner: "usr-owner", OwnerType: types.OwnerTypeUser,
+		OrganizationID: "org-test", AgentKind: types.AgentKindOrg,
+		CodeAgentConfigAt: identityAt,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			Name: "Bot", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime: types.CodeAgentRuntimeOpenCode, CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider: "provider-qwen", Model: "qwen3.8-27b",
+		}}}},
+	}
+
+	updated := stampUpdateAppTestApp(t, ctrl, existing, func(a *types.App) {
+		a.Config.Helix.Assistants[0].SystemPrompt = "new instructions"
+	})
+
+	// .Equal, not assert.Equal: the update body round-trips JSON, which strips
+	// time.Time's monotonic reading and breaks reflect-based equality.
+	assert.True(t, updated.CodeAgentConfigAt.Equal(identityAt),
+		"a prompt edit is not a coding-identity change")
+}
+
 // A client PUT carries no CodeAgentConfigAt (server-managed), and UpdateApp is
 // a full-row save: an identity-unchanged save must preserve the stored clock
 // rather than reset it to zero and disarm the staleness gate.
