@@ -118,6 +118,7 @@ const ProjectChatSidebarProjectFilter: FC<ProjectChatSidebarProjectFilterProps> 
         anchorEl={anchorEl}
         open={!!anchorEl}
         onClose={() => setAnchorEl(null)}
+        variant="menu"
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
         transformOrigin={{ vertical: 'top', horizontal: 'left' }}
         slotProps={{
@@ -142,30 +143,6 @@ const ProjectChatSidebarProjectFilter: FC<ProjectChatSidebarProjectFilterProps> 
           </Box>
           All projects
         </MenuItem>
-        {[...projects]
-          .sort((left, right) => (left.name || '').localeCompare(right.name || ''))
-          .flatMap((project) => project.id ? [(
-            <MenuItem
-              key={project.id}
-              selected={selectedProjectId === project.id}
-              onClick={() => selectProject(project.id!)}
-              sx={{ gap: 1, fontSize: TYPOGRAPHY.sidebar.controlFontSize }}
-            >
-              <Box sx={{ width: 16, display: 'inline-flex' }}>
-                {selectedProjectId === project.id && <Check size={14} />}
-              </Box>
-              <Typography
-                component="span"
-                sx={{
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  fontSize: TYPOGRAPHY.sidebar.controlFontSize,
-                }}
-              >
-                {project.name || 'Untitled project'}
-              </Typography>
-            </MenuItem>
-          )] : [])}
         {showUserFilter && (
           <>
             <Divider sx={{ my: 0.5 }} />
@@ -208,8 +185,33 @@ const ProjectChatSidebarProjectFilter: FC<ProjectChatSidebarProjectFilterProps> 
                 </Typography>
               </MenuItem>
             ))}
+            <Divider sx={{ my: 0.5 }} />
           </>
         )}
+        {[...projects]
+          .sort((left, right) => (left.name || '').localeCompare(right.name || ''))
+          .flatMap((project) => project.id ? [(
+            <MenuItem
+              key={project.id}
+              selected={selectedProjectId === project.id}
+              onClick={() => selectProject(project.id!)}
+              sx={{ gap: 1, fontSize: TYPOGRAPHY.sidebar.controlFontSize }}
+            >
+              <Box sx={{ width: 16, display: 'inline-flex' }}>
+                {selectedProjectId === project.id && <Check size={14} />}
+              </Box>
+              <Typography
+                component="span"
+                sx={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  fontSize: TYPOGRAPHY.sidebar.controlFontSize,
+                }}
+              >
+                {project.name || 'Untitled project'}
+              </Typography>
+            </MenuItem>
+          )] : [])}
       </Menu>
     </>
   )
