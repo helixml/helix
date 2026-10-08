@@ -10,7 +10,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 COMMIT="$(tr -d '[:space:]' < "$HERE/QEMU_UTM_COMMIT")"
-KEY="${COMMIT}-$(shasum -a 256 "$HERE/build-qemu-standalone.sh" | cut -c1-12)"
+KEY="${COMMIT}-$(cat "$HERE/build-qemu-standalone.sh" "$HERE/UTM_VERSION" | shasum -a 256 | cut -c1-12)"
 CACHE="${QEMU_CACHE:-/Volumes/Big/qemu-builds}"
 DIR="$CACHE/$KEY"
 PREFIX="$DIR/prefix"
@@ -19,6 +19,9 @@ if [ "${1:-}" = "--prefix" ]; then
     echo "$PREFIX"
     exit 0
 fi
+
+# QEMU must compile against the sysroot of the UTM release we follow
+"$HERE/build-utm-sysroot.sh" --check
 
 if [ -f "$DIR/.complete" ]; then
     echo "Reusing cached QEMU build: $PREFIX"

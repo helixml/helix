@@ -24,7 +24,8 @@ func main() {
 
 	// Belt-and-suspenders: if the process receives SIGTERM or SIGINT (e.g. from
 	// `kill`, systemd, or a parent process dying), kill QEMU immediately.
-	// The normal path is Wails OnShutdown → app.shutdown() → ForceStop().
+	// The normal path is Wails OnShutdown → app.shutdown() → Shutdown(), which
+	// powers the guest down cleanly first.
 	go func() {
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)

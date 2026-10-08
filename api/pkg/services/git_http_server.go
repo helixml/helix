@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -99,6 +100,7 @@ type GitHTTPServer struct {
 	authorizeFn      AuthorizationToRepositoryFunc
 	triggerManager   TriggerManager
 	attentionService *AttentionService
+	prProposals      *PRProposalService
 	// onDefaultBranchPush, when set, is invoked asynchronously after a
 	// successful receive-pack on the repository's default branch. The
 	// project-web-service auto-deploy hook uses this to trigger
@@ -110,6 +112,12 @@ type GitHTTPServer struct {
 // SetAttentionService sets the attention service for emitting human-needed events.
 func (s *GitHTTPServer) SetAttentionService(svc *AttentionService) {
 	s.attentionService = svc
+}
+
+// SetPRProposals wires the PR proposal flow: approved proposals extend an
+// agent's push allowlist, and pushes to their branches open the PRs.
+func (s *GitHTTPServer) SetPRProposals(svc *PRProposalService) {
+	s.prProposals = svc
 }
 
 // SetOnDefaultBranchPush installs the post-receive hook that fires
@@ -578,7 +586,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	// planning session whose only writable branch is helix-specs must not depend
 	// on external repository credentials to publish its local plan.
 	apiKey := s.extractAPIKey(r)
-	restriction, err := s.getBranchRestrictionForAPIKey(r.Context(), apiKey)
+	restriction, err := s.getBranchRestrictionForAPIKey(r.Context(), apiKey, repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get branch restriction for API key")
 	}
@@ -952,7 +960,7 @@ func (s *GitHTTPServer) clearPushError(ctx context.Context, taskID string) {
 }
 
 // getBranchRestrictionForAPIKey checks if an API key has branch restrictions
-func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKey string) (*BranchRestriction, error) {
+func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKey, repoID string) (*BranchRestriction, error) {
 	rawKey := s.extractRawAPIKey(apiKey)
 
 	apiKeyRecord, err := s.store.GetAPIKey(ctx, &types.ApiKey{Key: rawKey})
@@ -974,10 +982,27 @@ func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKe
 		}, nil
 	}
 
-	// Agent can push to their feature branch AND helix-specs (for design docs)
+	// Agent can push to their feature branch AND helix-specs (for design docs),
+	// plus any branch a user granted it by approving a PR proposal.
 	allowedBranches := []string{SpecsBranchName} // Always allow helix-specs
 	if task.BranchName != "" {
 		allowedBranches = append(allowedBranches, task.BranchName)
+	}
+	if s.prProposals != nil {
+		granted, err := s.prProposals.AllowedPushBranches(ctx, task.ID, repoID)
+		if err != nil {
+			// Fail closed: the caller treats an error as "no restriction".
+			log.Error().Err(err).Str("task_id", task.ID).Str("repo_id", repoID).Msg("Failed to load approved PR proposal branches")
+			return &BranchRestriction{
+				IsAgentKey:   true,
+				ErrorMessage: "could not load the branches this agent may push to; try again",
+			}, nil
+		}
+		for _, branch := range granted {
+			if !slices.Contains(allowedBranches, branch) {
+				allowedBranches = append(allowedBranches, branch)
+			}
+		}
 	}
 
 	return &BranchRestriction{
@@ -1114,13 +1139,12 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 			s.handleFeatureBranchPush(ctx, repo, pushedBranch, commitHash, repoPath, gitRepo)
 		}
 
-		// Main branch push detection
-		if repo.DefaultBranch != "" && pushedBranch == repo.DefaultBranch {
-			s.handleMainBranchPush(ctx, repo, commitHash, repoPath, gitRepo)
-		}
-
 		// Process design docs
 		s.processDesignDocsForBranch(ctx, repo, repoPath, pushedBranch, commitHash, gitRepo)
+
+		if s.prProposals != nil && pushedBranch != SpecsBranchName && pushedBranch != repo.DefaultBranch {
+			s.prProposals.OnBranchPushed(ctx, repo.ID, pushedBranch)
+		}
 	}
 }
 
@@ -1175,19 +1199,6 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				}(task.ID, repo)
 			}
 		case types.TaskStatusImplementationReview:
-			// A push arrived while a PR is open. Always re-sync the PR
-			// title/description from helix-specs so edits to
-			// pull_request_<repo>.md propagate. (Previously only
-			// TaskStatusPullRequest did this, which meant tasks that stayed
-			// in implementation_review never got description updates.)
-			s.wg.Add(1)
-			go func(t *types.SpecTask, r *types.GitRepository) {
-				defer s.wg.Done()
-				if err := s.ensurePullRequest(context.Background(), r, t, t.BranchName); err != nil {
-					log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to re-sync PR description in implementation_review")
-				}
-			}(task, repo)
-
 			// If the user previously approved (RebaseRequestedAt set), also try
 			// the FF merge again automatically — without this, the user would
 			// have to click Accept a second time and would have no signal that
@@ -1210,23 +1221,17 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				s.tryAutoMergeAfterRebase(context.Background(), taskID)
 			}(task.ID)
 		case types.TaskStatusPullRequest:
-			s.wg.Add(1)
-			go func(t *types.SpecTask, r *types.GitRepository, commit string) {
-				defer s.wg.Done()
-				if err := s.ensurePullRequest(context.Background(), r, t, t.BranchName); err != nil {
-					log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to ensure pull request")
-					return
-				}
-				if s.triggerManager != nil {
-					s.wg.Add(1)
-					go func() {
-						defer s.wg.Done()
-						if err := s.triggerManager.ProcessGitPushEvent(context.Background(), t, r, commit); err != nil {
-							log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to process code review")
-						}
-					}()
-				}
-			}(task, repo, commitHash)
+			// PRs are only opened from approved proposals (see OnBranchPushed);
+			// a push here updates an existing PR and re-runs code review.
+			if s.triggerManager != nil {
+				s.wg.Add(1)
+				go func(t *types.SpecTask, r *types.GitRepository, commit string) {
+					defer s.wg.Done()
+					if err := s.triggerManager.ProcessGitPushEvent(context.Background(), t, r, commit); err != nil {
+						log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to process code review")
+					}
+				}(task, repo, commitHash)
+			}
 		case types.TaskStatusDone:
 			now := time.Now()
 			task.LastPushCommitHash = commitHash
@@ -1450,53 +1455,6 @@ func (s *GitHTTPServer) tryAutoMergeBotRun(ctx context.Context, taskID string, r
 		Msg("bot auto-merge: fast-forward merged autonomous run into default branch")
 }
 
-// handleMainBranchPush transitions task from implementation_review → done
-func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.GitRepository, commitHash, repoPath string, gitRepo *GitRepo) {
-	log.Info().Str("repo_id", repo.ID).Str("commit", commitHash).Msg("Detected push to main branch")
-
-	projectIDs, err := s.store.GetProjectsForRepository(ctx, repo.ID)
-	if err != nil || len(projectIDs) == 0 {
-		return
-	}
-
-	var allTasks []*types.SpecTask
-	for _, projectID := range projectIDs {
-		tasks, _ := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: projectID})
-		allTasks = append(allTasks, tasks...)
-	}
-
-	for _, task := range allTasks {
-		if task == nil || task.BranchName == "" || task.Status != types.TaskStatusImplementationReview {
-			continue
-		}
-
-		// Check if branch is merged
-		merged, err := gitRepo.IsBranchMergedInto(task.BranchName, repo.DefaultBranch)
-		if err != nil {
-			log.Debug().Err(err).Str("branch", task.BranchName).Msg("Could not check merge status")
-			continue
-		}
-
-		if merged {
-			log.Info().Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Branch merged to main - transitioning to done")
-
-			now := time.Now()
-			task.Status = types.TaskStatusDone
-			task.StatusUpdatedAt = &now
-			task.MergedToMain = true
-			task.MergedAt = &now
-			task.MergeCommitHash = commitHash
-			task.CompletedAt = &now
-			task.UpdatedAt = now
-			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
-				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
-				continue
-			}
-			DismissTaskAttentionEvents(ctx, s.store, task.ID)
-		}
-	}
-}
-
 // parsePullRequestMarkdown parses a pull_request.md file content into title and description.
 // Format: First line (with optional "# " prefix) = title, everything after first blank line = description.
 // Returns (title, description, ok). ok is false if content is empty or has no title.
@@ -1605,11 +1563,16 @@ func openPRDescriptionTargets(task *types.SpecTask, repos []*types.GitRepository
 		if repo == nil || repo.ExternalURL == "" {
 			continue
 		}
-		pr := task.GetPRForRepo(repo.ID)
-		if pr == nil || pr.PRState != "open" || pr.PRNumber == 0 {
-			continue
+		for i := range task.RepoPullRequests {
+			pr := &task.RepoPullRequests[i]
+			// PRs opened from a proposal carry the title and body the user
+			// approved; pull_request*.md only describes the legacy task PR.
+			if pr.RepositoryID != repo.ID || pr.ProposalID != "" || pr.PRState != "open" || pr.PRNumber == 0 {
+				continue
+			}
+			targets = append(targets, openPRDescriptionTarget{repository: repo, pullRequest: pr})
+			break
 		}
-		targets = append(targets, openPRDescriptionTarget{repository: repo, pullRequest: pr})
 	}
 	return targets
 }
@@ -1717,153 +1680,6 @@ func (s *GitHTTPServer) renderPRFooter(ctx context.Context, repo *types.GitRepos
 	return RenderPRFooter(footerTemplate, repo, task, orgName, s.serverBaseURL)
 }
 
-// ensurePullRequest creates a PR if one doesn't exist
-func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, branch string) error {
-	if repo.ExternalURL == "" {
-		return nil
-	}
-
-	return s.gitRepoService.WithRepoLock(repo.ID, func() error {
-		return s.ensurePullRequestLocked(ctx, repo, task, branch)
-	})
-}
-
-func (s *GitHTTPServer) ensurePullRequestLocked(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, branch string) error {
-	log.Info().Str("repo_id", repo.ID).Str("branch", branch).Msg("Ensuring pull request")
-
-	// If we already track a PR for this repo, return without pushing or
-	// re-creating. Pushing would recreate a branch that GitHub auto-deleted
-	// after merge, or re-open a branch the user closed intentionally.
-	// ListPullRequests (open-only) can't see merged/closed PRs, so without
-	// this guard we'd fall through to CreatePullRequest and duplicate.
-	// Mirrors the guard added to ensurePullRequestForRepo in PR #2225.
-	for i := range task.RepoPullRequests {
-		existing := &task.RepoPullRequests[i]
-		if existing.RepositoryID == repo.ID && existing.PRID != "" {
-			log.Info().
-				Str("pr_id", existing.PRID).
-				Str("pr_state", existing.PRState).
-				Str("repo_id", repo.ID).
-				Str("branch", branch).
-				Msg("Task already tracks a PR for this repo, skipping ensurePullRequest")
-			return nil
-		}
-	}
-
-	// Use the approver's OAuth token when available.
-	if err := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false, task.ImplementationApprovedBy); err != nil {
-		return fmt.Errorf("failed to push branch: %w", err)
-	}
-
-	prs, err := s.gitRepoService.ListPullRequests(ctx, repo.ID)
-	if err != nil {
-		return fmt.Errorf("failed to list PRs: %w", err)
-	}
-
-	project, err := s.store.GetProject(ctx, task.ProjectID)
-	if err != nil {
-		return fmt.Errorf("failed to get project: %w", err)
-	}
-
-	// Read PR content from helix-specs (pull_request_<repo-name>.md or pull_request.md)
-	// Do this before checking for existing PRs so we can update their content if needed
-	primaryRepoPath := repo.LocalPath
-	if project != nil && project.DefaultRepoID != "" && project.DefaultRepoID != repo.ID {
-		if primaryRepo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID); err == nil {
-			primaryRepoPath = primaryRepo.LocalPath
-		}
-	}
-	targetBranch := TaskTargetBranch(repo, task, project.DefaultRepoID)
-	title, description, found := s.getPullRequestContent(primaryRepoPath, task, repo.Name)
-	if !found {
-		title = task.Name
-		description = task.Description
-		log.Debug().Str("task_id", task.ID).Msg("No pull_request.md found, using task name/description")
-	} else {
-		log.Info().Str("task_id", task.ID).Msg("Using pull_request.md for PR content")
-	}
-
-	orgName := ""
-	if task.OrganizationID != "" {
-		if org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: task.OrganizationID}); err == nil && org != nil {
-			orgName = org.Name
-		}
-	}
-	footer, err := s.renderPRFooter(ctx, repo, task, orgName, taskPRUserID(task))
-	if err != nil {
-		return fmt.Errorf("failed to render PR footer: %w", err)
-	}
-	description = AppendPRFooter(description, footer)
-
-	// Check for existing PR on this branch
-	sourceBranchRef := "refs/heads/" + branch
-	for _, pr := range prs {
-		branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
-		if branchMatches && pr.State == types.PullRequestStateOpen {
-			// Do not update the PR title/description here — the user may have renamed the PR
-			// and overwriting their title would conflict with their explicit change.
-			s.updateRepoPullRequests(task, repo, pr.ID, pr.Number, pr.URL, string(pr.State))
-			task.UpdatedAt = time.Now()
-			s.store.UpdateSpecTask(ctx, task)
-			log.Info().
-				Str("pr_id", pr.ID).
-				Str("repo_id", repo.ID).
-				Msg("Found existing pull request")
-			return nil
-		}
-		// If a PR was closed (not merged) on this branch, don't recreate it.
-		// The user closed it intentionally.
-		if branchMatches && pr.State == types.PullRequestStateClosed {
-			s.updateRepoPullRequests(task, repo, pr.ID, pr.Number, pr.URL, string(pr.State))
-			task.UpdatedAt = time.Now()
-			s.store.UpdateSpecTask(ctx, task)
-			log.Info().
-				Str("pr_id", pr.ID).
-				Str("repo_id", repo.ID).
-				Msg("PR was closed on this branch, not recreating")
-			return nil
-		}
-	}
-
-	// No existing PR — create one
-	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, targetBranch, task.ImplementationApprovedBy)
-	if err != nil {
-		// If PR already exists (422), try to find it and use it
-		if strings.Contains(err.Error(), "already exists") {
-			log.Info().Str("branch", branch).Str("repo_id", repo.ID).Msg("PR already exists on remote, looking it up")
-			// Re-fetch PRs to find the existing one
-			freshPRs, listErr := s.gitRepoService.ListPullRequests(ctx, repo.ID)
-			if listErr == nil {
-				for _, pr := range freshPRs {
-					branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
-					if branchMatches && pr.State == types.PullRequestStateOpen {
-						prID = pr.ID
-						log.Info().Str("pr_id", prID).Str("repo_id", repo.ID).Msg("Found existing PR after 422")
-						err = nil
-						break
-					}
-				}
-			}
-			if err != nil {
-				return fmt.Errorf("failed to create PR and couldn't find existing: %w", err)
-			}
-		} else {
-			return fmt.Errorf("failed to create PR: %w", err)
-		}
-	}
-
-	// Update RepoPullRequests array for all repos
-	s.updateRepoPullRequests(task, repo, prID, 0, "", "open")
-	task.UpdatedAt = time.Now()
-	s.store.UpdateSpecTask(ctx, task)
-	log.Info().
-		Str("pr_id", prID).
-		Str("repo_id", repo.ID).
-		Str("branch", branch).
-		Msg("Created pull request")
-	return nil
-}
-
 // TaskTargetBranch is the branch a task's work lands on in repo: the task's
 // selected base for the primary repo, the repo default otherwise. Every prompt,
 // merge and PR that names a task's target branch must resolve it here.
@@ -1872,31 +1688,6 @@ func TaskTargetBranch(repo *types.GitRepository, task *types.SpecTask, primaryRe
 		return task.BaseBranch
 	}
 	return repo.DefaultBranch
-}
-
-// updateRepoPullRequests updates the RepoPullRequests array with PR info for a repo
-func (s *GitHTTPServer) updateRepoPullRequests(task *types.SpecTask, repo *types.GitRepository, prID string, prNumber int, prURL string, prState string) {
-	repoPR := types.RepoPR{
-		RepositoryID:   repo.ID,
-		RepositoryName: repo.Name,
-		PRID:           prID,
-		PRNumber:       prNumber,
-		PRURL:          prURL,
-		PRState:        prState,
-	}
-
-	// Update existing entry or append new one
-	found := false
-	for i, pr := range task.RepoPullRequests {
-		if pr.RepositoryID == repo.ID {
-			task.RepoPullRequests[i] = repoPR
-			found = true
-			break
-		}
-	}
-	if !found {
-		task.RepoPullRequests = append(task.RepoPullRequests, repoPR)
-	}
 }
 
 // processDesignDocsForBranch handles design doc detection and spec task processing

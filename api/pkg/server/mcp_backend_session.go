@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -22,6 +23,7 @@ import (
 type SessionMCPBackend struct {
 	store      store.Store
 	notifier   notification.Notifier
+	proposals  *services.PRProposalService
 	mcpServer  *server.MCPServer
 	httpServer *server.StreamableHTTPServer
 }
@@ -101,6 +103,42 @@ func NewSessionMCPBackend(s store.Store, notifier notification.Notifier) *Sessio
 	)
 	backend.mcpServer.AddTool(taskCompletedTool, backend.handleTaskCompleted)
 
+	// Spec-task pull requests. Helix never opens a PR on its own: the agent
+	// proposes one and a user approves the exact branch, base, title and body.
+	proposePRTool := mcp.NewTool("propose_pull_request",
+		mcp.WithDescription("Ask the user to approve opening a pull request for your spec task. "+
+			"This is the ONLY way a pull request gets opened — never use gh, the GitHub API or other tools to create one. "+
+			"A task can have several pull requests: to ship work in slices, propose each one with its own head_branch. "+
+			"You may only push to your task branch and to branches the user approved through this tool; propose a new branch BEFORE pushing to it. "+
+			"Returns immediately; the user's decision (and the PR link once opened) arrives later as a message in this session."),
+		mcp.WithString("reason", mcp.Required(),
+			mcp.Description("What this pull request contains and why it should be opened now. Shown to the user next to the approve button.")),
+		mcp.WithString("title", mcp.Description("Pull request title. Defaults to the task name.")),
+		mcp.WithString("body", mcp.Description("Pull request description (markdown).")),
+		mcp.WithString("head_branch", mcp.Description("Branch to open the pull request from. Defaults to your task branch. "+
+			"A new name gives you push rights to that branch once approved.")),
+		mcp.WithString("base_branch", mcp.Description("Branch to merge into. Defaults to the task's base branch.")),
+		mcp.WithString("repository", mcp.Description("Repository name or ID. Defaults to the project's primary repository.")),
+	)
+	backend.mcpServer.AddTool(proposePRTool, backend.handleProposePullRequest)
+
+	listProposalsTool := mcp.NewTool("list_pull_request_proposals",
+		mcp.WithDescription("List the pull request proposals of your spec task with their status (pending, approved, opened, rejected, failed), branches and PR links."),
+	)
+	backend.mcpServer.AddTool(listProposalsTool, backend.handleListPullRequestProposals)
+
+	// Spec tasks never complete on their own (not even when PRs merge): the
+	// agent says when the work is finished and the user confirms.
+	markCompleteTool := mcp.NewTool("mark_task_complete",
+		mcp.WithDescription("Ask to mark your spec task done because the work is finished — or because the user told you it is. "+
+			"This is the only way the task finishes; merged pull requests do not finish it. "+
+			"Do not call it while your pull requests are still open: users merge them on GitHub/GitLab/Azure DevOps, so tell the user which ones need merging and wait. "+
+			"The user confirms (unless the task auto-approves); once done, your desktop shuts down. If the user sends it back, their feedback arrives as a message in this session."),
+		mcp.WithString("summary", mcp.Required(),
+			mcp.Description("What was delivered (pull requests, docs, findings) and why the task is finished. Shown to the user next to the Mark done button.")),
+	)
+	backend.mcpServer.AddTool(markCompleteTool, backend.handleMarkTaskComplete)
+
 	// Create Streamable HTTP server for direct POST support
 	// Use stateless mode so each request is independent (no session tracking required)
 	backend.httpServer = server.NewStreamableHTTPServer(backend.mcpServer,
@@ -108,6 +146,11 @@ func NewSessionMCPBackend(s store.Store, notifier notification.Notifier) *Sessio
 	)
 
 	return backend
+}
+
+// SetPRProposals enables the spec-task pull request tools.
+func (b *SessionMCPBackend) SetPRProposals(svc *services.PRProposalService) {
+	b.proposals = svc
 }
 
 // ServeHTTP implements MCPBackend interface
@@ -130,6 +173,130 @@ func (b *SessionMCPBackend) getSessionID(ctx context.Context, requestedID string
 		return id
 	}
 	return ""
+}
+
+// specTaskForCall resolves the spec task of the calling session, verifying the
+// caller owns that session.
+func (b *SessionMCPBackend) specTaskForCall(ctx context.Context) (*types.Session, *types.SpecTask, error) {
+	sessionID := b.getSessionID(ctx, "")
+	if sessionID == "" {
+		return nil, nil, errors.New("session_id is required")
+	}
+	session, err := b.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get session: %w", err)
+	}
+	user, ok := ctx.Value("user").(*types.User)
+	if !ok || user == nil || session.Owner != user.ID {
+		return nil, nil, errors.New("not authorized for this session")
+	}
+	if session.Metadata.SpecTaskID == "" {
+		return nil, nil, errors.New("this session is not working on a spec task")
+	}
+	task, err := b.store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get spec task: %w", err)
+	}
+	return session, task, nil
+}
+
+func (b *SessionMCPBackend) handleProposePullRequest(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if b.proposals == nil {
+		return mcp.NewToolResultError("pull request proposals are not available on this server"), nil
+	}
+	session, task, err := b.specTaskForCall(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	p, err := b.proposals.Propose(ctx, task, services.ProposePRInput{
+		RepositoryID: request.GetString("repository", ""),
+		HeadBranch:   request.GetString("head_branch", ""),
+		BaseBranch:   request.GetString("base_branch", ""),
+		Title:        request.GetString("title", ""),
+		Body:         request.GetString("body", ""),
+		Reason:       request.GetString("reason", ""),
+		SessionID:    session.ID,
+	})
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if p.AutoApproved {
+		switch p.Status {
+		case types.PRProposalStatusOpened:
+			return mcp.NewToolResultText(fmt.Sprintf(
+				"Auto-approved (this task approves pull requests without asking). Pull request #%d is open in %s from %s into %s: %s. "+
+					"Pushing more commits to %s updates it.", p.PRNumber, p.RepositoryName, p.HeadBranch, p.BaseBranch, p.PRURL, p.HeadBranch)), nil
+		case types.PRProposalStatusApproved:
+			return mcp.NewToolResultText(fmt.Sprintf(
+				"Auto-approved (this task approves pull requests without asking). You may now push to %s; "+
+					"Helix opens the pull request into %s as soon as the branch has commits that are not on %s.", p.HeadBranch, p.BaseBranch, p.BaseBranch)), nil
+		case types.PRProposalStatusFailed:
+			return mcp.NewToolResultText(fmt.Sprintf(
+				"Auto-approved, but opening the pull request failed: %s. You still have push rights to %s; the user can retry from Helix.", p.Error, p.HeadBranch)), nil
+		}
+	}
+	pushNote := ""
+	if p.HeadBranch != task.BranchName {
+		pushNote = fmt.Sprintf("You cannot push to %s until it is approved. ", p.HeadBranch)
+	}
+	return mcp.NewToolResultText(fmt.Sprintf(
+		"Proposal %s is awaiting the user's approval: open a pull request in %s from %s into %s titled %q. %s"+
+			"You will receive a message in this session when the user decides; keep working meanwhile.",
+		p.ID, p.RepositoryName, p.HeadBranch, p.BaseBranch, p.Title, pushNote)), nil
+}
+
+func (b *SessionMCPBackend) handleMarkTaskComplete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if b.proposals == nil {
+		return mcp.NewToolResultError("task completion is not available on this server"), nil
+	}
+	_, task, err := b.specTaskForCall(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	out, err := b.proposals.RequestCompletion(ctx, task.ID, request.GetString("summary", ""))
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if out.Done {
+		return mcp.NewToolResultText("The task is marked done (it auto-approves without asking). Your desktop will shut down shortly; stop working."), nil
+	}
+	msg := "Asked the user to mark the task done. Wait for their decision: if they send it back, their feedback arrives as a message in this session."
+	switch n := len(out.OpenPRs); {
+	case n == 1:
+		msg += " Note: one of your pull requests is still open; the user sees that next to your request."
+	case n > 1:
+		msg += fmt.Sprintf(" Note: %d of your pull requests are still open; the user sees that next to your request.", n)
+	}
+	return mcp.NewToolResultText(msg), nil
+}
+
+func (b *SessionMCPBackend) handleListPullRequestProposals(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	_, task, err := b.specTaskForCall(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	proposals, err := b.store.ListSpecTaskPRProposals(ctx, &types.SpecTaskPRProposalFilter{SpecTaskID: task.ID})
+	if err != nil {
+		return mcp.NewToolResultError("failed to list proposals: " + err.Error()), nil
+	}
+	if len(proposals) == 0 {
+		return mcp.NewToolResultText("No pull request proposals yet. Use propose_pull_request to ask for one."), nil
+	}
+	var sb strings.Builder
+	for _, p := range proposals {
+		fmt.Fprintf(&sb, "- %s [%s] %s: %s → %s, %q", p.ID, p.Status, p.RepositoryName, p.HeadBranch, p.BaseBranch, p.Title)
+		if p.PRURL != "" {
+			fmt.Fprintf(&sb, " — PR #%d %s", p.PRNumber, p.PRURL)
+		}
+		if p.Error != "" {
+			fmt.Fprintf(&sb, " — error: %s", p.Error)
+		}
+		if p.DecisionComment != "" {
+			fmt.Fprintf(&sb, " — reviewer: %s", p.DecisionComment)
+		}
+		sb.WriteString("\n")
+	}
+	return mcp.NewToolResultText(sb.String()), nil
 }
 
 func (b *SessionMCPBackend) handleTaskCompleted(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

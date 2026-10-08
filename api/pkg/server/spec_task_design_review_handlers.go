@@ -1381,6 +1381,9 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 
 	// Resolve project context. Priority: spec task → session.Metadata.ProjectID → session.ProjectID.
 	specTaskID := session.Metadata.SpecTaskID
+	if err := s.reopenDoneTaskForAgentStart(ctx, specTaskID); err != nil {
+		return err
+	}
 	if specTaskID != "" {
 		specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 		if err != nil {

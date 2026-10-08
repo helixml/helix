@@ -653,6 +653,11 @@ type Store interface {
 	ListSpecTaskAttachments(ctx context.Context, specTaskID string) ([]*types.SpecTaskAttachment, error)
 	DeleteSpecTaskAttachmentsByTaskID(ctx context.Context, specTaskID string) error
 
+	CreateSpecTaskPRProposal(ctx context.Context, proposal *types.SpecTaskPRProposal) error
+	GetSpecTaskPRProposal(ctx context.Context, id string) (*types.SpecTaskPRProposal, error)
+	ListSpecTaskPRProposals(ctx context.Context, filter *types.SpecTaskPRProposalFilter) ([]*types.SpecTaskPRProposal, error)
+	UpdateSpecTaskPRProposal(ctx context.Context, proposal *types.SpecTaskPRProposal, fromStatuses ...types.SpecTaskPRProposalStatus) (bool, error)
+
 	// spec-driven task work sessions
 	CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error
 	GetSpecTaskWorkSession(ctx context.Context, id string) (*types.SpecTaskWorkSession, error)
@@ -751,6 +756,7 @@ type Store interface {
 	UpdateAttentionEvent(ctx context.Context, id string, update *types.AttentionEventUpdateRequest) error
 	BulkDismissAttentionEvents(ctx context.Context, userID, organizationID string) (int64, error)
 	DismissAttentionEventsForTask(ctx context.Context, specTaskID string) (int64, error)
+	DismissAttentionEventByKey(ctx context.Context, idempotencyKey string) error
 	CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error)
 
 	// Clone Group methods
@@ -758,7 +764,7 @@ type Store interface {
 	GetCloneGroup(ctx context.Context, id string) (*types.CloneGroup, error)
 	ListCloneGroupsForTask(ctx context.Context, taskID string) ([]*types.CloneGroup, error)
 	GetCloneGroupProgress(ctx context.Context, groupID string) (*types.CloneGroupProgress, error)
-	ListReposWithoutProjects(ctx context.Context, organizationID string) ([]*types.GitRepository, error)
+	ListReposWithoutProjects(ctx context.Context, organizationID, ownerID string) ([]*types.GitRepository, error)
 
 	// Agent runner methods
 	CreateAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)

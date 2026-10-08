@@ -11,7 +11,16 @@ extern void goSystrayStart(void);
 
 static void dispatchSystrayOnMain() {
 	dispatch_async(dispatch_get_main_queue(), ^{
+		// energye/systray's start makes its SystrayAppDelegate the application
+		// delegate, replacing Wails'. Wails runs OnShutdown from its delegate's
+		// applicationShouldTerminate, so without it Cmd-Q exited at once,
+		// skipping app.shutdown() and leaving QEMU running. The tray's menu
+		// items target its own object, not the delegate, so hand it back.
+		id<NSApplicationDelegate> wailsDelegate = NSApp.delegate;
 		goSystrayStart();
+		if (wailsDelegate) {
+			NSApp.delegate = wailsDelegate;
+		}
 	});
 }
 

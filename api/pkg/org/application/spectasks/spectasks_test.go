@@ -68,6 +68,10 @@ func (f *fakePort) StopAgent(_ context.Context, org string, w orgchart.NodeID, p
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.view, f.err
 }
+func (f *fakePort) Complete(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecTaskView, error) {
+	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
+	return f.view, f.err
+}
 func (f *fakePort) RestartAgent(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecTaskAgentActionView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.action, f.err
