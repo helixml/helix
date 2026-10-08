@@ -216,6 +216,10 @@ func (apiServer *HelixAPIServer) createProjectAccessGrant(rw http.ResponseWriter
 				log.Info().Str("user_id", userID).Str("org_id", project.OrganizationID).Msg("user added to organisation by a concurrent request; proceeding with grant")
 			} else {
 				log.Info().Str("user_id", userID).Str("org_id", project.OrganizationID).Msg("auto-added user to organisation when granting project access")
+				if err := apiServer.approveWaitlistedOrgMember(r.Context(), targetUser, user, project.OrganizationID); err != nil {
+					writeErrResponse(rw, fmt.Errorf("user added to organisation but approval failed: %w", err), http.StatusInternalServerError)
+					return
+				}
 			}
 
 			addedToOrganization = true

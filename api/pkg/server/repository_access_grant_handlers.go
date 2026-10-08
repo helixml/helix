@@ -189,6 +189,9 @@ func (apiServer *HelixAPIServer) createRepositoryAccessGrant(rw http.ResponseWri
 				writeErrResponse(rw, fmt.Errorf("error adding user to organisation: %w", err), http.StatusInternalServerError)
 				return
 			}
+		} else if err := apiServer.approveWaitlistedOrgMember(r.Context(), targetUser, user, repository.OrganizationID); err != nil {
+			writeErrResponse(rw, fmt.Errorf("user added to organisation but approval failed: %w", err), http.StatusInternalServerError)
+			return
 		}
 	}
 
