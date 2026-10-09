@@ -48978,6 +48978,12 @@
                     "golden": {
                         "$ref": "#/components/schemas/types.ZFSTreeNode"
                     },
+                    "goldens": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.ZFSTreeNode"
+                        }
+                    },
                     "orphans": {
                         "type": "array",
                         "items": {
@@ -48992,6 +48998,9 @@
             "types.ZFSTreeNode": {
                 "type": "object",
                 "properties": {
+                    "cache_kind": {
+                        "type": "string"
+                    },
                     "children": {
                         "type": "array",
                         "items": {

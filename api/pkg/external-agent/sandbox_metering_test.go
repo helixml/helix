@@ -163,14 +163,13 @@ func TestExternalAgentIsolation(t *testing.T) {
 }
 
 func TestValidateDesktopRootlessLaunch(t *testing.T) {
-	require.NoError(t, validateDesktopRootlessLaunch("sway", "custom/image", true, false, false))
-	require.NoError(t, validateDesktopRootlessLaunch("ubuntu", "", false, false, true))
-	require.NoError(t, validateDesktopRootlessLaunch("headless", "custom/image", false, false, true))
-	require.NoError(t, validateDesktopRootlessLaunch("sway", "custom/image", false, true, true))
-	require.EqualError(t, validateDesktopRootlessLaunch("ubuntu", "", true, false, true), "desktop rootless mode does not support golden builds")
-	require.EqualError(t, validateDesktopRootlessLaunch("ubuntu", "custom/image", false, false, true), "desktop rootless mode does not support custom images")
+	require.NoError(t, validateDesktopRootlessLaunch("sway", "custom/image", false, false))
+	require.NoError(t, validateDesktopRootlessLaunch("ubuntu", "", false, true))
+	require.NoError(t, validateDesktopRootlessLaunch("headless", "custom/image", false, true))
+	require.NoError(t, validateDesktopRootlessLaunch("sway", "custom/image", true, true))
+	require.EqualError(t, validateDesktopRootlessLaunch("ubuntu", "custom/image", false, true), "desktop rootless mode does not support custom images")
 	for _, desktopType := range []string{"sway", "zorin", "xfce", "kde"} {
-		require.EqualError(t, validateDesktopRootlessLaunch(desktopType, "", false, false, true),
+		require.EqualError(t, validateDesktopRootlessLaunch(desktopType, "", false, true),
 			fmt.Sprintf("desktop rootless mode does not support desktop type %q", desktopType))
 	}
 }
@@ -181,7 +180,6 @@ func TestStartDesktopRejectsUnsupportedRootlessLaunchBeforeProvisioning(t *testi
 		agent *types.DesktopAgent
 		err   string
 	}{
-		{"golden build", &types.DesktopAgent{SessionID: "ses_golden", GoldenBuild: true}, "desktop rootless mode does not support golden builds"},
 		{"custom image", &types.DesktopAgent{SessionID: "ses_custom", DesktopType: "ubuntu", CustomImage: "custom/image"}, "desktop rootless mode does not support custom images"},
 		{"sway", &types.DesktopAgent{SessionID: "ses_sway", DesktopType: "sway"}, `desktop rootless mode does not support desktop type "sway"`},
 	} {

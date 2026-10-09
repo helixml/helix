@@ -13,6 +13,7 @@ if [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
 fi
 
 if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+    ENGINE_STOP_FILE=/tmp/.container-engine-stop
     PODMAN_DATA=/home/retro/.local/share/containers
     PODMAN_RUNTIME=/run/user/1000
     PODMAN_SOCKET=${PODMAN_RUNTIME}/podman/podman.sock
@@ -21,6 +22,7 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     BUILDKIT_ROOTLESSKIT_STATE=${PODMAN_RUNTIME}/buildkit-rootlesskit
     BUILDKIT_DATA=${PODMAN_DATA}/buildkit-state
     BUILDKIT_TMP=${PODMAN_DATA}/buildkit-tmp
+    rm -f "${ENGINE_STOP_FILE}"
 
     if ! mountpoint -q "${PODMAN_DATA}" 2>/dev/null; then
         echo "[podman] ERROR: ${PODMAN_DATA} is not a volume mount"
@@ -79,10 +81,16 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
             podman_command+=(unshare podman)
         fi
         while true; do
+            if [ -f /tmp/.container-engine-stop ]; then
+                break
+            fi
             echo "[$(date -Iseconds)] Starting rootless Podman API service..."
             env -u CONTAINER_HOST -u DOCKER_HOST \
                 "${podman_command[@]}" system service --time=0 "unix://${PODMAN_SOCKET}"
             EXIT_CODE=$?
+            if [ -f /tmp/.container-engine-stop ]; then
+                break
+            fi
             echo "[$(date -Iseconds)] Podman API service exited with code ${EXIT_CODE}, restarting in 2s..."
             sleep 2
         done
@@ -118,6 +126,9 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
         BUILDKIT_DATA="${BUILDKIT_DATA}" \
         bash -c '
         while true; do
+            if [ -f /tmp/.container-engine-stop ]; then
+                break
+            fi
             echo "[$(date -Iseconds)] Starting rootless BuildKit daemon..."
             env -u BUILDKIT_HOST /usr/bin/rootlesskit \
                 --state-dir="${BUILDKIT_ROOTLESSKIT_STATE}" \
@@ -126,6 +137,9 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
                 --addr="unix://${BUILDKIT_SOCKET}" \
                 --oci-worker-no-process-sandbox
             EXIT_CODE=$?
+            if [ -f /tmp/.container-engine-stop ]; then
+                break
+            fi
             echo "[$(date -Iseconds)] BuildKit exited with code ${EXIT_CODE}, restarting in 2s..."
             rm -f \
                 "${BUILDKIT_SOCKET}" \

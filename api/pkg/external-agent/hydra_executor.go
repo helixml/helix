@@ -256,7 +256,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	if err := h.resolveSpecTaskLaunchConfig(ctx, agent); err != nil {
 		return nil, err
 	}
-	if err := validateDesktopRootlessLaunch(agent.DesktopType, agent.CustomImage, agent.GoldenBuild, agent.NoContainerEngine, h.desktopRootless); err != nil {
+	if err := validateDesktopRootlessLaunch(agent.DesktopType, agent.CustomImage, agent.NoContainerEngine, h.desktopRootless); err != nil {
 		return nil, err
 	}
 
@@ -1754,12 +1754,9 @@ func externalAgentIsolation(containerType string, noContainerEngine, desktopRoot
 	return containerIsolation{privileged: true}
 }
 
-func validateDesktopRootlessLaunch(desktopType, customImage string, goldenBuild, noContainerEngine, desktopRootless bool) error {
+func validateDesktopRootlessLaunch(desktopType, customImage string, noContainerEngine, desktopRootless bool) error {
 	if !desktopRootless {
 		return nil
-	}
-	if goldenBuild {
-		return fmt.Errorf("desktop rootless mode does not support golden builds")
 	}
 	if noContainerEngine || strings.EqualFold(desktopType, "headless") {
 		return nil

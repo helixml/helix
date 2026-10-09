@@ -3,7 +3,9 @@ package hydra
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"syscall"
 	"testing"
@@ -547,6 +549,67 @@ func TestParallelCopyDir_MixedContent(t *testing.T) {
 	}
 
 	assertIdenticalFS(t, src, dst)
+}
+
+func TestPodmanGoldenCacheFileCopyPromotionAndRestore(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires Linux and GNU cp --reflink")
+	}
+	if err := exec.Command("cp", "--version").Run(); err != nil {
+		t.Skip("requires GNU cp --reflink")
+	}
+
+	tmpDir := t.TempDir()
+	originalSessionsBaseDir := sessionsBaseDir
+	originalGoldenBaseDirOverride := goldenBaseDirOverride
+	sessionsBaseDir = filepath.Join(tmpDir, "sessions")
+	goldenBaseDirOverride = filepath.Join(tmpDir, "golden")
+	t.Cleanup(func() {
+		sessionsBaseDir = originalSessionsBaseDir
+		goldenBaseDirOverride = originalGoldenBaseDirOverride
+	})
+
+	const (
+		projectID     = "prj_podman_file_copy"
+		buildVolume   = "docker-data-ses_build"
+		restoreVolume = "docker-data-ses_restore"
+	)
+	buildCache := filepath.Join(sessionsBaseDir, buildVolume, string(podmanGoldenCache), "buildkit", "cache.db")
+	if err := os.MkdirAll(filepath.Dir(buildCache), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(buildCache, []byte("podman-buildkit-cache"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dockerGolden := goldenDirForKind(projectID, dockerGoldenCache)
+	if err := os.MkdirAll(filepath.Join(dockerGolden, "buildkit"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dockerGolden, "buildkit", "docker-only.db"), []byte("docker-cache"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := promoteSessionToGoldenForKind(projectID, buildVolume, "ses_build", podmanGoldenCache); err != nil {
+		t.Fatalf("promote Podman cache: %v", err)
+	}
+	restored, err := setupGoldenCopyForKind(projectID, restoreVolume, podmanGoldenCache, nil)
+	if err != nil {
+		t.Fatalf("restore Podman cache: %v", err)
+	}
+
+	cache, err := os.ReadFile(filepath.Join(restored, "buildkit", "cache.db"))
+	if err != nil {
+		t.Fatalf("read restored Podman cache: %v", err)
+	}
+	if string(cache) != "podman-buildkit-cache" {
+		t.Fatalf("restored cache = %q, want %q", cache, "podman-buildkit-cache")
+	}
+	if _, err := os.Stat(filepath.Join(restored, "buildkit", "docker-only.db")); !os.IsNotExist(err) {
+		t.Fatalf("Docker cache leaked into Podman restore: %v", err)
+	}
+	if !isGoldenCopyCompleteForKind(restoreVolume, podmanGoldenCache) {
+		t.Fatal("Podman golden copy completion marker missing")
+	}
 }
 
 // buildDockerDataDir lays out a minimal /var/lib/docker after a golden build:

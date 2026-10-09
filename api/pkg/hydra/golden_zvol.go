@@ -268,17 +268,57 @@ func detectPoolRoot() string {
 
 // goldenZvolName returns the ZFS zvol name for a project's golden cache.
 func goldenZvolName(projectID string) string {
+	return goldenZvolNameForKind(projectID, dockerGoldenCache)
+}
+
+func goldenZvolNameForKind(projectID string, kind goldenCacheKind) string {
+	if kind == podmanGoldenCache {
+		return fmt.Sprintf("%s/golden-podman-%s", zfsParentDataset, projectID)
+	}
 	return fmt.Sprintf("%s/golden-%s", zfsParentDataset, projectID)
 }
 
 // sessionZvolName returns the ZFS zvol name for a session clone.
 func sessionZvolName(sessionID string) string {
+	return sessionZvolNameForKind(sessionID, dockerGoldenCache)
+}
+
+func sessionZvolNameForKind(sessionID string, kind goldenCacheKind) string {
+	if kind == podmanGoldenCache {
+		return fmt.Sprintf("%s/ses-podman-%s", zfsParentDataset, sessionID)
+	}
 	return fmt.Sprintf("%s/ses-%s", zfsParentDataset, sessionID)
 }
 
 // sessionZvolMountPath returns where a session's cloned zvol is mounted.
 func sessionZvolMountPath(sessionID string) string {
+	return sessionZvolMountPathForKind(sessionID, dockerGoldenCache)
+}
+
+func sessionZvolMountPathForKind(sessionID string, kind goldenCacheKind) string {
+	if kind == podmanGoldenCache {
+		return filepath.Join(zvolMountBase, sessionID+"-podman")
+	}
 	return filepath.Join(zvolMountBase, sessionID)
+}
+
+func goldenZvolMountPathForKind(projectID string, kind goldenCacheKind) string {
+	if kind == podmanGoldenCache {
+		return filepath.Join(zvolMountBase, "golden-podman-"+projectID)
+	}
+	return filepath.Join(zvolMountBase, "golden-"+projectID)
+}
+
+func parseSessionZvolName(name string) (string, goldenCacheKind, bool) {
+	podmanPrefix := zfsParentDataset + "/ses-podman-"
+	if strings.HasPrefix(name, podmanPrefix) {
+		return strings.TrimPrefix(name, podmanPrefix), podmanGoldenCache, true
+	}
+	dockerPrefix := zfsParentDataset + "/ses-"
+	if strings.HasPrefix(name, dockerPrefix) {
+		return strings.TrimPrefix(name, dockerPrefix), dockerGoldenCache, true
+	}
+	return "", "", false
 }
 
 // touchExternalMarker creates/refreshes the .last-active marker for a session
@@ -311,6 +351,28 @@ type ZFSTreeNode = types.ZFSTreeNode
 
 // GetZFSTree returns the ZFS snapshot and clone tree for a project's golden cache.
 func GetZFSTree(projectID string) (*ZFSTree, error) {
+	dockerTree, err := getZFSTreeForKind(projectID, dockerGoldenCache)
+	if err != nil {
+		return nil, err
+	}
+	podmanTree, err := getZFSTreeForKind(projectID, podmanGoldenCache)
+	if err != nil {
+		return nil, err
+	}
+	if dockerTree.Golden != nil {
+		dockerTree.Goldens = append(dockerTree.Goldens, dockerTree.Golden)
+	}
+	if podmanTree.Golden != nil {
+		dockerTree.Goldens = append(dockerTree.Goldens, podmanTree.Golden)
+		if dockerTree.Golden == nil {
+			dockerTree.Golden = podmanTree.Golden
+		}
+	}
+	dockerTree.Orphans = append(dockerTree.Orphans, podmanTree.Orphans...)
+	return dockerTree, nil
+}
+
+func getZFSTreeForKind(projectID string, kind goldenCacheKind) (*ZFSTree, error) {
 	tree := &ZFSTree{
 		Available: ZFSAvailable(),
 		PoolRoot:  zfsParentDataset,
@@ -319,34 +381,26 @@ func GetZFSTree(projectID string) (*ZFSTree, error) {
 		return tree, nil
 	}
 
-	goldenName := goldenZvolName(projectID)
-	if !zfsDatasetExists(goldenName) {
-		return tree, nil
-	}
-
-	// Get golden zvol info
-	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name,used,refer", goldenName)
-	if err != nil {
-		return tree, nil
-	}
-	fields := strings.Fields(strings.TrimSpace(string(out)))
-	if len(fields) < 3 {
-		return tree, nil
-	}
-
-	goldenNode := &ZFSTreeNode{
-		Name:  fields[0],
-		Type:  "golden",
-		Used:  fields[1],
-		Refer: fields[2],
-	}
-	tree.Golden = goldenNode
-
-	// Get all snapshots for this golden
-	snapOut, err := execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name,used,refer",
-		"-s", "creation", "-r", goldenName)
-	if err != nil {
-		return tree, nil
+	goldenName := goldenZvolNameForKind(projectID, kind)
+	var goldenNode *ZFSTreeNode
+	var snapOut []byte
+	if zfsDatasetExists(goldenName) {
+		out, err := execCmdOutput("zfs", "list", "-H", "-o", "name,used,refer", goldenName)
+		if err == nil {
+			fields := strings.Fields(strings.TrimSpace(string(out)))
+			if len(fields) >= 3 {
+				goldenNode = &ZFSTreeNode{
+					Name:      fields[0],
+					Type:      "golden",
+					Used:      fields[1],
+					Refer:     fields[2],
+					CacheKind: string(kind),
+				}
+				tree.Golden = goldenNode
+				snapOut, _ = execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name,used,refer",
+					"-s", "creation", "-r", goldenName)
+			}
+		}
 	}
 
 	// Build a map of snapshot → clone nodes
@@ -365,7 +419,7 @@ func GetZFSTree(projectID string) (*ZFSTree, error) {
 		if len(f) < 4 {
 			continue
 		}
-		if f[3] != "-" && strings.HasPrefix(f[0], zfsParentDataset+"/ses-") {
+		if _, _, ok := parseSessionZvolName(f[0]); f[3] != "-" && ok {
 			clones = append(clones, cloneInfo{name: f[0], used: f[1], refer: f[2], origin: f[3]})
 		}
 	}
@@ -385,8 +439,8 @@ func GetZFSTree(projectID string) (*ZFSTree, error) {
 		// Find clones of this snapshot
 		for _, c := range clones {
 			if c.origin == sf[0] {
-				sessionID := strings.TrimPrefix(c.name, zfsParentDataset+"/ses-")
-				mountPath := sessionZvolMountPath(sessionID)
+				sessionID, cloneKind, _ := parseSessionZvolName(c.name)
+				mountPath := sessionZvolMountPathForKind(sessionID, cloneKind)
 				cloneNode := &ZFSTreeNode{
 					Name:      c.name,
 					Type:      "clone",
@@ -394,6 +448,7 @@ func GetZFSTree(projectID string) (*ZFSTree, error) {
 					Refer:     c.refer,
 					Mounted:   isMounted(mountPath),
 					SessionID: sessionID,
+					CacheKind: string(cloneKind),
 				}
 				snapNode.Children = append(snapNode.Children, cloneNode)
 			}
@@ -405,13 +460,16 @@ func GetZFSTree(projectID string) (*ZFSTree, error) {
 	// Find orphan session zvols (no origin, or origin from a different golden)
 	for _, line := range strings.Split(strings.TrimSpace(string(volOut)), "\n") {
 		f := strings.Fields(line)
-		if len(f) < 4 || !strings.HasPrefix(f[0], zfsParentDataset+"/ses-") {
+		if len(f) < 4 {
+			continue
+		}
+		sessionID, cloneKind, ok := parseSessionZvolName(f[0])
+		if !ok || cloneKind != kind {
 			continue
 		}
 		if f[3] == "-" {
 			// No origin — fresh zvol, not a clone
-			sessionID := strings.TrimPrefix(f[0], zfsParentDataset+"/ses-")
-			mountPath := sessionZvolMountPath(sessionID)
+			mountPath := sessionZvolMountPathForKind(sessionID, cloneKind)
 			tree.Orphans = append(tree.Orphans, &ZFSTreeNode{
 				Name:      f[0],
 				Type:      "clone",
@@ -419,6 +477,7 @@ func GetZFSTree(projectID string) (*ZFSTree, error) {
 				Refer:     f[2],
 				Mounted:   isMounted(mountPath),
 				SessionID: sessionID,
+				CacheKind: string(cloneKind),
 			})
 		}
 	}
@@ -429,7 +488,11 @@ func GetZFSTree(projectID string) (*ZFSTree, error) {
 // latestGoldenSnapshot returns the latest snapshot name for a project's golden zvol,
 // or empty string if none exists.
 func latestGoldenSnapshot(projectID string) string {
-	zvol := goldenZvolName(projectID)
+	return latestGoldenSnapshotForKind(projectID, dockerGoldenCache)
+}
+
+func latestGoldenSnapshotForKind(projectID string, kind goldenCacheKind) string {
+	zvol := goldenZvolNameForKind(projectID, kind)
 	out, err := execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name",
 		"-s", "creation", "-r", zvol)
 	if err != nil {
@@ -445,20 +508,28 @@ func latestGoldenSnapshot(projectID string) string {
 // GoldenZvolExists checks if a golden zvol with at least one snapshot exists
 // for the project.
 func GoldenZvolExists(projectID string) bool {
-	return latestGoldenSnapshot(projectID) != ""
+	return goldenZvolExistsForKind(projectID, dockerGoldenCache)
+}
+
+func goldenZvolExistsForKind(projectID string, kind goldenCacheKind) bool {
+	return latestGoldenSnapshotForKind(projectID, kind) != ""
 }
 
 // SetupGoldenClone creates a ZFS clone of the golden snapshot for a session.
 // Returns the mount path where the clone is accessible, ready to bind-mount
 // into the container as /var/lib/docker.
 func SetupGoldenClone(projectID, sessionID string) (string, error) {
-	snapshot := latestGoldenSnapshot(projectID)
+	return setupGoldenCloneForKind(projectID, sessionID, dockerGoldenCache)
+}
+
+func setupGoldenCloneForKind(projectID, sessionID string, kind goldenCacheKind) (string, error) {
+	snapshot := latestGoldenSnapshotForKind(projectID, kind)
 	if snapshot == "" {
 		return "", fmt.Errorf("no golden snapshot found for project %s", projectID)
 	}
 
-	cloneName := sessionZvolName(sessionID)
-	mountPath := sessionZvolMountPath(sessionID)
+	cloneName := sessionZvolNameForKind(sessionID, kind)
+	mountPath := sessionZvolMountPathForKind(sessionID, kind)
 
 	// If clone already exists and is mounted, reuse it (session restart)
 	if zfsDatasetExists(cloneName) {
@@ -532,8 +603,17 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 // destroy still fails with "dataset is busy", which is the right answer (we
 // don't silently nuke unrelated work). The caller's GC loop logs and moves on.
 func CleanupSessionZvol(sessionID string) error {
-	cloneName := sessionZvolName(sessionID)
-	mountPath := sessionZvolMountPath(sessionID)
+	for _, kind := range []goldenCacheKind{dockerGoldenCache, podmanGoldenCache} {
+		if err := cleanupSessionZvolForKind(sessionID, kind); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cleanupSessionZvolForKind(sessionID string, kind goldenCacheKind) error {
+	cloneName := sessionZvolNameForKind(sessionID, kind)
+	mountPath := sessionZvolMountPathForKind(sessionID, kind)
 
 	if !zfsDatasetExists(cloneName) {
 		return nil // nothing to clean up
@@ -583,26 +663,30 @@ const goldenPendingPromotionProp = "helix:pending-promotion"
 // 3. Promote the clone to replace the golden zvol
 // 4. Purge, version and snapshot it for future clones, then clear the mark
 func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
-	cloneName := sessionZvolName(sessionID)
-	goldenName := goldenZvolName(projectID)
-	mountPath := sessionZvolMountPath(sessionID)
+	return promoteSessionToGoldenZvolForKind(projectID, sessionID, dockerGoldenCache)
+}
+
+func promoteSessionToGoldenZvolForKind(projectID, sessionID string, kind goldenCacheKind) error {
+	cloneName := sessionZvolNameForKind(sessionID, kind)
+	goldenName := goldenZvolNameForKind(projectID, kind)
+	mountPath := sessionZvolMountPathForKind(sessionID, kind)
 
 	// Take write lock to prevent concurrent clone operations during promotion
-	lock := getGoldenLock(projectID)
+	lock := getGoldenLockForKind(projectID, kind)
 	lock.Lock()
 	defer lock.Unlock()
 
 	// A previous promotion that got as far as the rename left the golden
 	// unsnapshotted. Finish it first so generations stay monotonic and the
 	// rebuild path below sees a normal golden.
-	if _, err := finishPendingGoldenPromotionLocked(projectID); err != nil {
+	if _, err := finishPendingGoldenPromotionLockedForKind(projectID, kind); err != nil {
 		return fmt.Errorf("failed to finish previous golden promotion: %w", err)
 	}
 
 	// Read current generation
 	nextGeneration := 1
 	// We can't easily read golden-version.json without mounting, so check snapshot names
-	oldSnapshot := latestGoldenSnapshot(projectID)
+	oldSnapshot := latestGoldenSnapshotForKind(projectID, kind)
 	if oldSnapshot != "" {
 		// Parse generation from snapshot name if possible
 		parts := strings.Split(oldSnapshot, "@gen")
@@ -660,7 +744,7 @@ func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
 		}
 	}
 
-	return completeGoldenPromotionLocked(projectID, nextGeneration, sessionID)
+	return completeGoldenPromotionLockedForKind(projectID, nextGeneration, sessionID, kind)
 }
 
 // pendingGoldenPromotion reads the pending-promotion mark from a zvol.
@@ -684,7 +768,11 @@ func pendingGoldenPromotion(dataset string) (generation int, sessionID string, o
 // finishPendingGoldenPromotionLocked completes an interrupted promotion of the
 // project's golden zvol, if there is one. Caller must hold the golden write lock.
 func finishPendingGoldenPromotionLocked(projectID string) (finished bool, err error) {
-	goldenName := goldenZvolName(projectID)
+	return finishPendingGoldenPromotionLockedForKind(projectID, dockerGoldenCache)
+}
+
+func finishPendingGoldenPromotionLockedForKind(projectID string, kind goldenCacheKind) (finished bool, err error) {
+	goldenName := goldenZvolNameForKind(projectID, kind)
 	if !zfsDatasetExists(goldenName) {
 		return false, nil
 	}
@@ -697,7 +785,7 @@ func finishPendingGoldenPromotionLocked(projectID string) (finished bool, err er
 		Str("golden", goldenName).
 		Int("generation", generation).
 		Msg("Golden zvol has an unfinished promotion, completing it")
-	if err := completeGoldenPromotionLocked(projectID, generation, sessionID); err != nil {
+	if err := completeGoldenPromotionLockedForKind(projectID, generation, sessionID, kind); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -715,16 +803,15 @@ func ReconcilePendingGoldenPromotions() int {
 		log.Warn().Err(err).Msg("Failed to list pending golden promotions")
 		return 0
 	}
-	goldenPrefix := zfsParentDataset + "/golden-"
 	completed := 0
 	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if !strings.HasPrefix(name, goldenPrefix) {
+		projectID, kind, ok := parseGoldenZvolName(name)
+		if !ok {
 			continue // session clones that never reached the rename are reaped by GC
 		}
-		projectID := strings.TrimPrefix(name, goldenPrefix)
-		lock := getGoldenLock(projectID)
+		lock := getGoldenLockForKind(projectID, kind)
 		lock.Lock()
-		finished, err := finishPendingGoldenPromotionLocked(projectID)
+		finished, err := finishPendingGoldenPromotionLockedForKind(projectID, kind)
 		lock.Unlock()
 		if err != nil {
 			log.Error().Err(err).Str("project_id", projectID).Msg("Failed to complete pending golden promotion")
@@ -737,17 +824,33 @@ func ReconcilePendingGoldenPromotions() int {
 	return completed
 }
 
+func parseGoldenZvolName(name string) (string, goldenCacheKind, bool) {
+	podmanPrefix := zfsParentDataset + "/golden-podman-"
+	if strings.HasPrefix(name, podmanPrefix) {
+		return strings.TrimPrefix(name, podmanPrefix), podmanGoldenCache, true
+	}
+	dockerPrefix := zfsParentDataset + "/golden-"
+	if strings.HasPrefix(name, dockerPrefix) {
+		return strings.TrimPrefix(name, dockerPrefix), dockerGoldenCache, true
+	}
+	return "", "", false
+}
+
 // completeGoldenPromotionLocked turns the freshly renamed golden zvol into a
 // clonable generation: purge container state, write golden-version.json and
 // take @gen<generation>, then clear the pending-promotion mark. Idempotent —
 // safe to re-run after a failure at any step. Caller must hold the golden
 // write lock.
 func completeGoldenPromotionLocked(projectID string, generation int, sessionID string) error {
-	goldenName := goldenZvolName(projectID)
+	return completeGoldenPromotionLockedForKind(projectID, generation, sessionID, dockerGoldenCache)
+}
+
+func completeGoldenPromotionLockedForKind(projectID string, generation int, sessionID string, kind goldenCacheKind) error {
+	goldenName := goldenZvolNameForKind(projectID, kind)
 	snapName := fmt.Sprintf("%s@gen%d", goldenName, generation)
 
 	if !zfsSnapshotExists(snapName) {
-		if err := snapshotGoldenLocked(projectID, generation, sessionID); err != nil {
+		if err := snapshotGoldenLockedForKind(projectID, generation, sessionID, kind); err != nil {
 			return err
 		}
 	}
@@ -779,8 +882,12 @@ func completeGoldenPromotionLocked(projectID string, generation int, sessionID s
 // snapshotGoldenLocked mounts the golden, purges container state, writes
 // golden-version.json and takes @gen<generation> with the filesystem frozen.
 func snapshotGoldenLocked(projectID string, generation int, sessionID string) error {
-	goldenName := goldenZvolName(projectID)
-	goldenMount := filepath.Join(zvolMountBase, "golden-"+projectID)
+	return snapshotGoldenLockedForKind(projectID, generation, sessionID, dockerGoldenCache)
+}
+
+func snapshotGoldenLockedForKind(projectID string, generation int, sessionID string, kind goldenCacheKind) error {
+	goldenName := goldenZvolNameForKind(projectID, kind)
+	goldenMount := goldenZvolMountPathForKind(projectID, kind)
 
 	// A crash mid-promotion can leave it mounted
 	if !isMounted(goldenMount) {
@@ -793,8 +900,11 @@ func snapshotGoldenLocked(projectID string, generation int, sessionID string) er
 		_ = os.Remove(goldenMount)
 	}()
 
-	// Purge container-specific state
-	purgeContainerDirs(goldenMount)
+	if kind == dockerGoldenCache {
+		purgeContainerDirs(goldenMount)
+	} else {
+		_ = os.Remove(filepath.Join(goldenMount, ".golden-build-result"))
+	}
 
 	// Write golden version info
 	info := GoldenVersionInfo{
@@ -869,11 +979,15 @@ func CreateGoldenZvol(projectID string) (string, error) {
 // CreateSessionZvol creates a fresh zvol for a session (no golden cache).
 // Used when no golden snapshot exists yet (first session / first golden build).
 func CreateSessionZvol(sessionID string) (string, error) {
-	zvolName := sessionZvolName(sessionID)
+	return createSessionZvolForKind(sessionID, dockerGoldenCache)
+}
+
+func createSessionZvolForKind(sessionID string, kind goldenCacheKind) (string, error) {
+	zvolName := sessionZvolNameForKind(sessionID, kind)
 
 	if zfsDatasetExists(zvolName) {
 		// Already exists — just mount and return
-		mountPath := sessionZvolMountPath(sessionID)
+		mountPath := sessionZvolMountPathForKind(sessionID, kind)
 		if isMounted(mountPath) {
 			return mountPath, nil
 		}
@@ -904,7 +1018,7 @@ func CreateSessionZvol(sessionID string) (string, error) {
 	}
 
 	// Mount
-	mountPath := sessionZvolMountPath(sessionID)
+	mountPath := sessionZvolMountPathForKind(sessionID, kind)
 	if err := mountZvol(zvolName, mountPath); err != nil {
 		_ = runCmd("zfs", "destroy", zvolName)
 		return "", err
@@ -924,7 +1038,6 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 		return 0, nil
 	}
 
-	prefix := zfsParentDataset + "/ses-"
 	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
 	if err != nil {
 		return 0, err
@@ -932,10 +1045,10 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 
 	var cleaned int
 	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if !strings.HasPrefix(name, prefix) {
+		sessionID, kind, ok := parseSessionZvolName(name)
+		if !ok {
 			continue
 		}
-		sessionID := strings.TrimPrefix(name, prefix)
 		if activeSessions[sessionID] {
 			// Refresh the external marker so that if Hydra crashes or the
 			// session runs for weeks, the marker stays fresh and GC won't
@@ -958,7 +1071,7 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 		// all sessions now get markers on creation and periodic refresh.
 		// age >= 7 days — stale session, GC it.
 
-		if err := CleanupSessionZvol(sessionID); err != nil {
+		if err := cleanupSessionZvolForKind(sessionID, kind); err != nil {
 			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to GC orphaned zvol")
 			continue
 		}
@@ -1003,7 +1116,6 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 		return nil, nil
 	}
 
-	prefix := zfsParentDataset + "/ses-"
 	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
 	if err != nil {
 		log.Warn().Err(err).Msg("ReconcileOrphanZvols: failed to list zvols")
@@ -1011,10 +1123,10 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 	}
 
 	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if !strings.HasPrefix(name, prefix) {
+		sessionID, kind, ok := parseSessionZvolName(name)
+		if !ok {
 			continue // never touch golden- or anything else
 		}
-		sessionID := strings.TrimPrefix(name, prefix)
 
 		if liveSet[sessionID] {
 			// Live per the DB — keep, and refresh the on-disk marker so the
@@ -1040,7 +1152,7 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 			continue
 		}
 
-		if err := CleanupSessionZvol(sessionID); err != nil {
+		if err := cleanupSessionZvolForKind(sessionID, kind); err != nil {
 			msg := err.Error()
 			// "has dependent clones" / "dataset is busy" → a golden clone-root
 			// or a manually-cloned descendant depends on this zvol. NEVER force.
@@ -1332,10 +1444,14 @@ func flattenGoldenToRootLocked(goldenName string) (promotes int, err error) {
 
 // FlattenGoldenToRoot is the locked, public per-project entry point.
 func FlattenGoldenToRoot(projectID string) (int, error) {
-	lock := getGoldenLock(projectID)
+	return flattenGoldenToRootForKind(projectID, dockerGoldenCache)
+}
+
+func flattenGoldenToRootForKind(projectID string, kind goldenCacheKind) (int, error) {
+	lock := getGoldenLockForKind(projectID, kind)
 	lock.Lock()
 	defer lock.Unlock()
-	return flattenGoldenToRootLocked(goldenZvolName(projectID))
+	return flattenGoldenToRootLocked(goldenZvolNameForKind(projectID, kind))
 }
 
 // FlattenInvertedGoldens finds golden zvols that are still clones of another
@@ -1352,9 +1468,9 @@ func FlattenInvertedGoldens(dryRun bool) (flattened []string) {
 		log.Warn().Err(err).Msg("FlattenInvertedGoldens: failed to list zvols")
 		return nil
 	}
-	goldenPrefix := zfsParentDataset + "/golden-"
 	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if !strings.HasPrefix(name, goldenPrefix) {
+		projectID, kind, ok := parseGoldenZvolName(name)
+		if !ok {
 			continue
 		}
 		if zfsOrigin(name) == "" {
@@ -1364,8 +1480,7 @@ func FlattenInvertedGoldens(dryRun bool) (flattened []string) {
 			flattened = append(flattened, name)
 			continue
 		}
-		projectID := strings.TrimPrefix(name, goldenPrefix)
-		promotes, err := FlattenGoldenToRoot(projectID)
+		promotes, err := flattenGoldenToRootForKind(projectID, kind)
 		if err != nil {
 			log.Warn().Err(err).Str("golden", name).Msg("FlattenInvertedGoldens: failed to flatten golden to root")
 			continue
@@ -1395,20 +1510,24 @@ func effectiveGoldenDir(projectID string) string {
 // but only the first caller pays this cost. Concurrent callers block on the
 // golden lock and then find the zvol already exists.
 func MigrateGoldenToZvol(projectID string) error {
-	lock := getGoldenLock(projectID)
+	return migrateGoldenToZvolForKind(projectID, dockerGoldenCache)
+}
+
+func migrateGoldenToZvolForKind(projectID string, kind goldenCacheKind) error {
+	lock := getGoldenLockForKind(projectID, kind)
 	lock.Lock()
 	defer lock.Unlock()
 
 	// Double-check under lock — another goroutine may have migrated already
-	if GoldenZvolExists(projectID) {
+	if goldenZvolExistsForKind(projectID, kind) {
 		return nil
 	}
 
-	goldenName := goldenZvolName(projectID)
+	goldenName := goldenZvolNameForKind(projectID, kind)
 
 	// A golden with no snapshot is either an interrupted promotion (finish it —
 	// it holds the newest build) or a partial previous migration (destroy and retry).
-	if finished, err := finishPendingGoldenPromotionLocked(projectID); err != nil || finished {
+	if finished, err := finishPendingGoldenPromotionLockedForKind(projectID, kind); err != nil || finished {
 		return err
 	}
 	if zfsDatasetExists(goldenName) {
@@ -1435,14 +1554,14 @@ func MigrateGoldenToZvol(projectID string) error {
 	}
 
 	// Mount
-	mountPath := filepath.Join(zvolMountBase, "golden-"+projectID)
+	mountPath := goldenZvolMountPathForKind(projectID, kind)
 	if err := mountZvol(goldenName, mountPath); err != nil {
 		_ = runCmd("zfs", "destroy", goldenName)
 		return fmt.Errorf("mount failed: %w", err)
 	}
 
 	// Seed from old golden dir
-	if err := seedZvolFromGoldenDir(projectID, mountPath); err != nil {
+	if err := seedZvolFromGoldenDirForKind(projectID, mountPath, kind); err != nil {
 		_ = runCmd("umount", mountPath)
 		_ = runCmd("zfs", "destroy", goldenName)
 		return fmt.Errorf("seed failed: %w", err)
@@ -1492,19 +1611,23 @@ func GCMigratedGoldenDirs() {
 			continue
 		}
 		projectID := e.Name()
-		if !GoldenZvolExists(projectID) {
-			continue // zvol not ready yet — keep the file-based golden
-		}
+		for _, kind := range []goldenCacheKind{dockerGoldenCache, podmanGoldenCache} {
+			if !goldenZvolExistsForKind(projectID, kind) {
+				continue
+			}
 
-		oldDir := filepath.Join(baseDir, projectID)
-		log.Info().
-			Str("project_id", projectID).
-			Str("old_golden_dir", oldDir).
-			Msg("Removing old file-based golden dir (migrated to ZFS zvol)")
-		if err := os.RemoveAll(oldDir); err != nil {
-			log.Warn().Err(err).Str("path", oldDir).
-				Msg("Failed to remove old golden dir")
+			oldDir := filepath.Join(baseDir, projectID, string(kind))
+			log.Info().
+				Str("project_id", projectID).
+				Str("cache_kind", string(kind)).
+				Str("old_golden_dir", oldDir).
+				Msg("Removing old file-based golden dir (migrated to ZFS zvol)")
+			if err := os.RemoveAll(oldDir); err != nil {
+				log.Warn().Err(err).Str("path", oldDir).
+					Msg("Failed to remove old golden dir")
+			}
 		}
+		_ = os.Remove(filepath.Join(baseDir, projectID))
 	}
 }
 
@@ -1517,6 +1640,10 @@ const seedCompleteMarker = ".zvol-seed-complete"
 // Crash tolerant: if the API crashes mid-copy, the completion marker won't exist.
 // On restart, we wipe the partial contents and re-copy from scratch.
 func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
+	return seedZvolFromGoldenDirForKind(projectID, zvolMountPath, dockerGoldenCache)
+}
+
+func seedZvolFromGoldenDirForKind(projectID, zvolMountPath string, kind goldenCacheKind) error {
 	markerPath := filepath.Join(zvolMountPath, seedCompleteMarker)
 
 	// Already seeded (previous run completed successfully) — skip everything
@@ -1541,7 +1668,7 @@ func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
 		}
 	}
 
-	src := effectiveGoldenDir(projectID)
+	src := filepath.Join(effectiveGoldenBaseDir(), projectID, string(kind))
 	if _, err := os.Stat(src); err != nil {
 		return fmt.Errorf("golden dir %s not found: %w", src, err)
 	}
