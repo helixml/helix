@@ -1431,7 +1431,22 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 	// Reuse existing session dir on restart (skip re-copy)
 	if !req.GoldenBuild {
 		if info, err := os.Stat(sessionDir); err == nil && info.IsDir() {
-			if !goldenExistsForKind(req.ProjectID, kind) || isGoldenCopyCompleteForKind(volumeName, kind) {
+			copyInProgress := false
+			inProgressMarker := goldenCopyInProgressMarkerPath(volumeName, kind)
+			if _, err := os.Stat(inProgressMarker); err == nil {
+				copyInProgress = true
+			} else if !os.IsNotExist(err) {
+				return "", fmt.Errorf("failed to inspect golden copy state for %s: %w", sessionDir, err)
+			}
+			copyComplete := isGoldenCopyCompleteForKind(volumeName, kind)
+			if copyComplete || (!copyInProgress &&
+				(!goldenExistsForKind(req.ProjectID, kind) || kind == podmanGoldenCache)) {
+				if copyComplete && copyInProgress {
+					if err := os.Remove(inProgressMarker); err != nil && !os.IsNotExist(err) {
+						log.Warn().Err(err).Str("path", inProgressMarker).
+							Msg("Failed to remove stale golden copy in-progress marker")
+					}
+				}
 				log.Info().
 					Str("session_dir", sessionDir).
 					Str("volume", volumeName).
@@ -1442,9 +1457,13 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 				Str("session_dir", sessionDir).
 				Str("volume", volumeName).
 				Msg("Found incomplete golden cache copy (missing completion marker), removing partial copy")
-			if err := os.RemoveAll(filepath.Dir(sessionDir)); err != nil {
-				log.Error().Err(err).Str("path", filepath.Dir(sessionDir)).
-					Msg("Failed to remove incomplete golden copy dir")
+			if err := os.RemoveAll(sessionDir); err != nil {
+				return "", fmt.Errorf("failed to remove incomplete golden copy dir %s: %w", sessionDir, err)
+			}
+			if copyInProgress {
+				if err := os.Remove(inProgressMarker); err != nil && !os.IsNotExist(err) {
+					return "", fmt.Errorf("failed to remove golden copy state %s: %w", inProgressMarker, err)
+				}
 			}
 		}
 	}
@@ -1460,10 +1479,17 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 				Str("project_id", req.ProjectID).
 				Str("volume", volumeName).
 				Msg("Failed to copy golden cache, falling back to empty dir")
-			if mkErr := os.MkdirAll(sessionDir, 0755); mkErr == nil {
-				return sessionDir, nil
+			if removeErr := os.RemoveAll(sessionDir); removeErr != nil {
+				return "", fmt.Errorf("failed to remove partial golden copy dir %s: %w", sessionDir, removeErr)
 			}
-			return "", nil
+			inProgressMarker := goldenCopyInProgressMarkerPath(volumeName, kind)
+			if removeErr := os.Remove(inProgressMarker); removeErr != nil && !os.IsNotExist(removeErr) {
+				return "", fmt.Errorf("failed to remove golden copy state %s: %w", inProgressMarker, removeErr)
+			}
+			if mkErr := os.MkdirAll(sessionDir, 0755); mkErr != nil {
+				return "", fmt.Errorf("failed to create empty container data dir %s: %w", sessionDir, mkErr)
+			}
+			return sessionDir, nil
 		}
 		log.Info().
 			Str("project_id", req.ProjectID).
@@ -1473,6 +1499,10 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 	}
 
 	// Strategy 3: Plain bind mount (no golden cache)
+	inProgressMarker := goldenCopyInProgressMarkerPath(volumeName, kind)
+	if err := os.Remove(inProgressMarker); err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to remove stale golden copy state %s: %w", inProgressMarker, err)
+	}
 	if err := os.MkdirAll(sessionDir, 0755); err != nil {
 		log.Warn().Err(err).Str("path", sessionDir).
 			Msg("Failed to create container-docker session dir, falling back to named volume")
@@ -1522,6 +1552,7 @@ func goldenCacheKindForRequest(req *CreateDevContainerRequest) goldenCacheKind {
 	if req.DesktopRootless {
 		return podmanGoldenCache
 	}
+	// Headless rootless sessions keep named-volume storage and never use golden caches.
 	return dockerGoldenCache
 }
 

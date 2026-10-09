@@ -20,10 +20,10 @@ const (
 	// Each project gets its own golden at {goldenBaseDir}/{projectID}/docker/.
 	goldenBaseDir = "/container-docker/golden"
 
-	// goldenCopyCompleteMarker is written to the session docker dir after a
-	// successful golden cache copy. If absent, the copy was interrupted
-	// (e.g. API crash) and the session dir must be deleted and re-copied.
-	goldenCopyCompleteMarker = ".golden-copy-complete"
+	// Golden copy markers distinguish a completed copy, an interrupted copy,
+	// and legacy markerless Podman session data.
+	goldenCopyCompleteMarker         = ".golden-copy-complete"
+	goldenCopyInProgressMarkerSuffix = "-golden-copy-in-progress"
 )
 
 type goldenCacheKind string
@@ -49,6 +49,10 @@ func goldenDirForKind(projectID string, kind goldenCacheKind) string {
 // sessionOverlayDir returns the session overlay directory (upper/work/merged).
 func sessionOverlayDir(volumeName string) string {
 	return filepath.Join(sessionsBaseDir, volumeName)
+}
+
+func goldenCopyInProgressMarkerPath(volumeName string, kind goldenCacheKind) string {
+	return filepath.Join(sessionOverlayDir(volumeName), "."+string(kind)+goldenCopyInProgressMarkerSuffix)
 }
 
 // goldenLocks provides per-project locking for golden directory access.
@@ -265,6 +269,14 @@ func setupGoldenCopyForKind(projectID, volumeName string, kind goldenCacheKind, 
 	if err := os.MkdirAll(base, 0755); err != nil {
 		return "", fmt.Errorf("failed to create session dir %s: %w", base, err)
 	}
+	inProgressMarker := goldenCopyInProgressMarkerPath(volumeName, kind)
+	if err := os.WriteFile(inProgressMarker, []byte(time.Now().UTC().Format(time.RFC3339)), 0644); err != nil {
+		return "", fmt.Errorf("failed to mark golden copy in progress at %s: %w", inProgressMarker, err)
+	}
+	markerPath := filepath.Join(dataDir, goldenCopyCompleteMarker)
+	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to remove stale golden copy completion marker at %s: %w", markerPath, err)
+	}
 
 	// Log which golden version we're copying from
 	if ver := readGoldenVersionForKind(projectID, kind); ver != nil {
@@ -342,10 +354,12 @@ func setupGoldenCopyForKind(projectID, volumeName string, kind goldenCacheKind, 
 	}
 
 	// Write completion marker so we can detect interrupted copies on restart.
-	markerPath := filepath.Join(dataDir, goldenCopyCompleteMarker)
 	if err := os.WriteFile(markerPath, []byte(time.Now().UTC().Format(time.RFC3339)), 0644); err != nil {
-		log.Warn().Err(err).Str("path", markerPath).
-			Msg("Failed to write golden copy completion marker")
+		return "", fmt.Errorf("failed to write golden copy completion marker at %s: %w", markerPath, err)
+	}
+	if err := os.Remove(inProgressMarker); err != nil && !os.IsNotExist(err) {
+		log.Warn().Err(err).Str("path", inProgressMarker).
+			Msg("Failed to remove golden copy in-progress marker")
 	}
 
 	elapsed := time.Since(start)
