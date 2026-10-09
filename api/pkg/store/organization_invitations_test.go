@@ -621,3 +621,35 @@ func (suite *OrganizationInvitationsTestSuite) TestConsumePendingInvitations_Two
 	suite.Require().NoError(err)
 	suite.Empty(left)
 }
+
+// With an org-wide and a project invitation both pending for the same email,
+// the earliest invitation decides the org membership role, deterministically,
+// and the project grant is still created.
+func (suite *OrganizationInvitationsTestSuite) TestConsumePendingInvitations_EarliestInvitationSetsRole() {
+	email := "role-order@example.com"
+	_, err := suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID, Email: email, Role: types.OrganizationRoleOwner,
+	})
+	suite.Require().NoError(err)
+	time.Sleep(10 * time.Millisecond) // distinct created_at
+	_, err = suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID, Email: email, Role: types.OrganizationRoleMember, AppID: "prj_later",
+	})
+	suite.Require().NoError(err)
+
+	user := &types.User{ID: system.GenerateUserID(), Email: email, CreatedAt: time.Now()}
+	_, err = suite.db.CreateUser(suite.ctx, user)
+	suite.Require().NoError(err)
+	defer suite.db.DeleteUser(suite.ctx, user.ID)
+
+	memberships, err := suite.db.ConsumePendingInvitations(suite.ctx, user)
+	suite.Require().NoError(err)
+	suite.Require().Len(memberships, 1)
+	suite.Equal(types.OrganizationRoleOwner, memberships[0].Role, "earliest invitation's role wins")
+
+	grants, err := suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
+		OrganizationID: suite.org.ID, ResourceID: "prj_later", UserID: user.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Len(grants, 1)
+}

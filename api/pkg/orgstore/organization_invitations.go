@@ -23,8 +23,10 @@ type ListOrganizationInvitationsQuery struct {
 
 // ErrInvitationAlreadyExists is returned by CreateOrganizationInvitation
 // when a pending invitation already exists for (organization_id, email, app_id).
-// Callers can recover the existing row via GetOrganizationInvitation and
-// treat the create call as a no-op (typical for "resend invite" UX).
+// The existing row is returned alongside the error, so callers can treat the
+// create as a no-op (typical for "resend invite" UX). Don't re-fetch it via
+// GetOrganizationInvitation: one email can have several pending invitations
+// (one per app/project), so an (org, email) lookup may return a different row.
 var ErrInvitationAlreadyExists = errors.New("invitation already exists")
 
 type GetOrganizationInvitationQuery struct {
@@ -160,7 +162,10 @@ func (s *Store) ConsumePendingInvitations(ctx context.Context, user *types.User)
 	var created []*types.OrganizationMembership
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var invitations []*types.OrganizationInvitation
-		if err := tx.Where("email = ?", email).Find(&invitations).Error; err != nil {
+		// Oldest first: when several invitations target the same org (say an
+		// org-wide one and a project one), the earliest decides the membership
+		// role, deterministically.
+		if err := tx.Where("email = ?", email).Order("created_at ASC").Find(&invitations).Error; err != nil {
 			return fmt.Errorf("list invitations: %w", err)
 		}
 		now := time.Now()
