@@ -85,6 +85,7 @@ import {
   filesFromClipboard,
   PendingChatAttachment,
   validateChatAttachmentFiles,
+  withoutPlaceholderImages,
 } from './chatAttachments'
 import {
   appendWorkspaceReviewComments,
@@ -1263,19 +1264,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
     if (!attachmentsEnabled) return
 
-    const clipboardFiles = filesFromClipboard(e.clipboardData)
-    if (clipboardFiles.length > 0) {
-      e.preventDefault()
-      addFilesAsAttachments(clipboardFiles)
-      return
-    }
-
-    // Check for large text paste - convert to text file attachment
     const pastedText = e.clipboardData?.getData('text/plain')
-    if (handleFileUploadCallback && pastedText && pastedText.length > LARGE_TEXT_THRESHOLD) {
-      e.preventDefault()
+    const isLargeText = !!handleFileUploadCallback && !!pastedText && pastedText.length > LARGE_TEXT_THRESHOLD
+
+    // Convert a large text paste into a text file attachment.
+    const attachLargeText = (text: string) => {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-      const file = new File([pastedText], `pasted-text-${timestamp}.txt`, { type: 'text/plain' })
+      const file = new File([text], `pasted-text-${timestamp}.txt`, { type: 'text/plain' })
       addFilesAsAttachments([file])
       // Add a note to the draft about the attached file
       const note = '[Large text pasted as attachment]'
@@ -1283,6 +1278,36 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         const needsSpace = draft.length > 0 && !draft.startsWith(' ') && !draft.startsWith('\n')
         setDraft(note + (needsSpace ? ' ' : '') + draft)
       }
+    }
+
+    const clipboardFiles = filesFromClipboard(e.clipboardData)
+    if (clipboardFiles.length > 0) {
+      e.preventDefault()
+      if (!pastedText) {
+        addFilesAsAttachments(clipboardFiles)
+        return
+      }
+      // Files alongside text may be a desktop copy's placeholder image, which
+      // can only be recognised by reading its header. The native paste is
+      // already cancelled, so re-insert the text ourselves if that is all the
+      // clipboard really held.
+      const target = e.currentTarget
+      void withoutPlaceholderImages(clipboardFiles).then((files) => {
+        if (files.length > 0) {
+          addFilesAsAttachments(files)
+        } else if (isLargeText) {
+          attachLargeText(pastedText)
+        } else {
+          target.focus()
+          document.execCommand('insertText', false, pastedText)
+        }
+      })
+      return
+    }
+
+    if (pastedText && isLargeText) {
+      e.preventDefault()
+      attachLargeText(pastedText)
     }
   }, [addFilesAsAttachments, attachmentsEnabled, handleFileUploadCallback, setDraft, draft])
 

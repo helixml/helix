@@ -4,7 +4,6 @@ import { PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import RobustPromptInput from './RobustPromptInput'
 import { buildWorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
 import { QUEUE_DISPATCH_GRACE_MS } from '../../utils/promptQueueVisibility'
-import { PLACEHOLDER_PNG_BYTE_LENGTH } from '../../utils/clipboardPlaceholder'
 
 const updateInterrupt = vi.fn()
 const saveToHistory = vi.fn()
@@ -510,67 +509,67 @@ describe('RobustPromptInput rich attachments', () => {
     expect(screen.getByRole('button', { name: 'Preview diagram.png' })).toBeInTheDocument()
   })
 
-  it('pastes desktop-copied text as text, ignoring the 1x1 placeholder PNG', async () => {
-    const onFileUpload = vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`)
-    render(
-      <RobustPromptInput
-        sessionId="ses_test"
-        onSend={vi.fn()}
-        onFileUpload={onFileUpload}
-      />,
-    )
+  describe('desktop copy placeholder image', () => {
+    // A 1x1 PNG header padded to 88 bytes: the placeholder as Chrome on Linux
+    // hands it back after re-encoding it through the OS clipboard.
+    const pngFile = (width: number, height: number, size: number, name: string) => {
+      const bytes = new Uint8Array(size)
+      bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+      const view = new DataView(bytes.buffer)
+      view.setUint32(16, width)
+      view.setUint32(20, height)
+      return new File([bytes], name, { type: 'image/png' })
+    }
 
-    const placeholder = new File([new Uint8Array(PLACEHOLDER_PNG_BYTE_LENGTH)], 'image.png', { type: 'image/png' })
-    const textarea = screen.getByPlaceholderText('Send message to agent...')
-    const notPrevented = fireEvent.paste(textarea, {
-      clipboardData: {
-        files: [placeholder],
-        items: [],
-        getData: (type: string) => (type === 'text/plain' ? 'hello from the desktop' : ''),
-      },
+    let insertText: ReturnType<typeof vi.fn>
+    beforeEach(() => {
+      insertText = vi.fn(() => true)
+      Object.defineProperty(document, 'execCommand', { configurable: true, value: insertText })
     })
 
-    // Default must survive so the browser inserts the text itself.
-    expect(notPrevented).toBe(true)
-    expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
-    expect(onFileUpload).not.toHaveBeenCalled()
+    const renderComposer = (onFileUpload: (file: File) => Promise<string>) => {
+      render(<RobustPromptInput sessionId="ses_test" onSend={vi.fn()} onFileUpload={onFileUpload} />)
+      return screen.getByPlaceholderText('Send message to agent...')
+    }
 
-    // A real image pasted alongside text still attaches (and swallows the
-    // paste) — this also proves the assertion above is not vacuous.
-    const screenshot = new File([new Uint8Array(4096)], 'screenshot.png', { type: 'image/png' })
-    const prevented = fireEvent.paste(textarea, {
-      clipboardData: {
-        files: [screenshot],
-        items: [],
-        getData: (type: string) => (type === 'text/plain' ? 'caption' : ''),
-      },
-    })
-    expect(prevented).toBe(false)
-    expect(await screen.findByRole('button', { name: 'Preview screenshot.png' })).toBeInTheDocument()
-  })
+    const paste = (target: HTMLElement, files: File[], text: string) =>
+      fireEvent.paste(target, {
+        clipboardData: {
+          files,
+          items: [],
+          getData: (type: string) => (type === 'text/plain' ? text : ''),
+        },
+      })
 
-  it('still converts a large desktop text paste into a text attachment', async () => {
-    const onFileUpload = vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`)
-    render(
-      <RobustPromptInput
-        sessionId="ses_test"
-        onSend={vi.fn()}
-        onFileUpload={onFileUpload}
-      />,
-    )
+    it('pastes desktop-copied text as text instead of the placeholder', async () => {
+      const onFileUpload = vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`)
+      const composer = renderComposer(onFileUpload)
 
-    const placeholder = new File([new Uint8Array(PLACEHOLDER_PNG_BYTE_LENGTH)], 'image.png', { type: 'image/png' })
-    const textarea = screen.getByPlaceholderText('Send message to agent...')
-    fireEvent.paste(textarea, {
-      clipboardData: {
-        files: [placeholder],
-        items: [],
-        getData: (type: string) => (type === 'text/plain' ? 'x'.repeat(20000) : ''),
-      },
+      paste(composer, [pngFile(1, 1, 88, 'image.png')], 'hello from the desktop')
+
+      await waitFor(() => expect(insertText).toHaveBeenCalledWith('insertText', false, 'hello from the desktop'))
+      expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+      expect(onFileUpload).not.toHaveBeenCalled()
     })
 
-    expect(await screen.findByText(/pasted-text-.*\.txt/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+    it('still attaches a real image pasted alongside text', async () => {
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+
+      paste(composer, [pngFile(64, 64, 4096, 'screenshot.png')], 'caption')
+
+      expect(await screen.findByRole('button', { name: 'Preview screenshot.png' })).toBeInTheDocument()
+      expect(insertText).not.toHaveBeenCalled()
+    })
+
+    it('still converts a large desktop text paste into a text attachment', async () => {
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+
+      paste(composer, [pngFile(1, 1, 88, 'image.png')], 'x'.repeat(20000))
+
+      expect(await screen.findByText(/pasted-text-.*\.txt/)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+      expect(insertText).not.toHaveBeenCalled()
+    })
   })
 
   it('keeps a failed upload visible and blocks send until it is retried', async () => {

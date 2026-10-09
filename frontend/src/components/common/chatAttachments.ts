@@ -82,22 +82,18 @@ export function validateChatAttachmentFiles(
   return { accepted, rejected }
 }
 
-export function filesFromClipboard(data: DataTransfer): File[] {
-  const files = clipboardFileList(data)
-
-  // A text copy out of the remote desktop leaves a 1x1 transparent placeholder
-  // PNG alongside the real text/plain (see utils/clipboardPlaceholder.ts for
-  // why the copy handler cannot omit it). Treating that placeholder as an
-  // attachment swallows the paste and loses the text, so drop it whenever the
-  // clipboard also carries real text. Genuine image copies out of the desktop
-  // carry an EMPTY text/plain, so they are unaffected.
-  if (!files.some(isPlaceholderClipboardImage)) return files
-  if (!data.getData('text/plain')) return files
-
-  return files.filter((file) => !isPlaceholderClipboardImage(file))
+// A text copy out of the remote desktop on Safari leaves a 1x1 transparent
+// placeholder PNG alongside the real text/plain (see
+// utils/clipboardPlaceholder.ts for why the copy handler cannot omit it there).
+// Treating it as an attachment swallows the paste and loses the text. Only call
+// this when the clipboard also carries non-empty text: genuine image copies out
+// of the desktop carry an EMPTY text/plain.
+export async function withoutPlaceholderImages(files: File[]): Promise<File[]> {
+  const placeholder = await Promise.all(files.map(isPlaceholderClipboardImage))
+  return files.filter((_, i) => !placeholder[i])
 }
 
-function clipboardFileList(data: DataTransfer): File[] {
+export function filesFromClipboard(data: DataTransfer): File[] {
   const directFiles = Array.from(data.files)
   if (directFiles.length > 0) return directFiles
 

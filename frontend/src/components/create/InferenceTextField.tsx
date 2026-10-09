@@ -16,7 +16,7 @@ import {
 } from '../../types'
 
 import { PROMPT_LABELS } from '../../config'
-import { isPlaceholderClipboardImage } from '../../utils/clipboardPlaceholder'
+import { withoutPlaceholderImages } from '../common/chatAttachments'
 
 const InferenceTextField: FC<{
   type: ISessionType,
@@ -149,23 +149,40 @@ const InferenceTextField: FC<{
       const items = event.clipboardData?.items
       if (!items || items.length === 0) return
 
-      // A text copy out of the remote desktop carries a 1x1 placeholder PNG
-      // alongside the real text; attaching it would swallow the text paste.
-      const hasText = Boolean(event.clipboardData?.getData('text/plain'))
-      const imageFiles: File[] = []
+      const pastedImages: File[] = []
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
         if (item.kind !== 'file') continue
         if (!item.type.startsWith('image/')) continue
         const file = item.getAsFile()
-        if (!file) continue
-        if (hasText && isPlaceholderClipboardImage(file)) continue
-        imageFiles.push(file)
+        if (file) pastedImages.push(file)
       }
 
-      if (imageFiles.length === 0) return
+      if (pastedImages.length === 0) return
 
       event.preventDefault()
+      const text = event.clipboardData?.getData('text/plain')
+      if (!text) {
+        attachImages(pastedImages)
+        return
+      }
+      // A text copy out of the remote desktop on Safari carries a 1x1
+      // placeholder PNG alongside the real text, recognisable only by reading
+      // its header. The native paste is already cancelled, so re-insert the
+      // text ourselves if that is all the clipboard really held.
+      const target = event.currentTarget
+      void withoutPlaceholderImages(pastedImages).then((images) => {
+        if (images.length > 0) {
+          attachImages(images)
+        } else {
+          target.focus()
+          document.execCommand('insertText', false, text)
+        }
+      })
+    }
+
+    const attachImages = (imageFiles: File[]) => {
+      if (!onAttachedImagesChange) return
       const next = [...attachedImages, ...imageFiles]
       onAttachedImagesChange(next)
 
