@@ -81,6 +81,15 @@ type Server struct {
 	inputListener   net.Listener
 	inputSocketPath string
 
+	// GNOME clipboard: the MIME types the current selection owner advertises,
+	// tracked from SelectionOwnerChanged. Mutter never announces an owner that
+	// already existed when the clipboard was enabled, so this is nil until the
+	// first copy after the session starts.
+	clipboardMu           sync.Mutex
+	clipboardOffer        []string
+	clipboardSessionOwned bool // the bridge itself set the selection (paste into the desktop)
+	clipboardSignalsOnce  sync.Once
+
 	// Configuration
 	config Config
 
@@ -289,6 +298,8 @@ func (s *Server) Run(ctx context.Context) error {
 				rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 				if err := rdSession.Call(remoteDesktopSessionIface+".Start", 0).Err; err != nil {
 					s.logger.Warn("failed to start RemoteDesktop session in scanout mode", "err", err)
+				} else if err := s.enableClipboardGNOME(); err != nil {
+					s.logger.Warn("failed to enable clipboard in scanout mode", "err", err)
 				}
 			}
 			s.primeKeyboardInput()

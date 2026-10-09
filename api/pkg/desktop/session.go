@@ -620,6 +620,9 @@ func (s *Server) startSession(ctx context.Context) error {
 	if err := rdSession.Call(remoteDesktopSessionIface+".Start", 0).Err; err != nil {
 		return fmt.Errorf("start RemoteDesktop session: %w", err)
 	}
+	if err := s.enableClipboardGNOME(); err != nil {
+		return fmt.Errorf("enable clipboard: %w", err)
+	}
 	s.logger.Info("session started, waiting for PipeWireStreamAdded signal...")
 
 	// Wait for video signal with timeout

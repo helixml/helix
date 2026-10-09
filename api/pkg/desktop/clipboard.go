@@ -6,16 +6,23 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	"image/png"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/helixml/helix/api/pkg/types"
+	_ "golang.org/x/image/webp"
 )
 
 // ClipboardData is an alias for types.ClipboardData for package-internal use.
@@ -103,35 +110,199 @@ var (
 	pendingClipboardMime    string
 )
 
-func (s *Server) getClipboardGNOME() (*ClipboardData, error) {
-	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+// gnomeTextMimeTypes are the text targets read from the remote clipboard, in
+// order of preference. They are also offered when the bridge sets text.
+var gnomeTextMimeTypes = []string{"text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING"}
 
-	// First, enable clipboard if not already enabled
-	enableOpts := map[string]dbus.Variant{}
-	if err := rdSession.Call(remoteDesktopSessionIface+".EnableClipboard", 0, enableOpts).Err; err != nil {
-		s.logger.Debug("EnableClipboard call", "err", err)
+// enableClipboardGNOME turns on clipboard integration for the current
+// RemoteDesktop session and subscribes to its clipboard signals. Called every
+// time a session starts, including after recreation, because both the clipboard
+// enablement and the signal match are per session.
+func (s *Server) enableClipboardGNOME() error {
+	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+	if err := rdSession.Call(remoteDesktopSessionIface+".EnableClipboard", 0, map[string]dbus.Variant{}).Err; err != nil {
+		return fmt.Errorf("EnableClipboard: %w", err)
 	}
 
-	// Try to read text/plain first, then UTF-8 variants
-	textMimeTypes := []string{"text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING"}
+	for _, member := range []string{"SelectionOwnerChanged", "SelectionTransfer"} {
+		if err := s.conn.AddMatchSignal(
+			dbus.WithMatchObjectPath(s.rdSessionPath),
+			dbus.WithMatchInterface(remoteDesktopSessionIface),
+			dbus.WithMatchMember(member),
+		); err != nil {
+			return fmt.Errorf("subscribe to %s: %w", member, err)
+		}
+	}
 
-	for _, mimeType := range textMimeTypes {
-		data, err := s.readSelectionGNOME(rdSession, mimeType)
-		if err == nil && len(data) > 0 {
-			s.logger.Debug("got clipboard via D-Bus", "mime", mimeType, "size", len(data))
+	s.clipboardMu.Lock()
+	s.clipboardOffer = nil
+	s.clipboardSessionOwned = false
+	s.clipboardMu.Unlock()
+
+	s.clipboardSignalsOnce.Do(func() {
+		signalChan := make(chan *dbus.Signal, 10)
+		s.conn.Signal(signalChan)
+		go func() {
+			for sig := range signalChan {
+				switch sig.Name {
+				case remoteDesktopSessionIface + ".SelectionOwnerChanged":
+					s.handleSelectionOwnerChanged(sig)
+				case remoteDesktopSessionIface + ".SelectionTransfer":
+					s.handleSelectionTransfer(sig)
+				}
+			}
+		}()
+	})
+
+	s.logger.Info("clipboard enabled", "rd_session", s.rdSessionPath)
+	return nil
+}
+
+// handleSelectionOwnerChanged records what the new clipboard owner offers.
+// SelectionOwnerChanged signal: (options: a{sv}) with "mime-types" (as) and
+// "session-is-owner" (b).
+func (s *Server) handleSelectionOwnerChanged(sig *dbus.Signal) {
+	if sig.Path != s.rdSessionPath || len(sig.Body) < 1 {
+		return
+	}
+	options, ok := sig.Body[0].(map[string]dbus.Variant)
+	if !ok {
+		s.logger.Warn("SelectionOwnerChanged: invalid options")
+		return
+	}
+
+	var mimeTypes []string
+	if v, ok := options["mime-types"]; ok {
+		if err := v.Store(&mimeTypes); err != nil {
+			s.logger.Warn("SelectionOwnerChanged: invalid mime-types", "err", err)
+			return
+		}
+	}
+	var sessionOwned bool
+	if v, ok := options["session-is-owner"]; ok {
+		_ = v.Store(&sessionOwned)
+	}
+
+	s.clipboardMu.Lock()
+	s.clipboardOffer = mimeTypes
+	s.clipboardSessionOwned = sessionOwned
+	s.clipboardMu.Unlock()
+
+	s.logger.Debug("clipboard owner changed", "mime_types", mimeTypes, "session_is_owner", sessionOwned)
+}
+
+func (s *Server) getClipboardGNOME() (*ClipboardData, error) {
+	s.clipboardMu.Lock()
+	offer := s.clipboardOffer
+	sessionOwned := s.clipboardSessionOwned
+	s.clipboardMu.Unlock()
+
+	// The bridge set this selection itself; hand back what it holds rather than
+	// asking Mutter to transfer it from us to ourselves.
+	if sessionOwned {
+		pendingClipboardMu.Lock()
+		content, mime := pendingClipboardContent, pendingClipboardMime
+		pendingClipboardMu.Unlock()
+		if mime == "image/png" {
+			return &ClipboardData{Type: "image", Data: base64.StdEncoding.EncodeToString(content)}, nil
+		}
+		return &ClipboardData{Type: "text", Data: string(content)}, nil
+	}
+
+	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+	read := func(mimeType string) ([]byte, error) { return s.readSelectionGNOME(rdSession, mimeType) }
+	return readClipboardOffer(offer, read)
+}
+
+// readClipboardOffer picks what to read from a clipboard owner that advertises
+// the given MIME types. Only advertised types are requested: Mutter forwards
+// requests for any type to the owner, and owners answer unadvertised types
+// inconsistently (some return nothing, wl-copy returns its image bytes as
+// "text"). An image wins over text, matching the Sway path, because image
+// sources also advertise text (Firefox's "Copy Image" adds the URL). A single
+// local image file (copied in Loupe or Files) is returned as the image itself.
+func readClipboardOffer(offer []string, read func(mimeType string) ([]byte, error)) (*ClipboardData, error) {
+	if slices.Contains(offer, "image/png") {
+		data, err := read("image/png")
+		if err != nil {
+			return nil, fmt.Errorf("read image/png: %w", err)
+		}
+		if len(data) > 0 {
+			return &ClipboardData{Type: "image", Data: base64.StdEncoding.EncodeToString(data)}, nil
+		}
+	}
+
+	if slices.Contains(offer, "text/uri-list") {
+		data, err := read("text/uri-list")
+		if err != nil {
+			return nil, fmt.Errorf("read text/uri-list: %w", err)
+		}
+		if png, ok := imageFileFromURIList(data); ok {
+			return &ClipboardData{Type: "image", Data: base64.StdEncoding.EncodeToString(png)}, nil
+		}
+	}
+
+	for _, mimeType := range gnomeTextMimeTypes {
+		if !slices.Contains(offer, mimeType) {
+			continue
+		}
+		data, err := read(mimeType)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", mimeType, err)
+		}
+		if len(data) > 0 {
 			return &ClipboardData{Type: "text", Data: string(data)}, nil
 		}
 	}
 
-	// Try image/png for image clipboard
-	data, err := s.readSelectionGNOME(rdSession, "image/png")
-	if err == nil && len(data) > 0 {
-		s.logger.Debug("got image clipboard via D-Bus", "size", len(data))
-		return &ClipboardData{Type: "image", Data: base64.StdEncoding.EncodeToString(data)}, nil
+	return &ClipboardData{Type: "text", Data: ""}, nil
+}
+
+// maxClipboardImageFileBytes bounds how large an image file copied in the
+// desktop (Loupe, Files) is read into the clipboard.
+const maxClipboardImageFileBytes = 32 << 20
+
+// imageFileFromURIList returns the PNG encoding of the image when a
+// text/uri-list names exactly one local image file. Image viewers and file
+// managers copy a file reference rather than pixels, which otherwise reaches
+// the browser as the file's path.
+func imageFileFromURIList(data []byte) ([]byte, bool) {
+	var uris []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			uris = append(uris, line)
+		}
+	}
+	if len(uris) != 1 {
+		return nil, false
 	}
 
-	// Empty clipboard
-	return &ClipboardData{Type: "text", Data: ""}, nil
+	u, err := url.Parse(uris[0])
+	if err != nil || u.Scheme != "file" || (u.Host != "" && u.Host != "localhost") {
+		return nil, false
+	}
+	info, err := os.Stat(u.Path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxClipboardImageFileBytes {
+		return nil, false
+	}
+	raw, err := os.ReadFile(u.Path)
+	if err != nil {
+		return nil, false
+	}
+
+	img, format, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, false
+	}
+	if format == "png" {
+		return raw, true
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, false
+	}
+	return buf.Bytes(), true
 }
 
 func (s *Server) readSelectionGNOME(rdSession dbus.BusObject, mimeType string) ([]byte, error) {
@@ -162,12 +333,6 @@ func (s *Server) readSelectionGNOME(rdSession dbus.BusObject, mimeType string) (
 func (s *Server) setClipboardGNOME(data *ClipboardData) error {
 	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 
-	// Enable clipboard if not already enabled
-	enableOpts := map[string]dbus.Variant{}
-	if err := rdSession.Call(remoteDesktopSessionIface+".EnableClipboard", 0, enableOpts).Err; err != nil {
-		s.logger.Debug("EnableClipboard call", "err", err)
-	}
-
 	content, err := decodeClipboardData(data)
 	if err != nil {
 		return err
@@ -192,7 +357,7 @@ func (s *Server) setClipboardGNOME(data *ClipboardData) error {
 	mimeTypes := []string{mimeType}
 	if data.Type == "text" {
 		// Offer multiple text formats for compatibility
-		mimeTypes = []string{"text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING"}
+		mimeTypes = gnomeTextMimeTypes
 	}
 
 	setOpts := map[string]dbus.Variant{
@@ -204,48 +369,7 @@ func (s *Server) setClipboardGNOME(data *ClipboardData) error {
 	}
 
 	s.logger.Info("clipboard announced via D-Bus", "type", data.Type, "size", len(content))
-
-	// Start signal handler for SelectionTransfer if not already running
-	s.startClipboardSignalHandler()
-
 	return nil
-}
-
-// clipboardSignalHandlerStarted tracks if we've started the handler
-var clipboardSignalHandlerStarted bool
-var clipboardSignalHandlerMu sync.Mutex
-
-func (s *Server) startClipboardSignalHandler() {
-	clipboardSignalHandlerMu.Lock()
-	defer clipboardSignalHandlerMu.Unlock()
-
-	if clipboardSignalHandlerStarted {
-		return
-	}
-	clipboardSignalHandlerStarted = true
-
-	// Subscribe to SelectionTransfer signal
-	if err := s.conn.AddMatchSignal(
-		dbus.WithMatchObjectPath(s.rdSessionPath),
-		dbus.WithMatchInterface(remoteDesktopSessionIface),
-		dbus.WithMatchMember("SelectionTransfer"),
-	); err != nil {
-		s.logger.Error("failed to subscribe to SelectionTransfer signal", "err", err)
-		return
-	}
-
-	signalChan := make(chan *dbus.Signal, 10)
-	s.conn.Signal(signalChan)
-
-	go func() {
-		for sig := range signalChan {
-			if sig.Name == remoteDesktopSessionIface+".SelectionTransfer" {
-				s.handleSelectionTransfer(sig)
-			}
-		}
-	}()
-
-	s.logger.Info("clipboard signal handler started")
 }
 
 func (s *Server) handleSelectionTransfer(sig *dbus.Signal) {
