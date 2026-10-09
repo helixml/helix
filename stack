@@ -1633,7 +1633,7 @@ function build-sandbox() {
   # it. On failure the old sandbox keeps running.
   for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
     if docker images "helix-${desktop}:latest" -q | grep -q .; then
-      _bs_elapsed "📤 Publishing helix-${desktop} to the local registry before the sandbox restarts..."
+      _bs_elapsed "📤 Publishing helix-${desktop} to the local registry..."
       if ! push-desktop-to-registry "$desktop" "$(desktop_image_tag "helix-${desktop}")"; then
         echo "❌ Not restarting the sandbox: it could not boot without helix-${desktop}"
         return 1
