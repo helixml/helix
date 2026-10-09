@@ -170,6 +170,49 @@ cd "$WORK_DIR"
 # Track which folders should be opened in Zed
 declare -a ZED_FOLDERS
 
+# Container engine data root. Sessions start from a copy of the project's
+# golden snapshot of it.
+CONTAINER_DATA_DIR=/var/lib/docker
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+    CONTAINER_DATA_DIR=/home/retro/.local/share/containers
+fi
+# Records each repo's HEAD at the end of a golden build (helix-git-mtime record).
+GOLDEN_GIT_RECORD="$CONTAINER_DATA_DIR/.golden-git-checkout.json"
+HELIX_GIT_MTIME=/usr/local/bin/helix-git-mtime
+[ -x "$HELIX_GIT_MTIME" ] || HELIX_GIT_MTIME="$SCRIPT_DIR/helix-git-mtime.py"
+
+# Workspace repos, and the ones cloned by this run (their mtimes get set).
+declare -a WORKSPACE_REPOS
+declare -a FRESH_CLONES
+
+# Give freshly cloned files their last commit time instead of the clone time,
+# so mtime-based build tools reuse outputs cached in the golden snapshot. Files
+# that differ from the golden build's checkout are kept newer than its outputs.
+# Never fails setup.
+set_fresh_clone_mtimes() {
+    [ ${#FRESH_CLONES[@]} -gt 0 ] || return 0
+    echo "========================================="
+    echo "Setting file mtimes to last commit times..."
+    echo "========================================="
+    local record golden_args=() start=$SECONDS
+    record=$(mktemp) || return 0
+    # shellcheck disable=SC2024 # only reading needs root; $record is ours
+    if sudo -n cat "$GOLDEN_GIT_RECORD" > "$record" 2>/dev/null; then
+        golden_args=(--golden "$record")
+    elif sudo -n test -e "$CONTAINER_DATA_DIR/golden-version.json"; then
+        # Without the golden checkout, commit times could make changed files
+        # look older than the golden's outputs. Clone times are always newer.
+        echo "  Golden snapshot has no checkout record (built by an older image); keeping clone mtimes"
+        rm -f "$record"
+        return 0
+    fi
+    timeout 300 python3 "$HELIX_GIT_MTIME" restore "${golden_args[@]}" "${FRESH_CLONES[@]}" \
+        || echo "  ⚠️ Setting mtimes failed (continuing with clone mtimes)"
+    rm -f "$record"
+    echo "  Done in $((SECONDS - start))s"
+    echo ""
+}
+
 # Debug: Show key environment variables (sanitized)
 echo "Environment:"
 if [ -n "$USER_API_TOKEN" ]; then
@@ -292,6 +335,7 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
 
         echo "  Repository: $REPO_NAME (type: $REPO_TYPE)"
         CLONE_DIR="$WORK_DIR/$REPO_NAME"
+        WORKSPACE_REPOS+=("$CLONE_DIR")
 
         # If already cloned, ensure remote URL has no embedded credentials
         # (credentials come from .git-credentials via credential helper)
@@ -327,6 +371,7 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         for i in "${!CLONE_PIDS[@]}"; do
             if wait "${CLONE_PIDS[$i]}"; then
                 echo "    ✅ ${CLONE_NAMES[$i]} cloned successfully"
+                FRESH_CLONES+=("${CLONE_DIRS[$i]}")
             else
                 echo ""
                 echo "    ❌ FAILED to clone ${CLONE_NAMES[$i]}"
@@ -516,6 +561,9 @@ else
     fi
     echo ""
 fi
+
+# After the working branch checkout, before anything builds.
+set_fresh_clone_mtimes || true
 
 # =========================================
 # Setup helix-specs worktree
@@ -993,10 +1041,7 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
     # Disable trap — golden builds should exit cleanly, no interactive menu
     trap - EXIT
 
-    GOLDEN_DATA_DIR=/var/lib/docker
-    if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
-        GOLDEN_DATA_DIR=/home/retro/.local/share/containers
-    fi
+    GOLDEN_DATA_DIR="$CONTAINER_DATA_DIR"
     fail_golden_build() {
         echo "1" | sudo tee "$GOLDEN_DATA_DIR/.golden-build-result" > /dev/null
         echo "Golden build cleanup failed. Waiting for Hydra to stop the container..."
@@ -1007,6 +1052,20 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
     if bash -i "$STARTUP_SCRIPT"; then
         echo ""
         echo "✅ Golden build: startup script completed successfully"
+
+        # Sessions keep files that match this checkout at their commit time
+        # and move the rest after this build (see set_fresh_clone_mtimes).
+        # The previous golden's record must not outlive it.
+        sudo rm -f "$GOLDEN_GIT_RECORD" || true
+        GIT_RECORD_TMP="$HOME/.helix-golden-git-checkout.json"
+        if [ ${#WORKSPACE_REPOS[@]} -gt 0 ] \
+            && python3 "$HELIX_GIT_MTIME" record "$GIT_RECORD_TMP" "${WORKSPACE_REPOS[@]}" \
+            && sudo cp "$GIT_RECORD_TMP" "$GOLDEN_GIT_RECORD"; then
+            echo "Recorded golden checkout in $GOLDEN_GIT_RECORD"
+        else
+            echo "⚠️ Could not record golden checkout; sessions will keep clone mtimes"
+        fi
+        rm -f "$GIT_RECORD_TMP"
 
         if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
             echo "Removing rootless runtime containers before golden promotion..."
