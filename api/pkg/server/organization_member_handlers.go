@@ -363,6 +363,7 @@ func (apiServer *HelixAPIServer) publicInvitationInfo(rw http.ResponseWriter, r 
 // @Tags    organizations
 // @Success 200 {object} types.OrgUserLookupResponse
 // @Param email query string true "Email to look up"
+// @Param app_id query string false "Only report a pending invitation for this app/project (project access dialogs). Omit to report any pending invitation in the org."
 // @Router /api/v1/organizations/{id}/users/lookup [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) lookupOrgUser(rw http.ResponseWriter, r *http.Request) {
@@ -418,17 +419,22 @@ func (apiServer *HelixAPIServer) lookupOrgUser(rw http.ResponseWriter, r *http.R
 	// exists — an admin may have invited someone who then created a Helix
 	// account elsewhere, in which case both Exists and IsInvited can be
 	// true and we want the UI to know about the dangling invitation.
-	pending, err := apiServer.Store.GetOrganizationInvitation(r.Context(), &store.GetOrganizationInvitationQuery{
+	// Invitations are per (org, email, app), so a project dialog passes its
+	// app_id: an invitation to a different project doesn't block inviting the
+	// same person here too.
+	pending, err := apiServer.Store.ListOrganizationInvitations(r.Context(), &store.ListOrganizationInvitationsQuery{
 		OrganizationID: orgID,
 		Email:          emailLower,
+		AppID:          r.URL.Query().Get("app_id"),
 	})
-	if err == nil && pending != nil {
-		resp.IsInvited = true
-		resp.InvitationID = pending.ID
-	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+	if err != nil {
 		log.Err(err).Msg("error checking pending invitation during lookup")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if len(pending) > 0 {
+		resp.IsInvited = true
+		resp.InvitationID = pending[0].ID
 	}
 
 	writeResponse(rw, resp, http.StatusOK)

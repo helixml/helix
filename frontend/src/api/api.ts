@@ -2431,13 +2431,13 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
+  KindLocal = "local",
   KindWebhook = "webhook",
+  KindGitHub = "github",
   KindEmail = "email",
   KindHelixEvents = "helix_events",
-  KindGitHub = "github",
-  KindSlack = "slack",
-  KindLocal = "local",
   KindGitLab = "gitlab",
+  KindSlack = "slack",
   KindCron = "cron",
 }
 
@@ -5339,6 +5339,9 @@ export interface TypesOrganizationInvitation {
    * that consuming the invitation at register time can also materialise
    * the access grant — the invitee then shows up in the project access
    * list immediately, exactly as if they had been added directly.
+   * Despite the name, AppID is a generic resource ID: the shared access
+   * dialog passes an app, project (prj_…) or repository ID. Pending
+   * invitations are unique per (organization, email, app_id).
    */
   app_id?: string;
   created_at?: string;
@@ -14127,6 +14130,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query: {
         /** Email to look up */
         email: string;
+        /** Only report a pending invitation for this app/project (project access dialogs). Omit to report any pending invitation in the org. */
+        app_id?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -18790,6 +18795,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesSessionUsage, any>({
         path: `/api/v1/sessions/${id}/usage`,
         method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Serve an agent-published HTML visualization page for inline rendering
+     *
+     * @tags sessions
+     * @name V1SessionsVisualizationDetail
+     * @summary Get a session visualization
+     * @request GET:/api/v1/sessions/{id}/visualization
+     * @secure
+     */
+    v1SessionsVisualizationDetail: (
+      id: string,
+      query: {
+        /** Visualization ID */
+        viz_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/sessions/${id}/visualization`,
+        method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),

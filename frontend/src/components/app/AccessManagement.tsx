@@ -30,6 +30,7 @@ import InputAdornment from '@mui/material/InputAdornment'
 // Import icons
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
+import LinkIcon from '@mui/icons-material/Link'
 import PersonIcon from '@mui/icons-material/Person'
 import GroupsIcon from '@mui/icons-material/Groups'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
@@ -238,7 +239,9 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
 
     let cancelled = false;
     setLookingUpEmail(true);
-    api.getApiClient().v1OrganizationsUsersLookupDetail(effectiveOrganizationId, { email: trimmed })
+    // Scope the "already invited" check to this resource: an invitation to
+    // another project mustn't block inviting the same person here as well.
+    api.getApiClient().v1OrganizationsUsersLookupDetail(effectiveOrganizationId, { email: trimmed, app_id: appId || undefined })
       .then((response) => {
         if (cancelled) return;
         setEmailLookup(response.data || { email: lower, exists: false, is_member: false });
@@ -256,7 +259,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
       });
 
     return () => { cancelled = true; };
-  }, [api.getApiClient, debouncedUserInputValue, effectiveOrganizationId, openUserDialog, userSearchResults]);
+  }, [api.getApiClient, debouncedUserInputValue, effectiveOrganizationId, openUserDialog, userSearchResults, appId]);
 
   const getUserSearchMessage = () => {
     const query = userInputValue.trim();
@@ -450,6 +453,23 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   // Handle delete confirmation
   const handleDeleteClick = (grantId: string) => {
     setDeleteGrantId(grantId);
+  };
+
+  // Copy the same accept link the invitation email contains, so the owner can
+  // send it directly (chat, SMS) instead of relying on the email arriving.
+  // Signing in through it consumes every pending invitation for that email.
+  const handleCopyInviteLink = async (invitation: TypesOrganizationInvitation) => {
+    if (!invitation.id) return;
+    const link = `${window.location.origin}/login?invitation=${encodeURIComponent(invitation.id)}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setOrgAddSnackbarSeverity('info');
+      setOrgAddSnackbar(`Invite link for ${invitation.email || 'user'} copied to clipboard.`);
+    } catch (error) {
+      console.error('Failed to copy invite link:', error);
+      setOrgAddSnackbarSeverity('error');
+      setOrgAddSnackbar(`Could not copy automatically. Invite link: ${link}`);
+    }
   };
 
   // Revoke a pending invitation. Skips the standard delete-confirm dialog
@@ -668,7 +688,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                       const user = (grant.user || {}) as any
                       return (
                         <Box component="tr" key={grant.id} sx={{
-                          '&:hover': { bgcolor: lightTheme.highlightColor },
+                          '&:hover': { bgcolor: 'action.hover' },
                           borderBottom: (index < userGrants.length - 1 || invitations.length > 0) ? '1px solid #353945' : 'none'
                         }}>
                           <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
@@ -734,7 +754,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                         component="tr"
                         key={invitation.id}
                         sx={{
-                          '&:hover': { bgcolor: lightTheme.highlightColor },
+                          '&:hover': { bgcolor: 'action.hover' },
                           borderBottom: index < invitations.length - 1 ? '1px solid #353945' : 'none'
                         }}
                       >
@@ -786,7 +806,17 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                           ))}
                         </Box>
                         {!isReadOnly && (
-                          <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                          <Box component="td" sx={{ p: 2, verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                            <Tooltip title="Copy invite link">
+                              <IconButton
+                                size="small"
+                                aria-label={`Copy invite link for ${invitation.email}`}
+                                onClick={() => handleCopyInviteLink(invitation)}
+                                sx={{ color: 'text.secondary', '&:hover': { color: 'text.primary' } }}
+                              >
+                                <LinkIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                             <Tooltip title="Revoke invitation">
                               <span>
                                 <IconButton
@@ -907,7 +937,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                       const team = teams.find(t => t.id === teamId);
                       return (
                         <Box component="tr" key={grant.id} sx={{ 
-                          '&:hover': { bgcolor: lightTheme.highlightColor },
+                          '&:hover': { bgcolor: 'action.hover' },
                           borderBottom: index < teamGrants.length - 1 ? '1px solid #353945' : 'none'
                         }}>
                           <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>

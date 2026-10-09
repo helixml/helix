@@ -544,3 +544,80 @@ func (suite *OrganizationInvitationsTestSuite) TestConsumePendingInvitations_Cas
 	suite.Require().NoError(err)
 	suite.Len(created, 1)
 }
+
+// Someone who isn't in Helix yet can be invited to several projects in the
+// same org: invitations are unique per (org, email, app_id), so a second
+// project gets its own row, while re-inviting to the same project is still a
+// no-op that returns the existing row.
+func (suite *OrganizationInvitationsTestSuite) TestCreateInvitation_SameEmailDifferentProjects() {
+	email := "multi-project@example.com"
+	first, err := suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID, Email: email, AppID: "prj_one",
+	})
+	suite.Require().NoError(err)
+
+	second, err := suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID, Email: email, AppID: "prj_two",
+	})
+	suite.Require().NoError(err, "a different project must get its own invitation")
+	suite.NotEqual(first.ID, second.ID)
+
+	orgWide, err := suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID, Email: email,
+	})
+	suite.Require().NoError(err, "an org-wide invitation is distinct from project ones")
+	suite.NotEqual(first.ID, orgWide.ID)
+
+	again, err := suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID, Email: "Multi-Project@Example.com", AppID: "prj_one",
+	})
+	suite.Require().ErrorIs(err, ErrInvitationAlreadyExists)
+	suite.Equal(first.ID, again.ID)
+
+	all, err := suite.db.ListOrganizationInvitations(suite.ctx, &ListOrganizationInvitationsQuery{
+		OrganizationID: suite.org.ID, Email: email,
+	})
+	suite.Require().NoError(err)
+	suite.Len(all, 3)
+}
+
+// Signing in once consumes every pending invitation for the email: one org
+// membership, plus an access grant on each invited project, and no
+// invitations left behind.
+func (suite *OrganizationInvitationsTestSuite) TestConsumePendingInvitations_TwoProjects_GrantsBoth() {
+	role, err := suite.db.CreateRole(suite.ctx, &types.Role{
+		ID: system.GenerateRoleID(), OrganizationID: suite.org.ID, Name: "admin",
+	})
+	suite.Require().NoError(err)
+
+	email := "two-projects@example.com"
+	for _, appID := range []string{"prj_divorce", "prj_playgrant"} {
+		_, err := suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+			OrganizationID: suite.org.ID, Email: email, AppID: appID, GrantRoles: []string{role.Name},
+		})
+		suite.Require().NoError(err)
+	}
+
+	user := &types.User{ID: system.GenerateUserID(), Email: email, CreatedAt: time.Now()}
+	_, err = suite.db.CreateUser(suite.ctx, user)
+	suite.Require().NoError(err)
+	defer suite.db.DeleteUser(suite.ctx, user.ID)
+
+	memberships, err := suite.db.ConsumePendingInvitations(suite.ctx, user)
+	suite.Require().NoError(err)
+	suite.Len(memberships, 1, "one org membership, not one per project")
+
+	for _, appID := range []string{"prj_divorce", "prj_playgrant"} {
+		grants, err := suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
+			OrganizationID: suite.org.ID, ResourceID: appID, UserID: user.ID,
+		})
+		suite.Require().NoError(err)
+		suite.Require().Len(grants, 1, "access grant for %s", appID)
+	}
+
+	left, err := suite.db.ListOrganizationInvitations(suite.ctx, &ListOrganizationInvitationsQuery{
+		OrganizationID: suite.org.ID, Email: email,
+	})
+	suite.Require().NoError(err)
+	suite.Empty(left)
+}
