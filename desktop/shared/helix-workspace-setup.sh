@@ -322,6 +322,7 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
     declare -a CLONE_NAMES
     declare -a CLONE_DIRS
 
+    CLONE_START=$SECONDS
     IFS=',' read -ra REPOS <<< "$HELIX_REPOSITORIES"
     for REPO_SPEC in "${REPOS[@]}"; do
         # Parse "id:name:type" format
@@ -370,7 +371,7 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         CLONE_FAILED=false
         for i in "${!CLONE_PIDS[@]}"; do
             if wait "${CLONE_PIDS[$i]}"; then
-                echo "    ✅ ${CLONE_NAMES[$i]} cloned successfully"
+                echo "    ✅ ${CLONE_NAMES[$i]} cloned successfully (done after $((SECONDS - CLONE_START))s)"
                 FRESH_CLONES+=("${CLONE_DIRS[$i]}")
             else
                 echo ""
@@ -383,6 +384,8 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
                 CLONE_FAILED=true
             fi
         done
+
+        echo "  Clones took $((SECONDS - CLONE_START))s"
 
         if [ "$CLONE_FAILED" = true ]; then
             echo ""
@@ -562,7 +565,8 @@ else
     echo ""
 fi
 
-# After the working branch checkout, before anything builds.
+# After the working branch checkout. Runs to completion before Zed is signalled
+# to start ($COMPLETE_SIGNAL) and before the startup script or golden build.
 set_fresh_clone_mtimes || true
 
 # =========================================
