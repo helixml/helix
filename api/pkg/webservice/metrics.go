@@ -31,6 +31,11 @@ var (
 		Help:    "Wall-clock duration of hosted web-service auto-recovery attempts.",
 		Buckets: []float64{5, 15, 30, 60, 120, 300, 600},
 	}, []string{"project_id"})
+
+	metricInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "helix_webservice_info",
+		Help: "Hosted web-service project and organization metadata.",
+	}, []string{"project_id", "project_name", "organization_id", "organization_name"})
 )
 
 // forgetProjectMetrics drops all metric series for a project that is no longer
@@ -41,4 +46,5 @@ func forgetProjectMetrics(projectID string) {
 	metricRecoveryDuration.DeleteLabelValues(projectID)
 	metricRecoveryTotal.DeleteLabelValues(projectID, "success")
 	metricRecoveryTotal.DeleteLabelValues(projectID, "failure")
+	metricInfo.DeletePartialMatch(prometheus.Labels{"project_id": projectID})
 }

@@ -14736,6 +14736,10 @@ definitions:
         type: boolean
       golden:
         $ref: '#/definitions/types.ZFSTreeNode'
+      goldens:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
       orphans:
         items:
           $ref: '#/definitions/types.ZFSTreeNode'
@@ -14745,6 +14749,8 @@ definitions:
     type: object
   types.ZFSTreeNode:
     properties:
+      cache_kind:
+        type: string
       children:
         items:
           $ref: '#/definitions/types.ZFSTreeNode'

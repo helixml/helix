@@ -44246,6 +44246,12 @@ const docTemplate = `{
                 "golden": {
                     "$ref": "#/definitions/types.ZFSTreeNode"
                 },
+                "goldens": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ZFSTreeNode"
+                    }
+                },
                 "orphans": {
                     "type": "array",
                     "items": {
@@ -44260,6 +44266,9 @@ const docTemplate = `{
         "types.ZFSTreeNode": {
             "type": "object",
             "properties": {
+                "cache_kind": {
+                    "type": "string"
+                },
                 "children": {
                     "type": "array",
                     "items": {
