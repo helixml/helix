@@ -1108,6 +1108,9 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.DesktopRootless && req.Privileged {
 		return nil, fmt.Errorf("desktop rootless mode cannot be combined with privileged mode")
 	}
+	if req.DesktopRootless && req.NoNewPrivileges {
+		return nil, fmt.Errorf("desktop rootless mode cannot be combined with no-new-privileges")
+	}
 	if req.DesktopRootless && req.ContainerType != DevContainerTypeUbuntu {
 		return nil, fmt.Errorf("desktop rootless mode only supports ubuntu containers")
 	}
@@ -1166,11 +1169,12 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	} else {
 		hostConfig.CapDrop = []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
 		if rootlessEngine {
-			// The trusted init process needs SYS_ADMIN in its bounding set so
-			// rootless Podman can create its subordinate user namespace. Before
-			// the agent starts, the image drops SYS_ADMIN from the agent's
-			// bounding set and enables no_new_privs.
-			hostConfig.CapAdd = []string{"SYS_ADMIN"}
+			if req.DesktopRootless {
+				hostConfig.CapDrop = append([]string{"SYS_ADMIN"}, hostConfig.CapDrop...)
+			} else {
+				// Headless rootless engines still use SYS_ADMIN during trusted init.
+				hostConfig.CapAdd = []string{"SYS_ADMIN"}
+			}
 			hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "seccomp=unconfined")
 			// Rootless Podman needs to mount procfs entries that Docker masks or
 			// makes read-only by default. Empty, non-nil slices explicitly

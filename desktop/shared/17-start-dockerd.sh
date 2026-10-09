@@ -49,6 +49,13 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     cp /opt/helix/headless-containers.conf /home/retro/.config/containers/containers.conf
     chown retro:retro /home/retro/.config/containers/containers.conf
 
+    if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
+        chmod u-s /usr/bin/newuidmap /usr/bin/newgidmap
+        setcap cap_setuid=ep /usr/bin/newuidmap
+        setcap cap_setgid=ep /usr/bin/newgidmap
+        install -d -m 0700 -o retro -g retro /run/buildkit
+    fi
+
     if ! gosu retro env \
         HOME=/home/retro \
         USER=retro \
