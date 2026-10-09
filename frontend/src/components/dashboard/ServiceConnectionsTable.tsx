@@ -288,7 +288,7 @@ const ServiceConnectionsTable: FC = () => {
   return (
     <Card>
       <CardContent>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 2, mb: 2 }}>
           <Box>
             <Typography variant="h6">Service Connections</Typography>
             <Typography variant="body2" color="text.secondary">
