@@ -28,7 +28,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 
-	"github.com/helixml/helix/api/pkg/connman"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
@@ -913,22 +912,6 @@ func (c *inProcHelixClient) destroyProjectRuntime(ctx context.Context, project *
 	return nil
 }
 
-// destroyDesktopUnlessHostGone destroys a desktop whose session the caller is
-// deleting, but skips it when the session's sandbox host has no RevDial
-// connection. Host IDs are pod names, so a redeployed sandbox never comes back
-// and would otherwise make the delete fail forever. Callers must only use it
-// for sessions the orphan reaper treats as dead (soft-deleted, or in a deleted
-// project), so a host that does return is still cleaned up.
-func destroyDesktopUnlessHostGone(ctx context.Context, executor external_agent.Executor, sessionID, specTaskID string) error {
-	err := executor.DestroyDesktop(ctx, sessionID, specTaskID)
-	if errors.Is(err, connman.ErrNoConnection) {
-		log.Warn().Err(err).Str("session_id", sessionID).
-			Msg("sandbox host not connected; leaving desktop to the orphan reaper")
-		return nil
-	}
-	return err
-}
-
 // DeleteApp removes a Helix App. Used by the fire-worker cascade to
 // clean up the per-Worker agent app that ApplyProject auto-
 // provisioned. 404 maps to ErrProjectNotFound (the same "already
@@ -948,7 +931,7 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 	if sessionID != "" && c.server.externalAgentExecutor != nil {
 		// DeleteProject already destroyed this session when it belongs to the
 		// bot's project; this covers a session outside it.
-		if err := c.server.externalAgentExecutor.DestroyDesktop(ctx, sessionID, ""); err != nil {
+		if err := destroyDesktopUnlessHostGone(ctx, c.server.externalAgentExecutor, sessionID, ""); err != nil {
 			return fmt.Errorf("destroy linked agent desktop %s: %w", sessionID, err)
 		}
 	}
