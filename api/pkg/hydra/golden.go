@@ -748,12 +748,18 @@ func dirSizeBytes(dir string) int64 {
 const goldenBuildKitStatsFile = ".golden-buildkit-stats.json"
 
 // BuildKitCacheStats summarises a dockerd's BuildKit cache
-// (see desktop/shared/helix-buildkit-cache-stats.sh).
+// (see desktop/shared/helix-buildkit-cache-stats.py). Records and TotalBytes
+// come from BuildKit; the cache mount fields are measured on disk, because
+// BuildKit never refreshes a cache mount's size after its first measurement.
 type BuildKitCacheStats struct {
 	Records         int   `json:"records"`
 	TotalBytes      int64 `json:"total_bytes"`
 	CacheMountCount int   `json:"cache_mount_count"`
 	CacheMountBytes int64 `json:"cache_mount_bytes"`
+	// Newest file mtime across all cache mounts (RFC 3339), empty if none.
+	CacheMountLastWritten string `json:"cache_mount_last_written"`
+	// Cache mounts whose snapshot directory could not be measured.
+	CacheMountUnmeasured int `json:"cache_mount_unmeasured"`
 }
 
 // GoldenBuildKitStats is the content of goldenBuildKitStatsFile.
@@ -788,13 +794,16 @@ func addGoldenBuildKitStats(ev *zerolog.Event, stats *GoldenBuildKitStats) *zero
 	}
 	if s := stats.BuildEnd; s != nil {
 		ev = ev.Int64("buildkit_build_end_bytes", s.TotalBytes).
-			Int64("buildkit_build_end_cache_mount_bytes", s.CacheMountBytes)
+			Int64("buildkit_build_end_cache_mount_bytes", s.CacheMountBytes).
+			Str("buildkit_build_end_cache_mount_last_written", s.CacheMountLastWritten)
 	}
 	if s := stats.PreSnapshot; s != nil {
 		ev = ev.Int64("buildkit_golden_bytes", s.TotalBytes).
 			Int("buildkit_golden_records", s.Records).
 			Int("buildkit_golden_cache_mounts", s.CacheMountCount).
-			Int64("buildkit_golden_cache_mount_bytes", s.CacheMountBytes)
+			Int64("buildkit_golden_cache_mount_bytes", s.CacheMountBytes).
+			Str("buildkit_golden_cache_mount_last_written", s.CacheMountLastWritten).
+			Int("buildkit_golden_cache_mounts_unmeasured", s.CacheMountUnmeasured)
 	}
 	return ev
 }
