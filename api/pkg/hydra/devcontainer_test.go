@@ -189,11 +189,11 @@ func TestBuildHostConfigDesktopRootlessIsNonEscalating(t *testing.T) {
 	// sibling tenant's zvol or the host root fs.
 	require.NotContains(t, hostConfig.SecurityOpt, "apparmor=unconfined")
 
-	// Same capability posture as the headless rootless engine: SYS_ADMIN only
-	// (rootless Podman needs it to create its subordinate userns), host-level
-	// caps dropped.
-	require.Equal(t, []string{"SYS_ADMIN"}, []string(hostConfig.CapAdd))
-	require.Equal(t, []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}, []string(hostConfig.CapDrop))
+	// Desktop users can reach fresh Docker exec processes, so SYS_ADMIN must be
+	// absent from the container's bounding set rather than dropped by PID 1.
+	require.Empty(t, hostConfig.CapAdd)
+	require.Equal(t, []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}, []string(hostConfig.CapDrop))
+	require.NotContains(t, hostConfig.SecurityOpt, "no-new-privileges")
 
 	// Desktop still gets its private IPC namespace and shared-memory sizing.
 	require.Equal(t, "private", string(hostConfig.IpcMode))
