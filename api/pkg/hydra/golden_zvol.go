@@ -877,7 +877,7 @@ func CreateSessionZvol(sessionID string) (string, error) {
 		if isMounted(mountPath) {
 			return mountPath, nil
 		}
-		if err := mountZvol(zvolName, mountPath); err != nil {
+		if err := mountZvolWithOptions(zvolName, mountPath, "nouuid,discard"); err != nil {
 			return "", err
 		}
 		return mountPath, nil

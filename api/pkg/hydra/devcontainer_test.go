@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	dockertypes "github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/stretchr/testify/require"
 )
 
@@ -164,6 +165,7 @@ func TestBuildHostConfigRootlessContainerEngine(t *testing.T) {
 	require.Equal(t, "/dev/net/tun", hostConfig.Resources.Devices[1].PathOnHost)
 	require.Equal(t, "/dev/net/tun", hostConfig.Resources.Devices[1].PathInContainer)
 	require.Equal(t, "rwm", hostConfig.Resources.Devices[1].CgroupPermissions)
+	require.Equal(t, "rw,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0700", hostConfig.Tmpfs["/run/user/1000"])
 }
 
 // TestBuildHostConfigDesktopRootlessIsNonEscalating proves the hardened
@@ -198,6 +200,7 @@ func TestBuildHostConfigDesktopRootlessIsNonEscalating(t *testing.T) {
 	// Desktop still gets its private IPC namespace and shared-memory sizing.
 	require.Equal(t, "private", string(hostConfig.IpcMode))
 	require.Equal(t, int64(desktopShmSizeBytes), hostConfig.ShmSize)
+	require.Equal(t, "rw,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0700", hostConfig.Tmpfs["/run/user/1000"])
 
 	// The device cgroup is an explicit allow-list: only the rootless-engine
 	// nodes (fuse/tun) plus display input-device major rules. Crucially, NO
@@ -213,6 +216,77 @@ func TestBuildHostConfigDesktopRootlessIsNonEscalating(t *testing.T) {
 		require.True(t, strings.HasPrefix(rule, "c "),
 			"device cgroup rule %q is not a char-device allow rule", rule)
 	}
+}
+
+func TestBuildMountsRootlessRuntimeIsEphemeral(t *testing.T) {
+	dm := &DevContainerManager{}
+	runtimeMount := MountConfig{Source: "/data/sessions/ses_1/pipewire", Destination: "/run/user/1000"}
+	workspaceMount := MountConfig{Source: "/data/sessions/ses_1/work", Destination: "/workspace"}
+
+	for name, req := range map[string]*CreateDevContainerRequest{
+		"headless": {
+			RootlessContainerEngine: true,
+			Mounts:                  []MountConfig{runtimeMount, workspaceMount},
+		},
+		"desktop": {
+			DesktopRootless: true,
+			Mounts:          []MountConfig{runtimeMount, workspaceMount},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mounts, err := dm.buildMounts(req)
+			require.NoError(t, err)
+			require.Len(t, mounts, 1)
+			require.Equal(t, "/workspace", mounts[0].Target)
+		})
+	}
+
+	mounts, err := dm.buildMounts(&CreateDevContainerRequest{Mounts: []MountConfig{runtimeMount}})
+	require.NoError(t, err)
+	require.Len(t, mounts, 1)
+	require.Equal(t, "/run/user/1000", mounts[0].Target)
+}
+
+func TestArchivePersistentRootlessRuntime(t *testing.T) {
+	root := t.TempDir()
+	runtimeDir := filepath.Join(root, "pipewire")
+	podmanData := filepath.Join(root, "podman-data")
+	require.NoError(t, os.MkdirAll(filepath.Join(runtimeDir, "libpod", "tmp"), 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(runtimeDir, "buildkit-rootlesskit"), 0o700))
+	require.NoError(t, os.MkdirAll(podmanData, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(runtimeDir, "pipewire-0"), []byte("keep"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(podmanData, "storage"), []byte("keep"), 0o600))
+
+	archive, err := archivePersistentRootlessRuntime([]dockertypes.MountPoint{{
+		Type:        mount.TypeBind,
+		Source:      runtimeDir,
+		Destination: "/run/user/1000",
+	}})
+	require.NoError(t, err)
+	require.Equal(t, root, filepath.Dir(archive))
+	require.NoDirExists(t, filepath.Join(runtimeDir, "libpod"))
+	require.NoDirExists(t, filepath.Join(runtimeDir, "buildkit-rootlesskit"))
+	require.DirExists(t, filepath.Join(archive, "libpod"))
+	require.DirExists(t, filepath.Join(archive, "buildkit-rootlesskit"))
+	require.FileExists(t, filepath.Join(runtimeDir, "pipewire-0"))
+	require.FileExists(t, filepath.Join(podmanData, "storage"))
+
+	archive, err = archivePersistentRootlessRuntime([]dockertypes.MountPoint{{
+		Type:        mount.TypeTmpfs,
+		Destination: "/run/user/1000",
+	}})
+	require.NoError(t, err)
+	require.Empty(t, archive)
+}
+
+func TestArchivePersistentRootlessRuntimeFailsWhenBindSourceIsMissing(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+	_, err := archivePersistentRootlessRuntime([]dockertypes.MountPoint{{
+		Type:        mount.TypeBind,
+		Source:      missing,
+		Destination: "/run/user/1000",
+	}})
+	require.ErrorContains(t, err, "inspect persistent runtime mount")
 }
 
 func TestBuildHostConfigRejectsInvalidDesktopRootlessModes(t *testing.T) {

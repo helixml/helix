@@ -657,6 +657,19 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 			Str("state", existingContainer.State.Status).
 			Msg("Container exists but stopped, starting it")
 
+		if req.RootlessContainerEngine || req.DesktopRootless {
+			archivePath, err := archivePersistentRootlessRuntime(existingContainer.Mounts)
+			if err != nil {
+				return nil, fmt.Errorf("archive stale rootless runtime before restart: %w", err)
+			}
+			if archivePath != "" {
+				log.Info().
+					Str("container_id", existingContainer.ID).
+					Str("archive", archivePath).
+					Msg("Archived stale rootless runtime before container restart")
+			}
+		}
+
 		if err := dockerClient.ContainerStart(dockerCtx, existingContainer.ID, container.StartOptions{}); err != nil {
 			// Failed to start - remove and create new
 			log.Warn().Err(err).
@@ -857,6 +870,52 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		GPUVendor:      gpuVendor,
 		RenderNode:     renderNode,
 	}, nil
+}
+
+// Legacy desktop containers persisted process-bound engine state beside
+// PipeWire sockets. Move only that state away before restarting them.
+func archivePersistentRootlessRuntime(mounts []dockertypes.MountPoint) (string, error) {
+	var runtimeSource string
+	for _, mounted := range mounts {
+		if mounted.Type == mount.TypeBind && mounted.Destination == "/run/user/1000" {
+			runtimeSource = mounted.Source
+			break
+		}
+	}
+	if runtimeSource == "" {
+		return "", nil
+	}
+	info, err := os.Stat(runtimeSource)
+	if err != nil {
+		return "", fmt.Errorf("inspect persistent runtime mount %s: %w", runtimeSource, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("persistent runtime mount %s is not a directory", runtimeSource)
+	}
+
+	var archivePath string
+	for _, name := range []string{
+		"libpod", "containers", "crun", "runc", "netns", "nets",
+		"podman", "buildkit", "buildkit-rootlesskit",
+	} {
+		source := filepath.Join(runtimeSource, name)
+		if _, err := os.Lstat(source); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return "", fmt.Errorf("inspect rootless runtime path %s: %w", source, err)
+		}
+		if archivePath == "" {
+			archivePath = filepath.Join(filepath.Dir(runtimeSource),
+				fmt.Sprintf("%s-stale-container-runtime-%d", filepath.Base(runtimeSource), time.Now().UnixNano()))
+			if err := os.Mkdir(archivePath, 0o700); err != nil {
+				return "", fmt.Errorf("create rootless runtime archive %s: %w", archivePath, err)
+			}
+		}
+		if err := os.Rename(source, filepath.Join(archivePath, name)); err != nil {
+			return archivePath, fmt.Errorf("archive rootless runtime path %s: %w", source, err)
+		}
+	}
+	return archivePath, nil
 }
 
 func materializeWorkspaceFiles(mounts []MountConfig, files map[string][]byte) error {
@@ -1163,6 +1222,12 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.DiskSizeGB > 0 {
 		hostConfig.Tmpfs = quotaHomeTmpfs(req.Mounts)
 	}
+	if rootlessEngine {
+		if hostConfig.Tmpfs == nil {
+			hostConfig.Tmpfs = map[string]string{}
+		}
+		hostConfig.Tmpfs["/run/user/1000"] = "rw,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0700"
+	}
 	if req.ContainerType != DevContainerTypeHeadless {
 		hostConfig.IpcMode = "private"
 		hostConfig.ShmSize = desktopShmSizeBytes
@@ -1430,6 +1495,9 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mo
 	containerDockerPath := os.Getenv("CONTAINER_DOCKER_PATH")
 
 	for _, m := range req.Mounts {
+		if (req.RootlessContainerEngine || req.DesktopRootless) && m.Destination == "/run/user/1000" {
+			continue
+		}
 		mountType := mount.TypeBind
 		if m.Type == "volume" {
 			mountType = mount.TypeVolume

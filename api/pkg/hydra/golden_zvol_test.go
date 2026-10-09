@@ -871,6 +871,18 @@ func (s *GoldenZvolSuite) TestCreateSessionZvol_AlreadyExistsAndMounted() {
 	assert.False(s.T(), s.mock.hasCommand("mkfs.xfs"))
 }
 
+func (s *GoldenZvolSuite) TestCreateSessionZvol_AlreadyExistsAndUnmountedUsesNouuid() {
+	zfsParentDataset = "prod/helix-zvols"
+	s.mock.addDataset("prod/helix-zvols/ses-ses_001")
+
+	path, err := CreateSessionZvol("ses_001")
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "/container-docker/zvol-mounts/ses_001", path)
+	assert.True(s.T(), s.mock.hasCommand("mount -o nouuid,discard /dev/zvol/prod/helix-zvols/ses-ses_001"))
+	assert.False(s.T(), s.mock.hasCommand("zfs create"))
+	assert.False(s.T(), s.mock.hasCommand("mkfs.xfs"))
+}
+
 func (s *GoldenZvolSuite) TestCreateSessionZvol_FormatFailsCleansUp() {
 	zfsParentDataset = "prod/helix-zvols"
 	s.mock.failOn("mkfs.xfs", fmt.Errorf("device not ready"))
