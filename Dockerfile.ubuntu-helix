@@ -917,6 +917,7 @@ RUN apt-get update && apt-get install -y \
     dnsutils \
     iproute2 \
     silversearcher-ag \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Helix background
