@@ -28,6 +28,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/connman"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
@@ -835,10 +836,11 @@ type projectRuntimeSession struct {
 
 // destroyProjectRuntime removes what a bot's project accumulates on sandbox
 // hosts. Soft-deleting the project alone only stops the newest desktop and
-// leaves workspaces, inner Docker data, and sandboxes behind. Host teardown is
-// best-effort so an offline sandbox host cannot make a bot undeletable; the
-// orphan reaper treats sessions and tasks of deleted projects as dead, so it
-// removes whatever this pass could not reach.
+// leaves workspaces, inner Docker data, and sandboxes behind. Desktops on a
+// sandbox host that is no longer connected are skipped so a replaced sandbox
+// pod cannot make a bot undeletable; the orphan reaper treats sessions and
+// tasks of deleted projects as dead, so it removes whatever this pass could not
+// reach. A connected host that fails the destroy still fails the delete.
 func (c *inProcHelixClient) destroyProjectRuntime(ctx context.Context, project *types.Project) error {
 	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
 	if !ok {
@@ -878,7 +880,7 @@ func (c *inProcHelixClient) destroyProjectRuntime(ctx context.Context, project *
 			if projectTasks[session.SpecTaskID] {
 				specTaskID = session.SpecTaskID
 			}
-			if err := executor.DestroyDesktop(ctx, session.ID, specTaskID); err != nil {
+			if err := destroyDesktopUnlessHostGone(ctx, executor, session.ID, specTaskID); err != nil {
 				return fmt.Errorf("destroy project desktop %s: %w", session.ID, err)
 			}
 		}
@@ -909,6 +911,22 @@ func (c *inProcHelixClient) destroyProjectRuntime(ctx context.Context, project *
 		}
 	}
 	return nil
+}
+
+// destroyDesktopUnlessHostGone destroys a desktop whose session the caller is
+// deleting, but skips it when the session's sandbox host has no RevDial
+// connection. Host IDs are pod names, so a redeployed sandbox never comes back
+// and would otherwise make the delete fail forever. Callers must only use it
+// for sessions the orphan reaper treats as dead (soft-deleted, or in a deleted
+// project), so a host that does return is still cleaned up.
+func destroyDesktopUnlessHostGone(ctx context.Context, executor external_agent.Executor, sessionID, specTaskID string) error {
+	err := executor.DestroyDesktop(ctx, sessionID, specTaskID)
+	if errors.Is(err, connman.ErrNoConnection) {
+		log.Warn().Err(err).Str("session_id", sessionID).
+			Msg("sandbox host not connected; leaving desktop to the orphan reaper")
+		return nil
+	}
+	return err
 }
 
 // DeleteApp removes a Helix App. Used by the fire-worker cascade to

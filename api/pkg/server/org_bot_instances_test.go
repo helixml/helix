@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/connman"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/application/instances"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
@@ -119,6 +121,17 @@ func (s *BotInstancesDeleteSuite) TestDestroyFailureKeepsSession() {
 
 	err := s.instances.Delete(callerCtx("usr_owner", types.OrganizationRoleMember), "org_one", "b-broker", "ses_instance")
 	s.Require().ErrorContains(err, "sandbox offline")
+}
+
+// An instance on a sandbox host that is no longer connected is still deleted;
+// the orphan reaper removes its host data if the host ever returns.
+func (s *BotInstancesDeleteSuite) TestDisconnectedHostStillDeletesSession() {
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_instance").Return(instanceSession(), nil)
+	s.executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_instance", "").
+		Return(fmt.Errorf("failed to dial Hydra via RevDial: %w", connman.ErrNoConnection))
+	s.store.EXPECT().DeleteSession(gomock.Any(), "ses_instance").Return(instanceSession(), nil)
+
+	s.Require().NoError(s.instances.Delete(callerCtx("usr_owner", types.OrganizationRoleMember), "org_one", "b-broker", "ses_instance"))
 }
 
 // A profile change reaches every instance through a targeted write, and one

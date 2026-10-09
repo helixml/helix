@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
@@ -232,10 +234,41 @@ func TestInProcClient_DestroyProjectRuntimeDestroysEveryProjectDesktop(t *testin
 	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_bot", "").Return(nil)
 	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_task_no_project", "spt_owned").Return(nil)
 	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_foreign_task", "").Return(nil)
-	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_deleted", "").Return(errors.New("hydra unreachable"))
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_deleted", "").Return(nil)
 
-	client := NewInProcHelixClient(&HelixAPIServer{Store: &gormBackedInProcStore{db: db}, externalAgentExecutor: executor})
-	require.ErrorContains(t, client.destroyProjectRuntime(context.Background(), &types.Project{ID: "prj_bot", OrganizationID: "org-test"}), "destroy project desktop ses_deleted")
+	client := NewInProcHelixClient(&HelixAPIServer{Store: &gormBackedInProcStore{Store: memorystore.New(), db: db}, externalAgentExecutor: executor})
+	require.NoError(t, client.destroyProjectRuntime(context.Background(), &types.Project{ID: "prj_bot", OrganizationID: "org-test"}))
+}
+
+// A desktop on a sandbox host that is no longer connected (e.g. a replaced
+// sandbox pod) must not block the project delete; the orphan reaper owns it.
+// A connected host that fails the destroy still fails it, so it can be retried.
+func TestInProcClient_DestroyProjectRuntimeSkipsDisconnectedHosts(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&types.Session{}, &types.SpecTask{}))
+	desktop := types.SessionMetadata{AgentType: "zed_external"}
+	for _, session := range []*types.Session{
+		{ID: "ses_old_pod", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop, DeletedAt: gorm.DeletedAt{Time: time.Now(), Valid: true}},
+		{ID: "ses_current", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop},
+	} {
+		require.NoError(t, db.Create(session).Error)
+	}
+	project := &types.Project{ID: "prj_bot", OrganizationID: "org-test"}
+	gone := fmt.Errorf("teardown dev container ses_old_pod: failed to dial Hydra via RevDial: %w", connman.ErrNoConnection)
+
+	executor := external_agent.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_old_pod", "").Return(gone)
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_current", "").Return(nil)
+	client := NewInProcHelixClient(&HelixAPIServer{Store: &gormBackedInProcStore{Store: memorystore.New(), db: db}, externalAgentExecutor: executor})
+	require.NoError(t, client.destroyProjectRuntime(context.Background(), project))
+
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_old_pod", "").Return(gone)
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_current", "").Return(errors.New("hydra API error (status 500)"))
+	require.ErrorContains(t, client.destroyProjectRuntime(context.Background(), project), "destroy project desktop ses_current")
 }
 
 // The org runtime — not the shared apply handler — is what classifies a bot's
