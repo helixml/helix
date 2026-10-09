@@ -1,7 +1,8 @@
-// Minimal valid 1x1 transparent PNG. The gesture-anchored ClipboardItem in the
-// desktop copy handler (DesktopStreamViewer) must declare both text/plain and
-// image/png up front (we don't know which the remote produced until the async
-// fetch resolves). Chrome runs every image written to the clipboard through a
+// Minimal valid 1x1 transparent PNG. On WebKit (Safari, all iOS browsers) the
+// gesture-anchored ClipboardItem in the desktop copy handler (DesktopStreamViewer)
+// must declare both text/plain and image/png up front (we don't know which the
+// remote produced until the async fetch resolves). Chromium and Firefox write
+// after the fetch and never produce this placeholder. Chrome runs every image written to the clipboard through a
 // decode/sanitize step and REJECTS the entire navigator.clipboard.write() if any
 // image/png representation fails to decode — so the "no image this time"
 // fallback must be a fully decodable PNG, not a zero-byte Blob (which silently

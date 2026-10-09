@@ -81,6 +81,15 @@ import { PLACEHOLDER_PNG_BASE64 } from "../../utils/clipboardPlaceholder";
  */
 const isInIframe = typeof window !== "undefined" && window.parent !== window;
 
+// WebKit (Safari, and every browser on iOS) only honours a clipboard write that
+// is started synchronously inside the user-gesture task, so it needs the
+// deferred ClipboardItem in the copy handler — which forces declaring every MIME
+// type up front and therefore the placeholder PNG. Chromium and Firefox accept a
+// write made after the remote clipboard has been fetched, so they write only
+// the real representation.
+const isWebKit =
+  typeof navigator !== "undefined" && /Apple/i.test(navigator.vendor ?? "");
+
 export type ClipboardReadResult =
   | { mime: "text/plain"; text: string }
   | { mime: "image/png"; base64: string }
@@ -4223,9 +4232,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
         // Bounded poll: ask the API every ~30ms for up to ~500ms, resolve
         // as soon as the clipboard hash differs from the pre-copy snapshot.
-        // Replaces the previous unconditional setTimeout(300ms). The result
-        // is consumed by the deferred-resolution ClipboardItem promises
-        // below, which keeps the local write anchored to the user gesture
+        // Replaces the previous unconditional setTimeout(300ms). On WebKit
+        // the result is consumed by deferred-resolution ClipboardItem
+        // promises, which keep the local write anchored to the user gesture
         // (required by Safari's stricter Async Clipboard API enforcement —
         // see https://webkit.org/blog/10855/async-clipboard-api/).
         const POLL_INTERVAL_MS = 30;
@@ -4257,39 +4266,39 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           return lastData;
         })();
 
-        // Build per-MIME Blob promises. Each resolves with the real Blob
-        // if the fetched type matches, or an empty Blob of that type if
-        // not — paste destinations naturally read whichever MIME they
-        // prefer (text/plain for editors, image/png for image apps).
-        const textBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
-          if (d?.type === "text" && d.data) {
-            return new Blob([d.data], { type: "text/plain" });
-          }
-          return new Blob([], { type: "text/plain" });
-        });
-        const imageBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
-          if (d?.type === "image" && d.data) {
-            return new Blob([base64ToBytes(d.data)], { type: "image/png" });
-          }
-          // Not an image copy: fall back to a valid 1x1 transparent PNG, NOT a
-          // zero-byte Blob. Chrome rejects the whole clipboard write if the
-          // image/png representation can't be decoded, which would discard the
-          // valid text/plain alongside it (the Chrome copy regression).
-          return new Blob([base64ToBytes(PLACEHOLDER_PNG_BASE64)], {
-            type: "image/png",
-          });
-        });
-
-        // Plain browser (not iframe) with modern ClipboardItem support:
-        // synchronously start the gesture-anchored write. Both Safari and
-        // Chrome accept this — the promise is resolved later but the call
-        // itself happens inside the user gesture task, satisfying WebKit's
-        // strict "must be triggered during a user gesture" rule.
+        // WebKit, plain browser (not iframe) with ClipboardItem support:
+        // synchronously start the gesture-anchored write. The promises are
+        // resolved later but the call itself happens inside the user gesture
+        // task, satisfying WebKit's strict "must be triggered during a user
+        // gesture" rule. The cost is the placeholder PNG alongside text
+        // copies, which image-preferring paste targets (WhatsApp, our own
+        // composer before it learned to ignore it) pick over the text.
         if (
+          isWebKit &&
           !isInIframe &&
           typeof ClipboardItem !== "undefined" &&
           navigator.clipboard?.write
         ) {
+          // Per-MIME Blob promises. Each resolves with the real Blob if the
+          // fetched type matches, or a stand-in of that type if not.
+          const textBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
+            if (d?.type === "text" && d.data) {
+              return new Blob([d.data], { type: "text/plain" });
+            }
+            return new Blob([], { type: "text/plain" });
+          });
+          const imageBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
+            if (d?.type === "image" && d.data) {
+              return new Blob([base64ToBytes(d.data)], { type: "image/png" });
+            }
+            // Not an image copy: a valid 1x1 transparent PNG, NOT a zero-byte
+            // Blob — a write whose image/png representation can't be decoded
+            // is rejected outright, discarding the valid text/plain with it.
+            return new Blob([base64ToBytes(PLACEHOLDER_PNG_BASE64)], {
+              type: "image/png",
+            });
+          });
+
           const supportsImage =
             typeof (
               ClipboardItem as unknown as {
@@ -4326,11 +4335,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               );
             });
         } else {
-          // Fallback: iframe (postMessage bridge) or browsers without
-          // ClipboardItem. Resolve the fetch first, then dispatch on type.
-          // The iframe path routes through the parent's NSPasteboard
-          // bridge for both text and image (App.tsx handles the mime
-          // discriminator).
+          // Chromium/Firefox, iframes (postMessage bridge) and browsers
+          // without ClipboardItem: resolve the fetch first, then write only
+          // the representation the remote actually produced — no
+          // placeholder. The ≤500ms poll stays well inside the transient
+          // user-activation window. The iframe path routes through the
+          // parent's NSPasteboard bridge for both text and image (App.tsx
+          // handles the mime discriminator).
           fetchPromise
             .then(async (d) => {
               if (d?.type === "text" && d.data) {
