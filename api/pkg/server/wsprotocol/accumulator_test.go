@@ -615,3 +615,52 @@ func TestSetPriorMessageIDsOnlyDropsEmptyContent(t *testing.T) {
 	require.Len(t, entries, 1)
 	assert.Equal(t, "real", entries[0].Content)
 }
+
+// A stale out-of-order snapshot of a text entry (strict prefix of the content
+// already held) must be ignored. This is the "text truncated before a
+// long-running tool call" bug: Zed's throttle could re-send an older
+// mid-sentence snapshot after the NewEntry full re-send, and last-write-wins
+// kept the truncated text until the end-of-turn flush.
+func TestStaleTextPrefixUpdateIgnored(t *testing.T) {
+	a := &MessageAccumulator{}
+	full := "The board still serves its job after the deploy."
+	a.AddMessageWithType("0", full, "text")
+	a.AddMessageWithType("1", "Run command", "tool_call")
+
+	// Stale throttled snapshot arrives after the full content.
+	a.AddMessageWithType("0", "The board", "text")
+
+	entries := a.Entries()
+	require.Len(t, entries, 2)
+	assert.Equal(t, full, entries[0].Content)
+
+	// A genuine replacement (not a prefix) is still accepted.
+	a.AddMessageWithType("0", "Rewritten paragraph.", "text")
+	assert.Equal(t, "Rewritten paragraph.", a.Entries()[0].Content)
+
+	// Growth is still accepted.
+	a.AddMessageWithType("0", "Rewritten paragraph. More.", "text")
+	assert.Equal(t, "Rewritten paragraph. More.", a.Entries()[0].Content)
+}
+
+// The stale-prefix guard must not interfere with tool_call entries, whose
+// content/status is legitimately rewritten (and can shrink).
+func TestToolCallContentMayShrink(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessageWithToolInfo("1", "Running: long command output preview", "tool_call", "terminal", "In Progress")
+	a.AddMessageWithToolInfo("1", "Ran command", "tool_call", "terminal", "Completed")
+
+	entries := a.Entries()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "Ran command", entries[0].Content)
+	assert.Equal(t, "Completed", entries[0].ToolStatus)
+}
+
+// The guard applies when the update omits the entry type (common for plain
+// AddMessage streaming updates) by falling back to the stored type.
+func TestStalePrefixIgnoredWithImplicitType(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessageWithType("0", "Hello world", "text")
+	a.AddMessage("0", "Hello")
+	assert.Equal(t, "Hello world", a.Entries()[0].Content)
+}

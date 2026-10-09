@@ -12,13 +12,19 @@
  * @param patch - The new content to insert at patchOffset
  * @param totalLength - Expected total length after applying patch (for truncation)
  * @returns The reconstructed full content
+ *
+ * Undefined inputs are normalized: older API builds serialized these fields
+ * with omitempty, so a rewrite from offset 0 arrived as `undefined`. Treating
+ * that as an append corrupted the entry (old content + new prefix).
  */
 export function applyPatch(
   currentContent: string,
-  patchOffset: number,
-  patch: string,
-  totalLength: number
+  patchOffset: number | undefined,
+  patch: string | undefined,
+  totalLength: number | undefined
 ): string {
+  patchOffset = patchOffset ?? 0;
+  patch = patch ?? "";
   let newContent: string;
 
   if (patchOffset === 0 && currentContent.length === 0) {
@@ -33,7 +39,7 @@ export function applyPatch(
   }
 
   // Truncate if totalLength indicates content got shorter
-  if (totalLength < newContent.length) {
+  if (totalLength !== undefined && totalLength < newContent.length) {
     newContent = newContent.slice(0, totalLength);
   }
 
@@ -56,8 +62,11 @@ export function applyPatch(
  *
  * Callers should treat `true` as "resync from the database", not as an error.
  */
-export function hasPatchGap(currentContent: string, patchOffset: number): boolean {
-  return patchOffset > currentContent.length;
+export function hasPatchGap(
+  currentContent: string,
+  patchOffset: number | undefined
+): boolean {
+  return (patchOffset ?? 0) > currentContent.length;
 }
 
 /** The parts of a rendered entry that hasLostBaseline needs. */
@@ -69,7 +78,7 @@ export interface BaselineEntry {
 /** The parts of an entry patch that hasLostBaseline needs. */
 export interface BaselinePatch {
   index: number;
-  patch_offset: number;
+  patch_offset?: number;
   message_id?: string;
 }
 
