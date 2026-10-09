@@ -242,6 +242,39 @@ function restart-sandbox() {
   fi
 }
 
+# Image label carrying scripts/sandbox-fingerprint.sh output; a running sandbox
+# whose label matches this checkout's fingerprint already ships its artifacts.
+SANDBOX_FINGERPRINT_LABEL=helix.sandbox.fingerprint
+
+# sandbox-unchanged: succeed only if the running sandbox was built from
+# artifacts identical to this checkout's (fingerprint label match). Any other
+# outcome, including errors, means the sandbox must be rebuilt and recreated;
+# the reason is printed. Sets SANDBOX_FINGERPRINT (empty if not computable).
+function sandbox-unchanged() {
+  if [[ -f "$DIR/.env" ]]; then
+    source "$DIR/.env"
+  fi
+  get_sandbox_names
+  local started=$SECONDS id running
+  SANDBOX_FINGERPRINT=$("$DIR/scripts/sandbox-fingerprint.sh" "$DIR") || SANDBOX_FINGERPRINT=
+  if [[ -z "$SANDBOX_FINGERPRINT" ]]; then
+    echo "⚠️  Sandbox fingerprint could not be computed; treating the sandbox as changed" >&2
+    return 1
+  fi
+  echo "🔏 Sandbox fingerprint ${SANDBOX_FINGERPRINT} (computed in $((SECONDS - started))s)"
+  id=$(sandbox_compose ps -q --status running "$SANDBOX_SERVICE" | head -n1 || true)
+  if [[ -z "$id" ]]; then
+    echo "ℹ️  No running ${SANDBOX_SERVICE}; the sandbox needs (re)creating"
+    return 1
+  fi
+  running=$(docker inspect --format "{{index .Config.Labels \"$SANDBOX_FINGERPRINT_LABEL\"}}" "$id" 2>/dev/null || true)
+  if [[ "$running" != "$SANDBOX_FINGERPRINT" ]]; then
+    echo "🔄 Running sandbox ${id:0:12} has fingerprint ${running:-<none>}; it needs recreating"
+    return 1
+  fi
+  echo "✅ Running sandbox ${id:0:12} already ships these artifacts"
+}
+
 # sandbox_is_serving <id>: running, not unhealthy, and not mid-shutdown (a
 # stopping sandbox reports "running" until it has exited, which can take minutes).
 function sandbox_is_serving() {
@@ -1544,22 +1577,45 @@ function build-sandbox() {
     echo ""
   fi
 
-  # Build sandbox container
+  # Recreating the sandbox kills every desktop on it, so only do it when the
+  # artifacts it ships changed (SANDBOX_FORCE_RECREATE=1 to override). New
+  # desktops pick up the desktop images published below either way.
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  _bs_elapsed "📦 Building helix-sandbox container..."
+  _bs_elapsed "🔏 Checking whether the sandbox itself changed..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-  local SANDBOX_APP_VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
-  docker buildx build --build-arg APP_VERSION="$SANDBOX_APP_VERSION" \
-    -f Dockerfile.sandbox -t helix-sandbox:latest .
-
-  if [ $? -ne 0 ]; then
-    echo "❌ Failed to build helix-sandbox container"
-    return 1
+  local recreate_sandbox=true
+  if [[ "${SANDBOX_FORCE_RECREATE:-}" == 1 ]]; then
+    echo "SANDBOX_FORCE_RECREATE=1: rebuilding and recreating the sandbox"
+    SANDBOX_FINGERPRINT=$("$DIR/scripts/sandbox-fingerprint.sh" "$DIR") || {
+      echo "⚠️  Sandbox fingerprint could not be computed; the image will be unlabelled" >&2
+      SANDBOX_FINGERPRINT=
+    }
+  elif sandbox-unchanged; then
+    recreate_sandbox=false
   fi
 
-  echo "✅ helix-sandbox container built successfully"
-  echo ""
+  if [[ "$recreate_sandbox" == true ]]; then
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    _bs_elapsed "📦 Building helix-sandbox container..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    local SANDBOX_APP_VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
+    local label_args=()
+    if [[ -n "$SANDBOX_FINGERPRINT" ]]; then
+      label_args=(--label "${SANDBOX_FINGERPRINT_LABEL}=${SANDBOX_FINGERPRINT}")
+    fi
+    if ! docker buildx build --build-arg APP_VERSION="$SANDBOX_APP_VERSION" "${label_args[@]}" \
+      -f Dockerfile.sandbox -t helix-sandbox:latest .; then
+      echo "❌ Failed to build helix-sandbox container"
+      return 1
+    fi
+
+    echo "✅ helix-sandbox container built successfully"
+    echo ""
+  else
+    echo "⏭️  Sandbox artifacts unchanged; keeping the running sandbox and its desktops"
+    echo ""
+  fi
 
   # Step 6: Start sandbox and transfer desktop images
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1585,7 +1641,9 @@ function build-sandbox() {
     fi
   done
 
-  restart-sandbox || return 1
+  if [[ "$recreate_sandbox" == true ]]; then
+    restart-sandbox || return 1
+  fi
 
   # Transfer all production desktop images to sandbox
   echo ""
@@ -2034,8 +2092,9 @@ function help() {
   echo "  rebuild [services] - Rebuild and start specific docker services"
   echo ""
   echo "Build commands:"
-  echo "  build-sandbox      - Build sandbox container (DinD + Hydra + RevDial)"
+  echo "  build-sandbox      - Build desktops; rebuild + recreate the sandbox only if its artifacts changed"
   echo "  restart-sandbox    - Replace the running sandbox with helix-sandbox:latest (waits for clean exit)"
+  echo "  sandbox-unchanged  - Succeed only if the running sandbox already ships this checkout's artifacts"
   echo "  ensure-sandbox     - Bring a sandbox up if none is running (latest, else previous image)"
   echo "  build-desktop <name> - Build desktop container (sway, kde, zorin, ubuntu, xfce, hyprland)"
   echo "  build-sway         - Build Sway+Zed container (alias for build-desktop sway)"
@@ -2073,6 +2132,7 @@ function help() {
   echo "  STOP_POSTGRES=1    - Stop PostgreSQL when stopping"
   echo "  STOP_PGVECTOR=1    - Stop PGVector when stopping"
   echo "  EXPERIMENTAL_DESKTOPS=\"zorin xfce\" - Build experimental desktops in build-sandbox"
+  echo "  SANDBOX_FORCE_RECREATE=1 - Make build-sandbox recreate the sandbox even if unchanged"
 }
 
 # Show help if no arguments provided
