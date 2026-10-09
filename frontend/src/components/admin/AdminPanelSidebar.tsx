@@ -1,5 +1,4 @@
 import React, { FC } from 'react'
-import Typography from '@mui/material/Typography'
 
 import ApiIcon from '@mui/icons-material/Api'
 import DnsIcon from '@mui/icons-material/Dns'
@@ -15,138 +14,69 @@ import QueueIcon from '@mui/icons-material/Queue'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 import { UsersIcon, BuildingIcon } from 'lucide-react'
 
+interface AdminNavSection {
+  title: string
+  items: { id: string; label: string; icon: React.ReactNode }[]
+}
+
+const ADMIN_NAV: AdminNavSection[] = [
+  {
+    title: 'Analytics & Monitoring',
+    items: [
+      { id: 'llm_calls', label: 'LLM Calls', icon: <ApiIcon /> },
+    ]
+  },
+  {
+    title: 'Infrastructure',
+    items: [
+      { id: 'providers', label: 'Inference Providers', icon: <DnsIcon /> },
+      { id: 'oauth_providers', label: 'OAuth Providers', icon: <VpnKeyIcon /> },
+      { id: 'service_connections', label: 'Service Connections', icon: <LinkIcon /> },
+      { id: 'runners', label: 'Runners', icon: <DirectionsRunIcon /> },
+    ]
+  },
+  {
+    title: 'Models & Configuration',
+    items: [
+      { id: 'helix_models', label: 'Helix Models', icon: <ModelTrainingIcon /> },
+      { id: 'runner_profiles', label: 'Runner Profiles', icon: <ModelTrainingIcon /> },
+      { id: 'pricing', label: 'Pricing', icon: <AttachMoneyIcon /> },
+      { id: 'system_settings', label: 'System Settings', icon: <SettingsIcon /> },
+    ]
+  },
+  {
+    title: 'Code Intelligence',
+    items: [
+      { id: 'kodit', label: 'Kodit Repositories', icon: <CodeIcon /> },
+      { id: 'kodit_queue', label: 'Kodit Queue', icon: <QueueIcon /> },
+    ]
+  },
+  {
+    title: 'User Management',
+    items: [
+      { id: 'users', label: 'Users', icon: <UsersIcon /> },
+      { id: 'orgs', label: 'Organizations', icon: <BuildingIcon /> },
+    ]
+  }
+]
+
+export const getAdminTabLabel = (tab: string): string =>
+  ADMIN_NAV.flatMap((section) => section.items).find((item) => item.id === tab)?.label ?? 'Admin'
+
 interface AdminPanelSidebarProps {
   activeTab?: string
   onTabChange?: (tab: string) => void
 }
 
 const AdminPanelSidebar: FC<AdminPanelSidebarProps> = ({ activeTab = 'llm_calls', onTabChange }) => {
-  const currentTab = activeTab
-
-  const handleNavigationClick = (tabValue: string) => {
-    if (onTabChange) {
-      onTabChange(tabValue)
-    }
-  }
-
-  const sections: ContextSidebarSection[] = [
-    {
-      title: 'Analytics & Monitoring',
-      items: [
-        {
-          id: 'llm_calls',
-          label: 'LLM Calls',
-          icon: <ApiIcon />,
-          isActive: currentTab === 'llm_calls',
-          onClick: () => handleNavigationClick('llm_calls')
-        }
-      ]
-    },
-    {
-      title: 'Infrastructure',
-      items: [
-        {
-          id: 'providers',
-          label: 'Inference Providers',
-          icon: <DnsIcon />,
-          isActive: currentTab === 'providers',
-          onClick: () => handleNavigationClick('providers')
-        },
-        {
-          id: 'oauth_providers',
-          label: 'OAuth Providers',
-          icon: <VpnKeyIcon />,
-          isActive: currentTab === 'oauth_providers',
-          onClick: () => handleNavigationClick('oauth_providers')
-        },
-        {
-          id: 'service_connections',
-          label: 'Service Connections',
-          icon: <LinkIcon />,
-          isActive: currentTab === 'service_connections',
-          onClick: () => handleNavigationClick('service_connections')
-        },
-        {
-          id: 'runners',
-          label: 'Runners',
-          icon: <DirectionsRunIcon />,
-          isActive: currentTab === 'runners',
-          onClick: () => handleNavigationClick('runners')
-        }
-      ]
-    },
-    {
-      title: 'Models & Configuration',
-      items: [
-        {
-          id: 'helix_models',
-          label: 'Helix Models',
-          icon: <ModelTrainingIcon />,
-          isActive: currentTab === 'helix_models',
-          onClick: () => handleNavigationClick('helix_models')
-        },
-        {
-          id: 'runner_profiles',
-          label: 'Runner Profiles',
-          icon: <ModelTrainingIcon />,
-          isActive: currentTab === 'runner_profiles',
-          onClick: () => handleNavigationClick('runner_profiles')
-        },
-        {
-          id: 'pricing',
-          label: 'Pricing',
-          icon: <AttachMoneyIcon />,
-          isActive: currentTab === 'pricing',
-          onClick: () => handleNavigationClick('pricing')
-        },
-        {
-          id: 'system_settings',
-          label: 'System Settings',
-          icon: <SettingsIcon />,
-          isActive: currentTab === 'system_settings',
-          onClick: () => handleNavigationClick('system_settings')
-        }
-      ]
-    },
-    {
-      title: 'Code Intelligence',
-      items: [
-        {
-          id: 'kodit',
-          label: 'Kodit Repositories',
-          icon: <CodeIcon />,
-          isActive: currentTab === 'kodit',
-          onClick: () => handleNavigationClick('kodit')
-        },
-        {
-          id: 'kodit_queue',
-          label: 'Kodit Queue',
-          icon: <QueueIcon />,
-          isActive: currentTab === 'kodit_queue',
-          onClick: () => handleNavigationClick('kodit_queue')
-        }
-      ]
-    },
-    {
-      title: 'User Management',
-      items: [
-        {
-          id: 'users',
-          label: 'Users',
-          icon: <UsersIcon />,
-          isActive: currentTab === 'users',
-          onClick: () => handleNavigationClick('users')
-        },
-        {
-          id: 'orgs',
-          label: 'Organizations',
-          icon: <BuildingIcon />,
-          isActive: currentTab === 'orgs',
-          onClick: () => handleNavigationClick('orgs')
-        }
-      ]
-    }
-  ]
+  const sections: ContextSidebarSection[] = ADMIN_NAV.map((section) => ({
+    title: section.title,
+    items: section.items.map((item) => ({
+      ...item,
+      isActive: activeTab === item.id,
+      onClick: () => onTabChange?.(item.id),
+    })),
+  }))
 
   return (
     <ContextSidebar 
