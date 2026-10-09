@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -144,4 +145,54 @@ func TestCreateRepositoryAccessGrant_WaitlistedNonMember_AddedAndApproved(t *tes
 	rr := httptest.NewRecorder()
 	server.createRepositoryAccessGrant(rr, grantRequest("/api/v1/git/repositories/repo_1/access-grants", "repo_1", target.Email))
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+}
+
+// Mirrors the project case: a repository grant for an existing org member is
+// not an org add, so it must not approve a waitlisted user.
+func TestCreateRepositoryAccessGrant_WaitlistedExistingMember_NotApproved(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	notifier := notification.NewMockNotifier(ctrl)
+	server := newTestServerWithNotifier(mockStore, notifier)
+
+	target := &types.User{ID: "u1", Email: "abi@gmail.com", Waitlisted: true}
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo_1").Return(&types.GitRepository{ID: "repo_1", OrganizationID: grantOrgID, OwnerID: grantOwnerID}, nil)
+	expectGrantCommon(t, mockStore, target, []*types.OrganizationMembership{{OrganizationID: grantOrgID, UserID: target.ID}})
+	mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).Times(0)
+	mockStore.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Times(0)
+
+	rr := httptest.NewRecorder()
+	server.createRepositoryAccessGrant(rr, grantRequest("/api/v1/git/repositories/repo_1/access-grants", "repo_1", target.Email))
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+}
+
+// If approving fails after the org membership was created, the membership is
+// rolled back and no grant is created, so the owner's retry takes the same
+// add-and-approve path instead of finding a still-waitlisted member.
+func TestCreateProjectAccessGrant_ApprovalFails_RollsBackMembership(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	notifier := notification.NewMockNotifier(ctrl) // strict: no approval email
+	server := newTestServerWithNotifier(mockStore, notifier)
+
+	target := &types.User{ID: "fake-abi-gmail-com", Email: "abi@gmail.com", Waitlisted: true}
+	mockStore.EXPECT().GetProject(gomock.Any(), "prj_1").Return(&types.Project{ID: "prj_1", OrganizationID: grantOrgID, UserID: grantOwnerID}, nil)
+	expectOrgOwner(mockStore, grantOrgID, grantOwnerID).AnyTimes()
+	mockStore.EXPECT().ListRoles(gomock.Any(), grantOrgID).Return([]*types.Role{{ID: "role_write", Name: "write"}}, nil)
+	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(target, nil)
+	mockStore.EXPECT().ListOrganizationMemberships(gomock.Any(), gomock.Any()).Return(nil, nil)
+	gomock.InOrder(
+		mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, m *types.OrganizationMembership) (*types.OrganizationMembership, error) {
+				return m, nil
+			}),
+		mockStore.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(nil, errors.New("db down")),
+		mockStore.EXPECT().DeleteOrganizationMembership(gomock.Any(), grantOrgID, target.ID).Return(nil),
+	)
+	mockStore.EXPECT().CreateAccessGrant(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	rr := httptest.NewRecorder()
+	server.createProjectAccessGrant(rr, grantRequest("/api/v1/projects/prj_1/access-grants", "prj_1", target.Email))
+	require.Equal(t, http.StatusInternalServerError, rr.Code)
+	require.Contains(t, rr.Body.String(), "not added to the organisation")
 }
