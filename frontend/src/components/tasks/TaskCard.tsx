@@ -40,6 +40,7 @@ import {
 } from "@mui/icons-material";
 import {
   EllipsisVertical,
+  Flag,
   GitPullRequest,
   Wand2,
 } from "lucide-react";
@@ -64,6 +65,8 @@ import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopVi
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
+import MarkDoneDialog from "./MarkDoneDialog";
+import { canMarkDone, openPullRequestCount } from "../../services/specTaskCompletionService";
 import AssigneeSelector from "./AssigneeSelector";
 import useAccount from "../../hooks/useAccount";
 import useLightTheme from "../../hooks/useLightTheme";
@@ -127,7 +130,10 @@ export interface SpecTaskWithExtras {
     | "queued";
   planning_session_id?: string;
   archived?: boolean;
-  metadata?: { error?: string; error_timestamp?: string };
+  metadata?: {
+    error?: string;
+    error_timestamp?: string;
+  };
   merged_to_main?: boolean;
   just_do_it_mode?: boolean;
   started_at?: string;
@@ -135,6 +141,18 @@ export interface SpecTaskWithExtras {
   clone_group_id?: string;
   cloned_from_id?: string;
   repo_pull_requests?: Array<{
+    repository_id?: string;
+    repository_name?: string;
+    pr_id?: string;
+    pr_number?: number;
+    pr_url?: string;
+    pr_state?: string;
+    ci_status?: string;
+    ci_url?: string;
+    ci_updated_at?: string;
+    ci_head_sha?: string;
+  }>;
+  repo_pull_request_history?: Array<{
     repository_id?: string;
     repository_name?: string;
     pr_id?: string;
@@ -171,6 +189,8 @@ export interface SpecTaskWithExtras {
   created_at?: string;
   updated_at?: string;
   last_push_at?: string;
+  merged_at?: string;
+  completed_at?: string;
 }
 
 export interface TaskDependency {
@@ -210,7 +230,6 @@ interface TaskCardProps {
   projectId?: string;
   isArchiving?: boolean;
   hasExternalRepo?: boolean;
-  externalRepoType?: string;
   showMetrics?: boolean;
   /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
   hideCloneOption?: boolean;
@@ -575,7 +594,6 @@ function TaskCardInner({
   projectId,
   isArchiving = false,
   hasExternalRepo = false,
-  externalRepoType,
   showMetrics = true,
   hideCloneOption = false,
   progressData,
@@ -590,6 +608,7 @@ function TaskCardInner({
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [markDoneOpen, setMarkDoneOpen] = useState(false);
   const [isRemovingFromQueue, setIsRemovingFromQueue] = useState(false);
   const [assigneeAnchorEl, setAssigneeAnchorEl] = useState<null | HTMLElement>(null);
   const startPlanningButtonRef = useRef<HTMLButtonElement>(null);
@@ -948,6 +967,19 @@ function TaskCardInner({
                 </ListItemText>
               </MenuItem>
             )}
+            {canMarkDone(task) && (
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchorEl(null);
+                  setMarkDoneOpen(true);
+                }}
+              >
+                <ListItemIcon>
+                  <Flag size={16} />
+                </ListItemIcon>
+                <ListItemText>Mark done</ListItemText>
+              </MenuItem>
+            )}
             {!hideCloneOption && task.design_docs_pushed_at && (
               <MenuItem
                 onClick={() => {
@@ -1046,7 +1078,7 @@ function TaskCardInner({
                       ? getImplementationLabel(task)
                       : task.phase === "pull_request"
                         ? "Pull Request"
-                        : "Merged"}
+                        : "Done"}
             </Typography>
             {runningDuration && (
               <Typography
@@ -1414,7 +1446,6 @@ function TaskCardInner({
               }
             }}
             hasExternalRepo={hasExternalRepo}
-            externalRepoType={externalRepoType}
             isArchiving={isArchiving}
           />
         )}
@@ -1521,6 +1552,7 @@ function TaskCardInner({
                       id: task.id,
                       status: "pull_request",
                       repo_pull_requests: task.repo_pull_requests,
+                      repo_pull_request_history: task.repo_pull_request_history,
                       archived: task.archived,
                       sandbox_state: task.sandbox_state,
                     }}
@@ -1606,8 +1638,7 @@ function TaskCardInner({
         )}
 
         {/* Completed tasks */}
-        {(task.status === "done" || task.phase === "completed") &&
-          task.merged_to_main && (
+        {(task.status === "done" || task.phase === "completed") && (
             <Box sx={{ mt: 1.5 }}>
               <Alert severity="success" sx={{ py: 1 }}>
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>
@@ -1621,9 +1652,29 @@ function TaskCardInner({
                     color: "text.secondary",
                   }}
                 >
-                  Merged to default branch
+                  {task.merged_to_main
+                    ? "Merged to default branch"
+                    : "Marked done"}
                 </Typography>
               </Alert>
+              <SpecTaskActionButtons
+                task={{
+                  id: task.id,
+                  status: "done",
+                  repo_pull_requests: task.repo_pull_requests,
+                  repo_pull_request_history: task.repo_pull_request_history,
+                  metadata: task.metadata,
+                  base_branch: task.base_branch,
+                  branch_name: task.branch_name,
+                  archived: task.archived,
+                  last_push_at: task.last_push_at,
+                  merged_at: task.merged_at,
+                  completed_at: task.completed_at,
+                  sandbox_state: task.sandbox_state,
+                }}
+                variant="stacked"
+                hasExternalRepo={hasExternalRepo}
+              />
             </Box>
           )}
       </CardContent>
@@ -1645,6 +1696,13 @@ function TaskCardInner({
           #{String(task.task_number).padStart(6, "0")}
         </Typography>
       )}
+
+      <MarkDoneDialog
+        open={markDoneOpen}
+        onClose={() => setMarkDoneOpen(false)}
+        taskId={task.id}
+        openPullRequests={openPullRequestCount(task)}
+      />
 
       {/* Clone Task Dialog */}
       <CloneTaskDialog

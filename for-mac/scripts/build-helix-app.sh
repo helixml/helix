@@ -10,7 +10,7 @@ set -euo pipefail
 #   2. Copies our custom QEMU binary into the app bundle
 #   3. Copies all required open-source frameworks from UTM's sysroot
 #   4. Copies EFI firmware for VM booting
-#   5. Copies Vulkan ICD (KosmicKrisp) for GPU rendering
+#   5. Copies the Vulkan ICDs (MoltenVK, KosmicKrisp) from UTM.app
 #   6. Fixes dylib paths with install_name_tool
 #   7. Ad-hoc signs everything
 #
@@ -30,7 +30,16 @@ REPO_ROOT="$(cd "$FOR_MAC_DIR/.." && pwd)"
 
 # Configuration
 SYSROOT="${SYSROOT:-$HOME/pm/UTM/sysroot-macOS-arm64}"
-UTM_FRAMEWORKS="${UTM_APP_FRAMEWORKS:-/Applications/UTM.app/Contents/Frameworks}"
+# Where the QEMU build was installed (release CI: qemu-helix/build-qemu-ci.sh)
+QEMU_PREFIX="${QEMU_PREFIX:-$SYSROOT}"
+# Frameworks and the render server come from the UTM release pinned in
+# qemu-helix/UTM_VERSION, matching the utm-edition QEMU we build.
+UTM_APP="${UTM_APP:-$("$FOR_MAC_DIR/qemu-helix/fetch-utm-app.sh")}"
+UTM_FRAMEWORKS="$UTM_APP/Contents/Frameworks"
+# Except MoltenVK and the render server: the same UTM commits rebuilt with our
+# fixes (qemu-helix/patches/), without which Zed and GPU Chromium can't render.
+MOLTENVK_FRAMEWORK="${MOLTENVK_FRAMEWORK:-$("$FOR_MAC_DIR/qemu-helix/build-moltenvk.sh")}"
+RENDER_SERVER="${RENDER_SERVER:-$("$FOR_MAC_DIR/qemu-helix/build-render-server.sh")}"
 EFI_CODE="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
 EFI_VARS_TEMPLATE="/opt/homebrew/share/qemu/edk2-arm-vars.fd"
 
@@ -71,10 +80,18 @@ if [ ! -d "$SYSROOT" ]; then
     exit 1
 fi
 
-QEMU_DYLIB="$SYSROOT/lib/libqemu-aarch64-softmmu.dylib"
+QEMU_DYLIB="$QEMU_PREFIX/lib/libqemu-aarch64-softmmu.dylib"
 if [ ! -f "$QEMU_DYLIB" ]; then
     echo "ERROR: QEMU dylib not found at: $QEMU_DYLIB"
     echo "Build QEMU first: ./qemu-helix/build-qemu-standalone.sh"
+    exit 1
+fi
+
+# helixml/qemu-utm vendors a patched libslirp and links it statically.
+# A dylib that still links slirp.0 is a stale build without those fixes.
+if otool -L "$QEMU_DYLIB" | tail -n +2 | grep -q slirp; then
+    echo "ERROR: $QEMU_DYLIB links an external libslirp (stale QEMU build)"
+    echo "Rebuild QEMU from helixml/qemu-utm: ./qemu-helix/build-qemu-standalone.sh"
     exit 1
 fi
 
@@ -128,7 +145,7 @@ mkdir -p "$MACOS_DIR"
 #   - libqemu-aarch64-softmmu.dylib (34MB) — core QEMU implementation
 #   - qemu-system-aarch64 (75KB) — wrapper with main() that loads the dylib
 # The wrapper is what we exec.Command() — you cannot execute a .dylib directly.
-QEMU_WRAPPER="$SYSROOT/bin/qemu-system-aarch64"
+QEMU_WRAPPER="$QEMU_PREFIX/bin/qemu-system-aarch64"
 if [ ! -f "$QEMU_WRAPPER" ]; then
     echo "ERROR: QEMU wrapper executable not found at: $QEMU_WRAPPER"
     echo "Build QEMU first: ./qemu-helix/build-qemu-standalone.sh"
@@ -140,7 +157,7 @@ cp "$QEMU_WRAPPER" "$MACOS_DIR/qemu-system-aarch64"
 
 # qemu-img is needed at runtime for creating/resizing qcow2 disk images.
 # Without it bundled, the app fails on machines without Homebrew QEMU installed.
-QEMU_IMG="$SYSROOT/bin/qemu-img"
+QEMU_IMG="$QEMU_PREFIX/bin/qemu-img"
 if [ -f "$QEMU_IMG" ]; then
     cp "$QEMU_IMG" "$MACOS_DIR/qemu-img"
     log "  Copied qemu-img ($(du -h "$MACOS_DIR/qemu-img" | awk '{print $1}'))"
@@ -150,11 +167,17 @@ fi
 
 log "  Copied QEMU dylib ($(du -h "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" | awk '{print $1}')) + wrapper ($(du -h "$MACOS_DIR/qemu-system-aarch64" | awk '{print $1}'))"
 
+# virglrenderer spawns this for Venus/Neptune contexts; vm.go points
+# RENDER_SERVER_EXEC_PATH at it, as UTM's QEMUHelper does.
+cp -f "$RENDER_SERVER" "$MACOS_DIR/virgl_render_server"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/virgl_render_server"
+log "  Copied virgl_render_server from $RENDER_SERVER"
+
 # =============================================================================
 # Step 3: Copy required frameworks
 # =============================================================================
 
-log "Step 3: Copying frameworks from UTM sysroot..."
+log "Step 3: Copying frameworks from $UTM_APP..."
 mkdir -p "$FRAMEWORKS_DIR"
 
 # These are the frameworks QEMU directly links against (@rpath dependencies)
@@ -162,7 +185,7 @@ mkdir -p "$FRAMEWORKS_DIR"
 #
 # Direct QEMU deps:
 #   pixman-1.0, jpeg.62, epoxy.0, gio-2.0.0, gobject-2.0.0, glib-2.0.0,
-#   zstd.1, slirp.0, spice-server.1, virglrenderer.1, usbredirparser.1,
+#   zstd.1, spice-server.1, virglrenderer.1, usbredirparser.1,
 #   usb-1.0.0, gmodule-2.0.0
 #
 # Transitive deps:
@@ -182,7 +205,6 @@ REQUIRED_FRAMEWORKS=(
     "gobject-2.0.0"
     "glib-2.0.0"
     "zstd.1"
-    "slirp.0"
     "spice-server.1"
     "virglrenderer.1"
     "usbredirparser.1"
@@ -224,6 +246,8 @@ for fw in "${REQUIRED_FRAMEWORKS[@]}"; do
     fi
 done
 log "  Copied $COPIED frameworks, $SKIPPED not found as framework bundles"
+cp -R "$MOLTENVK_FRAMEWORK" "$FRAMEWORKS_DIR/"
+log "  Copied MoltenVK from $MOLTENVK_FRAMEWORK"
 
 # =============================================================================
 # Step 4: Copy EFI firmware
@@ -245,17 +269,9 @@ log "Step 5: Copying Vulkan ICD configuration..."
 VULKAN_DIR="${RESOURCES_DIR}/vulkan/icd.d"
 mkdir -p "$VULKAN_DIR"
 
-# Create ICD JSON that points to bundled KosmicKrisp framework
-# The path is relative to the JSON file location
-cat > "$VULKAN_DIR/kosmickrisp_mesa_icd.json" << 'EOF'
-{
-    "ICD": {
-        "api_version": "1.3.335",
-        "library_path": "../../../Frameworks/vulkan_kosmickrisp.framework/Versions/Current/vulkan_kosmickrisp"
-    },
-    "file_format_version": "1.0.1"
-}
-EOF
+# Use UTM's own ICD files: they point at the frameworks copied above, with
+# the same relative layout. vm.go picks MoltenVK by default, as UTM does.
+cp "$UTM_APP/Contents/Resources/vulkan/icd.d/"*.json "$VULKAN_DIR/"
 log "  Created Vulkan ICD config"
 
 # Copy open-source notices (required by GPL/LGPL for bundled QEMU + frameworks)
@@ -309,7 +325,7 @@ install_name_tool -id "@rpath/libqemu-aarch64-softmmu.dylib" \
     "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" 2>/dev/null || true
 
 # Fix QEMU wrapper: change absolute sysroot path to @executable_path
-QEMU_OLD_ID="$SYSROOT/lib/libqemu-aarch64-softmmu.dylib"
+QEMU_OLD_ID="$QEMU_PREFIX/lib/libqemu-aarch64-softmmu.dylib"
 install_name_tool -change "$QEMU_OLD_ID" \
     "@executable_path/libqemu-aarch64-softmmu.dylib" \
     "$MACOS_DIR/qemu-system-aarch64" 2>/dev/null || true
@@ -352,6 +368,31 @@ for fw_dir in "$FRAMEWORKS_DIR"/*.framework; do
         done
     fi
 done
+# QEMU links the sysroot's lib/*.dylib by absolute path; point each at the
+# matching bundled framework, named as UTM's fixup.sh names them
+# (libfoo.N.dylib -> @rpath/foo.N.framework/Versions/A/foo.N).
+QEMU_DYLIB_BUNDLED="$MACOS_DIR/libqemu-aarch64-softmmu.dylib"
+for bin in "$QEMU_DYLIB_BUNDLED" "$MACOS_DIR/qemu-system-aarch64" "$MACOS_DIR/qemu-img"; do
+    [ -f "$bin" ] || continue
+    otool -L "$bin" | tail -n +2 | awk '{print $1}' | (grep "^$SYSROOT/lib/" || true) | while read -r old_path; do
+        name="$(basename "$old_path" .dylib)"
+        name="${name#lib}"
+        install_name_tool -change "$old_path" "@rpath/$name.framework/Versions/A/$name" "$bin"
+    done
+done
+
+# Every bundled binary must resolve its libraries inside the app or the OS.
+for bin in "$QEMU_DYLIB_BUNDLED" "$MACOS_DIR/qemu-system-aarch64" "$MACOS_DIR/qemu-img" "$MACOS_DIR/virgl_render_server"; do
+    [ -f "$bin" ] || continue
+    for dep in $(otool -L "$bin" | grep -v ':$' | awk '{print $1}'); do
+        case "$dep" in
+            /System/*|/usr/lib/*|@executable_path/*|@rpath/libqemu-aarch64-softmmu.dylib) ;;
+            @rpath/*)
+                [ -e "$FRAMEWORKS_DIR/${dep#@rpath/}" ] || { echo "ERROR: $(basename "$bin") needs $dep, not in Frameworks/"; exit 1; } ;;
+            *) echo "ERROR: $(basename "$bin") links $dep outside the app bundle"; exit 1 ;;
+        esac
+    done
+done
 log "  Fixed dylib paths"
 
 # =============================================================================
@@ -362,6 +403,7 @@ log "Step 7: Signing app bundle (ad-hoc)..."
 
 APP_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements-app.plist"
 QEMU_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements.plist"
+RENDER_SERVER_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements-render-server.plist"
 
 # Sign inside-out: frameworks → main app → QEMU binaries last.
 #
@@ -395,6 +437,9 @@ if [ -f "$MACOS_DIR/qemu-img" ]; then
         --entitlements "$APP_ENTITLEMENTS" \
         "$MACOS_DIR/qemu-img" 2>/dev/null || true
 fi
+codesign --force --sign - --timestamp=none --options runtime \
+    --entitlements "$RENDER_SERVER_ENTITLEMENTS" \
+    "$MACOS_DIR/virgl_render_server"
 
 log "  Ad-hoc signing complete"
 
@@ -432,7 +477,7 @@ log "  MacOS/qemu-img              - QEMU disk image tool"
 log "  MacOS/libqemu-*.dylib       - Custom QEMU core with helix-frame-export"
 log "  Frameworks/                  - ${FW_COUNT} open-source frameworks"
 log "  Resources/firmware/          - EFI firmware (edk2)"
-log "  Resources/vulkan/            - KosmicKrisp Vulkan ICD"
+log "  Resources/vulkan/            - Vulkan ICDs (MoltenVK default, KosmicKrisp)"
 log "  Resources/vm/                - VM manifest + EFI vars (disk images downloaded on first launch)"
 log ""
 log "Verification:"

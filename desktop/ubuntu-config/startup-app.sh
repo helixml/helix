@@ -17,9 +17,12 @@ if [ "${HELIX_HEADLESS}" != "1" ] && [ -f /usr/local/bin/detect-render-node.sh ]
     gow_log "[start] GPU: HELIX_RENDER_NODE=${HELIX_RENDER_NODE:-not set}, LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-not set}"
 fi
 
-# Create symlink to Zed binary if not exists
+# Create symlink to Zed binary if not exists. A rootless desktop
+# (HELIX_DESKTOP_ROOTLESS=1) still runs as root with sudo, so it creates the
+# symlink here like the privileged path — unlike the headless rootless/none
+# bootstrap, where the entrypoint must have installed it already.
 if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
-    if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+    if [ "${HELIX_DESKTOP_ROOTLESS:-0}" != "1" ] && { [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; }; then
         gow_log "[start] FATAL: rootless bootstrap did not install /usr/local/bin/zed"
         exit 1
     fi
@@ -40,7 +43,7 @@ if [ ! -d /home/retro/work ]; then
     gow_log "[start] FATAL: /home/retro/work bind mount not present"
     exit 1
 fi
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" != "1" ] && [ "${HELIX_CONTAINER_ENGINE:-}" != "none" ]; then
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ] || { [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" != "1" ] && [ "${HELIX_CONTAINER_ENGINE:-}" != "none" ]; }; then
     sudo chown retro:retro "$WORKSPACE_DIR"
     sudo chown retro:retro /home/retro/work
 fi

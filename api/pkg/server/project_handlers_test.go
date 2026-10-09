@@ -377,3 +377,81 @@ func (s *ProjectRepositoryHandlersSuite) TestDetachRepo_KeepsDefaultWhenNotDefau
 	s.Nil(httpErr)
 	s.NotNil(resp)
 }
+
+// updateProjectMetadata runs PUT /projects/{id} with body against a project
+// whose stored metadata is stored, and returns the metadata that was saved.
+func (s *ProjectRepositoryHandlersSuite) updateProjectMetadata(stored types.ProjectMetadata, body string) types.ProjectMetadata {
+	project := s.makeProject("proj-metadata", "repo-1")
+	project.Metadata = stored
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	var saved types.ProjectMetadata
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.Project) error {
+			saved = updated.Metadata
+			return nil
+		},
+	)
+
+	_, httpErr := s.server.updateProject(httptest.NewRecorder(), s.updateRequest(project.ID, body))
+	s.Require().Nil(httpErr)
+	return saved
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectBoardSettingsOnlyPreservesMetadataBools() {
+	cacheStatus := &types.DockerCacheState{Sandboxes: map[string]*types.SandboxCacheState{"sb-1": {Status: "ready"}}}
+	saved := s.updateProjectMetadata(
+		types.ProjectMetadata{AutoWarmDockerCache: true, OrgMembersAccess: true, DockerCacheStatus: cacheStatus},
+		`{"metadata":{"board_settings":{"wip_limits":{"planning":3,"review":2,"implementation":5}}}}`,
+	)
+
+	s.True(saved.AutoWarmDockerCache)
+	s.True(saved.OrgMembersAccess)
+	s.Same(cacheStatus, saved.DockerCacheStatus)
+	s.Require().NotNil(saved.BoardSettings)
+	s.Equal(types.WIPLimits{Planning: 3, Review: 2, Implementation: 5}, saved.BoardSettings.WIPLimits)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectAutoWarmDockerCacheExplicitFalseTurnsOff() {
+	saved := s.updateProjectMetadata(
+		types.ProjectMetadata{AutoWarmDockerCache: true, OrgMembersAccess: true},
+		`{"metadata":{"auto_warm_docker_cache":false}}`,
+	)
+	s.False(saved.AutoWarmDockerCache)
+	s.True(saved.OrgMembersAccess)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectAutoWarmDockerCacheExplicitTrueTurnsOn() {
+	saved := s.updateProjectMetadata(
+		types.ProjectMetadata{},
+		`{"metadata":{"auto_warm_docker_cache":true}}`,
+	)
+	s.True(saved.AutoWarmDockerCache)
+	s.False(saved.OrgMembersAccess)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectOrgMembersAccessExplicitFalseTurnsOff() {
+	saved := s.updateProjectMetadata(
+		types.ProjectMetadata{AutoWarmDockerCache: true, OrgMembersAccess: true},
+		`{"metadata":{"org_members_access":false}}`,
+	)
+	s.False(saved.OrgMembersAccess)
+	s.True(saved.AutoWarmDockerCache)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectOrgMembersAccessExplicitTrueTurnsOn() {
+	saved := s.updateProjectMetadata(
+		types.ProjectMetadata{},
+		`{"metadata":{"org_members_access":true}}`,
+	)
+	s.True(saved.OrgMembersAccess)
+	s.False(saved.AutoWarmDockerCache)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectWithoutMetadataLeavesMetadataUntouched() {
+	saved := s.updateProjectMetadata(
+		types.ProjectMetadata{AutoWarmDockerCache: true, OrgMembersAccess: true},
+		`{"name":"renamed"}`,
+	)
+	s.True(saved.AutoWarmDockerCache)
+	s.True(saved.OrgMembersAccess)
+}

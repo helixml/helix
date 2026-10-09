@@ -167,6 +167,35 @@ func (s *HelixAPIServer) populateProjectOwners(ctx context.Context, projects []*
 	}
 }
 
+// dockerCacheStatus builds the API view of a project's golden cache from the
+// golden_builds table, omitting sandboxes that no longer exist.
+func (s *HelixAPIServer) dockerCacheStatus(ctx context.Context, projectID string) (*types.DockerCacheState, error) {
+	builds, err := s.Store.ListGoldenBuilds(ctx, &store.ListGoldenBuildsQuery{ProjectID: projectID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list golden builds: %w", err)
+	}
+	if len(builds) == 0 {
+		return nil, nil
+	}
+	sandboxes, err := s.Store.ListSandboxInstances(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sandboxes: %w", err)
+	}
+	known := make(map[string]bool, len(sandboxes))
+	for _, sb := range sandboxes {
+		known[sb.ID] = true
+	}
+	state := &types.DockerCacheState{Sandboxes: make(map[string]*types.SandboxCacheState)}
+	for _, b := range builds {
+		if !known[b.SandboxID] {
+			continue
+		}
+		b.MaxAttempts = types.GoldenBuildMaxAttempts
+		state.Sandboxes[b.SandboxID] = b
+	}
+	return state, nil
+}
+
 // getProject godoc
 // @Summary Get project
 // @Description Get a project by ID
@@ -199,90 +228,11 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	// Prune stale sandbox entries from DockerCacheStatus (lazy cleanup on read).
-	// Remove entries for sandboxes that no longer exist in the database.
-	if project.Metadata.DockerCacheStatus != nil && len(project.Metadata.DockerCacheStatus.Sandboxes) > 0 {
-		sandboxes, sbErr := s.Store.ListSandboxInstances(r.Context())
-		if sbErr == nil {
-			knownIDs := make(map[string]bool, len(sandboxes))
-			for _, sb := range sandboxes {
-				knownIDs[sb.ID] = true
-			}
-			pruned := false
-			for sbID := range project.Metadata.DockerCacheStatus.Sandboxes {
-				if !knownIDs[sbID] {
-					delete(project.Metadata.DockerCacheStatus.Sandboxes, sbID)
-					pruned = true
-				}
-			}
-			if pruned {
-				if updateErr := s.Store.UpdateProject(r.Context(), project); updateErr != nil {
-					log.Warn().Err(updateErr).Str("project_id", projectID).Msg("Failed to prune stale sandbox cache entries")
-				}
-			}
-		}
+	cacheStatus, err := s.dockerCacheStatus(r.Context(), project.ID)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
 	}
-
-	// Recover stale "building" golden build states (lazy recovery on read).
-	// After an API restart, the monitoring goroutine is dead but DB still says
-	// "building". If the build isn't tracked in memory AND the container isn't
-	// running, reset the status so the UI doesn't get stuck.
-	//
-	// Skip during the first 90s after startup — RecoverStaleBuilds needs up
-	// to 60s to wait for sandbox reconnect and re-attach monitoring goroutines.
-	// Without this grace period, a page load during startup races with recovery
-	// and resets status to "none" before the sandbox can reconnect.
-	if project.Metadata.DockerCacheStatus != nil && time.Since(s.startTime) > 90*time.Second {
-		staleRecovered := false
-		for sbID, sbState := range project.Metadata.DockerCacheStatus.Sandboxes {
-			if sbState.Status != "building" || sbState.BuildSessionID == "" {
-				continue
-			}
-			if s.goldenBuildService.IsTracking(project.ID, sbID) {
-				continue
-			}
-			if s.externalAgentExecutor.HasRunningContainer(r.Context(), sbState.BuildSessionID) {
-				continue
-			}
-			// Check if the golden cache actually exists on the sandbox before
-			// resetting to "none" — the build may have completed and promoted
-			// while the API was down. Query the ZFS tree to find out.
-			cacheExists := false
-			hydraClient := hydra.NewRevDialClient(s.connman, fmt.Sprintf("hydra-%s", sbID))
-			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-			tree, err := hydraClient.GetZFSTree(ctx, project.ID)
-			cancel()
-			if err == nil && tree != nil && tree.Available && tree.Golden != nil && len(tree.Golden.Children) > 0 {
-				cacheExists = true
-			}
-
-			if cacheExists {
-				log.Info().
-					Str("project_id", projectID).
-					Str("sandbox_id", sbID).
-					Str("session_id", sbState.BuildSessionID).
-					Msg("Recovering stale golden build: build completed while API was down, setting ready")
-				sbState.Status = "ready"
-				sbState.BuildSessionID = ""
-				sbState.Error = ""
-			} else {
-				log.Info().
-					Str("project_id", projectID).
-					Str("sandbox_id", sbID).
-					Str("session_id", sbState.BuildSessionID).
-					Msg("Recovering stale golden build: no cache found, resetting to none")
-				sbState.Status = "none"
-				sbState.BuildSessionID = ""
-				sbState.Error = ""
-			}
-			staleRecovered = true
-		}
-		if staleRecovered {
-			if updateErr := s.Store.UpdateProject(r.Context(), project); updateErr != nil {
-				log.Warn().Err(updateErr).Str("project_id", projectID).Msg("Failed to reset stale golden build status")
-			}
-		}
-	}
+	project.Metadata.DockerCacheStatus = cacheStatus
 
 	// helix-specs is local-authoritative. Read the startup script from Helix's
 	// bare repository without consulting the external VCS.
@@ -782,6 +732,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.AutoStartBacklogTasks != nil {
 		project.AutoStartBacklogTasks = *req.AutoStartBacklogTasks
 	}
+	if req.AutoApprovePullRequests != nil {
+		project.AutoApprovePullRequests = *req.AutoApprovePullRequests
+	}
 	if req.AutoArchiveCompletedTasks != nil {
 		project.AutoArchiveCompletedTasks = *req.AutoArchiveCompletedTasks
 	}
@@ -853,20 +806,8 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		project.GuidelinesUpdatedAt = time.Now()
 		project.GuidelinesUpdatedBy = user.ID
 	}
-	if req.Metadata != nil {
-		// Merge metadata fields selectively to avoid overwriting fields
-		// managed by backend services (e.g., DockerCacheStatus).
-		if req.Metadata.BoardSettings != nil {
-			project.Metadata.BoardSettings = req.Metadata.BoardSettings
-		}
-		// AutoWarmDockerCache is a bool — always apply from the request
-		// since it's user-controlled.
-		project.Metadata.AutoWarmDockerCache = req.Metadata.AutoWarmDockerCache
-		if req.Metadata.OrgMembersAccess {
-			project.Metadata.OrgMembersAccess = true
-		}
-		// DockerCacheStatus is managed exclusively by GoldenBuildService — never overwrite from API request.
-	}
+	// Merge metadata selectively: omitted fields keep their stored value.
+	req.Metadata.ApplyTo(&project.Metadata)
 	// Skills can be set directly (nil means "don't update")
 	if req.Skills != nil {
 		project.Skills = req.Skills
@@ -975,6 +916,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		if req.AutoStartBacklogTasks != nil {
 			changedFields = append(changedFields, "auto_start_backlog_tasks")
 		}
+		if req.AutoApprovePullRequests != nil {
+			changedFields = append(changedFields, "auto_approve_pull_requests")
+		}
 		if req.AutoArchiveCompletedTasks != nil {
 			changedFields = append(changedFields, "auto_archive_completed_tasks")
 		}
@@ -1067,25 +1011,41 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		}
 	}
 
-	// 2. Stop all SpecTask planning sessions for this project
+	// 2. Stop all SpecTask planning sessions for this project, then delete the
+	// tasks themselves — including archived ones. Tasks that outlive their
+	// project stay in whatever status they had forever: the orchestrator
+	// re-drives the active ones every tick and nothing else reconciles them
+	// (102 such orphans had accumulated in prod by 2026-10). A failure to list
+	// or delete a task aborts the project deletion so no orphan can be created;
+	// the caller can simply retry.
 	tasks, err := s.Store.ListSpecTasks(r.Context(), &types.SpecTaskFilters{
-		ProjectID: projectID,
+		ProjectID:       projectID,
+		IncludeArchived: true,
 	})
-	if err == nil {
-		for _, task := range tasks {
-			if task.PlanningSessionID != "" {
-				log.Info().
-					Str("project_id", projectID).
-					Str("task_id", task.ID).
-					Str("session_id", task.PlanningSessionID).
-					Msg("Stopping SpecTask session before project deletion")
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("list project tasks before deletion: %s", err))
+	}
+	for _, task := range tasks {
+		if task.PlanningSessionID != "" {
+			log.Info().
+				Str("project_id", projectID).
+				Str("task_id", task.ID).
+				Str("session_id", task.PlanningSessionID).
+				Msg("Stopping SpecTask session before project deletion")
 
-				stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
-				if stopErr != nil {
-					return nil, system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
-				}
+			stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
+			if stopErr != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
 			}
 		}
+
+		if delErr := s.deleteSpecTaskCascade(r.Context(), task.ID); delErr != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("delete task %s before project deletion: %s", task.ID, delErr))
+		}
+		log.Info().
+			Str("project_id", projectID).
+			Str("task_id", task.ID).
+			Msg("Deleted SpecTask before project deletion")
 	}
 
 	// Static artifacts inherit project ownership, so project deletion must
@@ -2637,11 +2597,7 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to clear cache: %s", errors[0]))
 	}
 
-	// Reset project docker cache status — empty sandboxes map
-	project.Metadata.DockerCacheStatus = &types.DockerCacheState{
-		Sandboxes: make(map[string]*types.SandboxCacheState),
-	}
-	if err := s.Store.UpdateProject(r.Context(), project); err != nil {
+	if err := s.Store.DeleteGoldenBuilds(r.Context(), projectID); err != nil {
 		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to reset docker cache status")
 	}
 

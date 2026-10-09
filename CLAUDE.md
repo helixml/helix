@@ -70,6 +70,8 @@ If `FRONTEND_URL=/www` in `.env`, frontend is served from `./frontend/dist:/www:
 **NEVER `rm -rf frontend/dist`** — breaks the bind mount. Use `rm -rf frontend/dist/*` instead.
 
 ### UTM Virtual Machines
+
+**Helix for Mac follows UTM — not upstream QEMU.** QEMU comes from `utmapp/qemu` `utm-edition` *merged* (never rebased) into helixml/qemu-utm; the sysroot, bundled frameworks and `virgl_render_server` come from the UTM release pinned in `for-mac/qemu-helix/UTM_VERSION`; launch env mirrors UTM's `QEMUHelper.m`. All must be from one UTM release. Exceptions: MoltenVK and `virgl_render_server` are rebuilt from UTM's pinned commits with our fixes (`for-mac/qemu-helix/build-moltenvk.sh`, `build-render-server.sh`, `patches/`) — without them Zed and GPU-accelerated Chromium (Zink over Venus) can't render. Upgrade procedure: `for-mac/qemu-helix/README-QEMU-BUILD.md` ("Following UTM").
 See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 
 - Control VMs: `utmctl list|start|stop|status <UUID>` (in `/Applications/UTM.app/Contents/MacOS/`)
@@ -77,6 +79,7 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 - QEMU builds must include `--enable-spice`; NEVER modify UTM source
 - Build QEMU: **ALWAYS use `cd for-mac && make rebuild-qemu`** (stop VM first). This builds, installs to app bundle, fixes dylib rpaths, copies to dev-qemu, and signs. **NEVER** use raw `ninja install` + manual `cp` + `codesign` — this breaks rpaths (`@rpath/pixman-1.0.framework` etc. won't resolve).
 - QEMU source: `~/pm/qemu-utm` (default branch)
+- **Release CI builds QEMU** from the helixml/qemu-utm commit pinned in `for-mac/qemu-helix/QEMU_UTM_COMMIT` (`for-mac/qemu-helix/build-qemu-ci.sh`, cached per commit on the Mac runner). After changing qemu-utm, bump the pin — same ordering as `ZED_COMMIT`. libslirp is vendored in qemu-utm (`subprojects/slirp/`), not taken from the UTM sysroot.
 - If signing fails with `errSecInternalComponent`, use `codesign --force --sign - --timestamp=none --options runtime --entitlements build/darwin/entitlements.plist build/dev-qemu/*`
 - QEMU version string is in `hw/display/helix/helix-frame-export.m` `helix_frame_export_init()` — update it when making QEMU changes
 - Dev-mode uses `build/dev-qemu/qemu-system-aarch64` (separate from app bundle)
@@ -404,9 +407,9 @@ The inner Helix starts with **no users**. **You will almost always need to regis
 3. Check DB to confirm: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT email FROM users LIMIT 5;"`
 
 ### Go Local Tests (CGo fix)
-`go test ./pkg/server/...` requires CGo for tree-sitter. Fix:
+`go test ./pkg/server/...` requires CGo for tree-sitter. The desktop image ships `build-essential`; on older images install it first:
 ```bash
-sudo apt-get update && sudo apt-get install -y gcc libc6-dev
+command -v gcc || (sudo apt-get update && sudo apt-get install -y gcc libc6-dev)
 CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 ```
 

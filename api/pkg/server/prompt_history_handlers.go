@@ -86,6 +86,21 @@ func (apiServer *HelixAPIServer) syncPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
 
+	// Same check as the list path: the response now carries every owner's rows
+	// for this task/session, so it needs the same authorization.
+	authorizedSessionID, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, syncReq.SpecTaskID, syncReq.SessionID)
+	if httpErr != nil {
+		return nil, httpErr
+	}
+	// And the write side: each entry names the session its prompt will be
+	// dispatched to, which the scope check above does not cover.
+	if httpErr := apiServer.authorizeSyncEntryTargets(ctx, user, syncReq.Entries, authorizedSessionID); httpErr != nil {
+		return nil, httpErr
+	}
+	// Entries that name no session fall back to the authorized one, so a created
+	// row can never be left with an empty session_id (it would never dispatch).
+	syncReq.SessionID = authorizedSessionID
+
 	response, err := apiServer.Store.SyncPromptHistory(ctx, user.ID, &syncReq)
 	if err != nil {
 		log.Error().Err(err).
@@ -393,6 +408,82 @@ func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Con
 	}
 }
 
+// authorizeUserToPromptQueue checks that user may read the prompt queue
+// identified by specTaskID (preferred) or sessionID.
+//
+// This is load-bearing. The queue read path used to be scoped by user_id, which
+// doubled as its authorization: you could only ever see your own rows. That made
+// a teammate's or a bot's queued prompts invisible even though they were about to
+// run on the session you are looking at — the queue lied about the agent's state.
+// The rows are now returned for the whole task/session, so the check that used to
+// be implicit has to be made explicitly here, or knowing a spec_task_id would be
+// enough to read someone else's queue.
+// Returns the session that the scope authorizes, which the sync path uses as the
+// default target for entries that carry no session of their own.
+func (apiServer *HelixAPIServer) authorizeUserToPromptQueue(ctx context.Context, user *types.User, specTaskID, sessionID string) (string, *system.HTTPError) {
+	if specTaskID != "" {
+		specTask, err := apiServer.Store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			return "", system.NewHTTPError404("spec task not found")
+		}
+		project, err := apiServer.Store.GetProject(ctx, specTask.ProjectID)
+		if err != nil {
+			return "", system.NewHTTPError404("project not found")
+		}
+		if err := apiServer.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+			return "", system.NewHTTPError403(err.Error())
+		}
+		return specTask.PlanningSessionID, nil
+	}
+
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil || session == nil {
+		return "", system.NewHTTPError404("session not found")
+	}
+	if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet); err != nil {
+		return "", system.NewHTTPError403(err.Error())
+	}
+	return session.ID, nil
+}
+
+// authorizeSyncEntryTargets checks that the caller may send to every session the
+// synced entries name.
+//
+// The read scope is NOT sufficient authorization for the write side. A created
+// row's session_id is what the queue drain dispatches to, and it arrives from the
+// client per entry — so without this check any authenticated user could sync an
+// entry naming someone else's session and have their content delivered into that
+// agent's turn. Validating the scope's spec_task_id/session_id alone does not
+// cover it, because the entry carries its own session.
+//
+// Each distinct target is authorized individually rather than being forced to
+// equal the scope's session: a spec-task view legitimately drives more than one
+// session (a desktop tab can host the project's exploratory session, with its own
+// composer), so collapsing them all onto the planning session would silently drop
+// those prompts. ActionUpdate, not ActionGet — this results in a message being
+// delivered to that session's agent.
+func (apiServer *HelixAPIServer) authorizeSyncEntryTargets(ctx context.Context, user *types.User, entries []types.PromptHistoryEntrySync, authorizedSessionID string) *system.HTTPError {
+	checked := make(map[string]struct{}, 1)
+	for _, entry := range entries {
+		if entry.SessionID == "" || entry.SessionID == authorizedSessionID {
+			continue
+		}
+		if _, done := checked[entry.SessionID]; done {
+			continue
+		}
+		checked[entry.SessionID] = struct{}{}
+
+		session, err := apiServer.Store.GetSession(ctx, entry.SessionID)
+		if err != nil || session == nil {
+			return system.NewHTTPError404(fmt.Sprintf("session %s not found", entry.SessionID))
+		}
+		if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+			return system.NewHTTPError403(err.Error())
+		}
+	}
+	return nil
+}
+
 // enqueueAgentMessage is the single server-side entry point for sending a
 // message to an agent. It inserts a pending prompt_history_entries row for the
 // session and nudges the session-scoped poller — the same mechanism the
@@ -417,6 +508,36 @@ func (apiServer *HelixAPIServer) enqueueAgentMessage(ctx context.Context, sessio
 	return promptID, nil
 }
 
+// resolveSpecTaskIDForSession returns the id of the spec task that owns sessionID
+// via its planning_session_id, or "" when the session is a plain (non-spec-task)
+// session such as an org-chat or bot session — an empty spec_task_id is legitimate
+// there. Archived tasks count: their queue must still render.
+//
+// This exists because the prompt-queue UI queries by spec_task_id. A row written
+// with an empty one is invisible even though it is correctly queued and will be
+// dispatched — see design/tasks/003021_queued-agent-messages.
+func (apiServer *HelixAPIServer) resolveSpecTaskIDForSession(ctx context.Context, sessionID string) (string, error) {
+	tasks, err := apiServer.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		PlanningSessionID: sessionID,
+		IncludeArchived:   true,
+		Limit:             2,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve spec task for session %s: %w", sessionID, err)
+	}
+	if len(tasks) == 0 {
+		return "", nil
+	}
+	if len(tasks) > 1 {
+		log.Warn().
+			Str("session_id", sessionID).
+			Int("match_count", len(tasks)).
+			Str("chosen_spec_task_id", tasks[0].ID).
+			Msg("Session is the planning session of more than one spec task; stamping the first")
+	}
+	return tasks[0].ID, nil
+}
+
 // persistQueuedPrompt inserts the pending prompt row synchronously and returns
 // its id, WITHOUT nudging the poller. Callers that must persist a link to the
 // prompt before dispatch runs (the design-review comment path stores
@@ -437,6 +558,16 @@ func (apiServer *HelixAPIServer) persistQueuedPrompt(ctx context.Context, sessio
 	}
 	if session == nil {
 		return "", fmt.Errorf("session %s not found", sessionID)
+	}
+
+	// Callers that already know their spec task pass it explicitly. The generic
+	// session-messages API (the HelixOS path) cannot, so resolve it here — a row
+	// with an empty spec_task_id is invisible in the queue UI.
+	if specTaskID == "" {
+		specTaskID, err = apiServer.resolveSpecTaskIDForSession(ctx, sessionID)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	entry := &types.PromptHistoryEntry{
@@ -510,23 +641,21 @@ func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, ses
 			Str("session_id", sessionID).
 			Str("prompt_id", nextPrompt.ID).
 			Msg("[INTERRUPT] Current turn cancellation is not confirmed; deferring interrupt prompt")
-		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID, err.Error()); markErr != nil {
-			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to defer interrupt prompt after pending cancellation")
-		}
+		// An unacknowledged cancellation is a defer, not a failure — the log line
+		// says so. Routing it through the shared classifier keeps it off the retry
+		// budget; a genuine cancel error is still recorded as failed.
+		apiServer.requeueUndispatchedPrompt(ctx, sessionID, nextPrompt, err)
 		return
 	}
 
 	// Send the prompt to the session (creates interaction and sends to agent)
+	//
+	// Interrupts are exempt from the busy check, so a defer here means the
+	// BOOT-RACE exception fired (ZedThreadID not yet set). That is also not a
+	// failure — the interrupt is redelivered into the same thread once the thread
+	// exists — so it must not burn the retry budget either.
 	if err := apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt); err != nil {
-		// Interaction creation failed - revert to 'failed' so it can be retried
-		log.Error().
-			Err(err).
-			Str("session_id", sessionID).
-			Str("prompt_id", nextPrompt.ID).
-			Msg("Failed to create interaction for interrupt prompt - reverting to failed")
-		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID, err.Error()); markErr != nil {
-			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed after interaction creation error")
-		}
+		apiServer.requeueUndispatchedPrompt(ctx, sessionID, nextPrompt, err)
 		return
 	}
 
@@ -544,7 +673,11 @@ func (apiServer *HelixAPIServer) cancelCurrentTurnIfActive(ctx context.Context, 
 		return err
 	}
 	if status == "pending" {
-		return fmt.Errorf("external agent cancellation is pending acknowledgement")
+		// Defer-class, not a failure: the agent has not acknowledged the cancel
+		// yet, so nothing was dispatched and the prompt is redelivered when the
+		// ack arrives (handleCancellationAck fires processAnyPendingPrompt).
+		// Wrapped so the queue paths don't charge it to the retry budget.
+		return fmt.Errorf("external agent cancellation is pending acknowledgement: %w", ErrPromptBusyDeferred)
 	}
 
 	if status != "noop" {
@@ -770,6 +903,10 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
 
+	if _, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, specTaskID, sessionID); httpErr != nil {
+		return nil, httpErr
+	}
+
 	listReq := &types.PromptHistoryListRequest{
 		SpecTaskID: specTaskID,
 		ProjectID:  query.Get("project_id"),
@@ -792,7 +929,7 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		}
 	}
 
-	response, err := apiServer.Store.ListPromptHistory(ctx, user.ID, listReq)
+	response, err := apiServer.Store.ListPromptHistory(ctx, listReq)
 	if err != nil {
 		log.Error().Err(err).
 			Str("user_id", user.ID).

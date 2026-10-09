@@ -387,6 +387,37 @@ func (t *StopSpecTaskAgent) Invoke(ctx context.Context, inv tool.Invocation) (js
 	return json.Marshal(view)
 }
 
+// --- complete_spectask ---------------------------------------------------
+
+const CompleteSpecTaskName tool.Name = "complete_spectask"
+
+type CompleteSpecTask struct{ deps Deps }
+
+func NewCompleteSpecTask(deps Deps) *CompleteSpecTask { return &CompleteSpecTask{deps: deps} }
+
+var completeSpecTaskSchema = mustSchema[taskIDArgs]()
+
+func (t *CompleteSpecTask) Name() tool.Name                 { return CompleteSpecTaskName }
+func (t *CompleteSpecTask) InputSchema() *jsonschema.Schema { return completeSpecTaskSchema }
+func (t *CompleteSpecTask) Description() string {
+	return "Mark a spec task done when its work is finished, which stops its agent desktop. Tasks never " +
+		"finish on their own, not even when their pull requests merge: the task's agent asks to finish " +
+		"(you receive a completion_request event) and you confirm with this tool, or you finish it " +
+		"yourself. To send the task back instead, tell its agent what is missing with " +
+		"send_spectask_agent_message. Pass project_id for a project you manage in your org."
+}
+func (t *CompleteSpecTask) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	args, err := parseTaskID(inv.Args)
+	if err != nil {
+		return nil, err
+	}
+	view, err := t.deps.SpecTasks.Complete(ctx, inv.Caller, args.ProjectID, args.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
+}
+
 // --- restart_spectask_agent ----------------------------------------------
 
 const RestartSpecTaskAgentName tool.Name = "restart_spectask_agent"

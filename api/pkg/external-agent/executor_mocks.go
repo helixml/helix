@@ -128,6 +128,21 @@ func (mr *MockExecutorMockRecorder) GetSession(sessionID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSession", reflect.TypeOf((*MockExecutor)(nil).GetSession), sessionID)
 }
 
+// GoldenBuildContainerRunning mocks base method.
+func (m *MockExecutor) GoldenBuildContainerRunning(ctx context.Context, sandboxID, sessionID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GoldenBuildContainerRunning", ctx, sandboxID, sessionID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GoldenBuildContainerRunning indicates an expected call of GoldenBuildContainerRunning.
+func (mr *MockExecutorMockRecorder) GoldenBuildContainerRunning(ctx, sandboxID, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GoldenBuildContainerRunning", reflect.TypeOf((*MockExecutor)(nil).GoldenBuildContainerRunning), ctx, sandboxID, sessionID)
+}
+
 // HasRunningContainer mocks base method.
 func (m *MockExecutor) HasRunningContainer(ctx context.Context, sessionID string) bool {
 	m.ctrl.T.Helper()

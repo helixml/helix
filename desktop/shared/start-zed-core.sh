@@ -21,6 +21,8 @@
 WORK_DIR="$HOME/work"
 COMPLETE_SIGNAL="$HOME/.helix-setup-complete"
 FOLDERS_FILE="$HOME/.helix-zed-folders"
+# Bash that runs in the agent CPU tier (see /etc/cont-init.d/16-cpu-tiers.sh).
+AGENT_TIER_BASH=/usr/local/libexec/helix/agent-tier/bash
 
 # Will be populated by read_zed_folders
 ZED_FOLDERS=()
@@ -30,7 +32,8 @@ ZED_FOLDERS=()
 # =========================================
 
 launch_setup_terminal() {
-    launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
+    # The setup runs the project's .helix/startup.sh: agent work.
+    launch_terminal "Helix Setup" "$WORK_DIR" "$AGENT_TIER_BASH" "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
     TERMINAL_PID=$!
     echo "Setup terminal launched (PID $TERMINAL_PID)"
 }
@@ -142,53 +145,105 @@ wait_for_zed_config() {
 # switch. Every one of those launches is another one-shot registration.
 #
 # The verdict is measured fresh by the daemon each time we ask. See
-# design/2026-09-01-opencode-mcp-tools-unavailable.md.
+# design/2026-09-01-opencode-mcp-tools-unavailable.md and
+# design/2026-10-01-desktops-under-load.md.
+#
+# This gate is the ONLY place that decides when MCP readiness has failed. When
+# it gives up it reports through the daemon (/mcp-readiness/gave-up), which
+# fails the user's turn with the gate's own verdict. It then keeps waiting at a
+# slower cadence and launches Zed if the servers recover, so a slow desktop
+# degrades to "late", never to "dead until someone restarts it".
+#
+# Two clocks, because "unreachable" and "not started yet" are different facts:
+#   - 425 from the daemon: an in-container dependency (the desktop-bridge, which
+#     serves helix-desktop) is still starting. Under CPU load the bridge binds
+#     minutes after boot because it waits for the GNOME session. That time is
+#     bounded by DEP_MAX_WAIT and does not consume the MCP budget.
+#   - anything else: a context server is genuinely unreachable. Bounded by
+#     MCP_MAX_WAIT, counted only while dependencies are up.
 wait_for_mcp_endpoints() {
     local PORT="${SETTINGS_SYNC_PORT:-9877}"
     local URL="http://127.0.0.1:${PORT}/mcp-readiness"
-    # Generous: covers a cold boot (the daemon's listener comes up after the
-    # first sync) and rides out a transient blip on a mid-session restart.
-    # Bounded, because a session that cannot reach its own API is not going to
-    # fix itself and the operator needs the error rather than a silent hang.
-    local MAX_WAIT=180
-    # A wall-clock deadline, not an attempt count. Counting attempts made the
-    # documented 180s bound a lie: each iteration can spend up to the curl
-    # timeout plus the sleep, so 180 attempts was really ~33 minutes of held
-    # launch. The daemon probes its endpoints concurrently with a 5s cap, so a
-    # verdict normally arrives in well under a second.
-    local DEADLINE=$(( $(date +%s) + MAX_WAIT ))
+    # Rides out a transient API/proxy blip once the desktop is up. Bounded,
+    # because a session that cannot reach its own API is not going to fix
+    # itself quickly and the user needs the error rather than a silent hang.
+    local MCP_MAX_WAIT=180
+    # How long the desktop-bridge may take to start listening. On a
+    # CPU-saturated host GNOME alone has taken 2+ minutes to come up. Matches
+    # the API's cold-start envelope (coldStartGracePeriod in
+    # api/pkg/server/auto_wake_stuck_interactions.go, 5 min), after which the
+    # API recreates a container whose agent never connected anyway.
+    local DEP_MAX_WAIT=300
+    # Wall-clock accounting, not attempt counts: each iteration can spend up to
+    # the curl timeout plus the sleep.
+    local MCP_WAITED=0
+    local DEP_WAITED=0
+    local REPORTED=0
     local LAST_REPORT=0
-    local ELAPSED=0
+    local T0=0
+    local DT=0
     local RESPONSE=""
     local STATUS=""
     local BODY=""
 
     echo "Checking Helix MCP context servers are reachable..."
-    while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-        # Not curl -f: a 503 carries the reason in its body and that is exactly
-        # what we want to print. Status and body are captured together.
+    while true; do
+        T0=$(date +%s)
+        # Not curl -f: a non-200 carries the reason in its body and that is
+        # exactly what we want to print. Status and body are captured together.
         RESPONSE=$(curl -sS --max-time 10 -w '\n%{http_code}' "$URL" 2>&1)
         STATUS=$(printf '%s' "$RESPONSE" | tail -n 1)
         BODY=$(printf '%s' "$RESPONSE" | sed '$d')
         if [ "$STATUS" = "200" ]; then
-            echo "Helix MCP context servers reachable"
+            echo "Helix MCP context servers reachable (waited ${DEP_WAITED}s for the desktop, ${MCP_WAITED}s for MCP)"
             return 0
         fi
-        sleep 1
-        ELAPSED=$(( $(date +%s) - DEADLINE + MAX_WAIT ))
-        if [ $(( ELAPSED - LAST_REPORT )) -ge 10 ]; then
-            LAST_REPORT=$ELAPSED
-            echo "Still waiting for MCP context servers... (${ELAPSED}s of ${MAX_WAIT}s)"
+        if [ "$REPORTED" -eq 1 ]; then
+            sleep 10
+            continue
         fi
-    done
+        sleep 1
+        DT=$(( $(date +%s) - T0 ))
+        # 000: the daemon itself is not listening yet — also still starting.
+        if [ "$STATUS" = "425" ] || [ "$STATUS" = "000" ]; then
+            DEP_WAITED=$(( DEP_WAITED + DT ))
+        else
+            MCP_WAITED=$(( MCP_WAITED + DT ))
+        fi
+        if [ $(( DEP_WAITED + MCP_WAITED - LAST_REPORT )) -ge 10 ]; then
+            LAST_REPORT=$(( DEP_WAITED + MCP_WAITED ))
+            if [ "$STATUS" = "425" ] || [ "$STATUS" = "000" ]; then
+                echo "Waiting for the desktop to start serving MCP... (${DEP_WAITED}s of ${DEP_MAX_WAIT}s): ${BODY}"
+            else
+                echo "Still waiting for MCP context servers... (${MCP_WAITED}s of ${MCP_MAX_WAIT}s): ${BODY}"
+            fi
+        fi
 
-    echo "FATAL: Helix MCP context servers are not reachable from this container after ${MAX_WAIT}s."
-    echo "Last verdict from ${URL}:"
-    echo "  ${BODY}"
-    echo "Starting the agent now would give it no Helix tools for the entire session."
-    echo "Check: HELIX_API_URL=${HELIX_API_URL:-UNSET}; the context_server urls in"
-    echo "  $HOME/.config/zed/settings.json must resolve and connect from inside this container."
-    exit 1
+        local WAITING_FOR=""
+        local WAITED=0
+        if [ "$DEP_WAITED" -ge "$DEP_MAX_WAIT" ]; then
+            WAITING_FOR="desktop-bridge"
+            WAITED=$DEP_MAX_WAIT
+        elif [ "$MCP_WAITED" -ge "$MCP_MAX_WAIT" ]; then
+            WAITING_FOR="mcp"
+            WAITED=$MCP_MAX_WAIT
+        else
+            continue
+        fi
+
+        echo "FATAL: Helix MCP context servers are not reachable from this container (waited ${WAITED}s for ${WAITING_FOR})."
+        echo "Last verdict from ${URL}:"
+        echo "  ${BODY}"
+        echo "Starting the agent now would give it no Helix tools for the entire session;"
+        echo "holding it back and reporting the failure. Zed will launch if they recover."
+        echo "Check: HELIX_API_URL=${HELIX_API_URL:-UNSET}; the context_server urls in"
+        echo "  $HOME/.config/zed/settings.json must resolve and connect from inside this container."
+        if ! printf '%s' "$BODY" | curl -sS --max-time 30 -X POST --data-binary @- \
+            "http://127.0.0.1:${PORT}/mcp-readiness/gave-up?waiting_for=${WAITING_FOR}&waited=${WAITED}"; then
+            echo "WARNING: could not report the MCP failure to the session"
+        fi
+        REPORTED=1
+    done
 }
 
 wait_for_claude_credentials() {
@@ -279,11 +334,14 @@ run_zed_restart_loop() {
         # MCP registration by the agent. Re-verify before each one.
         wait_for_mcp_endpoints
         echo "Launching Zed..."
+        # Zed's UI stays in the display tier. Zed starts ACP agents, MCP
+        # servers, terminals and tasks through $SHELL, which puts them and
+        # everything they spawn in the agent tier.
         # ZED_EXTRA_FILES can be set by desktop-specific script (e.g., user guide)
         if [ "${HELIX_HEADLESS}" = "1" ]; then
-            /zed-build/zed --headless "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
+            SHELL="$AGENT_TIER_BASH" /zed-build/zed --headless "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
         else
-            /zed-build/zed "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
+            SHELL="$AGENT_TIER_BASH" /zed-build/zed "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
         fi
         echo "Zed exited, restarting in 2 seconds..."
         sleep 2

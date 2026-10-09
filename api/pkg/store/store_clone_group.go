@@ -124,8 +124,9 @@ func (s *PostgresStore) GetCloneGroupProgress(ctx context.Context, groupID strin
 	return progress, nil
 }
 
-// ListReposWithoutProjects returns repositories that don't have an associated project
-func (s *PostgresStore) ListReposWithoutProjects(ctx context.Context, organizationID string) ([]*types.GitRepository, error) {
+// ListReposWithoutProjects returns repositories that don't have an associated
+// project. Empty filters are not applied.
+func (s *PostgresStore) ListReposWithoutProjects(ctx context.Context, organizationID, ownerID string) ([]*types.GitRepository, error) {
 	var repos []*types.GitRepository
 
 	query := s.gdb.WithContext(ctx).
@@ -134,6 +135,9 @@ func (s *PostgresStore) ListReposWithoutProjects(ctx context.Context, organizati
 
 	if organizationID != "" {
 		query = query.Where("organization_id = ?", organizationID)
+	}
+	if ownerID != "" {
+		query = query.Where("owner_id = ?", ownerID)
 	}
 
 	if err := query.Find(&repos).Error; err != nil {

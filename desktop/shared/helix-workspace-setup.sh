@@ -967,7 +967,7 @@ echo ""
 # Golden build mode: run startup script and exit
 # =========================================
 # When HELIX_GOLDEN_BUILD=true, this session exists solely to populate
-# the Docker cache (images, volumes, registry). We run the startup script
+# the container cache (images, build layers, registry). We run the startup script
 # in the foreground, skip Zed, and exit with the script's exit code.
 # The resulting /var/lib/docker is then promoted to a golden snapshot.
 if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
@@ -993,76 +993,91 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
     # Disable trap — golden builds should exit cleanly, no interactive menu
     trap - EXIT
 
+    GOLDEN_DATA_DIR=/var/lib/docker
+    if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+        GOLDEN_DATA_DIR=/home/retro/.local/share/containers
+    fi
+    fail_golden_build() {
+        echo "1" | sudo tee "$GOLDEN_DATA_DIR/.golden-build-result" > /dev/null
+        echo "Golden build cleanup failed. Waiting for Hydra to stop the container..."
+        exec sleep infinity
+    }
+
     # Run startup script in foreground (blocking)
     if bash -i "$STARTUP_SCRIPT"; then
         echo ""
         echo "✅ Golden build: startup script completed successfully"
 
-        # Clean up Docker artifacts that inflate the golden cache.
-        # Sessions only need the final built images — these intermediates
-        # are push/build artifacts that accumulate across golden builds:
-        #   - Registry-tagged images (10.x.x.x:5000/buildcache/...) from
-        #     the docker wrapper's push-to-registry optimization
-        #   - Dangling (untagged) images from intermediate build steps
-        #   - Unused volumes (build caches, node_modules from build steps)
-        echo "Cleaning Docker build artifacts before golden promotion..."
+        if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+            echo "Removing rootless runtime containers before golden promotion..."
+            CONTAINER_IDS=$(docker ps -aq) || fail_golden_build
+            if [ -n "$CONTAINER_IDS" ]; then
+                docker rm -f $CONTAINER_IDS || fail_golden_build
+            fi
 
-        # Show before state
-        echo "  Before cleanup:"
-        docker system df 2>/dev/null | sed 's/^/    /' || true
-
-        # Remove images tagged with registry IPs (e.g. 10.213.0.2:5000/buildcache/...)
-        # These are push artifacts — the built images are already tagged locally
-        REGISTRY_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^\d+\.\d+\.\d+\.\d+:' || true)
-        if [ -n "$REGISTRY_IMAGES" ]; then
-            echo "$REGISTRY_IMAGES" | xargs docker rmi 2>/dev/null || true
-            echo "  Removed registry-tagged images"
-        fi
-
-        # Remove dangling images (intermediate build layers with <none> tag)
-        docker image prune -f 2>/dev/null || true
-
-        # Remove unused volumes (build step caches that won't carry forward)
-        docker volume prune -f 2>/dev/null || true
-
-        # Prune Docker build cache — keep only layers referenced by existing
-        # images. Without this, build cache grows ~5GB per golden build and
-        # the golden zvol balloons from 56GB to 95GB+ over 20 builds.
-        docker builder prune -f --filter 'unused-for=0s' 2>/dev/null || true
-
-        # Show after state
-        echo "  After cleanup:"
-        docker system df 2>/dev/null | sed 's/^/    /' || true
-        echo "✅ Docker cleanup complete"
-
-        echo "Stopping dockerd for clean shutdown..."
-        # Stop dockerd cleanly so Docker data on disk is consistent
-        # (the data will be promoted to golden cache by Hydra)
-        # 1. Signal the restart loop to NOT restart dockerd after it exits
-        sudo touch /tmp/.dockerd-stop
-        # 2. Kill dockerd via PID file
-        if [ -f /var/run/docker.pid ]; then
-            sudo kill "$(cat /var/run/docker.pid)" 2>/dev/null || true
-            # Wait for dockerd to exit (up to 30 seconds)
-            for i in $(seq 1 30); do
-                [ ! -f /var/run/docker.pid ] && break
+            echo "Stopping rootless Podman and BuildKit for clean shutdown..."
+            sudo touch /tmp/.container-engine-stop
+            sudo pkill -TERM -u retro -f 'podman.*system service' 2>/dev/null || true
+            sudo pkill -TERM -u retro -f 'rootlesskit.*buildkitd|buildkitd' 2>/dev/null || true
+            if [ -f /run/user/1000/buildkit-rootlesskit/child_pid ]; then
+                sudo kill "$(cat /run/user/1000/buildkit-rootlesskit/child_pid)" 2>/dev/null || true
+            fi
+            for _ in $(seq 1 30); do
+                if ! pgrep -u retro -f 'podman.*system service|rootlesskit.*buildkitd|buildkitd' >/dev/null; then
+                    break
+                fi
                 sleep 1
             done
+            if pgrep -u retro -f 'podman.*system service|rootlesskit.*buildkitd|buildkitd' >/dev/null; then
+                echo "❌ Rootless container engines did not stop; refusing to promote a live cache"
+                fail_golden_build
+            fi
+            echo "✅ Rootless container engines stopped"
+        else
+            # The BuildKit cache is the useful part of the Docker golden.
+            BUILDKIT_BUILD_END=$(sudo helix-buildkit-cache-stats || echo null)
+            echo "Cleaning Docker build artifacts before golden promotion..."
+            docker system df 2>/dev/null | sed 's/^/    /' || true
+            REGISTRY_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:' || true)
+            if [ -n "$REGISTRY_IMAGES" ]; then
+                echo "$REGISTRY_IMAGES" | xargs docker rmi 2>/dev/null || true
+            fi
+            docker image prune -f 2>/dev/null || true
+            docker volume prune -f 2>/dev/null || true
+            GC_RULE=$(jq -c '.builder.gc.policy[0]' /etc/docker/daemon.json)
+            docker builder prune -f \
+                --reserved-space "$(jq -r '.reservedSpace' <<<"$GC_RULE")" \
+                --max-used-space "$(jq -r '.maxUsedSpace' <<<"$GC_RULE")" \
+                --min-free-space "$(jq -r '.minFreeSpace' <<<"$GC_RULE")" || true
+            BUILDKIT_PRE_SNAPSHOT=$(sudo helix-buildkit-cache-stats || echo null)
+            jq -n --argjson build_end "$BUILDKIT_BUILD_END" --argjson pre_snapshot "$BUILDKIT_PRE_SNAPSHOT" \
+                '{build_end: $build_end, pre_snapshot: $pre_snapshot}' \
+                | sudo tee /var/lib/docker/.golden-buildkit-stats.json
+
+            echo "Stopping dockerd for clean shutdown..."
+            sudo touch /tmp/.dockerd-stop
+            if [ -f /var/run/docker.pid ]; then
+                sudo kill "$(cat /var/run/docker.pid)" 2>/dev/null || true
+                for _ in $(seq 1 30); do
+                    [ ! -f /var/run/docker.pid ] && break
+                    sleep 1
+                done
+            fi
             echo "✅ dockerd stopped"
         fi
 
-        # Write success marker AFTER dockerd is stopped.
+        # Write success marker after the container engine is stopped.
         # Hydra's monitorGoldenBuild polls for this file and promotes the
-        # Docker data to the golden cache. Writing it after dockerd stops
+        # container data to the golden cache. Writing it after shutdown
         # ensures the data is quiescent — no active writes during promotion
         # or when new sessions copy from the golden cache.
-        echo "0" | sudo tee /var/lib/docker/.golden-build-result > /dev/null
+        echo "0" | sudo tee "$GOLDEN_DATA_DIR/.golden-build-result" > /dev/null
     else
         EXIT_CODE=$?
         echo ""
         echo "❌ Golden build failed with exit code $EXIT_CODE"
         # Write failure marker
-        echo "$EXIT_CODE" | sudo tee /var/lib/docker/.golden-build-result > /dev/null
+        echo "$EXIT_CODE" | sudo tee "$GOLDEN_DATA_DIR/.golden-build-result" > /dev/null
     fi
 
     # Done. Hydra's monitorGoldenBuild polls for .golden-build-result

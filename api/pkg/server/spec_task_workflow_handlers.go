@@ -24,6 +24,7 @@ import (
 // @Tags spec-tasks
 // @Param spec_task_id path string true "SpecTask ID"
 // @Success 200 {object} types.SpecTask
+// @Success 202 {object} types.SpecTask "External repo: the agent was asked to push and propose its pull request(s)"
 // @Router /api/v1/spec-tasks/{spec_task_id}/approve-implementation [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Request) {
@@ -117,13 +118,6 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	// so only refuse when neither exists: nothing pushed and no sandbox to push
 	// from. Without this, approve-implementation would open an empty PR (external
 	// repos) or merge a zero-commit diff (internal repos).
-	s.populateSessionState(ctx, []*types.SpecTask{specTask})
-	sandboxLive := specTask.SandboxState == "running"
-	if specTask.LastPushAt == nil && !sandboxLive {
-		http.Error(w, "Agent has not pushed any commits and its sandbox is not running", http.StatusConflict)
-		return
-	}
-
 	if project.DefaultRepoID == "" {
 		http.Error(w, "Default repository not set for project", http.StatusBadRequest)
 		return
@@ -135,6 +129,21 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// External repos land work only through pull requests the agent proposes
+	// (propose_pull_request) and the user approves; there is nothing to
+	// approve here. Ask the agent directly if it has not proposed one.
+	if s.shouldOpenPullRequest(repo) {
+		http.Error(w, "This task's repository uses pull requests, which open from the agent's proposals. Ask the agent to propose one (e.g. helix spectask send).", http.StatusConflict)
+		return
+	}
+
+	s.populateSessionState(ctx, []*types.SpecTask{specTask})
+	sandboxLive := specTask.SandboxState == "running"
+	if specTask.LastPushAt == nil && !sandboxLive {
+		http.Error(w, "Agent has not pushed any commits and its sandbox is not running", http.StatusConflict)
+		return
+	}
+
 	targetBranch := services.TaskTargetBranch(repo, specTask, project.DefaultRepoID)
 	if targetBranch == "" {
 		writeErrResponse(w, fmt.Errorf("default branch not set for repository"), http.StatusInternalServerError)
@@ -142,68 +151,6 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	}
 
 	now := time.Now()
-
-	// If repo is external, move to pull_request status (awaiting merge in external system)
-	// For internal repos, try merge first - only record approval if merge succeeds
-	if s.shouldOpenPullRequest(repo) {
-		// Validate user OAuth before advancing task status.
-		// This is a lightweight sync check (DB lookup only). The actual PR
-		// creation remains async.
-		if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
-			var oauthErr *services.OAuthRequiredError
-			if errors.As(err, &oauthErr) {
-				writeResponse(w, map[string]interface{}{
-					"error":         "oauth_required",
-					"message":       oauthErr.Error(),
-					"provider_type": oauthErr.ProviderType,
-				}, http.StatusUnprocessableEntity)
-				return
-			}
-			log.Warn().Err(err).Str("task_id", specTask.ID).Msg("Failed to validate user OAuth, proceeding anyway")
-		}
-
-		// External repo: record approval and move to pull_request status, await merge via polling
-		specTask.ImplementationApprovedBy = user.ID
-		specTask.ImplementationApprovedAt = &now
-		specTask.Status = types.TaskStatusPullRequest
-		specTask.StatusUpdatedAt = &now
-
-		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
-
-		// Eagerly create PRs for all repos that have commits on the feature branch.
-		// The push-detection path (handleFeatureBranchPush → ensurePullRequest) is
-		// a backup, but it can fail silently. Eager creation is the primary mechanism.
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			if err := s.ensurePullRequestsForAllRepos(context.Background(), specTask, project.DefaultRepoID, user.ID); err != nil {
-				log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to create PRs on approval (push detection will retry)")
-			}
-			// Re-read agent-authored PR metadata after creation. This closes the
-			// race where pull_request_*.md is pushed while eager PR creation is
-			// still in flight: the specs-push handler may run before the new PR is
-			// tracked, while creation may already have read the old specs commit.
-			if s.gitHTTPServer != nil {
-				s.gitHTTPServer.SyncOpenPRDescriptions(context.Background(), specTask, repo.LocalPath)
-			}
-		}()
-
-		// Send message to agent to commit and push any remaining uncommitted changes
-		s.sendImplementationPushInstruction(ctx, specTask, repo, project.DefaultRepoID)
-
-		// Re-fetch to get the latest RepoPullRequests (may have been set by concurrent push)
-		updatedTask, err := s.Store.GetSpecTask(ctx, specTaskID)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to get updated spec task: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
-
-		writeResponse(w, updatedTask, http.StatusOK)
-		return
-	}
 
 	// Internal repo or external repo with no PRs automation implemented
 	// Server-side merge: agent can't push to main due to branch restrictions

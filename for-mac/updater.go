@@ -355,10 +355,10 @@ func (u *Updater) StartCombinedUpdate(settings *SettingsManager, downloader *VMD
 		return fmt.Errorf("update failed: %w", vmErr)
 	}
 
-	// Defense-in-depth: verify the staged disk was actually created before
-	// proceeding to download the DMG and write the sentinel.
-	if !IsVMUpdateStaged() {
-		log.Printf("BUG: DownloadVMUpdate returned nil but disk.qcow2.staged does not exist for v%s", info.LatestVersion)
+	// The VM disk is either staged for this version, or was already installed
+	// (an earlier combined update applied the VM but the app was never replaced).
+	if !vmReadyForVersion(settings, info.LatestVersion) {
+		log.Printf("BUG: DownloadVMUpdate returned nil but no VM disk is staged or installed for v%s", info.LatestVersion)
 		return fmt.Errorf("system update could not be prepared — please try again later")
 	}
 
@@ -791,6 +791,28 @@ func (u *Updater) ApplyVMUpdate(vm *VMManager, settings *SettingsManager) error 
 
 	log.Printf("VM disk updated to version %s", stagedVersion)
 	return nil
+}
+
+// vmReadyForVersion reports whether the VM half of a combined update to
+// version is done: a disk for it is staged, or it is already installed.
+func vmReadyForVersion(settings *SettingsManager, version string) bool {
+	if IsVMUpdateStaged() && GetStagedVMVersion() == version {
+		return true
+	}
+	return settings.Get().InstalledVMVersion == version
+}
+
+// IsCombinedUpdateStaged reports whether a combined update to version has been
+// fully downloaded and is waiting for the user to restart into the new app.
+func IsCombinedUpdateStaged(settings *SettingsManager, version string) bool {
+	sentinel, err := os.ReadFile(combinedUpdateSentinelPath())
+	if err != nil || strings.TrimSpace(string(sentinel)) != version {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(getHelixDataDir(), "updates", "Helix-for-Mac.dmg")); err != nil {
+		return false
+	}
+	return vmReadyForVersion(settings, version)
 }
 
 // IsVMUpdateStaged returns true if a staged VM disk exists.

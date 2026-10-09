@@ -1,6 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import SpecTaskDetailPage from "./SpecTaskDetailPage";
+
+const mocks = vi.hoisted(() => ({
+  cacheTaskName: vi.fn(),
+  task: { id: "task-1", name: "Test task", project_id: "project-1" },
+}));
 
 vi.mock("react-router5", () => ({
   useRoute: () => ({
@@ -11,7 +16,7 @@ vi.mock("react-router5", () => ({
   }),
 }));
 vi.mock("../services/specTaskService", () => ({
-  useSpecTask: () => ({ data: { id: "task-1", name: "Test task" }, isLoading: false }),
+  useSpecTask: () => ({ data: mocks.task, isLoading: false }),
 }));
 vi.mock("../services", () => ({
   useGetProject: () => ({ data: { id: "project-1", name: "Test project" }, isLoading: false }),
@@ -19,7 +24,7 @@ vi.mock("../services", () => ({
 vi.mock("../hooks/useAccount", () => ({
   default: () => ({ orgNavigate: vi.fn() }),
 }));
-vi.mock("../lib/navHistory", () => ({ cacheTaskName: vi.fn() }));
+vi.mock("../lib/navHistory", () => ({ cacheTaskName: mocks.cacheTaskName }));
 vi.mock("../components/system/Page", () => ({
   default: ({ children, topbarContent }: { children: React.ReactNode; topbarContent?: React.ReactNode }) => (
     <div>{topbarContent}{children}</div>
@@ -31,8 +36,16 @@ vi.mock("../components/tasks/SpecTaskDetailContent", () => ({
 vi.mock("../components/tasks/NewSpecTaskForm", () => ({
   default: () => <div data-testid="new-spec-task-form" />,
 }));
+vi.mock("./NotFound", () => ({
+  default: () => <div>Page not found</div>,
+}));
 
-describe("SpecTaskDetailPage task creation", () => {
+describe("SpecTaskDetailPage", () => {
+  beforeEach(() => {
+    mocks.cacheTaskName.mockClear();
+    mocks.task.project_id = "project-1";
+  });
+
   it("does not open a new task when Enter comes from a shadow-DOM editor", () => {
     render(<SpecTaskDetailPage />);
 
@@ -65,5 +78,17 @@ describe("SpecTaskDetailPage task creation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create New Task" }));
 
     expect(screen.getByTestId("new-spec-task-form")).toBeInTheDocument();
+  });
+
+  it("rejects a task URL for a different project", () => {
+    mocks.task.project_id = "project-2";
+
+    render(<SpecTaskDetailPage />);
+
+    expect(screen.getByText("Page not found")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-content")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create New Task" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open in Split Screen" })).not.toBeInTheDocument();
+    expect(mocks.cacheTaskName).not.toHaveBeenCalled();
   });
 });

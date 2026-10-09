@@ -41,19 +41,24 @@ import CreateProjectDialog from '../project/CreateProjectDialog'
 import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import {
   ALL_PROJECTS_FILTER,
+  ALL_USERS_FILTER,
+  chatRouteAfterLeavingItem,
   collapsedGroupsStorageKey,
   getChatShortcutNumber,
   isChatShortcutModifier,
   isNewThreadShortcut,
   parseSidebarParticipantIds,
   parseSidebarProjectFilter,
+  parseSidebarUserFilter,
   resolveSidebarProjectFilter,
+  resolveSidebarUserFilter,
   shouldConfirmArchive,
   parseCollapsedGroupIds,
   serializeSidebarParticipantIds,
   sidebarPreferencesStorageKey,
   sidebarExpandedPeopleStorageKey,
   sidebarProjectFilterStorageKey,
+  sidebarUserFilterStorageKey,
   serializeCollapsedGroupIds,
   parseSidebarGroupBy,
   sidebarGroupByStorageKey,
@@ -114,6 +119,14 @@ const readProjectFilter = (storageKey: string): string => {
   }
 }
 
+const readUserFilter = (storageKey: string): string => {
+  try {
+    return parseSidebarUserFilter(window.localStorage.getItem(storageKey))
+  } catch {
+    return ALL_USERS_FILTER
+  }
+}
+
 const ProjectChatSidebar: FC<{
   onCollapse: () => void
   onOpenSession: () => void
@@ -131,11 +144,13 @@ const ProjectChatSidebar: FC<{
   const storageKey = collapsedGroupsStorageKey(orgSlug)
   const preferencesStorageKey = sidebarPreferencesStorageKey(orgSlug)
   const projectFilterStorageKey = sidebarProjectFilterStorageKey(orgId)
+  const userFilterStorageKey = sidebarUserFilterStorageKey(orgId)
   const groupByStorageKey = sidebarGroupByStorageKey(orgId)
 
   const [query, setQuery] = useState('')
   const [groupBy, setGroupBy] = useState<SidebarGroupBy>(() => readGroupBy(groupByStorageKey))
   const [projectFilter, setProjectFilter] = useState(() => readProjectFilter(projectFilterStorageKey))
+  const [userFilter, setUserFilter] = useState(() => readUserFilter(userFilterStorageKey))
   const peopleFilterStorageKey = sidebarExpandedPeopleStorageKey(currentUserId, orgSlug)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
   const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now())
@@ -165,6 +180,10 @@ const ProjectChatSidebar: FC<{
   useEffect(() => {
     setProjectFilter(readProjectFilter(projectFilterStorageKey))
   }, [projectFilterStorageKey])
+
+  useEffect(() => {
+    setUserFilter(readUserFilter(userFilterStorageKey))
+  }, [userFilterStorageKey])
 
   useEffect(() => {
     setGroupBy(readGroupBy(groupByStorageKey))
@@ -234,7 +253,7 @@ const ProjectChatSidebar: FC<{
   const activeItemId = router.params.taskId || router.params.bot_id || router.params.session_id || ''
   // The account context loads memberships once; presence needs the polled
   // list, which also carries the `online` flag.
-  const { data: liveMembers } = useOrganizationMembers(orgId, {
+  const { data: liveMembers, isLoading: liveMembersLoading } = useOrganizationMembers(orgId, {
     enabled: !!account.user?.id && !!orgId,
     refetchInterval: 30000,
   })
@@ -246,6 +265,22 @@ const ProjectChatSidebar: FC<{
     ? [{ user_id: currentUserId, user: account.user }, ...organizationMembers]
     : organizationMembers
   const sidebarMembers = toSidebarMembers(organizationMembers, account.user)
+  const sidebarMemberUserIds = new Set(sidebarMembers.map((member) => member.userId))
+  // A stored filter for someone who has left the org falls back to everyone —
+  // but only once the members list has actually loaded, so a fresh page load
+  // cannot wipe the stored choice before it can be honoured.
+  const resolvedUserFilter = !liveMembersLoading && sidebarMemberUserIds.size > 0
+    ? resolveSidebarUserFilter(userFilter, sidebarMemberUserIds)
+    : userFilter
+  useEffect(() => {
+    if (resolvedUserFilter === userFilter) return
+    setUserFilter(resolvedUserFilter)
+    try {
+      window.localStorage.setItem(userFilterStorageKey, resolvedUserFilter)
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  }, [resolvedUserFilter, userFilter, userFilterStorageKey])
   // Members whose work is expanded when grouping by person. Until the viewer
   // chooses, only their own group is open.
   const expandedPeopleIds = participantIdsOverride === null
@@ -273,7 +308,7 @@ const ProjectChatSidebar: FC<{
 
   const startNewChat = useCallback(({ projectId }: NewChatTarget) => {
     setShowArchived(false)
-    account.orgNavigate('chat', {}, projectId ? { project_id: projectId } : {})
+    account.orgNavigate('project-new', { id: projectId })
     onOpenSession()
   }, [account, onOpenSession])
 
@@ -419,6 +454,8 @@ const ProjectChatSidebar: FC<{
   const openItem = (item: SidebarItem) => {
     if (item.kind === 'spec-task' && item.projectId) {
       account.orgNavigate('chat-task', { id: item.projectId, taskId: item.id })
+    } else if (item.projectId) {
+      account.orgNavigate('project-session', { id: item.projectId, session_id: item.id })
     } else {
       account.orgNavigate('session', { session_id: item.id })
     }
@@ -441,7 +478,12 @@ const ProjectChatSidebar: FC<{
     event.preventDefault()
     event.stopPropagation()
     setProjectContextMenuProject(project)
-    setProjectContextMenuPosition({ mouseX: event.clientX, mouseY: event.clientY })
+    if (event.type === 'contextmenu') {
+      setProjectContextMenuPosition({ mouseX: event.clientX, mouseY: event.clientY })
+      return
+    }
+    const rect = event.currentTarget.getBoundingClientRect()
+    setProjectContextMenuPosition({ mouseX: rect.left, mouseY: rect.bottom })
   }
 
   const closeProjectContextMenu = () => {
@@ -463,6 +505,11 @@ const ProjectChatSidebar: FC<{
     })
   }
 
+  const leaveActiveItem = (item: SidebarItem) => {
+    const target = chatRouteAfterLeavingItem(item.projectId)
+    account.orgNavigate(target.name, target.params)
+  }
+
   const performArchive = async (item: SidebarItem) => {
     if (archivingItemId) return
     // In the Archived view the same control restores the item instead.
@@ -476,7 +523,7 @@ const ProjectChatSidebar: FC<{
         await archiveSession.mutateAsync({ sessionId: item.id, archived })
       }
       setArchiveConfirmation(null)
-      if (archived && item.id === activeItemId) account.orgNavigate('chat')
+      if (archived && item.id === activeItemId) leaveActiveItem(item)
     } catch (error: any) {
       const message = typeof error?.response?.data === 'string'
         ? error.response.data
@@ -495,7 +542,7 @@ const ProjectChatSidebar: FC<{
     try {
       await deleteBotInstance.mutateAsync({ botId: item.botInstanceOf, sessionId: item.id })
       setDeleteInstanceConfirmation(null)
-      if (item.id === activeItemId) account.orgNavigate('chat')
+      if (item.id === activeItemId) leaveActiveItem(item)
     } catch (error: any) {
       snackbar.error(error?.response?.data?.error || error?.message || 'Failed to delete instance')
     } finally {
@@ -545,6 +592,15 @@ const ProjectChatSidebar: FC<{
       : [...expandedPeopleIds, userId])
   }
 
+  const selectUserFilter = (userId: string) => {
+    setUserFilter(userId)
+    try {
+      window.localStorage.setItem(userFilterStorageKey, userId)
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  }
+
   const selectProjectFilter = (projectId: string) => {
     setProjectFilter(projectId)
     if (projectId !== ALL_PROJECTS_FILTER) {
@@ -574,6 +630,12 @@ const ProjectChatSidebar: FC<{
   const groupsOfferNewTask = !showArchived && !isPhone
 
   const effectiveCollapsedGroups = query ? new Set<string>() : collapsedGroups
+  // The user filter narrows the project view to one member's chats and tasks;
+  // it is chosen inside the project filter's menu. The person grouping already
+  // is a per-user view, so it does not apply there.
+  const userFilterId = groupBy === 'project' && userFilter !== ALL_USERS_FILTER
+    ? userFilter
+    : undefined
   // The desktop toolbar's controls, reused verbatim in the phone's filter sheet
   // so the two surfaces cannot offer different filters.
   const filterControls = (
@@ -582,7 +644,11 @@ const ProjectChatSidebar: FC<{
           projects={sidebarProjects}
           selectedProjectId={projectFilter}
           archived={showArchived}
+          members={sidebarMembers}
+          selectedUserId={userFilter}
+          showUserFilter={groupBy === 'project'}
           onChange={selectProjectFilter}
+          onUserChange={selectUserFilter}
         />
         {!focusMode && (
           <ProjectChatSidebarOptions
@@ -726,7 +792,11 @@ const ProjectChatSidebar: FC<{
             projects={sidebarProjects}
             selectedProjectId={projectFilter}
             archived={showArchived}
+            members={sidebarMembers}
+            selectedUserId={userFilter}
+            showUserFilter={groupBy === 'project'}
             onChange={selectProjectFilter}
+            onUserChange={selectUserFilter}
           />
           {!focusMode && (
             <ProjectChatSidebarOptions
@@ -826,7 +896,7 @@ const ProjectChatSidebar: FC<{
                     >
                       <Plus size={12} strokeWidth={1.8} aria-hidden="true" />
                       <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center' }}>
-                        New bot
+                        New
                       </Box>
                     </Button>
                   )}
@@ -865,27 +935,6 @@ const ProjectChatSidebar: FC<{
             )}
             {!groupByPerson && !(showSectionHeaders && collapsedGroups.has('projects')) && (
             <>
-            {!focusMode && <ProjectChatGroup
-              orgId={orgId}
-              collapsed={effectiveCollapsedGroups.has('default')}
-              query={query}
-              activeItemId={activeItemId}
-              relativeTimeNow={relativeTimeNow}
-              enabled={groupsEnabled}
-              threadSortOrder={preferences.threadSortOrder}
-              visibleThreadCount={preferences.visibleThreadCount}
-              participantIds={currentUserId ? [currentUserId] : []}
-              organizationMembers={selectableMembers}
-              currentUser={account.user}
-              archived={showArchived}
-              pinnedChats={pinnedChats}
-              archivingItemId={archivingItemId}
-              onToggle={() => toggleGroup('default')}
-              onNewTask={groupsOfferNewTask ? () => account.orgNavigate('chat') : undefined}
-              onOpenItem={openItem}
-              onOpenItemContextMenu={openItemContextMenu}
-              onArchiveItem={requestArchive}
-            />}
             <DndContext
               sensors={projectDragSensors}
               collisionDetection={closestCenter}
@@ -914,6 +963,7 @@ const ProjectChatSidebar: FC<{
                         threadSortOrder={preferences.threadSortOrder}
                         visibleThreadCount={preferences.visibleThreadCount}
                         allMembers
+                        ownerId={userFilterId}
                         showTaskAvatars
                         organizationMembers={selectableMembers}
                         currentUser={account.user}
@@ -922,7 +972,7 @@ const ProjectChatSidebar: FC<{
                         archivingItemId={archivingItemId}
                         onToggle={() => toggleGroup(project.id!)}
                         onNewTask={groupsOfferNewTask
-                          ? () => account.orgNavigate('chat', {}, { project_id: project.id })
+                          ? () => account.orgNavigate('project-new', { id: project.id })
                           : undefined}
                         onOpenItem={openItem}
                         onOpenItemContextMenu={openItemContextMenu}
@@ -990,6 +1040,7 @@ const ProjectChatSidebar: FC<{
         open={newChatPickerOpen}
         projects={allProjects}
         onClose={() => setNewChatPickerOpen(false)}
+        onCreateProject={() => setCreateProjectOpen(true)}
         onSelect={startNewChat}
       />
 
@@ -1061,7 +1112,7 @@ const ProjectChatSidebar: FC<{
           open
           onClose={() => setCreateProjectOpen(false)}
           onSuccess={(projectId) => {
-            account.orgNavigate('chat', {}, { project_id: projectId })
+            account.orgNavigate('project-new', { id: projectId })
             onOpenSession()
           }}
           repositories={repositories}

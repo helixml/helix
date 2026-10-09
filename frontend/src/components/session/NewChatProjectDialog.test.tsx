@@ -12,15 +12,14 @@ const projects = [
 ]
 
 describe('buildNewChatRows', () => {
-  it('offers a standalone chat ahead of the projects', () => {
+  it('offers projects only', () => {
     const rows = buildNewChatRows(projects, '')
-    expect(rows.map((row) => row.key)).toEqual(['none', 'prj_a', 'prj_b', 'prj_c'])
-    expect(rows[0].target).toEqual({})
-    expect(rows[1].target).toEqual({ projectId: 'prj_a' })
+    expect(rows.map((row) => row.key)).toEqual(['prj_a', 'prj_b', 'prj_c'])
+    expect(rows[0].target).toEqual({ projectId: 'prj_a' })
   })
 
   it('names a project that has none', () => {
-    expect(buildNewChatRows(projects, '')[3].name).toBe('Untitled project')
+    expect(buildNewChatRows(projects, '')[2].name).toBe('Untitled project')
   })
 
   it('matches every token, not the raw string — "hook relay" finds webhookrelay', () => {
@@ -37,12 +36,27 @@ describe('buildNewChatRows', () => {
 })
 
 describe('NewChatProjectDialog', () => {
-  const renderDialog = (onSelect = vi.fn(), onClose = vi.fn()) => {
+  const renderDialog = (onSelect = vi.fn(), onClose = vi.fn(), onCreateProject = vi.fn()) => {
     render(
-      <NewChatProjectDialog open projects={projects} onClose={onClose} onSelect={onSelect} />,
+      <NewChatProjectDialog
+        open
+        projects={projects}
+        onClose={onClose}
+        onCreateProject={onCreateProject}
+        onSelect={onSelect}
+      />,
     )
-    return { onSelect, onClose }
+    return { onSelect, onClose, onCreateProject }
   }
+
+  it('opens project creation from the picker', () => {
+    const { onClose, onCreateProject } = renderDialog()
+
+    fireEvent.click(screen.getByRole('button', { name: 'New project' }))
+
+    expect(onClose).toHaveBeenCalled()
+    expect(onCreateProject).toHaveBeenCalled()
+  })
 
   it('starts the chat in the project that was clicked', () => {
     const { onSelect, onClose } = renderDialog()
@@ -60,7 +74,25 @@ describe('NewChatProjectDialog', () => {
     fireEvent.keyDown(search, { key: 'ArrowDown' })
     fireEvent.keyDown(search, { key: 'Enter' })
 
-    expect(onSelect).toHaveBeenCalledWith({ projectId: 'prj_a' })
+    expect(onSelect).toHaveBeenCalledWith({ projectId: 'prj_b' })
+  })
+
+  it('scrolls the highlighted row into view as the cursor moves', () => {
+    const scrollIntoView = vi.fn()
+    // jsdom has no scrollIntoView; stand one in so we can assert it fires.
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+    try {
+      renderDialog()
+      const search = screen.getByLabelText('Search projects')
+      scrollIntoView.mockClear()
+      fireEvent.keyDown(search, { key: 'ArrowDown' })
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    } finally {
+      delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView
+    }
   })
 
   it('wraps around the ends rather than sticking', () => {

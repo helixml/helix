@@ -899,7 +899,9 @@ func (c *inProcHelixClient) destroyProjectRuntime(ctx context.Context, project *
 		}
 	}
 
-	if cache := project.Metadata.DockerCacheStatus; cache != nil && len(cache.Sandboxes) > 0 {
+	if builds, err := c.server.Store.ListGoldenBuilds(ctx, &store.ListGoldenBuildsQuery{ProjectID: project.ID}); err != nil {
+		return fmt.Errorf("list project golden builds: %w", err)
+	} else if len(builds) > 0 {
 		if _, failures, err := c.server.deleteGoldenCacheFromSandboxes(ctx, project.ID); err != nil {
 			log.Warn().Err(err).Str("project_id", project.ID).Msg("failed to delete project golden cache")
 		} else if len(failures) > 0 {

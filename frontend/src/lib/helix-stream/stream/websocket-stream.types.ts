@@ -104,6 +104,8 @@ export type WsStreamInfoEvent = CustomEvent<
   | { type: "visibility"; visible: boolean }
   | { type: "streamInit"; width: number; height: number; fps: number }
   | { type: "connectionComplete"; capabilities: StreamCapabilities }
+  // Server is up and talking but the video pipeline has not produced a frame yet
+  | { type: "videoStarting"; elapsedMs: number }
   | { type: "addDebugLine"; line: string }
   // Cursor events
   | { type: "cursorImage"; cursor: CursorImageData; lastMoverID?: number }

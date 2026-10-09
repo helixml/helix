@@ -6,18 +6,19 @@ import Typography from '@mui/material/Typography'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { useTheme } from '@mui/material/styles'
 
-import { ArrowDown, ArrowLeft, ArrowUp, Folder, MessagesSquare } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Folder, Plus } from 'lucide-react'
 
 import type { TypesProject } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
 import { matchesAllTokens } from '../../utils/searchUtils'
 
-export type NewChatTarget = { projectId?: string }
+export type NewChatTarget = { projectId: string }
 
 type NewChatProjectDialogProps = {
   open: boolean
   projects: TypesProject[]
   onClose: () => void
+  onCreateProject: () => void
   onSelect: (target: NewChatTarget) => void
 }
 
@@ -26,7 +27,6 @@ type Row = {
   name: string
   detail: string
   target: NewChatTarget
-  standalone?: boolean
 }
 
 const isMacPlatform = (): boolean =>
@@ -39,23 +39,14 @@ const projectDetail = (project: TypesProject): string =>
   project.github_repo_url || project.description || ''
 
 export const buildNewChatRows = (projects: TypesProject[], query: string): Row[] => {
-  const rows: Row[] = [
-    {
-      key: 'none',
-      name: 'No project',
-      detail: 'A standalone chat, not attached to a repository',
-      target: {},
-      standalone: true,
-    },
-    ...projects.flatMap((project) => (project.id
+  const rows: Row[] = projects.flatMap((project) => (project.id
       ? [{
           key: project.id,
           name: project.name || 'Untitled project',
           detail: projectDetail(project),
           target: { projectId: project.id },
         }]
-      : [])),
-  ]
+      : []))
 
   return rows.filter((row) => matchesAllTokens(query, row.name, row.detail))
 }
@@ -71,12 +62,14 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
   open,
   projects,
   onClose,
+  onCreateProject,
   onSelect,
 }) => {
   const theme = useTheme()
   const lightTheme = useLightTheme()
   const isNarrow = useMediaQuery(theme.breakpoints.down('sm'))
   const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
 
@@ -92,6 +85,18 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
   useEffect(() => {
     setSelectedIndex((current) => (current >= rows.length ? Math.max(rows.length - 1, 0) : current))
   }, [rows.length])
+
+  // Keep the highlighted row in view as the keyboard cursor moves (arrows, ⌘N).
+  // Without this the selection scrolls off-screen in a long project list and
+  // the arrows look like they do nothing. `nearest` only scrolls when needed.
+  useEffect(() => {
+    if (!open) return
+    const row = listRef.current?.querySelector(`[data-row-index="${selectedIndex}"]`)
+    // scrollIntoView is absent in jsdom (tests) and on very old engines.
+    if (row && typeof row.scrollIntoView === 'function') {
+      row.scrollIntoView({ block: 'nearest' })
+    }
+  }, [selectedIndex, open])
 
   const choose = useCallback((row?: Row) => {
     if (!row) return
@@ -163,12 +168,21 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
                 maxHeight: 'calc(100vh - 32px)',
                 borderRadius: '14px',
               }),
-          display: 'flex',
-          flexDirection: 'column',
+          // The flex column lives on an inner Box (below), not the Paper itself:
+          // on iOS a scrollable flex child of the MUI-managed Paper does not
+          // take touch scrolling. Mirrors GlobalSearchDialog, which scrolls.
           overflow: 'hidden',
         },
       }}
     >
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          minHeight: 0,
+        }}
+      >
       <Box
         sx={{
           display: 'flex',
@@ -220,6 +234,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
       </Box>
 
       <Box
+        ref={listRef}
         sx={{
           flex: 1,
           minHeight: 0,
@@ -229,18 +244,44 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
           py: 1,
         }}
       >
-        <Typography
+        <Box
           sx={{
             px: 2,
             py: 0.75,
-            fontSize: '11px',
-            fontWeight: 600,
-            letterSpacing: '0.4px',
-            color: mutedColor,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
           }}
         >
-          Projects
-        </Typography>
+          <Typography sx={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.4px', color: mutedColor }}>
+            Projects
+          </Typography>
+          <Box
+            component="button"
+            type="button"
+            onClick={() => {
+              onClose()
+              onCreateProject()
+            }}
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.5,
+              p: 0,
+              border: 0,
+              backgroundColor: 'transparent',
+              color: 'primary.main',
+              cursor: 'pointer',
+              font: 'inherit',
+              fontSize: '12px',
+              fontWeight: 500,
+              '&:hover': { color: 'primary.light' },
+            }}
+          >
+            <Plus size={13} />
+            New project
+          </Box>
+        </Box>
         {rows.length === 0 && (
           <Typography sx={{ px: 2, py: 1.5, fontSize: '13px', color: mutedColor }}>
             No projects match “{query}”.
@@ -252,7 +293,8 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
             role="button"
             tabIndex={-1}
             data-new-chat-row={row.key}
-            aria-label={row.standalone ? 'New chat without a project' : `New task in ${row.name}`}
+            data-row-index={index}
+            aria-label={`New task in ${row.name}`}
             onMouseEnter={() => setSelectedIndex(index)}
             onClick={() => choose(row)}
             sx={{
@@ -271,7 +313,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
             }}
           >
             <Box sx={{ display: 'inline-flex', flexShrink: 0, color: mutedColor }}>
-              {row.standalone ? <MessagesSquare size={16} /> : <Folder size={16} />}
+              <Folder size={16} />
             </Box>
             <Box sx={{ minWidth: 0, flex: 1 }}>
               <Typography
@@ -361,6 +403,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
           ))}
         </Box>
       )}
+      </Box>
     </Dialog>
   )
 }

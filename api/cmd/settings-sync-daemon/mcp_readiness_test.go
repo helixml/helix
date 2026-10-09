@@ -213,49 +213,166 @@ func TestProbeMCPEndpoints(t *testing.T) {
 	})
 }
 
-func TestWaitForMCPEndpointsRecoversWhenOriginComesBack(t *testing.T) {
-	// Grab a port, hold it closed so the first probes are refused, then bind a
-	// real server on the same address mid-flight. This is the transient the
-	// gate exists to ride out: the API proxy is not listening yet.
+// helix-desktop is served by this container's own desktop-bridge, reached by
+// the API over RevDial. Until the bridge listens, the verdict is "still
+// starting" (425), which the gate does not count against its MCP deadline. The
+// incident this replaces: the API answered 502 while the bridge was not yet up
+// and the probe blamed "the Helix API behind the sandbox proxy", failing the
+// user's turn a minute before the bridge came up and Zed launched fine.
+func TestDesktopBridgeNotListeningIsPendingNotFailure(t *testing.T) {
+	origSettingsPath := SettingsPath
+	t.Cleanup(func() { SettingsPath = origSettingsPath })
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer api.Close()
+
+	// Grab a port for the bridge and keep it closed: the bridge has not bound yet.
 	probe, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr := probe.Addr().String()
-	if err := probe.Close(); err != nil {
-		t.Fatal(err)
+	bridgeAddr := probe.Addr().String()
+	probe.Close()
+
+	d := newReadinessDaemon()
+	d.desktopBridgeHealthURL = "http://" + bridgeAddr + "/health"
+	SettingsPath = writeSettingsFile(t, map[string]interface{}{
+		"helix-desktop": map[string]interface{}{"url": api.URL + "/api/v1/mcp/desktop?session_id=ses_1"},
+		"helix-tasks":   map[string]interface{}{"url": api.URL + "/api/v1/mcp/helix-tasks"},
+	})
+	gate := httptest.NewServer(http.HandlerFunc(d.mcpReadinessHandler))
+	defer gate.Close()
+
+	status, body := askGate(t, gate.URL)
+	if status != http.StatusTooEarly {
+		t.Fatalf("status = %d (%s), want 425 while the desktop-bridge is not listening", status, body)
+	}
+	if !strings.Contains(body, "desktop-bridge") || strings.Contains(body, "sandbox proxy") {
+		t.Fatalf("verdict must name the desktop-bridge, not blame the API/proxy: %q", body)
 	}
 
-	path := writeSettingsFile(t, map[string]interface{}{
-		"helix-tasks": map[string]interface{}{"url": "http://" + addr + "/api/v1/mcp/helix-tasks"},
-	})
+	// The bridge comes up: ready.
+	ln, err := net.Listen("tcp", bridgeAddr)
+	if err != nil {
+		t.Skip("could not rebind the bridge port; another process took it")
+	}
+	bridge := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	bridge.Listener.Close()
+	bridge.Listener = ln
+	bridge.Start()
+	defer bridge.Close()
 
-	bound := make(chan *httptest.Server, 1)
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		ln, lnErr := net.Listen("tcp", addr)
-		if lnErr != nil {
-			bound <- nil
+	if status, body := askGate(t, gate.URL); status != http.StatusOK {
+		t.Fatalf("status = %d (%s), want 200 once the bridge listens", status, body)
+	}
+}
+
+// A pending dependency must not mask a real failure elsewhere: if the API
+// itself is down, that is a 503 and the gate's deadline runs.
+func TestPendingBridgeDoesNotMaskRealFailure(t *testing.T) {
+	d := newReadinessDaemon()
+	d.desktopBridgeHealthURL = deadOrigin(t) + "/health"
+	path := writeSettingsFile(t, map[string]interface{}{
+		"helix-desktop": map[string]interface{}{"url": deadOrigin(t) + "/api/v1/mcp/desktop"},
+		"helix-tasks":   map[string]interface{}{"url": deadOrigin(t) + "/api/v1/mcp/helix-tasks"},
+	})
+	err := d.probeMCPEndpoints(context.Background(), path)
+	if err == nil || mcpVerdictPending(err) {
+		t.Fatalf("an unreachable helix-tasks is a real failure, got %v (pending=%v)", err, mcpVerdictPending(err))
+	}
+}
+
+// When the bridge is up but the API cannot reach it (RevDial), the API marks
+// its answer; the verdict must say that rather than blame the proxy.
+func TestProbeNamesRevDialWhenAPICannotReachDesktop(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set(desktopUnavailableHeader, "not-listening")
+		http.Error(w, "desktop-bridge is not accepting connections", http.StatusServiceUnavailable)
+	}))
+	defer api.Close()
+	bridge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer bridge.Close()
+
+	d := newReadinessDaemon()
+	d.desktopBridgeHealthURL = bridge.URL + "/health"
+	path := writeSettingsFile(t, map[string]interface{}{
+		"helix-desktop": map[string]interface{}{"url": api.URL + "/api/v1/mcp/desktop"},
+	})
+	err := d.probeMCPEndpoints(context.Background(), path)
+	if err == nil || mcpVerdictPending(err) {
+		t.Fatalf("want a real failure, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "RevDial") {
+		t.Fatalf("verdict must name the RevDial hop: %v", err)
+	}
+}
+
+// The gate is the only thing that fails the turn; it does so through this
+// handler, and the reported message must say what the gate waited for.
+func TestMCPGaveUpReportsTheGatesVerdict(t *testing.T) {
+	reported := make(chan string, 1)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/sessions/ses_1/agent-startup-error" {
+			http.NotFound(w, r)
 			return
 		}
-		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		srv.Listener.Close()
-		srv.Listener = ln
-		srv.Start()
-		bound <- srv
-	}()
+		var body struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		reported <- body.Error
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer api.Close()
 
-	waitErr := newReadinessDaemon().waitForMCPEndpoints(context.Background(), path, 10*time.Second, 100*time.Millisecond)
-	srv := <-bound
-	if srv == nil {
-		t.Skip("could not rebind the probe port; another process took it")
+	d := newReadinessDaemon()
+	d.apiURL = api.URL
+	d.sessionID = "ses_1"
+	gate := httptest.NewServer(http.HandlerFunc(d.mcpGaveUpHandler))
+	defer gate.Close()
+
+	cases := []struct {
+		waitingFor string
+		want       []string
+	}{
+		{"mcp", []string{"unreachable for 180s after the desktop came up", "probe helix-tasks"}},
+		{"desktop-bridge", []string{"desktop-bridge", "did not become reachable within 180s", "probe helix-tasks"}},
 	}
-	defer srv.Close()
-	if waitErr != nil {
-		t.Fatalf("waitForMCPEndpoints never recovered: %v", waitErr)
+	for _, c := range cases {
+		resp, err := http.Post(gate.URL+"?waiting_for="+c.waitingFor+"&waited=180", "text/plain",
+			strings.NewReader("probe helix-tasks (http://x): 502 Bad Gateway: \"Helix API unavailable\"\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", resp.StatusCode)
+		}
+		msg := <-reported
+		for _, w := range c.want {
+			if !strings.Contains(msg, w) {
+				t.Errorf("%s: reported %q, want it to contain %q", c.waitingFor, msg, w)
+			}
+		}
 	}
+}
+
+func askGate(t *testing.T, url string) (int, string) {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body := make([]byte, 2048)
+	n, _ := resp.Body.Read(body)
+	return resp.StatusCode, string(body[:n])
 }
 
 // The gate polls this before every Zed launch, so its verdict must track the

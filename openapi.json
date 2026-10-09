@@ -3176,7 +3176,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get API keys",
+                "description": "Get the caller's own API keys. With no filter, returns (creating it if needed) the caller's personal key. A caller authenticated with a scoped (org, project, session or app) API key cannot use the unfiltered form, and sees only the prefix of keys broader than the one it presents.",
                 "tags": [
                     "api-keys"
                 ],
@@ -10752,7 +10752,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List API keys for an organization. Owners see all keys, members see only their own.",
+                "description": "List API keys for an organization. Owners see all keys, members see only their own. Key secrets are never returned; each key has a non-secret id and key_prefix.",
                 "tags": [
                     "organizations"
                 ],
@@ -10776,7 +10776,7 @@
                                 "schema": {
                                     "type": "array",
                                     "items": {
-                                        "$ref": "#/components/schemas/types.ApiKey"
+                                        "$ref": "#/components/schemas/server.orgAPIKeyResponse"
                                     }
                                 }
                             }
@@ -10854,7 +10854,7 @@
                         }
                     },
                     {
-                        "description": "API key to delete",
+                        "description": "ID of the API key to delete (the id field from the list)",
                         "name": "key",
                         "in": "path",
                         "required": true,
@@ -17437,6 +17437,72 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/secret-intakes/{intake_id}/consume": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "One-time read for trusted integrations: returns the submitted values and clears the stored ciphertext atomically. A failed or repeated call cannot read them again.",
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Consume secret intake values",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.SecretIntakeConsumption"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/secret-intakes/{intake_id}/submissions": {
             "post": {
                 "security": [
@@ -20041,6 +20107,35 @@
                 }
             }
         },
+        "/api/v1/sandbox-desktop-types": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Desktop types (e.g. ubuntu, sway) offered by registered sandboxes",
+                "tags": [
+                    "sandbox"
+                ],
+                "summary": "List available sandbox desktop types",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sandbox-runtimes": {
             "get": {
                 "security": [
@@ -21872,6 +21967,73 @@
                                     "additionalProperties": {
                                         "type": "string"
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/ensure-agent": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reports whether the agent currently holds a live sync WebSocket — whether\na message sent now would actually reach it — and kicks the canonical\ndev-container auto-start when it does not.\n\nFor EMBEDDERS. GET /sessions/{id} reports external_agent_status \"running\"\nas soon as the container is up, which is not the same as reachable: a\ncontainer can run for hours with Zed never having dialled home\n(helixml/helix#2397). Find AI presented a chat box to candidates on the\nstrength of \"running\"; messages died in stuck interactions and the customer\nwas shown \"The system has encountered an error\". An embedder needs to ask\n\"can I send?\" and to be able to do something about \"no\".\n\nIdempotent and cheap: connected sessions return immediately without\ntouching the container. Returns promptly rather than waiting for boot —\npoll until connected is true.",
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Ensure this session's agent is connected, starting it if not",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.EnsureAgentResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
                                 }
                             }
                         }
@@ -24147,6 +24309,64 @@
                                 }
                             }
                         }
+                    },
+                    "202": {
+                        "description": "External repo: the agent was asked to push and propose its pull request(s)",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.SpecTask"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/completion/decide": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approving moves the task to done (which stops its desktop), whether or not the agent asked to finish with mark_task_complete. Rejecting clears the agent's pending request and sends the comment to it as feedback.",
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "Mark a spec task done, or send the agent's completion request back",
+                "parameters": [
+                    {
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.CompletionDecisionRequest"
+                            }
+                        }
+                    },
+                    "description": "Decision",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.SpecTask"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -24753,6 +24973,103 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/pr-proposals": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every pull request a spec task opens starts as an agent proposal awaiting user approval.",
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "List a spec task's pull request proposals",
+                "parameters": [
+                    {
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.SpecTaskPRProposal"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approving grants the agent push rights to the proposal's head branch and opens the pull request as soon as the branch has commits beyond the base. Edited fields override the agent's proposal. Rejecting withdraws push rights.",
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "Approve or reject a pull request proposal",
+                "parameters": [
+                    {
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Proposal ID",
+                        "name": "proposal_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.PRProposalDecisionRequest"
+                            }
+                        }
+                    },
+                    "description": "Decision",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.SpecTaskPRProposal"
                                 }
                             }
                         }
@@ -31576,6 +31893,17 @@
                     }
                 }
             },
+            "server.EnsureAgentResponse": {
+                "type": "object",
+                "properties": {
+                    "connected": {
+                        "type": "boolean"
+                    },
+                    "starting": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "server.ForkSessionRequest": {
                 "type": "object",
                 "properties": {
@@ -33016,6 +33344,17 @@
                     }
                 }
             },
+            "server.SecretIntakeConsumption": {
+                "type": "object",
+                "properties": {
+                    "values": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
             "server.SecretIntakeCreateResponse": {
                 "type": "object",
                 "properties": {
@@ -33543,6 +33882,45 @@
                     }
                 }
             },
+            "server.orgAPIKeyResponse": {
+                "type": "object",
+                "properties": {
+                    "app_id": {
+                        "type": "string"
+                    },
+                    "created": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "description": "ID is a stable, non-secret handle for the key, derived from a hash of\nthe secret. Use it to delete a key you did not create.",
+                        "type": "string"
+                    },
+                    "key_prefix": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "owner": {
+                        "type": "string"
+                    },
+                    "owner_email": {
+                        "type": "string"
+                    },
+                    "owner_type": {
+                        "$ref": "#/components/schemas/types.OwnerType"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/types.APIKeyType"
+                    }
+                }
+            },
             "server.runnerProfileAssignRequest": {
                 "type": "object",
                 "properties": {
@@ -33855,22 +34233,22 @@
                 "enum": [
                     "webhook",
                     "email",
-                    "github",
-                    "gitlab",
-                    "local",
-                    "cron",
                     "helix_events",
-                    "slack"
+                    "github",
+                    "slack",
+                    "local",
+                    "gitlab",
+                    "cron"
                 ],
                 "x-enum-varnames": [
                     "KindWebhook",
                     "KindEmail",
-                    "KindGitHub",
-                    "KindGitLab",
-                    "KindLocal",
-                    "KindCron",
                     "KindHelixEvents",
-                    "KindSlack"
+                    "KindGitHub",
+                    "KindSlack",
+                    "KindLocal",
+                    "KindGitLab",
+                    "KindCron"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -35228,6 +35606,8 @@
                     "spec_failed",
                     "implementation_failed",
                     "pr_ready",
+                    "pr_proposal",
+                    "completion_request",
                     "org_message",
                     "ci_passed",
                     "ci_failed"
@@ -35238,6 +35618,8 @@
                     "AttentionEventSpecFailed",
                     "AttentionEventImplementationFailed",
                     "AttentionEventPRReady",
+                    "AttentionEventPRProposal",
+                    "AttentionEventCompletionRequest",
                     "AttentionEventOrgMessage",
                     "AttentionEventCIPassed",
                     "AttentionEventCIFailed"
@@ -36418,6 +36800,18 @@
                     }
                 }
             },
+            "types.CompletionDecisionRequest": {
+                "type": "object",
+                "properties": {
+                    "comment": {
+                        "type": "string"
+                    },
+                    "decision": {
+                        "description": "\"approve\" or \"reject\"",
+                        "type": "string"
+                    }
+                }
+            },
             "types.ContainerDiskUsage": {
                 "type": "object",
                 "properties": {
@@ -36797,6 +37191,10 @@
                         "items": {
                             "$ref": "#/components/schemas/types.SpecTaskInlineAttachment"
                         }
+                    },
+                    "auto_approve_pull_requests": {
+                        "description": "Optional: approve the agent's pull request proposals without asking.\nUnset takes the project's auto_approve_pull_requests default.",
+                        "type": "boolean"
                     },
                     "auto_start": {
                         "description": "Optional: Skip backlog and start immediately, regardless of project auto-start setting",
@@ -40272,6 +40670,34 @@
                     "OwnerTypeOrg"
                 ]
             },
+            "types.PRProposalDecisionRequest": {
+                "type": "object",
+                "properties": {
+                    "auto_approve_future": {
+                        "description": "AutoApproveFuture, with an approval, approves this task's later\nproposals without asking, as the deciding user.",
+                        "type": "boolean"
+                    },
+                    "base_branch": {
+                        "type": "string"
+                    },
+                    "body": {
+                        "type": "string"
+                    },
+                    "comment": {
+                        "type": "string"
+                    },
+                    "decision": {
+                        "description": "\"approve\" or \"reject\"",
+                        "type": "string"
+                    },
+                    "head_branch": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.PaginatedInteractions": {
                 "type": "object",
                 "properties": {
@@ -40536,6 +40962,10 @@
                     },
                     "archive_stale_tasks_enabled": {
                         "description": "Archive tasks idle for ArchiveStaleTasksDays",
+                        "type": "boolean"
+                    },
+                    "auto_approve_pull_requests": {
+                        "description": "AutoApprovePullRequests is the default for new spec tasks: their agents'\npull request proposals are approved without asking. Each task keeps its\nown setting, so changing this does not affect existing tasks.",
                         "type": "boolean"
                     },
                     "auto_archive_completed_tasks": {
@@ -40973,7 +41403,26 @@
                         "$ref": "#/components/schemas/types.BoardSettings"
                     },
                     "docker_cache_status": {
-                        "$ref": "#/components/schemas/types.DockerCacheState"
+                        "description": "Computed from golden_builds on read",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/types.DockerCacheState"
+                            }
+                        ]
+                    },
+                    "org_members_access": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "types.ProjectMetadataUpdate": {
+                "type": "object",
+                "properties": {
+                    "auto_warm_docker_cache": {
+                        "type": "boolean"
+                    },
+                    "board_settings": {
+                        "$ref": "#/components/schemas/types.BoardSettings"
                     },
                     "org_members_access": {
                         "type": "boolean"
@@ -41135,6 +41584,10 @@
                         "description": "Archive tasks idle for ArchiveStaleTasksDays",
                         "type": "boolean"
                     },
+                    "auto_approve_pull_requests": {
+                        "description": "Default for new spec tasks: auto-approve agent PR proposals",
+                        "type": "boolean"
+                    },
                     "auto_archive_completed_tasks": {
                         "description": "Archive tasks immediately when they enter Done",
                         "type": "boolean"
@@ -41186,7 +41639,7 @@
                         "type": "boolean"
                     },
                     "metadata": {
-                        "$ref": "#/components/schemas/types.ProjectMetadata"
+                        "$ref": "#/components/schemas/types.ProjectMetadataUpdate"
                     },
                     "name": {
                         "type": "string"
@@ -41966,6 +42419,10 @@
                     "ci_url": {
                         "type": "string"
                     },
+                    "head_branch": {
+                        "description": "HeadBranch is the branch the PR was opened from. ProposalID links PRs\nopened from an approved SpecTaskPRProposal; their title and body come from\nthe approved proposal rather than the helix-specs pull_request*.md files.",
+                        "type": "string"
+                    },
                     "pr_id": {
                         "type": "string"
                     },
@@ -41977,6 +42434,9 @@
                         "type": "string"
                     },
                     "pr_url": {
+                        "type": "string"
+                    },
+                    "proposal_id": {
                         "type": "string"
                     },
                     "repository_id": {
@@ -42481,22 +42941,56 @@
             "types.SandboxCacheState": {
                 "type": "object",
                 "properties": {
+                    "attempt": {
+                        "description": "Attempt is the 1-based attempt number for the current trigger.",
+                        "type": "integer"
+                    },
                     "build_session_id": {
                         "type": "string"
                     },
                     "error": {
                         "type": "string"
                     },
+                    "interrupt_reason": {
+                        "description": "InterruptReason is why the last attempt ended without a result.",
+                        "type": "string"
+                    },
                     "last_build_at": {
+                        "description": "when the current/last attempt started",
                         "type": "string"
                     },
                     "last_ready_at": {
+                        "type": "string"
+                    },
+                    "max_attempts": {
+                        "description": "MaxAttempts is GoldenBuildMaxAttempts, exposed for the UI.",
+                        "type": "integer"
+                    },
+                    "next_retry_at": {
+                        "description": "NextRetryAt is when the retry of an interrupted build may start.",
+                        "type": "string"
+                    },
+                    "pending_rebuild": {
+                        "description": "PendingRebuild: a trigger arrived while a build was running; build again\nas soon as it finishes.",
+                        "type": "boolean"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "sandbox_id": {
                         "type": "string"
                     },
                     "size_bytes": {
                         "type": "integer"
                     },
                     "status": {
+                        "type": "string"
+                    },
+                    "triggered_at": {
+                        "description": "TriggeredAt identifies the trigger (merge or manual build) the attempts\nbelong to. A new trigger resets Attempt and the retry budget.",
+                        "type": "string"
+                    },
+                    "updated": {
                         "type": "string"
                     }
                 }
@@ -43704,6 +44198,10 @@
                             }
                         ]
                     },
+                    "external_agent_connected": {
+                        "description": "ExternalAgentConnected reports whether the agent currently holds a live\nsync WebSocket — i.e. whether a message sent now would actually reach it.\n\nSEPARATE FROM ExternalAgentStatus ON PURPOSE. That field is \"running\" as\nsoon as the CONTAINER is up, which is not the same thing: a container can\nbe running for hours with Zed never having dialled home (helixml/helix#2397).\nAnything embedding a session — Find AI presented a chat box to candidates\non this basis — needs to know it can send, not merely that a machine\nexists. Computed per request, never stored.",
+                        "type": "boolean"
+                    },
                     "external_agent_id": {
                         "description": "NEW: External agent ID for this session",
                         "type": "string"
@@ -43717,6 +44215,10 @@
                     },
                     "forked_at_interaction_id": {
                         "type": "string"
+                    },
+                    "golden_build": {
+                        "description": "Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped",
+                        "type": "boolean"
                     },
                     "gpu_vendor": {
                         "description": "GPU vendor of sandbox running this session (nvidia, amd, intel, none)",
@@ -44385,6 +44887,13 @@
                         "description": "Team member assigned to work on this task",
                         "type": "string"
                     },
+                    "auto_approve_pull_requests": {
+                        "description": "AutoApprovePullRequests approves the agent's PR proposals without asking.\nThey are approved as AutoApprovePullRequestsBy, whose provider\ncredentials push and open the PR; it is the user who turned this on.",
+                        "type": "boolean"
+                    },
+                    "auto_approve_pull_requests_by": {
+                        "type": "string"
+                    },
                     "base_branch": {
                         "description": "The base branch this was created from",
                         "type": "string"
@@ -44434,6 +44943,13 @@
                         ]
                     },
                     "completed_at": {
+                        "type": "string"
+                    },
+                    "completion_request_summary": {
+                        "type": "string"
+                    },
+                    "completion_requested_at": {
+                        "description": "CompletionRequestedAt is set while the agent's request to mark the task\ndone (mark_task_complete) awaits the user's decision.",
                         "type": "string"
                     },
                     "created_at": {
@@ -44625,6 +45141,12 @@
                     "rebase_requested_at": {
                         "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
                         "type": "string"
+                    },
+                    "repo_pull_request_history": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.RepoPR"
+                        }
                     },
                     "repo_pull_requests": {
                         "description": "Multi-repo PR tracking: list of PRs across all project repositories",
@@ -45168,6 +45690,94 @@
                     }
                 }
             },
+            "types.SpecTaskPRProposal": {
+                "type": "object",
+                "properties": {
+                    "auto_approved": {
+                        "type": "boolean"
+                    },
+                    "base_branch": {
+                        "type": "string"
+                    },
+                    "body": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "decided_at": {
+                        "type": "string"
+                    },
+                    "decided_by": {
+                        "type": "string"
+                    },
+                    "decision_comment": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "head_branch": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "pr_id": {
+                        "type": "string"
+                    },
+                    "pr_number": {
+                        "type": "integer"
+                    },
+                    "pr_url": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "proposed_by_session": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "repository_id": {
+                        "type": "string"
+                    },
+                    "repository_name": {
+                        "type": "string"
+                    },
+                    "spec_task_id": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/types.SpecTaskPRProposalStatus"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.SpecTaskPRProposalStatus": {
+                "type": "string",
+                "enum": [
+                    "pending",
+                    "approved",
+                    "opened",
+                    "rejected",
+                    "failed"
+                ],
+                "x-enum-varnames": [
+                    "PRProposalStatusPending",
+                    "PRProposalStatusApproved",
+                    "PRProposalStatusOpened",
+                    "PRProposalStatusRejected",
+                    "PRProposalStatusFailed"
+                ]
+            },
             "types.SpecTaskPhase": {
                 "type": "string",
                 "enum": [
@@ -45264,6 +45874,10 @@
                         "description": "Pointer to allow clearing (set to empty string to unassign)",
                         "type": "string"
                     },
+                    "auto_approve_pull_requests": {
+                        "description": "Approve the agent's PR proposals without asking, as the updating user",
+                        "type": "boolean"
+                    },
                     "depends_on": {
                         "description": "IDs of tasks this task depends on",
                         "type": "array",
@@ -45327,6 +45941,13 @@
                         "description": "Team member assigned to work on this task",
                         "type": "string"
                     },
+                    "auto_approve_pull_requests": {
+                        "description": "AutoApprovePullRequests approves the agent's PR proposals without asking.\nThey are approved as AutoApprovePullRequestsBy, whose provider\ncredentials push and open the PR; it is the user who turned this on.",
+                        "type": "boolean"
+                    },
+                    "auto_approve_pull_requests_by": {
+                        "type": "string"
+                    },
                     "base_branch": {
                         "description": "The base branch this was created from",
                         "type": "string"
@@ -45376,6 +45997,13 @@
                         ]
                     },
                     "completed_at": {
+                        "type": "string"
+                    },
+                    "completion_request_summary": {
+                        "type": "string"
+                    },
+                    "completion_requested_at": {
+                        "description": "CompletionRequestedAt is set while the agent's request to mark the task\ndone (mark_task_complete) awaits the user's decision.",
                         "type": "string"
                     },
                     "created_at": {
@@ -45570,6 +46198,12 @@
                     "rebase_requested_at": {
                         "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
                         "type": "string"
+                    },
+                    "repo_pull_request_history": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.RepoPR"
+                        }
                     },
                     "repo_pull_requests": {
                         "description": "Multi-repo PR tracking: list of PRs across all project repositories",
@@ -48344,6 +48978,12 @@
                     "golden": {
                         "$ref": "#/components/schemas/types.ZFSTreeNode"
                     },
+                    "goldens": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.ZFSTreeNode"
+                        }
+                    },
                     "orphans": {
                         "type": "array",
                         "items": {
@@ -48358,6 +48998,9 @@
             "types.ZFSTreeNode": {
                 "type": "object",
                 "properties": {
+                    "cache_kind": {
+                        "type": "string"
+                    },
                     "children": {
                         "type": "array",
                         "items": {

@@ -343,8 +343,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 				}
 			}
 			if !existing.Metadata.OrgMembersAccess {
-				existing.Metadata.OrgMembersAccess = true
-				if _, err := a.Service.UpdateProject(ctx, state.ProjectID, types.ProjectUpdateRequest{Metadata: &existing.Metadata}); err != nil {
+				if _, err := a.Service.UpdateProject(ctx, state.ProjectID, enableOrgMembersAccessUpdate()); err != nil {
 					return "", "", "", fmt.Errorf("enable org member access to project %s for %s: %w", state.ProjectID, workerID, err)
 				}
 			}
@@ -390,8 +389,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		return "", "", "", fmt.Errorf("get applied project %s for %s: %w", resp.ProjectID, workerID, err)
 	}
 	if !project.Metadata.OrgMembersAccess {
-		project.Metadata.OrgMembersAccess = true
-		project, err = a.Service.UpdateProject(ctx, resp.ProjectID, types.ProjectUpdateRequest{Metadata: &project.Metadata})
+		project, err = a.Service.UpdateProject(ctx, resp.ProjectID, enableOrgMembersAccessUpdate())
 		if err != nil {
 			return "", "", "", fmt.Errorf("enable org member access to project %s for %s: %w", resp.ProjectID, workerID, err)
 		}
@@ -601,4 +599,11 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 		a.Logger.Info("helix repo created and attached", "worker", workerID, "repo", repo.ID)
 	}
 	return repo.ID, nil
+}
+
+// enableOrgMembersAccessUpdate turns on org member access without touching
+// any other project metadata (e.g. the user's auto-warm setting).
+func enableOrgMembersAccessUpdate() types.ProjectUpdateRequest {
+	enabled := true
+	return types.ProjectUpdateRequest{Metadata: &types.ProjectMetadataUpdate{OrgMembersAccess: &enabled}}
 }

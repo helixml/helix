@@ -2237,7 +2237,25 @@ steps:
       # Clean up VM disk (no longer needed after upload to R2)
       - rm -rf /Volumes/Big/helix-vm/ci-provision
 
-  # Step 2: Build Helix.app with embedded QEMU, frameworks, and vm-manifest.json
+  # Step 2a: Build the UTM sysroot from the release pinned in for-mac/qemu-helix/UTM_VERSION
+  # (no-op unless the pin changed; ~1-1.5h when it did)
+  - name: build-utm-sysroot
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+    commands:
+      - export HOME=/Users/luke
+      - ./for-mac/qemu-helix/build-utm-sysroot.sh
+
+  # Step 2b: Build QEMU from the qemu-utm commit pinned in for-mac/qemu-helix/QEMU_UTM_COMMIT
+  # (cached per commit on the runner; never installs into the shared UTM sysroot)
+  - name: build-qemu
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+    commands:
+      - export HOME=/Users/luke
+      - ./for-mac/qemu-helix/build-qemu-ci.sh
+
+  # Step 3: Build Helix.app with embedded QEMU, frameworks, and vm-manifest.json
   - name: build-app
     environment:
       PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
@@ -2253,9 +2271,10 @@ steps:
       # Create .env.signing so build scripts use Developer ID instead of ad-hoc
       - echo "APPLE_SIGNING_IDENTITY='$APPLE_SIGNING_IDENTITY'" > for-mac/.env.signing
       - cd for-mac
+      - export QEMU_PREFIX="$(./qemu-helix/build-qemu-ci.sh --prefix)"
       - ./scripts/build-helix-app.sh
 
-  # Step 3: Create DMG, sign, notarize, upload to R2
+  # Step 4: Create DMG, sign, notarize, upload to R2
   - name: create-dmg
     # Non-blocking: a Mac-client signing/notarization problem (e.g. an expired
     # Apple Developer agreement) must not fail the tag build and block the
@@ -2312,6 +2331,80 @@ steps:
               --content-type "application/json" \
               --no-progress
         fi
+
+---
+# Dry run of the build-macos-dmg steps from any branch, without provisioning a
+# VM or publishing anything: promote a build to the "macos-dryrun" target.
+#   curl -X POST -H "Authorization: Bearer $DRONE_TOKEN" \
+#     "$DRONE_SERVER/api/repos/helixml/helix/builds/<n>/promote?target=macos-dryrun"
+# Builds the UTM sysroot, QEMU, MoltenVK and the signed app, then notarizes the DMG.
+kind: pipeline
+type: exec
+name: macos-dryrun
+
+platform:
+  os: darwin
+  arch: arm64
+
+trigger:
+  event:
+    - promote
+  target:
+    - macos-dryrun
+
+steps:
+  - name: build-utm-sysroot
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+    commands:
+      - export HOME=/Users/luke
+      - ./for-mac/qemu-helix/build-utm-sysroot.sh
+
+  - name: build-qemu
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+    commands:
+      - export HOME=/Users/luke
+      - ./for-mac/qemu-helix/build-qemu-ci.sh
+
+  - name: build-app
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+      KEYCHAIN_PASSWORD:
+        from_secret: keychain_password
+      APPLE_SIGNING_IDENTITY:
+        from_secret: apple_signing_identity
+    commands:
+      - export HOME=/Users/luke
+      - security unlock-keychain -p "$KEYCHAIN_PASSWORD" /Users/luke/Library/Keychains/Helix-Dev.keychain-db
+      - security list-keychains -d user -s /Users/luke/Library/Keychains/Helix-Dev.keychain-db /Users/luke/Library/Keychains/login.keychain-db
+      - echo "APPLE_SIGNING_IDENTITY='$APPLE_SIGNING_IDENTITY'" > for-mac/.env.signing
+      - cd for-mac
+      - export QEMU_PREFIX="$(./qemu-helix/build-qemu-ci.sh --prefix)"
+      - APP_VERSION="dryrun-$(echo $DRONE_COMMIT_SHA | head -c 9)" ./scripts/build-helix-app.sh
+
+  - name: notarize-dmg
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+      KEYCHAIN_PASSWORD:
+        from_secret: keychain_password
+      APPLE_SIGNING_IDENTITY:
+        from_secret: apple_signing_identity
+    commands:
+      - export HOME=/Users/luke
+      - security unlock-keychain -p "$KEYCHAIN_PASSWORD" /Users/luke/Library/Keychains/Helix-Dev.keychain-db
+      - security list-keychains -d user -s /Users/luke/Library/Keychains/Helix-Dev.keychain-db /Users/luke/Library/Keychains/login.keychain-db
+      - echo "APPLE_SIGNING_IDENTITY='$APPLE_SIGNING_IDENTITY'" > for-mac/.env.signing
+      - cd for-mac
+      - ./scripts/create-dmg.sh --skip-styling --version "dryrun-$(echo $DRONE_COMMIT_SHA | head -c 9)"
+      - |
+        xcrun notarytool submit build/bin/Helix-for-Mac.dmg \
+          --keychain-profile "helix-notarize" \
+          --keychain /Users/luke/Library/Keychains/Helix-Dev.keychain-db \
+          --wait
+      # Fails unless notarization was accepted; the stapled DMG stays local.
+      - xcrun stapler staple build/bin/Helix-for-Mac.dmg
+      - codesign --verify --deep --strict --verbose=2 build/bin/Helix.app
 
 ---
 # ====================================================================

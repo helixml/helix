@@ -1419,6 +1419,11 @@ export interface ServerDevContainerWithClients {
   video_stats?: ServerVideoStreamingStats;
 }
 
+export interface ServerEnsureAgentResponse {
+  connected?: boolean;
+  starting?: boolean;
+}
+
 export interface ServerForkSessionRequest {
   /**
    * AutoCommitUncommitted, when true, runs `git add -A && git commit
@@ -2016,6 +2021,10 @@ export interface ServerSandboxTerminalSessionsResponse {
   sessions?: ServerSandboxTerminalSession[];
 }
 
+export interface ServerSecretIntakeConsumption {
+  values?: Record<string, string>;
+}
+
 export interface ServerSecretIntakeCreateResponse {
   intake?: ServerSecretIntakeView;
   invite_url?: string;
@@ -2277,6 +2286,24 @@ export interface ServerOpenaiModelsResponse {
   object?: string;
 }
 
+export interface ServerOrgAPIKeyResponse {
+  app_id?: string;
+  created?: string;
+  /**
+   * ID is a stable, non-secret handle for the key, derived from a hash of
+   * the secret. Use it to delete a key you did not create.
+   */
+  id?: string;
+  key_prefix?: string;
+  name?: string;
+  organization_id?: string;
+  owner?: string;
+  owner_email?: string;
+  owner_type?: TypesOwnerType;
+  project_id?: string;
+  type?: TypesAPIKeyType;
+}
+
 export interface ServerRunnerProfileAssignRequest {
   profile_id?: string;
 }
@@ -2406,12 +2433,12 @@ export enum TransportFieldType {
 export enum TransportKind {
   KindWebhook = "webhook",
   KindEmail = "email",
-  KindGitHub = "github",
-  KindGitLab = "gitlab",
-  KindLocal = "local",
-  KindCron = "cron",
   KindHelixEvents = "helix_events",
+  KindGitHub = "github",
   KindSlack = "slack",
+  KindLocal = "local",
+  KindGitLab = "gitlab",
+  KindCron = "cron",
 }
 
 export interface TransportResolvedActivation {
@@ -3022,6 +3049,8 @@ export enum TypesAttentionEventType {
   AttentionEventSpecFailed = "spec_failed",
   AttentionEventImplementationFailed = "implementation_failed",
   AttentionEventPRReady = "pr_ready",
+  AttentionEventPRProposal = "pr_proposal",
+  AttentionEventCompletionRequest = "completion_request",
   AttentionEventOrgMessage = "org_message",
   AttentionEventCIPassed = "ci_passed",
   AttentionEventCIFailed = "ci_failed",
@@ -3614,6 +3643,12 @@ export interface TypesCommentQueueStatusResponse {
   queued_comment_ids?: string[];
 }
 
+export interface TypesCompletionDecisionRequest {
+  comment?: string;
+  /** "approve" or "reject" */
+  decision?: string;
+}
+
 export interface TypesContainerDiskUsage {
   container_id?: string;
   container_name?: string;
@@ -3800,6 +3835,11 @@ export interface TypesCreateTaskRequest {
   assignee_id?: string;
   /** Attachments are validated and stored before the task is exposed to dispatchers. */
   attachments?: TypesSpecTaskInlineAttachment[];
+  /**
+   * Optional: approve the agent's pull request proposals without asking.
+   * Unset takes the project's auto_approve_pull_requests default.
+   */
+  auto_approve_pull_requests?: boolean;
   /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
   auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
@@ -5342,6 +5382,21 @@ export enum TypesOwnerType {
   OwnerTypeOrg = "org",
 }
 
+export interface TypesPRProposalDecisionRequest {
+  /**
+   * AutoApproveFuture, with an approval, approves this task's later
+   * proposals without asking, as the deciding user.
+   */
+  auto_approve_future?: boolean;
+  base_branch?: string;
+  body?: string;
+  comment?: string;
+  /** "approve" or "reject" */
+  decision?: string;
+  head_branch?: string;
+  title?: string;
+}
+
 export interface TypesPaginatedInteractions {
   interactions?: TypesInteraction[];
   page?: number;
@@ -5450,6 +5505,12 @@ export interface TypesProject {
   archive_stale_tasks_days?: number;
   /** Archive tasks idle for ArchiveStaleTasksDays */
   archive_stale_tasks_enabled?: boolean;
+  /**
+   * AutoApprovePullRequests is the default for new spec tasks: their agents'
+   * pull request proposals are approved without asking. Each task keeps its
+   * own setting, so changing this does not affect existing tasks.
+   */
+  auto_approve_pull_requests?: boolean;
   /** Archive automation, reconciled by the spec task orchestrator */
   auto_archive_completed_tasks?: boolean;
   /** Automation settings */
@@ -5651,7 +5712,14 @@ export interface TypesProjectKanban {
 export interface TypesProjectMetadata {
   auto_warm_docker_cache?: boolean;
   board_settings?: TypesBoardSettings;
+  /** Computed from golden_builds on read */
   docker_cache_status?: TypesDockerCacheState;
+  org_members_access?: boolean;
+}
+
+export interface TypesProjectMetadataUpdate {
+  auto_warm_docker_cache?: boolean;
+  board_settings?: TypesBoardSettings;
   org_members_access?: boolean;
 }
 
@@ -5717,6 +5785,8 @@ export interface TypesProjectUpdateRequest {
   archive_stale_tasks_days?: number;
   /** Archive tasks idle for ArchiveStaleTasksDays */
   archive_stale_tasks_enabled?: boolean;
+  /** Default for new spec tasks: auto-approve agent PR proposals */
+  auto_approve_pull_requests?: boolean;
   /** Archive tasks immediately when they enter Done */
   auto_archive_completed_tasks?: boolean;
   auto_start_backlog_tasks?: boolean;
@@ -5735,7 +5805,7 @@ export interface TypesProjectUpdateRequest {
   guidelines?: string;
   /** Whether Kodit code intelligence is enabled */
   kodit_enabled?: boolean;
-  metadata?: TypesProjectMetadata;
+  metadata?: TypesProjectMetadataUpdate;
   name?: string;
   planning_code_agent_config?: TypesCodeAgentExecutionConfig;
   /** Project manager agent */
@@ -6121,11 +6191,18 @@ export interface TypesRepoPR {
   ci_status?: string;
   ci_updated_at?: string;
   ci_url?: string;
+  /**
+   * HeadBranch is the branch the PR was opened from. ProposalID links PRs
+   * opened from an approved SpecTaskPRProposal; their title and body come from
+   * the approved proposal rather than the helix-specs pull_request*.md files.
+   */
+  head_branch?: string;
   pr_id?: string;
   pr_number?: number;
   /** "open", "closed", "merged" */
   pr_state?: string;
   pr_url?: string;
+  proposal_id?: string;
   repository_id?: string;
   repository_name?: string;
 }
@@ -6362,12 +6439,34 @@ export interface TypesSandbox {
 }
 
 export interface TypesSandboxCacheState {
+  /** Attempt is the 1-based attempt number for the current trigger. */
+  attempt?: number;
   build_session_id?: string;
   error?: string;
+  /** InterruptReason is why the last attempt ended without a result. */
+  interrupt_reason?: string;
+  /** when the current/last attempt started */
   last_build_at?: string;
   last_ready_at?: string;
+  /** MaxAttempts is GoldenBuildMaxAttempts, exposed for the UI. */
+  max_attempts?: number;
+  /** NextRetryAt is when the retry of an interrupted build may start. */
+  next_retry_at?: string;
+  /**
+   * PendingRebuild: a trigger arrived while a build was running; build again
+   * as soon as it finishes.
+   */
+  pending_rebuild?: boolean;
+  project_id?: string;
+  sandbox_id?: string;
   size_bytes?: number;
   status?: string;
+  /**
+   * TriggeredAt identifies the trigger (merge or manual build) the attempts
+   * belong to. A new trigger resets Attempt and the retry budget.
+   */
+  triggered_at?: string;
+  updated?: string;
 }
 
 export interface TypesSandboxFileUploadResponse {
@@ -7064,12 +7163,26 @@ export interface TypesSessionMetadata {
   executor_mode?: string;
   /** Configuration for external agents */
   external_agent_config?: TypesExternalAgentConfig;
+  /**
+   * ExternalAgentConnected reports whether the agent currently holds a live
+   * sync WebSocket — i.e. whether a message sent now would actually reach it.
+   *
+   * SEPARATE FROM ExternalAgentStatus ON PURPOSE. That field is "running" as
+   * soon as the CONTAINER is up, which is not the same thing: a container can
+   * be running for hours with Zed never having dialled home (helixml/helix#2397).
+   * Anything embedding a session — Find AI presented a chat box to candidates
+   * on this basis — needs to know it can send, not merely that a machine
+   * exists. Computed per request, never stored.
+   */
+  external_agent_connected?: boolean;
   /** NEW: External agent ID for this session */
   external_agent_id?: string;
   /** NEW: External agent status (running, stopped, terminated_idle) */
   external_agent_status?: string;
   forked_at?: string;
   forked_at_interaction_id?: string;
+  /** Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped */
+  golden_build?: boolean;
   /** GPU vendor of sandbox running this session (nvidia, amd, intel, none) */
   gpu_vendor?: string;
   helix_version?: string;
@@ -7369,6 +7482,13 @@ export interface TypesSpecTask {
   archived?: boolean;
   /** Team member assigned to work on this task */
   assignee_id?: string;
+  /**
+   * AutoApprovePullRequests approves the agent's PR proposals without asking.
+   * They are approved as AutoApprovePullRequestsBy, whose provider
+   * credentials push and open the PR; it is the user who turned this on.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -7388,6 +7508,12 @@ export interface TypesSpecTask {
   /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
+  completion_request_summary?: string;
+  /**
+   * CompletionRequestedAt is set while the agent's request to mark the task
+   * done (mark_task_complete) awaits the user's decision.
+   */
+  completion_requested_at?: string;
   created_at?: string;
   /** Metadata */
   created_by?: string;
@@ -7505,6 +7631,7 @@ export interface TypesSpecTask {
   queue_reason?: string;
   /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
   rebase_requested_at?: string;
+  repo_pull_request_history?: TypesRepoPR[];
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
@@ -7726,6 +7853,39 @@ export interface TypesSpecTaskInlineAttachment {
   name: string;
 }
 
+export interface TypesSpecTaskPRProposal {
+  auto_approved?: boolean;
+  base_branch?: string;
+  body?: string;
+  created_at?: string;
+  decided_at?: string;
+  decided_by?: string;
+  decision_comment?: string;
+  error?: string;
+  head_branch?: string;
+  id?: string;
+  pr_id?: string;
+  pr_number?: number;
+  pr_url?: string;
+  project_id?: string;
+  proposed_by_session?: string;
+  reason?: string;
+  repository_id?: string;
+  repository_name?: string;
+  spec_task_id?: string;
+  status?: TypesSpecTaskPRProposalStatus;
+  title?: string;
+  updated_at?: string;
+}
+
+export enum TypesSpecTaskPRProposalStatus {
+  PRProposalStatusPending = "pending",
+  PRProposalStatusApproved = "approved",
+  PRProposalStatusOpened = "opened",
+  PRProposalStatusRejected = "rejected",
+  PRProposalStatusFailed = "failed",
+}
+
 export enum TypesSpecTaskPhase {
   SpecTaskPhasePlanning = "planning",
   SpecTaskPhaseImplementation = "implementation",
@@ -7762,6 +7922,8 @@ export interface TypesSpecTaskUpdateRequest {
   agent_tools?: string[];
   /** Pointer to allow clearing (set to empty string to unassign) */
   assignee_id?: string;
+  /** Approve the agent's PR proposals without asking, as the updating user */
+  auto_approve_pull_requests?: boolean;
   /** IDs of tasks this task depends on */
   depends_on?: string[];
   description?: string;
@@ -7790,6 +7952,13 @@ export interface TypesSpecTaskWithProject {
   archived?: boolean;
   /** Team member assigned to work on this task */
   assignee_id?: string;
+  /**
+   * AutoApprovePullRequests approves the agent's PR proposals without asking.
+   * They are approved as AutoApprovePullRequestsBy, whose provider
+   * credentials push and open the PR; it is the user who turned this on.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -7809,6 +7978,12 @@ export interface TypesSpecTaskWithProject {
   /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
+  completion_request_summary?: string;
+  /**
+   * CompletionRequestedAt is set while the agent's request to mark the task
+   * done (mark_task_complete) awaits the user's decision.
+   */
+  completion_requested_at?: string;
   created_at?: string;
   /** Metadata */
   created_by?: string;
@@ -7927,6 +8102,7 @@ export interface TypesSpecTaskWithProject {
   queue_reason?: string;
   /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
   rebase_requested_at?: string;
+  repo_pull_request_history?: TypesRepoPR[];
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
@@ -9126,11 +9302,13 @@ export interface TypesWorkspacesResponse {
 export interface TypesZFSTree {
   available?: boolean;
   golden?: TypesZFSTreeNode;
+  goldens?: TypesZFSTreeNode[];
   orphans?: TypesZFSTreeNode[];
   pool_root?: string;
 }
 
 export interface TypesZFSTreeNode {
+  cache_kind?: string;
   children?: TypesZFSTreeNode[];
   mounted?: boolean;
   name?: string;
@@ -10569,7 +10747,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get API keys
+     * @description Get the caller's own API keys. With no filter, returns (creating it if needed) the caller's personal key. A caller authenticated with a scoped (org, project, session or app) API key cannot use the unfiltered form, and sees only the prefix of keys broader than the one it presents.
      *
      * @tags api-keys
      * @name V1ApiKeysList
@@ -13582,7 +13760,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List API keys for an organization. Owners see all keys, members see only their own.
+     * @description List API keys for an organization. Owners see all keys, members see only their own. Key secrets are never returned; each key has a non-secret id and key_prefix.
      *
      * @tags organizations
      * @name V1OrganizationsApiKeysDetail
@@ -13591,7 +13769,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1OrganizationsApiKeysDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesApiKey[], any>({
+      this.request<ServerOrgAPIKeyResponse[], any>({
         path: `/api/v1/organizations/${id}/api_keys`,
         method: "GET",
         secure: true,
@@ -16339,6 +16517,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description One-time read for trusted integrations: returns the submitted values and clears the stored ciphertext atomically. A failed or repeated call cannot read them again.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesConsumeCreate
+     * @summary Consume secret intake values
+     * @request POST:/api/v1/projects/{id}/secret-intakes/{intake_id}/consume
+     * @secure
+     */
+    v1ProjectsSecretIntakesConsumeCreate: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeConsumption, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}/consume`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Write-only project API for trusted integrations. Values are encrypted and cannot be read through the API.
      *
      * @tags Secret Intakes
@@ -17391,6 +17586,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Desktop types (e.g. ubuntu, sway) offered by registered sandboxes
+     *
+     * @tags sandbox
+     * @name V1SandboxDesktopTypesList
+     * @summary List available sandbox desktop types
+     * @request GET:/api/v1/sandbox-desktop-types
+     * @secure
+     */
+    v1SandboxDesktopTypesList: (params: RequestParams = {}) =>
+      this.request<string[], any>({
+        path: `/api/v1/sandbox-desktop-types`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List the sandbox runtimes available on this server
      *
      * @tags Sandboxes
@@ -18034,6 +18247,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: body,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Reports whether the agent currently holds a live sync WebSocket — whether a message sent now would actually reach it — and kicks the canonical dev-container auto-start when it does not. For EMBEDDERS. GET /sessions/{id} reports external_agent_status "running" as soon as the container is up, which is not the same as reachable: a container can run for hours with Zed never having dialled home (helixml/helix#2397). Find AI presented a chat box to candidates on the strength of "running"; messages died in stuck interactions and the customer was shown "The system has encountered an error". An embedder needs to ask "can I send?" and to be able to do something about "no". Idempotent and cheap: connected sessions return immediately without touching the container. Returns promptly rather than waiting for boot — poll until connected is true.
+     *
+     * @tags Sessions
+     * @name V1SessionsEnsureAgentCreate
+     * @summary Ensure this session's agent is connected, starting it if not
+     * @request POST:/api/v1/sessions/{id}/ensure-agent
+     * @secure
+     */
+    v1SessionsEnsureAgentCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerEnsureAgentResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/ensure-agent`,
+        method: "POST",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -18815,6 +19046,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Approving moves the task to done (which stops its desktop), whether or not the agent asked to finish with mark_task_complete. Rejecting clears the agent's pending request and sends the comment to it as feedback.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksCompletionDecideCreate
+     * @summary Mark a spec task done, or send the agent's completion request back
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/completion/decide
+     * @secure
+     */
+    v1SpecTasksCompletionDecideCreate: (
+      specTaskId: string,
+      request: TypesCompletionDecisionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTask, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/completion/decide`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all design reviews for a spec task
      *
      * @tags spec-tasks
@@ -18986,6 +19241,49 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesSpecTaskDesignReview, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/submit`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Every pull request a spec task opens starts as an agent proposal awaiting user approval.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksPrProposalsDetail
+     * @summary List a spec task's pull request proposals
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/pr-proposals
+     * @secure
+     */
+    v1SpecTasksPrProposalsDetail: (specTaskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskPRProposal[], any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/pr-proposals`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approving grants the agent push rights to the proposal's head branch and opens the pull request as soon as the branch has commits beyond the base. Edited fields override the agent's proposal. Rejecting withdraws push rights.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksPrProposalsDecideCreate
+     * @summary Approve or reject a pull request proposal
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide
+     * @secure
+     */
+    v1SpecTasksPrProposalsDecideCreate: (
+      specTaskId: string,
+      proposalId: string,
+      request: TypesPRProposalDecisionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskPRProposal, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/pr-proposals/${proposalId}/decide`,
         method: "POST",
         body: request,
         secure: true,

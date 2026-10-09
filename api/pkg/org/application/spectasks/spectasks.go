@@ -145,6 +145,14 @@ func (s *Service) StopAgent(ctx context.Context, caller tool.Caller, projectID, 
 	return s.port.StopAgent(ctx, orgID, workerID, projectID, taskID)
 }
 
+func (s *Service) Complete(ctx context.Context, caller tool.Caller, projectID, taskID string) (runtime.SpecTaskView, error) {
+	orgID, workerID, err := s.callerIdentity(ctx, caller)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	return s.port.Complete(ctx, orgID, workerID, projectID, taskID)
+}
+
 func (s *Service) RestartAgent(ctx context.Context, caller tool.Caller, projectID, taskID string) (runtime.SpecTaskAgentActionView, error) {
 	orgID, workerID, err := s.callerIdentity(ctx, caller)
 	if err != nil {

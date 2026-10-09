@@ -119,6 +119,7 @@ func (suite *PostgresStoreTestSuite) TestSecretScopedUniqueness() {
 		ProjectID: projectA,
 	})
 	require.Error(suite.T(), err)
+	require.ErrorIs(suite.T(), err, ErrConflict)
 	assert.Contains(suite.T(), err.Error(), "already exists for this project")
 
 	// User-level secret with the same name (no project) lives in its own scope.

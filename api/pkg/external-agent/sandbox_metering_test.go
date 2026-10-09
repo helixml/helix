@@ -2,6 +2,7 @@ package external_agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -143,13 +144,77 @@ func TestBuildEnvVarsEmitsCanonicalSandboxAPIURL(t *testing.T) {
 }
 
 func TestExternalAgentIsolation(t *testing.T) {
-	require.Equal(t, containerIsolation{rootlessContainerEngine: true}, externalAgentIsolation("headless", false))
+	require.Equal(t, containerIsolation{rootlessContainerEngine: true}, externalAgentIsolation("headless", false, false))
 	for _, containerType := range []string{"ubuntu", "sway", "zorin", "xfce", "kde"} {
-		require.Equal(t, containerIsolation{privileged: true}, externalAgentIsolation(containerType, false), containerType)
+		require.Equal(t, containerIsolation{privileged: true}, externalAgentIsolation(containerType, false, false), containerType)
 	}
-	// Bot instances: unprivileged and engine-free, desktop or not.
+	// Bot instances: unprivileged and engine-free, desktop or not. A
+	// no-container-engine (browser) instance wins over desktopRootless.
 	for _, containerType := range []string{"headless", "ubuntu"} {
-		require.Equal(t, containerIsolation{browserSandbox: true}, externalAgentIsolation(containerType, true), containerType)
+		require.Equal(t, containerIsolation{browserSandbox: true}, externalAgentIsolation(containerType, true, false), containerType)
+		require.Equal(t, containerIsolation{browserSandbox: true}, externalAgentIsolation(containerType, true, true), containerType)
+	}
+	// desktopRootless on: desktops go unprivileged via rootless Podman; headless
+	// is unaffected (it is already rootless).
+	for _, containerType := range []string{"ubuntu", "sway", "zorin", "xfce", "kde"} {
+		require.Equal(t, containerIsolation{desktopRootless: true}, externalAgentIsolation(containerType, false, true), containerType)
+	}
+	require.Equal(t, containerIsolation{rootlessContainerEngine: true}, externalAgentIsolation("headless", false, true))
+}
+
+func TestValidateDesktopRootlessLaunch(t *testing.T) {
+	require.NoError(t, validateDesktopRootlessLaunch("sway", "custom/image", false, false))
+	require.NoError(t, validateDesktopRootlessLaunch("ubuntu", "", false, true))
+	require.NoError(t, validateDesktopRootlessLaunch("headless", "custom/image", false, true))
+	require.NoError(t, validateDesktopRootlessLaunch("sway", "custom/image", true, true))
+	require.EqualError(t, validateDesktopRootlessLaunch("ubuntu", "custom/image", false, true), "desktop rootless mode does not support custom images")
+	for _, desktopType := range []string{"sway", "zorin", "xfce", "kde"} {
+		require.EqualError(t, validateDesktopRootlessLaunch(desktopType, "", false, true),
+			fmt.Sprintf("desktop rootless mode does not support desktop type %q", desktopType))
+	}
+}
+
+func TestStartDesktopRejectsUnsupportedRootlessLaunchBeforeProvisioning(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		agent *types.DesktopAgent
+		err   string
+	}{
+		{"custom image", &types.DesktopAgent{SessionID: "ses_custom", DesktopType: "ubuntu", CustomImage: "custom/image"}, "desktop rootless mode does not support custom images"},
+		{"sway", &types.DesktopAgent{SessionID: "ses_sway", DesktopType: "sway"}, `desktop rootless mode does not support desktop type "sway"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			mockStore.EXPECT().GetSession(gomock.Any(), test.agent.SessionID).
+				Return(&types.Session{ID: test.agent.SessionID}, nil).Times(2)
+			executor := newTestExecutor(mockStore)
+			executor.desktopRootless = true
+
+			_, err := executor.StartDesktop(context.Background(), test.agent)
+			require.EqualError(t, err, test.err)
+		})
+	}
+}
+
+func TestStartDesktopReusesUnsupportedRunningSessionWithRootlessFlag(t *testing.T) {
+	for _, agent := range []*types.DesktopAgent{
+		{SessionID: "ses_sway", DesktopType: "sway"},
+		{SessionID: "ses_custom", DesktopType: "ubuntu", CustomImage: "custom/image"},
+		{SessionID: "ses_golden", DesktopType: "ubuntu", GoldenBuild: true},
+	} {
+		executor := newTestExecutor(nil)
+		executor.desktopRootless = true
+		executor.sessions[agent.SessionID] = &ZedSession{
+			SessionID:   agent.SessionID,
+			Status:      "running",
+			ContainerID: "existing-container",
+		}
+
+		response, err := executor.StartDesktop(context.Background(), agent)
+		require.NoError(t, err)
+		require.Equal(t, "running", response.Status)
+		require.Equal(t, "existing-container", response.DevContainerID)
 	}
 }
 

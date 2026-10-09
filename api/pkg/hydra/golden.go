@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -19,10 +20,17 @@ const (
 	// Each project gets its own golden at {goldenBaseDir}/{projectID}/docker/.
 	goldenBaseDir = "/container-docker/golden"
 
-	// goldenCopyCompleteMarker is written to the session docker dir after a
-	// successful golden cache copy. If absent, the copy was interrupted
-	// (e.g. API crash) and the session dir must be deleted and re-copied.
-	goldenCopyCompleteMarker = ".golden-copy-complete"
+	// Golden copy markers distinguish a completed copy, an interrupted copy,
+	// and legacy markerless Podman session data.
+	goldenCopyCompleteMarker         = ".golden-copy-complete"
+	goldenCopyInProgressMarkerSuffix = "-golden-copy-in-progress"
+)
+
+type goldenCacheKind string
+
+const (
+	dockerGoldenCache goldenCacheKind = "docker"
+	podmanGoldenCache goldenCacheKind = "podman"
 )
 
 // sessionsBaseDir is where per-session Docker data lives.
@@ -31,12 +39,20 @@ var sessionsBaseDir = "/container-docker/sessions"
 
 // goldenDir returns the golden Docker data path for a project.
 func goldenDir(projectID string) string {
-	return filepath.Join(goldenBaseDir, projectID, "docker")
+	return goldenDirForKind(projectID, dockerGoldenCache)
+}
+
+func goldenDirForKind(projectID string, kind goldenCacheKind) string {
+	return filepath.Join(effectiveGoldenBaseDir(), projectID, string(kind))
 }
 
 // sessionOverlayDir returns the session overlay directory (upper/work/merged).
 func sessionOverlayDir(volumeName string) string {
 	return filepath.Join(sessionsBaseDir, volumeName)
+}
+
+func goldenCopyInProgressMarkerPath(volumeName string, kind goldenCacheKind) string {
+	return filepath.Join(sessionOverlayDir(volumeName), "."+string(kind)+goldenCopyInProgressMarkerSuffix)
 }
 
 // goldenLocks provides per-project locking for golden directory access.
@@ -48,13 +64,18 @@ var (
 )
 
 func getGoldenLock(projectID string) *sync.RWMutex {
+	return getGoldenLockForKind(projectID, dockerGoldenCache)
+}
+
+func getGoldenLockForKind(projectID string, kind goldenCacheKind) *sync.RWMutex {
 	goldenLocksMu.Lock()
 	defer goldenLocksMu.Unlock()
-	if l, ok := goldenLocks[projectID]; ok {
+	key := projectID + ":" + string(kind)
+	if l, ok := goldenLocks[key]; ok {
 		return l
 	}
 	l := &sync.RWMutex{}
-	goldenLocks[projectID] = l
+	goldenLocks[key] = l
 	return l
 }
 
@@ -72,7 +93,11 @@ type GoldenVersionInfo struct {
 // ReadGoldenVersion reads the golden-version.json from a project's golden cache.
 // Returns nil if the file doesn't exist or can't be parsed.
 func ReadGoldenVersion(projectID string) *GoldenVersionInfo {
-	path := filepath.Join(goldenDir(projectID), "golden-version.json")
+	return readGoldenVersionForKind(projectID, dockerGoldenCache)
+}
+
+func readGoldenVersionForKind(projectID string, kind goldenCacheKind) *GoldenVersionInfo {
+	path := filepath.Join(goldenDirForKind(projectID, kind), "golden-version.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -85,6 +110,10 @@ func ReadGoldenVersion(projectID string) *GoldenVersionInfo {
 }
 
 func writeGoldenVersion(projectID, sessionID string, generation int) error {
+	return writeGoldenVersionForKind(projectID, sessionID, generation, dockerGoldenCache)
+}
+
+func writeGoldenVersionForKind(projectID, sessionID string, generation int, kind goldenCacheKind) error {
 	info := GoldenVersionInfo{
 		Generation: generation,
 		CreatedAt:  time.Now(),
@@ -95,15 +124,19 @@ func writeGoldenVersion(projectID, sessionID string, generation int) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(goldenDir(projectID), "golden-version.json"), data, 0644)
+	return os.WriteFile(filepath.Join(goldenDirForKind(projectID, kind), "golden-version.json"), data, 0644)
 }
 
 // GoldenExists checks if a golden Docker cache snapshot exists for the project.
 func GoldenExists(projectID string) bool {
+	return goldenExistsForKind(projectID, dockerGoldenCache)
+}
+
+func goldenExistsForKind(projectID string, kind goldenCacheKind) bool {
 	if projectID == "" {
 		return false
 	}
-	info, err := os.Stat(goldenDir(projectID))
+	info, err := os.Stat(goldenDirForKind(projectID, kind))
 	return err == nil && info.IsDir()
 }
 
@@ -219,12 +252,16 @@ func parallelCopyDir(src, dst string, workers int) error {
 //
 // Returns the docker directory path to use as the bind mount source.
 func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total int64)) (string, error) {
-	golden := goldenDir(projectID)
+	return setupGoldenCopyForKind(projectID, volumeName, dockerGoldenCache, onProgress)
+}
+
+func setupGoldenCopyForKind(projectID, volumeName string, kind goldenCacheKind, onProgress func(copied, total int64)) (string, error) {
+	golden := goldenDirForKind(projectID, kind)
 	base := sessionOverlayDir(volumeName)
-	dockerDir := filepath.Join(base, "docker")
+	dataDir := filepath.Join(base, string(kind))
 
 	// Take a read lock so PromoteSessionToGolden can't rename the source mid-copy.
-	lock := getGoldenLock(projectID)
+	lock := getGoldenLockForKind(projectID, kind)
 	lock.RLock()
 	defer lock.RUnlock()
 
@@ -232,9 +269,17 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 	if err := os.MkdirAll(base, 0755); err != nil {
 		return "", fmt.Errorf("failed to create session dir %s: %w", base, err)
 	}
+	inProgressMarker := goldenCopyInProgressMarkerPath(volumeName, kind)
+	if err := os.WriteFile(inProgressMarker, []byte(time.Now().UTC().Format(time.RFC3339)), 0644); err != nil {
+		return "", fmt.Errorf("failed to mark golden copy in progress at %s: %w", inProgressMarker, err)
+	}
+	markerPath := filepath.Join(dataDir, goldenCopyCompleteMarker)
+	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to remove stale golden copy completion marker at %s: %w", markerPath, err)
+	}
 
 	// Log which golden version we're copying from
-	if ver := ReadGoldenVersion(projectID); ver != nil {
+	if ver := readGoldenVersionForKind(projectID, kind); ver != nil {
 		log.Info().
 			Str("project_id", projectID).
 			Int("golden_generation", ver.Generation).
@@ -247,7 +292,7 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 	// cp -a preserves permissions, ownership, timestamps.
 	// --reflink=auto uses copy-on-write on supporting filesystems (XFS, btrfs)
 	// making the copy near-instant. Falls back silently to full copy on ext4.
-	goldenSize := GetGoldenSize(projectID)
+	goldenSize := getGoldenSizeForKind(projectID, kind)
 	log.Info().
 		Str("golden", golden).
 		Int64("size_bytes", goldenSize).
@@ -265,7 +310,7 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 				case <-done:
 					return
 				case <-ticker.C:
-					out, err := exec.Command("du", "-sb", dockerDir).Output()
+					out, err := exec.Command("du", "-sb", dataDir).Output()
 					if err == nil {
 						var copied int64
 						fmt.Sscanf(string(out), "%d", &copied)
@@ -286,7 +331,7 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 	if cpWorkers < 2 {
 		cpWorkers = 2
 	}
-	err := parallelCopyDir(golden, dockerDir, cpWorkers)
+	err := parallelCopyDir(golden, dataDir, cpWorkers)
 	close(done)
 
 	if err != nil {
@@ -297,7 +342,7 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 	// Without this, monitorGoldenBuild() would find the old result file
 	// and promote immediately without waiting for the actual build.
 	// cp -a creates dockerDir as a copy of golden, so the file is at dockerDir/.golden-build-result.
-	resultFile := filepath.Join(dockerDir, ".golden-build-result")
+	resultFile := filepath.Join(dataDir, ".golden-build-result")
 	if err := os.Remove(resultFile); err != nil && !os.IsNotExist(err) {
 		log.Warn().Err(err).Str("path", resultFile).
 			Msg("Failed to remove stale golden build result marker — risk of premature promotion")
@@ -309,30 +354,37 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 	}
 
 	// Write completion marker so we can detect interrupted copies on restart.
-	markerPath := filepath.Join(dockerDir, goldenCopyCompleteMarker)
 	if err := os.WriteFile(markerPath, []byte(time.Now().UTC().Format(time.RFC3339)), 0644); err != nil {
-		log.Warn().Err(err).Str("path", markerPath).
-			Msg("Failed to write golden copy completion marker")
+		return "", fmt.Errorf("failed to write golden copy completion marker at %s: %w", markerPath, err)
+	}
+	if err := os.Remove(inProgressMarker); err != nil && !os.IsNotExist(err) {
+		log.Warn().Err(err).Str("path", inProgressMarker).
+			Msg("Failed to remove golden copy in-progress marker")
 	}
 
 	elapsed := time.Since(start)
 	log.Info().
 		Str("golden", golden).
-		Str("docker_dir", dockerDir).
+		Str("data_dir", dataDir).
 		Str("volume", volumeName).
 		Int64("size_bytes", goldenSize).
 		Dur("copy_duration", elapsed).
-		Msg("Golden Docker cache copied to session")
+		Str("cache_kind", string(kind)).
+		Msg("Golden container cache copied to session")
 
-	return dockerDir, nil
+	return dataDir, nil
 }
 
 // IsGoldenCopyComplete checks whether a session's Docker data directory
 // was fully copied from the golden cache. Returns false if the directory
 // exists but the copy was interrupted (e.g. by an API crash).
 func IsGoldenCopyComplete(volumeName string) bool {
-	dockerDir := filepath.Join(sessionOverlayDir(volumeName), "docker")
-	markerPath := filepath.Join(dockerDir, goldenCopyCompleteMarker)
+	return isGoldenCopyCompleteForKind(volumeName, dockerGoldenCache)
+}
+
+func isGoldenCopyCompleteForKind(volumeName string, kind goldenCacheKind) bool {
+	dataDir := filepath.Join(sessionOverlayDir(volumeName), string(kind))
+	markerPath := filepath.Join(dataDir, goldenCopyCompleteMarker)
 	_, err := os.Stat(markerPath)
 	return err == nil
 }
@@ -357,23 +409,27 @@ func CleanupGoldenSession(volumeName string) error {
 // Any existing golden for the project is replaced atomically.
 // The sessionID is recorded in golden-version.json for runtime identification.
 func PromoteSessionToGolden(projectID, volumeName, sessionID string) error {
-	sessionDockerDir := filepath.Join(sessionsBaseDir, volumeName, "docker")
-	goldenProjectDir := filepath.Join(goldenBaseDir, projectID)
-	targetDir := goldenDir(projectID)
+	return promoteSessionToGoldenForKind(projectID, volumeName, sessionID, dockerGoldenCache)
+}
+
+func promoteSessionToGoldenForKind(projectID, volumeName, sessionID string, kind goldenCacheKind) error {
+	sessionDataDir := filepath.Join(sessionsBaseDir, volumeName, string(kind))
+	goldenProjectDir := filepath.Join(effectiveGoldenBaseDir(), projectID)
+	targetDir := goldenDirForKind(projectID, kind)
 
 	// Take a write lock so concurrent SetupGoldenCopy calls finish before we rename.
-	lock := getGoldenLock(projectID)
+	lock := getGoldenLockForKind(projectID, kind)
 	lock.Lock()
 	defer lock.Unlock()
 
 	// Verify session docker data exists
-	if _, err := os.Stat(sessionDockerDir); err != nil {
-		return fmt.Errorf("session docker data not found at %s: %w", sessionDockerDir, err)
+	if _, err := os.Stat(sessionDataDir); err != nil {
+		return fmt.Errorf("session container data not found at %s: %w", sessionDataDir, err)
 	}
 
 	// Read current generation before we rename the old golden away.
 	nextGeneration := 1
-	if ver := ReadGoldenVersion(projectID); ver != nil {
+	if ver := readGoldenVersionForKind(projectID, kind); ver != nil {
 		nextGeneration = ver.Generation + 1
 	}
 
@@ -393,7 +449,7 @@ func PromoteSessionToGolden(projectID, volumeName, sessionID string) error {
 	}
 
 	// Move session data to golden
-	if err := os.Rename(sessionDockerDir, targetDir); err != nil {
+	if err := os.Rename(sessionDataDir, targetDir); err != nil {
 		// Try to restore old golden
 		if hasOldGolden {
 			_ = os.Rename(oldGolden, targetDir)
@@ -402,7 +458,7 @@ func PromoteSessionToGolden(projectID, volumeName, sessionID string) error {
 	}
 
 	// Write golden version info so sessions can identify which golden they got.
-	if err := writeGoldenVersion(projectID, sessionID, nextGeneration); err != nil {
+	if err := writeGoldenVersionForKind(projectID, sessionID, nextGeneration, kind); err != nil {
 		log.Warn().Err(err).Str("project_id", projectID).
 			Msg("Failed to write golden-version.json (non-fatal)")
 	}
@@ -422,11 +478,12 @@ func PromoteSessionToGolden(projectID, volumeName, sessionID string) error {
 
 	log.Info().
 		Str("project_id", projectID).
-		Str("source", sessionDockerDir).
+		Str("source", sessionDataDir).
 		Str("golden", targetDir).
 		Int("generation", nextGeneration).
 		Str("session_id", sessionID).
-		Msg("Promoted session Docker data to golden cache")
+		Str("cache_kind", string(kind)).
+		Msg("Promoted session container data to golden cache")
 
 	return nil
 }
@@ -444,47 +501,48 @@ func CleanupSessionDockerDir(volumeName string) error {
 	return nil
 }
 
-// DeleteGolden removes a project's golden Docker cache snapshot.
+// DeleteGolden removes a project's golden container cache snapshots.
 // Handles both file-based golden dirs and ZFS zvol-based goldens.
 func DeleteGolden(projectID string) error {
+	if ZFSAvailable() {
+		for _, kind := range []goldenCacheKind{dockerGoldenCache, podmanGoldenCache} {
+			goldenName := goldenZvolNameForKind(projectID, kind)
+			if !zfsDatasetExists(goldenName) {
+				continue
+			}
+			runningClones, _, err := goldenCloneSessions(projectID, kind)
+			if err != nil {
+				return err
+			}
+			if len(runningClones) > 0 {
+				return fmt.Errorf("cannot delete golden cache: %d running session(s) depend on it (stop them first): %s",
+					len(runningClones), strings.Join(runningClones, ", "))
+			}
+		}
+	}
+
+	for _, kind := range []goldenCacheKind{dockerGoldenCache, podmanGoldenCache} {
+		if err := deleteGoldenForKind(projectID, kind); err != nil {
+			return err
+		}
+	}
+	_ = os.Remove(filepath.Join(effectiveGoldenBaseDir(), projectID))
+	return nil
+}
+
+func deleteGoldenForKind(projectID string, kind goldenCacheKind) error {
 	// Delete ZFS golden zvol if it exists
 	if ZFSAvailable() {
-		goldenName := goldenZvolName(projectID)
+		goldenName := goldenZvolNameForKind(projectID, kind)
 		if zfsDatasetExists(goldenName) {
-			// Find all session clones that originate from this golden.
-			// Destroy stopped ones, refuse if any are still running.
-			prefix := zfsParentDataset + "/ses-"
-			out, err := execCmdOutput("zfs", "list", "-H", "-o", "name,origin", "-t", "volume", "-r", zfsParentDataset)
-			if err == nil {
-				var runningClones []string
-				var stoppedClones []string
-				for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-					fields := strings.Fields(line)
-					if len(fields) >= 2 && strings.HasPrefix(fields[0], prefix) {
-						origin := fields[1]
-						if strings.HasPrefix(origin, goldenName+"@") {
-							sessionID := strings.TrimPrefix(fields[0], prefix)
-							mountPath := sessionZvolMountPath(sessionID)
-							if isMounted(mountPath) {
-								runningClones = append(runningClones, sessionID)
-							} else {
-								stoppedClones = append(stoppedClones, sessionID)
-							}
-						}
-					}
-				}
-
-				if len(runningClones) > 0 {
-					return fmt.Errorf("cannot delete golden cache: %d running session(s) depend on it (stop them first): %s",
-						len(runningClones), strings.Join(runningClones, ", "))
-				}
-
-				// Clean up stopped clones
-				for _, sessionID := range stoppedClones {
-					log.Info().Str("session_id", sessionID).
-						Msg("Destroying stopped session clone before golden cache deletion")
-					_ = CleanupSessionZvol(sessionID)
-				}
+			_, stoppedClones, err := goldenCloneSessions(projectID, kind)
+			if err != nil {
+				return err
+			}
+			for _, sessionID := range stoppedClones {
+				log.Info().Str("session_id", sessionID).
+					Msg("Destroying stopped session clone before golden cache deletion")
+				_ = cleanupSessionZvolForKind(sessionID, kind)
 			}
 
 			// Now destroy the golden zvol and its snapshots
@@ -496,15 +554,39 @@ func DeleteGolden(projectID string) error {
 	}
 
 	// Delete file-based golden dir if it exists
-	projectDir := filepath.Join(goldenBaseDir, projectID)
-	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
+	dir := goldenDirForKind(projectID, kind)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return nil // nothing to delete
 	}
-	if err := os.RemoveAll(projectDir); err != nil {
-		return fmt.Errorf("failed to remove golden cache at %s: %w", projectDir, err)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("failed to remove golden cache at %s: %w", dir, err)
 	}
-	log.Info().Str("project_id", projectID).Str("path", projectDir).Msg("Deleted golden Docker cache")
+	log.Info().Str("project_id", projectID).Str("cache_kind", string(kind)).Str("path", dir).Msg("Deleted golden container cache")
 	return nil
+}
+
+func goldenCloneSessions(projectID string, kind goldenCacheKind) (running, stopped []string, err error) {
+	goldenName := goldenZvolNameForKind(projectID, kind)
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name,origin", "-t", "volume", "-r", zfsParentDataset)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list clones for golden zvol %s: %w", goldenName, err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || !strings.HasPrefix(fields[1], goldenName+"@") {
+			continue
+		}
+		sessionID, cloneKind, ok := parseSessionZvolName(fields[0])
+		if !ok || cloneKind != kind {
+			continue
+		}
+		if isMounted(sessionZvolMountPathForKind(sessionID, kind)) {
+			running = append(running, sessionID)
+		} else {
+			stopped = append(stopped, sessionID)
+		}
+	}
+	return running, stopped, nil
 }
 
 // PurgeContainersFromGolden removes container-specific state from a golden cache.
@@ -513,162 +595,208 @@ func DeleteGolden(projectID string) error {
 // /home/retro/work/helix/...) that don't exist in new sessions. When inner
 // dockerd starts, it tries to restart those containers and auto-creates missing
 // bind mount sources as empty directories, corrupting the workspace.
-//
-// We keep: overlay2/ (image layers), image/ (image metadata), tmp/ (build cache).
 func PurgeContainersFromGolden(projectID string) error {
-	golden := goldenDir(projectID)
+	return purgeContainersFromGoldenForKind(projectID, dockerGoldenCache)
+}
 
-	// Remove container metadata — they reference session-specific bind mounts
-	// that corrupt the workspace when dockerd auto-creates them as directories
-	os.RemoveAll(filepath.Join(golden, "containers"))
+func purgeContainersFromGoldenForKind(projectID string, kind goldenCacheKind) error {
+	golden := goldenDirForKind(projectID, kind)
 
-	// Remove network state — stale sandbox-specific bridge/endpoint references
-	os.RemoveAll(filepath.Join(golden, "network"))
-
-	// Remove containerd state — stale shim references from the build session
-	os.RemoveAll(filepath.Join(golden, "containerd"))
-
-	// Remove buildx state — not needed, sessions use shared buildkit
-	os.RemoveAll(filepath.Join(golden, "buildx"))
-
-	// Remove volumes — stale named/anonymous volumes from build steps
-	// (node_modules, Go module cache, etc). Sessions create their own.
-	// This is a safety net; the in-container cleanup (workspace-setup.sh)
-	// runs `docker volume prune` before dockerd stops, but if that was
-	// skipped or incomplete, this catches it at the filesystem level.
-	os.RemoveAll(filepath.Join(golden, "volumes"))
-
-	// Remove the golden build result marker. If this file is left in the golden
-	// cache, monitorGoldenBuild() on subsequent golden builds will find it
+	// If the golden build result marker is left in the golden cache,
+	// monitorGoldenBuild() on subsequent golden builds will find it
 	// immediately after SetupGoldenCopy and promote prematurely — before the
-	// startup script has actually run. This was the root cause of golden builds
-	// completing in ~1 minute instead of the expected 10+ minutes.
+	// startup script has actually run.
 	resultFile := filepath.Join(golden, ".golden-build-result")
 	if err := os.Remove(resultFile); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove golden build result marker at %s (risk of premature promotion): %w", resultFile, err)
 	}
 
-	// Prune unreferenced overlay2 layers left behind by previous image builds.
-	pruneUnreferencedOverlay2Layers(golden)
+	if kind == dockerGoldenCache {
+		purgeContainerDirs(golden)
+	}
 
 	log.Info().
 		Str("project_id", projectID).
 		Str("golden", golden).
-		Msg("Purged container/network/containerd/buildx/volumes/result state from golden cache")
+		Str("cache_kind", string(kind)).
+		Msg("Purged runtime state from golden cache")
 
 	return nil
 }
 
-// pruneUnreferencedOverlay2Layers removes overlay2 directories that are not
-// referenced by any image in the Docker data directory. During golden builds,
-// ./stack build rebuilds images multiple times — each rebuild creates new
-// overlay2 layer dirs, but the old ones are never cleaned up because dockerd's
-// GC only runs via `docker system prune`. Since we operate on the filesystem
-// after dockerd has stopped, we do the GC ourselves.
+// purgeContainerDirs removes container-specific state from a Docker data dir
+// that is about to become a golden snapshot.
 //
-// Safety: this only deletes overlay2 dirs that have NO corresponding entry in
-// the layerdb. Image layers, shared layers, and all tagged images are preserved.
-// BuildKit cache lives on the shared remote builder, not in local overlay2.
-func pruneUnreferencedOverlay2Layers(dockerDir string) {
+// Everything else is kept: image/ and overlay2/ hold both image layers and
+// BuildKit's snapshots (intermediate layers and RUN --mount=type=cache data),
+// and buildkit/ holds the databases that reference those snapshots. BuildKit's
+// references are not visible in the image layerdb, so overlay2 must never be
+// pruned by "not referenced by an image" — that deletes the build cache the
+// golden exists to carry. The build cache is bounded inside the golden build
+// instead, by dockerd's own GC (see helix-workspace-setup.sh).
+func purgeContainerDirs(dockerDir string) {
+	// Container RW layers first: their records are found via layerdb/mounts,
+	// which only containers create.
+	removeContainerLayers(dockerDir)
+
+	// containers: metadata with session-specific bind mounts.
+	// network: stale bridge/endpoint references.
+	// containerd: runtime state (shims, tasks) of the build session.
+	// volumes: named/anonymous volumes from build steps; sessions create their own.
+	// buildx: not dockerd state; removed in case an old desktop image wrote it.
+	for _, dir := range []string{"containers", "network", "containerd", "buildx", "volumes"} {
+		os.RemoveAll(filepath.Join(dockerDir, dir))
+	}
+	os.Remove(filepath.Join(dockerDir, ".golden-build-result"))
+}
+
+// removeContainerLayers deletes the overlay2 RW and init layers of every
+// container recorded in image/overlay2/layerdb/mounts, plus those records.
+// purgeContainerDirs removes containers/, so without this the containers'
+// writable layers would be orphaned in the golden forever. Only containers
+// create layerdb/mounts entries (BuildKit snapshots never do), so this cannot
+// touch image layers or build cache.
+func removeContainerLayers(dockerDir string) {
 	overlay2Dir := filepath.Join(dockerDir, "overlay2")
-	layerdbDir := filepath.Join(dockerDir, "image", "overlay2", "layerdb", "sha256")
+	mountsDir := filepath.Join(dockerDir, "image", "overlay2", "layerdb", "mounts")
 
-	// Read all cache-id files from layerdb — these reference overlay2 dirs
-	referencedDirs := make(map[string]bool)
-
-	layerEntries, err := os.ReadDir(layerdbDir)
+	entries, err := os.ReadDir(mountsDir)
 	if err != nil {
-		log.Warn().Err(err).Str("path", layerdbDir).
-			Msg("Cannot read layerdb, skipping overlay2 prune")
+		if !os.IsNotExist(err) {
+			log.Warn().Err(err).Str("path", mountsDir).Msg("Cannot read layerdb mounts, container layers not removed")
+		}
 		return
 	}
 
-	for _, entry := range layerEntries {
+	var removed int
+	var freedBytes int64
+	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		cacheIDFile := filepath.Join(layerdbDir, entry.Name(), "cache-id")
-		data, err := os.ReadFile(cacheIDFile)
-		if err != nil {
-			continue
-		}
-		cacheID := strings.TrimSpace(string(data))
-		if cacheID != "" {
-			referencedDirs[cacheID] = true
-		}
-	}
-
-	if len(referencedDirs) == 0 {
-		log.Warn().Msg("No referenced layers found in layerdb, skipping overlay2 prune (safety)")
-		return
-	}
-
-	// List all overlay2 directories
-	overlay2Entries, err := os.ReadDir(overlay2Dir)
-	if err != nil {
-		log.Warn().Err(err).Str("path", overlay2Dir).
-			Msg("Cannot read overlay2 dir, skipping prune")
-		return
-	}
-
-	var pruned int
-	var prunedBytes int64
-	for _, entry := range overlay2Entries {
-		name := entry.Name()
-		// Skip the "l" directory (short symlinks for layer identification)
-		if name == "l" || !entry.IsDir() {
-			continue
-		}
-		if referencedDirs[name] {
-			continue
-		}
-
-		dirPath := filepath.Join(overlay2Dir, name)
-		// Get size before removal for logging
-		var size int64
-		if out, err := exec.Command("du", "-sb", dirPath).Output(); err == nil {
-			fmt.Sscanf(string(out), "%d", &size)
-		}
-
-		if err := os.RemoveAll(dirPath); err != nil {
-			log.Warn().Err(err).Str("path", dirPath).
-				Msg("Failed to remove unreferenced overlay2 dir")
-			continue
-		}
-		pruned++
-		prunedBytes += size
-	}
-
-	// Clean up stale symlinks in overlay2/l/
-	linksDir := filepath.Join(overlay2Dir, "l")
-	if linkEntries, err := os.ReadDir(linksDir); err == nil {
-		var staleLinks int
-		for _, entry := range linkEntries {
-			linkPath := filepath.Join(linksDir, entry.Name())
-			target, err := os.Readlink(linkPath)
+		recordDir := filepath.Join(mountsDir, entry.Name())
+		for _, idFile := range []string{"mount-id", "init-id"} {
+			data, err := os.ReadFile(filepath.Join(recordDir, idFile))
 			if err != nil {
 				continue
 			}
-			// Links are relative (e.g., ../abc123/diff), resolve to check existence
-			resolved := filepath.Join(linksDir, target)
-			if _, err := os.Stat(resolved); os.IsNotExist(err) {
-				os.Remove(linkPath)
-				staleLinks++
+			layerID := strings.TrimSpace(string(data))
+			// Must name a direct child of overlay2/ (and not the l/ links dir)
+			if layerID == "" || layerID == "l" || layerID == "." || layerID == ".." || strings.Contains(layerID, "/") {
+				continue
 			}
+			layerDir := filepath.Join(overlay2Dir, layerID)
+			if _, err := os.Stat(layerDir); err != nil {
+				continue
+			}
+			freedBytes += dirSizeBytes(layerDir)
+			if err := os.RemoveAll(layerDir); err != nil {
+				log.Warn().Err(err).Str("path", layerDir).Msg("Failed to remove container layer")
+				continue
+			}
+			removed++
 		}
-		if staleLinks > 0 {
-			log.Info().Int("stale_links", staleLinks).
-				Msg("Removed stale overlay2/l/ symlinks")
+		if err := os.RemoveAll(recordDir); err != nil {
+			log.Warn().Err(err).Str("path", recordDir).Msg("Failed to remove container layer record")
 		}
 	}
 
-	if pruned > 0 {
-		log.Info().
-			Int("pruned_layers", pruned).
-			Int64("freed_bytes", prunedBytes).
-			Int("referenced_layers", len(referencedDirs)).
-			Msg("Pruned unreferenced overlay2 layers from golden cache")
+	removeStaleOverlay2Links(overlay2Dir)
+
+	log.Info().
+		Int("container_records", len(entries)).
+		Int("removed_layers", removed).
+		Int64("freed_bytes", freedBytes).
+		Msg("Removed container RW layers from golden cache")
+}
+
+// removeStaleOverlay2Links removes overlay2/l/ short-name symlinks whose
+// layer directory no longer exists.
+func removeStaleOverlay2Links(overlay2Dir string) {
+	linksDir := filepath.Join(overlay2Dir, "l")
+	linkEntries, err := os.ReadDir(linksDir)
+	if err != nil {
+		return
 	}
+	for _, entry := range linkEntries {
+		linkPath := filepath.Join(linksDir, entry.Name())
+		target, err := os.Readlink(linkPath)
+		if err != nil {
+			continue
+		}
+		// Links are relative (e.g., ../abc123/diff)
+		if _, err := os.Stat(filepath.Join(linksDir, target)); os.IsNotExist(err) {
+			os.Remove(linkPath)
+		}
+	}
+}
+
+// dirSizeBytes returns the apparent size of a directory tree, or 0 on error.
+func dirSizeBytes(dir string) int64 {
+	var size int64
+	if out, err := exec.Command("du", "-sb", dir).Output(); err == nil {
+		fmt.Sscanf(string(out), "%d", &size)
+	}
+	return size
+}
+
+// goldenBuildKitStatsFile is written to the Docker data root by
+// helix-workspace-setup.sh at the end of a successful golden build. It records
+// the BuildKit cache as the startup script left it (build_end) and as it goes
+// into the snapshot after the golden's GC pass (pre_snapshot). It stays in the
+// golden so sessions can compare their own cache against it.
+const goldenBuildKitStatsFile = ".golden-buildkit-stats.json"
+
+// BuildKitCacheStats summarises a dockerd's BuildKit cache
+// (see desktop/shared/helix-buildkit-cache-stats.sh).
+type BuildKitCacheStats struct {
+	Records         int   `json:"records"`
+	TotalBytes      int64 `json:"total_bytes"`
+	CacheMountCount int   `json:"cache_mount_count"`
+	CacheMountBytes int64 `json:"cache_mount_bytes"`
+}
+
+// GoldenBuildKitStats is the content of goldenBuildKitStatsFile.
+type GoldenBuildKitStats struct {
+	BuildEnd    *BuildKitCacheStats `json:"build_end"`
+	PreSnapshot *BuildKitCacheStats `json:"pre_snapshot"`
+}
+
+// readGoldenBuildKitStats reads goldenBuildKitStatsFile from the first of
+// dockerDirs that has it. Returns nil if none does (e.g. older desktop image).
+func readGoldenBuildKitStats(dockerDirs ...string) *GoldenBuildKitStats {
+	for _, dir := range dockerDirs {
+		data, err := os.ReadFile(filepath.Join(dir, goldenBuildKitStatsFile))
+		if err != nil {
+			continue
+		}
+		var stats GoldenBuildKitStats
+		if err := json.Unmarshal(data, &stats); err != nil {
+			log.Warn().Err(err).Str("dir", dir).Msg("Invalid golden BuildKit stats file")
+			return nil
+		}
+		return &stats
+	}
+	return nil
+}
+
+// addGoldenBuildKitStats adds the golden build's BuildKit cache numbers to a
+// log event, so cache loss across promotion shows up in GOLDEN_BUILD_SUMMARY.
+func addGoldenBuildKitStats(ev *zerolog.Event, stats *GoldenBuildKitStats) *zerolog.Event {
+	if stats == nil {
+		return ev.Bool("buildkit_stats_missing", true)
+	}
+	if s := stats.BuildEnd; s != nil {
+		ev = ev.Int64("buildkit_build_end_bytes", s.TotalBytes).
+			Int64("buildkit_build_end_cache_mount_bytes", s.CacheMountBytes)
+	}
+	if s := stats.PreSnapshot; s != nil {
+		ev = ev.Int64("buildkit_golden_bytes", s.TotalBytes).
+			Int("buildkit_golden_records", s.Records).
+			Int("buildkit_golden_cache_mounts", s.CacheMountCount).
+			Int64("buildkit_golden_cache_mount_bytes", s.CacheMountBytes)
+	}
+	return ev
 }
 
 // GetGoldenSize returns the size of a project's golden cache in bytes.
@@ -676,9 +804,13 @@ func pruneUnreferencedOverlay2Layers(dockerDir string) {
 // which inflates the reported size. "refer" is the actual filesystem size.
 // Returns 0 if no golden exists.
 func GetGoldenSize(projectID string) int64 {
+	return getGoldenSizeForKind(projectID, dockerGoldenCache)
+}
+
+func getGoldenSizeForKind(projectID string, kind goldenCacheKind) int64 {
 	// Try ZFS zvol size first (golden may be a zvol after migration)
-	if ZFSAvailable() && GoldenZvolExists(projectID) {
-		zvol := goldenZvolName(projectID)
+	if ZFSAvailable() && goldenZvolExistsForKind(projectID, kind) {
+		zvol := goldenZvolNameForKind(projectID, kind)
 		out, err := execCmdOutput("zfs", "list", "-H", "-o", "refer", "-p", zvol)
 		if err == nil {
 			var size int64
@@ -690,7 +822,7 @@ func GetGoldenSize(projectID string) int64 {
 	}
 
 	// Fall back to file-based golden dir
-	dir := goldenDir(projectID)
+	dir := goldenDirForKind(projectID, kind)
 	out, err := execCmdOutput("du", "-sb", dir)
 	if err != nil {
 		return 0
@@ -706,7 +838,8 @@ func GetGoldenSize(projectID string) int64 {
 //
 // Returns the number of items cleaned and bytes freed.
 func GCStaleGoldenDirs(maxAge time.Duration) (int, int64, error) {
-	entries, err := os.ReadDir(goldenBaseDir)
+	baseDir := effectiveGoldenBaseDir()
+	entries, err := os.ReadDir(baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, 0, nil
@@ -724,55 +857,58 @@ func GCStaleGoldenDirs(maxAge time.Duration) (int, int64, error) {
 		}
 
 		name := entry.Name()
-		projectDir := filepath.Join(goldenBaseDir, name)
+		projectDir := filepath.Join(baseDir, name)
 
-		// 1. Clean up .old directories (leftover from failed PromoteSessionToGolden)
-		dockerOld := filepath.Join(projectDir, "docker.old")
-		if info, err := os.Stat(dockerOld); err == nil {
-			var size int64
-			if out, err := exec.Command("du", "-sb", dockerOld).Output(); err == nil {
-				fmt.Sscanf(string(out), "%d", &size)
-			}
-			age := now.Sub(info.ModTime())
-			log.Info().
-				Str("path", dockerOld).
-				Int64("size_bytes", size).
-				Dur("age", age).
-				Msg("Removing stale .old golden directory")
-			if err := os.RemoveAll(dockerOld); err != nil {
-				log.Warn().Err(err).Str("path", dockerOld).Msg("Failed to remove stale .old golden dir")
-			} else {
-				cleaned++
-				freedBytes += size
-			}
-		}
-
-		// 2. Remove golden caches not accessed recently
-		if maxAge > 0 {
-			dockerDir := filepath.Join(projectDir, "docker")
-			info, err := os.Stat(dockerDir)
-			if err != nil {
-				continue // No docker dir — might just have lock file or .old
-			}
-			age := now.Sub(info.ModTime())
-			if age > maxAge {
+		for _, kind := range []goldenCacheKind{dockerGoldenCache, podmanGoldenCache} {
+			// 1. Clean up .old directories (leftover from failed promotion)
+			oldDir := filepath.Join(projectDir, string(kind)+".old")
+			if info, err := os.Stat(oldDir); err == nil {
 				var size int64
-				if out, err := exec.Command("du", "-sb", dockerDir).Output(); err == nil {
+				if out, err := exec.Command("du", "-sb", oldDir).Output(); err == nil {
 					fmt.Sscanf(string(out), "%d", &size)
 				}
+				age := now.Sub(info.ModTime())
 				log.Info().
-					Str("project_id", name).
+					Str("path", oldDir).
 					Int64("size_bytes", size).
 					Dur("age", age).
-					Msg("Removing stale golden cache (not used recently)")
-				if err := os.RemoveAll(projectDir); err != nil {
-					log.Warn().Err(err).Str("path", projectDir).Msg("Failed to remove stale golden cache")
+					Msg("Removing stale .old golden directory")
+				if err := os.RemoveAll(oldDir); err != nil {
+					log.Warn().Err(err).Str("path", oldDir).Msg("Failed to remove stale .old golden dir")
 				} else {
 					cleaned++
 					freedBytes += size
 				}
 			}
+
+			// 2. Remove golden caches not accessed recently
+			if maxAge > 0 {
+				dataDir := filepath.Join(projectDir, string(kind))
+				info, err := os.Stat(dataDir)
+				if err != nil {
+					continue
+				}
+				age := now.Sub(info.ModTime())
+				if age > maxAge {
+					var size int64
+					if out, err := exec.Command("du", "-sb", dataDir).Output(); err == nil {
+						fmt.Sscanf(string(out), "%d", &size)
+					}
+					log.Info().
+						Str("project_id", name).
+						Int64("size_bytes", size).
+						Dur("age", age).
+						Msg("Removing stale golden cache (not used recently)")
+					if err := os.RemoveAll(dataDir); err != nil {
+						log.Warn().Err(err).Str("path", dataDir).Msg("Failed to remove stale golden cache")
+					} else {
+						cleaned++
+						freedBytes += size
+					}
+				}
+			}
 		}
+		_ = os.Remove(projectDir)
 	}
 
 	if cleaned > 0 {

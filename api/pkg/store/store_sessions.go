@@ -390,6 +390,12 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*t
 
 // GetProjectExploratorySession gets the active exploratory session for a project
 // Returns the session if found and active, nil if not found or inactive
+//
+// Hot path: the org-bot transcript Mirror calls this every 5s per tracked
+// worker. The config->>'project_id' / config->>'session_role' expressions are
+// backed by idx_sessions_config_project_id_session_role (created in
+// runMigrations — GORM tags cannot express this index, and dropping it turns
+// every call into a full parallel seq scan of sessions).
 func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error) {
 	var session types.Session
 
@@ -546,7 +552,9 @@ func (s *PostgresStore) ListSessionsByOwner(ctx context.Context, ownerID string)
 // ListIdleDesktops returns one representative session per desktop (identified by
 // external_agent_id) where no interaction has been created or updated since
 // idleSince. For desktops with no interactions at all, the session's own
-// updated timestamp is used as the activity marker.
+// updated timestamp is used as the activity marker. Golden build sessions never
+// have interactions but are working, not idle; they are bounded by the golden
+// build timeout instead, so they are never returned.
 func (s *PostgresStore) ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) {
 	// CTE computes the last activity time per desktop, then the outer query
 	// selects one session per desktop that is past the idle threshold.
@@ -561,6 +569,7 @@ WITH desktop_last_activity AS (
       AND s.config->>'external_agent_status' = 'running'
       AND s.config->>'dev_container_id' IS NOT NULL
       AND s.config->>'dev_container_id' != ''
+      AND COALESCE((s.config->>'golden_build')::boolean, false) = false
       AND NOT EXISTS (
           SELECT 1 FROM spec_tasks st
           WHERE st.planning_session_id = s.id

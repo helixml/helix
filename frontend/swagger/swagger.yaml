@@ -2144,6 +2144,13 @@ definitions:
       video_stats:
         $ref: '#/definitions/server.VideoStreamingStats'
     type: object
+  server.EnsureAgentResponse:
+    properties:
+      connected:
+        type: boolean
+      starting:
+        type: boolean
+    type: object
   server.ForkSessionRequest:
     properties:
       auto_commit_uncommitted:
@@ -3120,6 +3127,13 @@ definitions:
           $ref: '#/definitions/server.SandboxTerminalSession'
         type: array
     type: object
+  server.SecretIntakeConsumption:
+    properties:
+      values:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
   server.SecretIntakeCreateResponse:
     properties:
       intake:
@@ -3507,6 +3521,34 @@ definitions:
       object:
         type: string
     type: object
+  server.orgAPIKeyResponse:
+    properties:
+      app_id:
+        type: string
+      created:
+        type: string
+      id:
+        description: |-
+          ID is a stable, non-secret handle for the key, derived from a hash of
+          the secret. Use it to delete a key you did not create.
+        type: string
+      key_prefix:
+        type: string
+      name:
+        type: string
+      organization_id:
+        type: string
+      owner:
+        type: string
+      owner_email:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
+      project_id:
+        type: string
+      type:
+        $ref: '#/definitions/types.APIKeyType'
+    type: object
   server.runnerProfileAssignRequest:
     properties:
       profile_id:
@@ -3726,22 +3768,22 @@ definitions:
     enum:
     - webhook
     - email
-    - github
-    - gitlab
-    - local
-    - cron
     - helix_events
+    - github
     - slack
+    - local
+    - gitlab
+    - cron
     type: string
     x-enum-varnames:
     - KindWebhook
     - KindEmail
-    - KindGitHub
-    - KindGitLab
-    - KindLocal
-    - KindCron
     - KindHelixEvents
+    - KindGitHub
     - KindSlack
+    - KindLocal
+    - KindGitLab
+    - KindCron
   transport.ResolvedActivation:
     properties:
       address:
@@ -4730,6 +4772,8 @@ definitions:
     - spec_failed
     - implementation_failed
     - pr_ready
+    - pr_proposal
+    - completion_request
     - org_message
     - ci_passed
     - ci_failed
@@ -4740,6 +4784,8 @@ definitions:
     - AttentionEventSpecFailed
     - AttentionEventImplementationFailed
     - AttentionEventPRReady
+    - AttentionEventPRProposal
+    - AttentionEventCompletionRequest
     - AttentionEventOrgMessage
     - AttentionEventCIPassed
     - AttentionEventCIFailed
@@ -5649,6 +5695,14 @@ definitions:
           type: string
         type: array
     type: object
+  types.CompletionDecisionRequest:
+    properties:
+      comment:
+        type: string
+      decision:
+        description: '"approve" or "reject"'
+        type: string
+    type: object
   types.ContainerDiskUsage:
     properties:
       container_id:
@@ -5925,6 +5979,11 @@ definitions:
         items:
           $ref: '#/definitions/types.SpecTaskInlineAttachment'
         type: array
+      auto_approve_pull_requests:
+        description: |-
+          Optional: approve the agent's pull request proposals without asking.
+          Unset takes the project's auto_approve_pull_requests default.
+        type: boolean
       auto_start:
         description: 'Optional: Skip backlog and start immediately, regardless of
           project auto-start setting'
@@ -8469,6 +8528,27 @@ definitions:
     - OwnerTypeSystem
     - OwnerTypeSocket
     - OwnerTypeOrg
+  types.PRProposalDecisionRequest:
+    properties:
+      auto_approve_future:
+        description: |-
+          AutoApproveFuture, with an approval, approves this task's later
+          proposals without asking, as the deciding user.
+        type: boolean
+      base_branch:
+        type: string
+      body:
+        type: string
+      comment:
+        type: string
+      decision:
+        description: '"approve" or "reject"'
+        type: string
+      head_branch:
+        type: string
+      title:
+        type: string
+    type: object
   types.PaginatedInteractions:
     properties:
       interactions:
@@ -8646,6 +8726,12 @@ definitions:
         type: integer
       archive_stale_tasks_enabled:
         description: Archive tasks idle for ArchiveStaleTasksDays
+        type: boolean
+      auto_approve_pull_requests:
+        description: |-
+          AutoApprovePullRequests is the default for new spec tasks: their agents'
+          pull request proposals are approved without asking. Each task keeps its
+          own setting, so changing this does not affect existing tasks.
         type: boolean
       auto_archive_completed_tasks:
         description: Archive automation, reconciled by the spec task orchestrator
@@ -8954,7 +9040,18 @@ definitions:
       board_settings:
         $ref: '#/definitions/types.BoardSettings'
       docker_cache_status:
-        $ref: '#/definitions/types.DockerCacheState'
+        allOf:
+        - $ref: '#/definitions/types.DockerCacheState'
+        description: Computed from golden_builds on read
+      org_members_access:
+        type: boolean
+    type: object
+  types.ProjectMetadataUpdate:
+    properties:
+      auto_warm_docker_cache:
+        type: boolean
+      board_settings:
+        $ref: '#/definitions/types.BoardSettings'
       org_members_access:
         type: boolean
     type: object
@@ -9062,6 +9159,9 @@ definitions:
       archive_stale_tasks_enabled:
         description: Archive tasks idle for ArchiveStaleTasksDays
         type: boolean
+      auto_approve_pull_requests:
+        description: 'Default for new spec tasks: auto-approve agent PR proposals'
+        type: boolean
       auto_archive_completed_tasks:
         description: Archive tasks immediately when they enter Done
         type: boolean
@@ -9095,7 +9195,7 @@ definitions:
         description: Whether Kodit code intelligence is enabled
         type: boolean
       metadata:
-        $ref: '#/definitions/types.ProjectMetadata'
+        $ref: '#/definitions/types.ProjectMetadataUpdate'
       name:
         type: string
       planning_code_agent_config:
@@ -9690,6 +9790,12 @@ definitions:
         type: string
       ci_url:
         type: string
+      head_branch:
+        description: |-
+          HeadBranch is the branch the PR was opened from. ProposalID links PRs
+          opened from an approved SpecTaskPRProposal; their title and body come from
+          the approved proposal rather than the helix-specs pull_request*.md files.
+        type: string
       pr_id:
         type: string
       pr_number:
@@ -9698,6 +9804,8 @@ definitions:
         description: '"open", "closed", "merged"'
         type: string
       pr_url:
+        type: string
+      proposal_id:
         type: string
       repository_id:
         type: string
@@ -10079,17 +10187,46 @@ definitions:
     type: object
   types.SandboxCacheState:
     properties:
+      attempt:
+        description: Attempt is the 1-based attempt number for the current trigger.
+        type: integer
       build_session_id:
         type: string
       error:
         type: string
+      interrupt_reason:
+        description: InterruptReason is why the last attempt ended without a result.
+        type: string
       last_build_at:
+        description: when the current/last attempt started
         type: string
       last_ready_at:
+        type: string
+      max_attempts:
+        description: MaxAttempts is GoldenBuildMaxAttempts, exposed for the UI.
+        type: integer
+      next_retry_at:
+        description: NextRetryAt is when the retry of an interrupted build may start.
+        type: string
+      pending_rebuild:
+        description: |-
+          PendingRebuild: a trigger arrived while a build was running; build again
+          as soon as it finishes.
+        type: boolean
+      project_id:
+        type: string
+      sandbox_id:
         type: string
       size_bytes:
         type: integer
       status:
+        type: string
+      triggered_at:
+        description: |-
+          TriggeredAt identifies the trigger (merge or manual build) the attempts
+          belong to. A new trigger resets Attempt and the retry budget.
+        type: string
+      updated:
         type: string
     type: object
   types.SandboxFileUploadResponse:
@@ -11089,6 +11226,18 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.ExternalAgentConfig'
         description: Configuration for external agents
+      external_agent_connected:
+        description: |-
+          ExternalAgentConnected reports whether the agent currently holds a live
+          sync WebSocket — i.e. whether a message sent now would actually reach it.
+
+          SEPARATE FROM ExternalAgentStatus ON PURPOSE. That field is "running" as
+          soon as the CONTAINER is up, which is not the same thing: a container can
+          be running for hours with Zed never having dialled home (helixml/helix#2397).
+          Anything embedding a session — Find AI presented a chat box to candidates
+          on this basis — needs to know it can send, not merely that a machine
+          exists. Computed per request, never stored.
+        type: boolean
       external_agent_id:
         description: 'NEW: External agent ID for this session'
         type: string
@@ -11099,6 +11248,10 @@ definitions:
         type: string
       forked_at_interaction_id:
         type: string
+      golden_build:
+        description: 'Golden Docker cache build session: bounded by the golden build
+          timeout, never idle-stopped'
+        type: boolean
       gpu_vendor:
         description: GPU vendor of sandbox running this session (nvidia, amd, intel,
           none)
@@ -11589,6 +11742,14 @@ definitions:
       assignee_id:
         description: Team member assigned to work on this task
         type: string
+      auto_approve_pull_requests:
+        description: |-
+          AutoApprovePullRequests approves the agent's PR proposals without asking.
+          They are approved as AutoApprovePullRequestsBy, whose provider
+          credentials push and open the PR; it is the user who turned this on.
+        type: boolean
+      auto_approve_pull_requests_by:
+        type: string
       base_branch:
         description: The base branch this was created from
         type: string
@@ -11621,6 +11782,13 @@ definitions:
         description: Legacy migration source; cleared together with HelixAppID on
           task start.
       completed_at:
+        type: string
+      completion_request_summary:
+        type: string
+      completion_requested_at:
+        description: |-
+          CompletionRequestedAt is set while the agent's request to mark the task
+          done (mark_task_complete) awaits the user's decision.
         type: string
       created_at:
         type: string
@@ -11794,6 +11962,10 @@ definitions:
           the agent to rebase. Used to make the approve handler idempotent (no duplicate
           prompts) and to gate the Accept button until the agent's next push.
         type: string
+      repo_pull_request_history:
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       repo_pull_requests:
         description: 'Multi-repo PR tracking: list of PRs across all project repositories'
         items:
@@ -12184,6 +12356,67 @@ definitions:
     - content_base64
     - name
     type: object
+  types.SpecTaskPRProposal:
+    properties:
+      auto_approved:
+        type: boolean
+      base_branch:
+        type: string
+      body:
+        type: string
+      created_at:
+        type: string
+      decided_at:
+        type: string
+      decided_by:
+        type: string
+      decision_comment:
+        type: string
+      error:
+        type: string
+      head_branch:
+        type: string
+      id:
+        type: string
+      pr_id:
+        type: string
+      pr_number:
+        type: integer
+      pr_url:
+        type: string
+      project_id:
+        type: string
+      proposed_by_session:
+        type: string
+      reason:
+        type: string
+      repository_id:
+        type: string
+      repository_name:
+        type: string
+      spec_task_id:
+        type: string
+      status:
+        $ref: '#/definitions/types.SpecTaskPRProposalStatus'
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  types.SpecTaskPRProposalStatus:
+    enum:
+    - pending
+    - approved
+    - opened
+    - rejected
+    - failed
+    type: string
+    x-enum-varnames:
+    - PRProposalStatusPending
+    - PRProposalStatusApproved
+    - PRProposalStatusOpened
+    - PRProposalStatusRejected
+    - PRProposalStatusFailed
   types.SpecTaskPhase:
     enum:
     - planning
@@ -12268,6 +12501,10 @@ definitions:
       assignee_id:
         description: Pointer to allow clearing (set to empty string to unassign)
         type: string
+      auto_approve_pull_requests:
+        description: Approve the agent's PR proposals without asking, as the updating
+          user
+        type: boolean
       depends_on:
         description: IDs of tasks this task depends on
         items:
@@ -12314,6 +12551,14 @@ definitions:
       assignee_id:
         description: Team member assigned to work on this task
         type: string
+      auto_approve_pull_requests:
+        description: |-
+          AutoApprovePullRequests approves the agent's PR proposals without asking.
+          They are approved as AutoApprovePullRequestsBy, whose provider
+          credentials push and open the PR; it is the user who turned this on.
+        type: boolean
+      auto_approve_pull_requests_by:
+        type: string
       base_branch:
         description: The base branch this was created from
         type: string
@@ -12346,6 +12591,13 @@ definitions:
         description: Legacy migration source; cleared together with HelixAppID on
           task start.
       completed_at:
+        type: string
+      completion_request_summary:
+        type: string
+      completion_requested_at:
+        description: |-
+          CompletionRequestedAt is set while the agent's request to mark the task
+          done (mark_task_complete) awaits the user's decision.
         type: string
       created_at:
         type: string
@@ -12521,6 +12773,10 @@ definitions:
           the agent to rebase. Used to make the approve handler idempotent (no duplicate
           prompts) and to gate the Accept button until the agent's next push.
         type: string
+      repo_pull_request_history:
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       repo_pull_requests:
         description: 'Multi-repo PR tracking: list of PRs across all project repositories'
         items:
@@ -14480,6 +14736,10 @@ definitions:
         type: boolean
       golden:
         $ref: '#/definitions/types.ZFSTreeNode'
+      goldens:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
       orphans:
         items:
           $ref: '#/definitions/types.ZFSTreeNode'
@@ -14489,6 +14749,8 @@ definitions:
     type: object
   types.ZFSTreeNode:
     properties:
+      cache_kind:
+        type: string
       children:
         items:
           $ref: '#/definitions/types.ZFSTreeNode'
@@ -16340,7 +16602,10 @@ paths:
       tags:
       - api-keys
     get:
-      description: Get API keys
+      description: Get the caller's own API keys. With no filter, returns (creating
+        it if needed) the caller's personal key. A caller authenticated with a scoped
+        (org, project, session or app) API key cannot use the unfiltered form, and
+        sees only the prefix of keys broader than the one it presents.
       parameters:
       - description: Filter by types (comma-separated list)
         in: query
@@ -20340,7 +20605,8 @@ paths:
   /api/v1/organizations/{id}/api_keys:
     get:
       description: List API keys for an organization. Owners see all keys, members
-        see only their own.
+        see only their own. Key secrets are never returned; each key has a non-secret
+        id and key_prefix.
       parameters:
       - description: Organization ID
         in: path
@@ -20352,7 +20618,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/types.ApiKey'
+              $ref: '#/definitions/server.orgAPIKeyResponse'
             type: array
       security:
       - BearerAuth: []
@@ -20394,7 +20660,7 @@ paths:
         name: id
         required: true
         type: string
-      - description: API key to delete
+      - description: ID of the API key to delete (the id field from the list)
         in: path
         name: key
         required: true
@@ -23970,6 +24236,40 @@ paths:
       summary: Get secret intake status
       tags:
       - Secret Intakes
+  /api/v1/projects/{id}/secret-intakes/{intake_id}/consume:
+    post:
+      description: 'One-time read for trusted integrations: returns the submitted
+        values and clears the stored ciphertext atomically. A failed or repeated call
+        cannot read them again.'
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SecretIntakeConsumption'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Consume secret intake values
+      tags:
+      - Secret Intakes
   /api/v1/projects/{id}/secret-intakes/{intake_id}/submissions:
     post:
       consumes:
@@ -25449,6 +25749,23 @@ paths:
       summary: Create sample repository
       tags:
       - samples
+  /api/v1/sandbox-desktop-types:
+    get:
+      description: Desktop types (e.g. ubuntu, sway) offered by registered sandboxes
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List available sandbox desktop types
+      tags:
+      - sandbox
   /api/v1/sandbox-runtimes:
     get:
       description: List the sandbox runtimes available on this server
@@ -26416,6 +26733,54 @@ paths:
       summary: Update Codex credentials for a session
       tags:
       - Codex
+  /api/v1/sessions/{id}/ensure-agent:
+    post:
+      description: |-
+        Reports whether the agent currently holds a live sync WebSocket — whether
+        a message sent now would actually reach it — and kicks the canonical
+        dev-container auto-start when it does not.
+
+        For EMBEDDERS. GET /sessions/{id} reports external_agent_status "running"
+        as soon as the container is up, which is not the same as reachable: a
+        container can run for hours with Zed never having dialled home
+        (helixml/helix#2397). Find AI presented a chat box to candidates on the
+        strength of "running"; messages died in stuck interactions and the customer
+        was shown "The system has encountered an error". An embedder needs to ask
+        "can I send?" and to be able to do something about "no".
+
+        Idempotent and cheap: connected sessions return immediately without
+        touching the container. Returns promptly rather than waiting for boot —
+        poll until connected is true.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.EnsureAgentResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Ensure this session's agent is connected, starting it if not
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/execution-config:
     get:
       description: Returns the session's current coding identity without exposing
@@ -27595,9 +27960,45 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/types.SpecTask'
+        "202":
+          description: 'External repo: the agent was asked to push and propose its
+            pull request(s)'
+          schema:
+            $ref: '#/definitions/types.SpecTask'
       security:
       - BearerAuth: []
       summary: Approve implementation and merge to main
+      tags:
+      - spec-tasks
+  /api/v1/spec-tasks/{spec_task_id}/completion/decide:
+    post:
+      consumes:
+      - application/json
+      description: Approving moves the task to done (which stops its desktop), whether
+        or not the agent asked to finish with mark_task_complete. Rejecting clears
+        the agent's pending request and sends the comment to it as feedback.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CompletionDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+      security:
+      - BearerAuth: []
+      summary: Mark a spec task done, or send the agent's completion request back
       tags:
       - spec-tasks
   /api/v1/spec-tasks/{spec_task_id}/design-reviews:
@@ -27925,6 +28326,66 @@ paths:
       summary: Submit design review decision
       tags:
       - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/pr-proposals:
+    get:
+      description: Every pull request a spec task opens starts as an agent proposal
+        awaiting user approval.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskPRProposal'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List a spec task's pull request proposals
+      tags:
+      - spec-tasks
+  /api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide:
+    post:
+      consumes:
+      - application/json
+      description: Approving grants the agent push rights to the proposal's head branch
+        and opens the pull request as soon as the branch has commits beyond the base.
+        Edited fields override the agent's proposal. Rejecting withdraws push rights.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Proposal ID
+        in: path
+        name: proposal_id
+        required: true
+        type: string
+      - description: Decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.PRProposalDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskPRProposal'
+      security:
+      - BearerAuth: []
+      summary: Approve or reject a pull request proposal
+      tags:
+      - spec-tasks
   /api/v1/spec-tasks/{spec_task_id}/stop-agent:
     post:
       description: Stop the running agent session for a spec task

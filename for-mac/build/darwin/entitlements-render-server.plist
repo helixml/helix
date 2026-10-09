@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- virgl_render_server, spawned by QEMU's virglrenderer for Venus/Neptune
+         contexts. Mirrors UTM's QEMURenderServer: no hypervisor or JIT, only
+         library validation off so it loads the bundled vulkan frameworks. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

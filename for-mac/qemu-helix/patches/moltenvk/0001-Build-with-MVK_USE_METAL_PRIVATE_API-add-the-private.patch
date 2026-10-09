@@ -1,0 +1,110 @@
+From 3ba01882e9e585786352d6cce3860673b93b4546 Mon Sep 17 00:00:00 2001
+From: Luke Marsden <luke@mlops.consulting>
+Date: Wed, 7 Oct 2026 05:15:13 +0100
+Subject: [PATCH] Build with MVK_USE_METAL_PRIVATE_API: add the private-API
+ properties to mesh pipelines
+
+The geometry shader emulation sets sampleMaskMVK, logicOperationEnabledMVK
+and logicOperationMVK on MTLMeshRenderPipelineDescriptor, which only
+MTLRenderPipelineDescriptor (MoltenVK) declared, so building with
+MVK_USE_METAL_PRIVATE_API=1 failed. Add them to the mesh descriptor
+category, delegating to Metal's private properties when it responds to them.
+---
+ .../OS/MTLRenderPipelineDescriptor+MoltenVK.h |  5 ++
+ .../OS/MTLRenderPipelineDescriptor+MoltenVK.m | 62 +++++++++++++++++++
+ 2 files changed, 67 insertions(+)
+
+diff --git a/MoltenVK/MoltenVK/OS/MTLRenderPipelineDescriptor+MoltenVK.h b/MoltenVK/MoltenVK/OS/MTLRenderPipelineDescriptor+MoltenVK.h
+index 2c8283fa..dbf8944c 100644
+--- a/MoltenVK/MoltenVK/OS/MTLRenderPipelineDescriptor+MoltenVK.h
++++ b/MoltenVK/MoltenVK/OS/MTLRenderPipelineDescriptor+MoltenVK.h
+@@ -60,6 +60,11 @@
+ 
+ @property(nonatomic, readwrite) MTLPrimitiveTopologyClass inputPrimitiveTopologyMVK;
+ 
++/** As on MTLRenderPipelineDescriptor (MoltenVK). */
++@property(nonatomic, readwrite) NSUInteger sampleMaskMVK;
++@property(nonatomic, readwrite, getter=isLogicOperationEnabledMVK) BOOL logicOperationEnabledMVK;
++@property(nonatomic, readwrite) NSUInteger logicOperationMVK;
++
+ @end
+ 
+ #endif
+diff --git a/MoltenVK/MoltenVK/OS/MTLRenderPipelineDescriptor+MoltenVK.m b/MoltenVK/MoltenVK/OS/MTLRenderPipelineDescriptor+MoltenVK.m
+index 131362b8..27ad448d 100644
+--- a/MoltenVK/MoltenVK/OS/MTLRenderPipelineDescriptor+MoltenVK.m
++++ b/MoltenVK/MoltenVK/OS/MTLRenderPipelineDescriptor+MoltenVK.m
+@@ -90,8 +90,70 @@ - (void)setLogicOperationMVK: (NSUInteger)op {
+ 
+ #if MVK_XCODE_14
+ 
++#if MVK_USE_METAL_PRIVATE_API
++
++// These properties aren't public yet.
++@interface MTLMeshRenderPipelineDescriptor ()
++
++@property(nonatomic, readwrite) NSUInteger sampleMask;
++
++- (BOOL)isLogicOperationEnabled;
++- (void)setLogicOperationEnabled: (BOOL)enable;
++- (MTLLogicOperation)logicOperation;
++- (void)setLogicOperation: (MTLLogicOperation)op;
++
++@end
++#endif
++
+ @implementation MTLMeshRenderPipelineDescriptor (MoltenVK)
+ 
++-(NSUInteger) sampleMaskMVK {
++#if MVK_USE_METAL_PRIVATE_API
++	if ( [self respondsToSelector: @selector(sampleMask)] ) { return self.sampleMask; }
++#endif
++	return 0xFFFFFFFFFFFFFFFFULL;
++}
++
++-(void) setSampleMaskMVK: (NSUInteger) mask {
++#if MVK_USE_METAL_PRIVATE_API
++	if ([self respondsToSelector: @selector(setSampleMask:)]) { self.sampleMask = mask; }
++#endif
++}
++
++- (BOOL)isLogicOperationEnabledMVK {
++#if MVK_USE_METAL_PRIVATE_API
++	if ([self respondsToSelector:@selector(isLogicOperationEnabled)]) {
++		return [self isLogicOperationEnabled];
++	}
++#endif
++	return NO;
++}
++
++- (void)setLogicOperationEnabledMVK: (BOOL)enable {
++#if MVK_USE_METAL_PRIVATE_API
++	if ([self respondsToSelector:@selector(setLogicOperationEnabled:)]) {
++		[self setLogicOperationEnabled: enable];
++	}
++#endif
++}
++
++- (NSUInteger)logicOperationMVK {
++#if MVK_USE_METAL_PRIVATE_API
++	if ([self respondsToSelector:@selector(logicOperation)]) {
++		return [self logicOperation];
++	}
++#endif
++	return 3 /* MTLLogicOperationCopy */;
++}
++
++- (void)setLogicOperationMVK: (NSUInteger)op {
++#if MVK_USE_METAL_PRIVATE_API
++	if ([self respondsToSelector:@selector(setLogicOperation:)]) {
++		[self setLogicOperation: (MTLLogicOperation)op];
++	}
++#endif
++}
++
+ -(MTLPrimitiveTopologyClass) inputPrimitiveTopologyMVK {
+     return MTLPrimitiveTopologyClassUnspecified;
+ }
+-- 
+2.50.1 (Apple Git-155)
+

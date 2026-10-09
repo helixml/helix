@@ -497,6 +497,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		NewApproveSpecTaskSpec(deps),
 		NewRequestSpecTaskChanges(deps),
 		NewCreateSpecTaskPRs(deps),
+		NewCompleteSpecTask(deps),
 		// Reads. Each is a thin wrapper around a store call; together they
 		// replace the jsonapi GET handlers the server used to expose.
 		&ListBots{deps: deps},

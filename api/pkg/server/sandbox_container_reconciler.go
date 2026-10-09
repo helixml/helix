@@ -96,5 +96,10 @@ func (apiServer *HelixAPIServer) reconcileSandboxContainers(ctx context.Context)
 				Str("sandbox_id", instance.ID).
 				Msg("sandbox-container reconciler: discovery failed for sandbox")
 		}
+		// Starts golden build retries whose backoff has passed and resumes
+		// any build no monitor is polling.
+		if apiServer.goldenBuildService != nil {
+			apiServer.goldenBuildService.ReconcileSandbox(ctx, instance.ID)
+		}
 	}
 }

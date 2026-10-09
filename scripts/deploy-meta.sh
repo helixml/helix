@@ -25,6 +25,12 @@ ssh \
   -o ServerAliveInterval=30 \
   luke@node01.lukemarsden.net \
   bash -s -- "$TARGET_SHA" <<'REMOTE'
+# The whole remote body is one function so bash has read all of it before
+# anything runs; it is then invoked with stdin from /dev/null. Without this,
+# any child that reads stdin (docker, compose, ssh, ...) swallows the rest of
+# this heredoc, bash hits EOF and exits 0 mid-deploy — Drone reports success
+# but the health gate never runs and the state file is never written.
+deploy_meta() {
 set -euo pipefail
 
 TARGET_SHA=$1
@@ -39,9 +45,18 @@ ZED_DIR=/prod/home/luke/pm/zed
 STATE_FILE=/prod/home/luke/.local/state/helix-meta-deploy
 PRE_DEPLOY_SHA=$(git -C "$HELIX_DIR" rev-parse HEAD)
 
+sandbox_restart_started=false
 report_failure() {
   status=$?
   if (( status != 0 )); then
+    # A failed sandbox restart must not leave Meta without a sandbox: bring one
+    # back up (the new image, else the pre-deploy one) and still fail.
+    if [[ "$sandbox_restart_started" == true ]]; then
+      echo "Deployment failed after the sandbox restart began; ensuring a sandbox is running" >&2
+      if ! (cd "$HELIX_DIR" && ./stack ensure-sandbox); then
+        echo "CRITICAL: Meta has NO running sandbox" >&2
+      fi
+    fi
     echo "Meta deployment failed. Pre-deploy Helix SHA: $PRE_DEPLOY_SHA" >&2
     echo "Inspect Meta and restore that SHA manually if recovery is required." >&2
   fi
@@ -130,6 +145,7 @@ fi
 
 if [[ "$sandbox_changed" == true ]]; then
   sandbox_build_started_ns=$(date -u +%s%N)
+  sandbox_restart_started=true
   ./stack build-sandbox
 elif [[ "$zed_changed" == true || "$ubuntu_changed" == true ]]; then
   ./stack build-ubuntu
@@ -208,4 +224,6 @@ else
   echo "Meta did not become healthy at $TARGET_SHA" >&2
 fi
 exit 1
+}
+deploy_meta "$@" </dev/null
 REMOTE

@@ -723,7 +723,15 @@ if [ "$(id -u)" = "0" ]; then
         source "${init_script}"
     done
 fi
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+drop_desktop_sys_admin=()
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
+    drop_desktop_sys_admin=(setpriv --bounding-set=-sys_admin --)
+fi
+# A desktop in rootless mode (HELIX_DESKTOP_ROOTLESS=1) also sets
+# HELIX_ROOTLESS_CONTAINER_ENGINE=1 so 17-start-dockerd.sh starts rootless
+# Podman, but it must NOT take this headless privilege-drop branch: the GNOME
+# session runs as root and keeps sudo (design/2026-10-08-desktop-root-isolation.md).
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" != "1" ] && { [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; }; then
     if [ -f /zed-build/zed ] && [ ! -e /usr/local/bin/zed ]; then
         ln -sf /zed-build/zed /usr/local/bin/zed
     fi
@@ -765,12 +773,12 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENG
     exec "${drop_privileges[@]}" gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
 fi
 if [ -n "${@:-}" ]; then
-    /bin/bash -c "$@"
+    "${drop_desktop_sys_admin[@]}" /bin/bash -c "$@"
     exit $?
 fi
 gow_log "Launching the container's startup script as user '${UNAME}'"
 chmod +x /opt/gow/startup.sh 2>/dev/null || true
-exec gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
+exec "${drop_desktop_sys_admin[@]}" gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
 _ENTRYPOINT
 RUN chmod +x /entrypoint.sh /etc/cont-init.d/*.sh /opt/gow/bash-lib/utils.sh
 
@@ -802,9 +810,12 @@ ENV LANG=en_US.UTF-8 \
     CLUTTER_DEFAULT_FPS=60
 
 # GOW dbus init script
-COPY <<_DBUS_INIT /etc/cont-init.d/99-startdbus.sh
+COPY <<'_DBUS_INIT' /etc/cont-init.d/99-startdbus.sh
 #!/bin/bash
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+# Rootless desktops keep sudo, so drop sys_admin without no_new_privs.
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
+    setpriv --bounding-set=-sys_admin -- service dbus start 2>/dev/null || true
+elif [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     setpriv --bounding-set=-sys_admin --nnp -- service dbus start 2>/dev/null || true
 else
     service dbus start 2>/dev/null || true
@@ -906,6 +917,7 @@ RUN apt-get update && apt-get install -y \
     dnsutils \
     iproute2 \
     silversearcher-ag \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Helix background
@@ -980,11 +992,8 @@ if [ "${TARGETARCH}" = "arm64" ]; then
     # Remove the snap transitional chromium-browser if it got pulled in as a dependency
     apt-get remove -y chromium-browser 2>/dev/null || true
 
-    # Wrap chromium binary with --password-store=basic to bypass gnome-keyring
-    # (prevents "Choose password for new keyring" dialog in containers)
+    # /usr/bin/chromium becomes desktop/shared/helix-chromium.sh (added below).
     mv /usr/bin/chromium /usr/bin/chromium.real
-    printf '#!/bin/sh\nexec /usr/bin/chromium.real --password-store=basic --disable-dev-shm-usage "$@"\n' > /usr/bin/chromium
-    chmod +x /usr/bin/chromium
 
     # Create compatibility wrappers pointing to the wrapped /usr/bin/chromium.
     # chrome-devtools-mcp and other tools expect google-chrome / google-chrome-stable.
@@ -1158,11 +1167,18 @@ RUN export npm_config_cache=/tmp/npm-build-cache && cd /tmp/drone-ci-mcp && npm 
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
     CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
 
+# CPU tiers: agent work (Zed's shell children, inner dockerd) runs in an
+# idle-class cgroup so the display path keeps the CPU during builds.
+ADD desktop/shared/16-cpu-tiers.sh /etc/cont-init.d/16-cpu-tiers.sh
+ADD desktop/shared/agent-tier-bash.sh /usr/local/libexec/helix/agent-tier/bash
+RUN chmod 755 /etc/cont-init.d/16-cpu-tiers.sh /usr/local/libexec/helix/agent-tier/bash
+
 # Start the per-session container engine: rootful Docker for desktops and
 # rootless Podman for unprivileged headless agents.
 ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
 ADD desktop/shared/headless-containers.conf /opt/helix/headless-containers.conf
-RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
+ADD desktop/shared/helix-buildkit-cache-stats.sh /usr/local/bin/helix-buildkit-cache-stats
+RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh /usr/local/bin/helix-buildkit-cache-stats
 
 # Workspace README
 RUN mkdir -p /opt/helix
@@ -1574,6 +1590,9 @@ ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
 ADD desktop/shared/helix-chrome-devtools-mcp.sh /usr/local/bin/helix-chrome-devtools-mcp
+# arm64 only: Chromium launcher (amd64 ships Google Chrome, which has no chromium.real)
+RUN --mount=type=bind,source=desktop/shared/helix-chromium.sh,target=/tmp/helix-chromium.sh \
+    if [ -x /usr/bin/chromium.real ]; then install -m 755 /tmp/helix-chromium.sh /usr/bin/chromium; fi
 ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-headless-workspace-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh

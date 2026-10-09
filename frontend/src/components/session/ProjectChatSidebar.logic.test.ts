@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { TypesAgentWorkState, TypesCodeAgentRuntime, TypesSpecTaskStatus } from '../../api/api'
-import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary } from '../../api/api'
+import type { TypesOrganizationMembership, TypesProject, TypesSession, TypesSessionSummary } from '../../api/api'
 import type { SpecTask } from '../../services/specTaskService'
 import {
   buildProjectChatGroups,
+  chatRouteAfterLeavingItem,
   ALL_PROJECTS_FILTER,
+  ALL_USERS_FILTER,
   clampVisibleThreadCount,
   collapsedGroupsStorageKey,
   compactRelativeTime,
@@ -23,8 +25,11 @@ import {
   parseSidebarPreferences,
   parseSidebarParticipantIds,
   parseSidebarProjectFilter,
+  parseSidebarUserFilter,
   resolveSidebarProjectFilter,
+  resolveSidebarUserFilter,
   reorderProjectIds,
+  sessionDetailToSummary,
   serializeCollapsedGroupIds,
   serializeSidebarPreferences,
   serializeSidebarParticipantIds,
@@ -32,6 +37,7 @@ import {
   sidebarPreferencesStorageKey,
   sidebarExpandedPeopleStorageKey,
   sidebarProjectFilterStorageKey,
+  sidebarUserFilterStorageKey,
   sortSidebarProjects,
   specTaskSortKey,
 } from './ProjectChatSidebar.logic'
@@ -67,7 +73,7 @@ describe('ProjectChatSidebar logic', () => {
     }, true, true)).toBe(4)
   })
 
-  it('groups tasks and project-linked chats by project, and puts direct chats in No project', () => {
+  it('groups project-linked chats by project and omits direct chats', () => {
     const tasks: SpecTask[] = [{
       id: 'task-one',
       project_id: 'project-one',
@@ -108,14 +114,13 @@ describe('ProjectChatSidebar logic', () => {
 
     const groups = buildProjectChatGroups(projects, tasks, sessions)
 
-    expect(groups.map((group) => group.name)).toEqual(['No project', 'Project One', 'Project Two'])
-    expect(groups[0]?.items.map((item) => item.id)).toEqual(['direct-session'])
-    expect(groups[1]?.items.map((item) => item.id)).toEqual(['task-one', 'worker-session'])
-    expect(groups[1]?.items[0]?.session).toEqual(expect.objectContaining({
+    expect(groups.map((group) => group.name)).toEqual(['Project One', 'Project Two'])
+    expect(groups[0]?.items.map((item) => item.id)).toEqual(['task-one', 'worker-session'])
+    expect(groups[0]?.items[0]?.session).toEqual(expect.objectContaining({
       session_id: 'task-session',
       model_name: 'claude-opus-4-6',
     }))
-    expect(groups[2]?.items.map((item) => item.id)).toEqual(['project-session'])
+    expect(groups[1]?.items.map((item) => item.id)).toEqual(['project-session'])
   })
 
   // A group merges two independently limited server lists, so the client sort
@@ -171,34 +176,36 @@ describe('ProjectChatSidebar logic', () => {
     const sessions: TypesSessionSummary[] = [
       {
         session_id: 'recent-metadata',
+        metadata: { project_id: 'project-one' },
         created: '2026-08-01T00:00:00Z',
         updated: '2026-08-09T00:00:00Z',
         last_message_at: '2026-08-05T00:00:00Z',
       },
       {
         session_id: 'recent-message',
+        metadata: { project_id: 'project-one' },
         created: '2026-08-02T00:00:00Z',
         updated: '2026-08-06T00:00:00Z',
         last_message_at: '2026-08-08T00:00:00Z',
       },
     ]
 
-    expect(buildProjectChatGroups([], [], sessions)[0]?.items.map((item) => item.id))
+    expect(buildProjectChatGroups(projects, [], sessions)[0]?.items.map((item) => item.id))
       .toEqual(['recent-message', 'recent-metadata'])
   })
 
   it('orders pinned chats before unpinned chats with newest pins first', () => {
     const sessions: TypesSessionSummary[] = [
-      { session_id: 'newest-chat', created: '2026-08-08T00:00:00Z' },
-      { session_id: 'older-pin', created: '2026-08-01T00:00:00Z' },
-      { session_id: 'newer-pin', created: '2026-08-02T00:00:00Z' },
+      { session_id: 'newest-chat', created: '2026-08-08T00:00:00Z', metadata: { project_id: 'project-one' } },
+      { session_id: 'older-pin', created: '2026-08-01T00:00:00Z', metadata: { project_id: 'project-one' } },
+      { session_id: 'newer-pin', created: '2026-08-02T00:00:00Z', metadata: { project_id: 'project-one' } },
     ]
     const pins = new Map([
       ['session:older-pin', '2026-08-06T00:00:00Z'],
       ['session:newer-pin', '2026-08-07T00:00:00Z'],
     ])
 
-    expect(buildProjectChatGroups([], [], sessions, 'updated_at', pins)[0]?.items.map((item) => item.id))
+    expect(buildProjectChatGroups(projects, [], sessions, 'updated_at', pins)[0]?.items.map((item) => item.id))
       .toEqual(['newer-pin', 'older-pin', 'newest-chat'])
   })
 
@@ -239,6 +246,40 @@ describe('ProjectChatSidebar logic', () => {
     expect(parseSidebarProjectFilter(' project-one ')).toBe('project-one')
     expect(resolveSidebarProjectFilter('project-one', projects)).toBe('project-one')
     expect(resolveSidebarProjectFilter('deleted-project', projects)).toBe(ALL_PROJECTS_FILTER)
+  })
+
+  it('persists the user filter per organization', () => {
+    expect(sidebarUserFilterStorageKey('org-one'))
+      .toBe('helix:project-chat-sidebar:user-filter:org-one')
+    expect(parseSidebarUserFilter(null)).toBe(ALL_USERS_FILTER)
+    expect(parseSidebarUserFilter('')).toBe(ALL_USERS_FILTER)
+    expect(parseSidebarUserFilter(' user-one ')).toBe('user-one')
+    const memberUserIds = new Set(['user-one', 'user-two'])
+    expect(resolveSidebarUserFilter(ALL_USERS_FILTER, memberUserIds)).toBe(ALL_USERS_FILTER)
+    expect(resolveSidebarUserFilter('user-one', memberUserIds)).toBe('user-one')
+    expect(resolveSidebarUserFilter('former-member', memberUserIds)).toBe(ALL_USERS_FILTER)
+    expect(resolveSidebarUserFilter('former-member', new Set())).toBe(ALL_USERS_FILTER)
+  })
+
+  it('keeps the owner when mapping a session detail onto the summary shape', () => {
+    const detail: TypesSession = {
+      id: 'ses_one',
+      name: 'Pinned chat',
+      created: '2026-10-07T10:00:00Z',
+      updated: '2026-10-07T11:00:00Z',
+      config: { project_id: 'project-one' },
+      archived: false,
+      owner: 'user-one',
+    }
+    expect(sessionDetailToSummary(detail)).toEqual({
+      session_id: 'ses_one',
+      name: 'Pinned chat',
+      created: '2026-10-07T10:00:00Z',
+      updated: '2026-10-07T11:00:00Z',
+      metadata: { project_id: 'project-one' },
+      archived: false,
+      owner: 'user-one',
+    })
   })
 
   it('sorts projects by activity, creation, and persisted manual order', () => {
@@ -605,16 +646,25 @@ describe('ProjectChatSidebar logic', () => {
 })
 
 describe('ProjectChatSidebar bots and people', () => {
-  it('lists Org Bots running first and hides their home projects', async () => {
+  it('lists the Chief of Staff first, then running Org Bots, and hides their home projects', async () => {
     const { botHomeProjectIds, toSidebarBots, withoutBotProjects } = await import('./ProjectChatSidebar.logic')
     const bots = toSidebarBots([
-      { id: 'b-mira', name: 'Mira', status: 'stopped', project_id: 'prj_mira', session_id: 'ses_mira', legacy_app_id: 'app_mira' },
-      { id: 'chief', name: 'Chief of Staff', status: 'running', agent_work_state: TypesAgentWorkState.AgentWorkStateWorking, project_id: 'prj_chief' },
+      { id: 'b-mira', name: 'Mira', status: 'running', agent_work_state: TypesAgentWorkState.AgentWorkStateWorking, project_id: 'prj_mira', session_id: 'ses_mira', legacy_app_id: 'app_mira' },
+      { id: 'chief-of-staff', name: 'Chief of Staff', status: 'stopped', project_id: 'prj_chief' },
+      { id: 'b-aaron', name: 'Aaron', status: 'running' },
+      { id: 'b-alice', name: 'Alice', status: 'stopped' },
+      { id: 'b-zoe', name: 'Zoe', status: 'stopped' },
       { id: '', name: 'Broken' },
     ])
-    expect(bots.map((bot) => bot.id)).toEqual(['chief', 'b-mira'])
-    expect(bots[0]).toMatchObject({ running: true, working: true })
-    expect(bots[1]).toMatchObject({ running: false, agentAppId: 'app_mira', projectId: 'prj_mira', sessionId: 'ses_mira' })
+    expect(bots.map((bot) => bot.id)).toEqual([
+      'chief-of-staff',
+      'b-aaron',
+      'b-mira',
+      'b-alice',
+      'b-zoe',
+    ])
+    expect(bots[0]).toMatchObject({ running: false, projectId: 'prj_chief' })
+    expect(bots[2]).toMatchObject({ running: true, working: true, agentAppId: 'app_mira', projectId: 'prj_mira', sessionId: 'ses_mira' })
     expect([...botHomeProjectIds(bots)]).toEqual(['prj_chief', 'prj_mira'])
     expect(withoutBotProjects([
       { id: 'prj_chief', name: 'chief-of-staff @ org' },
@@ -672,9 +722,18 @@ describe('ProjectChatSidebar bots and people', () => {
     )
     expect(items.map((item) => [item.id, item.projectName])).toEqual([
       ['task_new', 'Beta'],
-      ['ses_chat', undefined],
       ['task_old', 'Alpha'],
     ])
-    expect(items[2].session?.session_id).toBe('ses_task')
+    expect(items[1].session?.session_id).toBe('ses_task')
+  })
+})
+
+describe('chatRouteAfterLeavingItem', () => {
+  it('stays in chat by opening a new chat in the same project', () => {
+    expect(chatRouteAfterLeavingItem('prj_1')).toEqual({ name: 'project-new', params: { id: 'prj_1' } })
+  })
+
+  it('falls back to the org-level new chat when the item has no project', () => {
+    expect(chatRouteAfterLeavingItem(undefined)).toEqual({ name: 'new', params: {} })
   })
 })

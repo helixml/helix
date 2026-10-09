@@ -229,6 +229,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.SpecTaskZedThread{},
 		&types.SpecTaskExternalAgent{},
 		&types.SpecTaskDesignReview{},
+		&types.SpecTaskPRProposal{},
 		&types.SpecTaskDesignReviewComment{},
 		&types.SpecTaskDesignReviewCommentReply{},
 		&types.SpecTaskGitPushEvent{},
@@ -255,6 +256,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.VHostRoute{},
 		&types.ProjectWebServiceState{},
 		&types.WebServiceDeploy{},
+		&types.SandboxCacheState{}, // golden_builds
 	)
 	if err != nil {
 		return err
@@ -263,6 +265,22 @@ func (s *PostgresStore) runMigrations() error {
 		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_llm_calls_request_id ON llm_calls (request_id)",
 	).Error; err != nil {
 		return fmt.Errorf("failed to create llm_calls request ID index: %w", err)
+	}
+	// Expression index for the sessions.config lookups in
+	// GetProjectExploratorySession (config->>'project_id' = ? AND
+	// config->>'session_role' = ?). The org-bot transcript Mirror polls that
+	// lookup every 5s per tracked worker, so without an index each call is a
+	// parallel seq scan of the whole sessions table — that pinned all 16 cores
+	// of the prod runner on 2026-10-04 (~29 concurrent scans, ~850ms each over
+	// 350k rows). In code, not a migrations/*.sql file: golang-migrate runs
+	// before AutoMigrate creates the table on fresh databases, and CONCURRENTLY
+	// must stay a lone statement (it cannot run in a transaction block, so it
+	// can't be combined with an existence guard in one batch). IF NOT EXISTS
+	// keeps every restart a no-op once built.
+	if err := s.gdb.WithContext(context.Background()).Exec(
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_config_project_id_session_role ON sessions ((config->>'project_id'), (config->>'session_role'))",
+	).Error; err != nil {
+		return fmt.Errorf("failed to create sessions config lookup index: %w", err)
 	}
 	if err := s.backfillAgentKinds(context.Background()); err != nil {
 		return err
@@ -309,6 +327,10 @@ func (s *PostgresStore) runMigrations() error {
 		).Error; err != nil {
 			return fmt.Errorf("failed to backfill sandboxes.org_bot_id: %w", err)
 		}
+	}
+
+	if err := s.migrateGoldenBuildsFromProjectMetadata(context.Background()); err != nil {
+		return fmt.Errorf("failed to migrate golden build state out of project metadata: %w", err)
 	}
 
 	err = s.AutoMigrateRoleConfig(context.Background())
@@ -398,6 +420,10 @@ func (s *PostgresStore) runMigrations() error {
 	}
 	if err := createFK(s.gdb, types.ProjectRepository{}, types.GitRepository{}, "repository_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK for project_repositories -> git_repositories")
+	}
+
+	if err := createFK(s.gdb, types.SandboxCacheState{}, types.Project{}, "project_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK for golden_builds -> projects")
 	}
 
 	// Ensure default project exists for spec tasks
