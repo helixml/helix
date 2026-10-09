@@ -147,7 +147,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    px: 3,
+                    px: { xs: 2, sm: 3 },
                     py: 1,
                     borderBottom: '1px solid',
                     borderColor: 'divider',
@@ -179,7 +179,8 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
             <Container
                 maxWidth="xl"
                 sx={{
-                    mt: 4,
+                    mt: { xs: 2, sm: 4 },
+                    px: { xs: 1, sm: 3 },
                     height: "100%",
                     display: "flex",
                     flexDirection: "column",
@@ -241,7 +242,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     <Box
                         sx={{
                             width: "100%",
-                            p: 2,
+                            p: { xs: 0, sm: 2 },
                         }}
                     >
                         <OAuthProvidersTable />
@@ -252,7 +253,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     <Box
                         sx={{
                             width: "100%",
-                            p: 2,
+                            p: { xs: 0, sm: 2 },
                         }}
                     >
                         <ServiceConnectionsTable />
@@ -270,7 +271,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                 )}
 
                 {tab === "runner_profiles" && account.admin && (
-                    <Box sx={{ width: "100%", p: 2 }}>
+                    <Box sx={{ width: "100%", p: { xs: 0, sm: 2 } }}>
                         <RunnerProfilesTable />
                     </Box>
                 )}
@@ -289,7 +290,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     <Box
                         sx={{
                             width: "100%",
-                            p: 2,
+                            p: { xs: 0, sm: 2 },
                         }}
                     >
                         <SystemSettingsTable />
@@ -340,7 +341,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     <Box
                         sx={{
                             width: "100%",
-                            p: 2,
+                            p: { xs: 0, sm: 2 },
                         }}
                     >
                         <UsersTable onSelectUser={(id) => setSelectedUserId(id)} />
@@ -351,7 +352,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     <Box
                         sx={{
                             width: "100%",
-                            p: 2,
+                            p: { xs: 0, sm: 2 },
                         }}
                     >
                         <UserDetailPanel
@@ -365,7 +366,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     <Box
                         sx={{
                             width: "100%",
-                            p: 2,
+                            p: { xs: 0, sm: 2 },
                         }}
                     >
                         <AdminOrgsTable />
@@ -373,19 +374,19 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                 )}
 
                 {tab === "kodit" && account.admin && !repoId && (
-                    <Box sx={{ width: "100%", p: 2 }}>
+                    <Box sx={{ width: "100%", p: { xs: 0, sm: 2 } }}>
                         <KoditAdminTable onViewDetail={(id) => setRepoId(id)} />
                     </Box>
                 )}
 
                 {tab === "kodit" && account.admin && repoId && (
-                    <Box sx={{ width: "100%", p: 2 }}>
+                    <Box sx={{ width: "100%", p: { xs: 0, sm: 2 } }}>
                         <KoditAdminRepoDetail koditRepoId={repoId} onBack={() => setRepoId("")} />
                     </Box>
                 )}
 
                 {tab === "kodit_queue" && account.admin && (
-                    <Box sx={{ width: "100%", p: 2 }}>
+                    <Box sx={{ width: "100%", p: { xs: 0, sm: 2 } }}>
                         <KoditAdminQueue />
                     </Box>
                 )}

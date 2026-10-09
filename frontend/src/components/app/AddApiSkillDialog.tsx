@@ -1250,7 +1250,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                     title={action.description || ''}
                   >
                     <Box component="tr" sx={{ 
-                      '&:hover': { bgcolor: lightTheme.highlightColor },
+                      '&:hover': { bgcolor: 'action.hover' },
                       borderBottom: index < parsedActions.length - 1 ? '1px solid #353945' : 'none'
                     }}>
                       <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>

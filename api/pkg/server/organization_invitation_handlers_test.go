@@ -473,6 +473,7 @@ func TestLookupOrgUser_StateMatrix(t *testing.T) {
 	//  - invitation pending → is_invited=true (takes precedence in UI)
 	cases := []struct {
 		name          string
+		appID         string
 		userLookup    func(*store.MockStore)
 		membership    func(*store.MockStore, string)
 		invitation    func(*store.MockStore)
@@ -486,7 +487,7 @@ func TestLookupOrgUser_StateMatrix(t *testing.T) {
 				m.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
 			},
 			invitation: func(m *store.MockStore) {
-				m.EXPECT().GetOrganizationInvitation(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+				m.EXPECT().ListOrganizationInvitations(gomock.Any(), gomock.Any()).Return(nil, nil)
 			},
 		},
 		{
@@ -501,7 +502,7 @@ func TestLookupOrgUser_StateMatrix(t *testing.T) {
 				}).Return(nil, store.ErrNotFound)
 			},
 			invitation: func(m *store.MockStore) {
-				m.EXPECT().GetOrganizationInvitation(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+				m.EXPECT().ListOrganizationInvitations(gomock.Any(), gomock.Any()).Return(nil, nil)
 			},
 			wantExists: true,
 		},
@@ -521,7 +522,7 @@ func TestLookupOrgUser_StateMatrix(t *testing.T) {
 				}, nil)
 			},
 			invitation: func(m *store.MockStore) {
-				m.EXPECT().GetOrganizationInvitation(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+				m.EXPECT().ListOrganizationInvitations(gomock.Any(), gomock.Any()).Return(nil, nil)
 			},
 			wantExists:   true,
 			wantIsMember: true,
@@ -532,8 +533,35 @@ func TestLookupOrgUser_StateMatrix(t *testing.T) {
 				m.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
 			},
 			invitation: func(m *store.MockStore) {
-				m.EXPECT().GetOrganizationInvitation(gomock.Any(), gomock.Any()).
-					Return(&types.OrganizationInvitation{ID: "oin_pending"}, nil)
+				m.EXPECT().ListOrganizationInvitations(gomock.Any(), gomock.Any()).
+					Return([]*types.OrganizationInvitation{{ID: "oin_pending"}}, nil)
+			},
+			wantIsInvited: true,
+		},
+		{
+			// Project dialog: an invitation to a different project in the
+			// same org must not block inviting the same email here.
+			name:  "invited_to_other_project",
+			appID: "prj_two",
+			userLookup: func(m *store.MockStore) {
+				m.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+			},
+			invitation: func(m *store.MockStore) {
+				m.EXPECT().ListOrganizationInvitations(gomock.Any(), &store.ListOrganizationInvitationsQuery{
+					OrganizationID: "org_lookup", Email: "test@example.com", AppID: "prj_two",
+				}).Return(nil, nil)
+			},
+		},
+		{
+			name:  "invited_to_this_project",
+			appID: "prj_one",
+			userLookup: func(m *store.MockStore) {
+				m.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+			},
+			invitation: func(m *store.MockStore) {
+				m.EXPECT().ListOrganizationInvitations(gomock.Any(), &store.ListOrganizationInvitationsQuery{
+					OrganizationID: "org_lookup", Email: "test@example.com", AppID: "prj_one",
+				}).Return([]*types.OrganizationInvitation{{ID: "oin_prj_one", AppID: "prj_one"}}, nil)
 			},
 			wantIsInvited: true,
 		},
@@ -571,7 +599,11 @@ func TestLookupOrgUser_StateMatrix(t *testing.T) {
 			}
 			tc.invitation(mockStore)
 
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/organizations/"+orgID+"/users/lookup?email=Test@Example.com", nil)
+			url := "/api/v1/organizations/" + orgID + "/users/lookup?email=Test@Example.com"
+			if tc.appID != "" {
+				url += "&app_id=" + tc.appID
+			}
+			req := httptest.NewRequest(http.MethodGet, url, nil)
 			req = mux.SetURLVars(req, map[string]string{"id": orgID})
 			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID}))
 

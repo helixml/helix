@@ -1107,9 +1107,12 @@ type EntryPatch struct {
 	Index        int    `json:"index"`                    // Position in the entries array
 	MessageID    string `json:"message_id"`               // Zed message_id for this entry
 	Type         string `json:"type"`                     // "text", "tool_call", or "plan"
-	Patch        string `json:"patch,omitempty"`          // Content delta from PatchOffset onwards
-	PatchOffset  int    `json:"patch_offset,omitempty"`   // UTF-16 offset of first change in this entry
-	TotalLength  int    `json:"total_length,omitempty"`   // Final content length of this entry after patch
+	// Patch/PatchOffset/TotalLength are deliberately NOT omitempty: a rewrite
+	// from offset 0 must arrive as an explicit 0, or the frontend's applyPatch
+	// appends instead of replacing and the entry is silently corrupted.
+	Patch        string `json:"patch"`        // Content delta from PatchOffset onwards
+	PatchOffset  int    `json:"patch_offset"` // UTF-16 offset of first change in this entry
+	TotalLength  int    `json:"total_length"` // Final content length of this entry after patch
 	ToolName     string `json:"tool_name,omitempty"`      // For tool_call: the tool label
 	ToolStatus   string `json:"tool_status,omitempty"`    // For tool_call: "Completed", "In Progress", etc.
 	ToolCallID   string `json:"tool_call_id,omitempty"`   // Stable ACP tool-call id

@@ -130,6 +130,9 @@ type OrganizationInvitation struct {
 	// that consuming the invitation at register time can also materialise
 	// the access grant — the invitee then shows up in the project access
 	// list immediately, exactly as if they had been added directly.
+	// Despite the name, AppID is a generic resource ID: the shared access
+	// dialog passes an app, project (prj_…) or repository ID. Pending
+	// invitations are unique per (organization, email, app_id).
 	AppID      string         `json:"app_id,omitempty" gorm:"index"`
 	GrantRoles pq.StringArray `json:"grant_roles,omitempty" gorm:"type:text[];default:'{}'"`
 }
