@@ -1102,6 +1102,9 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.RootlessContainerEngine && req.Privileged {
 		return nil, fmt.Errorf("rootless container engine cannot run in privileged mode")
 	}
+	if req.RootlessContainerEngine && req.NoNewPrivileges {
+		return nil, fmt.Errorf("rootless container engine cannot be combined with no-new-privileges")
+	}
 	if req.BrowserSandbox && (req.Privileged || req.RootlessContainerEngine) {
 		return nil, fmt.Errorf("browser sandbox is for unprivileged containers without a container engine")
 	}
@@ -1169,12 +1172,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	} else {
 		hostConfig.CapDrop = []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
 		if rootlessEngine {
-			if req.DesktopRootless {
-				hostConfig.CapDrop = append([]string{"SYS_ADMIN"}, hostConfig.CapDrop...)
-			} else {
-				// Headless rootless engines still use SYS_ADMIN during trusted init.
-				hostConfig.CapAdd = []string{"SYS_ADMIN"}
-			}
+			hostConfig.CapDrop = append([]string{"SYS_ADMIN"}, hostConfig.CapDrop...)
 			hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "seccomp=unconfined")
 			// Rootless Podman needs to mount procfs entries that Docker masks or
 			// makes read-only by default. Empty, non-nil slices explicitly

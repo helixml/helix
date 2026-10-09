@@ -148,8 +148,8 @@ func TestBuildHostConfigRootlessContainerEngine(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, hostConfig.Privileged)
-	require.Equal(t, []string{"SYS_ADMIN"}, []string(hostConfig.CapAdd))
-	require.Equal(t, []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}, []string(hostConfig.CapDrop))
+	require.Empty(t, hostConfig.CapAdd)
+	require.Equal(t, []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}, []string(hostConfig.CapDrop))
 	require.Equal(t, []string{"seccomp=unconfined"}, hostConfig.SecurityOpt)
 	require.NotNil(t, hostConfig.MaskedPaths)
 	require.Empty(t, hostConfig.MaskedPaths)
@@ -329,6 +329,13 @@ func TestBuildHostConfigRejectsInvalidRootlessContainerEngineModes(t *testing.T)
 		RootlessContainerEngine: true,
 	})
 	require.EqualError(t, err, "rootless container engine cannot run in privileged mode")
+
+	_, err = dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:           DevContainerTypeHeadless,
+		RootlessContainerEngine: true,
+		NoNewPrivileges:         true,
+	})
+	require.EqualError(t, err, "rootless container engine cannot be combined with no-new-privileges")
 }
 
 func TestBuildEnvRootlessContainerEngine(t *testing.T) {
