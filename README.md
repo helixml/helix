@@ -113,8 +113,8 @@ For setting up a deployment with a DNS name, see `./install.sh --help` or read [
 ### Install on Kubernetes
 
 Use our Helm charts for production deployments:
-- [Control Plane Helm Chart](https://helix.ml/docs)
-- [Runner Helm Chart](https://helix.ml/docs)
+- [Control Plane Helm Chart](./charts/helix-controlplane)
+- [Runner Helm Chart](./charts/helix-sandbox)
 
 ## 🔧 Configuration
 
@@ -135,7 +135,7 @@ For local development, refer to the [Helix local development guide](./local-deve
 
 **Prerequisites:**
 - Docker Desktop (or Docker + Docker Compose)
-- Go 1.24.0+
+- Go 1.25.0+
 - Node.js 18+
 - Make
 
