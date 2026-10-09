@@ -41,6 +41,7 @@ import useApi from '../../hooks/useApi'
 import useLightTheme from '../../hooks/useLightTheme'
 import useDebounce from '../../hooks/useDebounce'
 import { extractErrorMessage } from '../../hooks/useErrorCallback'
+import { copyTextToClipboard } from '../../utils/clipboard'
 import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesCreateAccessGrantResponse, TypesOrganizationInvitation, TypesOrganizationRole, TypesOrgUserLookupResponse, TypesUser } from '../../api/api'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import useRouter from '../../hooks/useRouter'
@@ -462,7 +463,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
     if (!invitation.id) return;
     const link = `${window.location.origin}/login?invitation=${encodeURIComponent(invitation.id)}`;
     try {
-      await navigator.clipboard.writeText(link);
+      await copyTextToClipboard(link);
       setOrgAddSnackbarSeverity('info');
       setOrgAddSnackbar(`Invite link for ${invitation.email || 'user'} copied to clipboard.`);
     } catch (error) {
