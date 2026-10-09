@@ -194,3 +194,31 @@ func TestRejectWaitlisted(t *testing.T) {
 	require.False(t, rejectWaitlisted(rr, nil))
 	require.Equal(t, http.StatusOK, rr.Code)
 }
+
+// If approving fails, the membership this request created is removed again so
+// a retry re-runs add-and-approve rather than hitting a duplicate membership.
+func TestAddOrganizationMember_ApprovalFails_RollsBackMembership(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	notifier := notification.NewMockNotifier(ctrl) // strict: no approval email
+	server := newTestServerWithNotifier(mockStore, notifier)
+
+	orgID, ownerID := "org_vouch", "user_owner"
+	expectResolveOrganizationByID(mockStore, orgID)
+	expectOrgOwner(mockStore, orgID, ownerID)
+	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
+		Return(&types.User{ID: "u1", Email: "pal@gmail.com", Waitlisted: true}, nil)
+	gomock.InOrder(
+		mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, m *types.OrganizationMembership) (*types.OrganizationMembership, error) {
+				return m, nil
+			}),
+		mockStore.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(nil, errors.New("db down")),
+		mockStore.EXPECT().DeleteOrganizationMembership(gomock.Any(), orgID, "u1").Return(nil),
+	)
+
+	rr := httptest.NewRecorder()
+	server.addOrganizationMember(rr, addMemberRequest(orgID, ownerID, "pal@gmail.com"))
+	require.Equal(t, http.StatusInternalServerError, rr.Code)
+	require.Contains(t, rr.Body.String(), "member was not added")
+}

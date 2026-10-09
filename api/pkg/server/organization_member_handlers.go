@@ -180,25 +180,43 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 		return
 	}
 
-	// An org owner adding a waitlisted user vouches for them, exactly like an
-	// invitation consumed at sign-up: take them off the waitlist and skip the
-	// onboarding wizard (they now have an org). Done after the membership is
-	// created so a failed add never approves anyone.
-	if newMember.Waitlisted {
-		if !newMember.OnboardingCompleted {
-			newMember.OnboardingCompleted = true
-			newMember.OnboardingCompletedAt = time.Now()
-		}
-		if _, err := apiServer.approveWaitlistedUser(r.Context(), newMember, user, "org_invitation:"+orgID); err != nil {
-			log.Err(err).Str("user_id", newMember.ID).Msg("error approving waitlisted user added to organization")
-			http.Error(rw, "Member added but approval failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if err := apiServer.approveWaitlistedOrgMember(r.Context(), newMember, user, orgID); err != nil {
+		log.Err(err).Str("user_id", newMember.ID).Msg("error approving waitlisted user added to organization")
+		http.Error(rw, "Could not approve waitlisted user; member was not added: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	writeResponse(rw, &types.AddOrganizationMemberResponse{
 		Membership: membership,
 	}, http.StatusCreated)
+}
+
+// approveWaitlistedOrgMember is called after an org owner has added an existing
+// user to their org (directly, or implicitly by granting project/repository
+// access). That is a vouch, exactly like an invitation consumed at sign-up: a
+// waitlisted user is taken off the waitlist and skips the onboarding wizard
+// (they now have an org). No-op for users who aren't waitlisted. Callers must
+// only invoke it once this request has created the membership, so a failed add
+// approves no one. If approval fails, that membership is removed again so the
+// owner's retry takes the same path instead of finding an existing (and still
+// waitlisted) member.
+func (apiServer *HelixAPIServer) approveWaitlistedOrgMember(ctx context.Context, member *types.User, owner *types.User, orgID string) error {
+	if !member.Waitlisted {
+		return nil
+	}
+	if !member.OnboardingCompleted {
+		member.OnboardingCompleted = true
+		member.OnboardingCompletedAt = time.Now()
+	}
+	_, err := apiServer.approveWaitlistedUser(ctx, member, owner, "org_invitation:"+orgID)
+	if err == nil {
+		return nil
+	}
+	if delErr := apiServer.Store.DeleteOrganizationMembership(ctx, orgID, member.ID); delErr != nil {
+		log.Error().Err(delErr).Str("org_id", orgID).Str("user_id", member.ID).
+			Msg("failed to roll back organization membership after waitlist approval failed")
+	}
+	return err
 }
 
 // createOrganizationInvitation persists the invitation row and sends an
