@@ -9302,11 +9302,13 @@ export interface TypesWorkspacesResponse {
 export interface TypesZFSTree {
   available?: boolean;
   golden?: TypesZFSTreeNode;
+  goldens?: TypesZFSTreeNode[];
   orphans?: TypesZFSTreeNode[];
   pool_root?: string;
 }
 
 export interface TypesZFSTreeNode {
+  cache_kind?: string;
   children?: TypesZFSTreeNode[];
   mounted?: boolean;
   name?: string;

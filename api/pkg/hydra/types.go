@@ -32,9 +32,10 @@ const containerPersistentLabel = "helix.persistent"
 // monitorGoldenBuild for a build whose container survived the restart, and
 // still detect, promote and report its result.
 const (
-	containerGoldenBuildLabel    = "helix.golden_build" // "true"
-	containerProjectIDLabel      = "helix.project_id"
-	containerGoldenDeadlineLabel = "helix.golden_build_deadline" // RFC3339
+	containerGoldenBuildLabel     = "helix.golden_build" // "true"
+	containerProjectIDLabel       = "helix.project_id"
+	containerGoldenCacheKindLabel = "helix.golden_cache_kind"
+	containerGoldenDeadlineLabel  = "helix.golden_build_deadline" // RFC3339
 )
 
 // DevContainerType represents the type of dev container
@@ -233,8 +234,9 @@ type DevContainer struct {
 	DockerSocket  string             `json:"docker_socket"` // Which dockerd manages this container
 
 	// Golden build fields
-	IsGoldenBuild bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
-	ProjectID     string `json:"project_id,omitempty"`      // Project ID for golden promotion
+	IsGoldenBuild   bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
+	ProjectID       string `json:"project_id,omitempty"`      // Project ID for golden promotion
+	goldenCacheKind goldenCacheKind
 
 	// GoldenBuildDeadline is when monitorGoldenBuild gives up waiting for the
 	// result file. Stored on the container as a label so it survives restarts.

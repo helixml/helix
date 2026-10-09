@@ -634,6 +634,7 @@ type ZFSTree struct {
 	Available bool           `json:"available"`
 	PoolRoot  string         `json:"pool_root,omitempty"`
 	Golden    *ZFSTreeNode   `json:"golden,omitempty"`
+	Goldens   []*ZFSTreeNode `json:"goldens,omitempty"`
 	Orphans   []*ZFSTreeNode `json:"orphans,omitempty"`
 }
 
@@ -645,6 +646,7 @@ type ZFSTreeNode struct {
 	Refer     string         `json:"refer"`
 	Mounted   bool           `json:"mounted,omitempty"`
 	SessionID string         `json:"session_id,omitempty"`
+	CacheKind string         `json:"cache_kind,omitempty"`
 	Children  []*ZFSTreeNode `json:"children,omitempty"`
 }
 
