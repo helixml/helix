@@ -1108,6 +1108,9 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.DesktopRootless && req.Privileged {
 		return nil, fmt.Errorf("desktop rootless mode cannot be combined with privileged mode")
 	}
+	if req.DesktopRootless && req.NoNewPrivileges {
+		return nil, fmt.Errorf("desktop rootless mode cannot be combined with no-new-privileges")
+	}
 	if req.DesktopRootless && req.ContainerType != DevContainerTypeUbuntu {
 		return nil, fmt.Errorf("desktop rootless mode only supports ubuntu containers")
 	}

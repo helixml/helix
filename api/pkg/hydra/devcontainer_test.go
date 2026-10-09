@@ -226,6 +226,13 @@ func TestBuildHostConfigRejectsInvalidDesktopRootlessModes(t *testing.T) {
 	require.EqualError(t, err, "desktop rootless mode cannot be combined with privileged mode")
 
 	_, err = dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:   DevContainerTypeUbuntu,
+		DesktopRootless: true,
+		NoNewPrivileges: true,
+	})
+	require.EqualError(t, err, "desktop rootless mode cannot be combined with no-new-privileges")
+
+	_, err = dm.buildHostConfig(&CreateDevContainerRequest{
 		ContainerType:   DevContainerTypeHeadless,
 		DesktopRootless: true,
 	})
