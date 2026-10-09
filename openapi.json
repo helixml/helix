@@ -11390,6 +11390,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Only report a pending invitation for this app/project (project access dialogs). Omit to report any pending invitation in the org.",
+                        "name": "app_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -23575,6 +23583,52 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/visualization": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Serve an agent-published HTML visualization page for inline rendering",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get a session visualization",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Visualization ID",
+                        "name": "viz_id",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "HTML document",
+                        "content": {
+                            "text/html": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/workspace-status": {
             "get": {
                 "security": [
@@ -34231,23 +34285,23 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
+                    "local",
                     "webhook",
+                    "github",
                     "email",
                     "helix_events",
-                    "github",
-                    "slack",
-                    "local",
                     "gitlab",
+                    "slack",
                     "cron"
                 ],
                 "x-enum-varnames": [
+                    "KindLocal",
                     "KindWebhook",
+                    "KindGitHub",
                     "KindEmail",
                     "KindHelixEvents",
-                    "KindGitHub",
-                    "KindSlack",
-                    "KindLocal",
                     "KindGitLab",
+                    "KindSlack",
                     "KindCron"
                 ]
             },
@@ -40571,7 +40625,7 @@
                 "type": "object",
                 "properties": {
                     "app_id": {
-                        "description": "AppID + GrantRoles record the optional access-grant context. When an\ninvitation is sent from a project/app's access management dialog,\nwe store the resource id and the role names the inviter chose, so\nthat consuming the invitation at register time can also materialise\nthe access grant — the invitee then shows up in the project access\nlist immediately, exactly as if they had been added directly.",
+                        "description": "AppID + GrantRoles record the optional access-grant context. When an\ninvitation is sent from a project/app's access management dialog,\nwe store the resource id and the role names the inviter chose, so\nthat consuming the invitation at register time can also materialise\nthe access grant — the invitee then shows up in the project access\nlist immediately, exactly as if they had been added directly.\nDespite the name, AppID is a generic resource ID: the shared access\ndialog passes an app, project (prj_…) or repository ID. Pending\ninvitations are unique per (organization, email, app_id).",
                         "type": "string"
                     },
                     "created_at": {
