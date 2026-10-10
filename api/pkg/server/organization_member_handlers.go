@@ -175,6 +175,10 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 		Role:           req.Role,
 	})
 	if err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			http.Error(rw, "User is already a member of this organization", http.StatusConflict)
+			return
+		}
 		log.Err(err).Msg("error creating organization membership")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return

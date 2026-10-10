@@ -83,6 +83,38 @@ func TestAddOrganizationMember_ExistingUser_CreatesMembership(t *testing.T) {
 	require.False(t, resp.Invited)
 }
 
+func TestAddOrganizationMember_DuplicateMembershipReturnsConflict(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	server := newTestServerNoNotifier(mockStore)
+
+	orgID := "org_existing"
+	ownerID := "user_owner"
+	memberID := "user_existing"
+
+	expectResolveOrganizationByID(mockStore, orgID)
+	expectOrgOwner(mockStore, orgID, ownerID)
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{Email: "existing@example.com"}).
+		Return(&types.User{ID: memberID, Email: "existing@example.com"}, nil)
+	mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).
+		Return(nil, store.ErrConflict)
+
+	body, _ := json.Marshal(types.AddOrganizationMemberRequest{UserReference: "existing@example.com"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations/"+orgID+"/members", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"id": orgID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID}))
+
+	rr := httptest.NewRecorder()
+	server.addOrganizationMember(rr, req)
+
+	require.Equal(t, http.StatusConflict, rr.Code)
+	require.Equal(t, "User is already a member of this organization\n", rr.Body.String())
+	require.NotContains(t, rr.Body.String(), orgID)
+	require.NotContains(t, rr.Body.String(), memberID)
+}
+
 func TestAddOrganizationMember_UnknownEmail_EmailNotConfigured_CreatesInvitation(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

@@ -21,7 +21,12 @@ import (
 // ErrNotFound is returned when a queried org-subsystem row does not exist.
 // Helix's store package aliases its own ErrNotFound to this value so existing
 // error comparisons keep working across the two packages.
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound = errors.New("not found")
+	// ErrConflict identifies a valid request that cannot be applied because
+	// it conflicts with an existing org-scoped resource.
+	ErrConflict = errors.New("conflict")
+)
 
 // Store is the org subsystem's data-access layer over a *gorm.DB.
 type Store struct {
