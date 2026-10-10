@@ -46,6 +46,8 @@ type SpecTaskWorkflow interface {
 	SendAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, userID string) (string, error)
 	StartAgent(ctx context.Context, task *types.SpecTask, userID string) error
 	StopAgent(ctx context.Context, task *types.SpecTask) error
+	// CompleteTask marks the task done, which stops its desktop.
+	CompleteTask(ctx context.Context, task *types.SpecTask) error
 	RestartAgent(ctx context.Context, task *types.SpecTask, userID string) (promptsReset int, threadReset bool, err error)
 }
 
@@ -251,6 +253,7 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 		SandboxResourceOverrides: sandboxResources,
 		SandboxRuntime:           sandboxRuntime,
 	}
+	task.InitAutoApprovePullRequests(nil, project, hiringUserID)
 	taskNumber, err := s.tasks.IncrementGlobalTaskNumber(ctx)
 	if err != nil {
 		return runtime.SpecTaskView{}, fmt.Errorf("assign task number: %w", err)
@@ -494,6 +497,24 @@ func (s *SpecTasks) StopAgent(ctx context.Context, orgID string, workerID orgcha
 	}
 	if err := s.workflow.StopAgent(ctx, task); err != nil {
 		return runtime.SpecTaskView{}, fmt.Errorf("stop spec task agent: %w", err)
+	}
+	return toView(task), nil
+}
+
+func (s *SpecTasks) Complete(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string) (runtime.SpecTaskView, error) {
+	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	if err := s.workflow.CompleteTask(ctx, task); err != nil {
+		return runtime.SpecTaskView{}, fmt.Errorf("complete spec task: %w", err)
+	}
+	if latest, gErr := s.tasks.GetSpecTask(ctx, taskID); gErr == nil {
+		task = latest
 	}
 	return toView(task), nil
 }

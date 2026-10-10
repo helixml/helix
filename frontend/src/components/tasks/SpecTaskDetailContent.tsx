@@ -138,6 +138,7 @@ import {
   PanelRight,
   Wand2,
   Share,
+  Flag,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -166,6 +167,20 @@ import {
   saveSpecTaskTerminalDrawerState,
 } from "./specTaskTerminalDrawerState";
 import { useDesignReviews } from "../../services/designReviewService";
+import {
+  ACTIONABLE_PR_PROPOSAL_STATUSES,
+  projectHasPullRequests,
+  proposalsToReveal,
+  useSpecTaskPRProposals,
+} from "../../services/specTaskPRProposalService";
+import PRProposalCard from "./PRProposalCard";
+import CompletionRequestCard from "./CompletionRequestCard";
+import MarkDoneDialog from "./MarkDoneDialog";
+import {
+  canMarkDone,
+  completionRequestKey,
+  openPullRequestCount,
+} from "../../services/specTaskCompletionService";
 import {
   isSpecTaskPlanningWorkspace,
   shouldLoadSpecTaskDesignReviews,
@@ -390,6 +405,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [assigneeAnchorEl, setAssigneeAnchorEl] = useState<HTMLElement | null>(null);
   const orgMembers = account.organizationTools.organization?.memberships || [];
   const assignedUser = resolveOrganizationUser(task?.assignee_id, orgMembers, account.user);
+  const autoApprover = resolveOrganizationUser(
+    task?.auto_approve_pull_requests_by,
+    orgMembers,
+    account.user,
+  );
 
   // Start planning state - prevents double-click
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
@@ -615,6 +635,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // (auto-open tracking is handled by sessionStorage so it persists across page refreshes)
 
+  const [markDoneOpen, setMarkDoneOpen] = useState(false);
   // Clone dialog state
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [selectedCloneGroupId, setSelectedCloneGroupId] = useState<
@@ -1498,9 +1519,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             repository.external_type ||
             repository.external_url,
         )}
-        externalRepoType={projectRepositories.find(
-          (repository) => repository.external_type,
-        )?.external_type}
         isStartingPlanning={isStartingPlanning}
         onUnarchive={performUnarchive}
         isUnarchiving={isUnarchiving}
@@ -2013,6 +2031,49 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         />
       </Box>
 
+      {/* Pull request auto-approval (external repositories only) */}
+      {projectHasPullRequests(projectRepositories) && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            Pull requests
+          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="body2">Auto-approve pull requests</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {task?.auto_approve_pull_requests
+                  ? `The agent's proposals open without asking, using ${
+                      autoApprover?.full_name || autoApprover?.email || "the approver"
+                    }'s credentials, and the task is marked done as soon as the agent says it is finished.`
+                  : "You're asked to approve each pull request the agent proposes, and to confirm when it says the task is finished."}
+              </Typography>
+            </Box>
+            <Switch
+              checked={!!task?.auto_approve_pull_requests}
+              disabled={updateSpecTask.isPending || !isTaskDetailsEditable}
+              inputProps={{ "aria-label": "Auto-approve pull requests" }}
+              onChange={async (e) => {
+                if (!task?.id) return;
+                const enabled = e.target.checked;
+                try {
+                  await updateSpecTask.mutateAsync({
+                    taskId: task.id,
+                    updates: { auto_approve_pull_requests: enabled },
+                  });
+                  snackbar.success(
+                    enabled
+                      ? "Pull requests will be approved without asking"
+                      : "You'll be asked to approve each pull request",
+                  );
+                } catch {
+                  snackbar.error("Failed to update pull request approval");
+                }
+              }}
+            />
+          </Box>
+        </Box>
+      )}
+
       {/* Phase agent selection */}
       <Box sx={{ mb: 2 }}>
         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
@@ -2454,6 +2515,53 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     </Box>
   );
 
+  // Pull requests open only from agent proposals the user approves; the ones
+  // still awaiting a decision (or a retry) sit above the composer.
+  const { data: prProposals } = useSpecTaskPRProposals(task?.id);
+  const actionablePRProposals = (prProposals ?? []).filter((p) =>
+    ACTIONABLE_PR_PROPOSAL_STATUSES.has(p.status ?? ""),
+  );
+  // A proposal waiting on the user is only visible in the chat panel, so open
+  // it (or switch to the Chat tab) once per new proposal. Once per proposal,
+  // so a user who collapses the panel again is not fought on every poll.
+  // The agent's request to finish the task is revealed the same way.
+  const revealedProposalIdsRef = useRef<Set<string>>(new Set());
+  const pendingCompletionKey = completionRequestKey(task);
+  const proposalsToRevealKey = [
+    ...proposalsToReveal(prProposals ?? [], revealedProposalIdsRef.current),
+    ...(pendingCompletionKey && !revealedProposalIdsRef.current.has(pendingCompletionKey)
+      ? [pendingCompletionKey]
+      : []),
+  ].join(",");
+  useEffect(() => {
+    if (!proposalsToRevealKey) return;
+    proposalsToRevealKey
+      .split(",")
+      .forEach((id) => revealedProposalIdsRef.current.add(id));
+    if (isBigScreen) {
+      setChatCollapsed(false); // restores the split: chat sits on the left
+    } else {
+      handleViewChange("chat");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposalsToRevealKey]);
+
+  const prProposalHeader =
+    task?.id && (actionablePRProposals.length > 0 || pendingCompletionKey) ? (
+      <>
+        {actionablePRProposals.map((proposal) => (
+          <PRProposalCard key={proposal.id} specTaskId={task.id!} proposal={proposal} />
+        ))}
+        {pendingCompletionKey && (
+          <CompletionRequestCard
+            specTaskId={task.id}
+            summary={task.completion_request_summary ?? ""}
+            openPullRequests={openPullRequestCount(task)}
+          />
+        )}
+      </>
+    ) : undefined;
+
   // Project, repo and branch are reference, not controls, and on a phone they
   // cost a whole row directly under the composer — where the space is worth
   // more to the message being written. They stay one tap away in Details.
@@ -2496,6 +2604,22 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             <Wand2 size={18} />
           </ListItemIcon>
           <ListItemText>Clone Task</ListItemText>
+        </MenuItem>,
+      );
+    }
+    if (task && canMarkDone(task)) {
+      items.push(
+        <MenuItem
+          key="mark-done"
+          onClick={() => {
+            closeMenu();
+            setMarkDoneOpen(true);
+          }}
+        >
+          <ListItemIcon>
+            <Flag size={18} />
+          </ListItemIcon>
+          <ListItemText>Mark done</ListItemText>
         </MenuItem>,
       );
     }
@@ -2730,6 +2854,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     />
                   )}
                   footerContent={taskChatMetadata}
+                  actionCards={prProposalHeader}
                   placeholder={
                     sessionData?.config?.paused
                       ? "This session is paused — open the forked child to keep chatting"
@@ -3070,6 +3195,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     />
                   )}
                   footerContent={taskChatMetadata}
+                  actionCards={prProposalHeader}
                   placeholder={
                     sessionData?.config?.paused
                       ? "This session is paused — open the forked child to keep chatting"
@@ -3294,6 +3420,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
+
+      <MarkDoneDialog
+        open={markDoneOpen}
+        onClose={() => setMarkDoneOpen(false)}
+        taskId={task.id || ""}
+        openPullRequests={openPullRequestCount(task)}
+      />
 
       {/* Clone Task Dialog */}
       <CloneTaskDialog

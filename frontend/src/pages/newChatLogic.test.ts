@@ -103,3 +103,16 @@ describe('new chat project mode', () => {
     expect(chooseProjectChatAgentId([], 'app_codex')).toBe('')
   })
 })
+
+describe('buildNewChatTaskRequest PR auto-approval', () => {
+  const base = { mode: 'build' as const, projectId: 'prj_1', prompt: 'do it' }
+
+  it('sends the explicit choice, including false', () => {
+    expect(buildNewChatTaskRequest({ ...base, autoApprovePullRequests: true }).auto_approve_pull_requests).toBe(true)
+    expect(buildNewChatTaskRequest({ ...base, autoApprovePullRequests: false }).auto_approve_pull_requests).toBe(false)
+  })
+
+  it('omits the field so the server applies the project default', () => {
+    expect('auto_approve_pull_requests' in buildNewChatTaskRequest(base)).toBe(false)
+  })
+})

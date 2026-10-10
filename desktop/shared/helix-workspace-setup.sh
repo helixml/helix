@@ -170,6 +170,49 @@ cd "$WORK_DIR"
 # Track which folders should be opened in Zed
 declare -a ZED_FOLDERS
 
+# Container engine data root. Sessions start from a copy of the project's
+# golden snapshot of it.
+CONTAINER_DATA_DIR=/var/lib/docker
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+    CONTAINER_DATA_DIR=/home/retro/.local/share/containers
+fi
+# Records each repo's HEAD at the end of a golden build (helix-git-mtime record).
+GOLDEN_GIT_RECORD="$CONTAINER_DATA_DIR/.golden-git-checkout.json"
+HELIX_GIT_MTIME=/usr/local/bin/helix-git-mtime
+[ -x "$HELIX_GIT_MTIME" ] || HELIX_GIT_MTIME="$SCRIPT_DIR/helix-git-mtime.py"
+
+# Workspace repos, and the ones cloned by this run (their mtimes get set).
+declare -a WORKSPACE_REPOS
+declare -a FRESH_CLONES
+
+# Give freshly cloned files their last commit time instead of the clone time,
+# so mtime-based build tools reuse outputs cached in the golden snapshot. Files
+# that differ from the golden build's checkout are kept newer than its outputs.
+# Never fails setup.
+set_fresh_clone_mtimes() {
+    [ ${#FRESH_CLONES[@]} -gt 0 ] || return 0
+    echo "========================================="
+    echo "Setting file mtimes to last commit times..."
+    echo "========================================="
+    local record golden_args=() start=$SECONDS
+    record=$(mktemp) || return 0
+    # shellcheck disable=SC2024 # only reading needs root; $record is ours
+    if sudo -n cat "$GOLDEN_GIT_RECORD" > "$record" 2>/dev/null; then
+        golden_args=(--golden "$record")
+    elif sudo -n test -e "$CONTAINER_DATA_DIR/golden-version.json"; then
+        # Without the golden checkout, commit times could make changed files
+        # look older than the golden's outputs. Clone times are always newer.
+        echo "  Golden snapshot has no checkout record (built by an older image); keeping clone mtimes"
+        rm -f "$record"
+        return 0
+    fi
+    timeout 300 python3 "$HELIX_GIT_MTIME" restore "${golden_args[@]}" "${FRESH_CLONES[@]}" \
+        || echo "  ⚠️ Setting mtimes failed (continuing with clone mtimes)"
+    rm -f "$record"
+    echo "  Done in $((SECONDS - start))s"
+    echo ""
+}
+
 # Debug: Show key environment variables (sanitized)
 echo "Environment:"
 if [ -n "$USER_API_TOKEN" ]; then
@@ -279,6 +322,7 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
     declare -a CLONE_NAMES
     declare -a CLONE_DIRS
 
+    CLONE_START=$SECONDS
     IFS=',' read -ra REPOS <<< "$HELIX_REPOSITORIES"
     for REPO_SPEC in "${REPOS[@]}"; do
         # Parse "id:name:type" format
@@ -292,6 +336,7 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
 
         echo "  Repository: $REPO_NAME (type: $REPO_TYPE)"
         CLONE_DIR="$WORK_DIR/$REPO_NAME"
+        WORKSPACE_REPOS+=("$CLONE_DIR")
 
         # If already cloned, ensure remote URL has no embedded credentials
         # (credentials come from .git-credentials via credential helper)
@@ -326,7 +371,8 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         CLONE_FAILED=false
         for i in "${!CLONE_PIDS[@]}"; do
             if wait "${CLONE_PIDS[$i]}"; then
-                echo "    ✅ ${CLONE_NAMES[$i]} cloned successfully"
+                echo "    ✅ ${CLONE_NAMES[$i]} cloned successfully (done after $((SECONDS - CLONE_START))s)"
+                FRESH_CLONES+=("${CLONE_DIRS[$i]}")
             else
                 echo ""
                 echo "    ❌ FAILED to clone ${CLONE_NAMES[$i]}"
@@ -338,6 +384,8 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
                 CLONE_FAILED=true
             fi
         done
+
+        echo "  Clones took $((SECONDS - CLONE_START))s"
 
         if [ "$CLONE_FAILED" = true ]; then
             echo ""
@@ -516,6 +564,10 @@ else
     fi
     echo ""
 fi
+
+# After the working branch checkout. Runs to completion before Zed is signalled
+# to start ($COMPLETE_SIGNAL) and before the startup script or golden build.
+set_fresh_clone_mtimes || true
 
 # =========================================
 # Setup helix-specs worktree
@@ -967,7 +1019,7 @@ echo ""
 # Golden build mode: run startup script and exit
 # =========================================
 # When HELIX_GOLDEN_BUILD=true, this session exists solely to populate
-# the Docker cache (images, volumes, registry). We run the startup script
+# the container cache (images, build layers, registry). We run the startup script
 # in the foreground, skip Zed, and exit with the script's exit code.
 # The resulting /var/lib/docker is then promoted to a golden snapshot.
 if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
@@ -993,90 +1045,102 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
     # Disable trap — golden builds should exit cleanly, no interactive menu
     trap - EXIT
 
+    GOLDEN_DATA_DIR="$CONTAINER_DATA_DIR"
+    fail_golden_build() {
+        echo "1" | sudo tee "$GOLDEN_DATA_DIR/.golden-build-result" > /dev/null
+        echo "Golden build cleanup failed. Waiting for Hydra to stop the container..."
+        exec sleep infinity
+    }
+
     # Run startup script in foreground (blocking)
     if bash -i "$STARTUP_SCRIPT"; then
         echo ""
         echo "✅ Golden build: startup script completed successfully"
 
-        # The BuildKit cache (layer cache and RUN --mount=type=cache data) is
-        # what makes sessions' builds fast, so it goes into the golden.
-        # Record it as the startup script left it.
-        BUILDKIT_BUILD_END=$(sudo helix-buildkit-cache-stats || echo null)
-
-        # Clean up Docker artifacts that inflate the golden cache without
-        # speeding anything up:
-        #   - Registry-tagged images (10.x.x.x:5000/buildcache/...) from
-        #     the docker wrapper's push-to-registry path (remote builders only)
-        #   - Dangling (untagged) images replaced by newer builds
-        #   - Unused anonymous volumes
-        echo "Cleaning Docker build artifacts before golden promotion..."
-
-        # Show before state
-        echo "  Before cleanup:"
-        docker system df 2>/dev/null | sed 's/^/    /' || true
-
-        REGISTRY_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:' || true)
-        if [ -n "$REGISTRY_IMAGES" ]; then
-            echo "$REGISTRY_IMAGES" | xargs docker rmi 2>/dev/null || true
-            echo "  Removed registry-tagged images"
+        # Sessions keep files that match this checkout at their commit time
+        # and move the rest after this build (see set_fresh_clone_mtimes).
+        # The previous golden's record must not outlive it.
+        sudo rm -f "$GOLDEN_GIT_RECORD" || true
+        GIT_RECORD_TMP="$HOME/.helix-golden-git-checkout.json"
+        if [ ${#WORKSPACE_REPOS[@]} -gt 0 ] \
+            && python3 "$HELIX_GIT_MTIME" record "$GIT_RECORD_TMP" "${WORKSPACE_REPOS[@]}" \
+            && sudo cp "$GIT_RECORD_TMP" "$GOLDEN_GIT_RECORD"; then
+            echo "Recorded golden checkout in $GOLDEN_GIT_RECORD"
+        else
+            echo "⚠️ Could not record golden checkout; sessions will keep clone mtimes"
         fi
+        rm -f "$GIT_RECORD_TMP"
 
-        docker image prune -f 2>/dev/null || true
-        docker volume prune -f 2>/dev/null || true
+        if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+            echo "Removing rootless runtime containers before golden promotion..."
+            CONTAINER_IDS=$(docker ps -aq) || fail_golden_build
+            if [ -n "$CONTAINER_IDS" ]; then
+                docker rm -f $CONTAINER_IDS || fail_golden_build
+            fi
 
-        # Bound the build cache with dockerd's own GC policy (written by
-        # 17-start-dockerd.sh), applied now because BuildKit's GC runs
-        # asynchronously. It evicts least-recently-used records first, so the
-        # cache this build used survives. Never prune the build cache wholesale
-        # here (e.g. --filter unused-for=0s): that throws away the cache the
-        # golden exists to carry.
-        GC_RULE=$(jq -c '.builder.gc.policy[0]' /etc/docker/daemon.json)
-        docker builder prune -f \
-            --reserved-space "$(jq -r '.reservedSpace' <<<"$GC_RULE")" \
-            --max-used-space "$(jq -r '.maxUsedSpace' <<<"$GC_RULE")" \
-            --min-free-space "$(jq -r '.minFreeSpace' <<<"$GC_RULE")" || true
-
-        # Show after state
-        echo "  After cleanup:"
-        docker system df 2>/dev/null | sed 's/^/    /' || true
-        echo "✅ Docker cleanup complete"
-
-        # Hydra reads this into GOLDEN_BUILD_SUMMARY; sessions log their own
-        # cache against pre_snapshot after boot (17-start-dockerd.sh).
-        BUILDKIT_PRE_SNAPSHOT=$(sudo helix-buildkit-cache-stats || echo null)
-        jq -n --argjson build_end "$BUILDKIT_BUILD_END" --argjson pre_snapshot "$BUILDKIT_PRE_SNAPSHOT" \
-            '{build_end: $build_end, pre_snapshot: $pre_snapshot}' \
-            | sudo tee /var/lib/docker/.golden-buildkit-stats.json
-        echo ""
-
-        echo "Stopping dockerd for clean shutdown..."
-        # Stop dockerd cleanly so Docker data on disk is consistent
-        # (the data will be promoted to golden cache by Hydra)
-        # 1. Signal the restart loop to NOT restart dockerd after it exits
-        sudo touch /tmp/.dockerd-stop
-        # 2. Kill dockerd via PID file
-        if [ -f /var/run/docker.pid ]; then
-            sudo kill "$(cat /var/run/docker.pid)" 2>/dev/null || true
-            # Wait for dockerd to exit (up to 30 seconds)
-            for i in $(seq 1 30); do
-                [ ! -f /var/run/docker.pid ] && break
+            echo "Stopping rootless Podman and BuildKit for clean shutdown..."
+            sudo touch /tmp/.container-engine-stop
+            sudo pkill -TERM -u retro -f 'podman.*system service' 2>/dev/null || true
+            sudo pkill -TERM -u retro -f 'rootlesskit.*buildkitd|buildkitd' 2>/dev/null || true
+            if [ -f /run/user/1000/buildkit-rootlesskit/child_pid ]; then
+                sudo kill "$(cat /run/user/1000/buildkit-rootlesskit/child_pid)" 2>/dev/null || true
+            fi
+            for _ in $(seq 1 30); do
+                if ! pgrep -u retro -f 'podman.*system service|rootlesskit.*buildkitd|buildkitd' >/dev/null; then
+                    break
+                fi
                 sleep 1
             done
+            if pgrep -u retro -f 'podman.*system service|rootlesskit.*buildkitd|buildkitd' >/dev/null; then
+                echo "❌ Rootless container engines did not stop; refusing to promote a live cache"
+                fail_golden_build
+            fi
+            echo "✅ Rootless container engines stopped"
+        else
+            # The BuildKit cache is the useful part of the Docker golden.
+            BUILDKIT_BUILD_END=$(sudo helix-buildkit-cache-stats || echo null)
+            echo "Cleaning Docker build artifacts before golden promotion..."
+            docker system df 2>/dev/null | sed 's/^/    /' || true
+            REGISTRY_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:' || true)
+            if [ -n "$REGISTRY_IMAGES" ]; then
+                echo "$REGISTRY_IMAGES" | xargs docker rmi 2>/dev/null || true
+            fi
+            docker image prune -f 2>/dev/null || true
+            docker volume prune -f 2>/dev/null || true
+            GC_RULE=$(jq -c '.builder.gc.policy[0]' /etc/docker/daemon.json)
+            docker builder prune -f \
+                --reserved-space "$(jq -r '.reservedSpace' <<<"$GC_RULE")" \
+                --max-used-space "$(jq -r '.maxUsedSpace' <<<"$GC_RULE")" \
+                --min-free-space "$(jq -r '.minFreeSpace' <<<"$GC_RULE")" || true
+            BUILDKIT_PRE_SNAPSHOT=$(sudo helix-buildkit-cache-stats || echo null)
+            jq -n --argjson build_end "$BUILDKIT_BUILD_END" --argjson pre_snapshot "$BUILDKIT_PRE_SNAPSHOT" \
+                '{build_end: $build_end, pre_snapshot: $pre_snapshot}' \
+                | sudo tee /var/lib/docker/.golden-buildkit-stats.json
+
+            echo "Stopping dockerd for clean shutdown..."
+            sudo touch /tmp/.dockerd-stop
+            if [ -f /var/run/docker.pid ]; then
+                sudo kill "$(cat /var/run/docker.pid)" 2>/dev/null || true
+                for _ in $(seq 1 30); do
+                    [ ! -f /var/run/docker.pid ] && break
+                    sleep 1
+                done
+            fi
             echo "✅ dockerd stopped"
         fi
 
-        # Write success marker AFTER dockerd is stopped.
+        # Write success marker after the container engine is stopped.
         # Hydra's monitorGoldenBuild polls for this file and promotes the
-        # Docker data to the golden cache. Writing it after dockerd stops
+        # container data to the golden cache. Writing it after shutdown
         # ensures the data is quiescent — no active writes during promotion
         # or when new sessions copy from the golden cache.
-        echo "0" | sudo tee /var/lib/docker/.golden-build-result > /dev/null
+        echo "0" | sudo tee "$GOLDEN_DATA_DIR/.golden-build-result" > /dev/null
     else
         EXIT_CODE=$?
         echo ""
         echo "❌ Golden build failed with exit code $EXIT_CODE"
         # Write failure marker
-        echo "$EXIT_CODE" | sudo tee /var/lib/docker/.golden-build-result > /dev/null
+        echo "$EXIT_CODE" | sudo tee "$GOLDEN_DATA_DIR/.golden-build-result" > /dev/null
     fi
 
     # Done. Hydra's monitorGoldenBuild polls for .golden-build-result

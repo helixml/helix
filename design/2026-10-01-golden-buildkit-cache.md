@@ -46,8 +46,15 @@ the old prune.
   `layerdb/mounts/<id>/{mount-id,init-id}` plus those records. Teaching the old
   prune BuildKit's references would mean parsing moby's internal bbolt schema;
   deleting data behind a live database is what caused the corruption above.
-- Instrumentation: `helix-buildkit-cache-stats` (Engine API `/system/df`, exact
-  bytes). The golden build writes `build_end` and `pre_snapshot` to
+- Instrumentation: `helix-buildkit-cache-stats` (record count and total from
+  the Engine API `/system/df`). Cache mount bytes are NOT taken from
+  `/system/df`: BuildKit measures a mutable snapshot once and caches the size
+  (`size` in `buildkit/snapshots.db`) forever, so later builds writing into the
+  mount never change it (2026-10-09: the Zed target mount reported
+  8,942,972,009 bytes in every golden from gen112 to gen129). Each cache mount
+  is resolved record ID → `metadata_v2.db` `_main/<id>/cache.snapshot` →
+  `snapshots.db` `<key>/committed` (else the key) → `overlay2/<id>/diff` and
+  measured on disk (`bytes`, as `du -sb`; `last_written`, newest mtime). The golden build writes `build_end` and `pre_snapshot` to
   `/var/lib/docker/.golden-buildkit-stats.json`; Hydra adds them to
   `GOLDEN_BUILD_SUMMARY` (`buildkit_build_end_bytes`, `buildkit_golden_bytes`,
   `buildkit_golden_cache_mount_bytes`, …); every session logs
@@ -59,7 +66,34 @@ Two `git clone`s of the same commit (all mtimes different, one file touched to
 2001): `COPY . .` and the following `RUN` were `CACHED`. Changing a file mode
 invalidated them. BuildKit's content hash ignores mtime. But if `.git` is in the
 build context, `COPY . .` misses on every fresh clone because `.git/` differs —
-projects should exclude `.git` via `.dockerignore`. No mtime handling is needed.
+projects should exclude `.git` via `.dockerignore`. No mtime handling is needed
+for a full cache hit.
+
+### Partial changes: clone mtimes (2026-10-09)
+
+When any file differs, the `RUN` re-executes against the cache mount, and
+mtime-based tools (cargo, make) compare source mtimes with the cached outputs.
+Fresh clones gave every file the clone time, so one changed file rebuilt every
+workspace crate. `helix-workspace-setup.sh` now runs `helix-git-mtime restore`
+on repos it cloned, after the branch checkout and before Zed starts: each tracked
+file gets the committer time of the last commit touching it (one `git log` walk
+per repo, repos in parallel).
+
+Commit times alone are unsafe: a PR merged after the golden build keeps its
+older committer time, so its files look older than the golden's outputs and
+cargo reuses stale output (reproduced: app printed the pre-change value). So the
+golden build `record`s every repo's HEAD, its dirty files and `built_at` in
+`/var/lib/docker/.golden-git-checkout.json`; sessions raise every file that
+differs from that checkout to `built_at + 1`. A golden without the record (older
+image) leaves clone mtimes in place.
+
+Not solved: BuildKit reuses a `COPY` layer by content, with the mtimes of
+whichever build first created it. A session whose tree matches an older,
+still-cached layer gets that layer's mtimes even if newer outputs are in the
+cache mount. This predates the mtime change and applies equally to clone times.
+
+Measured (inner Helix, real desktops): clones 16–44s; mtime step 2–3s
+(zed 39.5k commits/4.3k files 2.3s, helix 30k commits 1.5s).
 
 ## Live acceptance (inner Helix, file-copy golden path)
 

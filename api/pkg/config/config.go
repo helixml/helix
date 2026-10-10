@@ -190,6 +190,14 @@ type Sandboxes struct {
 	// create request. False blocks anything outside the configured runtimes.
 	AllowCustomImage bool `envconfig:"HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE" default:"false"`
 
+	// DesktopRootless runs desktop runtimes (ubuntu-desktop, spec-task
+	// desktops) unprivileged via rootless Podman instead of Docker
+	// --privileged, so a root user inside a desktop can no longer reach the
+	// runner host or sibling tenants (host block devices / zvols / /dev/mem).
+	// Default false: enabling it requires a desktop-image rebuild and a live
+	// GPU-stream validation. See design/2026-10-08-desktop-root-isolation.md.
+	DesktopRootless bool `envconfig:"HELIX_SANDBOX_DESKTOP_ROOTLESS" default:"false"`
+
 	// DefaultRuntime is the runtime applied when the create request omits
 	// both `runtime` and `image`. Must match one of the names in Runtimes.
 	DefaultRuntime string `envconfig:"HELIX_SANDBOX_DEFAULT_RUNTIME" default:"headless-ubuntu"`
@@ -677,6 +685,13 @@ type OIDC struct {
 	// customer deployments. Set it (e.g. on meta.helix.ml) to lock sign-in to a
 	// specific organisation's domain(s).
 	AllowedEmailDomains string `envconfig:"OIDC_ALLOWED_EMAIL_DOMAINS" default:""`
+	// WaitlistOutsideAllowedDomains softens OIDC_ALLOWED_EMAIL_DOMAINS: instead of
+	// rejecting verified emails outside the allowed domains, let them sign in as
+	// waitlisted users that an admin must approve (pending org invitations still
+	// pre-approve them). Allowed-domain users are never waitlisted in this mode,
+	// regardless of AUTH_WAITLIST_ENABLED. Unverified emails are still rejected.
+	// No effect when OIDC_ALLOWED_EMAIL_DOMAINS is empty. Default false (hard reject).
+	WaitlistOutsideAllowedDomains bool `envconfig:"OIDC_WAITLIST_OUTSIDE_ALLOWED_DOMAINS" default:"false"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen

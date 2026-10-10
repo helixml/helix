@@ -2286,6 +2286,24 @@ export interface ServerOpenaiModelsResponse {
   object?: string;
 }
 
+export interface ServerOrgAPIKeyResponse {
+  app_id?: string;
+  created?: string;
+  /**
+   * ID is a stable, non-secret handle for the key, derived from a hash of
+   * the secret. Use it to delete a key you did not create.
+   */
+  id?: string;
+  key_prefix?: string;
+  name?: string;
+  organization_id?: string;
+  owner?: string;
+  owner_email?: string;
+  owner_type?: TypesOwnerType;
+  project_id?: string;
+  type?: TypesAPIKeyType;
+}
+
 export interface ServerRunnerProfileAssignRequest {
   profile_id?: string;
 }
@@ -2413,14 +2431,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindCron = "cron",
-  KindEmail = "email",
   KindLocal = "local",
-  KindGitLab = "gitlab",
   KindWebhook = "webhook",
   KindGitHub = "github",
-  KindSlack = "slack",
+  KindEmail = "email",
   KindHelixEvents = "helix_events",
+  KindGitLab = "gitlab",
+  KindSlack = "slack",
+  KindCron = "cron",
 }
 
 export interface TransportResolvedActivation {
@@ -3031,6 +3049,8 @@ export enum TypesAttentionEventType {
   AttentionEventSpecFailed = "spec_failed",
   AttentionEventImplementationFailed = "implementation_failed",
   AttentionEventPRReady = "pr_ready",
+  AttentionEventPRProposal = "pr_proposal",
+  AttentionEventCompletionRequest = "completion_request",
   AttentionEventOrgMessage = "org_message",
   AttentionEventCIPassed = "ci_passed",
   AttentionEventCIFailed = "ci_failed",
@@ -3623,6 +3643,12 @@ export interface TypesCommentQueueStatusResponse {
   queued_comment_ids?: string[];
 }
 
+export interface TypesCompletionDecisionRequest {
+  comment?: string;
+  /** "approve" or "reject" */
+  decision?: string;
+}
+
 export interface TypesContainerDiskUsage {
   container_id?: string;
   container_name?: string;
@@ -3809,6 +3835,11 @@ export interface TypesCreateTaskRequest {
   assignee_id?: string;
   /** Attachments are validated and stored before the task is exposed to dispatchers. */
   attachments?: TypesSpecTaskInlineAttachment[];
+  /**
+   * Optional: approve the agent's pull request proposals without asking.
+   * Unset takes the project's auto_approve_pull_requests default.
+   */
+  auto_approve_pull_requests?: boolean;
   /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
   auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
@@ -5312,6 +5343,9 @@ export interface TypesOrganizationInvitation {
    * that consuming the invitation at register time can also materialise
    * the access grant — the invitee then shows up in the project access
    * list immediately, exactly as if they had been added directly.
+   * Despite the name, AppID is a generic resource ID: the shared access
+   * dialog passes an app, project (prj_…) or repository ID. Pending
+   * invitations are unique per (organization, email, app_id).
    */
   app_id?: string;
   created_at?: string;
@@ -5353,6 +5387,21 @@ export enum TypesOwnerType {
   OwnerTypeSystem = "system",
   OwnerTypeSocket = "socket",
   OwnerTypeOrg = "org",
+}
+
+export interface TypesPRProposalDecisionRequest {
+  /**
+   * AutoApproveFuture, with an approval, approves this task's later
+   * proposals without asking, as the deciding user.
+   */
+  auto_approve_future?: boolean;
+  base_branch?: string;
+  body?: string;
+  comment?: string;
+  /** "approve" or "reject" */
+  decision?: string;
+  head_branch?: string;
+  title?: string;
 }
 
 export interface TypesPaginatedInteractions {
@@ -5463,6 +5512,12 @@ export interface TypesProject {
   archive_stale_tasks_days?: number;
   /** Archive tasks idle for ArchiveStaleTasksDays */
   archive_stale_tasks_enabled?: boolean;
+  /**
+   * AutoApprovePullRequests is the default for new spec tasks: their agents'
+   * pull request proposals are approved without asking. Each task keeps its
+   * own setting, so changing this does not affect existing tasks.
+   */
+  auto_approve_pull_requests?: boolean;
   /** Archive automation, reconciled by the spec task orchestrator */
   auto_archive_completed_tasks?: boolean;
   /** Automation settings */
@@ -5737,6 +5792,8 @@ export interface TypesProjectUpdateRequest {
   archive_stale_tasks_days?: number;
   /** Archive tasks idle for ArchiveStaleTasksDays */
   archive_stale_tasks_enabled?: boolean;
+  /** Default for new spec tasks: auto-approve agent PR proposals */
+  auto_approve_pull_requests?: boolean;
   /** Archive tasks immediately when they enter Done */
   auto_archive_completed_tasks?: boolean;
   auto_start_backlog_tasks?: boolean;
@@ -6141,11 +6198,18 @@ export interface TypesRepoPR {
   ci_status?: string;
   ci_updated_at?: string;
   ci_url?: string;
+  /**
+   * HeadBranch is the branch the PR was opened from. ProposalID links PRs
+   * opened from an approved SpecTaskPRProposal; their title and body come from
+   * the approved proposal rather than the helix-specs pull_request*.md files.
+   */
+  head_branch?: string;
   pr_id?: string;
   pr_number?: number;
   /** "open", "closed", "merged" */
   pr_state?: string;
   pr_url?: string;
+  proposal_id?: string;
   repository_id?: string;
   repository_name?: string;
 }
@@ -7425,6 +7489,13 @@ export interface TypesSpecTask {
   archived?: boolean;
   /** Team member assigned to work on this task */
   assignee_id?: string;
+  /**
+   * AutoApprovePullRequests approves the agent's PR proposals without asking.
+   * They are approved as AutoApprovePullRequestsBy, whose provider
+   * credentials push and open the PR; it is the user who turned this on.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -7444,6 +7515,12 @@ export interface TypesSpecTask {
   /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
+  completion_request_summary?: string;
+  /**
+   * CompletionRequestedAt is set while the agent's request to mark the task
+   * done (mark_task_complete) awaits the user's decision.
+   */
+  completion_requested_at?: string;
   created_at?: string;
   /** Metadata */
   created_by?: string;
@@ -7783,6 +7860,39 @@ export interface TypesSpecTaskInlineAttachment {
   name: string;
 }
 
+export interface TypesSpecTaskPRProposal {
+  auto_approved?: boolean;
+  base_branch?: string;
+  body?: string;
+  created_at?: string;
+  decided_at?: string;
+  decided_by?: string;
+  decision_comment?: string;
+  error?: string;
+  head_branch?: string;
+  id?: string;
+  pr_id?: string;
+  pr_number?: number;
+  pr_url?: string;
+  project_id?: string;
+  proposed_by_session?: string;
+  reason?: string;
+  repository_id?: string;
+  repository_name?: string;
+  spec_task_id?: string;
+  status?: TypesSpecTaskPRProposalStatus;
+  title?: string;
+  updated_at?: string;
+}
+
+export enum TypesSpecTaskPRProposalStatus {
+  PRProposalStatusPending = "pending",
+  PRProposalStatusApproved = "approved",
+  PRProposalStatusOpened = "opened",
+  PRProposalStatusRejected = "rejected",
+  PRProposalStatusFailed = "failed",
+}
+
 export enum TypesSpecTaskPhase {
   SpecTaskPhasePlanning = "planning",
   SpecTaskPhaseImplementation = "implementation",
@@ -7819,6 +7929,8 @@ export interface TypesSpecTaskUpdateRequest {
   agent_tools?: string[];
   /** Pointer to allow clearing (set to empty string to unassign) */
   assignee_id?: string;
+  /** Approve the agent's PR proposals without asking, as the updating user */
+  auto_approve_pull_requests?: boolean;
   /** IDs of tasks this task depends on */
   depends_on?: string[];
   description?: string;
@@ -7847,6 +7959,13 @@ export interface TypesSpecTaskWithProject {
   archived?: boolean;
   /** Team member assigned to work on this task */
   assignee_id?: string;
+  /**
+   * AutoApprovePullRequests approves the agent's PR proposals without asking.
+   * They are approved as AutoApprovePullRequestsBy, whose provider
+   * credentials push and open the PR; it is the user who turned this on.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -7866,6 +7985,12 @@ export interface TypesSpecTaskWithProject {
   /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
+  completion_request_summary?: string;
+  /**
+   * CompletionRequestedAt is set while the agent's request to mark the task
+   * done (mark_task_complete) awaits the user's decision.
+   */
+  completion_requested_at?: string;
   created_at?: string;
   /** Metadata */
   created_by?: string;
@@ -9184,11 +9309,13 @@ export interface TypesWorkspacesResponse {
 export interface TypesZFSTree {
   available?: boolean;
   golden?: TypesZFSTreeNode;
+  goldens?: TypesZFSTreeNode[];
   orphans?: TypesZFSTreeNode[];
   pool_root?: string;
 }
 
 export interface TypesZFSTreeNode {
+  cache_kind?: string;
   children?: TypesZFSTreeNode[];
   mounted?: boolean;
   name?: string;
@@ -10627,7 +10754,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get API keys
+     * @description Get the caller's own API keys. With no filter, returns (creating it if needed) the caller's personal key. A caller authenticated with a scoped (org, project, session or app) API key cannot use the unfiltered form, and sees only the prefix of keys broader than the one it presents.
      *
      * @tags api-keys
      * @name V1ApiKeysList
@@ -13664,7 +13791,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List API keys for an organization. Owners see all keys, members see only their own.
+     * @description List API keys for an organization. Owners see all keys, members see only their own. Key secrets are never returned; each key has a non-secret id and key_prefix.
      *
      * @tags organizations
      * @name V1OrganizationsApiKeysDetail
@@ -13673,7 +13800,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1OrganizationsApiKeysDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesApiKey[], any>({
+      this.request<ServerOrgAPIKeyResponse[], any>({
         path: `/api/v1/organizations/${id}/api_keys`,
         method: "GET",
         secure: true,
@@ -14033,6 +14160,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query: {
         /** Email to look up */
         email: string;
+        /** Only report a pending invitation for this app/project (project access dialogs). Omit to report any pending invitation in the org. */
+        app_id?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -17490,6 +17619,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Desktop types (e.g. ubuntu, sway) offered by registered sandboxes
+     *
+     * @tags sandbox
+     * @name V1SandboxDesktopTypesList
+     * @summary List available sandbox desktop types
+     * @request GET:/api/v1/sandbox-desktop-types
+     * @secure
+     */
+    v1SandboxDesktopTypesList: (params: RequestParams = {}) =>
+      this.request<string[], any>({
+        path: `/api/v1/sandbox-desktop-types`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List the sandbox runtimes available on this server
      *
      * @tags Sandboxes
@@ -18683,6 +18830,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Serve an agent-published HTML visualization page for inline rendering
+     *
+     * @tags sessions
+     * @name V1SessionsVisualizationDetail
+     * @summary Get a session visualization
+     * @request GET:/api/v1/sessions/{id}/visualization
+     * @secure
+     */
+    v1SessionsVisualizationDetail: (
+      id: string,
+      query: {
+        /** Visualization ID */
+        viz_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/sessions/${id}/visualization`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Used by the fork-confirm modal so we can show "N files will be committed & pushed" or just proceed silently when the workspace is clean. Aborts gracefully on unreachable containers — the frontend treats that as "unknown".
      *
      * @tags sessions
@@ -18932,6 +19104,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Approving moves the task to done (which stops its desktop), whether or not the agent asked to finish with mark_task_complete. Rejecting clears the agent's pending request and sends the comment to it as feedback.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksCompletionDecideCreate
+     * @summary Mark a spec task done, or send the agent's completion request back
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/completion/decide
+     * @secure
+     */
+    v1SpecTasksCompletionDecideCreate: (
+      specTaskId: string,
+      request: TypesCompletionDecisionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTask, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/completion/decide`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all design reviews for a spec task
      *
      * @tags spec-tasks
@@ -19103,6 +19299,49 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesSpecTaskDesignReview, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/submit`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Every pull request a spec task opens starts as an agent proposal awaiting user approval.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksPrProposalsDetail
+     * @summary List a spec task's pull request proposals
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/pr-proposals
+     * @secure
+     */
+    v1SpecTasksPrProposalsDetail: (specTaskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskPRProposal[], any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/pr-proposals`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approving grants the agent push rights to the proposal's head branch and opens the pull request as soon as the branch has commits beyond the base. Edited fields override the agent's proposal. Rejecting withdraws push rights.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksPrProposalsDecideCreate
+     * @summary Approve or reject a pull request proposal
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide
+     * @secure
+     */
+    v1SpecTasksPrProposalsDecideCreate: (
+      specTaskId: string,
+      proposalId: string,
+      request: TypesPRProposalDecisionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskPRProposal, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/pr-proposals/${proposalId}/decide`,
         method: "POST",
         body: request,
         secure: true,

@@ -57,7 +57,6 @@ import {
   TypesCreateAccessGrantRequest,
   TypesProject,
   TypesSecretScope,
-  TypesZFSTree,
   TypesZFSTreeNode,
 } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
@@ -220,6 +219,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [archiveStaleTasksDays, setArchiveStaleTasksDays] = useState(6);
   const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] =
     useState(false);
+  const [autoApprovePullRequests, setAutoApprovePullRequests] =
+    useState(false);
   const [koditEnabled, setKoditEnabled] = useState(true);
   const [autoWarmDockerCache, setAutoWarmDockerCache] = useState(false);
   const [showGoldenBuildViewer, setShowGoldenBuildViewer] = useState(false);
@@ -283,6 +284,11 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       (autoWarmDockerCache || sandboxEntries.length > 0),
     refetchInterval: 30000,
   });
+  const goldenTrees = zfsTree?.goldens?.length
+    ? zfsTree.goldens
+    : zfsTree?.golden
+      ? [zfsTree.golden]
+      : [];
 
   // Poll project status while any golden build is running or waiting to
   // retry, so attempts, interruptions and the outcome show up live.
@@ -649,6 +655,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       setPullRequestReviewsEnabled(
         project.pull_request_reviews_enabled || false,
       );
+      setAutoApprovePullRequests(project.auto_approve_pull_requests || false);
       setKoditEnabled(project.kodit_enabled !== false);
       setAutoWarmDockerCache(
         project.metadata?.auto_warm_docker_cache || false,
@@ -1336,8 +1343,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                   </Button>
                 )}
                 {(anyReady || anyFailed) && (() => {
-                  const hasActiveClones = zfsTree?.golden?.children?.some(
-                    (snap: TypesZFSTreeNode) => snap.children && snap.children.length > 0
+                  const hasActiveClones = goldenTrees.some((golden) =>
+                    golden.children?.some(
+                      (snap: TypesZFSTreeNode) => snap.children && snap.children.length > 0,
+                    ),
                   );
                   return (
                     <Button
@@ -1408,57 +1417,64 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           a freshly-built golden with zero clones is still useful information
           (otherwise the panel silently disappears post-build until the first
           session clones from it). */}
-      {zfsTree?.available && zfsTree?.golden && (
+      {zfsTree?.available && goldenTrees.length > 0 && (
         <Box sx={{ mt: 1, mb: 4, p: 2, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
           <Typography variant="subtitle2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
             <HubIcon fontSize="small" sx={{ color: "primary.main" }} />
             ZFS Clone Tree
           </Typography>
           <Box sx={{ fontFamily: "monospace", fontSize: "0.75rem", lineHeight: 1.8 }}>
-            {/* Golden zvol */}
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-              <Box sx={{ color: "warning.main", fontWeight: "bold" }}>⬢</Box>
-              <Box sx={{ color: "text.primary", fontWeight: "bold" }}>
-                {zfsTree.golden.name?.split("/").pop()}
-              </Box>
-              <Chip label={zfsTree.golden.refer} size="small" sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace" }} />
-            </Box>
-            {/* Snapshots */}
-            {zfsTree.golden.children?.map((snap: TypesZFSTreeNode, si: number) => (
-              <Box key={snap.name} sx={{ ml: 2 }}>
+            {goldenTrees.map((golden, gi) => (
+              <Box key={golden.name} sx={{ mb: gi < goldenTrees.length - 1 ? 1 : 0 }}>
+                {/* Golden zvol */}
                 <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                  <Box sx={{ color: "text.secondary" }}>{si === (zfsTree.golden.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
-                  <Box sx={{ color: "info.main" }}>📸</Box>
-                  <Box sx={{ color: "info.main", fontWeight: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "bold" : "normal" }}>
-                    @{snap.name?.split("@")[1]}
+                  <Box sx={{ color: "warning.main", fontWeight: "bold" }}>⬢</Box>
+                  <Box sx={{ color: "text.primary", fontWeight: "bold" }}>
+                    {golden.name?.split("/").pop()}
                   </Box>
-                  <Chip
-                    label={`Δ ${snap.used}`}
-                    size="small"
-                    sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace", bgcolor: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "success.main" : "action.hover", color: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "success.contrastText" : "text.secondary" }}
-                  />
-                  {si === (zfsTree.golden.children?.length ?? 0) - 1 && (
-                    <Chip label="latest" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: "0.6rem" }} />
+                  {golden.cache_kind && (
+                    <Chip label={golden.cache_kind} size="small" variant="outlined" sx={{ height: 18, fontSize: "0.6rem" }} />
                   )}
+                  <Chip label={golden.refer} size="small" sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace" }} />
                 </Box>
-                {/* Clones */}
-                {snap.children?.map((clone: TypesZFSTreeNode, ci: number) => (
-                  <Box key={clone.name} sx={{ ml: 3, display: "flex", alignItems: "center", gap: 0.5 }}>
-                    <Box sx={{ color: "text.secondary" }}>{ci === (snap.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
-                    <Box sx={{ color: clone.mounted ? "success.main" : "text.disabled" }}>
-                      {clone.mounted ? "🟢" : "⚪"}
+                {/* Snapshots */}
+                {golden.children?.map((snap: TypesZFSTreeNode, si: number) => (
+                  <Box key={snap.name} sx={{ ml: 2 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Box sx={{ color: "text.secondary" }}>{si === (golden.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
+                      <Box sx={{ color: "info.main" }}>📸</Box>
+                      <Box sx={{ color: "info.main", fontWeight: si === (golden.children?.length ?? 0) - 1 ? "bold" : "normal" }}>
+                        @{snap.name?.split("@")[1]}
+                      </Box>
+                      <Chip
+                        label={`Δ ${snap.used}`}
+                        size="small"
+                        sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace", bgcolor: si === (golden.children?.length ?? 0) - 1 ? "success.main" : "action.hover", color: si === (golden.children?.length ?? 0) - 1 ? "success.contrastText" : "text.secondary" }}
+                      />
+                      {si === (golden.children?.length ?? 0) - 1 && (
+                        <Chip label="latest" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: "0.6rem" }} />
+                      )}
                     </Box>
-                    <Box sx={{ color: clone.mounted ? "text.primary" : "text.disabled", fontSize: "0.7rem" }}>
-                      {clone.session_id ? `ses_${clone.session_id.substring(4, 12)}…` : clone.name?.split("/").pop()}
-                    </Box>
-                    <Chip
-                      label={clone.used}
-                      size="small"
-                      sx={{ height: 16, fontSize: "0.6rem", fontFamily: "monospace" }}
-                    />
-                    {clone.mounted && (
-                      <Chip label="active" size="small" color="success" variant="outlined" sx={{ height: 16, fontSize: "0.55rem" }} />
-                    )}
+                    {/* Clones */}
+                    {snap.children?.map((clone: TypesZFSTreeNode, ci: number) => (
+                      <Box key={clone.name} sx={{ ml: 3, display: "flex", alignItems: "center", gap: 0.5 }}>
+                        <Box sx={{ color: "text.secondary" }}>{ci === (snap.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
+                        <Box sx={{ color: clone.mounted ? "success.main" : "text.disabled" }}>
+                          {clone.mounted ? "🟢" : "⚪"}
+                        </Box>
+                        <Box sx={{ color: clone.mounted ? "text.primary" : "text.disabled", fontSize: "0.7rem" }}>
+                          {clone.session_id ? `ses_${clone.session_id.substring(4, 12)}…` : clone.name?.split("/").pop()}
+                        </Box>
+                        <Chip
+                          label={clone.used}
+                          size="small"
+                          sx={{ height: 16, fontSize: "0.6rem", fontFamily: "monospace" }}
+                        />
+                        {clone.mounted && (
+                          <Chip label="active" size="small" color="success" variant="outlined" sx={{ height: 16, fontSize: "0.55rem" }} />
+                        )}
+                      </Box>
+                    ))}
                   </Box>
                 ))}
               </Box>
@@ -1798,6 +1814,38 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               GitLab, etc.) as the primary repository.
             </Typography>
           )}
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Box sx={{ flex: 1, mr: 2 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                Auto-approve pull requests
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                New tasks approve their agent's pull request proposals without
+                asking, using the credentials of the person who created the
+                task, and are marked done as soon as the agent says it is
+                finished. You can still change it per task. Existing tasks keep
+                their own setting.
+              </Typography>
+            </Box>
+            <Switch
+              checked={autoApprovePullRequests}
+              inputProps={{ "aria-label": "Auto-approve pull requests" }}
+              onChange={(e) => {
+                const newValue = e.target.checked;
+                setAutoApprovePullRequests(newValue);
+                updateProjectMutation.mutate({
+                  auto_approve_pull_requests: newValue,
+                });
+              }}
+              disabled={!primaryRepoIsExternal}
+            />
+          </Box>
           <Box
             sx={{
               display: "flex",

@@ -71,6 +71,11 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # CI uses --target builder-env to stop before this stage.
 FROM builder-env AS builder
 
+# release: the shipped profile (thin LTO, codegen-units=1) — CI, CD and production images.
+# fast:    opt-level 3 without LTO, 256 codegen units and incremental compilation, for
+#          in-desktop / golden builds where a one-line Zed change must not cost a whole-program
+#          LTO link. Same features and optimisation level as release; separate target subdir.
+# dev:     unoptimised debug build.
 ARG BUILD_TYPE=release
 ARG ZED_COMMIT_SHA=unknown
 
@@ -102,13 +107,21 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
         echo "Try: docker builder prune --filter type=regular (preserves cache mounts)" && \
         exit 1; \
     fi && \
+    case "$BUILD_TYPE" in \
+        release) PROFILE_ARGS="--release"; CARGO_OUT_DIR=release ;; \
+        fast) PROFILE_ARGS="--profile helix-fast \
+                --config profile.helix-fast.inherits=\"release\" \
+                --config profile.helix-fast.lto=false \
+                --config profile.helix-fast.codegen-units=256 \
+                --config profile.helix-fast.incremental=true \
+                --config profile.helix-fast.debug=0"; CARGO_OUT_DIR=helix-fast ;; \
+        *) PROFILE_ARGS=""; CARGO_OUT_DIR=debug ;; \
+    esac && \
     CARGO_TARGET_DIR=target-ubuntu25-v4 \
     ZED_COMMIT_SHA=${ZED_COMMIT_SHA} \
     RUSTFLAGS='-C link-arg=-s' \
-    nice -n 19 cargo build \
-        $(if [ "$BUILD_TYPE" = "release" ]; then echo "--release"; else echo ""; fi) \
+    nice -n 19 cargo build $PROFILE_ARGS \
         --features external_websocket_sync \
-    && CARGO_OUT_DIR=$(if [ "$BUILD_TYPE" = "release" ]; then echo "release"; else echo "debug"; fi) \
     && cp target-ubuntu25-v4/${CARGO_OUT_DIR}/zed /zed-binary
 
 # Output stage — just the binary, nothing else

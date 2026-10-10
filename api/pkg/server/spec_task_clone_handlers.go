@@ -3,12 +3,14 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -47,8 +49,32 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Source task not found: %v", err), http.StatusNotFound)
 		return
 	}
+	// Cloning copies the source task's prompt and specs, so the caller must
+	// be able to read it.
+	if err := s.authorizeUserToProjectByID(ctx, user, sourceTask.ProjectID, types.ActionGet); err != nil {
+		http.Error(w, "not authorized to access the source task", http.StatusForbidden)
+		return
+	}
 	if rejectPreparingSpecTaskMutation(w, sourceTask) {
 		return
+	}
+
+	// Authorize every target up front so a request with any target the
+	// caller may not write to creates nothing at all.
+	for _, projectID := range req.TargetProjectIDs {
+		if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionCreate); err != nil {
+			http.Error(w, fmt.Sprintf("not authorized to create tasks in project %s", projectID), http.StatusForbidden)
+			return
+		}
+	}
+	createRepos := make([]*types.GitRepository, 0, len(req.CreateProjects))
+	for _, createSpec := range req.CreateProjects {
+		repo, httpErr := s.authorizeQuickCreateProject(ctx, user, createSpec.RepoID)
+		if httpErr != nil {
+			http.Error(w, httpErr.Message, httpErr.StatusCode)
+			return
+		}
+		createRepos = append(createRepos, repo)
 	}
 
 	// Get the latest design review specs if available - these contain learnings
@@ -107,9 +133,9 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create projects for repos and clone
-	for _, createSpec := range req.CreateProjects {
+	for i, createSpec := range req.CreateProjects {
 		// Quick-create project for this repo
-		project, err := s.quickCreateProjectForRepo(ctx, createSpec.RepoID, createSpec.Name, user.ID)
+		project, err := s.quickCreateProjectForRepo(ctx, createRepos[i], createSpec.Name, user.ID)
 		if err != nil {
 			response.Errors = append(response.Errors, types.CloneTaskError{
 				RepoID: createSpec.RepoID,
@@ -212,6 +238,7 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		CreatedAt:           time.Now(),
 		UpdatedAt:           time.Now(),
 	}
+	newTask.InitAutoApprovePullRequests(nil, project, userID)
 	if autoStart {
 		newTask.AssigneeID = userID
 		newTask.PlanningStartedBy = userID
@@ -257,13 +284,29 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 	return result, nil
 }
 
-// quickCreateProjectForRepo creates a minimal project for a repository
-func (s *HelixAPIServer) quickCreateProjectForRepo(ctx context.Context, repoID, name, userID string) (*types.Project, error) {
-	// Get the repo
+// authorizeQuickCreateProject loads the repository a quick-created project
+// will be built on and checks the caller may do so. The project inherits the
+// repository's organization; authorizeUserToRepository requires membership of
+// that organization (or ownership, for a repository outside any org), so the
+// project always lands somewhere the caller belongs.
+func (s *HelixAPIServer) authorizeQuickCreateProject(ctx context.Context, user *types.User, repoID string) (*types.GitRepository, *system.HTTPError) {
 	repo, err := s.Store.GetGitRepository(ctx, repoID)
 	if err != nil {
-		return nil, fmt.Errorf("repository not found: %w", err)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("repository not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
 	}
+	if err := s.authorizeUserToRepository(ctx, user, repo, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(fmt.Sprintf("not authorized to use repository %s", repoID))
+	}
+	return repo, nil
+}
+
+// quickCreateProjectForRepo creates a minimal project for a repository. The
+// caller must have authorized the repository with authorizeQuickCreateProject.
+func (s *HelixAPIServer) quickCreateProjectForRepo(ctx context.Context, repo *types.GitRepository, name, userID string) (*types.Project, error) {
+	repoID := repo.ID
 
 	// Use repo name if no name provided
 	if name == "" {
@@ -306,8 +349,19 @@ func (s *HelixAPIServer) quickCreateProjectForRepo(ctx context.Context, repoID, 
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) listCloneGroups(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	taskID := vars["taskId"]
+
+	task, err := s.Store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
+		http.Error(w, "not authorized to access this task", http.StatusForbidden)
+		return
+	}
 
 	groups, err := s.Store.ListCloneGroupsForTask(ctx, taskID)
 	if err != nil {
@@ -331,17 +385,71 @@ func (s *HelixAPIServer) listCloneGroups(w http.ResponseWriter, r *http.Request)
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) getCloneGroupProgress(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	groupID := vars["groupId"]
+
+	group, err := s.Store.GetCloneGroup(ctx, groupID)
+	if err != nil {
+		http.Error(w, "clone group not found", http.StatusNotFound)
+		return
+	}
+	if err := s.authorizeUserToProjectByID(ctx, user, group.SourceProjectID, types.ActionGet); err != nil {
+		http.Error(w, "not authorized to access this clone group", http.StatusForbidden)
+		return
+	}
 
 	progress, err := s.Store.GetCloneGroupProgress(ctx, groupID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to get clone group progress: %v", err), http.StatusNotFound)
 		return
 	}
+	s.filterCloneGroupProgress(ctx, user, progress)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(progress)
+}
+
+// filterCloneGroupProgress drops cloned tasks in target projects the caller
+// cannot read and recomputes the totals over what remains.
+func (s *HelixAPIServer) filterCloneGroupProgress(ctx context.Context, user *types.User, progress *types.CloneGroupProgress) {
+	readable := make(map[string]bool)
+	canRead := func(projectID string) bool {
+		ok, seen := readable[projectID]
+		if !seen {
+			ok = s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet) == nil
+			readable[projectID] = ok
+		}
+		return ok
+	}
+
+	tasks := progress.Tasks[:0]
+	for _, t := range progress.Tasks {
+		if canRead(t.ProjectID) {
+			tasks = append(tasks, t)
+		}
+	}
+	progress.Tasks = tasks
+
+	fullTasks := progress.FullTasks[:0]
+	progress.StatusBreakdown = make(map[string]int)
+	progress.CompletedTasks = 0
+	for _, t := range progress.FullTasks {
+		if !canRead(t.ProjectID) {
+			continue
+		}
+		fullTasks = append(fullTasks, t)
+		progress.StatusBreakdown[t.Status.String()]++
+		if t.Status == types.TaskStatusDone {
+			progress.CompletedTasks++
+		}
+	}
+	progress.FullTasks = fullTasks
+	progress.TotalTasks = len(fullTasks)
+	progress.ProgressPct = 0
+	if progress.TotalTasks > 0 {
+		progress.ProgressPct = (progress.CompletedTasks * 100) / progress.TotalTasks
+	}
 }
 
 // listReposWithoutProjects lists repositories without associated projects
@@ -355,12 +463,37 @@ func (s *HelixAPIServer) getCloneGroupProgress(w http.ResponseWriter, r *http.Re
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) listReposWithoutProjects(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	user := getRequestUser(r)
 	orgID := r.URL.Query().Get("organization_id")
 
-	repos, err := s.Store.ListReposWithoutProjects(ctx, orgID)
+	// Mirrors listGitRepositories: an org scope requires membership, and
+	// without one the list is confined to the caller's own repositories.
+	var ownerID string
+	isOrgOwner := false
+	if orgID != "" {
+		org, err := s.lookupOrg(ctx, orgID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusNotFound)
+			return
+		}
+		orgID = org.ID
+		membership, err := s.authorizeOrgMember(ctx, user, orgID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+		isOrgOwner = membership.Role == types.OrganizationRoleOwner
+	} else if !isAdmin(user) {
+		ownerID = user.ID
+	}
+
+	repos, err := s.Store.ListReposWithoutProjects(ctx, orgID, ownerID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to list repositories: %v", err), http.StatusInternalServerError)
 		return
+	}
+	if !isAdmin(user) && !isOrgOwner {
+		repos = s.filterReadableRepositories(ctx, user, repos)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -399,7 +532,13 @@ func (s *HelixAPIServer) quickCreateProject(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	project, err := s.quickCreateProjectForRepo(ctx, req.RepoID, req.Name, user.ID)
+	repo, httpErr := s.authorizeQuickCreateProject(ctx, user, req.RepoID)
+	if httpErr != nil {
+		http.Error(w, httpErr.Message, httpErr.StatusCode)
+		return
+	}
+
+	project, err := s.quickCreateProjectForRepo(ctx, repo, req.Name, user.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

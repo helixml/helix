@@ -69,6 +69,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
   const lightTheme = useLightTheme()
   const isNarrow = useMediaQuery(theme.breakpoints.down('sm'))
   const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
 
@@ -84,6 +85,18 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
   useEffect(() => {
     setSelectedIndex((current) => (current >= rows.length ? Math.max(rows.length - 1, 0) : current))
   }, [rows.length])
+
+  // Keep the highlighted row in view as the keyboard cursor moves (arrows, ⌘N).
+  // Without this the selection scrolls off-screen in a long project list and
+  // the arrows look like they do nothing. `nearest` only scrolls when needed.
+  useEffect(() => {
+    if (!open) return
+    const row = listRef.current?.querySelector(`[data-row-index="${selectedIndex}"]`)
+    // scrollIntoView is absent in jsdom (tests) and on very old engines.
+    if (row && typeof row.scrollIntoView === 'function') {
+      row.scrollIntoView({ block: 'nearest' })
+    }
+  }, [selectedIndex, open])
 
   const choose = useCallback((row?: Row) => {
     if (!row) return
@@ -155,12 +168,21 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
                 maxHeight: 'calc(100vh - 32px)',
                 borderRadius: '14px',
               }),
-          display: 'flex',
-          flexDirection: 'column',
+          // The flex column lives on an inner Box (below), not the Paper itself:
+          // on iOS a scrollable flex child of the MUI-managed Paper does not
+          // take touch scrolling. Mirrors GlobalSearchDialog, which scrolls.
           overflow: 'hidden',
         },
       }}
     >
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          minHeight: 0,
+        }}
+      >
       <Box
         sx={{
           display: 'flex',
@@ -212,6 +234,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
       </Box>
 
       <Box
+        ref={listRef}
         sx={{
           flex: 1,
           minHeight: 0,
@@ -270,6 +293,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
             role="button"
             tabIndex={-1}
             data-new-chat-row={row.key}
+            data-row-index={index}
             aria-label={`New task in ${row.name}`}
             onMouseEnter={() => setSelectedIndex(index)}
             onClick={() => choose(row)}
@@ -379,6 +403,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
           ))}
         </Box>
       )}
+      </Box>
     </Dialog>
   )
 }

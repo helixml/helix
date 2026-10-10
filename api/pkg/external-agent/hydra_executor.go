@@ -67,6 +67,11 @@ type HydraExecutor struct {
 	// License key for nested Helix instances
 	licenseKey string
 
+	// desktopRootless runs spec-task / agent desktops unprivileged via rootless
+	// Podman instead of Docker --privileged. Default false; gated on a
+	// desktop-image rebuild. See design/2026-10-08-desktop-root-isolation.md.
+	desktopRootless bool
+
 	// Callback to fetch project secrets, set via SetProjectSecretsGetter
 	// after HelixAPIServer is constructed (mirrors SetQuotaManager wiring).
 	getProjectSecrets ProjectSecretsGetter
@@ -117,6 +122,7 @@ type HydraExecutorConfig struct {
 	Connman                       connmanInterface
 	GPUVendor                     string
 	LicenseKey                    string // License key to pass to nested Helix instances
+	DesktopRootless               bool   // run desktops unprivileged via rootless Podman
 }
 
 // NewHydraExecutor creates a new HydraExecutor instance
@@ -133,6 +139,7 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 		creationLocks:                 make(map[string]*sync.Mutex),
 		gpuVendor:                     cfg.GPUVendor,
 		licenseKey:                    cfg.LicenseKey,
+		desktopRootless:               cfg.DesktopRootless,
 	}
 }
 
@@ -247,6 +254,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// Resume, fork, and design-review paths rebuild DesktopAgent from session
 	// metadata, so the owning task remains the source of truth.
 	if err := h.resolveSpecTaskLaunchConfig(ctx, agent); err != nil {
+		return nil, err
+	}
+	if err := validateDesktopRootlessLaunch(agent.DesktopType, agent.CustomImage, agent.NoContainerEngine, h.desktopRootless); err != nil {
 		return nil, err
 	}
 
@@ -432,7 +442,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	isolation := externalAgentIsolation(containerType, agent.NoContainerEngine)
+	isolation := externalAgentIsolation(containerType, agent.NoContainerEngine, h.desktopRootless)
 	log.Info().
 		Str("session_id", agent.SessionID).
 		Bool("privileged", isolation.privileged).
@@ -462,15 +472,16 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Privileged:              isolation.privileged,
 		RootlessContainerEngine: isolation.rootlessContainerEngine,
 		BrowserSandbox:          isolation.browserSandbox,
+		DesktopRootless:         isolation.desktopRootless,
 		ProjectID:               agent.ProjectID,
 		GoldenBuild:             agent.GoldenBuild,
 		// Hydra's golden build monitor uses the API's deadline.
 		GoldenBuildTimeoutSeconds: agent.GoldenBuildTimeoutSeconds,
-		VCPUs:                   agent.VCPUs,
-		MemoryMB:                agent.MemoryMB,
-		DiskSizeGB:              agent.DiskSizeGB,
-		PidsLimit:               agent.PidsLimit,
-		NoNewPrivileges:         agent.NoNewPrivileges,
+		VCPUs:                     agent.VCPUs,
+		MemoryMB:                  agent.MemoryMB,
+		DiskSizeGB:                agent.DiskSizeGB,
+		PidsLimit:                 agent.PidsLimit,
+		NoNewPrivileges:           agent.NoNewPrivileges,
 	}
 
 	// Create dev container via Hydra
@@ -1721,19 +1732,44 @@ type containerIsolation struct {
 	privileged              bool
 	rootlessContainerEngine bool
 	browserSandbox          bool
+	desktopRootless         bool
 }
 
 // externalAgentIsolation decides the per-session container engine. Without
 // one the container is unprivileged, runs no engine, and may only create the
-// namespaces Chrome's renderer sandbox needs.
-func externalAgentIsolation(containerType string, noContainerEngine bool) containerIsolation {
+// namespaces Chrome's renderer sandbox needs. A desktop is privileged today;
+// with desktopRootless it runs unprivileged via rootless Podman instead, so
+// root inside it cannot reach the runner host or sibling tenants (see
+// design/2026-10-08-desktop-root-isolation.md).
+func externalAgentIsolation(containerType string, noContainerEngine, desktopRootless bool) containerIsolation {
 	if noContainerEngine {
 		return containerIsolation{browserSandbox: true}
 	}
 	if containerType == "headless" {
 		return containerIsolation{rootlessContainerEngine: true}
 	}
+	if desktopRootless {
+		return containerIsolation{desktopRootless: true}
+	}
 	return containerIsolation{privileged: true}
+}
+
+func validateDesktopRootlessLaunch(desktopType, customImage string, noContainerEngine, desktopRootless bool) error {
+	if !desktopRootless {
+		return nil
+	}
+	if noContainerEngine || strings.EqualFold(desktopType, "headless") {
+		return nil
+	}
+	if customImage != "" {
+		return fmt.Errorf("desktop rootless mode does not support custom images")
+	}
+	switch strings.ToLower(desktopType) {
+	case "", "ubuntu", "gnome":
+		return nil
+	default:
+		return fmt.Errorf("desktop rootless mode does not support desktop type %q", desktopType)
+	}
 }
 
 func setContainerEnv(env []string, key, value string) []string {
@@ -1780,8 +1816,11 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 	}
 
 	if !agent.NoContainerEngine {
+		// Rootless engines (headless agents, and desktops in rootless mode)
+		// run Podman, whose storage lives under the user's home rather than
+		// /var/lib/docker.
 		containerDataDestination := "/var/lib/docker"
-		if containerType == "headless" {
+		if containerType == "headless" || h.desktopRootless {
 			containerDataDestination = "/home/retro/.local/share/containers"
 		}
 		mounts = append(mounts, hydra.MountConfig{
