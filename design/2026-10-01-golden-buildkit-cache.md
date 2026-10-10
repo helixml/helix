@@ -46,8 +46,15 @@ the old prune.
   `layerdb/mounts/<id>/{mount-id,init-id}` plus those records. Teaching the old
   prune BuildKit's references would mean parsing moby's internal bbolt schema;
   deleting data behind a live database is what caused the corruption above.
-- Instrumentation: `helix-buildkit-cache-stats` (Engine API `/system/df`, exact
-  bytes). The golden build writes `build_end` and `pre_snapshot` to
+- Instrumentation: `helix-buildkit-cache-stats` (record count and total from
+  the Engine API `/system/df`). Cache mount bytes are NOT taken from
+  `/system/df`: BuildKit measures a mutable snapshot once and caches the size
+  (`size` in `buildkit/snapshots.db`) forever, so later builds writing into the
+  mount never change it (2026-10-09: the Zed target mount reported
+  8,942,972,009 bytes in every golden from gen112 to gen129). Each cache mount
+  is resolved record ID → `metadata_v2.db` `_main/<id>/cache.snapshot` →
+  `snapshots.db` `<key>/committed` (else the key) → `overlay2/<id>/diff` and
+  measured on disk (`bytes`, as `du -sb`; `last_written`, newest mtime). The golden build writes `build_end` and `pre_snapshot` to
   `/var/lib/docker/.golden-buildkit-stats.json`; Hydra adds them to
   `GOLDEN_BUILD_SUMMARY` (`buildkit_build_end_bytes`, `buildkit_golden_bytes`,
   `buildkit_golden_cache_mount_bytes`, …); every session logs

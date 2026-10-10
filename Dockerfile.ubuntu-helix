@@ -1177,7 +1177,7 @@ RUN chmod 755 /etc/cont-init.d/16-cpu-tiers.sh /usr/local/libexec/helix/agent-ti
 # rootless Podman for unprivileged headless agents.
 ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
 ADD desktop/shared/headless-containers.conf /opt/helix/headless-containers.conf
-ADD desktop/shared/helix-buildkit-cache-stats.sh /usr/local/bin/helix-buildkit-cache-stats
+ADD desktop/shared/helix-buildkit-cache-stats.py /usr/local/bin/helix-buildkit-cache-stats
 RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh /usr/local/bin/helix-buildkit-cache-stats
 
 # Workspace README

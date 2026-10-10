@@ -727,7 +727,8 @@ func TestReadGoldenBuildKitStats(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, goldenBuildKitStatsFile), []byte(`{
   "build_end": {"records": 120, "total_bytes": 9000, "cache_mount_count": 4, "cache_mount_bytes": 5000,
-                "cache_mounts": [{"mount": "/root/.cargo/registry", "bytes": 3000}]},
+                "cache_mount_last_written": "2026-10-09T22:47:00Z", "cache_mount_unmeasured": 1,
+                "cache_mounts": [{"mount": "/root/.cargo/registry", "id": "abc", "bytes": 3000, "last_written": "2026-10-09T22:47:00Z"}]},
   "pre_snapshot": {"records": 100, "total_bytes": 8000, "cache_mount_count": 4, "cache_mount_bytes": 5000}
 }`), 0644)
 
@@ -738,7 +739,8 @@ func TestReadGoldenBuildKitStats(t *testing.T) {
 	if got == nil || got.BuildEnd == nil || got.PreSnapshot == nil {
 		t.Fatalf("stats not read: %+v", got)
 	}
-	if got.BuildEnd.CacheMountBytes != 5000 || got.PreSnapshot.TotalBytes != 8000 || got.PreSnapshot.Records != 100 {
+	if got.BuildEnd.CacheMountBytes != 5000 || got.PreSnapshot.TotalBytes != 8000 || got.PreSnapshot.Records != 100 ||
+		got.BuildEnd.CacheMountLastWritten != "2026-10-09T22:47:00Z" || got.BuildEnd.CacheMountUnmeasured != 1 {
 		t.Errorf("unexpected stats: build_end=%+v pre_snapshot=%+v", *got.BuildEnd, *got.PreSnapshot)
 	}
 }
