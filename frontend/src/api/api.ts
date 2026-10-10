@@ -4336,6 +4336,10 @@ export interface TypesGitProviderConnectionCreateRequest {
   token?: string;
 }
 
+export interface TypesGitProviderConnectionUpdateRequest {
+  token?: string;
+}
+
 export interface TypesGitRepository {
   /** Provider-specific settings */
   azure_devops?: TypesAzureDevOps;
@@ -12166,6 +12170,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/git-provider-connections/${id}`,
         method: "DELETE",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Validate and replace the token for an existing connection. Stored tokens are never returned. Linked repositories retain their own credentials.
+     *
+     * @tags git-provider-connections
+     * @name V1GitProviderConnectionsUpdate
+     * @summary Replace git provider connection token
+     * @request PUT:/api/v1/git-provider-connections/{id}
+     * @secure
+     */
+    v1GitProviderConnectionsUpdate: (
+      id: string,
+      request: TypesGitProviderConnectionUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesGitProviderConnection, TypesAPIError>({
+        path: `/api/v1/git-provider-connections/${id}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

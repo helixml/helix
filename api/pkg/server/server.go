@@ -1802,6 +1802,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// Git provider connections - persistent PAT-based connections for browsing repositories
 	authRouter.HandleFunc("/git-provider-connections", apiServer.listGitProviderConnections).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git-provider-connections", apiServer.createGitProviderConnection).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git-provider-connections/{id}", apiServer.updateGitProviderConnection).Methods(http.MethodPut)
 	authRouter.HandleFunc("/git-provider-connections/{id}", apiServer.deleteGitProviderConnection).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/git-provider-connections/{id}/repositories", apiServer.browseGitProviderConnectionRepositories).Methods(http.MethodGet)
 

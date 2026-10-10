@@ -5438,6 +5438,74 @@ const docTemplate = `{
             }
         },
         "/api/v1/git-provider-connections/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Validate and replace the token for an existing connection. Stored tokens are never returned. Linked repositories retain their own credentials.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-provider-connections"
+                ],
+                "summary": "Replace git provider connection token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New token",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.GitProviderConnectionUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitProviderConnection"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
             "delete": {
                 "security": [
                     {
@@ -33562,6 +33630,14 @@ const docTemplate = `{
                 "provider_type": {
                     "$ref": "#/definitions/types.ExternalRepositoryType"
                 },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitProviderConnectionUpdateRequest": {
+            "type": "object",
+            "properties": {
                 "token": {
                     "type": "string"
                 }
