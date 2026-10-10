@@ -120,6 +120,14 @@ def restore_repo(repo, golden):
 
     root = os.fsencode(os.path.abspath(repo)) + b"/"
     errors = 0
+    # Directories get the newest time of the tracked files beneath them. A
+    # clone leaves every directory at the clone time, and build tools that
+    # watch a directory (cargo's rerun-if-changed=<dir> takes the newest mtime
+    # of the directory and everything in it) then see a change on every fresh
+    # clone. Deriving directory times from file times keeps them identical
+    # across clones of the same commit and still newer when a file below
+    # changed.
+    dir_times = {}
     for path in files:
         t = times.get(path, oldest)
         if floor is not None and path in changed and t < floor:
@@ -128,11 +136,24 @@ def restore_repo(repo, golden):
             os.utime(root + path, (t, t), follow_symlinks=False)
         except OSError:
             errors += 1
+        parent = os.path.dirname(path)
+        while True:
+            if dir_times.get(parent, -1) >= t:
+                break
+            dir_times[parent] = t
+            if not parent:
+                break
+            parent = os.path.dirname(parent)
+    for d, t in dir_times.items():
+        try:
+            os.utime(root + d if d else root, (t, t), follow_symlinks=False)
+        except OSError:
+            errors += 1
 
     # Re-stat the index so `git status` stays clean and fast.
     subprocess.run(GIT + ["update-index", "--refresh", "-q"], cwd=repo,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return (f"{name}: {len(files)} files, {commits} commits walked, "
+    return (f"{name}: {len(files)} files, {len(dir_times)} dirs, {commits} commits walked, "
             f"{len(files) - len(times)} unseen{note}"
             + (f", {errors} utime errors" if errors else "")
             + f", {time.monotonic() - start:.1f}s")
