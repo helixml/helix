@@ -51,6 +51,106 @@ func TestInteractionQuestionLifecycle(t *testing.T) {
 	}
 }
 
+func TestInteractionCancellationLifecycleClearsIntent(t *testing.T) {
+	tests := []struct {
+		name       string
+		state      types.InteractionState
+		transition func(*MemoryStore, context.Context, string, int) (bool, error)
+	}{
+		{
+			name:  "interrupted",
+			state: types.InteractionStateInterrupted,
+			transition: func(memory *MemoryStore, ctx context.Context, id string, generationID int) (bool, error) {
+				return memory.MarkInteractionInterruptedIfWaiting(ctx, id, generationID)
+			},
+		},
+		{
+			name:  "complete",
+			state: types.InteractionStateComplete,
+			transition: func(memory *MemoryStore, ctx context.Context, id string, generationID int) (bool, error) {
+				return memory.MarkInteractionCompleteIfWaiting(ctx, id, generationID)
+			},
+		},
+		{
+			name:  "error",
+			state: types.InteractionStateError,
+			transition: func(memory *MemoryStore, ctx context.Context, id string, generationID int) (bool, error) {
+				return memory.MarkInteractionErrorIfWaiting(ctx, id, generationID, "test error")
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			memory := New()
+			interaction, err := memory.CreateInteraction(ctx, &types.Interaction{
+				ID: "interaction-cancel", SessionID: "session-cancel", UserID: "user-1",
+				GenerationID: 1, State: types.InteractionStateWaiting,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			requested, err := memory.RequestInteractionCancellationIfWaiting(ctx, interaction.ID, interaction.GenerationID)
+			if err != nil || !requested {
+				t.Fatalf("request cancellation = requested %v, err %v", requested, err)
+			}
+			waiting, err := memory.GetInteraction(ctx, interaction.ID)
+			if err != nil || waiting.ExternalAgentCancelRequestedAt == nil {
+				t.Fatalf("cancellation intent was not persisted: %#v, err %v", waiting, err)
+			}
+
+			transitioned, err := test.transition(memory, ctx, interaction.ID, interaction.GenerationID)
+			if err != nil || !transitioned {
+				t.Fatalf("terminal transition = transitioned %v, err %v", transitioned, err)
+			}
+			final, err := memory.GetInteraction(ctx, interaction.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if final.State != test.state || final.ExternalAgentCancelRequestedAt != nil {
+				t.Fatalf("terminal cancellation state retained intent: %#v", final)
+			}
+		})
+	}
+}
+
+func TestUpdateInteractionTerminalStateClearsCancellationIntent(t *testing.T) {
+	ctx := context.Background()
+	for _, state := range []types.InteractionState{
+		types.InteractionStateComplete,
+		types.InteractionStateError,
+		types.InteractionStateInterrupted,
+	} {
+		t.Run(string(state), func(t *testing.T) {
+			memory := New()
+			interaction, err := memory.CreateInteraction(ctx, &types.Interaction{
+				ID: "interaction-generic-terminal", SessionID: "session-generic-terminal", UserID: "user-1",
+				GenerationID: 1, State: types.InteractionStateWaiting,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			requested, err := memory.RequestInteractionCancellationIfWaiting(ctx, interaction.ID, interaction.GenerationID)
+			if err != nil || !requested {
+				t.Fatalf("request cancellation = requested %v, err %v", requested, err)
+			}
+
+			interaction.State = state
+			if _, err := memory.UpdateInteraction(ctx, interaction); err != nil {
+				t.Fatal(err)
+			}
+			final, err := memory.GetInteraction(ctx, interaction.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if final.State != state || final.ExternalAgentCancelRequestedAt != nil {
+				t.Fatalf("terminal update retained cancellation intent: %#v", final)
+			}
+		})
+	}
+}
+
 func TestSpecTaskThreadTracking(t *testing.T) {
 	ctx := context.Background()
 	store := New()

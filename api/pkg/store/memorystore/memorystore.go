@@ -289,6 +289,11 @@ func (m *MemoryStore) CreateInteraction(_ context.Context, interaction *types.In
 func (m *MemoryStore) UpdateInteraction(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 	m.mu.Lock()
 	cp := *interaction
+	if cp.State == types.InteractionStateComplete ||
+		cp.State == types.InteractionStateError ||
+		cp.State == types.InteractionStateInterrupted {
+		cp.ExternalAgentCancelRequestedAt = nil
+	}
 	if existing, ok := m.interactions[interaction.ID]; ok {
 		cp.PendingQuestion = existing.PendingQuestion
 		cp.QuestionHistory = existing.QuestionHistory
@@ -454,6 +459,7 @@ func (m *MemoryStore) MarkInteractionInterruptedIfWaiting(_ context.Context, int
 	existing.State = types.InteractionStateInterrupted
 	existing.Completed = now
 	existing.Updated = now
+	existing.ExternalAgentCancelRequestedAt = nil
 	return true, nil
 }
 
@@ -493,6 +499,7 @@ func (m *MemoryStore) MarkInteractionCompleteIfWaiting(_ context.Context, intera
 	existing.State = types.InteractionStateComplete
 	existing.Completed = time.Now()
 	existing.Updated = time.Now()
+	existing.ExternalAgentCancelRequestedAt = nil
 	cp := *existing
 	cb := m.OnInteractionUpdated
 	m.mu.Unlock()
@@ -514,6 +521,7 @@ func (m *MemoryStore) MarkInteractionErrorIfWaiting(_ context.Context, interacti
 	existing.Error = reason
 	existing.Completed = time.Now()
 	existing.Updated = time.Now()
+	existing.ExternalAgentCancelRequestedAt = nil
 	cp := *existing
 	cb := m.OnInteractionUpdated
 	m.mu.Unlock()
