@@ -2706,6 +2706,10 @@ func (apiServer *HelixAPIServer) settleUnacknowledgedExternalAgentCancellation(s
 		return
 	}
 	if transitioned {
+		// Resume queued prompts after the durable transition, even if notifying
+		// the frontend below fails. The drain serialises dispatch per session.
+		go apiServer.processAnyPendingPrompt(context.Background(), sessionID)
+
 		log.Warn().
 			Str("session_id", sessionID).
 			Str("interaction_id", interactionID).
