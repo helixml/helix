@@ -86,6 +86,10 @@ type VHostMiddleware struct {
 	next      http.Handler
 }
 
+// domainVerifyPathPrefix is served by domainVerificationResponse and polled
+// by webservice.DomainVerifier.
+const domainVerifyPathPrefix = "/.well-known/helix-domain-verify/"
+
 // NewVHostMiddleware wires the middleware around the next handler
 // (typically the gorilla mux router).
 func NewVHostMiddleware(cfg *VHostMiddlewareConfig, apiServer *HelixAPIServer, next http.Handler) *VHostMiddleware {
@@ -101,6 +105,13 @@ func (m *VHostMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 2. Custom-domain verification must reach the main mux while the
+	// route is still unverified, or verification can never succeed.
+	if strings.HasPrefix(r.URL.Path, domainVerifyPathPrefix) {
+		m.next.ServeHTTP(w, r)
+		return
+	}
+
 	// If vhost feature isn't configured, behave like the old null
 	// middleware: everything goes to main mux.
 	if !m.cfg.Enabled {
@@ -108,7 +119,7 @@ func (m *VHostMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. share-* preview tokens — only the leftmost label matters here.
+	// 3. share-* preview tokens — only the leftmost label matters here.
 	// The hostname must end in the configured base domain, and the
 	// leftmost label must start with the share- prefix.
 	if strings.HasSuffix(host, "."+m.cfg.BaseDomain) {
@@ -119,7 +130,7 @@ func (m *VHostMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. Project web services and static artifacts — any other hostname that
+	// 4. Project web services and static artifacts — any other hostname that
 	// has a verified row. The route row determines the target kind.
 	m.serveVHostLookup(w, r, host, "")
 }
