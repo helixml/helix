@@ -2683,6 +2683,16 @@ func (apiServer *HelixAPIServer) settleUnacknowledgedExternalAgentCancellation(s
 		}
 	}
 
+	interaction, _, err = apiServer.settlePendingQuestionAsCancelled(ctx, interaction)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Str("request_id", requestID).
+			Msg("Failed to settle pending question for unacknowledged external-agent cancellation")
+		return
+	}
+
 	// This request was never acknowledged, so only settle it after confirming the
 	// executor has no live container. Never release queued prompts while an agent
 	// may still run.

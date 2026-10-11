@@ -3945,8 +3945,15 @@ func (s *WebSocketSyncSuite) TestRetryPendingCancellationStopsContainerBeforeSet
 		ID: "int_cancel_retry", SessionID: session.ID, GenerationID: 1,
 		State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_cancel_retry",
 		ExternalAgentCancelRequestedAt: &now,
+		PendingQuestion:                &types.PendingQuestion{RequestID: "question_cancel_retry"},
 	}
-	interrupted := *waiting
+	settled := *waiting
+	settled.PendingQuestion = nil
+	settled.QuestionHistory = []types.ResolvedQuestion{{
+		PendingQuestion: *waiting.PendingQuestion,
+		Outcome:         "cancelled",
+	}}
+	interrupted := settled
 	interrupted.State = types.InteractionStateInterrupted
 	interrupted.ExternalAgentCancelRequestedAt = nil
 
@@ -3958,9 +3965,13 @@ func (s *WebSocketSyncSuite) TestRetryPendingCancellationStopsContainerBeforeSet
 		SessionID: session.ID, SendChan: make(chan types.ExternalAgentCommand),
 	})
 	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil).Times(3)
-	s.store.EXPECT().MarkInteractionInterruptedIfWaiting(
+	resolveQuestion := s.store.EXPECT().ResolveInteractionPendingQuestion(
+		gomock.Any(), waiting.ID, waiting.GenerationID, "question_cancel_retry", "cancelled", map[string]string(nil),
+	).Return(&settled, true, nil)
+	markInterrupted := s.store.EXPECT().MarkInteractionInterruptedIfWaiting(
 		gomock.Any(), waiting.ID, waiting.GenerationID,
 	).Return(true, nil)
+	gomock.InOrder(resolveQuestion, markInterrupted)
 	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(&interrupted, nil)
 	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).Times(2)
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
