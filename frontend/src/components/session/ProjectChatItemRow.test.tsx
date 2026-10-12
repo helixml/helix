@@ -76,7 +76,7 @@ describe('ProjectChatItemRow', () => {
     })
   })
 
-  it('stacks the project name above the title only for cross-project rows', () => {
+  it('names the project on the metadata line only for cross-project rows', () => {
     const { container } = renderRow(quietTask)
     const projectName = screen.getByText('keel')
     const title = screen.getByText('Fix the installer')
@@ -90,8 +90,8 @@ describe('ProjectChatItemRow', () => {
       fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
       fontWeight: '500',
     })
-    expect(container.querySelector('.project-chat-item')).toHaveStyle({ minHeight: '78px' })
-    expect(screen.getByTestId('sidebar-item-metadata')).toHaveTextContent('fix/installer')
+    expect(container.querySelector('.project-chat-item')).toHaveStyle({ minHeight: '56px' })
+    expect(screen.getByTestId('sidebar-item-metadata')).toHaveTextContent('keelfix/installer')
     expect(screen.getByTestId('sidebar-item-harness')).toHaveStyle({ marginLeft: 'auto' })
     expect(screen.getByRole('img', { name: 'Qwen Code' })).toBeInTheDocument()
 

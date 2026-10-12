@@ -37,11 +37,11 @@ export const ProjectRowIcon: FC<{ projectId?: string }> = ({ projectId }) => {
         src={avatarUrl}
         alt=""
         onError={() => setFailedUrl(avatarUrl)}
-        sx={{ width: 16, height: 16, borderRadius: '3px', flexShrink: 0, display: 'block' }}
+        sx={{ width: 12, height: 12, borderRadius: '2px', flexShrink: 0, display: 'block' }}
       />
     )
   }
-  return <Folder size={14} style={{ opacity: 0.72, flexShrink: 0 }} />
+  return <Folder size={11} style={{ flexShrink: 0 }} />
 }
 
 // Workflow badges for a task row in the dense single-line layout: the PR

@@ -35,8 +35,8 @@ export type ProjectChatItemRowProps = {
   defaultBranch?: string
   /**
    * Set when the row sits in a cross-project list (a person's or bot's work).
-   * Switches the row to the stacked layout with the project named above the
-   * title, and feeds the tooltip.
+   * Switches the row to the stacked layout with the project named on the
+   * metadata line under the title, and feeds the tooltip.
    */
   projectName?: string
   onOpenItem: (item: SidebarItem) => void
@@ -68,7 +68,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   // No hover on a phone, so the facts the tooltip carries have to live on the
   // row itself. That makes the row two lines, and taller.
   const isPhone = useIsPhone()
-  // Cross-project lists stack the project name above the title on every
+  // Cross-project lists name the project on the metadata line on every
   // device, so the reader knows where each piece of work lives without
   // hovering.
   const stacked = !!projectName
@@ -99,8 +99,8 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   const showStatusAsTime = stacked && !!status && isActiveSidebarTask(item.task)
 
   // Time + archive occupy the same slot: the time yields to the archive
-  // button on hover. In the stacked layout the slot sits on the project
-  // line (t3-style, time top-right); otherwise on the single content line.
+  // button on hover. In the stacked layout the slot sits top-right on the
+  // title line (t3-style); otherwise on the single content line.
   const timeAndArchive = (
     <Box
       sx={isPhone
@@ -302,6 +302,29 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
       )
     : branchMetadataNode
 
+  const projectNode = stacked && (
+    <Box
+      data-testid="sidebar-item-project"
+      sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, flexShrink: 1, maxWidth: '50%' }}
+    >
+      <ProjectRowIcon projectId={item.projectId} />
+      <Typography
+        component="span"
+        sx={{
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+          lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
+          fontWeight: 500,
+        }}
+      >
+        {projectName}
+      </Typography>
+    </Box>
+  )
+
   const subLineNode = (stacked || (isPhone && hasSubLineDetails)) && (
     <Box
       data-testid="sidebar-item-metadata"
@@ -311,10 +334,11 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         gap: 1,
         minWidth: 0,
         width: '100%',
-        ...(stacked && { height: 16, mt: 0.25 }),
+        ...(stacked && { height: 16, mt: 0.5 }),
         color: sidebarColors.subtleForeground,
       }}
     >
+      {projectNode}
       {branchNode}
       {details?.harness && (
         <Box
@@ -377,10 +401,10 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
       sx={{
         width: '100%',
         minWidth: 0,
-        // Cross-project rows use a stable three-line card; project groups on
+        // Cross-project rows use a stable two-line card; project groups on
         // desktop keep the dense single-line row.
         ...(stacked
-          ? { minHeight: 78, py: 1, flexDirection: 'column', alignItems: 'stretch' }
+          ? { minHeight: 56, py: 1, flexDirection: 'column', alignItems: 'stretch' }
           : isPhone
             ? { minHeight: 52, py: 0.75, flexDirection: 'column', alignItems: 'stretch', gap: 0.25 }
             : { height: 32, flexDirection: 'row', alignItems: 'center', gap: 0.75 }),
@@ -424,30 +448,11 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
       {stacked ? (
         <>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%', height: 20 }}>
-            <ProjectRowIcon projectId={item.projectId} />
-            <Typography
-              component="span"
-              sx={{
-                minWidth: 0,
-                flex: 1,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
-                lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
-                fontWeight: 500,
-                color: sidebarColors.mutedForeground,
-              }}
-            >
-              {projectName}
-            </Typography>
-            {timeAndArchive}
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%', mt: 0.5 }}>
             {titleNode}
             {avatarNode}
             {pinNode}
             {stackedStatusIcons}
+            {timeAndArchive}
           </Box>
           {subLineNode}
         </>
