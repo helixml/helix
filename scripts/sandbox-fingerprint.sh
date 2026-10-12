@@ -43,11 +43,28 @@ git -C "$repo" ls-files -z --cached --others --exclude-standard |
   tar -C "$repo" --null --no-recursion --ignore-failed-read -T - -cf - 2>/dev/null |
   tar -C "$ctx" -xf -
 
-# The final stage's COPY/ADD instructions, continuation lines joined.
+# The final stage's COPY/ADD instructions, continuation lines joined and
+# heredoc bodies (RUN <<EOF ... EOF) skipped so their content is never parsed
+# as instructions.
 mapfile -t instructions < <(awk '
+  nterm > 0 {
+    body = $0
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "", body)
+    if (body == term[1]) { for (i = 1; i < nterm; i++) term[i] = term[i + 1]; nterm-- }
+    next
+  }
   { line = (pending == "" ? $0 : pending " " $0); pending = "" }
   /\\[[:space:]]*$/ { sub(/\\[[:space:]]*$/, "", line); pending = line; next }
-  { print line }
+  {
+    print line
+    rest = line
+    while (match(rest, /<<-?["\047]?[A-Za-z_][A-Za-z0-9_]*/)) {
+      word = substr(rest, RSTART, RLENGTH)
+      rest = substr(rest, RSTART + RLENGTH)
+      sub(/^<<-?["\047]?/, "", word)
+      term[++nterm] = word
+    }
+  }
 ' "$dockerfile" | awk '
   toupper($1) == "FROM" { n = 0; delete keep; next }
   toupper($1) == "COPY" || toupper($1) == "ADD" { keep[n++] = $0 }
