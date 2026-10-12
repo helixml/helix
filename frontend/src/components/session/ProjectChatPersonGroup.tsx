@@ -214,7 +214,7 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
       </Box>
 
       {open && (
-        <Box sx={{ pl: 1.15 }}>
+        <Box sx={{ pl: 1.5 }}>
           {hasError && (
             <Typography color="error" sx={{ px: 1, py: 0.75, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
               Failed to load their work
