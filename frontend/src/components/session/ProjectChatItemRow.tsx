@@ -443,15 +443,13 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
             </Typography>
             {timeAndArchive}
           </Box>
-          <Box sx={{ pl: 1, minWidth: 0 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%', mt: 0.5 }}>
-              {titleNode}
-              {avatarNode}
-              {pinNode}
-              {stackedStatusIcons}
-            </Box>
-            {subLineNode}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%', mt: 0.5 }}>
+            {titleNode}
+            {avatarNode}
+            {pinNode}
+            {stackedStatusIcons}
           </Box>
+          {subLineNode}
         </>
       ) : (
         <>
