@@ -829,6 +829,7 @@ func forwardToDevContainer(w http.ResponseWriter, r *http.Request, targetURL, se
 			w.Header().Add(key, value)
 		}
 	}
+	w.Header().Set(devContainerUpstreamReachedHeader, "1")
 
 	w.WriteHeader(resp.StatusCode)
 
