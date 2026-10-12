@@ -26,6 +26,7 @@ import { TYPOGRAPHY } from '../../styles/typography'
 import {
   buildProjectChatGroups,
   filterProjectChatGroups,
+  sessionDetailToSummary,
 } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 import type { SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
@@ -48,6 +49,8 @@ type ProjectChatGroupProps = {
   visibleThreadCount?: number
   /** Only tasks assigned to these users; omit for everyone's. */
   participantIds?: string[]
+  /** Set when the view is filtered to one member: only their chats and tasks. */
+  ownerId?: string
   /** Every member's chats in this project, not just the viewer's. */
   allMembers?: boolean
   organizationMembers: TypesOrganizationMembership[]
@@ -79,6 +82,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   threadSortOrder = 'updated_at',
   visibleThreadCount = 6,
   participantIds,
+  ownerId,
   allMembers = false,
   organizationMembers,
   currentUser,
@@ -125,7 +129,10 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
       sort: threadSortOrder === 'created_at' ? 'created' : 'last_message',
       archived,
       // Chats outside any project are personal; only project chats are shared.
-      allMembers: allMembers && !!projectId,
+      // A user filter replaces it: one member's chats, not everyone's — the
+      // server ignores owner_id when all_members wins.
+      allMembers: !ownerId && allMembers && !!projectId,
+      ownerId,
     },
   )
   const tasksQuery = useSpecTasks({
@@ -134,7 +141,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
     offset: 0,
     sort: threadSortOrder === 'created_at' ? 'created' : 'last_message',
     archivedOnly: archived,
-    participantIds,
+    participantIds: ownerId ? [ownerId] : participantIds,
     enabled: queriesEnabled && !!projectId,
     refetchInterval: archived ? false : 10000,
   })
@@ -149,15 +156,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
       queryKey: ['pinned-chat-detail', pin.kind, pin.id],
       queryFn: async () => {
         if (pin.kind === 'spec-task') return (await api.getApiClient().v1SpecTasksDetail(pin.id!)).data
-        const session = (await api.getApiClient().v1SessionsDetail(pin.id!)).data
-        return {
-          session_id: session.id,
-          name: session.name,
-          created: session.created,
-          updated: session.updated,
-          metadata: session.config,
-          archived: session.archived,
-        } satisfies TypesSessionSummary
+        return sessionDetailToSummary((await api.getApiClient().v1SessionsDetail(pin.id!)).data)
       },
       enabled: queriesEnabled && !!pin.id,
       staleTime: 10000,
@@ -167,6 +166,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
     groupPins[index]?.kind === 'session'
       && query.data
       && !!(query.data as TypesSessionSummary).archived === archived
+      && (!ownerId || (query.data as TypesSessionSummary).owner === ownerId)
       ? [query.data as TypesSessionSummary]
       : []
   ))
@@ -174,6 +174,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
     groupPins[index]?.kind === 'spec-task'
       && query.data
       && !!(query.data as SpecTask).archived === archived
+      && (!ownerId || (query.data as SpecTask).assignee_id === ownerId)
       ? [query.data as SpecTask]
       : []
   ))
@@ -207,9 +208,10 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const activateGroup = onNewTask || onToggle
 
   const participantScope = (participantIds || []).join('\u0000')
+  const ownerScope = ownerId || ''
   useEffect(() => {
     setVisibility('unknown')
-  }, [archived, participantScope])
+  }, [archived, participantScope, ownerScope])
 
   const hasVisibleItems = items.length > 0 || hasMore
   useEffect(() => {
@@ -217,7 +219,9 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
     setVisibility(hasVisibleItems ? 'visible' : 'empty')
   }, [hasError, hasVisibleItems, isLoading, projectId])
 
-  if (projectId && archived && !isLoading && !hasError && !hasVisibleItems) {
+  // The archived view and a user filter both narrow the list to matching
+  // threads, so a project with nothing left stops taking up the sidebar.
+  if (projectId && (archived || !!ownerId) && !isLoading && !hasError && !hasVisibleItems) {
     return null
   }
 

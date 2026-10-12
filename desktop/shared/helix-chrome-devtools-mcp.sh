@@ -1,19 +1,27 @@
 #!/bin/bash
 set -euo pipefail
 
-# One Chrome per sandbox, shared by every chrome-devtools-mcp server.
+# One Chrome per sandbox, shared by every chrome-devtools-mcp server, started
+# only when a browser tool first needs it.
 #
 # Some harnesses (DeepSeek Harness, Goose) start a new MCP server for every
 # ACP session and never stop the old ones. When each server launched its own
 # Chrome on the persistent profile, the first Chrome kept the profile lock and
 # every later server failed with "The browser is already running for
 # .../.chrome-state" — the agent then spent minutes killing Chrome by hand.
-# Instead, the first server starts Chrome with a loopback debugging port and
-# every server attaches to it with --browserUrl. Logins also survive a new
-# thread, because it is the same browser.
+# So every server attaches with --browserUrl to one loopback debugging port.
+# Logins also survive a new thread, because it is the same browser.
+#
+# Zed and the agent start their MCP servers with every session, but most
+# sessions never use the browser, and Chrome costs over a gigabyte. The
+# debugging port is therefore a socat listener: the first connection to it
+# (chrome-devtools-mcp connects on its first tool call) runs this script with
+# --helix-connect, which starts Chrome on an internal port and relays to it.
 
 CHROME_DEBUG_PORT="${HELIX_CHROME_DEBUG_PORT:-9222}"
+CHROME_INTERNAL_PORT="${HELIX_CHROME_INTERNAL_PORT:-9223}"
 CHROME_URL="http://127.0.0.1:${CHROME_DEBUG_PORT}"
+CHROME_INTERNAL_URL="http://127.0.0.1:${CHROME_INTERNAL_PORT}"
 CHROME_BIN="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
 # Another chrome-devtools-mcp build (e.g. a version under test) can be used
 # with the shared browser by pointing this at its binary.
@@ -26,6 +34,16 @@ for arg in "$@"; do
         exec "$MCP_BIN" "$@"
     fi
 done
+
+# socat runs the relay with the arguments of the server that started it.
+connect=false
+if [ "${1:-}" = "--helix-connect" ]; then
+    connect=true
+    server_args=()
+    [ -z "${HELIX_CHROME_SERVER_ARGS:-}" ] || mapfile -t server_args <<< "$HELIX_CHROME_SERVER_ARGS"
+    set -- "${server_args[@]}"
+fi
+server_args=("$@")
 
 # Coding harnesses intentionally pass a minimal environment to MCP servers.
 # Restore the graphical-session variables Chrome needs, selecting the newest
@@ -77,7 +95,7 @@ headless_user_agent() {
 }
 
 chrome_running() {
-    curl -fsS --max-time 2 "$CHROME_URL/json/version" >/dev/null 2>&1
+    curl -fsS --max-time 2 "$CHROME_INTERNAL_URL/json/version" >/dev/null 2>&1
 }
 
 wait_for_chrome() {
@@ -90,17 +108,21 @@ wait_for_chrome() {
 
 # Chrome's profile lock is a symlink to "<hostname>-<pid>". A live owner on
 # this host is a Chrome that is still starting or has stalled, not a crash.
+# A killed Chrome stays a zombie until its parent reaps it, and the parent can
+# be a long-lived MCP server or relay that never does, so zombies are dead.
 profile_lock_owner_alive() {
-    local target
+    local target state
     target=$(readlink "$user_data_dir/SingletonLock" 2>/dev/null) || return 1
-    [ "${target%-*}" = "$(hostname)" ] && kill -0 "${target##*-}" 2>/dev/null
+    [ "${target%-*}" = "$(hostname)" ] || return 1
+    state=$(ps -o stat= -p "${target##*-}") || return 1
+    [[ "$state" != Z* ]]
 }
 
 start_chrome() {
     local width="${viewport%x*}" height="${viewport#*x}"
     local flags=(
         "--user-data-dir=$user_data_dir"
-        "--remote-debugging-port=$CHROME_DEBUG_PORT"
+        "--remote-debugging-port=$CHROME_INTERNAL_PORT"
         "--remote-debugging-address=127.0.0.1"
         "--window-size=${width},$((height + 80))"
         "--no-default-browser-check"
@@ -127,7 +149,7 @@ start_chrome() {
     # come up; a second Chrome on the same profile would corrupt it.
     if profile_lock_owner_alive; then
         wait_for_chrome && return 0
-        echo "helix-chrome-devtools-mcp: a Chrome holds $user_data_dir but does not answer on $CHROME_URL" >&2
+        echo "helix-chrome-devtools-mcp: a Chrome holds $user_data_dir but does not answer on $CHROME_INTERNAL_URL" >&2
         return 1
     fi
     # The lock's owner is gone (a crash, or a previous container: Chrome
@@ -138,15 +160,42 @@ start_chrome() {
     # for as long as it runs.
     setsid "$CHROME_BIN" "${flags[@]}" about:blank >/tmp/helix-chrome.log 2>&1 < /dev/null 9>&- &
     wait_for_chrome && return 0
-    echo "helix-chrome-devtools-mcp: Chrome did not open $CHROME_URL; see /tmp/helix-chrome.log" >&2
+    echo "helix-chrome-devtools-mcp: Chrome did not open $CHROME_INTERNAL_URL; see /tmp/helix-chrome.log" >&2
     return 1
 }
 
-# Several MCP servers can start at once; only one may launch the browser.
+listener_running() {
+    ss -Hltn "sport = :$CHROME_DEBUG_PORT" | grep -q .
+}
+
+start_listener() {
+    local self
+    self=$(readlink -f "$0")
+    # Detached, like the browser, and without the lock descriptor.
+    HELIX_CHROME_SERVER_ARGS="$(printf '%s\n' "${server_args[@]}")" setsid socat \
+        "TCP-LISTEN:$CHROME_DEBUG_PORT,bind=127.0.0.1,reuseaddr,fork" \
+        "EXEC:$self --helix-connect" >/tmp/helix-chrome-proxy.log 2>&1 < /dev/null 9>&- &
+    for _ in $(seq 1 50); do
+        listener_running && return 0
+        sleep 0.1
+    done
+    echo "helix-chrome-devtools-mcp: nothing listens on $CHROME_URL; see /tmp/helix-chrome-proxy.log" >&2
+    return 1
+}
+
+# Several MCP servers and connections can start at once; only one may launch
+# the listener or the browser.
 exec 9>"/tmp/helix-chrome.lock"
 flock 9
-chrome_running || start_chrome
+if $connect; then
+    chrome_running || start_chrome
+else
+    listener_running || start_listener
+fi
 flock -u 9
 exec 9>&-
 
+if $connect; then
+    exec socat STDIO "TCP:127.0.0.1:$CHROME_INTERNAL_PORT"
+fi
 exec "$MCP_BIN" --browserUrl "$CHROME_URL" "${mcp_args[@]}"

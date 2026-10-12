@@ -17,23 +17,24 @@ import (
 // recordingPort is a configurable runtime.SpecTasks for the tool tests.
 type recordingPort struct {
 	runtime.NoopSpecTasks
-	createIn     runtime.CreateSpecTaskInput
-	lastProject  string
-	lastTaskID   string
-	lastComment  string
-	lastFilter   runtime.ListSpecTasksFilter
-	updateIn     runtime.UpdateSpecTaskInput
-	stopCalls    int
-	startCalls   int
-	restartCalls int
-	messageIn    runtime.SpecTaskMessageInput
-	view         runtime.SpecTaskView
-	review       runtime.SpecReviewView
-	action       runtime.SpecTaskAgentActionView
-	message      runtime.SpecTaskMessageView
-	messages     []runtime.SpecTaskAgentMessageView
-	lastLimit    int
-	err          error
+	createIn      runtime.CreateSpecTaskInput
+	lastProject   string
+	lastTaskID    string
+	lastComment   string
+	lastFilter    runtime.ListSpecTasksFilter
+	updateIn      runtime.UpdateSpecTaskInput
+	stopCalls     int
+	completeCalls int
+	startCalls    int
+	restartCalls  int
+	messageIn     runtime.SpecTaskMessageInput
+	view          runtime.SpecTaskView
+	review        runtime.SpecReviewView
+	action        runtime.SpecTaskAgentActionView
+	message       runtime.SpecTaskMessageView
+	messages      []runtime.SpecTaskAgentMessageView
+	lastLimit     int
+	err           error
 }
 
 func (p *recordingPort) Create(_ context.Context, _ string, _ orgchart.NodeID, projectID string, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
@@ -71,6 +72,11 @@ func (p *recordingPort) StartAgent(_ context.Context, _ string, _ orgchart.NodeI
 	p.lastProject, p.lastTaskID = projectID, id
 	p.startCalls++
 	return p.action, p.err
+}
+func (p *recordingPort) Complete(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecTaskView, error) {
+	p.lastProject, p.lastTaskID = projectID, id
+	p.completeCalls++
+	return p.view, p.err
 }
 func (p *recordingPort) StopAgent(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecTaskView, error) {
 	p.lastProject, p.lastTaskID = projectID, id
@@ -234,6 +240,18 @@ func TestStopSpecTaskAgentTool(t *testing.T) {
 	}
 	if p.stopCalls != 1 || p.lastTaskID != "task_1" {
 		t.Errorf("stop calls/task = %d/%q", p.stopCalls, p.lastTaskID)
+	}
+}
+
+func TestCompleteSpecTaskTool(t *testing.T) {
+	t.Parallel()
+	p := &recordingPort{view: runtime.SpecTaskView{ID: "task_1", Status: "done"}}
+	tl := mcptools.NewCompleteSpecTask(depsWithPort(p))
+	if _, err := tl.Invoke(context.Background(), callerInv(`{"project_id":"prj_other","task_id":"task_1"}`)); err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if p.completeCalls != 1 || p.lastProject != "prj_other" || p.lastTaskID != "task_1" {
+		t.Errorf("complete calls/project/task = %d/%q/%q", p.completeCalls, p.lastProject, p.lastTaskID)
 	}
 }
 

@@ -433,7 +433,7 @@ func ShortHash(hash string) string {
 
 // PreReceiveHookVersion is incremented when the hook logic changes.
 // The hook script contains this version and will be updated if it differs.
-const PreReceiveHookVersion = "5"
+const PreReceiveHookVersion = "6"
 
 // preReceiveHookScript is the shell script that:
 // 1. Protects helix-specs branch from force pushes
@@ -514,8 +514,9 @@ while read oldrev newrev refname; do
                 echo "hint: spec_review it is waiting for its specs to be approved, and until then it cannot" >&2
                 echo "hint: push code anywhere. This is not a credentials problem." >&2
             else
-                echo "hint: Push to your assigned feature branch instead." >&2
-                echo "hint: The same branch name is used across every repo in the project." >&2
+                echo "hint: Push to your assigned feature branch instead, or to get a new branch, propose a" >&2
+                echo "hint: pull request from it with the propose_pull_request tool: once the user approves it," >&2
+                echo "hint: you may push to that branch. This is not a credentials problem." >&2
             fi
             exit 1
         fi

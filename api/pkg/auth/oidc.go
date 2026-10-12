@@ -64,6 +64,13 @@ type OIDCConfig struct {
 	// AllowedEmailDomains restricts login/registration to these email domains
 	// (lowercased, e.g. "helix.ml"). Empty means no restriction.
 	AllowedEmailDomains []string
+	// WaitlistOutsideAllowedDomains changes how AllowedEmailDomains is enforced.
+	// When false (default), verified emails outside the allowed domains are
+	// rejected outright. When true (and AllowedEmailDomains is non-empty), they
+	// may sign in but new accounts are created waitlisted until an admin approves
+	// them; allowed-domain users are never waitlisted (AUTH_WAITLIST_ENABLED is
+	// ignored for OIDC sign-ups in this mode). Unverified emails are always rejected.
+	WaitlistOutsideAllowedDomains bool
 }
 
 func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
@@ -328,10 +335,12 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 	// any user or granting access. Without this gate, any verified OIDC account is
 	// accepted even on deployments that intend to restrict sign-in to a specific
 	// domain. Empty AllowedEmailDomains means no restriction (default).
-	if !emailDomainAllowed(userInfo.Email, userInfo.EmailVerified, c.cfg.AllowedEmailDomains) {
+	domainAccess := classifyEmailDomain(userInfo.Email, userInfo.EmailVerified, c.cfg.AllowedEmailDomains, c.cfg.WaitlistOutsideAllowedDomains)
+	if domainAccess == domainAccessRejected {
 		log.Warn().Str("email", userInfo.Email).Msg("OIDC login rejected: email domain not allowed")
 		return nil, fmt.Errorf("access restricted: email domain not permitted")
 	}
+	outsideAllowedDomains := domainAccess == domainAccessWaitlist
 
 	// Try to get the user from the database by their OIDC subject ID
 	user, err := c.store.GetUser(ctx, &store.GetUserQuery{
@@ -364,7 +373,7 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 			Email:      userInfo.Email,
 			FullName:   fullName,
 			CreatedAt:  time.Now(),
-			Waitlisted: c.cfg.Waitlist,
+			Waitlisted: c.newUserWaitlisted(outsideAllowedDomains),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create user: %w", err)
@@ -389,8 +398,10 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		}
 	}
 
-	// Auto-join organization by email domain (OIDC only, with verified email)
-	if userInfo.EmailVerified && userInfo.Email != "" {
+	// Auto-join organization by email domain (OIDC only, with verified email).
+	// Never for users outside the allowed domains: their domain was not vouched
+	// for, so they only get org access via an explicit invitation.
+	if userInfo.EmailVerified && userInfo.Email != "" && !outsideAllowedDomains {
 		c.tryAutoJoinOrganization(ctx, userInfo.Subject, userInfo.Email)
 	}
 
@@ -477,6 +488,43 @@ func ParseEmailDomains(s string) []string {
 		}
 	}
 	return domains
+}
+
+type domainAccess int
+
+const (
+	// domainAccessAllowed: no restriction configured, or verified email in an allowed domain.
+	domainAccessAllowed domainAccess = iota
+	// domainAccessWaitlist: verified email outside the allowed domains, and
+	// WaitlistOutsideAllowedDomains is on — sign-in allowed, new users waitlisted.
+	domainAccessWaitlist
+	// domainAccessRejected: sign-in refused.
+	domainAccessRejected
+)
+
+// classifyEmailDomain decides how an OIDC login is treated based on its email
+// domain. With waitlistOutside false this is exactly emailDomainAllowed.
+func classifyEmailDomain(email string, verified bool, allowed []string, waitlistOutside bool) domainAccess {
+	if emailDomainAllowed(email, verified, allowed) {
+		return domainAccessAllowed
+	}
+	// Only reachable with a non-empty allowed list. Unverified emails are never
+	// waitlisted — the domain claim can't be trusted.
+	if waitlistOutside && verified {
+		return domainAccessWaitlist
+	}
+	return domainAccessRejected
+}
+
+// newUserWaitlisted decides the initial Waitlisted flag for a user created on
+// first OIDC login. In waitlist-outside-domains mode the domain list is the
+// waitlist policy: outside → waitlisted, allowed → not. Otherwise the global
+// AUTH_WAITLIST_ENABLED setting applies.
+func (c *OIDCClient) newUserWaitlisted(outsideAllowedDomains bool) bool {
+	if c.cfg.WaitlistOutsideAllowedDomains && len(c.cfg.AllowedEmailDomains) > 0 {
+		return outsideAllowedDomains
+	}
+	return c.cfg.Waitlist
 }
 
 // emailDomainAllowed reports whether an OIDC login should be permitted based on

@@ -113,6 +113,27 @@ const renderAccessibleEmptyProject = (archived = false) => render(
   />,
 )
 
+const renderUserFilteredProject = (ownerId?: string) => render(
+  <ProjectChatGroup
+    orgId="org-one"
+    project={{ id: 'project-one', name: 'User filtered project' }}
+    collapsed={false}
+    query=""
+    activeItemId=""
+    relativeTimeNow={Date.now()}
+    enabled
+    allMembers
+    ownerId={ownerId}
+    organizationMembers={[]}
+    archivingItemId={null}
+    onToggle={vi.fn()}
+    onNewTask={vi.fn()}
+    onOpenItem={vi.fn()}
+    onOpenItemContextMenu={vi.fn()}
+    onArchiveItem={vi.fn()}
+  />,
+)
+
 describe('ProjectChatGroup', () => {
   it('shows an expanded empty project the user can access', async () => {
     mocks.emptySessions = true
@@ -142,6 +163,31 @@ describe('ProjectChatGroup', () => {
     renderAccessibleEmptyProject(true)
 
     await waitFor(() => expect(screen.queryByText('Accessible empty project')).not.toBeInTheDocument())
+  })
+
+  it('queries one member\'s chats and tasks when a user filter is set', () => {
+    renderUserFilteredProject('user-one')
+
+    const sessionsOptions = mocks.sessionOptions.at(-1)
+    expect(sessionsOptions?.ownerId).toBe('user-one')
+    expect(sessionsOptions?.allMembers).toBeFalsy()
+    expect(mocks.taskOptions.at(-1)?.participantIds).toEqual(['user-one'])
+  })
+
+  it('queries everyone when no user filter is set', () => {
+    renderUserFilteredProject(undefined)
+
+    const sessionsOptions = mocks.sessionOptions.at(-1)
+    expect(sessionsOptions?.ownerId).toBeUndefined()
+    expect(sessionsOptions?.allMembers).toBe(true)
+    expect(mocks.taskOptions.at(-1)?.participantIds).toBeUndefined()
+  })
+
+  it('hides a project with nothing left for the filtered user', async () => {
+    mocks.emptySessions = true
+    renderUserFilteredProject('user-one')
+
+    await waitFor(() => expect(screen.queryByText('User filtered project')).not.toBeInTheDocument())
   })
 
   it('stops querying after a collapsed group proves it has visible items', async () => {

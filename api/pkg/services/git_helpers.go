@@ -114,30 +114,6 @@ func (g *GitRepo) ReadFileFromBranch(branchName, filePath string) ([]byte, error
 	return []byte(content), nil
 }
 
-// IsBranchMergedInto checks if sourceBranch is merged into targetBranch.
-// Equivalent to: git branch --merged <target> --list <source>
-func (g *GitRepo) IsBranchMergedInto(sourceBranch, targetBranch string) (bool, error) {
-	sourceCommit, err := g.repo.GetBranchCommit(sourceBranch)
-	if err != nil {
-		return false, fmt.Errorf("source branch %s not found: %w", sourceBranch, err)
-	}
-
-	targetCommit, err := g.repo.GetBranchCommit(targetBranch)
-	if err != nil {
-		return false, fmt.Errorf("target branch %s not found: %w", targetBranch, err)
-	}
-
-	// Check if source commit is an ancestor of target commit using git merge-base
-	_, _, err = gitcmd.NewCommand("merge-base", "--is-ancestor").
-		AddDynamicArguments(sourceCommit.ID.String(), targetCommit.ID.String()).
-		RunStdString(g.ctx, &gitcmd.RunOpts{Dir: g.path})
-	if err != nil {
-		// Exit code 1 means not an ancestor, exit code 0 means it is
-		return false, nil // Not an ancestor
-	}
-	return true, nil // Is an ancestor
-}
-
 // GetChangedFilesInCommit returns files changed in a specific commit.
 // Uses gitea's high-level GetCommitFileStatus API.
 func (g *GitRepo) GetChangedFilesInCommit(commitHash string) ([]string, error) {

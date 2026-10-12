@@ -1888,6 +1888,7 @@ var HELIX_OWNED_CONTEXT_SERVERS = map[string]bool{
 	"chrome-devtools": true,
 	"helix-session":   true,
 	"helix-desktop":   true,
+	"helix-viz":       true,
 	// helix-tasks carries a ?rev= fingerprint of the task's tool list; a stale
 	// on-disk entry winning the merge would pin the agent to an old surface.
 	"helix-tasks": true,

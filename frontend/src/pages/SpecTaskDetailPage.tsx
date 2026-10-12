@@ -13,11 +13,13 @@ import { TypesSpecTask } from "../api/api";
 
 import Page from "../components/system/Page";
 import SpecTaskDetailContent from "../components/tasks/SpecTaskDetailContent";
+import { chatRouteAfterLeavingItem } from "../components/session/ProjectChatSidebar.logic";
 import { useSpecTask } from "../services/specTaskService";
 import { useGetProject } from "../services";
 import useAccount from "../hooks/useAccount";
 import { cacheTaskName } from "../lib/navHistory";
 import { shouldAutoOpenSpecTaskReview } from "../lib/specTaskAutoOpen";
+import NotFound from "./NotFound";
 
 /**
  * SpecTaskDetailPage - Standalone page for viewing spec task details
@@ -42,8 +44,10 @@ const SpecTaskDetailPage: FC = () => {
   });
 
   useEffect(() => {
-    if (taskId && task?.name) cacheTaskName(taskId, task.name)
-  }, [taskId, task?.name])
+    if (taskId && task?.name && task.project_id === projectId) {
+      cacheTaskName(taskId, task.name);
+    }
+  }, [projectId, taskId, task?.name, task?.project_id]);
 
   const { data: project, isLoading: projectLoading } = useGetProject(
     projectId,
@@ -52,6 +56,13 @@ const SpecTaskDetailPage: FC = () => {
 
   const handleBack = () => {
     account.orgNavigate("project-specs", { id: projectId });
+  };
+
+  // Archiving from the chat view keeps you in chat rather than dropping you
+  // onto the project board.
+  const handleTaskArchived = () => {
+    const target = chatRouteAfterLeavingItem(projectId);
+    account.orgNavigate(target.name, target.params);
   };
 
   const handleOpenInWorkspace = () => {
@@ -79,6 +90,10 @@ const SpecTaskDetailPage: FC = () => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [createDialogOpen]);
+
+  if (task && task.project_id !== projectId) {
+    return <NotFound />;
+  }
 
   if (taskLoading || projectLoading) {
     return (
@@ -153,6 +168,7 @@ const SpecTaskDetailPage: FC = () => {
           <SpecTaskDetailContent
             taskId={taskId}
             onClose={handleBack}
+            onTaskArchived={isChatView ? handleTaskArchived : undefined}
             allowContentCollapse={isChatView}
             padContent
             autoOpenReview={shouldAutoOpenSpecTaskReview(route.name)}

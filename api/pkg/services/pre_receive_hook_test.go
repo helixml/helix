@@ -56,16 +56,17 @@ func TestPreReceiveHookExplainsMissingFeatureBranch(t *testing.T) {
 	}
 }
 
-// When a feature branch DOES exist, the original advice is correct — and worth
-// adding that the same name is used in every repo of the project, since the
-// allow-list is not repo-scoped.
+// When a feature branch DOES exist, point at it — and at the only way to get
+// another branch: propose a pull request from it and have the user approve.
 func TestPreReceiveHookAdvisesAssignedBranch(t *testing.T) {
 	out, ok := runHook(t, "helix-specs,feature/002667-x", zeroRev+" "+someRev+" refs/heads/fix/other")
 	if ok {
 		t.Fatal("push should have been refused")
 	}
-	if !strings.Contains(out, "Push to your assigned feature branch instead") {
-		t.Errorf("expected the assigned-branch hint, got:\n%s", out)
+	for _, want := range []string{"Push to your assigned feature branch instead", "propose_pull_request"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected hint %q, got:\n%s", want, out)
+		}
 	}
 	if strings.Contains(out, "no feature branch assigned") {
 		t.Errorf("wrong branch of the hint fired, got:\n%s", out)

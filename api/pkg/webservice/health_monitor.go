@@ -26,11 +26,18 @@ type HealthMonitor struct {
 	cooldown      time.Duration // minimum gap between recoveries for one project
 	buildTimeout  time.Duration // a build older than this is treated as stuck/interrupted
 
-	mu         sync.Mutex
-	fails      map[string]int       // projectID -> consecutive probe failures
-	lastRecov  map[string]time.Time // projectID -> last recovery trigger time
-	recovFails map[string]int       // projectID -> consecutive FAILED recoveries (drives backoff + looping alert)
-	prevActive map[string]struct{}  // active project set from the last tick (for metric GC)
+	mu          sync.Mutex
+	fails       map[string]int       // projectID -> consecutive probe failures
+	lastRecov   map[string]time.Time // projectID -> last recovery trigger time
+	recovFails  map[string]int       // projectID -> consecutive FAILED recoveries (drives backoff + looping alert)
+	prevActive  map[string]struct{}  // active project set from the last tick (for metric GC)
+	projectInfo map[string]webServiceMetricInfo
+}
+
+type webServiceMetricInfo struct {
+	projectName      string
+	organizationID   string
+	organizationName string
 }
 
 // loopingAlertThreshold is the number of consecutive failed recoveries after
@@ -58,6 +65,7 @@ func NewHealthMonitor(s store.Store, c *Controller) *HealthMonitor {
 		lastRecov:     map[string]time.Time{},
 		recovFails:    map[string]int{},
 		prevActive:    map[string]struct{}{},
+		projectInfo:   map[string]webServiceMetricInfo{},
 	}
 }
 
@@ -101,6 +109,7 @@ func (m *HealthMonitor) runOnce(ctx context.Context) {
 	for _, st := range states {
 		pid := st.ProjectID
 		active[pid] = struct{}{}
+		m.refreshProjectInfo(ctx, pid)
 		// A deploy in flight (initial `docker compose up --build` or a redeploy)
 		// legitimately won't answer for minutes — don't treat that as unhealthy.
 		// Recovering mid-build needlessly restarts the stack, and for a slow build
@@ -120,6 +129,41 @@ func (m *HealthMonitor) runOnce(ctx context.Context) {
 		m.onFailure(pid)
 	}
 	m.gc(active)
+}
+
+func (m *HealthMonitor) refreshProjectInfo(ctx context.Context, projectID string) {
+	project, err := m.store.GetProject(ctx, projectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).
+			Msg("health-monitor: get project metadata failed")
+		return
+	}
+	organizationName := "personal"
+	if project.OrganizationID != "" {
+		org, err := m.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: project.OrganizationID})
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", projectID).Str("organization_id", project.OrganizationID).
+				Msg("health-monitor: get organization metadata failed")
+			return
+		}
+		organizationName = org.Name
+	}
+	next := webServiceMetricInfo{
+		projectName:      project.Name,
+		organizationID:   project.OrganizationID,
+		organizationName: organizationName,
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	previous, exists := m.projectInfo[projectID]
+	if exists && previous == next {
+		return
+	}
+	if exists {
+		metricInfo.DeleteLabelValues(projectID, previous.projectName, previous.organizationID, previous.organizationName)
+	}
+	metricInfo.WithLabelValues(projectID, next.projectName, next.organizationID, next.organizationName).Set(1)
+	m.projectInfo[projectID] = next
 }
 
 // deployInProgress reports whether the project's most recent web-service deploy
@@ -347,6 +391,11 @@ func (m *HealthMonitor) gc(active map[string]struct{}) {
 	for pid := range m.recovFails {
 		if gone(pid) {
 			delete(m.recovFails, pid)
+		}
+	}
+	for pid := range m.projectInfo {
+		if gone(pid) {
+			delete(m.projectInfo, pid)
 		}
 	}
 	// Forget metric series for projects we tracked last tick but are no longer

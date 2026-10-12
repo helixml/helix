@@ -14,6 +14,11 @@ import { CollapsibleToolCall } from "./CollapsibleToolCall";
 import ActivitySummary from "./ActivitySummary";
 import SubagentActivityCard from "./SubagentActivityCard";
 import { parseSubagentEntry } from "./subagentActivity";
+import VisualizationFrame from "./VisualizationFrame";
+import {
+  parseVisualizationReference,
+  type VisualizationReference,
+} from "./visualizationTheme";
 import { SessionPlanProgress } from "./PlanProgress";
 import { getInteractionDurationMs } from "./interactionDuration";
 import ImageLightbox, { LightboxImage } from "./ImageLightbox";
@@ -64,11 +69,18 @@ interface QuestionActivitySegment {
   answer: TypesResolvedQuestion;
 }
 
+interface VisualizationActivitySegment {
+  type: "visualization";
+  index: number;
+  visualization: VisualizationReference;
+}
+
 type ActivitySegment =
   | TextActivitySegment
   | ToolActivitySegment
   | SubagentActivitySegment
-  | QuestionActivitySegment;
+  | QuestionActivitySegment
+  | VisualizationActivitySegment;
 
 const hasThinking = (content: string) => /<(?:think|thinking)>/i.test(content);
 
@@ -125,6 +137,17 @@ export function buildActivityTimeline(
         }
         return;
       }
+      // A completed html_render tool call carries a visualization reference in
+      // its content (via a marker robust to harness formatting). Render the page
+      // inline instead of the raw tool row. Until the result arrives (still
+      // streaming), there is no marker and it shows as a normal tool call.
+      const visualization = parseVisualizationReference(entry.content || "");
+      if (visualization) {
+        currentToolSegment = undefined;
+        activitySegments.push({ type: "visualization", index, visualization });
+        return;
+      }
+
       const questionIndex = remainingQuestions.findIndex(
         (question) =>
           Boolean(question.tool_call_id) &&
@@ -327,6 +350,16 @@ export const MessageWithToolCalls: FC<{
         );
       }
 
+      if (segment.type === "visualization") {
+        return (
+          <VisualizationFrame
+            key={`visualization-${segment.visualization.id}`}
+            sessionId={session.id || ""}
+            visualization={segment.visualization}
+          />
+        );
+      }
+
       return (
         <Markdown
           key={`activity-text-${segment.index}`}
@@ -345,11 +378,20 @@ export const MessageWithToolCalls: FC<{
     const subagentActivity = activitySegments
       .filter((segment) => segment.type === "subagent")
       .map(renderActivitySegment);
+    // Visualizations (html_render pages) render prominently above the reply,
+    // like the agent intends — never buried inside the collapsed work log.
+    const visualizationActivity = activitySegments
+      .filter((segment) => segment.type === "visualization")
+      .map(renderActivitySegment);
     const collapsibleActivity = activitySegments
-      .filter((segment) => segment.type !== "subagent")
+      .filter((segment) => segment.type !== "subagent" && segment.type !== "visualization")
       .map(renderActivitySegment);
     const hasCollapsibleActivity = collapsibleActivity.length > 0;
-    const streamingActivity = activitySegments.map(renderActivitySegment);
+    // During streaming, non-visualization segments stream inside the live log;
+    // visualizations are pulled out and shown above the reply as they arrive.
+    const streamingActivity = activitySegments
+      .filter((segment) => segment.type !== "visualization")
+      .map(renderActivitySegment);
     const finalEntry = finalTextIndex === undefined ? undefined : responseEntries[finalTextIndex];
     const finalContent = finalEntry ? (
       <Markdown
@@ -374,6 +416,7 @@ export const MessageWithToolCalls: FC<{
           isStreaming
           startedAt={activityStartedAt}
         />
+        {visualizationActivity}
       </>
     ) : (
       <>
@@ -387,6 +430,7 @@ export const MessageWithToolCalls: FC<{
           {collapsibleActivity}
         </ActivitySummary>
         {planProgress}
+        {visualizationActivity}
         {finalContent}
       </>
     );

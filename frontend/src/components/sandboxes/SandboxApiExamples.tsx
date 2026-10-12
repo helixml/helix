@@ -29,10 +29,11 @@ interface SandboxApiExamplesProps {
   memoryMb: number
   timeoutSeconds: number
   persistent: boolean
-  // apiKey is the first organization API key. When undefined, the env-var
-  // export snippet falls back to a placeholder and a "create one in settings"
-  // hint.
-  apiKey?: string
+  // apiKeyPrefix is the prefix of one of the reader's own organization API
+  // keys, used only as a hint: the secret itself is never available here. When
+  // undefined, the env-var export snippet falls back to a placeholder and a
+  // "create one in settings" hint.
+  apiKeyPrefix?: string
 }
 
 type Lang = 'curl' | 'javascript' | 'python'
@@ -55,12 +56,12 @@ const SECTIONS = [
 
 type SectionId = (typeof SECTIONS)[number]['id']
 
-const maskApiKey = (apiKey?: string) => {
-  if (!apiKey) {
+const maskApiKey = (apiKeyPrefix?: string) => {
+  if (!apiKeyPrefix) {
     return '<PASTE_ORG_API_KEY>'
   }
 
-  return `${apiKey.slice(0, 8)}...`
+  return `${apiKeyPrefix}...`
 }
 
 const buildEnvironmentSnippet = (lang: Lang, origin: string, apiKey: string) => {
@@ -316,7 +317,7 @@ const SandboxApiExamples: FC<SandboxApiExamplesProps> = (props) => {
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const apiRefHref = `${origin}/api-reference#tag/Sandboxes`
-  const apiKeyValue = maskApiKey(props.apiKey)
+  const apiKeyValue = maskApiKey(props.apiKeyPrefix)
   const environmentSnippet = buildEnvironmentSnippet(lang, origin, apiKeyValue)
 
   return (
@@ -369,7 +370,7 @@ const SandboxApiExamples: FC<SandboxApiExamplesProps> = (props) => {
               Environment
             </Typography>
             <CodeBlock code={environmentSnippet} lang={lang} />
-            {!props.apiKey && (
+            {!props.apiKeyPrefix && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                 No org API key found — create one in organization settings, then paste it where shown.
               </Typography>

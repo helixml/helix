@@ -698,7 +698,8 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ensure implementation can push with the approver's or repository's credentials.
+	// When approving specs, validate the approver has provider OAuth so their
+	// credentials can be used for commits and push during implementation.
 	if req.Approved {
 		project, err := s.Store.GetProject(ctx, existingTask.ProjectID)
 		if err != nil {
@@ -711,7 +712,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, fmt.Sprintf("Failed to get repository: %v", err), http.StatusInternalServerError)
 				return
 			}
-			if err := s.gitRepositoryService.ValidatePushCredentials(ctx, repo, user.ID); err != nil {
+			if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
 				var oauthErr *services.OAuthRequiredError
 				if errors.As(err, &oauthErr) {
 					writeResponse(w, map[string]interface{}{
@@ -721,8 +722,10 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 					}, http.StatusUnprocessableEntity)
 					return
 				}
-				writeErrResponse(w, err, http.StatusUnprocessableEntity)
-				return
+				// Non-OAuthRequired error (usually transient store error).
+				// Don't block approval on infra hiccups; the downstream push
+				// will surface any real auth failure to the user.
+				log.Warn().Err(err).Str("task_id", taskID).Msg("Non-OAuthRequired error validating approver OAuth; proceeding with approval")
 			}
 		}
 
@@ -1201,10 +1204,13 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ensure planning can push with the planner's or repository's credentials.
+	// The user who starts planning becomes the actor for planning-phase
+	// commits/pushes, so their provider OAuth must be connected up front.
+	// Otherwise the agent would push specs using either no credentials or
+	// the task creator's token — both are wrong.
 	if project, projErr := s.Store.GetProject(ctx, task.ProjectID); projErr == nil && project.DefaultRepoID != "" {
 		if repo, repoErr := s.Store.GetGitRepository(ctx, project.DefaultRepoID); repoErr == nil {
-			if err := s.gitRepositoryService.ValidatePushCredentials(ctx, repo, user.ID); err != nil {
+			if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
 				var oauthErr *services.OAuthRequiredError
 				if errors.As(err, &oauthErr) {
 					writeResponse(w, map[string]interface{}{
@@ -1214,8 +1220,8 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 					}, http.StatusUnprocessableEntity)
 					return
 				}
-				writeErrResponse(w, err, http.StatusUnprocessableEntity)
-				return
+				log.Warn().Err(err).Str("task_id", taskID).
+					Msg("Non-OAuthRequired error validating planner OAuth; proceeding with planning")
 			}
 		}
 	}
@@ -1367,6 +1373,14 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		// Update StatusUpdatedAt so task appears at top of new column in Kanban
 		now := time.Now()
 		task.StatusUpdatedAt = &now
+		// Moving the task by hand answers any pending completion request.
+		if updateReq.Status != previousStatus && task.CompletionRequestedAt != nil {
+			if err := s.Store.DismissAttentionEventByKey(ctx, services.CompletionRequestAttentionKey(task)); err != nil {
+				log.Warn().Err(err).Str("task_id", task.ID).Msg("Failed to dismiss completion request")
+			}
+			task.CompletionRequestedAt = nil
+			task.CompletionRequestSummary = ""
+		}
 		if previousStatus == types.TaskStatusDone && updateReq.Status != types.TaskStatusDone {
 			task.CompletedAt = nil
 			task.MergedToMain = false
@@ -1433,6 +1447,14 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	previousKeepAlive := task.KeepAlive
 	if updateReq.KeepAlive != nil {
 		task.KeepAlive = *updateReq.KeepAlive
+	}
+	if updateReq.AutoApprovePullRequests != nil {
+		// Proposals are auto-approved with the provider credentials of
+		// whoever turned this on.
+		task.AutoApprovePullRequests = *updateReq.AutoApprovePullRequests
+		if task.AutoApprovePullRequests {
+			task.AutoApprovePullRequestsBy = user.ID
+		}
 	}
 	// Update assignee (pointer allows clearing with empty string to unassign)
 	if updateReq.AgentTools != nil {

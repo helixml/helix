@@ -407,9 +407,9 @@ The inner Helix starts with **no users**. **You will almost always need to regis
 3. Check DB to confirm: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT email FROM users LIMIT 5;"`
 
 ### Go Local Tests (CGo fix)
-`go test ./pkg/server/...` requires CGo for tree-sitter. Fix:
+`go test ./pkg/server/...` requires CGo for tree-sitter. The desktop image ships `build-essential`; on older images install it first:
 ```bash
-sudo apt-get update && sudo apt-get install -y gcc libc6-dev
+command -v gcc || (sudo apt-get update && sudo apt-get install -y gcc libc6-dev)
 CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 ```
 

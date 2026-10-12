@@ -2,6 +2,7 @@ package mcptools
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
@@ -158,6 +159,7 @@ func TestDefaultBotToolsGolden(t *testing.T) {
 		ApproveSpecTaskSpecName,
 		RequestSpecTaskChangesName,
 		CreateSpecTaskPRsName,
+		CompleteSpecTaskName,
 		ManagersName,
 		ReportsName,
 		ListBotsName,
@@ -213,5 +215,33 @@ func TestOwnerBotToolsContainsStandardAndManagementCapabilities(t *testing.T) {
 		if counts[name] != 1 {
 			t.Errorf("management tool %q appears %d times in owner set", name, counts[name])
 		}
+	}
+}
+
+// Spec-task PRs open only from user-approved proposals; a spec-task agent must
+// never be able to reach the tool that opens them directly. Bots keep it.
+func TestCreateSpecTaskPRsIsBotOnly(t *testing.T) {
+	if IsSpecTaskAgentTool(CreateSpecTaskPRsName) {
+		t.Fatal("create_spectask_prs must not be offered to spec-task agents")
+	}
+	if !IsSpecTaskBlockedTool(CreateSpecTaskPRsName) {
+		t.Fatal("create_spectask_prs must be blocked on spec-task surfaces (including bound-agent tools)")
+	}
+	if !slices.Contains(DefaultBotTools(), CreateSpecTaskPRsName) {
+		t.Fatal("bots must keep create_spectask_prs")
+	}
+}
+
+// A spec-task agent finishes only through mark_task_complete, which its user
+// confirms; complete_spectask would let it finish any task in its project.
+func TestCompleteSpecTaskIsBotOnly(t *testing.T) {
+	if IsSpecTaskAgentTool(CompleteSpecTaskName) {
+		t.Fatal("complete_spectask must not be offered to spec-task agents")
+	}
+	if !IsSpecTaskBlockedTool(CompleteSpecTaskName) {
+		t.Fatal("complete_spectask must be blocked on spec-task surfaces (including bound-agent tools)")
+	}
+	if !slices.Contains(DefaultBotTools(), CompleteSpecTaskName) {
+		t.Fatal("bots need complete_spectask to finish the tasks they manage")
 	}
 }

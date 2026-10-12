@@ -467,6 +467,112 @@ func (s *ProvisionSuite) TestProvisionDesktopBuildsFullEnvAndMounts() {
 	s.Require().Equal(filepath.Join("/sandbox-host", "runtime", sbID, "crash-dumps"), cores.Source)
 }
 
+// TestProvisionDesktopRootlessSetsUnprivilegedRequest: an allowlisted project
+// gets an unprivileged desktop request carrying DesktopRootless so hydra builds
+// the hardened HostConfig. See design/2026-10-08-desktop-root-isolation.md.
+func (s *ProvisionSuite) TestProvisionDesktopRootlessSetsUnprivilegedRequest() {
+	runtimes, err := NewRuntimeRegistry(config.Sandboxes{
+		Runtimes:                  "headless-ubuntu=ubuntu:22.04|sleep infinity",
+		DefaultRuntime:            "headless-ubuntu",
+		DesktopRootlessProjectIDs: []string{"prj_target", "prj_second"},
+	})
+	s.Require().NoError(err)
+	s.controller.runtimes = runtimes
+
+	sbID := "sbx_desktop_rootless"
+	sb := &types.Sandbox{
+		ID:             sbID,
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		ProjectID:      "prj_target",
+		Runtime:        types.SandboxRuntimeUbuntuDesktop,
+		Status:         types.SandboxStatusPending,
+		VCPUs:          4,
+		MemoryMB:       8192,
+		DisplayWidth:   1920,
+		DisplayHeight:  1080,
+		DisplayFPS:     30,
+		Env:            mustMarshal(map[string]string{}),
+	}
+	versions := mustMarshal(map[string]string{"ubuntu": "abc123"})
+	host := &types.SandboxInstance{ID: "host-a", Status: "online", DesktopVersions: versions}
+
+	s.expectDisplayCapableFleet()
+	s.expectCreateOK("org_1", sb)
+	s.expectProvisionStoreCalls(sb, host, false)
+	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.ApiKey) (*types.ApiKey, error) {
+			k.Key = "minted-token"
+			return k, nil
+		},
+	)
+
+	_, err = s.controller.Create(s.ctx, "org_1", "user_1", &types.CreateSandboxRequest{
+		Runtime:       types.SandboxRuntimeUbuntuDesktop,
+		VCPUs:         4,
+		MemoryMB:      8192,
+		DisplayWidth:  1920,
+		DisplayHeight: 1080,
+		DisplayFPS:    30,
+		ProjectID:     "prj_target",
+	})
+	s.Require().NoError(err)
+	s.controller.waitProvisions()
+
+	req := s.hydra.lastCreate()
+	s.Require().NotNil(req)
+	s.Require().Equal(hydra.DevContainerTypeUbuntu, req.ContainerType)
+	s.Require().False(req.Privileged, "hardened desktop must not be privileged")
+	s.Require().True(req.DesktopRootless, "hardened desktop must request rootless mode")
+}
+
+func (s *ProvisionSuite) TestProvisionDesktopOutsideRootlessAllowlistRemainsPrivileged() {
+	runtimes, err := NewRuntimeRegistry(config.Sandboxes{
+		Runtimes:                  "headless-ubuntu=ubuntu:22.04|sleep infinity",
+		DefaultRuntime:            "headless-ubuntu",
+		DesktopRootless:           true,
+		DesktopRootlessProjectIDs: []string{"prj_target", "prj_second"},
+	})
+	s.Require().NoError(err)
+	s.controller.runtimes = runtimes
+
+	sb := &types.Sandbox{
+		ID:             "sbx_desktop_privileged",
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		ProjectID:      "prj_other",
+		Runtime:        types.SandboxRuntimeUbuntuDesktop,
+		Status:         types.SandboxStatusPending,
+		VCPUs:          4,
+		MemoryMB:       8192,
+		DisplayWidth:   1920,
+		DisplayHeight:  1080,
+		DisplayFPS:     30,
+		Env:            mustMarshal(map[string]string{}),
+	}
+	host := &types.SandboxInstance{
+		ID:              "host-a",
+		Status:          "online",
+		DesktopVersions: mustMarshal(map[string]string{"ubuntu": "abc123"}),
+	}
+	s.expectProvisionStoreCalls(sb, host, false)
+	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.ApiKey) (*types.ApiKey, error) {
+			k.Key = "minted-token"
+			return k, nil
+		},
+	)
+
+	s.controller.provision(s.ctx, sb.ID)
+
+	req := s.hydra.lastCreate()
+	s.Require().NotNil(req)
+	s.Require().True(req.Privileged)
+	s.Require().False(req.DesktopRootless)
+}
+
 // TestProvisionMarksSandboxFailedOnHydraError: when hydra rejects
 // CreateDevContainer the controller must persist status=failed with the
 // error reason instead of leaving the row stuck in pending.

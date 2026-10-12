@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { TypesAgentWorkState, TypesCodeAgentRuntime, TypesSpecTaskStatus } from '../../api/api'
-import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary } from '../../api/api'
+import type { TypesOrganizationMembership, TypesProject, TypesSession, TypesSessionSummary } from '../../api/api'
 import type { SpecTask } from '../../services/specTaskService'
 import {
   buildProjectChatGroups,
+  chatRouteAfterLeavingItem,
   ALL_PROJECTS_FILTER,
+  ALL_USERS_FILTER,
   clampVisibleThreadCount,
   collapsedGroupsStorageKey,
   compactRelativeTime,
@@ -23,8 +25,11 @@ import {
   parseSidebarPreferences,
   parseSidebarParticipantIds,
   parseSidebarProjectFilter,
+  parseSidebarUserFilter,
   resolveSidebarProjectFilter,
+  resolveSidebarUserFilter,
   reorderProjectIds,
+  sessionDetailToSummary,
   serializeCollapsedGroupIds,
   serializeSidebarPreferences,
   serializeSidebarParticipantIds,
@@ -32,6 +37,7 @@ import {
   sidebarPreferencesStorageKey,
   sidebarExpandedPeopleStorageKey,
   sidebarProjectFilterStorageKey,
+  sidebarUserFilterStorageKey,
   sortSidebarProjects,
   specTaskSortKey,
 } from './ProjectChatSidebar.logic'
@@ -240,6 +246,40 @@ describe('ProjectChatSidebar logic', () => {
     expect(parseSidebarProjectFilter(' project-one ')).toBe('project-one')
     expect(resolveSidebarProjectFilter('project-one', projects)).toBe('project-one')
     expect(resolveSidebarProjectFilter('deleted-project', projects)).toBe(ALL_PROJECTS_FILTER)
+  })
+
+  it('persists the user filter per organization', () => {
+    expect(sidebarUserFilterStorageKey('org-one'))
+      .toBe('helix:project-chat-sidebar:user-filter:org-one')
+    expect(parseSidebarUserFilter(null)).toBe(ALL_USERS_FILTER)
+    expect(parseSidebarUserFilter('')).toBe(ALL_USERS_FILTER)
+    expect(parseSidebarUserFilter(' user-one ')).toBe('user-one')
+    const memberUserIds = new Set(['user-one', 'user-two'])
+    expect(resolveSidebarUserFilter(ALL_USERS_FILTER, memberUserIds)).toBe(ALL_USERS_FILTER)
+    expect(resolveSidebarUserFilter('user-one', memberUserIds)).toBe('user-one')
+    expect(resolveSidebarUserFilter('former-member', memberUserIds)).toBe(ALL_USERS_FILTER)
+    expect(resolveSidebarUserFilter('former-member', new Set())).toBe(ALL_USERS_FILTER)
+  })
+
+  it('keeps the owner when mapping a session detail onto the summary shape', () => {
+    const detail: TypesSession = {
+      id: 'ses_one',
+      name: 'Pinned chat',
+      created: '2026-10-07T10:00:00Z',
+      updated: '2026-10-07T11:00:00Z',
+      config: { project_id: 'project-one' },
+      archived: false,
+      owner: 'user-one',
+    }
+    expect(sessionDetailToSummary(detail)).toEqual({
+      session_id: 'ses_one',
+      name: 'Pinned chat',
+      created: '2026-10-07T10:00:00Z',
+      updated: '2026-10-07T11:00:00Z',
+      metadata: { project_id: 'project-one' },
+      archived: false,
+      owner: 'user-one',
+    })
   })
 
   it('sorts projects by activity, creation, and persisted manual order', () => {
@@ -685,5 +725,15 @@ describe('ProjectChatSidebar bots and people', () => {
       ['task_old', 'Alpha'],
     ])
     expect(items[1].session?.session_id).toBe('ses_task')
+  })
+})
+
+describe('chatRouteAfterLeavingItem', () => {
+  it('stays in chat by opening a new chat in the same project', () => {
+    expect(chatRouteAfterLeavingItem('prj_1')).toEqual({ name: 'project-new', params: { id: 'prj_1' } })
+  })
+
+  it('falls back to the org-level new chat when the item has no project', () => {
+    expect(chatRouteAfterLeavingItem(undefined)).toEqual({ name: 'new', params: {} })
   })
 })

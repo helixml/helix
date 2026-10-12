@@ -357,16 +357,20 @@ func TestDeleteOrgAPIKey_OwnerCanDeleteAnyKey(t *testing.T) {
 		Role:           types.OrganizationRoleOwner,
 	}, nil)
 
-	mockStore.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: keyStr}).Return(&types.ApiKey{
+	mockStore.EXPECT().ListAPIKeys(gomock.Any(), &store.ListAPIKeysQuery{
+		OrganizationID: orgID,
+		Type:           types.APIkeytypeAPI,
+	}).Return([]*types.ApiKey{{
 		Key:            keyStr,
 		Owner:          "user_other",
 		OrganizationID: orgID,
-	}, nil)
+	}}, nil)
 
 	mockStore.EXPECT().DeleteAPIKey(gomock.Any(), keyStr).Return(nil)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/organizations/"+orgID+"/api_keys/"+keyStr, nil)
-	req = mux.SetURLVars(req, map[string]string{"id": orgID, "key": keyStr})
+	keyID := types.APIKeyID(keyStr)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/organizations/"+orgID+"/api_keys/"+keyID, nil)
+	req = mux.SetURLVars(req, map[string]string{"id": orgID, "key": keyID})
 	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID}))
 
 	rr := httptest.NewRecorder()
@@ -397,14 +401,15 @@ func TestDeleteOrgAPIKey_MemberCanOnlyDeleteOwnKey(t *testing.T) {
 		Role:           types.OrganizationRoleMember,
 	}, nil)
 
-	mockStore.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: keyStr}).Return(&types.ApiKey{
+	mockStore.EXPECT().ListAPIKeys(gomock.Any(), gomock.Any()).Return([]*types.ApiKey{{
 		Key:            keyStr,
 		Owner:          "user_other", // belongs to someone else
 		OrganizationID: orgID,
-	}, nil)
+	}}, nil)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/organizations/"+orgID+"/api_keys/"+keyStr, nil)
-	req = mux.SetURLVars(req, map[string]string{"id": orgID, "key": keyStr})
+	keyID := types.APIKeyID(keyStr)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/organizations/"+orgID+"/api_keys/"+keyID, nil)
+	req = mux.SetURLVars(req, map[string]string{"id": orgID, "key": keyID})
 	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: memberID}))
 
 	rr := httptest.NewRecorder()
@@ -435,14 +440,15 @@ func TestDeleteOrgAPIKey_KeyFromDifferentOrgRejected(t *testing.T) {
 		Role:           types.OrganizationRoleOwner,
 	}, nil)
 
-	mockStore.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: keyStr}).Return(&types.ApiKey{
-		Key:            keyStr,
-		Owner:          "user_other",
-		OrganizationID: "org_different", // different org
-	}, nil)
+	// The key lives in another org, so it is not in this org's list.
+	mockStore.EXPECT().ListAPIKeys(gomock.Any(), &store.ListAPIKeysQuery{
+		OrganizationID: orgID,
+		Type:           types.APIkeytypeAPI,
+	}).Return([]*types.ApiKey{}, nil)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/organizations/"+orgID+"/api_keys/"+keyStr, nil)
-	req = mux.SetURLVars(req, map[string]string{"id": orgID, "key": keyStr})
+	keyID := types.APIKeyID(keyStr)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/organizations/"+orgID+"/api_keys/"+keyID, nil)
+	req = mux.SetURLVars(req, map[string]string{"id": orgID, "key": keyID})
 	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID}))
 
 	rr := httptest.NewRecorder()
@@ -497,4 +503,151 @@ func TestListOrgAPIKeys_AdminSeesAllKeys(t *testing.T) {
 	err := json.Unmarshal(rr.Body.Bytes(), &keys)
 	require.NoError(t, err)
 	require.Len(t, keys, 2)
+}
+
+// An owner listing org keys must get each key's metadata, never its secret:
+// a member's org key authenticates as that member.
+func TestListOrgAPIKeys_NeverReturnsSecrets(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	orgID := "org_123"
+	ownerID := "user_owner"
+	ownerSecret := fakeAPIKey("o")
+	memberSecret := fakeAPIKey("m")
+
+	expectResolveOrganizationByID(mockStore, orgID)
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		OrganizationID: orgID,
+		UserID:         ownerID,
+		Role:           types.OrganizationRoleOwner,
+	}, nil)
+	mockStore.EXPECT().ListAPIKeys(gomock.Any(), &store.ListAPIKeysQuery{
+		OrganizationID: orgID,
+		Type:           types.APIkeytypeAPI,
+	}).Return([]*types.ApiKey{
+		{Key: ownerSecret, Name: "Mine", Owner: ownerID, OrganizationID: orgID, Type: types.APIkeytypeAPI},
+		{Key: memberSecret, Name: "Theirs", Owner: "user_member", OrganizationID: orgID, Type: types.APIkeytypeAPI},
+	}, nil)
+	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{Email: "x@example.com"}, nil).AnyTimes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/organizations/"+orgID+"/api_keys", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": orgID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID}))
+
+	rr := httptest.NewRecorder()
+	server.listOrgAPIKeys(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	body := rr.Body.String()
+	require.NotContains(t, body, ownerSecret)
+	require.NotContains(t, body, memberSecret)
+	require.NotContains(t, body, `"key"`)
+
+	var keys []map[string]any
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &keys))
+	require.Len(t, keys, 2)
+	require.Equal(t, types.APIKeyID(ownerSecret), keys[0]["id"])
+	require.Equal(t, "hl-oooo", keys[0]["key_prefix"])
+	require.Equal(t, types.APIKeyID(memberSecret), keys[1]["id"])
+	require.Equal(t, "user_member", keys[1]["owner"])
+}
+
+// With secrets gone from the list, an owner deletes a member's key by its ID.
+func TestDeleteOrgAPIKey_ByID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	orgID := "org_123"
+	ownerID := "user_owner"
+	secret := fakeAPIKey("m")
+
+	expectResolveOrganizationByID(mockStore, orgID)
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		OrganizationID: orgID,
+		UserID:         ownerID,
+		Role:           types.OrganizationRoleOwner,
+	}, nil)
+	mockStore.EXPECT().ListAPIKeys(gomock.Any(), &store.ListAPIKeysQuery{
+		OrganizationID: orgID,
+		Type:           types.APIkeytypeAPI,
+	}).Return([]*types.ApiKey{
+		{Key: fakeAPIKey("x"), Owner: ownerID, OrganizationID: orgID},
+		{Key: secret, Owner: "user_member", OrganizationID: orgID},
+	}, nil)
+	mockStore.EXPECT().DeleteAPIKey(gomock.Any(), secret).Return(nil)
+
+	keyID := types.APIKeyID(secret)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/organizations/"+orgID+"/api_keys/"+keyID, nil)
+	req = mux.SetURLVars(req, map[string]string{"id": orgID, "key": keyID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID}))
+
+	rr := httptest.NewRecorder()
+	server.deleteOrgAPIKey(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+// An ID that matches no key in this org (e.g. a key in another org) is 404.
+func TestDeleteOrgAPIKey_UnknownIDNotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	orgID := "org_123"
+	ownerID := "user_owner"
+
+	expectResolveOrganizationByID(mockStore, orgID)
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		OrganizationID: orgID,
+		UserID:         ownerID,
+		Role:           types.OrganizationRoleOwner,
+	}, nil)
+	mockStore.EXPECT().ListAPIKeys(gomock.Any(), gomock.Any()).Return([]*types.ApiKey{
+		{Key: fakeAPIKey("x"), Owner: ownerID, OrganizationID: orgID},
+	}, nil)
+
+	keyID := types.APIKeyID("hl-somewhereelse")
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/organizations/"+orgID+"/api_keys/"+keyID, nil)
+	req = mux.SetURLVars(req, map[string]string{"id": orgID, "key": keyID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID}))
+
+	rr := httptest.NewRecorder()
+	server.deleteOrgAPIKey(rr, req)
+	require.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+// A raw secret in the URL is not a valid key reference.
+func TestDeleteOrgAPIKey_RawSecretRejected(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	orgID := "org_123"
+	ownerID := "user_owner"
+	secret := fakeAPIKey("m")
+
+	expectResolveOrganizationByID(mockStore, orgID)
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		OrganizationID: orgID,
+		UserID:         ownerID,
+		Role:           types.OrganizationRoleOwner,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/organizations/"+orgID+"/api_keys/"+secret, nil)
+	req = mux.SetURLVars(req, map[string]string{"id": orgID, "key": secret})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID}))
+
+	rr := httptest.NewRecorder()
+	server.deleteOrgAPIKey(rr, req)
+	require.Equal(t, http.StatusNotFound, rr.Code)
 }

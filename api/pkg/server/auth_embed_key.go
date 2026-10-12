@@ -97,6 +97,9 @@ var embedRules = []embedRule{
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", suffix: "/interactions", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", suffix: "/step-info", scope: scopeSession},
+	// Inline visualizations the agent published into this conversation. The
+	// handler reads them from this session's own folder only.
+	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", suffix: "/visualization", scope: scopeSession},
 	{methods: []string{"POST"}, prefix: "/api/v1/sessions/", suffix: "/cancel", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/external-agents/", suffix: "/file", scope: scopeSession},
 

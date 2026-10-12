@@ -46,6 +46,28 @@ People page poll `GET /organizations/{id}/members` every 30 s via
 agents acting for a human) do not touch `last_seen_at`, otherwise anyone with a
 running agent would be online forever.
 
+## User filter in the project view
+
+**Added 2026-10-07.** The project filter's menu (the "All projects" dropdown)
+holds both dimensions of the projects-and-tasks view: below the project list,
+a **Filter by user** section — "Everyone" (the default) or one org member. It
+narrows the view to that member — each project group queries
+`GET /sessions?owner_id=…` instead of `all_members=true` (the server ignores
+`owner_id` when `all_members` wins, so the frontend never sends both) and
+passes `participant_ids=<user>` for tasks; a project with nothing left for the
+filtered user hides itself, the way the Archived view already hides empty
+projects. The viewer's own pinned chats are filtered too (`session.owner` /
+`task.assignee_id`), so a pin of someone else's work does not leak into a
+filtered view. The choice persists per org in localStorage
+(`helix:project-chat-sidebar:user-filter:<orgId>`) and falls back to Everyone
+when the stored member has left the org — resolved only after the members list
+has loaded, so a page load cannot wipe the stored value prematurely. The
+section applies in focus mode and the Archived view as well; the group-by-person
+arrangement hides it (that view already is a per-member view, and the button
+label then stays unqualified), and the Org bots section is unfiltered (bots are
+shared entities, not people's work). When a member is selected the filter
+button's label appends them ("All projects · Alice Example").
+
 ## Seeing another member's work
 
 - `GET /sessions?org_id=…&owner_id=<user>` lists another member's sessions,

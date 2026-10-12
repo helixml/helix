@@ -4,6 +4,8 @@ import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
 import DialogContent from '@mui/material/DialogContent'
 import CloseIcon from '@mui/icons-material/Close'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import { useTheme } from '@mui/material/styles'
 import DarkDialog from './DarkDialog'
 
 interface FullScreenDialogProps {
@@ -19,14 +21,17 @@ const FullScreenDialog: React.FC<FullScreenDialogProps> = ({
   title,
   children,
 }) => {
+  const theme = useTheme()
+  const isPhone = useMediaQuery(theme.breakpoints.down('sm'))
   return (
     <DarkDialog
       open={open}
       onClose={onClose}
       maxWidth="xl"
       fullWidth
+      fullScreen={isPhone}
       PaperProps={{
-        sx: {
+        sx: isPhone ? { borderRadius: 0 } : {
           height: '90vh',
           maxHeight: '90vh',
         },
@@ -37,8 +42,8 @@ const FullScreenDialog: React.FC<FullScreenDialogProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          px: 3,
-          py: 1.5,
+          px: { xs: 2, sm: 3 },
+          py: { xs: 1, sm: 1.5 },
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
           flexShrink: 0,
         }}
@@ -48,7 +53,9 @@ const FullScreenDialog: React.FC<FullScreenDialogProps> = ({
         </Typography>
         <IconButton
           onClick={onClose}
+          aria-label="Close"
           sx={{
+            '@media (pointer: coarse)': { minWidth: 44, minHeight: 44 },
             color: '#A0AEC0',
             '&:hover': {
               color: '#F1F1F1',

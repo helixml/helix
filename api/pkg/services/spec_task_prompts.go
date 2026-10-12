@@ -45,6 +45,7 @@ You are in the PLANNING phase. You are NOT in the implementation phase.
 - Your job now: Write specification documents (requirements.md, design.md, tasks.md)
 - Do NOT implement anything yet - no code changes, no file edits to the codebase
 - Implementation begins LATER, after this phase is complete and the user approves your plan
+- If the request needs no code changes at all (pure research or analysis), write your findings in the design docs, push them, and call ` + "`mark_task_complete`" + ` with a summary instead of planning an implementation
 
 ---
 {{.ClonedTaskPreamble}}

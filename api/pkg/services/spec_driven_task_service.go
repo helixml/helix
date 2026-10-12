@@ -336,6 +336,7 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
+	task.InitAutoApprovePullRequests(req.AutoApprovePullRequests, project, req.UserID)
 	if req.DependsOn != nil {
 		task.DependsOn = make([]types.SpecTask, 0, len(req.DependsOn))
 		for _, dependsOnID := range req.DependsOn {
@@ -1069,6 +1070,17 @@ Follow these guidelines when making changes:
 - Verify: `+"`git branch --show-current`"+` should show %s
 - Make your changes
 - Push: `+"`git push origin %s`", branchName, branchName)
+	hasPullRequests := false
+	for _, repo := range projectRepos {
+		if repo.ExternalURL != "" {
+			hasPullRequests = true
+			break
+		}
+	}
+	if hasPullRequests {
+		gitInstructions += "\n\n" + PullRequestProposalGuidance(branchName)
+	}
+	gitInstructions += "\n\n" + MarkTaskCompleteGuidance(hasPullRequests)
 
 	// Build repository section listing local + Kodit repos for the agent
 	repoSection := s.buildRepositorySectionForTask(ctx, task, project)

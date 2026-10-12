@@ -50,6 +50,20 @@ func requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(f)
 }
 
+// requireAdminOrRunner admits global admins and the runner token. Used for
+// infrastructure endpoints that both the admin UI and sandbox hosts call.
+func requireAdminOrRunner(next http.Handler) http.Handler {
+	f := func(w http.ResponseWriter, r *http.Request) {
+		user := getRequestUser(r)
+		if !isAdmin(user) && !isRunner(user) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
+	return http.HandlerFunc(f)
+}
+
 func requireRunner(next http.Handler) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		user := getRequestUser(r)

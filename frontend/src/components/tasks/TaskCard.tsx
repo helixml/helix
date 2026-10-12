@@ -40,6 +40,7 @@ import {
 } from "@mui/icons-material";
 import {
   EllipsisVertical,
+  Flag,
   GitPullRequest,
   Wand2,
 } from "lucide-react";
@@ -64,6 +65,8 @@ import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopVi
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
+import MarkDoneDialog from "./MarkDoneDialog";
+import { canMarkDone, openPullRequestCount } from "../../services/specTaskCompletionService";
 import AssigneeSelector from "./AssigneeSelector";
 import useAccount from "../../hooks/useAccount";
 import useLightTheme from "../../hooks/useLightTheme";
@@ -227,7 +230,6 @@ interface TaskCardProps {
   projectId?: string;
   isArchiving?: boolean;
   hasExternalRepo?: boolean;
-  externalRepoType?: string;
   showMetrics?: boolean;
   /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
   hideCloneOption?: boolean;
@@ -592,7 +594,6 @@ function TaskCardInner({
   projectId,
   isArchiving = false,
   hasExternalRepo = false,
-  externalRepoType,
   showMetrics = true,
   hideCloneOption = false,
   progressData,
@@ -607,6 +608,7 @@ function TaskCardInner({
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [markDoneOpen, setMarkDoneOpen] = useState(false);
   const [isRemovingFromQueue, setIsRemovingFromQueue] = useState(false);
   const [assigneeAnchorEl, setAssigneeAnchorEl] = useState<null | HTMLElement>(null);
   const startPlanningButtonRef = useRef<HTMLButtonElement>(null);
@@ -965,6 +967,19 @@ function TaskCardInner({
                 </ListItemText>
               </MenuItem>
             )}
+            {canMarkDone(task) && (
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchorEl(null);
+                  setMarkDoneOpen(true);
+                }}
+              >
+                <ListItemIcon>
+                  <Flag size={16} />
+                </ListItemIcon>
+                <ListItemText>Mark done</ListItemText>
+              </MenuItem>
+            )}
             {!hideCloneOption && task.design_docs_pushed_at && (
               <MenuItem
                 onClick={() => {
@@ -1063,7 +1078,7 @@ function TaskCardInner({
                       ? getImplementationLabel(task)
                       : task.phase === "pull_request"
                         ? "Pull Request"
-                        : "Merged"}
+                        : "Done"}
             </Typography>
             {runningDuration && (
               <Typography
@@ -1431,7 +1446,6 @@ function TaskCardInner({
               }
             }}
             hasExternalRepo={hasExternalRepo}
-            externalRepoType={externalRepoType}
             isArchiving={isArchiving}
           />
         )}
@@ -1624,8 +1638,7 @@ function TaskCardInner({
         )}
 
         {/* Completed tasks */}
-        {(task.status === "done" || task.phase === "completed") &&
-          task.merged_to_main && (
+        {(task.status === "done" || task.phase === "completed") && (
             <Box sx={{ mt: 1.5 }}>
               <Alert severity="success" sx={{ py: 1 }}>
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>
@@ -1639,7 +1652,9 @@ function TaskCardInner({
                     color: "text.secondary",
                   }}
                 >
-                  Merged to default branch
+                  {task.merged_to_main
+                    ? "Merged to default branch"
+                    : "Marked done"}
                 </Typography>
               </Alert>
               <SpecTaskActionButtons
@@ -1659,7 +1674,6 @@ function TaskCardInner({
                 }}
                 variant="stacked"
                 hasExternalRepo={hasExternalRepo}
-                externalRepoType={externalRepoType}
               />
             </Box>
           )}
@@ -1682,6 +1696,13 @@ function TaskCardInner({
           #{String(task.task_number).padStart(6, "0")}
         </Typography>
       )}
+
+      <MarkDoneDialog
+        open={markDoneOpen}
+        onClose={() => setMarkDoneOpen(false)}
+        taskId={task.id}
+        openPullRequests={openPullRequestCount(task)}
+      />
 
       {/* Clone Task Dialog */}
       <CloneTaskDialog

@@ -61,6 +61,27 @@ func TestBotInstanceKeyAllowsItsOwnSandboxNeeds(t *testing.T) {
 	}
 }
 
+// helix-viz is in every instance's config regardless of profile, and the
+// sandbox readiness gate OPTIONS-probes every remote context server before
+// launching Zed — a denial here would stop every bot instance from starting.
+func TestBotInstanceKeyAllowsVisualizationForItsOwnSessionOnly(t *testing.T) {
+	auth := botInstanceAuth(t, &types.BotInstanceProfile{MCPServers: []string{"chrome-devtools"}})
+	u := botInstanceUser()
+	for _, method := range []string{"POST", "OPTIONS", "GET"} {
+		if !auth.botInstanceKeyAllows(context.Background(), u, req(method, "/api/v1/mcp/visualization?session_id=ses_A")) {
+			t.Errorf("should allow %s helix-viz for its own session", method)
+		}
+	}
+	for _, path := range []string{
+		"/api/v1/mcp/visualization?session_id=ses_B",
+		"/api/v1/mcp/visualization",
+	} {
+		if auth.botInstanceKeyAllows(context.Background(), u, req("POST", path)) {
+			t.Errorf("should deny POST %s", path)
+		}
+	}
+}
+
 func TestBotInstanceKeyDeniesEverythingElse(t *testing.T) {
 	auth := botInstanceAuth(t, &types.BotInstanceProfile{MCPServers: []string{"chrome-devtools"}})
 	u := botInstanceUser()

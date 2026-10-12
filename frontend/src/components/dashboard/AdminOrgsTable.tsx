@@ -210,7 +210,7 @@ const AdminOrgsTable: FC = () => {
                     size="small"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    sx={{ minWidth: 300 }}
+                    sx={{ minWidth: { xs: 0, sm: 300 }, flexGrow: { xs: 1, sm: 0 } }}
                     InputProps={{
                         startAdornment: (
                             <InputAdornment position="start">
@@ -231,7 +231,7 @@ const AdminOrgsTable: FC = () => {
                         ),
                     }}
                 />
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
                     {data?.totalCount ?? 0} org{data?.totalCount !== 1 ? "s" : ""}
                 </Typography>
             </Box>

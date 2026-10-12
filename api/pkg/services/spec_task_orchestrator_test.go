@@ -54,9 +54,40 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
 	}
 
 	s.executor.EXPECT().StopDesktop(ctx, "session-456").Return(nil)
+	s.store.EXPECT().ReapWaitingInteractions(ctx, "session-456", types.InteractionStateInterrupted, "task marked done").Return(nil, nil)
+	s.store.EXPECT().ListPromptHistoryBySession(ctx, "session-456").Return(nil, nil)
 
 	err := s.orchestrator.handleDone(ctx, task)
 	s.Require().NoError(err)
+}
+
+// Anything that would start a done task's agent again would reopen the task,
+// undoing its completion: a turn left waiting (auto-wake) or a message queued
+// before completion (queue delivery). A message sent afterwards is kept — that
+// is a deliberate request to carry on.
+func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_SettlesTheFinishedAgent() {
+	ctx := context.Background()
+	completedAt := time.Now()
+	task := &types.SpecTask{
+		ID:                "task-123",
+		PlanningSessionID: "session-456",
+		Status:            types.TaskStatusDone,
+		CompletedAt:       &completedAt,
+	}
+	before, after := completedAt.Add(-time.Minute), completedAt.Add(time.Minute)
+
+	s.executor.EXPECT().StopDesktop(ctx, "session-456").Return(nil)
+	s.store.EXPECT().ReapWaitingInteractions(ctx, "session-456", types.InteractionStateInterrupted, "task marked done").Return(nil, nil)
+	s.store.EXPECT().ListPromptHistoryBySession(ctx, "session-456").Return([]*types.PromptHistoryEntry{
+		{ID: "queued-before", Status: "pending", CreatedAt: before},
+		{ID: "retrying-before", Status: "failed", CreatedAt: before},
+		{ID: "sent-before", Status: "sent", CreatedAt: before},
+		{ID: "queued-after", Status: "pending", CreatedAt: after},
+	}, nil)
+	s.store.EXPECT().DeletePromptHistoryEntry(ctx, "queued-before").Return(nil)
+	s.store.EXPECT().DeletePromptHistoryEntry(ctx, "retrying-before").Return(nil)
+
+	s.Require().NoError(s.orchestrator.handleDone(ctx, task))
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestPreparingTaskWaitsForAttachmentIngestion() {
@@ -1515,22 +1546,6 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 	assert.Nil(s.T(), task.MergedAt, "MergedAt must not be set on error")
 }
 
-func (s *SpecTaskOrchestratorTestSuite) TestTaskHasPRsForAllRepos_PendingFollowUpRetries() {
-	ctx := context.Background()
-	task := &types.SpecTask{
-		ProjectID: "project-1",
-		RepoPullRequests: []types.RepoPR{
-			{RepositoryID: "repo-1", PRState: "unknown"},
-		},
-	}
-	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(&types.Project{ID: task.ProjectID}, nil)
-	s.store.EXPECT().ListGitRepositories(ctx, gomock.Any()).Return([]*types.GitRepository{
-		{ID: "repo-1", IsExternal: true, ExternalURL: "https://github.com/org/one"},
-	}, nil)
-
-	s.False(s.orchestrator.taskHasPRsForAllRepos(ctx, task))
-}
-
 func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_PendingFollowUpStaysInPullRequest() {
 	ctx := context.Background()
 	task := makePullRequestTask(2)
@@ -1544,11 +1559,20 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_Pen
 	s.False(task.MergedToMain)
 }
 
-// Sanity: when every PR genuinely is merged, the task DOES transition to
-// done. Guards against an over-eager fix that breaks the happy path.
-func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllMerged_TransitionsToDone() {
+// Merged PRs never complete a task: the agent may have follow-up work, so it
+// is told about each merge and asks to finish with mark_task_complete.
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllMerged_StaysOpenAndTellsAgent() {
 	ctx := context.Background()
 	task := makePullRequestTask(2)
+
+	var messages []string
+	prs := NewPRProposalService(s.store, nil, nil, "")
+	prs.SetMessageEnqueuer(func(_ context.Context, _ *types.SpecTask, message string, interrupt bool, _ string) error {
+		s.False(interrupt)
+		messages = append(messages, message)
+		return nil
+	})
+	s.orchestrator.SetPRProposals(prs)
 
 	s.gitService.EXPECT().
 		GetPullRequest(ctx, "repo-1", "1").
@@ -1557,14 +1581,25 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 		GetPullRequest(ctx, "repo-2", "2").
 		Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
 	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).Return(nil)
-	s.store.EXPECT().DismissAttentionEventsForTask(ctx, "task-pr-1").Return(int64(0), nil)
 
-	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
-	s.Require().NoError(err)
+	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
 
-	assert.Equal(s.T(), types.TaskStatusDone, task.Status)
-	assert.True(s.T(), task.MergedToMain)
-	assert.NotNil(s.T(), task.MergedAt)
+	s.Equal(types.TaskStatusPullRequest, task.Status)
+	s.Nil(task.CompletedAt)
+	s.Require().Len(messages, 2)
+	s.Contains(messages[0], "pull request #1 was merged")
+	s.Contains(messages[1], "pull request #2 was merged")
+	s.Contains(messages[1], "mark_task_complete")
+
+	// Unchanged states on the next poll say nothing new.
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-2", "2").
+		Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
+	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
+	s.Len(messages, 2)
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_BackfillsPRMetadata() {

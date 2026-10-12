@@ -427,6 +427,15 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to revoke preview tokens before session delete")
 	}
 
+	// Remove any inline visualizations (html_render pages) stored for the
+	// session so they are deleted with the thread. Best-effort: a missing
+	// folder is fine and must not block deletion.
+	if apiServer.Controller != nil {
+		if err := apiServer.Controller.FilestoreVisualizationsDelete(ctx, session.Owner, session.ID); err != nil {
+			log.Debug().Err(err).Str("session_id", session.ID).Msg("no visualizations to clean up (or cleanup failed)")
+		}
+	}
+
 	return system.DefaultController(apiServer.Store.DeleteSession(req.Context(), session.ID))
 }
 
@@ -2367,6 +2376,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 func (s *HelixAPIServer) resumeSessionInternal(ctx context.Context, user *types.User, session *types.Session) (*types.SessionResumeResponse, error) {
 	id := session.ID
 	specTaskID := session.Metadata.SpecTaskID
+	if err := s.reopenDoneTaskForAgentStart(ctx, specTaskID); err != nil {
+		return nil, err
+	}
 
 	agent := &types.DesktopAgent{
 		SessionID:   id,

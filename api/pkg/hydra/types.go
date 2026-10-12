@@ -32,9 +32,10 @@ const containerPersistentLabel = "helix.persistent"
 // monitorGoldenBuild for a build whose container survived the restart, and
 // still detect, promote and report its result.
 const (
-	containerGoldenBuildLabel    = "helix.golden_build" // "true"
-	containerProjectIDLabel      = "helix.project_id"
-	containerGoldenDeadlineLabel = "helix.golden_build_deadline" // RFC3339
+	containerGoldenBuildLabel     = "helix.golden_build" // "true"
+	containerProjectIDLabel       = "helix.project_id"
+	containerGoldenCacheKindLabel = "helix.golden_cache_kind"
+	containerGoldenDeadlineLabel  = "helix.golden_build_deadline" // RFC3339
 )
 
 // DevContainerType represents the type of dev container
@@ -129,6 +130,18 @@ type CreateDevContainerRequest struct {
 	// bot instances, which browse untrusted pages.
 	BrowserSandbox bool `json:"browser_sandbox,omitempty"`
 
+	// DesktopRootless runs a desktop (ubuntu/sway) container unprivileged,
+	// using the same rootless Podman posture as headless agents instead of
+	// Docker --privileged. It keeps the desktop's display/input/GPU device
+	// grants and its private IPC namespace, but drops the full capability set,
+	// the allow-all device cgroup and AppArmor-unconfined that --privileged
+	// grants — so a root user inside the desktop can no longer mount host
+	// block devices (runner root fs, sibling tenants' docker-data zvols) or
+	// touch /dev/mem. Sudo inside the container is retained. Mutually
+	// exclusive with Privileged. See
+	// design/2026-10-08-desktop-root-isolation.md.
+	DesktopRootless bool `json:"desktop_rootless,omitempty"`
+
 	// Untrusted instance controls. DiskSizeGB provisions a capacity-limited,
 	// persistent /home/retro filesystem. PidsLimit is enforced by the pids
 	// cgroup. NoNewPrivileges blocks setuid/setgid privilege escalation.
@@ -221,8 +234,9 @@ type DevContainer struct {
 	DockerSocket  string             `json:"docker_socket"` // Which dockerd manages this container
 
 	// Golden build fields
-	IsGoldenBuild bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
-	ProjectID     string `json:"project_id,omitempty"`      // Project ID for golden promotion
+	IsGoldenBuild   bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
+	ProjectID       string `json:"project_id,omitempty"`      // Project ID for golden promotion
+	goldenCacheKind goldenCacheKind
 
 	// GoldenBuildDeadline is when monitorGoldenBuild gives up waiting for the
 	// result file. Stored on the container as a label so it survives restarts.

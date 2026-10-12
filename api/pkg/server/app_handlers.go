@@ -2348,6 +2348,9 @@ func (s *HelixAPIServer) deleteAppMemory(_ http.ResponseWriter, r *http.Request)
 		AppID:  appID,
 	})
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("Memory not found")
+		}
 		log.Error().
 			Err(err).
 			Str("user_id", user.ID).

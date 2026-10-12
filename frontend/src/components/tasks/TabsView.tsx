@@ -856,21 +856,13 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        // Surface the matching provider connection action.
+        // 422 + oauth_required → open the GitHub connect flow so the user
+        // can retry, instead of surfacing the raw error.
         if (
           response.status === 422 &&
           errorData?.error === "oauth_required"
         ) {
-          const requiredProviderType = errorData?.provider_type;
-          if (requiredProviderType === "ado" || requiredProviderType === "bitbucket") {
-            snackbar.error(
-              requiredProviderType === "ado"
-                ? "Add a personal Azure DevOps PAT connection in Project Settings > Repositories > Attach > Browse Providers, then click Start Planning again."
-                : "Add a personal Bitbucket app-password connection in Project Settings > Repositories > Attach > Browse Providers, then click Start Planning again.",
-            );
-            return;
-          }
-          const providerType = requiredProviderType === "gitlab" ? "gitlab" : "github";
+          const providerType = errorData?.provider_type === "gitlab" ? "gitlab" : "github";
           const providerName = providerType === "gitlab" ? "GitLab" : "GitHub";
           const oauthProvider = findOAuthProviderForType(oauthProviders, providerType);
           if (oauthProvider?.id) {
@@ -980,21 +972,12 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
 
     setIsActioning(true);
     try {
-      const response = await api
+      await api
         .getApiClient()
         .v1SpecTasksApproveImplementationCreate(activeTask.id);
-      if (response.data?.repo_pull_requests && response.data.repo_pull_requests.length > 0) {
-        const prs = response.data.repo_pull_requests;
-        if (prs.length === 1 && prs[0].pr_url) {
-          snackbar.success(`Pull request opened! View PR: ${prs[0].pr_url}`);
-        } else {
-          snackbar.success(`${prs.length} pull request(s) opened - awaiting merge`);
-        }
-      } else {
-        snackbar.success(
-          "Implementation approved! Agent will merge to your primary branch...",
-        );
-      }
+      snackbar.success(
+        "Implementation approved! Agent will merge to your primary branch...",
+      );
     } catch (err: any) {
       console.error("Failed to approve implementation:", err);
       snackbar.error(

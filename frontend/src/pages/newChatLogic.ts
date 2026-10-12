@@ -66,7 +66,10 @@ export function buildNewChatTaskRequest({
   codeAgentConfig,
   sandboxResourceOverrides,
   sandboxRuntime,
+  autoApprovePullRequests,
 }: {
+  /** Omitted lets the server apply the project's default. */
+  autoApprovePullRequests?: boolean
   codeAgentConfig?: TypesCodeAgentExecutionConfig
   mode: NewChatTaskMode
   projectId: string
@@ -89,5 +92,8 @@ export function buildNewChatTaskRequest({
       ? { sandbox_resource_overrides: sandboxResourceOverrides }
       : {}),
     ...(sandboxRuntime ? { sandbox_runtime: sandboxRuntime } : {}),
+    ...(autoApprovePullRequests !== undefined
+      ? { auto_approve_pull_requests: autoApprovePullRequests }
+      : {}),
   }
 }

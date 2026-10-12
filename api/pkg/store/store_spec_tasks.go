@@ -491,6 +491,7 @@ func (s *PostgresStore) DeleteSpecTask(ctx context.Context, id string) error {
 			&types.SpecTaskZedThread{},
 			&types.SpecTaskImplementationTask{},
 			&types.SpecTaskWorkSession{},
+			&types.SpecTaskPRProposal{},
 		} {
 			if deleteErr := tx.Where("spec_task_id = ?", id).Delete(child).Error; deleteErr != nil {
 				return deleteErr

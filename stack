@@ -419,13 +419,14 @@ function build-zed() {
   local BUILD_TYPE="${1:-dev}"
 
   # Validate build type
-  if [[ "$BUILD_TYPE" != "dev" && "$BUILD_TYPE" != "release" ]]; then
-    echo "❌ Error: BUILD_TYPE must be 'dev' or 'release'"
-    echo "Usage: ./stack build-zed [dev|release]"
+  if [[ "$BUILD_TYPE" != "dev" && "$BUILD_TYPE" != "release" && "$BUILD_TYPE" != "fast" ]]; then
+    echo "❌ Error: BUILD_TYPE must be 'dev', 'fast' or 'release'"
+    echo "Usage: ./stack build-zed [dev|fast|release]"
     echo ""
     echo "Build types:"
     echo "  dev     - Fast incremental builds with debug symbols (default)"
-    echo "  release - Optimized production builds (slower)"
+    echo "  fast    - Optimized (opt-level 3) without LTO, incremental — for dev desktops"
+    echo "  release - Optimized production builds with thin LTO (slower; CI/CD/production)"
     return 1
   fi
 
@@ -508,7 +509,7 @@ EIGNORE
   echo "✅ Zed binary built successfully"
   echo "📦 Binary size: $BINARY_SIZE"
 
-  if [ "$BUILD_TYPE" = "release" ]; then
+  if [ "$BUILD_TYPE" = "release" ] || [ "$BUILD_TYPE" = "fast" ]; then
     echo "✅ Binary built with symbols stripped (via linker flags)"
   fi
 

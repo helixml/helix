@@ -51,6 +51,7 @@ const (
 	SandboxCommandPrefix       = "sbcmd_"
 	RunnerProfilePrefix        = "rprof_"
 	SpecTaskAttachmentPrefix   = "att_"
+	PRProposalPrefix           = "prp_"
 	OrgInvitationPrefix        = "oin_"
 	VHostRoutePrefix           = "vhr_"
 	WebServiceDeployPrefix     = "wsd_"
@@ -236,6 +237,10 @@ func GenerateRunnerProfileID() string {
 
 func GenerateSpecTaskAttachmentID() string {
 	return fmt.Sprintf("%s%s", SpecTaskAttachmentPrefix, newID())
+}
+
+func GeneratePRProposalID() string {
+	return fmt.Sprintf("%s%s", PRProposalPrefix, newID())
 }
 
 func GenerateOrgInvitationID() string {

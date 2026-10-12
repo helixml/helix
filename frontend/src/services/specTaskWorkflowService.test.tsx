@@ -30,13 +30,8 @@ vi.mock("../hooks/useSnackbar", () => ({
 describe("useApproveImplementation", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("reports a URL-less follow-up placeholder as still being created", async () => {
-    mocks.approve.mockResolvedValue({
-      data: {
-        status: "pull_request",
-        repo_pull_requests: [{ repository_id: "repo-1", pr_state: "unknown" }],
-      },
-    });
+  it("reports a server-side merge of an internal repo", async () => {
+    mocks.approve.mockResolvedValue({ status: 200, data: { status: "done" } });
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
@@ -49,13 +44,10 @@ describe("useApproveImplementation", () => {
 
     await act(async () => result.current.mutateAsync());
 
-    expect(mocks.info).toHaveBeenCalledWith(
-      "Creating pull request. Waiting for its URL...",
-    );
-    expect(mocks.success).not.toHaveBeenCalled();
+    expect(mocks.success).toHaveBeenCalledWith("Implementation approved and merged!");
   });
 
-  it("shows the server message when there are no follow-up changes", async () => {
+  it("shows the server message when the request fails", async () => {
     mocks.approve.mockRejectedValue({
       response: {
         data: {

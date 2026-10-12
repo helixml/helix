@@ -246,7 +246,22 @@ func (a *MessageAccumulator) AddMessageWithMetadata(messageID, content, entryTyp
 		a.messageSubagentID = make(map[string]string)
 	}
 
-	if _, exists := a.messageContent[messageID]; exists {
+	if existing, exists := a.messageContent[messageID]; exists {
+		// Streaming text content is cumulative, so an update that is a strict
+		// prefix of what we already hold is an older snapshot arriving out of
+		// order (e.g. a throttled trailing flush racing the NewEntry full
+		// re-send in Zed). Dropping it keeps the newest content; without this
+		// the stale snapshot truncates the entry until the end-of-turn flush.
+		// Tool calls and plans are exempt: their content is legitimately
+		// rewritten, not cumulative.
+		effectiveType := entryType
+		if effectiveType == "" {
+			effectiveType = a.messageType[messageID]
+		}
+		if effectiveType == "text" && len(content) < len(existing) && strings.HasPrefix(existing, content) {
+			return
+		}
+
 		// Known message_id — replace content in-place
 		a.messageContent[messageID] = content
 		// Only update type if explicitly provided (don't overwrite with empty)

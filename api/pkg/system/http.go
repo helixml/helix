@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	stdlog "log"
@@ -191,7 +192,13 @@ func DefaultWrapperWithConfig[T any](handler defaultWrapper[T], config WrapperCo
 			if !config.SilenceErrors {
 				log.Error().Msgf("error for route: %s", err.Error())
 			}
-			http.Error(res, err.Error(), http.StatusInternalServerError)
+			// Handlers that need a specific status return an *HTTPError.
+			statusCode := http.StatusInternalServerError
+			var httpErr *HTTPError
+			if errors.As(err, &httpErr) && httpErr.StatusCode != 0 {
+				statusCode = httpErr.StatusCode
+			}
+			http.Error(res, err.Error(), statusCode)
 			return
 		}
 		res.Header().Set("Content-Type", "application/json")

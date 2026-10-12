@@ -331,7 +331,6 @@ const SpecTasksPage: FC = () => {
     defaultRepo?.azure_devops ||
     defaultRepo?.external_type
   );
-  const externalRepoType = defaultRepo?.external_type;
 
   const boardWipLimits = useMemo(() => {
     const limits = project?.metadata?.board_settings?.wip_limits;
@@ -1193,7 +1192,6 @@ const SpecTasksPage: FC = () => {
                 refreshTrigger={refreshTrigger}
                 focusTaskId={focusTaskId}
                 hasExternalRepo={hasExternalRepo}
-                externalRepoType={externalRepoType}
                 showArchived={showArchived}
                 showMetrics={showMetrics}
                 showMerged={showMerged}
