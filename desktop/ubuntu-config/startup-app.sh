@@ -390,4 +390,8 @@ GNOME_EOF
 
 chmod +x $XDG_RUNTIME_DIR/start_gnome
 
-dbus-run-session -- $XDG_RUNTIME_DIR/start_gnome
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
+    dbus-run-session -- /bin/bash "$XDG_RUNTIME_DIR/start_gnome"
+else
+    dbus-run-session -- "$XDG_RUNTIME_DIR/start_gnome"
+fi
