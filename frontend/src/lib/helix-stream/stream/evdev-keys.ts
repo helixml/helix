@@ -384,6 +384,9 @@ export const EvdevModifiers = {
   CTRL: 1 << 1,
   ALT: 1 << 2,
   META: 1 << 3,
+  // The sender's caps-lock state, not a held key. desktop-bridge syncs the
+  // shared remote caps lock to it on every key press.
+  CAPS_LOCK: 1 << 4,
 } as const
 
 /**
@@ -398,5 +401,6 @@ export function convertToEvdevModifiers(event: KeyboardEvent): number {
   if (event.ctrlKey) modifiers |= EvdevModifiers.CTRL
   if (event.altKey) modifiers |= EvdevModifiers.ALT
   if (event.metaKey) modifiers |= EvdevModifiers.META
+  if (event.getModifierState?.('CapsLock')) modifiers |= EvdevModifiers.CAPS_LOCK
   return modifiers
 }
