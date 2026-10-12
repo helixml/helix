@@ -89,8 +89,15 @@ func TestProbeDevContainerPortRejectsHydraErrorResponse(t *testing.T) {
 				return clientConn, nil
 			}), "device_1")
 
-			if err := client.ProbeDevContainerPort(context.Background(), "sbx_1", 8080); err == nil {
+			err := client.ProbeDevContainerPort(context.Background(), "sbx_1", 8080)
+			if err == nil {
 				t.Fatalf("expected Hydra %s response to fail readiness", status)
+			}
+			if status == "404 Not Found" && !errors.Is(err, ErrDevContainerNotFound) {
+				t.Fatalf("expected missing dev container error, got %v", err)
+			}
+			if status != "404 Not Found" && errors.Is(err, ErrDevContainerNotFound) {
+				t.Fatalf("expected non-404 Hydra error, got %v", err)
 			}
 			if err := <-serverErr; err != nil {
 				t.Fatal(err)
