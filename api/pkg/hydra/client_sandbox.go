@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,9 @@ import (
 )
 
 const devContainerUpstreamReachedHeader = "X-Helix-Upstream-Reached"
+
+// ErrDevContainerNotFound means Hydra is reachable but no longer tracks the requested container.
+var ErrDevContainerNotFound = errors.New("dev container not found")
 
 // SandboxCommandResponse is the JSON shape returned by hydra exec endpoints.
 type SandboxCommandResponse struct {
@@ -306,6 +310,9 @@ func (c *RevDialClient) ProbeDevContainerPort(ctx context.Context, sandboxID str
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= http.StatusBadRequest && resp.Header.Get(devContainerUpstreamReachedHeader) != "1" {
+		if resp.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("%w: %s", ErrDevContainerNotFound, sandboxID)
+		}
 		return fmt.Errorf("hydra proxy error (status %d)", resp.StatusCode)
 	}
 	return nil
