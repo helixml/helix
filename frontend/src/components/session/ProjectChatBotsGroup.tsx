@@ -538,14 +538,14 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
         )}
       </Box>
       {open && tasksQuery.isError && (
-        <Typography color="error" sx={{ pl: 3.5, py: 0.5, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
+        <Typography color="error" sx={{ pl: 2.5, py: 0.5, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
           Failed to load tasks
         </Typography>
       )}
       {/* An agent with nothing to show keeps a quiet row rather than an empty
           "no tasks" line under every idle agent. */}
       {open && renderedItems.length > 0 && (
-        <Box sx={{ pl: 2.5 }}>
+        <Box sx={{ pl: 1.5 }}>
           {renderedItems.map((item) => (
             <ProjectChatItemRow
               key={`${item.kind}:${item.id}`}

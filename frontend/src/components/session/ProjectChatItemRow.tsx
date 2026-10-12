@@ -443,8 +443,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
             </Typography>
             {timeAndArchive}
           </Box>
-          {/* Indented to the project name so the task reads as its child. */}
-          <Box sx={{ pl: 2.75, minWidth: 0 }}>
+          <Box sx={{ pl: 0.75, minWidth: 0 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%', mt: 0.5 }}>
               {titleNode}
               {avatarNode}
