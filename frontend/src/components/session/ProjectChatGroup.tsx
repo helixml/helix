@@ -422,7 +422,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
       </Box>
 
       {!collapsed && (
-        <Box sx={{ pl: 1.5 }}>
+        <Box sx={{ pl: 2.5 }}>
           {hasError && (
             <Typography color="error" sx={{ px: 1, py: 0.75, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
               Failed to load chats
