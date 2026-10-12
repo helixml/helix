@@ -369,6 +369,7 @@ func NewServer(
 		GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
 		LicenseKey:                    licenseKeyForHydra,      // Pass to nested Helix instances
 		DesktopRootless:               cfg.Sandboxes.DesktopRootless,
+		DesktopRootlessProjectIDs:     cfg.Sandboxes.DesktopRootlessProjectIDs,
 	})
 	appController.Options.ExternalAgentExecutor = externalAgentExecutor
 

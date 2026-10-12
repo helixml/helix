@@ -84,6 +84,7 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, err.Error())
 		return
 	}
+	spec = c.runtimes.forProject(spec, sandbox.ProjectID)
 
 	// Pick a hydra host. Three rules apply, in order:
 	//

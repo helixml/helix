@@ -48,9 +48,11 @@ type RuntimeSpec struct {
 // RuntimeRegistry is the lookup table of all runtimes available on this
 // server. Built once at controller-startup; lookups are read-only after that.
 type RuntimeRegistry struct {
-	specs            map[string]*RuntimeSpec
-	defaultRuntime   string
-	allowCustomImage bool
+	specs                     map[string]*RuntimeSpec
+	defaultRuntime            string
+	allowCustomImage          bool
+	desktopRootless           bool
+	desktopRootlessProjectIDs []string
 }
 
 // builtinDesktop is the streaming-display runtime. We keep it in code (not
@@ -69,14 +71,16 @@ var builtinDesktop = &RuntimeSpec{
 // docstring for examples.
 func NewRuntimeRegistry(cfg config.Sandboxes) (*RuntimeRegistry, error) {
 	r := &RuntimeRegistry{
-		specs:            map[string]*RuntimeSpec{},
-		defaultRuntime:   strings.TrimSpace(cfg.DefaultRuntime),
-		allowCustomImage: cfg.AllowCustomImage,
+		specs:                     map[string]*RuntimeSpec{},
+		defaultRuntime:            strings.TrimSpace(cfg.DefaultRuntime),
+		allowCustomImage:          cfg.AllowCustomImage,
+		desktopRootless:           cfg.DesktopRootless,
+		desktopRootlessProjectIDs: cfg.DesktopRootlessProjectIDs,
 	}
 	// Copy the package-level builtin so per-registry config (DesktopRootless)
 	// does not mutate shared state across registries/tests.
 	desktop := *builtinDesktop
-	if cfg.DesktopRootless {
+	if config.DesktopRootlessForProject(cfg.DesktopRootless, cfg.DesktopRootlessProjectIDs, "") {
 		desktop.DesktopRootless = true
 		desktop.Privileged = false
 	}
@@ -136,6 +140,16 @@ func NewRuntimeRegistry(cfg config.Sandboxes) (*RuntimeRegistry, error) {
 		return nil, fmt.Errorf("HELIX_SANDBOX_DEFAULT_RUNTIME=%q does not match any configured runtime", r.defaultRuntime)
 	}
 	return r, nil
+}
+
+func (r *RuntimeRegistry) forProject(spec *RuntimeSpec, projectID string) *RuntimeSpec {
+	if spec.ContainerType != hydra.DevContainerTypeUbuntu {
+		return spec
+	}
+	projectSpec := *spec
+	projectSpec.DesktopRootless = config.DesktopRootlessForProject(r.desktopRootless, r.desktopRootlessProjectIDs, projectID)
+	projectSpec.Privileged = !projectSpec.DesktopRootless
+	return &projectSpec
 }
 
 // Resolve picks a RuntimeSpec for a create request. Rules:
