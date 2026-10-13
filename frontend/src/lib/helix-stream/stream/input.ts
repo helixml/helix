@@ -85,6 +85,10 @@ export class StreamInput {
 
     private touchSupported: boolean | null = null
 
+    // Keys sent to the remote as down and not yet released
+    private heldKeys = new Set<number>()
+    private heldKeysyms = new Set<number>()
+
     constructor(config?: StreamInputConfig, peer?: RTCPeerConnection,) {
         if (peer) {
             this.setPeer(peer)
@@ -169,6 +173,15 @@ export class StreamInput {
     private sendKeyEvent(isDown: boolean, event: KeyboardEvent) {
         this.buffer.reset()
 
+        // CapsLock is never forwarded. The remote desktop has one lock shared
+        // by every viewer, and browsers report its edges unreliably (macOS sends
+        // keydown only when caps turns on, keyup only when it turns off).
+        // Instead every key event carries this viewer's caps-lock state and the
+        // backend syncs the remote lock to it.
+        if (event.code === "CapsLock" || event.key === "CapsLock") {
+            return
+        }
+
         // Check if we should use keysym mode (iPad/iOS with empty event.code,
         // or a character that contradicts the reported modifier state)
         if (this.config.useEvdevCodes && shouldUseKeysym(event)) {
@@ -184,6 +197,11 @@ export class StreamInput {
                     if (isDown) {
                         this.sendKeysymTap(keysym, modifiers)
                     }
+                    return
+                }
+                if (isDown) {
+                    this.heldKeysyms.add(keysym)
+                } else if (!this.heldKeysyms.delete(keysym)) {
                     return
                 }
                 this.sendKeysym(isDown, keysym, modifiers)
@@ -206,7 +224,42 @@ export class StreamInput {
             return
         }
 
+        if (isDown) {
+            this.heldKeys.add(key)
+        } else if (!this.heldKeys.delete(key)) {
+            // Never sent as down (e.g. pressed before the stream had focus).
+            return
+        }
         this.sendKey(isDown, key, modifiers)
+    }
+
+    /**
+     * Release every key this viewer has sent as down and not yet released.
+     *
+     * Call whenever this viewer may stop receiving keyup events: focus leaves
+     * the stream, the page is hidden, or the stream is closed. Otherwise a
+     * held Ctrl stays held on the shared desktop for every viewer.
+     */
+    releaseAllKeys() {
+        const keys = [...this.heldKeys]
+        const keysyms = [...this.heldKeysyms]
+        this.heldKeys.clear()
+        this.heldKeysyms.clear()
+        for (const key of keys) {
+            this.sendKey(false, key, 0)
+        }
+        for (const keysym of keysyms) {
+            this.sendKeysym(false, keysym, 0)
+        }
+    }
+
+    /**
+     * Forget held keys without sending anything. For when the connection is
+     * gone: desktop-bridge releases a closed connection's keys itself.
+     */
+    forgetHeldKeys() {
+        this.heldKeys.clear()
+        this.heldKeysyms.clear()
     }
 
     // Note: key = StreamKeys.VK_, modifiers = StreamKeyModifiers.

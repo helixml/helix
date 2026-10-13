@@ -3942,39 +3942,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     [getStreamRect, getInputHandler, touchMode, isDragging, stopEdgePan],
   );
 
-  // Reset all input state - clears stuck modifiers and mouse buttons
-  const resetInputState = useCallback(() => {
+  // Release mouse buttons that may be stuck after a drag ended outside the canvas
+  const releaseMouseButtons = useCallback(() => {
     const input = getInputHandler();
     if (!input) return;
-
-    console.log(
-      "[DesktopStreamViewer] Resetting stuck input state (modifiers + mouse buttons)",
-    );
-
-    // Send key-up events for all modifier keys to clear stuck state
-    const modifierKeys = [
-      { code: "ShiftLeft", key: "Shift" },
-      { code: "ShiftRight", key: "Shift" },
-      { code: "ControlLeft", key: "Control" },
-      { code: "ControlRight", key: "Control" },
-      { code: "AltLeft", key: "Alt" },
-      { code: "AltRight", key: "Alt" },
-      { code: "MetaLeft", key: "Meta" },
-      { code: "MetaRight", key: "Meta" },
-      { code: "CapsLock", key: "CapsLock" },
-    ];
-
-    modifierKeys.forEach(({ code, key }) => {
-      const fakeEvent = new KeyboardEvent("keyup", {
-        code,
-        key,
-        bubbles: true,
-        cancelable: true,
-      });
-      input.onKeyUp(fakeEvent);
-    });
-
-    // Send mouse-up events for all buttons to clear stuck mouse state
     for (let button = 0; button < 5; button++) {
       const fakeMouseEvent = new MouseEvent("mouseup", {
         button,
@@ -3983,8 +3954,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       });
       input.onMouseUp(fakeMouseEvent);
     }
+  }, []);
 
-    console.log("[DesktopStreamViewer] Input state reset complete");
+  // Reset all input state - releases held keys and mouse buttons
+  const resetInputState = useCallback(() => {
+    const input = getInputHandler();
+    if (!input) return;
+
+    console.log(
+      "[DesktopStreamViewer] Resetting input state (held keys + mouse buttons)",
+    );
+
+    // Release exactly the keys this viewer has sent as down. A blind keyup
+    // for every modifier would release keys other viewers are holding.
+    input.releaseAllKeys();
+    releaseMouseButtons();
   }, []);
 
   // Attach native keyboard event listeners when connected
@@ -4626,7 +4610,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       resetInputState();
     };
 
+    // Once focus leaves the stream (Cmd/Ctrl+Tab, clicking the chat box, an OS
+    // shortcut) or the page is hidden, keyups go elsewhere and are never
+    // forwarded. Release held keys now so none stays down on the shared desktop.
+    const releaseHeldKeys = () => {
+      getInput()?.releaseAllKeys();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        releaseHeldKeys();
+      }
+    };
+
     // Attach to container, not document (so we only capture when focused)
+    container.addEventListener("focusout", releaseHeldKeys);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", releaseHeldKeys);
     container.addEventListener("keydown", handleKeyDown);
     container.addEventListener("keyup", handleKeyUp);
     container.addEventListener("beforeinput", handleBeforeInput);
@@ -4636,6 +4635,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     document.addEventListener("paste", handlePaste);
 
     return () => {
+      container.removeEventListener("focusout", releaseHeldKeys);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", releaseHeldKeys);
       container.removeEventListener("keydown", handleKeyDown);
       container.removeEventListener("keyup", handleKeyUp);
       container.removeEventListener("beforeinput", handleBeforeInput);
@@ -5386,7 +5388,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
         onMouseEnter={() => {
-          resetInputState();
+          // Keys are not reset here: a key held while the pointer enters (Ctrl+click)
+          // is still physically down. Lost keyups are handled on focusout.
+          releaseMouseButtons();
           setIsMouseOverCanvas(true);
         }}
         onMouseLeave={() => {

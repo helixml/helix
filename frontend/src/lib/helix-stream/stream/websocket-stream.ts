@@ -525,6 +525,9 @@ export class WebSocketStream {
   }
 
   private onClose(event: CloseEvent) {
+    // desktop-bridge releases a closed connection's held keys itself
+    this.input.forgetHeldKeys()
+
     // Enhanced close logging for debugging reconnect loops
     const connectionDuration = this.lastOpenTime > 0 ? Date.now() - this.lastOpenTime : -1
     console.log("[WebSocketStream] Disconnected:", {
@@ -2593,6 +2596,9 @@ export class WebSocketStream {
   close() {
     // Log with stack trace to help debug unexpected close() calls
     console.log("[WebSocketStream] Closing", new Error("close() called from:").stack)
+
+    // Release this viewer's held keys while the socket can still carry them
+    this.input.releaseAllKeys()
 
     // Mark as explicitly closed to prevent reconnection and rendering
     this.closed = true
