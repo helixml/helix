@@ -3800,6 +3800,9 @@ type SandboxHeartbeatRequest struct {
 	// Container disk usage (per-container storage)
 	ContainerUsage []ContainerDiskUsage `json:"container_usage,omitempty"`
 
+	// Cumulative cgroup OOM kills for Helix containers on this runner.
+	ContainerOOMKills []ContainerOOMKills `json:"container_oom_kills,omitempty"`
+
 	// GPU configuration
 	GPUVendor  string `json:"gpu_vendor,omitempty"`  // nvidia, amd, intel, none
 	RenderNode string `json:"render_node,omitempty"` // /dev/dri/renderD128 or SOFTWARE
@@ -3876,6 +3879,14 @@ type ContainerDiskUsage struct {
 	ContainerName string `json:"container_name"`
 	SizeBytes     uint64 `json:"size_bytes"`
 	RwSizeBytes   uint64 `json:"rw_size_bytes"` // Writable layer size
+}
+
+// ContainerOOMKills identifies a Helix container and its cumulative cgroup
+// oom_kill count. SessionID is the helix.session_id Docker label.
+type ContainerOOMKills struct {
+	ContainerID string `json:"container_id"`
+	SessionID   string `json:"session_id"`
+	Count       uint64 `json:"count"`
 }
 
 // DiskUsageHistory stores historical disk usage for trend analysis and alerting
