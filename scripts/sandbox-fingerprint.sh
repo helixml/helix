@@ -44,9 +44,23 @@ git -C "$repo" ls-files -z --cached --others --exclude-standard |
   tar -C "$ctx" -xf -
 
 # The final stage's COPY/ADD instructions, continuation lines joined and
-# heredoc bodies (RUN <<EOF ... EOF) skipped so their content is never parsed
-# as instructions.
-mapfile -t instructions < <(awk '
+# heredoc bodies skipped so their content is never parsed as instructions.
+# Like BuildKit, only a standalone `<<WORD` token on a RUN/COPY/ADD line opens
+# a heredoc (not `$((1<<y))` or a comment). A heredoc that never closes means
+# the parse is wrong, so fail rather than drop the rest of the file.
+if ! awk '
+  # Blank out quoted text so `echo "<<EOF"` is not a heredoc; a quote right
+  # after << is the heredoc word itself (<<"EOF") and is kept.
+  function unquoted(s,    out, i, c, q, keep) {
+    out = ""; q = ""
+    for (i = 1; i <= length(s); i++) {
+      c = substr(s, i, 1)
+      if (q != "") { if (c == q) q = ""; out = out (keep ? c : "_"); continue }
+      if (c == "\"" || c == "\047") { q = c; keep = (out ~ /<<-?$/); out = out (keep ? c : "_"); continue }
+      out = out c
+    }
+    return out
+  }
   nterm > 0 {
     body = $0
     gsub(/^[[:space:]]+|[[:space:]]+$/, "", body)
@@ -57,19 +71,28 @@ mapfile -t instructions < <(awk '
   /\\[[:space:]]*$/ { sub(/\\[[:space:]]*$/, "", line); pending = line; next }
   {
     print line
-    rest = line
-    while (match(rest, /<<-?["\047]?[A-Za-z_][A-Za-z0-9_]*/)) {
-      word = substr(rest, RSTART, RLENGTH)
-      rest = substr(rest, RSTART + RLENGTH)
-      sub(/^<<-?["\047]?/, "", word)
+    n = split(unquoted(line), words, /[[:space:]]+/)
+    first = (words[1] == "" ? 2 : 1)
+    cmd = toupper(words[first])
+    if (cmd != "RUN" && cmd != "COPY" && cmd != "ADD") next
+    for (i = first + 1; i <= n; i++) {
+      if (words[i] !~ /^[0-9]*<<-?["\047]?[A-Za-z_][A-Za-z0-9_]*["\047]?$/) continue
+      word = words[i]
+      sub(/^[0-9]*<<-?["\047]?/, "", word)
+      sub(/["\047]$/, "", word)
       term[++nterm] = word
     }
   }
-' "$dockerfile" | awk '
+  END { if (nterm > 0) { print "unterminated heredoc <<" term[1] > "/dev/stderr"; exit 1 } }
+' "$dockerfile" > "$work/instructions"; then
+  echo "sandbox-fingerprint: could not parse $dockerfile" >&2
+  exit 1
+fi
+mapfile -t instructions < <(awk '
   toupper($1) == "FROM" { n = 0; delete keep; next }
   toupper($1) == "COPY" || toupper($1) == "ADD" { keep[n++] = $0 }
   END { for (i = 0; i < n; i++) print keep[i] }
-')
+' "$work/instructions")
 if [[ ${#instructions[@]} -eq 0 ]]; then
   echo "sandbox-fingerprint: no COPY/ADD found in the final stage of $dockerfile" >&2
   exit 1
