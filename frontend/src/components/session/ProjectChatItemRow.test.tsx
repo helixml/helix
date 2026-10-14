@@ -7,7 +7,6 @@ import type { SidebarItem } from './ProjectChatSidebar.logic'
 
 const mocks = vi.hoisted(() => ({
   isPhone: false,
-  repositories: [] as Array<{ external_type?: string; external_url?: string }>,
 }))
 
 vi.mock('../../hooks/useLightTheme', () => ({
@@ -22,14 +21,9 @@ vi.mock('../../hooks/useApps', () => ({
   default: () => ({ apps: [] }),
 }))
 
-vi.mock('../../services/projectService', () => ({
-  useGetProjectRepositories: () => ({ data: mocks.repositories }),
-}))
-
 afterEach(() => {
   vi.clearAllMocks()
   mocks.isPhone = false
-  mocks.repositories = []
 })
 
 const NOW = Date.parse('2026-09-07T12:00:00Z')
@@ -76,43 +70,20 @@ describe('ProjectChatItemRow', () => {
     })
   })
 
-  it('names the project on the metadata line only for cross-project rows', () => {
+  it('keeps cross-project rows on one line with the project only in the tooltip', () => {
     const { container } = renderRow(quietTask)
-    const projectName = screen.getByText('keel')
-    const title = screen.getByText('Fix the installer')
-    expect(projectName).toBeInTheDocument()
-    expect(title).toBeInTheDocument()
-    expect(projectName).toHaveStyle({
-      fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
-      fontWeight: '500',
-    })
-    expect(title).toHaveStyle({
+    expect(screen.getByText('Fix the installer')).toHaveStyle({
       fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
       fontWeight: '500',
     })
-    expect(container.querySelector('.project-chat-item')).toHaveStyle({ minHeight: '56px' })
-    expect(screen.getByTestId('sidebar-item-metadata')).toHaveTextContent('keelfix/installer')
-    expect(screen.getByTestId('sidebar-item-harness')).toHaveStyle({ marginLeft: 'auto' })
-    expect(screen.getByRole('img', { name: 'Qwen Code' })).toBeInTheDocument()
-
-    renderRow({ ...quietTask, id: 'task-2', projectName: undefined })
-    expect(screen.getAllByText('keel')).toHaveLength(1)
-  })
-
-  it('shows the relative time for quiet tasks and the status label for active ones', () => {
-    renderRow(quietTask)
     expect(screen.getByText('2d')).toBeInTheDocument()
-    expect(screen.queryByText('Implementation')).not.toBeInTheDocument()
-
-    renderRow({
-      ...quietTask,
-      id: 'task-3',
-      task: { id: 'task-3', status: 'implementation', sandbox_state: 'running', agent_work_state: 'working' } as any,
-    })
-    expect(screen.getByText('Working')).toBeInTheDocument()
+    expect(screen.queryByText('keel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('sidebar-item-metadata')).not.toBeInTheDocument()
+    expect(container.querySelector('.project-chat-item')).toHaveStyle({ height: '32px' })
   })
 
   it('explains why a planning task has no branch yet', async () => {
+    mocks.isPhone = true
     renderRow({
       ...quietTask,
       id: 'task-planning',
@@ -132,16 +103,6 @@ describe('ProjectChatItemRow', () => {
     fireEvent.mouseOver(branch)
     expect(await screen.findByText('Task is in planning mode; no branch yet.')).toBeInTheDocument()
     expect(screen.getAllByRole('tooltip')).toHaveLength(1)
-  })
-
-  it('renders the GitHub owner avatar and falls back to the folder glyph on load failure', () => {
-    mocks.repositories = [{ external_type: 'github', external_url: 'https://github.com/keel-hq/keel' }]
-    const { container } = renderRow(quietTask)
-    const img = container.querySelector('img')
-    expect(img).toHaveAttribute('src', 'https://github.com/keel-hq.png?size=48')
-
-    fireEvent.error(img!)
-    expect(container.querySelector('img')).toBeNull()
   })
 
   it('keeps time and status label visible on a phone', () => {
