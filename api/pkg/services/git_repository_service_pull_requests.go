@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/bitbucket"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
+	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -92,7 +93,7 @@ func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID str
 }
 
 // UpdatePullRequest updates the title and description of an existing pull request.
-func (s *GitRepositoryService) UpdatePullRequest(ctx context.Context, repoID string, prNumber int, title string, description string) error {
+func (s *GitRepositoryService) UpdatePullRequest(ctx context.Context, repoID string, prNumber int, title string, description string, userID string) error {
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
 		return fmt.Errorf("repository not found: %w", err)
@@ -109,23 +110,28 @@ func (s *GitRepositoryService) UpdatePullRequest(ctx context.Context, repoID str
 
 	switch repo.ExternalType {
 	case types.ExternalRepositoryTypeGitHub:
-		return s.updateGitHubPullRequest(ctx, repo, prNumber, title, description)
+		return s.updateGitHubPullRequest(ctx, repo, prNumber, title, description, userID)
 	case types.ExternalRepositoryTypeADO:
-		return s.updateAzureDevOpsPullRequest(ctx, repo, prNumber, title, description)
+		return s.updateAzureDevOpsPullRequest(ctx, repo, prNumber, title, description, userID)
 	case types.ExternalRepositoryTypeGitLab:
-		return s.updateGitLabMergeRequest(ctx, repo, prNumber, title, description)
+		return s.updateGitLabMergeRequest(ctx, repo, prNumber, title, description, userID)
 	case types.ExternalRepositoryTypeBitbucket:
-		return s.updateBitbucketPullRequest(ctx, repo, prNumber, title, description)
+		return s.updateBitbucketPullRequest(ctx, repo, prNumber, title, description, userID)
 	default:
 		return fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
 	}
 }
 
-func (s *GitRepositoryService) updateGitHubPullRequest(ctx context.Context, repo *types.GitRepository, prNumber int, title string, description string) error {
-	client, err := s.getGitHubClient(ctx, repo, "")
+func (s *GitRepositoryService) updateGitHubPullRequest(ctx context.Context, repo *types.GitRepository, prNumber int, title string, description string, userID string) error {
+	_, token, _, err := s.pullRequestUpdateCredentials(ctx, repo, userID)
 	if err != nil {
 		return err
 	}
+	baseURL := ""
+	if repo.GitHub != nil {
+		baseURL = repo.GitHub.BaseURL
+	}
+	client := github.NewClientWithOAuthAndBaseURL(token, baseURL)
 
 	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
 	if err != nil {
@@ -141,11 +147,15 @@ func (s *GitRepositoryService) updateGitHubPullRequest(ctx context.Context, repo
 	return nil
 }
 
-func (s *GitRepositoryService) updateAzureDevOpsPullRequest(ctx context.Context, repo *types.GitRepository, prNumber int, title string, description string) error {
-	client, err := s.getAzureDevOpsClient(ctx, repo)
+func (s *GitRepositoryService) updateAzureDevOpsPullRequest(ctx context.Context, repo *types.GitRepository, prNumber int, title string, description string, userID string) error {
+	if repo.AzureDevOps == nil || repo.AzureDevOps.OrganizationURL == "" {
+		return fmt.Errorf("azure devops configuration not found")
+	}
+	_, token, _, err := s.pullRequestUpdateCredentials(ctx, repo, userID)
 	if err != nil {
 		return err
 	}
+	client := azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, token)
 	project, err := s.getAzureDevOpsProject(repo)
 	if err != nil {
 		return fmt.Errorf("failed to get azure devops project: %w", err)
@@ -162,8 +172,18 @@ func (s *GitRepositoryService) updateAzureDevOpsPullRequest(ctx context.Context,
 	return nil
 }
 
-func (s *GitRepositoryService) updateGitLabMergeRequest(ctx context.Context, repo *types.GitRepository, mrIID int, title string, description string) error {
-	client, err := s.getGitLabClient(ctx, repo, "")
+func (s *GitRepositoryService) updateGitLabMergeRequest(ctx context.Context, repo *types.GitRepository, mrIID int, title string, description string, userID string) error {
+	_, token, oauth, err := s.pullRequestUpdateCredentials(ctx, repo, userID)
+	if err != nil {
+		return err
+	}
+	baseURL := gitLabBaseURL(repo)
+	var client *gitlab.Client
+	if oauth {
+		client, err = gitlab.NewClientWithOAuth(baseURL, token)
+	} else {
+		client, err = gitlab.NewClientWithPAT(baseURL, token)
+	}
 	if err != nil {
 		return err
 	}
@@ -179,11 +199,187 @@ func (s *GitRepositoryService) updateGitLabMergeRequest(ctx context.Context, rep
 	return nil
 }
 
-func (s *GitRepositoryService) updateBitbucketPullRequest(ctx context.Context, repo *types.GitRepository, prID int, title string, description string) error {
-	client, err := s.getBitbucketClient(ctx, repo)
+func (s *GitRepositoryService) pullRequestUpdateCredentials(ctx context.Context, repo *types.GitRepository, userID string) (string, string, bool, error) {
+	if username, token, ok := sharedPullRequestCredentials(repo); ok {
+		return username, token, false, nil
+	}
+	if userID == "" {
+		return "", "", false, &OAuthRequiredError{ProviderType: string(repo.ExternalType)}
+	}
+	if repo.ExternalType == types.ExternalRepositoryTypeGitHub || repo.ExternalType == types.ExternalRepositoryTypeGitLab {
+		providerType := OAuthProviderTypeForRepo(repo.ExternalType)
+		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: userID})
+		if err != nil {
+			return "", "", false, fmt.Errorf("failed to look up user OAuth connections: %w", err)
+		}
+		for _, conn := range connections {
+			if oauthConnectionMatchesRepo(conn, providerType, repo) && conn.AccessToken != "" {
+				return oauthGitUsername(repo.ExternalType), conn.AccessToken, true, nil
+			}
+		}
+	}
+	username, token, err := s.actingUserPAT(ctx, repo, userID)
+	return username, token, false, err
+}
+
+func sharedPullRequestCredentials(repo *types.GitRepository) (string, string, bool) {
+	if repo.GitProviderConnectionID == "" && repo.OAuthConnectionID != "" {
+		return "", "", false
+	}
+	switch repo.ExternalType {
+	case types.ExternalRepositoryTypeGitHub:
+		if repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "" {
+			return "x-access-token", repo.GitHub.PersonalAccessToken, true
+		}
+	case types.ExternalRepositoryTypeGitLab:
+		if repo.GitLab != nil && repo.GitLab.PersonalAccessToken != "" {
+			return "oauth2", repo.GitLab.PersonalAccessToken, true
+		}
+	case types.ExternalRepositoryTypeADO:
+		if repo.AzureDevOps != nil && repo.AzureDevOps.PersonalAccessToken != "" {
+			return "PAT", repo.AzureDevOps.PersonalAccessToken, true
+		}
+	case types.ExternalRepositoryTypeBitbucket:
+		if repo.Bitbucket != nil && repo.Bitbucket.Username != "" && repo.Bitbucket.AppPassword != "" {
+			return repo.Bitbucket.Username, repo.Bitbucket.AppPassword, true
+		}
+	}
+	if repo.Username != "" && repo.Password != "" {
+		return repo.Username, repo.Password, true
+	}
+	return "", "", false
+}
+
+func (s *GitRepositoryService) actingUserPAT(ctx context.Context, repo *types.GitRepository, userID string) (string, string, error) {
+	connections, err := s.store.ListGitProviderConnections(ctx, userID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to look up user git provider connections: %w", err)
+	}
+	var match *types.GitProviderConnection
+	for _, conn := range connections {
+		if conn == nil || conn.UserID != userID || conn.ProviderType != repo.ExternalType || !gitProviderConnectionMatchesRepo(conn, repo) {
+			continue
+		}
+		if match != nil {
+			return "", "", fmt.Errorf("multiple %s connections match this repository", repo.ExternalType)
+		}
+		match = conn
+	}
+	if match == nil {
+		return "", "", &OAuthRequiredError{ProviderType: string(repo.ExternalType)}
+	}
+	key, err := crypto.GetEncryptionKey()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get encryption key: %w", err)
+	}
+	token, err := crypto.DecryptAES256GCM(match.Token, key)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to decrypt user git provider token: %w", err)
+	}
+	username := ""
+	if match.AuthUsername != "" {
+		value, err := crypto.DecryptAES256GCM(match.AuthUsername, key)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to decrypt user git provider username: %w", err)
+		}
+		username = string(value)
+	}
+	if len(token) == 0 || (repo.ExternalType == types.ExternalRepositoryTypeBitbucket && username == "") {
+		return "", "", fmt.Errorf("%s user connection is incomplete", repo.ExternalType)
+	}
+	return username, string(token), nil
+}
+
+func gitProviderConnectionMatchesRepo(conn *types.GitProviderConnection, repo *types.GitRepository) bool {
+	switch repo.ExternalType {
+	case types.ExternalRepositoryTypeGitHub:
+		return sameProviderURL(conn.BaseURL, gitHubBaseURL(repo))
+	case types.ExternalRepositoryTypeGitLab:
+		return sameProviderURL(conn.BaseURL, gitLabBaseURL(repo))
+	case types.ExternalRepositoryTypeADO:
+		return repo.AzureDevOps != nil && sameProviderURL(conn.OrganizationURL, repo.AzureDevOps.OrganizationURL)
+	case types.ExternalRepositoryTypeBitbucket:
+		return sameProviderURL(conn.BaseURL, bitbucketBaseURL(repo))
+	default:
+		return false
+	}
+}
+
+func oauthConnectionMatchesRepo(conn *types.OAuthConnection, providerType types.OAuthProviderType, repo *types.GitRepository) bool {
+	if !oauthConnectionMatchesProvider(conn, providerType) {
+		return false
+	}
+	repoURL, err := url.Parse(repo.ExternalURL)
+	if err != nil || repoURL.Hostname() == "" {
+		return false
+	}
+	for _, raw := range []string{conn.Provider.AuthURL, conn.Provider.TokenURL, conn.Provider.UserInfoURL} {
+		providerURL, err := url.Parse(raw)
+		if err == nil && providerURL.Hostname() != "" {
+			return strings.EqualFold(providerURL.Hostname(), repoURL.Hostname())
+		}
+	}
+	return (providerType == types.OAuthProviderTypeGitHub && strings.EqualFold(repoURL.Hostname(), "github.com")) ||
+		(providerType == types.OAuthProviderTypeGitLab && strings.EqualFold(repoURL.Hostname(), "gitlab.com"))
+}
+
+func sameProviderURL(a, b string) bool {
+	normalize := func(raw string) string {
+		u, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || u.Host == "" {
+			return strings.TrimRight(strings.ToLower(strings.TrimSpace(raw)), "/")
+		}
+		normalized := strings.ToLower(u.Scheme + "://" + u.Host + strings.TrimRight(u.Path, "/"))
+		switch normalized {
+		case "https://github.com", "https://gitlab.com", "https://bitbucket.org":
+			return ""
+		default:
+			return normalized
+		}
+	}
+	return normalize(a) == normalize(b)
+}
+
+func gitHubBaseURL(repo *types.GitRepository) string {
+	if repo.GitHub != nil && repo.GitHub.BaseURL != "" {
+		return repo.GitHub.BaseURL
+	}
+	u, err := url.Parse(repo.ExternalURL)
+	if err == nil && !strings.EqualFold(u.Host, "github.com") {
+		return u.Scheme + "://" + u.Host
+	}
+	return ""
+}
+
+func gitLabBaseURL(repo *types.GitRepository) string {
+	if repo.GitLab != nil && repo.GitLab.BaseURL != "" {
+		return repo.GitLab.BaseURL
+	}
+	baseURL, _, _ := gitlab.ParseGitLabURL(repo.ExternalURL)
+	return baseURL
+}
+
+func bitbucketBaseURL(repo *types.GitRepository) string {
+	if repo.Bitbucket != nil && repo.Bitbucket.BaseURL != "" {
+		return repo.Bitbucket.BaseURL
+	}
+	u, err := url.Parse(repo.ExternalURL)
+	if err == nil && !strings.EqualFold(u.Host, "bitbucket.org") {
+		return u.Scheme + "://" + u.Host
+	}
+	return ""
+}
+
+func (s *GitRepositoryService) updateBitbucketPullRequest(ctx context.Context, repo *types.GitRepository, prID int, title string, description string, userID string) error {
+	username, token, _, err := s.pullRequestUpdateCredentials(ctx, repo, userID)
 	if err != nil {
 		return err
 	}
+	baseURL := ""
+	if repo.Bitbucket != nil {
+		baseURL = repo.Bitbucket.BaseURL
+	}
+	client := bitbucket.NewClient(username, token, baseURL)
 	workspace, repoSlug, _, err := bitbucket.ParseBitbucketURL(repo.ExternalURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse Bitbucket URL: %w", err)

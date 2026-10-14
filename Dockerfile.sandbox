@@ -17,6 +17,10 @@ FROM golang:1.25-bookworm@sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a
 # The runner's heartbeat ships this field to the control plane, where it gates
 # desktop-version matching and shows up in the admin Agent Sandbox dropdown.
 ARG APP_VERSION="v0.0.0+unknown"
+# Reproducible builds: identical source gives byte-identical binaries (no paths,
+# VCS stamp or input-hash build ID), so scripts/sandbox-fingerprint.sh can tell
+# whether a commit changes what runs in the sandbox.
+ENV CGO_ENABLED=0 GOFLAGS="-trimpath -buildvcs=false"
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -25,21 +29,21 @@ COPY api/ ./api/
 # Build hydra (multi-Docker isolation daemon with built-in RevDial)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /hydra ./api/cmd/hydra
+    go build -ldflags "-s -w -buildid=" -o /hydra ./api/cmd/hydra
 # Build sandbox-heartbeat (disk monitoring + helix_version heartbeat to the control plane)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -ldflags "-s -w -X github.com/helixml/helix/api/pkg/data.Version=${APP_VERSION}" -o /sandbox-heartbeat ./api/cmd/sandbox-heartbeat
+    go build -ldflags "-s -w -buildid= -X github.com/helixml/helix/api/pkg/data.Version=${APP_VERSION}" -o /sandbox-heartbeat ./api/cmd/sandbox-heartbeat
 # Build compose-manager (sandbox-absorbs-runner pivot: applies operator-assigned
 # runner profiles by running `docker compose` against the inner dockerd).
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /compose-manager ./api/cmd/compose-manager
+    go build -ldflags "-s -w -buildid=" -o /compose-manager ./api/cmd/compose-manager
 # Build inference-proxy (body-aware reverse proxy: model name -> container in
 # inner dockerd via Docker DNS).
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /inference-proxy ./api/cmd/inference-proxy
+    go build -ldflags "-s -w -buildid=" -o /inference-proxy ./api/cmd/inference-proxy
 # Build dns-proxy (forwards sandbox DNS to the outer Docker/host DNS). It is a
 # separate Go module (sandbox/dns-proxy). NOTE: this was accidentally dropped in
 # the docker-in-desktop refactor (099156501), silently removing sandbox DNS from
@@ -47,7 +51,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY sandbox/dns-proxy/ ./dns-proxy/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    cd dns-proxy && CGO_ENABLED=0 go build -ldflags "-s -w" -o /dns-proxy .
+    cd dns-proxy && go build -ldflags "-s -w -buildid=" -o /dns-proxy .
 
 # ====================================================================
 # Stage 2: Final sandbox image (based on GOW base pattern)

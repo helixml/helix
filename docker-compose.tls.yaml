@@ -14,16 +14,13 @@
 #   VHOST_HTTPS_PORT=8443
 #   VHOST_HTTP_PORT=8080-acme  # any free port works for HTTP-01
 #
-# :80 is only used by the HTTP-01 ACME challenge and the HTTP→HTTPS
-# redirect. With DNS-01 (HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare) the
-# API server does not bind :80 — comment the :80 mapping out below.
+# :80 serves custom-domain verification (the verifier polls
+# http://<domain>/.well-known/helix-domain-verify/<token>), the HTTP-01
+# ACME challenge when no DNS provider is configured, and the HTTP→HTTPS
+# redirect. Without it custom domains never verify.
 
 services:
   api:
     ports:
       - ${VHOST_HTTPS_PORT:-443}:443
-      # :80 is only needed for HTTP-01 / TLS-ALPN-01 challenges and the
-      # HTTP→HTTPS redirect. We run DNS-01 (HELIX_VHOST_ACME_DNS_PROVIDER=
-      # cloudflare), so the API server never binds :80 — leave it unmapped.
-      # Re-enable this line if you switch back to HTTP-01:
-      # - ${VHOST_HTTP_PORT:-80}:80
+      - ${VHOST_HTTP_PORT:-80}:80

@@ -62,6 +62,11 @@ report_failure() {
   fi
 }
 trap report_failure EXIT
+find_sandbox() {
+  docker ps --filter label=com.docker.compose.service \
+    --format '{{.ID}} {{.Label "com.docker.compose.service"}}' \
+    | awk '$2 ~ /^sandbox-(nvidia|amd-intel|software|macos)$/ && !found { print $1; found=1 }'
+}
 echo "Pre-deploy Helix SHA: $PRE_DEPLOY_SHA"
 
 for repo in "$HELIX_DIR" "$ZED_DIR"; do
@@ -134,19 +139,23 @@ if [[ -z "$deployed_helix_sha" ]] || ! git diff --quiet "$deployed_helix_sha" "$
   ubuntu_changed=true
 fi
 
-sandbox_changed=false
-if [[ -z "$deployed_helix_sha" ]] || ! git diff --quiet "$deployed_helix_sha" "$TARGET_SHA" -- \
-  .dockerignore Dockerfile.sandbox go.mod go.sum sandbox/ sandbox-images/ \
-  api/cmd/{hydra,sandbox-heartbeat,compose-manager,inference-proxy}/ \
-  api/pkg/{composemgr,data,gpudetect,hydra,inferenceproxy,revdial,runner/composeparse,runner/gpuarch,system,types,util/error,util/prometheus}/ \
-  desktop/sway-config/setup-telemetry-firewall.sh; then
-  sandbox_changed=true
+# Recreating the sandbox kills every running desktop and golden build, so only
+# do it when the artifacts it ships differ from the running sandbox's
+# (scripts/sandbox-fingerprint.sh); any failure to establish that recreates it.
+sandbox_changed=true
+if ./stack sandbox-unchanged; then
+  sandbox_changed=false
+fi
+sandbox_before=$(find_sandbox)
+sandbox_before_started=
+if [[ -n "$sandbox_before" ]]; then
+  sandbox_before_started=$(docker inspect --format '{{.State.StartedAt}}' "$sandbox_before")
 fi
 
 if [[ "$sandbox_changed" == true ]]; then
   sandbox_build_started_ns=$(date -u +%s%N)
   sandbox_restart_started=true
-  ./stack build-sandbox
+  SANDBOX_FORCE_RECREATE=1 ./stack build-sandbox
 elif [[ "$zed_changed" == true || "$ubuntu_changed" == true ]]; then
   ./stack build-ubuntu
 else
@@ -159,9 +168,7 @@ if [[ "$zed_changed" == true || "$ubuntu_changed" == true || "$sandbox_changed" 
     echo "Invalid Ubuntu image version: $ubuntu_version" >&2
     exit 1
   fi
-  sandbox_id=$(docker ps --filter label=com.docker.compose.service \
-    --format '{{.ID}} {{.Label "com.docker.compose.service"}}' \
-    | awk '$2 ~ /^sandbox-(nvidia|amd-intel|software|macos)$/ && !found { print $1; found=1 }')
+  sandbox_id=$(find_sandbox)
   if [[ -z "$sandbox_id" ]] ||
     ! docker exec "$sandbox_id" docker image inspect "helix-ubuntu:$ubuntu_version" >/dev/null; then
     echo "Ubuntu image helix-ubuntu:$ubuntu_version is not loaded in the sandbox" >&2
@@ -187,6 +194,16 @@ if [[ "$sandbox_changed" == true ]]; then
     echo "Running sandbox started before this deployment rebuilt it" >&2
     exit 1
   fi
+fi
+
+# Zed/desktop-image-only deploys must leave the running sandbox (and every
+# desktop on it) alone; new desktops pick up the published image.
+if [[ "$sandbox_changed" == false ]] && {
+  [[ $(find_sandbox) != "$sandbox_before" ]] ||
+  [[ $(docker inspect --format '{{.State.StartedAt}}' "$sandbox_before" 2>/dev/null) != "$sandbox_before_started" ]]
+}; then
+  echo "Sandbox was restarted although its artifacts were unchanged" >&2
+  exit 1
 fi
 
 if [[ $(git rev-parse HEAD) != "$TARGET_SHA" ]]; then

@@ -114,6 +114,12 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 
 Full rebuild order: `build-zed` → `build-ubuntu` → `build-sandbox` (if needed) → start new session.
 
+`build-sandbox` only rebuilds and recreates the sandbox (killing every desktop on it) when the
+artifacts it ships changed: `scripts/sandbox-fingerprint.sh` hashes Dockerfile.sandbox plus every
+file its final stage COPYs (Go binaries built by the real builder stage, scripts), and the image
+carries it as the `helix.sandbox.fingerprint` label. `SANDBOX_FORCE_RECREATE=1` overrides;
+`./stack sandbox-unchanged` reports the decision. `scripts/deploy-meta.sh` uses the same check.
+
 **Experimental desktop pulls.** The sandbox startup script
 (`sandbox/04-start-dockerd.sh`) only pulls the *production* desktop image
 (`helix-ubuntu`) on every container start. Experimental desktops

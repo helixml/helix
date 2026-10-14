@@ -198,6 +198,10 @@ type Sandboxes struct {
 	// GPU-stream validation. See design/2026-10-08-desktop-root-isolation.md.
 	DesktopRootless bool `envconfig:"HELIX_SANDBOX_DESKTOP_ROOTLESS" default:"false"`
 
+	// DesktopRootlessProjectIDs limits desktop rootless mode to the listed
+	// projects. When empty, DesktopRootless keeps its global behavior.
+	DesktopRootlessProjectIDs []string `envconfig:"HELIX_SANDBOX_DESKTOP_ROOTLESS_PROJECT_IDS"`
+
 	// DefaultRuntime is the runtime applied when the create request omits
 	// both `runtime` and `image`. Must match one of the names in Runtimes.
 	DefaultRuntime string `envconfig:"HELIX_SANDBOX_DEFAULT_RUNTIME" default:"headless-ubuntu"`
@@ -219,6 +223,31 @@ type Sandboxes struct {
 	// operator with a bigger or smaller box can move them without a rebuild.
 	DefaultSpecTaskVCPUs    int `envconfig:"HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS" default:"12"`
 	DefaultSpecTaskMemoryMB int `envconfig:"HELIX_SPEC_TASK_SANDBOX_DEFAULT_MEMORY_MB" default:"24576"`
+}
+
+func DesktopRootlessForProject(global bool, projectIDs []string, projectID string) bool {
+	for _, allowedProjectID := range projectIDs {
+		allowedProjectID = strings.TrimSpace(allowedProjectID)
+		if allowedProjectID == "" {
+			continue
+		}
+		if allowedProjectID == projectID {
+			return true
+		}
+	}
+	if DesktopRootlessProjectScopeEnabled(projectIDs) {
+		return false
+	}
+	return global
+}
+
+func DesktopRootlessProjectScopeEnabled(projectIDs []string) bool {
+	for _, projectID := range projectIDs {
+		if strings.TrimSpace(projectID) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Compute configures the cloud-provisioning side of Helix's sandbox

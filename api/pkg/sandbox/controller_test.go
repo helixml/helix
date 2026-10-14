@@ -343,6 +343,40 @@ func TestRuntimeRegistryDesktopRootlessFlagFlipsBuiltinDesktop(t *testing.T) {
 	}
 }
 
+func TestRuntimeRegistryDesktopRootlessProjectAllowlist(t *testing.T) {
+	r, err := NewRuntimeRegistry(config.Sandboxes{
+		Runtimes:                  "headless-ubuntu=ubuntu:22.04",
+		DefaultRuntime:            "headless-ubuntu",
+		DesktopRootless:           true,
+		DesktopRootlessProjectIDs: []string{"prj_target", " prj_second "},
+	})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	spec, err := r.Resolve(&types.CreateSandboxRequest{Runtime: types.SandboxRuntimeUbuntuDesktop})
+	if err != nil {
+		t.Fatalf("resolve desktop: %v", err)
+	}
+
+	target := r.forProject(spec, "prj_target")
+	if target.Privileged || !target.DesktopRootless {
+		t.Fatalf("target project should be rootless, got privileged=%v rootless=%v", target.Privileged, target.DesktopRootless)
+	}
+	second := r.forProject(spec, "prj_second")
+	if second.Privileged || !second.DesktopRootless {
+		t.Fatalf("second project should be rootless, got privileged=%v rootless=%v", second.Privileged, second.DesktopRootless)
+	}
+	for _, projectID := range []string{"", "prj_other"} {
+		other := r.forProject(spec, projectID)
+		if !other.Privileged || other.DesktopRootless {
+			t.Fatalf("project %q should remain privileged, got privileged=%v rootless=%v", projectID, other.Privileged, other.DesktopRootless)
+		}
+	}
+	if !spec.Privileged || spec.DesktopRootless {
+		t.Fatalf("registry spec was mutated: privileged=%v rootless=%v", spec.Privileged, spec.DesktopRootless)
+	}
+}
+
 func TestRuntimeRegistryFallsBackToFirstHeadlessRuntime(t *testing.T) {
 	// No DefaultRuntime set — registry should auto-pick the first headless
 	// runtime so the operator doesn't trip over a missing config.

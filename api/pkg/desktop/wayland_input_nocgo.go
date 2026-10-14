@@ -25,6 +25,10 @@ func (w *WaylandInput) KeyUpEvdev(evdevCode int) error {
 	return errors.New("wayland input requires linux")
 }
 
+func (w *WaylandInput) SetCapsLock(locked bool) error {
+	return errors.New("wayland input requires linux")
+}
+
 func (w *WaylandInput) MouseButtonDown(button int) error {
 	return errors.New("wayland input requires linux")
 }

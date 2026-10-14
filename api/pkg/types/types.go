@@ -1107,9 +1107,12 @@ type EntryPatch struct {
 	Index        int    `json:"index"`                    // Position in the entries array
 	MessageID    string `json:"message_id"`               // Zed message_id for this entry
 	Type         string `json:"type"`                     // "text", "tool_call", or "plan"
-	Patch        string `json:"patch,omitempty"`          // Content delta from PatchOffset onwards
-	PatchOffset  int    `json:"patch_offset,omitempty"`   // UTF-16 offset of first change in this entry
-	TotalLength  int    `json:"total_length,omitempty"`   // Final content length of this entry after patch
+	// Patch/PatchOffset/TotalLength are deliberately NOT omitempty: a rewrite
+	// from offset 0 must arrive as an explicit 0, or the frontend's applyPatch
+	// appends instead of replacing and the entry is silently corrupted.
+	Patch        string `json:"patch"`        // Content delta from PatchOffset onwards
+	PatchOffset  int    `json:"patch_offset"` // UTF-16 offset of first change in this entry
+	TotalLength  int    `json:"total_length"` // Final content length of this entry after patch
 	ToolName     string `json:"tool_name,omitempty"`      // For tool_call: the tool label
 	ToolStatus   string `json:"tool_status,omitempty"`    // For tool_call: "Completed", "In Progress", etc.
 	ToolCallID   string `json:"tool_call_id,omitempty"`   // Stable ACP tool-call id
@@ -3797,6 +3800,9 @@ type SandboxHeartbeatRequest struct {
 	// Container disk usage (per-container storage)
 	ContainerUsage []ContainerDiskUsage `json:"container_usage,omitempty"`
 
+	// Cumulative cgroup OOM kills for Helix containers on this runner.
+	ContainerOOMKills []ContainerOOMKills `json:"container_oom_kills,omitempty"`
+
 	// GPU configuration
 	GPUVendor  string `json:"gpu_vendor,omitempty"`  // nvidia, amd, intel, none
 	RenderNode string `json:"render_node,omitempty"` // /dev/dri/renderD128 or SOFTWARE
@@ -3873,6 +3879,14 @@ type ContainerDiskUsage struct {
 	ContainerName string `json:"container_name"`
 	SizeBytes     uint64 `json:"size_bytes"`
 	RwSizeBytes   uint64 `json:"rw_size_bytes"` // Writable layer size
+}
+
+// ContainerOOMKills identifies a Helix container and its cumulative cgroup
+// oom_kill count. SessionID is the helix.session_id Docker label.
+type ContainerOOMKills struct {
+	ContainerID string `json:"container_id"`
+	SessionID   string `json:"session_id"`
+	Count       uint64 `json:"count"`
 }
 
 // DiskUsageHistory stores historical disk usage for trend analysis and alerting
