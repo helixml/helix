@@ -1,4 +1,4 @@
-import { IApp } from '../types'
+import { TypesSandboxDisplay } from '../api/api'
 
 export interface DisplaySettings {
   width: number
@@ -6,35 +6,27 @@ export interface DisplaySettings {
   fps: number
 }
 
-const DEFAULT_DISPLAY: DisplaySettings = { width: 1920, height: 1080, fps: 60 }
+export type SandboxResolution = '1080p' | '4k' | '5k'
 
-// deriveDisplaySettings resolves the desktop resolution / refresh rate for an
-// external-agent app from its `external_agent_config`, honouring the
-// resolution presets and falling back to 1920x1080x60 when the app or config
-// is missing. Shared by the spec-task detail page and the bot detail page so
-// both feed ExternalAgentDesktopViewer identical settings.
-export function deriveDisplaySettings(app?: IApp): DisplaySettings {
-  const config = app?.config?.helix?.external_agent_config
-  if (!config) {
-    return { ...DEFAULT_DISPLAY }
-  }
+// Mirrors types.SandboxResolutionSize in api/pkg/types/simple_spec_task.go.
+export const SANDBOX_RESOLUTIONS: { value: SandboxResolution, label: string, description: string, width: number, height: number }[] = [
+  { value: '1080p', label: '1080p', description: '1920×1080', width: 1920, height: 1080 },
+  { value: '4k', label: '4K', description: '3840×2160 · for demo recordings', width: 3840, height: 2160 },
+  { value: '5k', label: '5K', description: '5120×2880', width: 5120, height: 2880 },
+]
 
-  let width = config.display_width || 1920
-  let height = config.display_height || 1080
-  if (config.resolution === '5k') {
-    width = 5120
-    height = 2880
-  } else if (config.resolution === '4k') {
-    width = 3840
-    height = 2160
-  } else if (config.resolution === '1080p') {
-    width = 1920
-    height = 1080
-  }
+export function sandboxResolution(display?: TypesSandboxDisplay): SandboxResolution {
+  return SANDBOX_RESOLUTIONS.find((r) => r.value === display?.resolution)?.value || '1080p'
+}
 
-  return {
-    width,
-    height,
-    fps: config.display_refresh_rate || 60,
-  }
+export function sandboxResolutionLabel(display?: TypesSandboxDisplay): string {
+  const value = sandboxResolution(display)
+  return SANDBOX_RESOLUTIONS.find((r) => r.value === value)!.label
+}
+
+// deriveDisplaySettings resolves a spec task's desktop size from its
+// sandbox_display, defaulting to 1920x1080x60 like the backend does.
+export function deriveDisplaySettings(display?: TypesSandboxDisplay): DisplaySettings {
+  const preset = SANDBOX_RESOLUTIONS.find((r) => r.value === sandboxResolution(display))!
+  return { width: preset.width, height: preset.height, fps: 60 }
 }

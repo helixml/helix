@@ -17,6 +17,7 @@ import { ChevronDown, Folder, FolderPlus, Hammer, ListTodo } from 'lucide-react'
 import {
   TypesCodeAgentExecutionConfig,
   TypesSandboxResourceOverrides,
+  TypesSandboxDisplay,
   TypesSandboxRuntime,
 } from '../api/api'
 import RobustPromptInput from '../components/common/RobustPromptInput'
@@ -130,6 +131,8 @@ const Home: FC = () => {
   const [taskSandboxRuntime, setTaskSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
     preferredSpecTaskSandboxRuntime(requestedProjectId),
   )
+  // One-off per task (e.g. 4K for a demo recording); not remembered.
+  const [taskSandboxDisplay, setTaskSandboxDisplay] = useState<TypesSandboxDisplay | undefined>()
   const [taskMode, setTaskMode] = useState<NewChatTaskMode>('build')
   // PR auto-approval only applies to projects with an external repository,
   // and starts from the project's default every time the project changes.
@@ -188,6 +191,7 @@ const Home: FC = () => {
       selectedProjectId,
       selectedProject?.default_sandbox_runtime,
     ))
+    setTaskSandboxDisplay(undefined)
   }, [
     selectedProjectId,
     selectedProject?.default_sandbox_resource_overrides?.vcpus,
@@ -257,6 +261,7 @@ const Home: FC = () => {
         codeAgentConfig: taskCodeAgentConfig,
         sandboxResourceOverrides: taskSandboxResources,
         sandboxRuntime: taskSandboxRuntime,
+        sandboxDisplay: taskSandboxDisplay,
         autoApprovePullRequests: showAutoApprovePRs ? autoApprovePRs : undefined,
       }))
       taskId = task?.id || ''
@@ -336,6 +341,8 @@ const Home: FC = () => {
         onChange={handleTaskCodeAgentConfigChange}
         onSandboxResourceOverridesChange={handleTaskSandboxResourcesChange}
         onSandboxRuntimeChange={handleTaskSandboxRuntimeChange}
+        sandboxDisplay={taskSandboxDisplay}
+        onSandboxDisplayChange={setTaskSandboxDisplay}
         disabled={submitting}
         autoSelectDefault
         compact

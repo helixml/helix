@@ -36,6 +36,7 @@ import {
   TypesCreateTaskRequest,
   TypesSpecTaskPriority,
   TypesBranchMode,
+  TypesSandboxDisplay,
   TypesSandboxResourceOverrides,
   TypesSandboxRuntime,
   TypesSpecTask,
@@ -163,6 +164,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     useState<TypesCodeAgentExecutionConfig>();
   const [sandboxResourceOverrides, setSandboxResourceOverrides] =
     useState<TypesSandboxResourceOverrides | undefined>();
+  // One-off per task (e.g. 4K for a demo recording); not remembered for the next task.
+  const [sandboxDisplay, setSandboxDisplay] = useState<TypesSandboxDisplay | undefined>();
   const [sandboxRuntime, setSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
     preferredSpecTaskSandboxRuntime(projectId),
   );
@@ -451,6 +454,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setPlanningCodeAgentConfig(
       project?.planning_code_agent_config || project?.code_agent_config,
     );
+    setSandboxDisplay(undefined);
     setSandboxResourceOverrides(
       preferredSpecTaskSandboxResources(
         projectId,
@@ -551,6 +555,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             : undefined,
         sandbox_resource_overrides: sandboxResourceOverrides,
         sandbox_runtime: sandboxRuntime,
+        sandbox_display: sandboxDisplay,
       };
 
       const response = await api
@@ -1235,6 +1240,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   sandboxRuntime={sandboxRuntime}
                   onSandboxResourceOverridesChange={handleSandboxResourceOverridesChange}
                   onSandboxRuntimeChange={handleSandboxRuntimeChange}
+                  sandboxDisplay={sandboxDisplay}
+                  onSandboxDisplayChange={setSandboxDisplay}
                   autoSelectDefault
                 />
                 {implementationAgentIsGoose && (

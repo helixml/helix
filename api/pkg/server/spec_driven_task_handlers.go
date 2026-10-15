@@ -192,6 +192,10 @@ func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.Response
 		http.Error(w, "sandbox size must be 1 CPU/2 GB, 4 CPU/8 GB, or 8 CPU/16 GB", http.StatusBadRequest)
 		return
 	}
+	if err := req.SandboxDisplay.Validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if !types.ValidSpecTaskSandboxRuntime(req.SandboxRuntime) {
 		http.Error(w, "sandbox runtime must be ubuntu-desktop or headless-ubuntu", http.StatusBadRequest)
 		return
