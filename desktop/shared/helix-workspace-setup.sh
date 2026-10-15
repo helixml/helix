@@ -174,7 +174,7 @@ declare -a ZED_FOLDERS
 # golden snapshot of it.
 CONTAINER_DATA_DIR=/var/lib/docker
 if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
-    CONTAINER_DATA_DIR=/home/retro/.local/share/containers
+    CONTAINER_DATA_DIR=/home/retro/.local/share/docker
 fi
 # Records each repo's HEAD at the end of a golden build (helix-git-mtime record).
 GOLDEN_GIT_RECORD="$CONTAINER_DATA_DIR/.golden-git-checkout.json"
@@ -1078,24 +1078,23 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
                 docker rm -f $CONTAINER_IDS || fail_golden_build
             fi
 
-            echo "Stopping rootless Podman and BuildKit for clean shutdown..."
+            echo "Stopping rootless Docker for clean shutdown..."
             sudo touch /tmp/.container-engine-stop
-            sudo pkill -TERM -u retro -f 'podman.*system service' 2>/dev/null || true
-            sudo pkill -TERM -u retro -f 'rootlesskit.*buildkitd|buildkitd' 2>/dev/null || true
-            if [ -f /run/user/1000/buildkit-rootlesskit/child_pid ]; then
-                sudo kill "$(cat /run/user/1000/buildkit-rootlesskit/child_pid)" 2>/dev/null || true
+            sudo pkill -TERM -u retro -f 'dockerd-rootless.sh|rootlesskit.*dockerd|dockerd' 2>/dev/null || true
+            if [ -f /run/user/1000/dockerd-rootless/child_pid ]; then
+                sudo kill "$(cat /run/user/1000/dockerd-rootless/child_pid)" 2>/dev/null || true
             fi
             for _ in $(seq 1 30); do
-                if ! pgrep -u retro -f 'podman.*system service|rootlesskit.*buildkitd|buildkitd' >/dev/null; then
+                if ! pgrep -u retro -f 'dockerd-rootless.sh|rootlesskit.*dockerd|dockerd' >/dev/null; then
                     break
                 fi
                 sleep 1
             done
-            if pgrep -u retro -f 'podman.*system service|rootlesskit.*buildkitd|buildkitd' >/dev/null; then
-                echo "❌ Rootless container engines did not stop; refusing to promote a live cache"
+            if pgrep -u retro -f 'dockerd-rootless.sh|rootlesskit.*dockerd|dockerd' >/dev/null; then
+                echo "ERROR: Rootless Docker did not stop; refusing to promote a live cache"
                 fail_golden_build
             fi
-            echo "✅ Rootless container engines stopped"
+            echo "Rootless Docker stopped"
         else
             # The BuildKit cache is the useful part of the Docker golden.
             BUILDKIT_BUILD_END=$(sudo helix-buildkit-cache-stats || echo null)

@@ -502,6 +502,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		// containers — the latter were previously orphaned on restart.
 		Labels: map[string]string{
 			containerSessionIDLabel: req.SessionID,
+			containerCacheKindLabel: string(goldenCacheKindForRequest(req)),
 		},
 	}
 	// Stamp persistent (web-service) containers so the boot-time stopped-container
@@ -637,10 +638,11 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 			// Track container in our map
 			dm.mu.Lock()
 			dm.containers[req.SessionID] = &DevContainer{
-				SessionID:     req.SessionID,
-				ContainerID:   existingContainer.ID,
-				ContainerName: req.ContainerName,
-				IPAddress:     ipAddress,
+				SessionID:       req.SessionID,
+				ContainerID:     existingContainer.ID,
+				ContainerName:   req.ContainerName,
+				IPAddress:       ipAddress,
+				goldenCacheKind: cacheKindFromContainer(existingContainer),
 			}
 			dm.mu.Unlock()
 
@@ -706,10 +708,11 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 			// Track container
 			dm.mu.Lock()
 			dm.containers[req.SessionID] = &DevContainer{
-				SessionID:     req.SessionID,
-				ContainerID:   existingContainer.ID,
-				ContainerName: req.ContainerName,
-				IPAddress:     ipAddress,
+				SessionID:       req.SessionID,
+				ContainerID:     existingContainer.ID,
+				ContainerName:   req.ContainerName,
+				IPAddress:       ipAddress,
+				goldenCacheKind: cacheKindFromContainer(existingContainer),
 			}
 			dm.mu.Unlock()
 
@@ -899,7 +902,7 @@ func archivePersistentRootlessRuntime(mounts []dockertypes.MountPoint) (string, 
 	var archivePath string
 	for _, name := range []string{
 		"libpod", "containers", "crun", "runc", "netns", "nets",
-		"podman", "buildkit", "buildkit-rootlesskit",
+		"podman", "docker", "dockerd-rootless", "rootlesskit", "buildkit", "buildkit-rootlesskit",
 	} {
 		source := filepath.Join(runtimeSource, name)
 		if _, err := os.Lstat(source); errors.Is(err, os.ErrNotExist) {
@@ -983,10 +986,10 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	env = overrideEnvVar(env, "HELIX_DESKTOP_ROOTLESS", "0")
 	if req.RootlessContainerEngine || req.DesktopRootless {
 		env = overrideEnvVar(env, "HELIX_ROOTLESS_CONTAINER_ENGINE", "1")
-		env = overrideEnvVar(env, "DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock")
-		env = overrideEnvVar(env, "CONTAINER_HOST", "unix:///run/user/1000/podman/podman.sock")
-		env = overrideEnvVar(env, "DOCKER_BUILDKIT", "0")
-		env = overrideEnvVar(env, "BUILDX_BUILDER", "helix-rootless")
+		env = overrideEnvVar(env, "DOCKER_HOST", "unix:///run/user/1000/docker.sock")
+		env = removeEnvVar(env, "CONTAINER_HOST")
+		env = overrideEnvVar(env, "DOCKER_BUILDKIT", "1")
+		env = removeEnvVar(env, "BUILDX_BUILDER")
 	}
 	if req.DesktopRootless {
 		// The desktop entrypoint uses this to keep sudo while running rootless:
@@ -1183,7 +1186,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		return nil, fmt.Errorf("unsupported sandbox network %q", req.Network)
 	}
 
-	// A desktop in rootless mode runs the same unprivileged rootless Podman
+	// A desktop in rootless mode runs the same unprivileged rootless Docker
 	// posture as a headless agent (no --privileged), plus the desktop's
 	// display/input/GPU device grants and private IPC namespace handled by the
 	// ContainerType != Headless branches below. rootlessEngine unifies the two
@@ -1238,8 +1241,9 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		hostConfig.CapDrop = []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
 		if rootlessEngine {
 			hostConfig.CapDrop = append([]string{"SYS_ADMIN"}, hostConfig.CapDrop...)
-			hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "seccomp=unconfined")
-			// Rootless Podman needs to mount procfs entries that Docker masks or
+			// RootlessKit must change mount propagation inside its user namespace.
+			hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "seccomp=unconfined", "apparmor=helix-rootless-docker")
+			// Rootless Docker needs to mount procfs entries that Docker masks or
 			// makes read-only by default. Empty, non-nil slices explicitly
 			// override those daemon defaults through the Docker API.
 			hostConfig.MaskedPaths = []string{}
@@ -1312,7 +1316,7 @@ func sandboxResourceLimits(vcpus, memoryMB int) (nanoCPUs, memory, memorySwap in
 // Returns ("", error) if ZFS is available but the operation failed — caller should
 // fail the container creation rather than silently starting with no cache.
 func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerRequest, volumeName string) (string, error) {
-	sessionID := strings.TrimPrefix(volumeName, "docker-data-")
+	sessionID := req.SessionID
 	useGoldenCache := usesGoldenContainerCache(req)
 	kind := goldenCacheKindForRequest(req)
 	dataDirName := string(kind)
@@ -1549,10 +1553,48 @@ func usesGoldenContainerCache(req *CreateDevContainerRequest) bool {
 }
 
 func goldenCacheKindForRequest(req *CreateDevContainerRequest) goldenCacheKind {
-	if req.DesktopRootless {
-		return podmanGoldenCache
+	if req.RootlessContainerEngine || req.DesktopRootless {
+		return rootlessDockerGoldenCache
 	}
-	// Headless rootless sessions keep named-volume storage and never use golden caches.
+	return dockerGoldenCache
+}
+
+func validGoldenCacheKind(kind goldenCacheKind) bool {
+	return kind == dockerGoldenCache || kind == podmanGoldenCache || kind == rootlessDockerGoldenCache
+}
+
+func cacheKindFromLabels(labels map[string]string) goldenCacheKind {
+	kind := goldenCacheKind(labels[containerCacheKindLabel])
+	if validGoldenCacheKind(kind) {
+		return kind
+	}
+	return dockerGoldenCache
+}
+
+func cacheKindFromContainer(inspect dockertypes.ContainerJSON) goldenCacheKind {
+	if inspect.Config != nil {
+		if kind := goldenCacheKind(inspect.Config.Labels[containerCacheKindLabel]); validGoldenCacheKind(kind) {
+			return kind
+		}
+		for _, entry := range inspect.Config.Env {
+			key, value, found := strings.Cut(entry, "=")
+			if found && (key == "DOCKER_HOST" || key == "CONTAINER_HOST") && strings.Contains(value, "/podman/podman.sock") {
+				return podmanGoldenCache
+			}
+		}
+	}
+	return cacheKindFromMounts(inspect.Mounts)
+}
+
+func cacheKindFromMounts(mounts []dockertypes.MountPoint) goldenCacheKind {
+	for _, mounted := range mounts {
+		if mounted.Destination == "/home/retro/.local/share/containers" {
+			return podmanGoldenCache
+		}
+		if mounted.Destination == "/home/retro/.local/share/docker" {
+			return rootlessDockerGoldenCache
+		}
+	}
 	return dockerGoldenCache
 }
 
@@ -1575,16 +1617,15 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mo
 			mountType = mount.TypeVolume
 		}
 
-		// Redirect legacy Docker storage and hardened desktop Podman storage to
-		// ZFS-backed bind mounts when configured. Headless Podman keeps its prior
-		// named-volume storage.
+		// Redirect rootful and rootless Docker storage to separate ZFS-backed
+		// bind mounts when configured.
 		//
-		// Docker and rootless desktop Podman each seed from their own compatible
+		// Rootful and rootless Docker each seed from their own compatible
 		// project golden cache.
 		if containerDockerPath != "" && m.Type == "volume" &&
 			(m.Destination == "/var/lib/docker" ||
-				req.DesktopRootless && m.Source == "docker-data-"+req.SessionID) {
-			volumeName := m.Source // e.g. "docker-data-{sessionID}"
+				m.Destination == "/home/retro/.local/share/docker") {
+			volumeName := m.Source
 
 			dockerDir, err := dm.resolveDockerDataDir(req, volumeName)
 			if err != nil {
@@ -2166,7 +2207,7 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	// This volume is created by hydra_executor.go when the container starts and
 	// accumulates docker images/layers from in-desktop Docker usage. Without cleanup
 	// these orphaned volumes leak tens of GB each and fill the disk over time.
-	dockerDataVolume := fmt.Sprintf("docker-data-%s", sessionID)
+	dockerDataVolume := containerDataVolumeName(sessionID, dc.goldenCacheKind)
 	if err := dockerClient.VolumeRemove(ctx, dockerDataVolume, true); err != nil {
 		log.Warn().Err(err).Str("volume", dockerDataVolume).Msg("Failed to remove session docker-data volume")
 	} else {
@@ -2193,7 +2234,7 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 			// so we use an explicit marker file.
 			// Write to both possible locations (zvol mount and file-copy dir).
 			if ZFSAvailable() {
-				zvolMount := sessionZvolMountPath(sessionID)
+				zvolMount := sessionZvolMountPathForKind(sessionID, dc.goldenCacheKind)
 				if isMounted(zvolMount) {
 					TouchSessionLastActive(zvolMount)
 				}
@@ -2689,7 +2730,7 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 			if err := dm.migrateContainerToIsolatedNetwork(ctx, dockerClient, c.ID, legacyNets); err != nil {
 				log.Warn().Err(err).
 					Str("session_id", sessionID).
-					Str("container_id", c.ID[:12]).
+					Str("container_id", shortID(c.ID)).
 					Msg("Failed to migrate legacy persistent container onto isolated network; left on legacy bridge")
 			} else {
 				migrated = true
@@ -2714,15 +2755,30 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 			break
 		}
 
+		cacheKind := cacheKindFromMounts(c.Mounts)
+		if labeledKind := goldenCacheKind(c.Labels[containerCacheKindLabel]); validGoldenCacheKind(labeledKind) {
+			cacheKind = labeledKind
+		} else if cacheKind == dockerGoldenCache {
+			if inspected, ierr := dockerClient.ContainerInspect(ctx, c.ID); ierr == nil {
+				cacheKind = cacheKindFromContainer(inspected)
+			} else {
+				log.Warn().Err(ierr).
+					Str("session_id", sessionID).
+					Str("container_id", c.ID[:12]).
+					Msg("Could not inspect unlabeled container engine; using legacy Docker storage identity")
+			}
+		}
+
 		dm.adoptRecoveredContainer(&DevContainer{
-			SessionID:     sessionID,
-			ContainerID:   c.ID,
-			ContainerName: name,
-			Status:        DevContainerStatusRunning,
-			IPAddress:     ipAddress,
-			ContainerType: containerTypeForName(name),
-			CreatedAt:     time.Unix(c.Created, 0),
-			DockerSocket:  dockerSocket,
+			SessionID:       sessionID,
+			ContainerID:     c.ID,
+			ContainerName:   name,
+			Status:          DevContainerStatusRunning,
+			IPAddress:       ipAddress,
+			ContainerType:   containerTypeForName(name),
+			CreatedAt:       time.Unix(c.Created, 0),
+			DockerSocket:    dockerSocket,
+			goldenCacheKind: cacheKind,
 		}, c.Labels)
 
 		recoveredCount++
@@ -2739,11 +2795,16 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 // a Hydra restart. A golden build gets its result monitor back, so a build
 // that survived the restart is still detected, promoted and reported.
 func (dm *DevContainerManager) adoptRecoveredContainer(dc *DevContainer, labels map[string]string) {
+	// Containers created before cache-kind labels used docker-data-* for both
+	// rootful Docker and rootless Podman, so the legacy default is Docker.
+	if !validGoldenCacheKind(dc.goldenCacheKind) {
+		dc.goldenCacheKind = cacheKindFromLabels(labels)
+	}
 	if labels[containerGoldenBuildLabel] == "true" {
 		dc.IsGoldenBuild = true
 		dc.ProjectID = labels[containerProjectIDLabel]
 		dc.goldenCacheKind = goldenCacheKind(labels[containerGoldenCacheKindLabel])
-		if dc.goldenCacheKind != podmanGoldenCache {
+		if !validGoldenCacheKind(dc.goldenCacheKind) {
 			dc.goldenCacheKind = dockerGoldenCache
 		}
 		deadline, err := time.Parse(time.RFC3339, labels[containerGoldenDeadlineLabel])
@@ -3025,11 +3086,11 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 		Dur("timeout", timeout).
 		Msg("Monitoring golden build container")
 
-	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
 	cacheKind := dc.goldenCacheKind
-	if cacheKind != podmanGoldenCache {
+	if !validGoldenCacheKind(cacheKind) {
 		cacheKind = dockerGoldenCache
 	}
+	dockerDataVolume := containerDataVolumeName(dc.SessionID, cacheKind)
 
 	// Check the ZFS and file-copy locations for the selected cache kind.
 	zvolResultFile := filepath.Join(sessionZvolMountPathForKind(dc.SessionID, cacheKind), ".golden-build-result")
@@ -3086,11 +3147,11 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 // from the result file. A build whose script succeeded but whose promotion
 // failed is recorded as failed: the cache was not refreshed.
 func (dm *DevContainerManager) completeGoldenBuild(dc *DevContainer, result string, buildDuration time.Duration) *GoldenBuildResult {
-	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
 	cacheKind := dc.goldenCacheKind
-	if cacheKind != podmanGoldenCache {
+	if !validGoldenCacheKind(cacheKind) {
 		cacheKind = dockerGoldenCache
 	}
+	dockerDataVolume := containerDataVolumeName(dc.SessionID, cacheKind)
 	buildSucceeded := result == "0"
 	var cacheSizeBytes int64
 	var buildErr string
@@ -3170,7 +3231,7 @@ func discardGoldenBuildData(sessionID string, kind goldenCacheKind) {
 	if ZFSAvailable() && zfsDatasetExists(sessionZvolNameForKind(sessionID, kind)) {
 		_ = cleanupSessionZvolForKind(sessionID, kind)
 	} else {
-		base := sessionOverlayDir(fmt.Sprintf("docker-data-%s", sessionID))
+		base := sessionOverlayDir(containerDataVolumeName(sessionID, kind))
 		_ = os.RemoveAll(filepath.Join(base, string(kind)))
 		_ = os.Remove(base)
 	}

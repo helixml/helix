@@ -697,22 +697,27 @@ func (s *GoldenZvolSuite) TestNamingConventions() {
 
 	assert.Equal(s.T(), "prod/helix-zvols/golden-prj_abc", goldenZvolName("prj_abc"))
 	assert.Equal(s.T(), "prod/helix-zvols/golden-podman-prj_abc", goldenZvolNameForKind("prj_abc", podmanGoldenCache))
+	assert.Equal(s.T(), "prod/helix-zvols/golden-rootless-docker-prj_abc", goldenZvolNameForKind("prj_abc", rootlessDockerGoldenCache))
 	assert.Equal(s.T(), "prod/helix-zvols/ses-ses_xyz", sessionZvolName("ses_xyz"))
 	assert.Equal(s.T(), "prod/helix-zvols/ses-podman-ses_xyz", sessionZvolNameForKind("ses_xyz", podmanGoldenCache))
+	assert.Equal(s.T(), "prod/helix-zvols/ses-rootless-docker-ses_xyz", sessionZvolNameForKind("ses_xyz", rootlessDockerGoldenCache))
 	assert.Equal(s.T(), "/container-docker/zvol-mounts/ses_xyz", sessionZvolMountPath("ses_xyz"))
 	assert.Equal(s.T(), "/container-docker/zvol-mounts/ses_xyz-podman", sessionZvolMountPathForKind("ses_xyz", podmanGoldenCache))
+	assert.Equal(s.T(), "/container-docker/zvol-mounts/ses_xyz-rootless-docker", sessionZvolMountPathForKind("ses_xyz", rootlessDockerGoldenCache))
 	assert.Equal(s.T(), "/container-docker/zvol-mounts/golden-prj_abc", goldenZvolMountPathForKind("prj_abc", dockerGoldenCache))
 	assert.Equal(s.T(), "/container-docker/zvol-mounts/golden-podman-prj_abc", goldenZvolMountPathForKind("prj_abc", podmanGoldenCache))
+	assert.Equal(s.T(), "/container-docker/zvol-mounts/golden-rootless-docker-prj_abc", goldenZvolMountPathForKind("prj_abc", rootlessDockerGoldenCache))
 	assert.Equal(s.T(), "/dev/zvol/prod/helix-zvols/golden-prj_abc", zvolDevPath("prod/helix-zvols/golden-prj_abc"))
 }
 
-func (s *GoldenZvolSuite) TestGetZFSTreeIncludesDockerAndPodmanGoldens() {
+func (s *GoldenZvolSuite) TestGetZFSTreeIncludesAllEngineGoldens() {
 	zfsAvailableOnce.Do(func() {})
 	zfsAvailableFlag = true
 	zfsParentDataset = "prod/helix-zvols"
 	for _, name := range []string{
 		"prod/helix-zvols/golden-prj_abc",
 		"prod/helix-zvols/golden-podman-prj_abc",
+		"prod/helix-zvols/golden-rootless-docker-prj_abc",
 	} {
 		s.mock.addDataset(name)
 		s.mock.addSnapshot(name, "gen1")
@@ -720,9 +725,10 @@ func (s *GoldenZvolSuite) TestGetZFSTreeIncludesDockerAndPodmanGoldens() {
 
 	tree, err := GetZFSTree("prj_abc")
 	require.NoError(s.T(), err)
-	require.Len(s.T(), tree.Goldens, 2)
+	require.Len(s.T(), tree.Goldens, 3)
 	assert.Equal(s.T(), dockerGoldenCache, goldenCacheKind(tree.Goldens[0].CacheKind))
 	assert.Equal(s.T(), podmanGoldenCache, goldenCacheKind(tree.Goldens[1].CacheKind))
+	assert.Equal(s.T(), rootlessDockerGoldenCache, goldenCacheKind(tree.Goldens[2].CacheKind))
 	assert.Equal(s.T(), tree.Goldens[0], tree.Golden)
 }
 
@@ -848,13 +854,9 @@ func (s *GoldenZvolSuite) TestResolveDockerDataDirReusesLegacyPodmanSessionZvol(
 	legacyPodmanDataDirExists = func(path string) bool { return path == legacyDataDir }
 	s.T().Cleanup(func() { legacyPodmanDataDirExists = originalExists })
 
-	dm := &DevContainerManager{}
-	path, err := dm.resolveDockerDataDir(&CreateDevContainerRequest{
-		SessionID:       "ses_legacy",
-		ProjectID:       "prj_abc",
-		DesktopRootless: true,
-	}, "docker-data-ses_legacy")
+	path, found, err := legacyPodmanSessionDataDir("ses_legacy")
 	require.NoError(s.T(), err)
+	require.True(s.T(), found)
 	assert.Equal(s.T(), legacyDataDir, path)
 	assert.True(s.T(), s.mock.datasets[legacyZvol])
 	assert.False(s.T(), s.mock.datasets[sessionZvolNameForKind("ses_legacy", podmanGoldenCache)])
@@ -888,7 +890,7 @@ func (s *GoldenZvolSuite) TestResolveDockerDataDirUsesLegacyZvolRootForDocker() 
 	assert.False(s.T(), s.mock.hasCommand("zfs destroy"))
 }
 
-func (s *GoldenZvolSuite) TestResolveDockerDataDirPrefersExplicitPodmanSessionZvol() {
+func (s *GoldenZvolSuite) TestResolveDockerDataDirKeepsExplicitPodmanSessionZvolSeparate() {
 	zfsAvailableOnce.Do(func() {})
 	zfsAvailableFlag = true
 	zfsParentDataset = "prod/helix-zvols"
@@ -910,8 +912,9 @@ func (s *GoldenZvolSuite) TestResolveDockerDataDirPrefersExplicitPodmanSessionZv
 		DesktopRootless: true,
 	}, "docker-data-ses_both")
 	require.NoError(s.T(), err)
-	assert.Equal(s.T(), sessionZvolMountPathForKind("ses_both", podmanGoldenCache), path)
+	assert.Equal(s.T(), sessionZvolMountPathForKind("ses_both", rootlessDockerGoldenCache), path)
 	assert.False(s.T(), legacyChecked)
+	assert.True(s.T(), s.mock.datasets[podmanZvol])
 }
 
 func (s *GoldenZvolSuite) TestSetupGoldenClone_ReuseExisting() {

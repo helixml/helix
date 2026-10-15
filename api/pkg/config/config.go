@@ -191,7 +191,7 @@ type Sandboxes struct {
 	AllowCustomImage bool `envconfig:"HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE" default:"false"`
 
 	// DesktopRootless runs desktop runtimes (ubuntu-desktop, spec-task
-	// desktops) unprivileged via rootless Podman instead of Docker
+	// desktops) unprivileged via rootless Docker instead of privileged Docker
 	// --privileged, so a root user inside a desktop can no longer reach the
 	// runner host or sibling tenants (host block devices / zvols / /dev/mem).
 	// Default false: enabling it requires a desktop-image rebuild and a live

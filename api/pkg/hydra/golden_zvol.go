@@ -272,6 +272,9 @@ func goldenZvolName(projectID string) string {
 }
 
 func goldenZvolNameForKind(projectID string, kind goldenCacheKind) string {
+	if kind == rootlessDockerGoldenCache {
+		return fmt.Sprintf("%s/golden-rootless-docker-%s", zfsParentDataset, projectID)
+	}
 	if kind == podmanGoldenCache {
 		return fmt.Sprintf("%s/golden-podman-%s", zfsParentDataset, projectID)
 	}
@@ -284,6 +287,9 @@ func sessionZvolName(sessionID string) string {
 }
 
 func sessionZvolNameForKind(sessionID string, kind goldenCacheKind) string {
+	if kind == rootlessDockerGoldenCache {
+		return fmt.Sprintf("%s/ses-rootless-docker-%s", zfsParentDataset, sessionID)
+	}
 	if kind == podmanGoldenCache {
 		return fmt.Sprintf("%s/ses-podman-%s", zfsParentDataset, sessionID)
 	}
@@ -296,6 +302,9 @@ func sessionZvolMountPath(sessionID string) string {
 }
 
 func sessionZvolMountPathForKind(sessionID string, kind goldenCacheKind) string {
+	if kind == rootlessDockerGoldenCache {
+		return filepath.Join(zvolMountBase, sessionID+"-rootless-docker")
+	}
 	if kind == podmanGoldenCache {
 		return filepath.Join(zvolMountBase, sessionID+"-podman")
 	}
@@ -303,6 +312,9 @@ func sessionZvolMountPathForKind(sessionID string, kind goldenCacheKind) string 
 }
 
 func goldenZvolMountPathForKind(projectID string, kind goldenCacheKind) string {
+	if kind == rootlessDockerGoldenCache {
+		return filepath.Join(zvolMountBase, "golden-rootless-docker-"+projectID)
+	}
 	if kind == podmanGoldenCache {
 		return filepath.Join(zvolMountBase, "golden-podman-"+projectID)
 	}
@@ -310,6 +322,10 @@ func goldenZvolMountPathForKind(projectID string, kind goldenCacheKind) string {
 }
 
 func parseSessionZvolName(name string) (string, goldenCacheKind, bool) {
+	rootlessDockerPrefix := zfsParentDataset + "/ses-rootless-docker-"
+	if strings.HasPrefix(name, rootlessDockerPrefix) {
+		return strings.TrimPrefix(name, rootlessDockerPrefix), rootlessDockerGoldenCache, true
+	}
 	podmanPrefix := zfsParentDataset + "/ses-podman-"
 	if strings.HasPrefix(name, podmanPrefix) {
 		return strings.TrimPrefix(name, podmanPrefix), podmanGoldenCache, true
@@ -323,8 +339,8 @@ func parseSessionZvolName(name string) (string, goldenCacheKind, bool) {
 
 // touchExternalMarker creates/refreshes the .last-active marker for a session
 // on the external filesystem so GC knows it's in use.
-func touchExternalMarker(sessionID string) {
-	externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+func touchExternalMarker(sessionID string, kind goldenCacheKind) {
+	externalDir := filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))
 	_ = os.MkdirAll(externalDir, 0755)
 	TouchSessionLastActive(externalDir)
 }
@@ -359,6 +375,10 @@ func GetZFSTree(projectID string) (*ZFSTree, error) {
 	if err != nil {
 		return nil, err
 	}
+	rootlessDockerTree, err := getZFSTreeForKind(projectID, rootlessDockerGoldenCache)
+	if err != nil {
+		return nil, err
+	}
 	if dockerTree.Golden != nil {
 		dockerTree.Goldens = append(dockerTree.Goldens, dockerTree.Golden)
 	}
@@ -368,7 +388,14 @@ func GetZFSTree(projectID string) (*ZFSTree, error) {
 			dockerTree.Golden = podmanTree.Golden
 		}
 	}
+	if rootlessDockerTree.Golden != nil {
+		dockerTree.Goldens = append(dockerTree.Goldens, rootlessDockerTree.Golden)
+		if dockerTree.Golden == nil {
+			dockerTree.Golden = rootlessDockerTree.Golden
+		}
+	}
 	dockerTree.Orphans = append(dockerTree.Orphans, podmanTree.Orphans...)
+	dockerTree.Orphans = append(dockerTree.Orphans, rootlessDockerTree.Orphans...)
 	return dockerTree, nil
 }
 
@@ -538,7 +565,7 @@ func setupGoldenCloneForKind(projectID, sessionID string, kind goldenCacheKind) 
 				Str("clone", cloneName).
 				Str("mount", mountPath).
 				Msg("Reusing existing ZFS clone (session restart)")
-			touchExternalMarker(sessionID)
+			touchExternalMarker(sessionID, kind)
 			return mountPath, nil
 		}
 		// Clone exists but not mounted (e.g. after reboot) — mount with nouuid
@@ -552,7 +579,7 @@ func setupGoldenCloneForKind(projectID, sessionID string, kind goldenCacheKind) 
 			Str("clone", cloneName).
 			Str("mount", mountPath).
 			Msg("Mounted existing ZFS clone")
-		touchExternalMarker(sessionID)
+		touchExternalMarker(sessionID, kind)
 		return mountPath, nil
 	}
 
@@ -587,7 +614,7 @@ func setupGoldenCloneForKind(projectID, sessionID string, kind goldenCacheKind) 
 		Dur("clone_duration", elapsed).
 		Msg("Created ZFS clone for session (instant golden cache)")
 
-	touchExternalMarker(sessionID)
+	touchExternalMarker(sessionID, kind)
 	return mountPath, nil
 }
 
@@ -603,7 +630,7 @@ func setupGoldenCloneForKind(projectID, sessionID string, kind goldenCacheKind) 
 // destroy still fails with "dataset is busy", which is the right answer (we
 // don't silently nuke unrelated work). The caller's GC loop logs and moves on.
 func CleanupSessionZvol(sessionID string) error {
-	for _, kind := range []goldenCacheKind{dockerGoldenCache, podmanGoldenCache} {
+	for _, kind := range goldenCacheKinds {
 		if err := cleanupSessionZvolForKind(sessionID, kind); err != nil {
 			return err
 		}
@@ -825,6 +852,10 @@ func ReconcilePendingGoldenPromotions() int {
 }
 
 func parseGoldenZvolName(name string) (string, goldenCacheKind, bool) {
+	rootlessDockerPrefix := zfsParentDataset + "/golden-rootless-docker-"
+	if strings.HasPrefix(name, rootlessDockerPrefix) {
+		return strings.TrimPrefix(name, rootlessDockerPrefix), rootlessDockerGoldenCache, true
+	}
 	podmanPrefix := zfsParentDataset + "/golden-podman-"
 	if strings.HasPrefix(name, podmanPrefix) {
 		return strings.TrimPrefix(name, podmanPrefix), podmanGoldenCache, true
@@ -1053,16 +1084,16 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 			// Refresh the external marker so that if Hydra crashes or the
 			// session runs for weeks, the marker stays fresh and GC won't
 			// destroy the zvol after the next restart.
-			externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+			externalDir := filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))
 			_ = os.MkdirAll(externalDir, 0755)
 			TouchSessionLastActive(externalDir)
 			continue
 		}
 
 		// Check .last-active marker on the external filesystem.
-		// The marker lives at /container-docker/sessions/docker-data-{sessionID}/
+		// The marker lives beside the session's engine data directory.
 		// which is on the parent ZFS dataset, readable without mounting the XFS zvol.
-		externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+		externalDir := filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))
 		age := sessionLastActiveAge(externalDir)
 		if age > 0 && age < 7*24*time.Hour {
 			continue // recently active, keep it
@@ -1131,7 +1162,7 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 		if liveSet[sessionID] {
 			// Live per the DB — keep, and refresh the on-disk marker so the
 			// legacy 7-day GC also keeps treating it as fresh.
-			externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+			externalDir := filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))
 			_ = os.MkdirAll(externalDir, 0755)
 			TouchSessionLastActive(externalDir)
 			skipped = append(skipped, GCSkip{Name: name, Reason: "live"})
@@ -1171,7 +1202,7 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 }
 
 // ReconcileOrphanFileCopyDirs reaps per-session file-copy docker-data dirs
-// (sessionsBaseDir/docker-data-<id>) whose session is NOT in the DB-derived
+// whose session is NOT in the DB-derived
 // liveSet and whose on-disk age has passed the grace period.
 //
 // These dirs hold the inner docker storage on hosts where ZFS is unavailable
@@ -1192,10 +1223,13 @@ func ReconcileOrphanFileCopyDirs(liveSet map[string]bool, grace time.Duration, d
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "docker-data-") {
+		if !entry.IsDir() {
 			continue
 		}
-		sessionID := strings.TrimPrefix(entry.Name(), "docker-data-")
+		sessionID, ok := sessionIDFromContainerDataDir(entry.Name())
+		if !ok {
+			continue
+		}
 		dir := filepath.Join(sessionsBaseDir, entry.Name())
 
 		if liveSet[sessionID] {
@@ -1611,7 +1645,7 @@ func GCMigratedGoldenDirs() {
 			continue
 		}
 		projectID := e.Name()
-		for _, kind := range []goldenCacheKind{dockerGoldenCache, podmanGoldenCache} {
+		for _, kind := range goldenCacheKinds {
 			if !goldenZvolExistsForKind(projectID, kind) {
 				continue
 			}

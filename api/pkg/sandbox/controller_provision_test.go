@@ -525,6 +525,13 @@ func (s *ProvisionSuite) TestProvisionDesktopRootlessSetsUnprivilegedRequest() {
 	s.Require().Equal(hydra.DevContainerTypeUbuntu, req.ContainerType)
 	s.Require().False(req.Privileged, "hardened desktop must not be privileged")
 	s.Require().True(req.DesktopRootless, "hardened desktop must request rootless mode")
+	var rootlessData hydra.MountConfig
+	for _, item := range req.Mounts {
+		if item.Destination == "/home/retro/.local/share/docker" {
+			rootlessData = item
+		}
+	}
+	s.Require().Equal("rootless-docker-data-"+sbID, rootlessData.Source)
 }
 
 func (s *ProvisionSuite) TestProvisionDesktopOutsideRootlessAllowlistRemainsPrivileged() {

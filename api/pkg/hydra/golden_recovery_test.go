@@ -33,6 +33,7 @@ func (s *GoldenZvolSuite) TestRecoveredGoldenContainerResumesMonitorAndPromotes(
 	}{
 		{name: "legacy Docker label", projectID: "prj_docker", sessionID: "ses_docker", kind: dockerGoldenCache},
 		{name: "Podman label", projectID: "prj_podman", sessionID: "ses_podman", kind: podmanGoldenCache, kindLabel: "podman"},
+		{name: "rootless Docker label", projectID: "prj_rootless_docker", sessionID: "ses_rootless_docker", kind: rootlessDockerGoldenCache, kindLabel: "rootless-docker"},
 	} {
 		s.Run(tc.name, func() {
 			golden := goldenZvolNameForKind(tc.projectID, tc.kind)
@@ -40,7 +41,7 @@ func (s *GoldenZvolSuite) TestRecoveredGoldenContainerResumesMonitorAndPromotes(
 			s.mock.addSnapshot(golden, "gen3")
 			s.mock.addDataset(sessionZvolNameForKind(tc.sessionID, tc.kind))
 
-			resultDir := filepath.Join(sessionsBaseDir, "docker-data-"+tc.sessionID, string(tc.kind))
+			resultDir := filepath.Join(sessionsBaseDir, containerDataVolumeName(tc.sessionID, tc.kind), string(tc.kind))
 			require.NoError(s.T(), os.MkdirAll(resultDir, 0755))
 			require.NoError(s.T(), os.WriteFile(filepath.Join(resultDir, ".golden-build-result"), []byte("0\n"), 0644))
 
@@ -103,4 +104,15 @@ func (s *GoldenZvolSuite) TestRecoveredNonGoldenContainerHasNoMonitor() {
 	require.NotNil(s.T(), dc)
 	assert.False(s.T(), dc.IsGoldenBuild)
 	assert.Empty(s.T(), dc.ProjectID)
+	assert.Equal(s.T(), dockerGoldenCache, dc.goldenCacheKind)
+
+	dm.adoptRecoveredContainer(&DevContainer{
+		SessionID:       "ses_legacy_podman",
+		ContainerID:     "abcdef0123456789",
+		DockerSocket:    filepath.Join(s.tmpDir, "no-docker.sock"),
+		goldenCacheKind: podmanGoldenCache,
+	}, map[string]string{containerSessionIDLabel: "ses_legacy_podman"})
+	legacyPodman := dm.FindDevContainerBySessionID("ses_legacy_podman")
+	require.NotNil(s.T(), legacyPodman)
+	assert.Equal(s.T(), podmanGoldenCache, legacyPodman.goldenCacheKind)
 }

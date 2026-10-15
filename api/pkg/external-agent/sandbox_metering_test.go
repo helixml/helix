@@ -224,7 +224,7 @@ func TestExternalAgentIsolation(t *testing.T) {
 		require.Equal(t, containerIsolation{browserSandbox: true}, externalAgentIsolation(containerType, true, false), containerType)
 		require.Equal(t, containerIsolation{browserSandbox: true}, externalAgentIsolation(containerType, true, true), containerType)
 	}
-	// desktopRootless on: desktops go unprivileged via rootless Podman; headless
+	// desktopRootless on: desktops go unprivileged via rootless Docker; headless
 	// is unaffected (it is already rootless).
 	for _, containerType := range []string{"ubuntu", "sway", "zorin", "xfce", "kde"} {
 		require.Equal(t, containerIsolation{desktopRootless: true}, externalAgentIsolation(containerType, false, true), containerType)
@@ -303,23 +303,23 @@ func TestBuildMountsUsesContainerEngineStorageForRuntime(t *testing.T) {
 	agent := &types.DesktopAgent{SessionID: "ses_1"}
 
 	headlessMounts := executor.buildMounts(agent, "/workspace/ses_1", "headless", false)
-	require.Equal(t, "docker-data-ses_1", mountSourceForDestination(headlessMounts, "/home/retro/.local/share/containers"))
+	require.Equal(t, "rootless-docker-data-ses_1", mountSourceForDestination(headlessMounts, "/home/retro/.local/share/docker"))
 	require.Empty(t, mountSourceForDestination(headlessMounts, "/var/lib/docker"))
 
 	desktopMounts := executor.buildMounts(agent, "/workspace/ses_1", "ubuntu", false)
 	require.Equal(t, "docker-data-ses_1", mountSourceForDestination(desktopMounts, "/var/lib/docker"))
-	require.Empty(t, mountSourceForDestination(desktopMounts, "/home/retro/.local/share/containers"))
+	require.Empty(t, mountSourceForDestination(desktopMounts, "/home/retro/.local/share/docker"))
 	require.Equal(t, agentBinaryCacheDir, mountSourceForDestination(desktopMounts, "/opt/helix/agent-cache"))
 
 	rootlessDesktopMounts := executor.buildMounts(agent, "/workspace/ses_1", "ubuntu", true)
-	require.Equal(t, "docker-data-ses_1", mountSourceForDestination(rootlessDesktopMounts, "/home/retro/.local/share/containers"))
+	require.Equal(t, "rootless-docker-data-ses_1", mountSourceForDestination(rootlessDesktopMounts, "/home/retro/.local/share/docker"))
 	require.Empty(t, mountSourceForDestination(rootlessDesktopMounts, "/var/lib/docker"))
 
 	instance := &types.DesktopAgent{SessionID: "ses_1", OrgWorkerID: "b-broker", NoContainerEngine: true}
 	for _, containerType := range []string{"headless", "ubuntu"} {
 		mounts := executor.buildMounts(instance, "/workspace/ses_1", containerType, false)
 		require.Empty(t, mountSourceForDestination(mounts, "/var/lib/docker"), containerType)
-		require.Empty(t, mountSourceForDestination(mounts, "/home/retro/.local/share/containers"), containerType)
+		require.Empty(t, mountSourceForDestination(mounts, "/home/retro/.local/share/docker"), containerType)
 		require.Empty(t, mountSourceForDestination(mounts, "/opt/helix/agent-cache"), containerType)
 	}
 
