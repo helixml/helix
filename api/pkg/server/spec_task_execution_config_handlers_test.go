@@ -171,3 +171,58 @@ func TestGetSpecTaskExecutionConfigFallsBackToSessionForDeletedAgent(t *testing.
 	require.Equal(t, types.CodeAgentRuntimeCodexCLI, response.Runtime)
 	require.Empty(t, response.Model)
 }
+
+func patchSpecTaskDisplay(t *testing.T, server *HelixAPIServer, owner types.User, taskID string, display *types.SandboxDisplay) *httptest.ResponseRecorder {
+	t.Helper()
+	body, err := json.Marshal(types.SpecTaskExecutionConfigUpdateRequest{SandboxDisplay: display})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/spec-tasks/"+taskID+"/execution-config", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
+	req = req.WithContext(setRequestUser(req.Context(), owner))
+	rr := httptest.NewRecorder()
+	server.updateSpecTaskExecutionConfig(rr, req)
+	return rr
+}
+
+func TestUpdateSpecTaskExecutionConfigStoresSandboxDisplay(t *testing.T) {
+	for _, running := range []bool{true, false} {
+		ctrl := gomock.NewController(t)
+		helixStore := store.NewMockStore(ctrl)
+		executor := external_agent.NewMockExecutor(ctrl)
+		server := &HelixAPIServer{Store: helixStore, externalAgentExecutor: executor}
+		task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", PlanningSessionID: "ses_1"}
+		owner := types.User{ID: "user_1"}
+		display := &types.SandboxDisplay{Resolution: "4k"}
+
+		helixStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+		helixStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{
+			ID: task.ProjectID, UserID: owner.ID,
+		}, nil)
+		helixStore.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, updated *types.SpecTask) error {
+				require.Equal(t, display, updated.SandboxDisplay)
+				return nil
+			},
+		)
+		// Never restarts or resizes the desktop itself; only reports it.
+		executor.EXPECT().HasRunningContainer(gomock.Any(), task.PlanningSessionID).Return(running)
+
+		rr := patchSpecTaskDisplay(t, server, owner, task.ID, display)
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		var response types.SpecTaskExecutionConfigUpdateResponse
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
+		require.Equal(t, running, response.SandboxDisplayRequiresRestart)
+		require.Equal(t, display, response.Task.SandboxDisplay)
+	}
+}
+
+func TestUpdateSpecTaskExecutionConfigRejectsInvalidSandboxDisplay(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	server := &HelixAPIServer{Store: store.NewMockStore(ctrl)}
+
+	rr := patchSpecTaskDisplay(t, server, types.User{ID: "user_1"}, "spt_1", &types.SandboxDisplay{Resolution: "8k"})
+
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	require.Contains(t, rr.Body.String(), "invalid sandbox display resolution")
+}
