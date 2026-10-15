@@ -2395,9 +2395,12 @@ func (s *HelixAPIServer) resumeSessionInternal(ctx context.Context, user *types.
 				Err(err).
 				Str("spec_task_id", specTaskID).
 				Msg("Failed to load spec task for resume, continuing without repository info")
-		} else if specTask.ProjectID != "" {
-			agent.ProjectID = specTask.ProjectID
-			agent.OrganizationID = specTask.OrganizationID
+		} else {
+			agent.ApplySandboxDisplay(specTask.SandboxDisplay)
+			if specTask.ProjectID != "" {
+				agent.ProjectID = specTask.ProjectID
+				agent.OrganizationID = specTask.OrganizationID
+			}
 		}
 	} else if session.Metadata.ProjectID != "" {
 		agent.ProjectID = session.Metadata.ProjectID
@@ -2422,7 +2425,8 @@ func (s *HelixAPIServer) resumeSessionInternal(ctx context.Context, user *types.
 		return nil, fmt.Errorf("attach project context: %w", err)
 	}
 
-	if session.ParentApp != "" {
+	// Spec tasks own their display (task.SandboxDisplay, applied above).
+	if specTaskID == "" && session.ParentApp != "" {
 		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
 		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
 			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
