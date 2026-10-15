@@ -32,6 +32,38 @@ func TestShellEscape(t *testing.T) {
 	}
 }
 
+func TestDeployCloneURL(t *testing.T) {
+	tests := []struct {
+		name string
+		repo *types.GitRepository
+		want string
+	}{
+		{
+			name: "hosted repository uses sandbox API proxy",
+			repo: &types.GitRepository{ID: "repo_123", CloneURL: "https://helix.example/git/repo_123"},
+			want: hydra.SandboxAPIProxyURL + "/git/repo_123",
+		},
+		{
+			name: "external mirror uses sandbox API proxy",
+			repo: &types.GitRepository{
+				ID:          "repo_456",
+				IsExternal:  true,
+				ExternalURL: "https://github.com/helixml/helix.git",
+				CloneURL:    "https://helix.example/git/repo_456",
+			},
+			want: hydra.SandboxAPIProxyURL + "/git/repo_456",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := deployCloneURL(tt.repo); got != tt.want {
+				t.Fatalf("deployCloneURL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestProjectSecretEnv(t *testing.T) {
 	ctx := context.Background()
 
