@@ -210,7 +210,7 @@ func TestInProcClient_DeleteLinkedAgentDeletesRowsWhenHostGone(t *testing.T) {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&types.Project{}, &types.App{}, &types.Knowledge{}, &types.KnowledgeVersion{}))
+	require.NoError(t, db.AutoMigrate(&types.Project{}, &types.App{}, &types.Knowledge{}, &types.KnowledgeVersion{}, &types.Session{}))
 	for _, statement := range []string{
 		`CREATE TABLE org_bot_runtime_state (org_id TEXT, bot_id TEXT)`,
 		`CREATE TABLE org_bots (org_id TEXT, id TEXT, agent_app_id TEXT)`,
@@ -219,6 +219,9 @@ func TestInProcClient_DeleteLinkedAgentDeletesRowsWhenHostGone(t *testing.T) {
 	}
 	app := &types.App{ID: "app-agent"}
 	require.NoError(t, db.Create(app).Error)
+	// The bot's session lives outside any deleted project, so only its own
+	// soft delete makes it dead to the orphan reaper.
+	require.NoError(t, db.Create(&types.Session{ID: "ses_old_pod", OrganizationID: "org-test", ProjectID: "prj_live", Metadata: types.SessionMetadata{AgentType: "zed_external", ExternalAgentStatus: "running"}}).Error)
 	require.NoError(t, db.Exec(
 		`INSERT INTO org_bots (org_id, id, agent_app_id) VALUES (?, ?, ?)`,
 		"org-test", "b-agent", app.ID,
@@ -237,6 +240,9 @@ func TestInProcClient_DeleteLinkedAgentDeletesRowsWhenHostGone(t *testing.T) {
 	require.NoError(t, db.Table("org_bots").Where("org_id = ? AND id = ?", "org-test", "b-agent").Count(&botCount).Error)
 	require.Zero(t, appCount)
 	require.Zero(t, botCount)
+	var session types.Session
+	require.NoError(t, db.Unscoped().First(&session, "id = ?", "ses_old_pod").Error)
+	require.True(t, session.DeletedAt.Valid)
 }
 
 // Deleting a bot's project must destroy every desktop the project ever ran,

@@ -954,6 +954,13 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 		if err := tx.Where("app_id = ?", appID).Delete(&types.Knowledge{}).Error; err != nil {
 			return fmt.Errorf("delete knowledge: %w", err)
 		}
+		// Soft-deleting the session makes it dead to the orphan reaper, which
+		// then removes anything a skipped destroy left on a returning host.
+		if sessionID != "" {
+			if err := tx.Delete(&types.Session{ID: sessionID}).Error; err != nil {
+				return fmt.Errorf("delete linked agent session: %w", err)
+			}
+		}
 		if err := tx.Exec(
 			"DELETE FROM org_bot_runtime_state WHERE org_id = ? AND bot_id = ?",
 			orgID, string(botID),
