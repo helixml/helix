@@ -34,6 +34,7 @@ import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import TeamDesktopPage from './pages/TeamDesktopPage'
 import EmbedTaskPage from './pages/EmbedTaskPage'
 import EmbedSessionPage from './pages/EmbedSessionPage'
+import EmbedProjectPage from './pages/EmbedProjectPage'
 import Projects from './pages/Projects'
 import Sandboxes from './pages/Sandboxes'
 import SandboxDetail from './pages/SandboxDetail'
@@ -596,6 +597,15 @@ const routes: IApplicationRoute[] = [
     title: 'Session',
   },
   render: () => <EmbedSessionPage />,
+}, {
+  name: 'embed_project',
+  path: '/embed/project/:projectId',
+  meta: {
+    drawer: false,
+    fullscreen: true,
+    title: 'Project',
+  },
+  render: () => <EmbedProjectPage />,
 }, {
   name: 'login',
   path: '/login',
