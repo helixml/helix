@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -128,4 +129,33 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectAbortsWhenTaskListFails() {
 	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Require().NotNil(httpErr)
 	s.Contains(httpErr.Error(), "list project tasks")
+}
+
+// A desktop whose sandbox host is gone (a replaced sandbox pod) must not block
+// the project delete; once the project is deleted the orphan reaper owns it.
+// A connected host that fails the stop still aborts the delete.
+func (s *DeleteProjectTasksSuite) TestDeleteProjectSkipsDesktopsOnDisconnectedHosts() {
+	project := &types.Project{ID: "prj_del", UserID: s.userID}
+	task := &types.SpecTask{ID: "t1", ProjectID: "prj_del", PlanningSessionID: "ses_task"}
+	gone := fmt.Errorf("failed to dial Hydra via RevDial: %w", connman.ErrNoConnection)
+
+	s.sto.EXPECT().GetProject(gomock.Any(), "prj_del").Return(project, nil)
+	s.sto.EXPECT().GetProjectExploratorySession(gomock.Any(), "prj_del").Return(&types.Session{ID: "ses_explore"}, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_explore").Return(gone)
+	s.sto.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{task}, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_task").Return(gone)
+	s.expectTaskDeleted("t1")
+	s.sto.EXPECT().ListArtifacts(gomock.Any(), gomock.Any()).Return([]*types.Artifact{}, nil)
+	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+
+	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
+	s.Require().Nil(httpErr)
+
+	s.sto.EXPECT().GetProject(gomock.Any(), "prj_del").Return(project, nil)
+	s.sto.EXPECT().GetProjectExploratorySession(gomock.Any(), "prj_del").Return(&types.Session{ID: "ses_explore"}, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_explore").Return(fmt.Errorf("hydra API error (status 500)"))
+
+	_, httpErr = s.server.deleteProject(httptest.NewRecorder(), s.request())
+	s.Require().NotNil(httpErr)
+	s.Contains(httpErr.Error(), "stop exploratory session")
 }

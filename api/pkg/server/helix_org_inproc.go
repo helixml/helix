@@ -835,10 +835,11 @@ type projectRuntimeSession struct {
 
 // destroyProjectRuntime removes what a bot's project accumulates on sandbox
 // hosts. Soft-deleting the project alone only stops the newest desktop and
-// leaves workspaces, inner Docker data, and sandboxes behind. Host teardown is
-// best-effort so an offline sandbox host cannot make a bot undeletable; the
-// orphan reaper treats sessions and tasks of deleted projects as dead, so it
-// removes whatever this pass could not reach.
+// leaves workspaces, inner Docker data, and sandboxes behind. Desktops on a
+// sandbox host that is no longer connected are skipped so a replaced sandbox
+// pod cannot make a bot undeletable; the orphan reaper treats sessions and
+// tasks of deleted projects as dead, so it removes whatever this pass could not
+// reach. A connected host that fails the destroy still fails the delete.
 func (c *inProcHelixClient) destroyProjectRuntime(ctx context.Context, project *types.Project) error {
 	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
 	if !ok {
@@ -878,7 +879,7 @@ func (c *inProcHelixClient) destroyProjectRuntime(ctx context.Context, project *
 			if projectTasks[session.SpecTaskID] {
 				specTaskID = session.SpecTaskID
 			}
-			if err := executor.DestroyDesktop(ctx, session.ID, specTaskID); err != nil {
+			if err := destroyDesktopUnlessHostGone(ctx, executor, session.ID, specTaskID); err != nil {
 				return fmt.Errorf("destroy project desktop %s: %w", session.ID, err)
 			}
 		}
@@ -930,7 +931,7 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 	if sessionID != "" && c.server.externalAgentExecutor != nil {
 		// DeleteProject already destroyed this session when it belongs to the
 		// bot's project; this covers a session outside it.
-		if err := c.server.externalAgentExecutor.DestroyDesktop(ctx, sessionID, ""); err != nil {
+		if err := destroyDesktopUnlessHostGone(ctx, c.server.externalAgentExecutor, sessionID, ""); err != nil {
 			return fmt.Errorf("destroy linked agent desktop %s: %w", sessionID, err)
 		}
 	}
@@ -952,6 +953,13 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 		}
 		if err := tx.Where("app_id = ?", appID).Delete(&types.Knowledge{}).Error; err != nil {
 			return fmt.Errorf("delete knowledge: %w", err)
+		}
+		// Soft-deleting the session makes it dead to the orphan reaper, which
+		// then removes anything a skipped destroy left on a returning host.
+		if sessionID != "" {
+			if err := tx.Delete(&types.Session{ID: sessionID}).Error; err != nil {
+				return fmt.Errorf("delete linked agent session: %w", err)
+			}
 		}
 		if err := tx.Exec(
 			"DELETE FROM org_bot_runtime_state WHERE org_id = ? AND bot_id = ?",

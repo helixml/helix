@@ -1006,7 +1006,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 			Msg("Stopping exploratory session before project deletion")
 
 		stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), exploratorySession.ID)
-		if stopErr != nil {
+		if stopErr != nil && !sandboxHostGone(stopErr, exploratorySession.ID) {
 			return nil, system.NewHTTPError500(fmt.Sprintf("stop exploratory session before project deletion: %s", stopErr))
 		}
 	}
@@ -1034,7 +1034,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 				Msg("Stopping SpecTask session before project deletion")
 
 			stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
-			if stopErr != nil {
+			if stopErr != nil && !sandboxHostGone(stopErr, task.PlanningSessionID) {
 				return nil, system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
 			}
 		}
