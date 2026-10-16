@@ -7,6 +7,7 @@ import AgentChat from '../components/session/AgentChat'
 import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard'
 import SpecTaskDetailContent from '../components/tasks/SpecTaskDetailContent'
+import NewSpecTaskForm from '../components/tasks/NewSpecTaskForm'
 import { useGetProject, useGetProjectExploratorySession } from '../services'
 import { initialQueryParams } from '../router'
 
@@ -21,8 +22,8 @@ import { initialQueryParams } from '../router'
 //            desktop, the same split the task embed gives a spec task. EmbedSessionPage
 //            cannot serve this: it shows the desktop OR a customer-tuned minimal chat.
 //   - Board: the project's Kanban board. Spec tasks the bot creates (create_spectask)
-//            land here; clicking one opens the same task view /embed/task renders, with
-//            a way back.
+//            land here, and a person can add one with the board's New task button;
+//            clicking one opens the same task view /embed/task renders, with a way back.
 //
 // Navigation stays inside this page (state, seeded from ?view= and ?task=) rather than
 // moving between routes, so the iframe never leaves /embed/*. Auth is the usual embed
@@ -39,6 +40,12 @@ const EmbedProjectPage: FC = () => {
   const [taskId, setTaskId] = useState<string | null>(
     (initialQueryParams.task as string) || (route.params.task as string) || null,
   )
+
+  // New-task panel on the board: the same form and slide-in panel the project page
+  // uses, so a person can add work directly as well as by asking the bot in chat.
+  const [createOpen, setCreateOpen] = useState(false)
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [focusTaskId, setFocusTaskId] = useState<string | undefined>(undefined)
 
   const { data: project, isLoading: projectLoading } = useGetProject(projectId, !!projectId)
   // Polls (5.3s): a bot's session is created asynchronously after it is hired or run.
@@ -131,8 +138,43 @@ const EmbedProjectPage: FC = () => {
           ))}
 
         {view === 'board' && !taskId && (
-          <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column', px: 1.5, pt: 1 }}>
-            <SpecTaskKanbanBoard projectId={projectId} onTaskClick={(task) => setTaskId(task.id)} />
+          <Box sx={{ flex: 1, minHeight: 0, display: 'flex' }}>
+            <Box sx={{ flex: 1, minWidth: 0, overflow: 'auto', display: 'flex', flexDirection: 'column', px: 1.5, pt: 1 }}>
+              <SpecTaskKanbanBoard
+                projectId={projectId}
+                onTaskClick={(task) => setTaskId(task.id)}
+                onCreateTask={() => setCreateOpen(true)}
+                refreshTrigger={refreshTrigger}
+                focusTaskId={focusTaskId}
+              />
+            </Box>
+            {createOpen && (
+              <Box
+                sx={{
+                  width: { xs: '100%', sm: 450, md: 500 },
+                  flexShrink: 0,
+                  borderLeft: 1,
+                  borderColor: 'divider',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  backgroundColor: 'background.paper',
+                }}
+              >
+                <NewSpecTaskForm
+                  projectId={projectId}
+                  onTaskCreated={(task) => {
+                    setCreateOpen(false)
+                    if (task.id) {
+                      setFocusTaskId(task.id)
+                      setTimeout(() => setFocusTaskId(undefined), 5000)
+                    }
+                    setRefreshTrigger((n) => n + 1)
+                  }}
+                  onClose={() => setCreateOpen(false)}
+                  showHeader
+                />
+              </Box>
+            )}
           </Box>
         )}
 
