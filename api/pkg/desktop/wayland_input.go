@@ -38,6 +38,7 @@ type WaylandInput struct {
 	// The protocol requires calling Modifiers() after modifier key events
 	// to update the compositor's modifier state (XKB modifier masks).
 	modsDepressed uint32 // Currently held modifiers (Shift=1, Ctrl=4, Alt=8, Meta=64)
+	modsLocked    uint32 // Locked modifiers (Caps Lock)
 
 }
 
@@ -178,7 +179,7 @@ func (w *WaylandInput) KeyDownEvdev(evdevCode int) error {
 		w.modsDepressed |= mod
 		// Send modifiers event to update compositor's modifier state
 		// This is REQUIRED by zwp_virtual_keyboard_v1 protocol for modifiers to work
-		if err := w.keyboard.Modifiers(w.modsDepressed, 0, 0, 0); err != nil {
+		if err := w.keyboard.Modifiers(w.modsDepressed, 0, w.modsLocked, 0); err != nil {
 			w.logger.Debug("failed to send modifiers", "err", err)
 		}
 	}
@@ -204,12 +205,29 @@ func (w *WaylandInput) KeyUpEvdev(evdevCode int) error {
 	if mod := evdevToXkbMod(evdevCode); mod != 0 {
 		w.modsDepressed &^= mod // Clear the modifier bit
 		// Send modifiers event to update compositor's modifier state
-		if err := w.keyboard.Modifiers(w.modsDepressed, 0, 0, 0); err != nil {
+		if err := w.keyboard.Modifiers(w.modsDepressed, 0, w.modsLocked, 0); err != nil {
 			w.logger.Debug("failed to send modifiers", "err", err)
 		}
 	}
 
 	return nil
+}
+
+// SetCapsLock sets the compositor's caps-lock state. A virtual keyboard client
+// owns its modifier state, so the lock is part of every modifiers event we send.
+func (w *WaylandInput) SetCapsLock(locked bool) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.closed || w.keyboard == nil {
+		return nil
+	}
+	if locked {
+		w.modsLocked |= xkbModLock
+	} else {
+		w.modsLocked &^= xkbModLock
+	}
+	return w.keyboard.Modifiers(w.modsDepressed, 0, w.modsLocked, 0)
 }
 
 // evdevToXkbMod converts an evdev keycode to an XKB modifier mask.

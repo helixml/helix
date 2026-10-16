@@ -207,6 +207,81 @@ func specTaskSandboxVCPUList() string {
 // list, for tool descriptions and validation errors.
 func SpecTaskSandboxVCPUList() string { return specTaskSandboxVCPUList() }
 
+// Sandbox display resolution presets. Empty resolves to 1080p.
+const (
+	SandboxResolution1080p = "1080p"
+	SandboxResolution4K    = "4k"
+	SandboxResolution5K    = "5k"
+)
+
+// SandboxDisplay is the virtual desktop resolution for a SpecTask's sandbox.
+// Nil or empty resolves to 1080p at 100% zoom. The size is fixed when the
+// desktop container starts, so changes apply on the next start.
+type SandboxDisplay struct {
+	Resolution string `json:"resolution,omitempty"` // "1080p" (default), "4k", or "5k"
+	ZoomLevel  int    `json:"zoom_level,omitempty"` // GNOME zoom percentage; 0 => 100 for 1080p, 200 for 4k/5k
+}
+
+// SandboxResolutionSize returns the pixel size of a resolution preset.
+func SandboxResolutionSize(resolution string) (width, height int, ok bool) {
+	switch resolution {
+	case SandboxResolution5K:
+		return 5120, 2880, true
+	case SandboxResolution4K:
+		return 3840, 2160, true
+	case SandboxResolution1080p:
+		return 1920, 1080, true
+	}
+	return 0, 0, false
+}
+
+// SandboxResolutionDefaultZoom is the GNOME zoom a preset implies when none is
+// set: high-res presets render at 2x so the UI stays readable.
+func SandboxResolutionDefaultZoom(resolution string) int {
+	switch resolution {
+	case SandboxResolution5K, SandboxResolution4K:
+		return 200
+	}
+	return 100
+}
+
+func (d *SandboxDisplay) Validate() error {
+	if d == nil {
+		return nil
+	}
+	if d.Resolution != "" {
+		if _, _, ok := SandboxResolutionSize(d.Resolution); !ok {
+			return fmt.Errorf("invalid sandbox display resolution %q: must be 1080p, 4k or 5k", d.Resolution)
+		}
+	}
+	if d.ZoomLevel != 0 && (d.ZoomLevel < 100 || d.ZoomLevel > 300) {
+		return fmt.Errorf("invalid sandbox display zoom_level %d: must be between 100 and 300", d.ZoomLevel)
+	}
+	return nil
+}
+
+// EffectiveResolution returns the preset name, never empty.
+func (d *SandboxDisplay) EffectiveResolution() string {
+	if d == nil || d.Resolution == "" {
+		return SandboxResolution1080p
+	}
+	return d.Resolution
+}
+
+// EffectiveSize returns the desktop width and height in pixels.
+func (d *SandboxDisplay) EffectiveSize() (width, height int) {
+	width, height, _ = SandboxResolutionSize(d.EffectiveResolution())
+	return width, height
+}
+
+// EffectiveZoomLevel returns the explicit zoom or the preset's default.
+func (d *SandboxDisplay) EffectiveZoomLevel() int {
+	if d != nil && d.ZoomLevel > 0 {
+		return d.ZoomLevel
+	}
+	return SandboxResolutionDefaultZoom(d.EffectiveResolution())
+}
+
 // EffectiveSpecTaskSandboxRuntime keeps legacy tasks on the full desktop while
 // allowing newly-created tasks to opt into the headless agent runtime.
 func EffectiveSpecTaskSandboxRuntime(runtime SandboxRuntime) SandboxRuntime {
@@ -256,6 +331,7 @@ type CreateTaskRequest struct {
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" swaggerignore:"true"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
 	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty"`
+	SandboxDisplay           *SandboxDisplay           `json:"sandbox_display,omitempty"`
 
 	// CredentialOwnerID optionally names the user whose Claude subscription should
 	// authenticate this task's agent, for orchestrators dispatching work on a
@@ -339,6 +415,8 @@ type SpecTask struct {
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty" gorm:"size:64"`
+	// SandboxDisplay is the desktop resolution; nil means 1080p.
+	SandboxDisplay *SandboxDisplay `json:"sandbox_display,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Git repository attachments: REMOVED - now inherited from parent Project
 	// Repos are managed at the project level. Access via project.DefaultRepoID and GetProjectRepositories(project_id)
@@ -627,20 +705,25 @@ type SpecTaskUpdateRequest struct {
 	AgentTools              *[]string        `json:"agent_tools,omitempty"`                       // Extra Helix MCP tools for this task, on top of the project's
 }
 
-// SpecTaskExecutionConfigUpdateRequest replaces either the task's complete
-// code-agent config or its sandbox resource preset.
+// SpecTaskExecutionConfigUpdateRequest replaces exactly one of the task's
+// complete code-agent config, its sandbox resource preset, or its sandbox
+// display.
 type SpecTaskExecutionConfigUpdateRequest struct {
 	AgentID                  string                    `json:"agent_id,omitempty" swaggerignore:"true"` // Rejected legacy field
 	Phase                    SpecTaskPhase             `json:"phase,omitempty" validate:"omitempty,oneof=planning implementation"`
 	CodeAgentConfig          *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" swaggerignore:"true"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+	SandboxDisplay           *SandboxDisplay           `json:"sandbox_display,omitempty"`
 }
 
 type SpecTaskExecutionConfigUpdateResponse struct {
 	Task                    *SpecTask `json:"task"`
 	AgentThreadRestarted    bool      `json:"agent_thread_restarted"`
 	SandboxResourcesApplied bool      `json:"sandbox_resources_applied"`
+	// SandboxDisplayRequiresRestart is set when the display changed while the
+	// desktop is running; it takes effect only after the desktop restarts.
+	SandboxDisplayRequiresRestart bool `json:"sandbox_display_requires_restart"`
 }
 
 type SpecTaskStatus string

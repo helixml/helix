@@ -5,7 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"go.uber.org/mock/gomock"
@@ -13,20 +15,52 @@ import (
 
 func TestShellEscape(t *testing.T) {
 	cases := map[string]string{
-		"":                                "''",
-		"simple":                          "'simple'",
-		"with spaces":                     "'with spaces'",
-		"path/to/file.txt":                "'path/to/file.txt'",
-		"abc'def":                         `'abc'\''def'`,
-		"; rm -rf / # injection attempt":  "'; rm -rf / # injection attempt'",
-		"$(cat /etc/passwd)":              "'$(cat /etc/passwd)'",
-		"`hostname`":                      "'`hostname`'",
+		"":                                 "''",
+		"simple":                           "'simple'",
+		"with spaces":                      "'with spaces'",
+		"path/to/file.txt":                 "'path/to/file.txt'",
+		"abc'def":                          `'abc'\''def'`,
+		"; rm -rf / # injection attempt":   "'; rm -rf / # injection attempt'",
+		"$(cat /etc/passwd)":               "'$(cat /etc/passwd)'",
+		"`hostname`":                       "'`hostname`'",
 		"https://user:p@ss@github.com/o/r": "'https://user:p@ss@github.com/o/r'",
 	}
 	for in, want := range cases {
 		if got := shellEscape(in); got != want {
 			t.Errorf("shellEscape(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestDeployCloneURL(t *testing.T) {
+	tests := []struct {
+		name string
+		repo *types.GitRepository
+		want string
+	}{
+		{
+			name: "hosted repository uses sandbox API proxy",
+			repo: &types.GitRepository{ID: "repo_123", CloneURL: "https://helix.example/git/repo_123"},
+			want: hydra.SandboxAPIProxyURL + "/git/repo_123",
+		},
+		{
+			name: "external mirror uses sandbox API proxy",
+			repo: &types.GitRepository{
+				ID:          "repo_456",
+				IsExternal:  true,
+				ExternalURL: "https://github.com/helixml/helix.git",
+				CloneURL:    "https://helix.example/git/repo_456",
+			},
+			want: hydra.SandboxAPIProxyURL + "/git/repo_456",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := deployCloneURL(tt.repo); got != tt.want {
+				t.Fatalf("deployCloneURL() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -181,4 +215,78 @@ func TestLastLiveSHANone(t *testing.T) {
 	if got := c.lastLiveSHA(context.Background(), "prj_1"); got != "" {
 		t.Errorf("lastLiveSHA = %q, want empty", got)
 	}
+}
+
+func TestWaitForReadyProbeStopsWhenSandboxIsMissing(t *testing.T) {
+	c := &Controller{readinessWait: time.Minute, readinessPoll: time.Millisecond}
+	calls := 0
+
+	err := c.waitForReadyProbe(context.Background(), "sbx_1", 8080, func(context.Context, string, int) error {
+		calls++
+		return hydra.ErrDevContainerNotFound
+	})
+
+	if !errors.Is(err, hydra.ErrDevContainerNotFound) {
+		t.Fatalf("expected missing sandbox error, got %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected one probe, got %d", calls)
+	}
+}
+
+func TestWaitForReadyProbeRetriesTransientFailure(t *testing.T) {
+	c := &Controller{readinessWait: time.Second, readinessPoll: time.Millisecond}
+	calls := 0
+
+	err := c.waitForReadyProbe(context.Background(), "sbx_1", 8080, func(context.Context, string, int) error {
+		calls++
+		if calls == 1 {
+			return errors.New("revdial reconnecting")
+		}
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("expected transient failure to recover, got %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected two probes, got %d", calls)
+	}
+}
+
+func TestWaitForReadyProbeStopsWhenDeployIsSuperseded(t *testing.T) {
+	c := &Controller{readinessWait: time.Minute, readinessPoll: time.Millisecond}
+	calls := 0
+
+	err := c.waitForReadyProbe(context.Background(), "sbx_1", 8080, func(context.Context, string, int) error {
+		calls++
+		return errDeploySuperseded
+	})
+
+	if !errors.Is(err, errDeploySuperseded) {
+		t.Fatalf("expected superseded error, got %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected one probe, got %d", calls)
+	}
+}
+
+func TestMarkFailedIfCurrentDoesNotOverwriteSupersededDeploy(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	c := &Controller{store: st}
+
+	st.EXPECT().ListWebServiceDeploys(gomock.Any(), "prj_1", 1).Return([]*types.WebServiceDeploy{{ID: "wsd_new"}}, nil)
+
+	c.markFailedIfCurrent(context.Background(), "prj_1", "wsd_old", "sbx_1", "old failure")
+}
+
+func TestMarkLiveIfCurrentDoesNotOverwriteNewerDeploy(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	c := &Controller{store: st}
+
+	st.EXPECT().ListWebServiceDeploys(gomock.Any(), "prj_1", 1).Return([]*types.WebServiceDeploy{{ID: "wsd_new"}}, nil)
+
+	c.markLiveIfCurrent(context.Background(), "prj_1", "wsd_old", "sbx_old")
 }

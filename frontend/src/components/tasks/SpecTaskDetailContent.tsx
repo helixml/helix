@@ -41,6 +41,7 @@ import LinkIcon from "@mui/icons-material/Link";
 import AccountTree from "@mui/icons-material/AccountTree";
 import {
   TypesCodeAgentOverrides,
+  TypesSandboxDisplay,
   TypesSandboxResourceOverrides,
   TypesSandboxRuntime,
   TypesSpecTaskStatus,
@@ -68,7 +69,7 @@ import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
-import { deriveDisplaySettings } from "../../services/externalAgentDisplay";
+import { deriveDisplaySettings, sandboxResolutionLabel } from "../../services/externalAgentDisplay";
 import { useStreaming } from "../../contexts/streaming";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import {
@@ -506,7 +507,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     );
   }, [updateExecutionConfig, snackbar]);
 
-  const displaySettings = useMemo(() => deriveDisplaySettings(undefined), []);
+  const displayResolution = task?.sandbox_display?.resolution;
+  const displaySettings = useMemo(
+    () => deriveDisplaySettings({ resolution: displayResolution }),
+    [displayResolution],
+  );
 
   // Check the task-owned execution config for Claude subscription credentials.
 
@@ -1109,6 +1114,41 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       setIsRestarting(false);
     }
   }, [activeSessionId, isRestarting, api, snackbar, queryClient]);
+
+  // The desktop size is fixed when the container starts, so changing it on a
+  // running desktop asks before restarting rather than silently doing nothing.
+  const [pendingSandboxDisplay, setPendingSandboxDisplay] = useState<TypesSandboxDisplay | null>(null);
+  const saveSandboxDisplay = useCallback(async (sandboxDisplay: TypesSandboxDisplay) => {
+    await updateExecutionConfig.mutateAsync({ sandbox_display: sandboxDisplay });
+  }, [updateExecutionConfig]);
+  const handleSandboxDisplayChange = useCallback(async (sandboxDisplay: TypesSandboxDisplay) => {
+    if (isDesktopRunning) {
+      setPendingSandboxDisplay(sandboxDisplay);
+      return;
+    }
+    try {
+      await saveSandboxDisplay(sandboxDisplay);
+      snackbar.success(`Display set to ${sandboxResolutionLabel(sandboxDisplay)}; applies when the desktop starts`);
+    } catch (err: any) {
+      snackbar.error(err?.message || "Failed to update display");
+    }
+  }, [isDesktopRunning, saveSandboxDisplay, snackbar]);
+  const applyPendingSandboxDisplay = useCallback(async (restartNow: boolean) => {
+    if (!pendingSandboxDisplay) return;
+    const sandboxDisplay = pendingSandboxDisplay;
+    setPendingSandboxDisplay(null);
+    try {
+      await saveSandboxDisplay(sandboxDisplay);
+    } catch (err: any) {
+      snackbar.error(err?.message || "Failed to update display");
+      return;
+    }
+    if (restartNow) {
+      await handleRestartSession();
+    } else {
+      snackbar.success(`Display set to ${sandboxResolutionLabel(sandboxDisplay)}; applies on the next desktop restart`);
+    }
+  }, [pendingSandboxDisplay, saveSandboxDisplay, handleRestartSession, snackbar]);
 
   // Handle session stop
   const handleStopSession = useCallback(async () => {
@@ -2083,10 +2123,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           value={task?.planning_code_agent_config || task?.code_agent_config}
           sandboxResourceOverrides={task?.sandbox_resource_overrides}
           sandboxRuntime={task?.sandbox_runtime}
+          sandboxDisplay={task?.sandbox_display}
           onChange={(config) =>
             updatePhaseAgentConfig("planning", config)
           }
           onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+          onSandboxDisplayChange={handleSandboxDisplayChange}
           disabled={updateExecutionConfig.isPending || !!task?.archived}
           grouped
         />
@@ -2847,8 +2889,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       value={currentExecutionConfig?.code_agent_config || task.code_agent_config}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       sandboxRuntime={task.sandbox_runtime}
+                      sandboxDisplay={task.sandbox_display}
                       onChange={(config) => handleAgentModelChange("", {}, config)}
                       onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+                      onSandboxDisplayChange={handleSandboxDisplayChange}
                       disabled={updateExecutionConfig.isPending}
                       compact
                     />
@@ -3188,8 +3232,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       value={currentExecutionConfig?.code_agent_config || task.code_agent_config}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       sandboxRuntime={task.sandbox_runtime}
+                      sandboxDisplay={task.sandbox_display}
                       onChange={(config) => handleAgentModelChange("", {}, config)}
                       onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+                      onSandboxDisplayChange={handleSandboxDisplayChange}
                       disabled={updateExecutionConfig.isPending}
                       compact
                     />
@@ -3367,6 +3413,37 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           onCopyToChat={copyTerminalSelectionToChat}
         />
       )}
+
+      {/* Display change on a running desktop */}
+      <Dialog
+        open={!!pendingSandboxDisplay}
+        onClose={() => setPendingSandboxDisplay(null)}
+      >
+        <DialogTitle>
+          Restart the desktop to switch to {sandboxResolutionLabel(pendingSandboxDisplay || undefined)}?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            The desktop resolution is set when the desktop starts. Restarting
+            stops the current agent container and starts a fresh one; any
+            unsaved files in the sandbox may be lost. Choose Later to apply it
+            on the next restart instead.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPendingSandboxDisplay(null)}>Cancel</Button>
+          <Button onClick={() => void applyPendingSandboxDisplay(false)}>Later</Button>
+          <Button
+            onClick={() => void applyPendingSandboxDisplay(true)}
+            color="warning"
+            variant="contained"
+            disabled={isRestarting}
+            startIcon={<RestartAltIcon />}
+          >
+            Restart now
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Restart Session Confirmation */}
       <Dialog

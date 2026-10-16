@@ -197,6 +197,9 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
 		return nil, fmt.Errorf("invalid sandbox resource preset")
 	}
+	if err := req.SandboxDisplay.Validate(); err != nil {
+		return nil, err
+	}
 	if !types.ValidSpecTaskSandboxRuntime(req.SandboxRuntime) {
 		return nil, fmt.Errorf("invalid spec task sandbox runtime %q", req.SandboxRuntime)
 	}
@@ -316,6 +319,7 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 		PlanningCodeAgentConfig:  planningCodeAgentConfig,
 		SandboxResourceOverrides: sandboxResources,
 		SandboxRuntime:           sandboxRuntime,
+		SandboxDisplay:           req.SandboxDisplay,
 		JustDoItMode:             req.JustDoItMode, // Set Just Do It mode from request
 		// Credential-only override: whose Claude subscription authenticates this
 		// task's agent. Enforced at resolution time against the named user's
@@ -722,13 +726,6 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	launchTask := task
 	launchSession := session
 
-	// Display settings are sandbox concerns. Legacy App display preferences are
-	// intentionally not part of the task execution-config migration.
-	displayWidth := 1920
-	displayHeight := 1080
-	displayRefreshRate := 60
-	resolution := ""
-	zoomLevel := 0
 	desktopType := ""
 
 	// Ensure desktopType has a sensible default (ubuntu) when not set by app config
@@ -769,11 +766,6 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		VCPUs:          sandboxVCPUs(task),
 		MemoryMB:       sandboxMemoryMB(task),
 		// RepositoryIDs / PrimaryRepositoryID set by SetRepoContext below.
-		DisplayWidth:       displayWidth,
-		DisplayHeight:      displayHeight,
-		DisplayRefreshRate: displayRefreshRate,
-		Resolution:         resolution,
-		ZoomLevel:          zoomLevel,
 		DesktopType:        desktopType,
 		Env:                envVars,
 		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
@@ -793,6 +785,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		BaseBranch:    task.BaseBranch,
 		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
+	zedAgent.ApplySandboxDisplay(task.SandboxDisplay)
 	zedAgent.SetRepoContext(projectRepos, project.DefaultRepoID)
 	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Created ZedAgent struct")
 
@@ -1158,13 +1151,6 @@ Follow these guidelines when making changes:
 		return
 	}
 
-	// Use task/session sandbox defaults; execution config no longer references
-	// an App-owned display profile.
-	displayWidthJDI := 1920
-	displayHeightJDI := 1080
-	displayRefreshRateJDI := 60
-	resolutionJDI := ""
-	zoomLevelJDI := 0
 	desktopTypeJDI := ""
 
 	// Build env vars (base + locale; project secrets injected by HydraExecutor.StartDesktop)
@@ -1195,11 +1181,6 @@ Follow these guidelines when making changes:
 		MemoryMB:            sandboxMemoryMB(task),
 		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
 		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
-		DisplayWidth:        displayWidthJDI,
-		DisplayHeight:       displayHeightJDI,
-		DisplayRefreshRate:  displayRefreshRateJDI,
-		Resolution:          resolutionJDI,
-		ZoomLevel:           zoomLevelJDI,
 		DesktopType:         desktopTypeJDI,
 		Env:                 envVarsJDI,
 		// Branch configuration - startup script will checkout correct branch
@@ -1207,6 +1188,7 @@ Follow these guidelines when making changes:
 		BaseBranch:    task.BaseBranch,
 		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
+	zedAgent.ApplySandboxDisplay(task.SandboxDisplay)
 
 	// Start the Zed agent via Wolf executor
 	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
@@ -2260,19 +2242,6 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	// session lock) to prevent a race where StopDesktop revokes the key between
 	// creation and container start.
 
-	// Use display settings from session metadata or defaults
-	displayWidth := session.Metadata.AgentVideoWidth
-	displayHeight := session.Metadata.AgentVideoHeight
-	displayRefreshRate := session.Metadata.AgentVideoRefreshRate
-	if displayWidth == 0 {
-		displayWidth = 2560
-	}
-	if displayHeight == 0 {
-		displayHeight = 1600
-	}
-	if displayRefreshRate == 0 {
-		displayRefreshRate = 60
-	}
 
 	desktopType := "ubuntu" // Default
 
@@ -2288,11 +2257,6 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		MemoryMB:            sandboxMemoryMB(task),
 		PrimaryRepositoryID: primaryRepoID,
 		RepositoryIDs:       repositoryIDs,
-		DisplayWidth:        displayWidth,
-		DisplayHeight:       displayHeight,
-		DisplayRefreshRate:  displayRefreshRate,
-		Resolution:          fmt.Sprintf("%dx%d", displayWidth, displayHeight),
-		ZoomLevel:           1.0,
 		DesktopType:         desktopType,
 		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
 			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
@@ -2310,6 +2274,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		BaseBranch:    task.BaseBranch,
 		WorkingBranch: task.BranchName,
 	}
+	zedAgent.ApplySandboxDisplay(task.SandboxDisplay)
 
 	// Start the desktop container
 	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)

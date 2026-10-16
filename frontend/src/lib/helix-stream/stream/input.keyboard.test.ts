@@ -112,3 +112,61 @@ describe('StreamInput keyboard routing', () => {
     )
   })
 })
+
+describe('StreamInput caps lock and held keys', () => {
+  let input: StreamInput
+  let sent: SentMessage[]
+
+  beforeEach(() => {
+    ;({ input, sent } = makeInput())
+  })
+
+  const CAPS_LOCK_BIT = 1 << 4
+
+  it('never forwards CapsLock key events, including the macOS keydown-only/keyup-only sequence', () => {
+    // macOS: keydown when caps turns on...
+    input.onKeyDown(new KeyboardEvent('keydown', { key: 'CapsLock', code: 'CapsLock', modifierCapsLock: true }))
+    // ...and only a keyup, later, when it turns off.
+    input.onKeyUp(new KeyboardEvent('keyup', { key: 'CapsLock', code: 'CapsLock' }))
+
+    expect(sent).toEqual([])
+  })
+
+  it('sets the caps-lock bit from getModifierState and keeps caps letters on the keycode path', () => {
+    const init = { key: 'A', code: 'KeyA', modifierCapsLock: true }
+    input.onKeyDown(new KeyboardEvent('keydown', init))
+    input.onKeyUp(new KeyboardEvent('keyup', init))
+
+    expect(sent).toEqual([
+      { kind: 'key', isDown: true, key: 30, modifiers: CAPS_LOCK_BIT },
+      { kind: 'key', isDown: false, key: 30, modifiers: CAPS_LOCK_BIT },
+    ])
+  })
+
+  it('clears the caps-lock bit when caps is off locally', () => {
+    input.onKeyDown(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA' }))
+
+    expect(sent).toEqual([{ kind: 'key', isDown: true, key: 30, modifiers: 0 }])
+  })
+
+  it('releases exactly the keys sent as down', () => {
+    input.onKeyDown(new KeyboardEvent('keydown', { key: 'Control', code: 'ControlLeft', ctrlKey: true }))
+    input.onKeyDown(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', ctrlKey: true }))
+    input.onKeyUp(new KeyboardEvent('keyup', { key: 'a', code: 'KeyA', ctrlKey: true }))
+    sent.length = 0
+
+    input.releaseAllKeys()
+
+    expect(sent).toEqual([{ kind: 'key', isDown: false, key: 29, modifiers: 0 }]) // KEY_LEFTCTRL
+    sent.length = 0
+    input.releaseAllKeys()
+    expect(sent).toEqual([])
+  })
+
+  it('drops a keyup for a key that was never sent as down', () => {
+    input.onKeyUp(new KeyboardEvent('keyup', { key: 'Control', code: 'ControlLeft' }))
+
+    expect(sent).toEqual([])
+  })
+})
+

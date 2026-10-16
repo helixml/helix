@@ -52,6 +52,8 @@ func (s *Server) handleWSInput(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("WebSocket input client connected")
 
 	state := &wsInputState{}
+	keyboard := newKeyboardClient()
+	defer s.releaseKeyboardClient(keyboard)
 
 	for {
 		messageType, data, err := conn.ReadMessage()
@@ -76,7 +78,7 @@ func (s *Server) handleWSInput(w http.ResponseWriter, r *http.Request) {
 
 		switch msgType {
 		case MsgTypeKeyboard:
-			s.handleWSKeyboard(payload)
+			s.handleWSKeyboard(keyboard, payload)
 		case MsgTypeMouseButton:
 			s.handleWSMouseButton(payload)
 		case MsgTypeMouseAbsolute:
@@ -95,7 +97,7 @@ func (s *Server) handleWSInput(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("WebSocket input client disconnected")
 }
 
-// handleWSKeyboard handles keyboard input messages.
+// handleWSKeyboard handles keyboard input messages from one connection.
 //
 // Supports three modes:
 //   - subType=0: Evdev keycode [subType:1][isDown:1][modifiers:1][keycode:2 BE]
@@ -104,7 +106,7 @@ func (s *Server) handleWSInput(w http.ResponseWriter, r *http.Request) {
 //
 // Keysym mode is used when event.code is unavailable (iPad/iOS).
 // Keysym tap is used for Android virtual keyboards and swipe typing.
-func (s *Server) handleWSKeyboard(data []byte) {
+func (s *Server) handleWSKeyboard(c *keyboardClient, data []byte) {
 	if len(data) < 1 {
 		return
 	}
@@ -112,9 +114,9 @@ func (s *Server) handleWSKeyboard(data []byte) {
 	subType := data[0]
 	switch subType {
 	case 0:
-		s.handleWSKeyboardKeycode(data)
+		s.handleWSKeyboardKeycode(c, data)
 	case 2:
-		s.handleWSKeyboardKeysym(data)
+		s.handleWSKeyboardKeysym(c, data)
 	case 3:
 		s.handleWSKeyboardKeysymTap(data)
 	default:
@@ -124,46 +126,46 @@ func (s *Server) handleWSKeyboard(data []byte) {
 
 // handleWSKeyboardKeycode handles evdev keycode keyboard messages.
 // Format: [subType:1][isDown:1][modifiers:1][keycode:2 BE]
-func (s *Server) handleWSKeyboardKeycode(data []byte) {
+func (s *Server) handleWSKeyboardKeycode(c *keyboardClient, data []byte) {
 	if len(data) < 5 {
 		return
 	}
 
 	isDown := data[1] != 0
-	// data[2] (modifiers) is deliberately unused. A physical keyboard already
-	// sends real ShiftLeft/ControlLeft press and release events, so synthesizing
-	// a second modifier from this byte would fight the real one and risk the
-	// stuck-modifier failure mode in
+	// Of the modifiers byte only the caps-lock bit is used. A physical keyboard
+	// already sends real ShiftLeft/ControlLeft press and release events, so
+	// synthesizing a second modifier from this byte would fight the real one and
+	// risk the stuck-modifier failure mode in
 	// design/2025-11-25-keyboard-modifier-stuck-analysis.md. Virtual keyboards,
 	// which send no modifier events at all, use the keysym path instead.
+	capsLocked := data[2]&ModifierCapsLock != 0
 	evdevCode := int(binary.BigEndian.Uint16(data[3:5]))
 
-	if evdevCode == 0 {
+	// Caps Lock is synced from the caps-lock bit, never forwarded as an edge:
+	// an edge toggles the one lock every viewer shares.
+	if evdevCode == 0 || evdevCode == KEY_CAPSLOCK {
 		return
 	}
 
-	// Try D-Bus RemoteDesktop first (GNOME)
-	if s.conn != nil && s.rdSessionPath != "" {
-		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-		err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(evdevCode), isDown).Err
-		if err != nil {
-			s.logger.Error("WebSocket keyboard D-Bus call failed", "evdev", evdevCode, "err", err)
+	s.keyboard.mu.Lock()
+	defer s.keyboard.mu.Unlock()
+
+	if isDown {
+		s.setCapsLockLocked(capsLocked)
+		forward, repeat := s.keyboard.press(c, evdevCode)
+		// Mutter repeats held keys itself and ignores a press of a key that is
+		// already down. Sway disables compositor key repeat (see
+		// desktop/sway-config/config), so browser auto-repeat is its only repeat.
+		if repeat && s.waylandKeyboardOnly() {
+			forward = true
 		}
+		if !forward {
+			return
+		}
+	} else if !s.keyboard.release(c, evdevCode) {
 		return
 	}
-
-	// Fallback to Wayland-native virtual keyboard for Sway/wlroots
-	if s.waylandInput != nil {
-		var err error
-		if isDown {
-			err = s.waylandInput.KeyDownEvdev(evdevCode)
-		} else {
-			err = s.waylandInput.KeyUpEvdev(evdevCode)
-		}
-		if err != nil {
-			s.logger.Debug("Wayland virtual keyboard failed", "evdev", evdevCode, "err", err)
-		}
-	}
+	s.injectKeycodeLocked(evdevCode, isDown)
 }
 
 // handleWSKeyboardKeysym handles X11 keysym keyboard messages.
@@ -171,7 +173,7 @@ func (s *Server) handleWSKeyboardKeycode(data []byte) {
 //
 // Keysyms provide layout-independent character input, used when
 // event.code is unavailable (iPad/iOS keyboards).
-func (s *Server) handleWSKeyboardKeysym(data []byte) {
+func (s *Server) handleWSKeyboardKeysym(c *keyboardClient, data []byte) {
 	if len(data) < 7 {
 		return
 	}
@@ -180,49 +182,30 @@ func (s *Server) handleWSKeyboardKeysym(data []byte) {
 	// modifiers := data[2] // Currently unused
 	keysym := binary.BigEndian.Uint32(data[3:7])
 
-	if keysym == 0 {
+	if keysym == 0 || keysym == XK_Caps_Lock {
 		return
 	}
 
-	// Try D-Bus RemoteDesktop first (GNOME)
-	// NotifyKeyboardKeysym sends the character directly, independent of layout.
-	// It resolves the shift level from the compositor's own keymap, so we must
-	// NOT synthesize Shift here — that would double-apply it.
-	if s.conn != nil && s.rdSessionPath != "" {
-		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-		err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, keysym, isDown).Err
-		if err != nil {
-			s.logger.Error("WebSocket keyboard keysym D-Bus call failed", "keysym", keysym, "err", err)
-		}
-		return
-	}
+	s.keyboard.mu.Lock()
+	defer s.keyboard.mu.Unlock()
 
-	// Fallback to Wayland-native virtual keyboard for Sway/wlroots
-	// Convert keysym to evdev keycode using xkbcommon (layout-aware) or static mapping
-	if s.waylandInput != nil {
-		evdevCode, needsShift := resolveKeysym(keysym)
-		if evdevCode == 0 {
-			s.logger.Debug("No evdev mapping for keysym", "keysym", keysym, "xkbAvailable", IsXKBAvailable())
+	if isDown {
+		// A keysym names the exact character. The compositor picks its key and
+		// shift level without looking at the lock, so a locked caps would invert
+		// the case of letters ('a' types 'A', and Shift+'A' types 'a').
+		s.setCapsLockLocked(false)
+		// Auto-repeat: see handleWSKeyboardKeycode.
+		if c.heldKeysyms[keysym] && !s.waylandKeyboardOnly() {
 			return
 		}
-		// Hold Shift around the key press for shift-level characters, otherwise
-		// the bare keycode types the unshifted character ('@' becomes '2').
-		var err error
-		if isDown {
-			if needsShift {
-				s.waylandInput.KeyDownEvdev(KEY_LEFTSHIFT)
-			}
-			err = s.waylandInput.KeyDownEvdev(evdevCode)
-		} else {
-			err = s.waylandInput.KeyUpEvdev(evdevCode)
-			if needsShift {
-				s.waylandInput.KeyUpEvdev(KEY_LEFTSHIFT)
-			}
+		c.heldKeysyms[keysym] = true
+	} else {
+		if !c.heldKeysyms[keysym] {
+			return
 		}
-		if err != nil {
-			s.logger.Debug("Wayland virtual keyboard keysym failed", "keysym", keysym, "evdev", evdevCode, "err", err)
-		}
+		delete(c.heldKeysyms, keysym)
 	}
+	s.injectKeysymLocked(keysym, isDown)
 }
 
 // Modifier bit flags (matching frontend EvdevModifiers)
@@ -231,6 +214,8 @@ const (
 	ModifierCtrl  = 1 << 1
 	ModifierAlt   = 1 << 2
 	ModifierMeta  = 1 << 3
+	// ModifierCapsLock is the sender's caps-lock state, not a held key.
+	ModifierCapsLock = 1 << 4
 )
 
 // Modifier keysyms (X11)
@@ -239,6 +224,7 @@ const (
 	XK_Control_L = 0xffe3
 	XK_Alt_L     = 0xffe9
 	XK_Super_L   = 0xffeb
+	XK_Caps_Lock = 0xffe5
 )
 
 // Modifier evdev keycodes
@@ -266,9 +252,18 @@ func (s *Server) handleWSKeyboardKeysymTap(data []byte) {
 	modifiers := data[1]
 	keysym := binary.BigEndian.Uint32(data[2:6])
 
-	if keysym == 0 {
+	if keysym == 0 || keysym == XK_Caps_Lock {
 		return
 	}
+
+	s.keyboard.mu.Lock()
+	defer s.keyboard.mu.Unlock()
+
+	// The tap names an exact character; see handleWSKeyboardKeysym.
+	s.setCapsLockLocked(false)
+	// A modifier another viewer is holding is already down. Tapping it would
+	// release it under them, so leave it alone.
+	modifiers &^= s.keyboard.heldModifiers()
 
 	// Try D-Bus RemoteDesktop first (GNOME)
 	if s.conn != nil && s.rdSessionPath != "" {

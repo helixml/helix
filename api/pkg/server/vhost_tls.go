@@ -102,7 +102,7 @@ func (apiServer *HelixAPIServer) startCertMagicListener(ctx context.Context, vho
 		dnsIssuer.DNS01Solver = dnsSolver
 
 		alpnIssuer := issuerTmpl
-		alpnIssuer.DisableHTTPChallenge = true // no :80; TLS-ALPN-01 only
+		alpnIssuer.DisableHTTPChallenge = true // TLS-ALPN-01 only
 
 		cfg.Issuers = []certmagic.Issuer{
 			certmagic.NewACMEIssuer(cfg, dnsIssuer),
@@ -113,7 +113,13 @@ func (apiServer *HelixAPIServer) startCertMagicListener(ctx context.Context, vho
 			Str("email", email).
 			Str("challenge", challengeDesc+" + tls-alpn-01 fallback").
 			Msg("vhost TLS auto mode enabled (certmagic + Let's Encrypt)")
-		log.Info().Msg("vhost TLS: skipping :80 listener (DNS-01 primary, TLS-ALPN-01 fallback on :443)")
+
+		// :80 serves custom-domain verification and the HTTP→HTTPS redirect.
+		go func() {
+			if err := http.ListenAndServe(":80", httpToHTTPSRedirect(handler)); err != nil {
+				log.Warn().Err(err).Msg("vhost TLS: :80 listener exited")
+			}
+		}()
 	} else {
 		// No DNS provider: HTTP-01 + TLS-ALPN-01 for all names, with a :80
 		// challenge listener. Only works when LE can reach the origin directly.
@@ -126,7 +132,7 @@ func (apiServer *HelixAPIServer) startCertMagicListener(ctx context.Context, vho
 			Msg("vhost TLS auto mode enabled (certmagic + Let's Encrypt)")
 
 		go func() {
-			if err := http.ListenAndServe(":80", magicACME.HTTPChallengeHandler(httpToHTTPSRedirect())); err != nil {
+			if err := http.ListenAndServe(":80", magicACME.HTTPChallengeHandler(httpToHTTPSRedirect(handler))); err != nil {
 				log.Warn().Err(err).Msg("vhost TLS: :80 challenge listener exited")
 			}
 		}()
@@ -179,16 +185,15 @@ func (apiServer *HelixAPIServer) vhostShouldIssueCert(ctx context.Context, vhost
 	return fmt.Errorf("hostname %q is not registered with Helix; refusing to issue cert", host)
 }
 
-// httpToHTTPSRedirect is the fallback handler for the :80 listener for
-// hostnames that aren't ACME challenges. ACME challenge paths are
+// httpToHTTPSRedirect is the handler for the :80 listener. Custom-domain
+// verification requests go to handler (the webservice verifier polls them
+// over plain HTTP and does not follow redirects); everything else is
+// redirected to HTTPS. ACME HTTP-01 challenge paths, when enabled, are
 // handled by certmagic's HTTPChallengeHandler wrapper.
-func httpToHTTPSRedirect() http.Handler {
+func httpToHTTPSRedirect(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Don't redirect /.well-known/helix-domain-verify — DNS-based
-		// custom-domain verification reaches us over plain HTTP from
-		// our own verifier cron.
-		if strings.HasPrefix(r.URL.Path, "/.well-known/helix-domain-verify/") {
-			http.Error(w, "use HTTPS for this endpoint via Helix", http.StatusBadRequest)
+		if strings.HasPrefix(r.URL.Path, domainVerifyPathPrefix) {
+			handler.ServeHTTP(w, r)
 			return
 		}
 		target := "https://" + stripPort(r.Host) + r.URL.RequestURI()

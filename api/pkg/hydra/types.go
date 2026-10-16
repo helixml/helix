@@ -35,6 +35,7 @@ const (
 	containerGoldenBuildLabel     = "helix.golden_build" // "true"
 	containerProjectIDLabel       = "helix.project_id"
 	containerGoldenCacheKindLabel = "helix.golden_cache_kind"
+	containerCacheKindLabel       = "helix.container_cache_kind"
 	containerGoldenDeadlineLabel  = "helix.golden_build_deadline" // RFC3339
 )
 
@@ -118,7 +119,7 @@ type CreateDevContainerRequest struct {
 	// Privileged mode (required for docker-in-desktop: inner dockerd needs it)
 	Privileged bool `json:"privileged,omitempty"`
 
-	// RootlessContainerEngine enables the rootless Podman service used by
+	// RootlessContainerEngine enables the rootless Docker service used by
 	// unprivileged headless agents. Hydra supplies only the user-namespace
 	// devices and environment required by that service; desktop dockerd keeps
 	// using Privileged instead.
@@ -131,7 +132,7 @@ type CreateDevContainerRequest struct {
 	BrowserSandbox bool `json:"browser_sandbox,omitempty"`
 
 	// DesktopRootless runs a desktop (ubuntu/sway) container unprivileged,
-	// using the same rootless Podman posture as headless agents instead of
+	// using the same rootless Docker posture as headless agents instead of
 	// Docker --privileged. It keeps the desktop's display/input/GPU device
 	// grants and its private IPC namespace, but drops the full capability set,
 	// the allow-all device cgroup and AppArmor-unconfined that --privileged
@@ -233,7 +234,7 @@ type DevContainer struct {
 	CreatedAt     time.Time          `json:"created_at"`
 	DockerSocket  string             `json:"docker_socket"` // Which dockerd manages this container
 
-	// Golden build fields
+	// Container cache fields
 	IsGoldenBuild   bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
 	ProjectID       string `json:"project_id,omitempty"`      // Project ID for golden promotion
 	goldenCacheKind goldenCacheKind

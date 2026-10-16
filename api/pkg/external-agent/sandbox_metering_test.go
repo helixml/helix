@@ -24,6 +24,7 @@ func TestResolveSpecTaskLaunchConfigAppliesTaskPreset(t *testing.T) {
 
 	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_1").Return(&types.SpecTask{
 		ID:                       "spt_1",
+		ProjectID:                "prj_task",
 		SandboxResourceOverrides: &types.SandboxResourceOverrides{VCPUs: 8, MemoryMB: 16384},
 	}, nil)
 
@@ -31,6 +32,75 @@ func TestResolveSpecTaskLaunchConfigAppliesTaskPreset(t *testing.T) {
 	require.NoError(t, executor.resolveSpecTaskLaunchConfig(context.Background(), agent))
 	require.Equal(t, 8, agent.VCPUs)
 	require.Equal(t, 16384, agent.MemoryMB)
+	require.Empty(t, agent.ProjectID)
+}
+
+func TestResolveSpecTaskLaunchConfigUsesAllowlistedTaskProject(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+	executor := newTestExecutor(mockStore)
+	executor.desktopRootlessProjectIDs = []string{"prj_target", "prj_second"}
+
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_1").Return(&types.SpecTask{
+		ID:        "spt_1",
+		ProjectID: "prj_target",
+	}, nil)
+
+	agent := &types.DesktopAgent{SessionID: "ses_1", SpecTaskID: "spt_1", ProjectID: "prj_stale"}
+	require.NoError(t, executor.resolveSpecTaskLaunchConfig(context.Background(), agent))
+	require.Equal(t, "prj_target", agent.ProjectID)
+	require.True(t, executor.desktopRootlessForProject(agent.ProjectID))
+}
+
+func TestResolveSpecTaskLaunchConfigUsesNonAllowlistedTaskProject(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+	executor := newTestExecutor(mockStore)
+	executor.desktopRootlessProjectIDs = []string{"prj_target"}
+
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_1").Return(&types.SpecTask{
+		ID:        "spt_1",
+		ProjectID: "prj_other",
+	}, nil)
+
+	agent := &types.DesktopAgent{SessionID: "ses_1", SpecTaskID: "spt_1", ProjectID: "prj_target"}
+	require.NoError(t, executor.resolveSpecTaskLaunchConfig(context.Background(), agent))
+	require.Equal(t, "prj_other", agent.ProjectID)
+	require.False(t, executor.desktopRootlessForProject(agent.ProjectID))
+}
+
+func TestAttachSessionBootstrapUsesPersistedProjectForScopedRootless(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+	executor := newTestExecutor(mockStore)
+	executor.desktopRootlessProjectIDs = []string{"prj_target"}
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_1").Return(&types.Session{
+		ID:        "ses_1",
+		ProjectID: "prj_other",
+	}, nil)
+
+	agent := &types.DesktopAgent{SessionID: "ses_1", ProjectID: "prj_target"}
+	require.NoError(t, executor.attachSessionBootstrap(context.Background(), agent))
+	require.Equal(t, "prj_other", agent.ProjectID)
+	require.False(t, executor.desktopRootlessForProject(agent.ProjectID))
+}
+
+func TestAttachSessionBootstrapLeavesProjectUnchangedWithoutScope(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+	executor := newTestExecutor(mockStore)
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_1").Return(&types.Session{
+		ID:        "ses_1",
+		ProjectID: "prj_persisted",
+	}, nil)
+
+	agent := &types.DesktopAgent{SessionID: "ses_1", ProjectID: "prj_caller"}
+	require.NoError(t, executor.attachSessionBootstrap(context.Background(), agent))
+	require.Equal(t, "prj_caller", agent.ProjectID)
 }
 
 // A legacy task with no explicit override resolves to the same default the
@@ -154,12 +224,22 @@ func TestExternalAgentIsolation(t *testing.T) {
 		require.Equal(t, containerIsolation{browserSandbox: true}, externalAgentIsolation(containerType, true, false), containerType)
 		require.Equal(t, containerIsolation{browserSandbox: true}, externalAgentIsolation(containerType, true, true), containerType)
 	}
-	// desktopRootless on: desktops go unprivileged via rootless Podman; headless
+	// desktopRootless on: desktops go unprivileged via rootless Docker; headless
 	// is unaffected (it is already rootless).
 	for _, containerType := range []string{"ubuntu", "sway", "zorin", "xfce", "kde"} {
 		require.Equal(t, containerIsolation{desktopRootless: true}, externalAgentIsolation(containerType, false, true), containerType)
 	}
 	require.Equal(t, containerIsolation{rootlessContainerEngine: true}, externalAgentIsolation("headless", false, true))
+}
+
+func TestDesktopRootlessProjectAllowlist(t *testing.T) {
+	executor := newTestExecutor(nil)
+	executor.desktopRootlessProjectIDs = []string{"prj_target", " prj_second "}
+
+	require.True(t, executor.desktopRootlessForProject("prj_target"))
+	require.True(t, executor.desktopRootlessForProject("prj_second"))
+	require.False(t, executor.desktopRootlessForProject("prj_other"))
+	require.False(t, executor.desktopRootlessForProject(""))
 }
 
 func TestValidateDesktopRootlessLaunch(t *testing.T) {
@@ -222,25 +302,29 @@ func TestBuildMountsUsesContainerEngineStorageForRuntime(t *testing.T) {
 	executor := newTestExecutor(nil)
 	agent := &types.DesktopAgent{SessionID: "ses_1"}
 
-	headlessMounts := executor.buildMounts(agent, "/workspace/ses_1", "headless")
-	require.Equal(t, "docker-data-ses_1", mountSourceForDestination(headlessMounts, "/home/retro/.local/share/containers"))
+	headlessMounts := executor.buildMounts(agent, "/workspace/ses_1", "headless", false)
+	require.Equal(t, "rootless-docker-data-ses_1", mountSourceForDestination(headlessMounts, "/home/retro/.local/share/docker"))
 	require.Empty(t, mountSourceForDestination(headlessMounts, "/var/lib/docker"))
 
-	desktopMounts := executor.buildMounts(agent, "/workspace/ses_1", "ubuntu")
+	desktopMounts := executor.buildMounts(agent, "/workspace/ses_1", "ubuntu", false)
 	require.Equal(t, "docker-data-ses_1", mountSourceForDestination(desktopMounts, "/var/lib/docker"))
-	require.Empty(t, mountSourceForDestination(desktopMounts, "/home/retro/.local/share/containers"))
+	require.Empty(t, mountSourceForDestination(desktopMounts, "/home/retro/.local/share/docker"))
 	require.Equal(t, agentBinaryCacheDir, mountSourceForDestination(desktopMounts, "/opt/helix/agent-cache"))
+
+	rootlessDesktopMounts := executor.buildMounts(agent, "/workspace/ses_1", "ubuntu", true)
+	require.Equal(t, "rootless-docker-data-ses_1", mountSourceForDestination(rootlessDesktopMounts, "/home/retro/.local/share/docker"))
+	require.Empty(t, mountSourceForDestination(rootlessDesktopMounts, "/var/lib/docker"))
 
 	instance := &types.DesktopAgent{SessionID: "ses_1", OrgWorkerID: "b-broker", NoContainerEngine: true}
 	for _, containerType := range []string{"headless", "ubuntu"} {
-		mounts := executor.buildMounts(instance, "/workspace/ses_1", containerType)
+		mounts := executor.buildMounts(instance, "/workspace/ses_1", containerType, false)
 		require.Empty(t, mountSourceForDestination(mounts, "/var/lib/docker"), containerType)
-		require.Empty(t, mountSourceForDestination(mounts, "/home/retro/.local/share/containers"), containerType)
+		require.Empty(t, mountSourceForDestination(mounts, "/home/retro/.local/share/docker"), containerType)
 		require.Empty(t, mountSourceForDestination(mounts, "/opt/helix/agent-cache"), containerType)
 	}
 
 	mainBot := &types.DesktopAgent{SessionID: "ses_main", OrgWorkerID: "b-broker"}
-	require.Empty(t, mountSourceForDestination(executor.buildMounts(mainBot, "/workspace/ses_main", "ubuntu"), "/opt/helix/agent-cache"))
+	require.Empty(t, mountSourceForDestination(executor.buildMounts(mainBot, "/workspace/ses_main", "ubuntu", false), "/opt/helix/agent-cache"))
 }
 
 func mountSourceForDestination(mounts []hydra.MountConfig, destination string) string {

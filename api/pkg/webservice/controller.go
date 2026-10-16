@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/hydra"
@@ -60,15 +61,19 @@ func recoverGoroutine(what string, onPanic func(recovered any)) {
 // env-var strings to inject into the web service container.
 type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
 
+var errDeploySuperseded = errors.New("deploy superseded")
+
 // Controller orchestrates project web service deploys.
 type Controller struct {
-	store         store.Store
-	sandboxes     *sandbox.Controller
-	provisionWait time.Duration // upper bound for waiting for sandbox status=running
-	provisionPoll time.Duration // poll interval while waiting
-	bootstrapWait time.Duration // upper bound for the in-place deploy exec (clone/fetch/launch)
-	readinessWait time.Duration // upper bound for waiting for the app to bind to its port
-	readinessPoll time.Duration // poll interval while waiting
+	store            store.Store
+	sandboxes        *sandbox.Controller
+	provisionWait    time.Duration // upper bound for waiting for sandbox status=running
+	provisionPoll    time.Duration // poll interval while waiting
+	bootstrapWait    time.Duration // upper bound for the in-place deploy exec (clone/fetch/launch)
+	readinessWait    time.Duration // upper bound for waiting for the app to bind to its port
+	readinessPoll    time.Duration // poll interval while waiting
+	deployRunLocks   sync.Map      // map[project_id]*sync.Mutex
+	deployStateLocks sync.Map      // map[project_id]*sync.Mutex
 
 	// getProjectSecrets, when set, supplies prod-scoped project secrets to
 	// inject into the web service container env. Optional — nil means no
@@ -152,9 +157,13 @@ func (c *Controller) Redeploy(ctx context.Context, req DeployRequest) (*types.We
 		CommitSHA: req.CommitSHA,
 		Status:    types.WebServiceDeployStatusPending,
 	}
+	stateLock := c.projectMutex(&c.deployStateLocks, req.ProjectID)
+	stateLock.Lock()
 	if err := c.store.CreateWebServiceDeploy(ctx, deploy); err != nil {
+		stateLock.Unlock()
 		return nil, fmt.Errorf("create deploy row: %w", err)
 	}
+	stateLock.Unlock()
 
 	go c.runDeploy(deploy.ID, req, project, repo, state)
 
@@ -181,14 +190,40 @@ func (c *Controller) runDeploy(
 	// service). Recover and mark this deploy failed so it doesn't wedge in
 	// "building" — the health monitor will then retry cleanly.
 	defer recoverGoroutine("runDeploy project="+req.ProjectID, func(any) {
-		c.markFailed(context.Background(), deployID, "", "internal error during deploy (panic recovered)")
+		c.markFailedIfCurrent(context.Background(), req.ProjectID, deployID, "", "internal error during deploy (panic recovered)")
 	})
+
+	// shortcut: the control plane runs one API replica; use a distributed lock
+	// before supporting multiple replicas.
+	runLock := c.projectMutex(&c.deployRunLocks, req.ProjectID)
+	runLock.Lock()
+	defer runLock.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), c.provisionWait+c.bootstrapWait+c.readinessWait+2*time.Minute)
 	defer cancel()
 
-	if err := c.markBuilding(ctx, deployID); err != nil {
+	current, err := c.isCurrentDeploy(ctx, req.ProjectID, deployID)
+	if err != nil {
+		c.markFailedIfCurrent(ctx, req.ProjectID, deployID, "", fmt.Sprintf("check current deploy: %s", err))
+		return
+	}
+	if !current {
+		return
+	}
+
+	if err := c.markBuildingIfCurrent(ctx, req.ProjectID, deployID); err != nil {
+		if errors.Is(err, errDeploySuperseded) {
+			return
+		}
 		log.Warn().Err(err).Str("deploy_id", deployID).Msg("failed to mark deploy building")
+		c.markFailedIfCurrent(ctx, req.ProjectID, deployID, "", fmt.Sprintf("mark deploy building: %s", err))
+		return
+	}
+
+	state, err = c.store.GetProjectWebServiceState(ctx, req.ProjectID)
+	if err != nil {
+		c.markFailedIfCurrent(ctx, req.ProjectID, deployID, "", fmt.Sprintf("refresh web service state: %s", err))
+		return
 	}
 
 	// Capture the commit that is currently live so we can roll back to it if
@@ -198,7 +233,15 @@ func (c *Controller) runDeploy(
 	// Get-or-create the project's single, runner-pinned web-service sandbox.
 	sb, err := c.ensureSandbox(ctx, req, project, state)
 	if err != nil {
-		c.markFailed(ctx, deployID, "", fmt.Sprintf("ensure sandbox: %s", err))
+		c.markFailedIfCurrent(ctx, req.ProjectID, deployID, "", fmt.Sprintf("ensure sandbox: %s", err))
+		return
+	}
+	current, err = c.isCurrentDeploy(ctx, req.ProjectID, deployID)
+	if err != nil {
+		c.markFailedIfCurrent(ctx, req.ProjectID, deployID, sb.ID, fmt.Sprintf("check current deploy: %s", err))
+		return
+	}
+	if !current {
 		return
 	}
 
@@ -208,25 +251,47 @@ func (c *Controller) runDeploy(
 	// once the deploy finishes.
 	gitToken, revokeToken, err := c.mintDeployGitToken(ctx, project, req.Owner)
 	if err != nil {
-		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("mint git token: %s", err))
+		c.markFailedIfCurrent(ctx, req.ProjectID, deployID, sb.ID, fmt.Sprintf("mint git token: %s", err))
 		return
 	}
 	defer revokeToken()
+	current, err = c.isCurrentDeploy(ctx, req.ProjectID, deployID)
+	if err != nil {
+		c.markFailedIfCurrent(ctx, req.ProjectID, deployID, sb.ID, fmt.Sprintf("check current deploy: %s", err))
+		return
+	}
+	if !current {
+		return
+	}
 
 	// Deploy the requested code in place (stops the old app first).
 	if err := c.deployInPlace(ctx, sb, repo, req.ProjectID, req.CommitSHA, state.ContainerPort, gitToken); err != nil {
-		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("deploy: %s", err))
+		c.markFailedIfCurrent(ctx, req.ProjectID, deployID, sb.ID, fmt.Sprintf("deploy: %s", err))
 		return
 	}
 
 	// Poll the container port until the app responds. We treat any HTTP
 	// response (even 4xx/5xx) as "the app is bound" — what matters here
 	// is that the listener exists, not that the app likes the request.
-	if err := c.waitForReady(ctx, sb.ID, state.ContainerPort); err != nil {
+	if err := c.waitForReady(ctx, req.ProjectID, deployID, sb.ID, state.ContainerPort); err != nil {
+		if errors.Is(err, errDeploySuperseded) {
+			return
+		}
 		// Roll back to the last-known-good commit so the site comes back up
 		// against the same intact /data. The data is never touched either way.
-		c.rollback(ctx, sb, repo, req.ProjectID, previousSHA, state.ContainerPort, gitToken)
-		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("readiness: %s", err))
+		current, currentErr := c.isCurrentDeploy(ctx, req.ProjectID, deployID)
+		if currentErr == nil && current && !errors.Is(err, hydra.ErrDevContainerNotFound) {
+			c.rollback(ctx, sb, repo, req.ProjectID, previousSHA, state.ContainerPort, gitToken)
+		}
+		c.markFailedIfCurrent(ctx, req.ProjectID, deployID, sb.ID, fmt.Sprintf("readiness: %s", err))
+		return
+	}
+	current, err = c.isCurrentDeploy(ctx, req.ProjectID, deployID)
+	if err != nil {
+		c.markFailedIfCurrent(ctx, req.ProjectID, deployID, sb.ID, fmt.Sprintf("check current deploy: %s", err))
+		return
+	}
+	if !current {
 		return
 	}
 
@@ -236,14 +301,7 @@ func (c *Controller) runDeploy(
 	c.applyRestartPolicy(ctx, sb)
 
 	// Same sandbox across deploys, but keep active_sandbox_id authoritative.
-	if err := c.store.SetActiveWebServiceSandbox(ctx, req.ProjectID, sb.ID); err != nil {
-		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("set active sandbox: %s", err))
-		return
-	}
-
-	// Mark this deploy live; supersede the previous live row if any.
-	c.markLive(ctx, deployID, sb.ID)
-	c.markSupersededPrevious(ctx, deployID, req.ProjectID)
+	c.markLiveIfCurrent(ctx, req.ProjectID, deployID, sb.ID)
 }
 
 // applyRestartPolicy sets restart=unless-stopped on every container in the
@@ -590,7 +648,7 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 		return err
 	}
 
-	script := deployScript(repo.CloneURL, sha, repoDirName(repo), containerPort)
+	script := deployScript(deployCloneURL(repo), sha, repoDirName(repo), containerPort)
 
 	// Inject prod-scoped project secrets via the exec environment (NOT inlined
 	// into the shell script) so the values don't leak into command logs. The
@@ -622,6 +680,10 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 		return fmt.Errorf("bootstrap exited %d: %s", *resp.ExitCode, strings.TrimSpace(resp.Stderr+resp.Stdout))
 	}
 	return nil
+}
+
+func deployCloneURL(repo *types.GitRepository) string {
+	return fmt.Sprintf("%s/git/%s", hydra.SandboxAPIProxyURL, repo.ID)
 }
 
 // mintDeployGitToken creates a short-lived API key owned by the deploying user
@@ -810,7 +872,7 @@ func deployScript(cloneURL, sha, codeDir string, containerPort int) string {
 // deadline. "Listener present" is the readiness contract — we don't
 // care whether the app returns 200 or 503, only that something is
 // bound to the port and able to answer.
-func (c *Controller) waitForReady(ctx context.Context, sandboxID string, port int) error {
+func (c *Controller) waitForReady(ctx context.Context, projectID, deployID, sandboxID string, port int) error {
 	sb, err := c.sandboxes.Get(ctx, sandboxID)
 	if err != nil {
 		return fmt.Errorf("get sandbox: %w", err)
@@ -820,6 +882,19 @@ func (c *Controller) waitForReady(ctx context.Context, sandboxID string, port in
 		return err
 	}
 
+	return c.waitForReadyProbe(ctx, sandboxID, port, func(probeCtx context.Context, sandboxID string, port int) error {
+		current, err := c.isCurrentDeploy(probeCtx, projectID, deployID)
+		if err != nil {
+			return fmt.Errorf("check current deploy: %w", err)
+		}
+		if !current {
+			return errDeploySuperseded
+		}
+		return hydraClient.ProbeDevContainerPort(probeCtx, sandboxID, port)
+	})
+}
+
+func (c *Controller) waitForReadyProbe(ctx context.Context, sandboxID string, port int, probe func(context.Context, string, int) error) error {
 	deadline := time.Now().Add(c.readinessWait)
 	var lastErr error
 	for time.Now().Before(deadline) {
@@ -830,10 +905,16 @@ func (c *Controller) waitForReady(ctx context.Context, sandboxID string, port in
 		}
 
 		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		err := hydraClient.ProbeDevContainerPort(probeCtx, sandboxID, port)
+		err := probe(probeCtx, sandboxID, port)
 		cancel()
 		if err == nil {
 			return nil
+		}
+		if errors.Is(err, errDeploySuperseded) {
+			return err
+		}
+		if errors.Is(err, hydra.ErrDevContainerNotFound) {
+			return fmt.Errorf("sandbox disappeared during readiness: %w", err)
 		}
 		lastErr = err
 
@@ -867,6 +948,67 @@ func (c *Controller) markBuilding(ctx context.Context, deployID string) error {
 	return c.store.UpdateWebServiceDeploy(ctx, deployID, map[string]interface{}{
 		"status": types.WebServiceDeployStatusBuilding,
 	})
+}
+
+func (c *Controller) projectMutex(locks *sync.Map, projectID string) *sync.Mutex {
+	lock, _ := locks.LoadOrStore(projectID, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
+
+func (c *Controller) isCurrentDeploy(ctx context.Context, projectID, deployID string) (bool, error) {
+	deploys, err := c.store.ListWebServiceDeploys(ctx, projectID, 1)
+	if err != nil {
+		return false, err
+	}
+	return len(deploys) > 0 && deploys[0].ID == deployID, nil
+}
+
+func (c *Controller) markBuildingIfCurrent(ctx context.Context, projectID, deployID string) error {
+	stateLock := c.projectMutex(&c.deployStateLocks, projectID)
+	stateLock.Lock()
+	defer stateLock.Unlock()
+	current, err := c.isCurrentDeploy(ctx, projectID, deployID)
+	if err != nil {
+		return err
+	}
+	if !current {
+		return errDeploySuperseded
+	}
+	return c.markBuilding(ctx, deployID)
+}
+
+func (c *Controller) markFailedIfCurrent(ctx context.Context, projectID, deployID, sandboxID, errMsg string) {
+	stateLock := c.projectMutex(&c.deployStateLocks, projectID)
+	stateLock.Lock()
+	defer stateLock.Unlock()
+	current, err := c.isCurrentDeploy(ctx, projectID, deployID)
+	if err != nil {
+		log.Warn().Err(err).Str("deploy_id", deployID).Msg("failed to check current deploy before marking failed")
+		return
+	}
+	if current {
+		c.markFailed(ctx, deployID, sandboxID, errMsg)
+	}
+}
+
+func (c *Controller) markLiveIfCurrent(ctx context.Context, projectID, deployID, sandboxID string) {
+	stateLock := c.projectMutex(&c.deployStateLocks, projectID)
+	stateLock.Lock()
+	defer stateLock.Unlock()
+	current, err := c.isCurrentDeploy(ctx, projectID, deployID)
+	if err != nil {
+		log.Warn().Err(err).Str("deploy_id", deployID).Msg("failed to check current deploy before marking live")
+		return
+	}
+	if !current {
+		return
+	}
+	if err := c.store.SetActiveWebServiceSandbox(ctx, projectID, sandboxID); err != nil {
+		c.markFailed(ctx, deployID, sandboxID, fmt.Sprintf("set active sandbox: %s", err))
+		return
+	}
+	c.markLive(ctx, deployID, sandboxID)
+	c.markSupersededPrevious(ctx, deployID, projectID)
 }
 
 func (c *Controller) markFailed(ctx context.Context, deployID, sandboxID, errMsg string) {

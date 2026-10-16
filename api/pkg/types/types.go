@@ -716,14 +716,8 @@ func (c *ExternalAgentConfig) Validate() error {
 // GetEffectiveResolution returns the display dimensions based on Resolution preset
 // Falls back to DisplayWidth/DisplayHeight if set, otherwise uses defaults
 func (c *ExternalAgentConfig) GetEffectiveResolution() (width, height int) {
-	// If Resolution preset is set, use it
-	switch c.Resolution {
-	case "5k":
-		return 5120, 2880
-	case "4k":
-		return 3840, 2160
-	case "1080p":
-		return 1920, 1080
+	if w, h, ok := SandboxResolutionSize(c.Resolution); ok {
+		return w, h
 	}
 
 	// Fall back to explicit dimensions if set
@@ -748,14 +742,7 @@ func (c *ExternalAgentConfig) GetEffectiveZoomLevel() int {
 	if c.ZoomLevel > 0 {
 		return c.ZoomLevel
 	}
-	// Auto-set 200% zoom only when user explicitly selects "4k" or "5k" preset
-	// (these presets imply 2x scaling for readable UI)
-	switch c.Resolution {
-	case "5k", "4k":
-		return 200
-	default:
-		return 100
-	}
+	return SandboxResolutionDefaultZoom(c.Resolution)
 }
 
 func (s *SessionChatRequest) Message() (string, bool) {
@@ -2232,25 +2219,25 @@ type DesktopAgent struct {
 	OnBeforeCreate func(ctx context.Context, agent *DesktopAgent) error `json:"-"`
 }
 
+// ApplySandboxDisplay sets the desktop size from a SpecTask's display setting.
+// Every spec-task launch path (start, resume, restart, auto-start) must call it
+// so the chosen resolution survives restarts.
+func (z *DesktopAgent) ApplySandboxDisplay(d *SandboxDisplay) {
+	z.DisplayWidth, z.DisplayHeight = d.EffectiveSize()
+	z.DisplayRefreshRate = 60
+	z.Resolution = d.EffectiveResolution()
+	z.ZoomLevel = d.EffectiveZoomLevel()
+}
+
 // GetEffectiveResolution returns the display dimensions based on Resolution preset
 // Falls back to DisplayWidth/DisplayHeight if set, otherwise uses defaults
 func (z *DesktopAgent) GetEffectiveResolution() (width, height, refreshRate int) {
-	// If Resolution preset is set, use it
-	switch z.Resolution {
-	case "5k":
-		width, height = 5120, 2880
-	case "4k":
-		width, height = 3840, 2160
-	case "1080p":
+	if w, h, ok := SandboxResolutionSize(z.Resolution); ok {
+		width, height = w, h
+	} else if z.DisplayWidth > 0 && z.DisplayHeight > 0 {
+		width, height = z.DisplayWidth, z.DisplayHeight
+	} else {
 		width, height = 1920, 1080
-	default:
-		// Fall back to explicit dimensions if set
-		if z.DisplayWidth > 0 && z.DisplayHeight > 0 {
-			width, height = z.DisplayWidth, z.DisplayHeight
-		} else {
-			// Default to 1080p
-			width, height = 1920, 1080
-		}
 	}
 
 	// Get refresh rate (default to 60Hz)
@@ -3800,6 +3787,9 @@ type SandboxHeartbeatRequest struct {
 	// Container disk usage (per-container storage)
 	ContainerUsage []ContainerDiskUsage `json:"container_usage,omitempty"`
 
+	// Cumulative cgroup OOM kills for Helix containers on this runner.
+	ContainerOOMKills []ContainerOOMKills `json:"container_oom_kills,omitempty"`
+
 	// GPU configuration
 	GPUVendor  string `json:"gpu_vendor,omitempty"`  // nvidia, amd, intel, none
 	RenderNode string `json:"render_node,omitempty"` // /dev/dri/renderD128 or SOFTWARE
@@ -3876,6 +3866,14 @@ type ContainerDiskUsage struct {
 	ContainerName string `json:"container_name"`
 	SizeBytes     uint64 `json:"size_bytes"`
 	RwSizeBytes   uint64 `json:"rw_size_bytes"` // Writable layer size
+}
+
+// ContainerOOMKills identifies a Helix container and its cumulative cgroup
+// oom_kill count. SessionID is the helix.session_id Docker label.
+type ContainerOOMKills struct {
+	ContainerID string `json:"container_id"`
+	SessionID   string `json:"session_id"`
+	Count       uint64 `json:"count"`
 }
 
 // DiskUsageHistory stores historical disk usage for trend analysis and alerting

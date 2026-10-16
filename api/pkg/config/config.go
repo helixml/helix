@@ -191,12 +191,16 @@ type Sandboxes struct {
 	AllowCustomImage bool `envconfig:"HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE" default:"false"`
 
 	// DesktopRootless runs desktop runtimes (ubuntu-desktop, spec-task
-	// desktops) unprivileged via rootless Podman instead of Docker
+	// desktops) unprivileged via rootless Docker instead of privileged Docker
 	// --privileged, so a root user inside a desktop can no longer reach the
 	// runner host or sibling tenants (host block devices / zvols / /dev/mem).
 	// Default false: enabling it requires a desktop-image rebuild and a live
 	// GPU-stream validation. See design/2026-10-08-desktop-root-isolation.md.
 	DesktopRootless bool `envconfig:"HELIX_SANDBOX_DESKTOP_ROOTLESS" default:"false"`
+
+	// DesktopRootlessProjectIDs limits desktop rootless mode to the listed
+	// projects. When empty, DesktopRootless keeps its global behavior.
+	DesktopRootlessProjectIDs []string `envconfig:"HELIX_SANDBOX_DESKTOP_ROOTLESS_PROJECT_IDS"`
 
 	// DefaultRuntime is the runtime applied when the create request omits
 	// both `runtime` and `image`. Must match one of the names in Runtimes.
@@ -219,6 +223,31 @@ type Sandboxes struct {
 	// operator with a bigger or smaller box can move them without a rebuild.
 	DefaultSpecTaskVCPUs    int `envconfig:"HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS" default:"12"`
 	DefaultSpecTaskMemoryMB int `envconfig:"HELIX_SPEC_TASK_SANDBOX_DEFAULT_MEMORY_MB" default:"24576"`
+}
+
+func DesktopRootlessForProject(global bool, projectIDs []string, projectID string) bool {
+	for _, allowedProjectID := range projectIDs {
+		allowedProjectID = strings.TrimSpace(allowedProjectID)
+		if allowedProjectID == "" {
+			continue
+		}
+		if allowedProjectID == projectID {
+			return true
+		}
+	}
+	if DesktopRootlessProjectScopeEnabled(projectIDs) {
+		return false
+	}
+	return global
+}
+
+func DesktopRootlessProjectScopeEnabled(projectIDs []string) bool {
+	for _, projectID := range projectIDs {
+		if strings.TrimSpace(projectID) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Compute configures the cloud-provisioning side of Helix's sandbox

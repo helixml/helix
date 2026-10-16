@@ -266,9 +266,13 @@ gow_log "[start] Dash-to-dock appearance configured"
 # This makes Command+C/V/X/A/Z work as Ctrl+C/V/X/A/Z in ALL apps (Chrome,
 # GTK3, GTK4, Electron, etc.) without any per-app configuration.
 # The original Ctrl keys still produce Ctrl, so terminal Ctrl+C for SIGINT works.
-gsettings set org.gnome.desktop.input-sources xkb-options "['altwin:ctrl_win', 'caps:ctrl_nocaps']"
+# CapsLock is deliberately NOT remapped to Ctrl: macOS browsers send CapsLock
+# keydown with no keyup until caps turns off, which would hold Ctrl down on the
+# shared desktop. Viewers never forward CapsLock; desktop-bridge syncs the lock
+# from each key event instead (design/2026-10-11-shared-desktop-stuck-keys.md).
+gsettings set org.gnome.desktop.input-sources xkb-options "['altwin:ctrl_win']"
 gsettings set org.gnome.mutter overlay-key ''
-gow_log "[start] Remapped Super→Ctrl and CapsLock→Ctrl via XKB (macOS keyboard support)"
+gow_log "[start] Remapped Super→Ctrl via XKB (macOS keyboard support)"
 
 # Set global scaling factor before gnome-shell starts
 # This tells Mutter to use this scale for ALL monitors (including virtual ones)
@@ -390,4 +394,8 @@ GNOME_EOF
 
 chmod +x $XDG_RUNTIME_DIR/start_gnome
 
-dbus-run-session -- $XDG_RUNTIME_DIR/start_gnome
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
+    dbus-run-session -- /bin/bash "$XDG_RUNTIME_DIR/start_gnome"
+else
+    dbus-run-session -- "$XDG_RUNTIME_DIR/start_gnome"
+fi

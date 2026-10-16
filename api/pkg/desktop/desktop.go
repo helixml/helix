@@ -77,6 +77,9 @@ type Server struct {
 	// Wayland-native input for Sway (uses zwlr_virtual_pointer_v1 and zwp_virtual_keyboard_v1)
 	waylandInput *WaylandInput
 
+	// Keyboard state shared by every viewer's input connection
+	keyboard sharedKeyboard
+
 	// Input socket
 	inputListener   net.Listener
 	inputSocketPath string
