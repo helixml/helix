@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -156,6 +158,103 @@ func (s *HelixAPIServer) createGitProviderConnection(w http.ResponseWriter, r *h
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(connection)
+}
+
+// updateGitProviderConnection replaces the token without exposing stored credentials.
+// @Summary Replace git provider connection token
+// @Description Validate and replace the token for an existing connection. Stored tokens are never returned. Linked repositories retain their own credentials.
+// @Tags git-provider-connections
+// @Accept json
+// @Produce json
+// @Param id path string true "Connection ID"
+// @Param request body types.GitProviderConnectionUpdateRequest true "New token"
+// @Success 200 {object} types.GitProviderConnection
+// @Failure 400 {object} types.APIError
+// @Failure 401 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git-provider-connections/{id} [put]
+// @Security BearerAuth
+func (s *HelixAPIServer) updateGitProviderConnection(w http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	connection, err := s.Store.GetGitProviderConnection(r.Context(), mux.Vars(r)["id"])
+	if errors.Is(err, store.ErrNotFound) || (err == nil && connection.UserID != user.ID) {
+		http.Error(w, "Connection not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get git provider connection")
+		http.Error(w, "Failed to get connection", http.StatusInternalServerError)
+		return
+	}
+
+	var req types.GitProviderConnectionUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	req.Token = strings.TrimSpace(req.Token)
+	if req.Token == "" {
+		http.Error(w, "New token is required", http.StatusBadRequest)
+		return
+	}
+
+	key, err := s.getEncryptionKey()
+	if err != nil {
+		http.Error(w, "Failed to encrypt token", http.StatusInternalServerError)
+		return
+	}
+	var authUsername string
+	if connection.AuthUsername != "" {
+		decrypted, err := crypto.DecryptAES256GCM(connection.AuthUsername, key)
+		if err != nil {
+			http.Error(w, "Failed to decrypt credentials", http.StatusInternalServerError)
+			return
+		}
+		authUsername = string(decrypted)
+	}
+	profile, err := s.validateAndFetchUserInfo(r.Context(), connection.ProviderType, req.Token, authUsername, connection.OrganizationURL, connection.BaseURL)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid token or failed to connect: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+	if _, err := s.fetchRepositoriesWithPAT(r.Context(), types.BrowseRemoteRepositoriesRequest{
+		ProviderType: connection.ProviderType, Token: req.Token, Username: authUsername,
+		OrganizationURL: connection.OrganizationURL, BaseURL: connection.BaseURL,
+	}); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to browse repositories with new token: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+	encryptedToken, err := crypto.EncryptAES256GCM([]byte(req.Token), key)
+	if err != nil {
+		http.Error(w, "Failed to encrypt token", http.StatusInternalServerError)
+		return
+	}
+
+	updated := *connection
+	now := time.Now()
+	updated.Token = encryptedToken
+	updated.Username = profile.Username
+	updated.Email = profile.Email
+	updated.AvatarURL = profile.AvatarURL
+	updated.LastTestedAt = &now
+	if err := s.Store.UpdateGitProviderConnection(r.Context(), &updated); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, "Connection not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Str("connection_id", connection.ID).Msg("Failed to update git provider connection")
+		http.Error(w, "Failed to update connection", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(&updated)
 }
 
 // deleteGitProviderConnection deletes a PAT-based git provider connection

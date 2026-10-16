@@ -531,6 +531,7 @@ type Store interface {
 
 	// Git Provider Connection methods (PAT-based connections)
 	CreateGitProviderConnection(ctx context.Context, connection *types.GitProviderConnection) error
+	UpdateGitProviderConnection(ctx context.Context, connection *types.GitProviderConnection) error
 	GetGitProviderConnection(ctx context.Context, id string) (*types.GitProviderConnection, error)
 	ListGitProviderConnections(ctx context.Context, userID string) ([]*types.GitProviderConnection, error)
 	DeleteGitProviderConnection(ctx context.Context, id string) error
