@@ -13,7 +13,7 @@ import (
 )
 
 // reconcileOrphanDockerResources removes stopped session containers and
-// unused docker-data-<ses> volumes whose session is not live, once they are
+// unused per-session engine volumes whose session is not live, once they are
 // older than the grace period. Stop keeps both for a warm restart, and nothing
 // else removes them when the session dies without a destroy. Running
 // containers and sandbox-API (sbx_) containers are never touched.
@@ -76,14 +76,18 @@ func reapOrphanVolumes(ctx context.Context, dockerClient *client.Client, liveSes
 	// dangling=true: only volumes no container references, so a volume still
 	// mounted by a live or kept container is never a candidate.
 	volumes, err := dockerClient.VolumeList(ctx, volume.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("name", "docker-data-ses_"), filters.Arg("dangling", "true")),
+		Filters: filters.NewArgs(
+			filters.Arg("name", "docker-data-ses_"),
+			filters.Arg("name", "rootless-docker-data-ses_"),
+			filters.Arg("dangling", "true"),
+		),
 	})
 	if err != nil {
 		log.Warn().Err(err).Msg("Docker GC: failed to list volumes")
 		return nil
 	}
 	for _, v := range volumes.Volumes {
-		sessionID, ok := strings.CutPrefix(v.Name, "docker-data-")
+		sessionID, ok := sessionIDFromContainerDataDir(v.Name)
 		if !ok || !isResourceID(sessionID, "ses_") || liveSessions[sessionID] {
 			continue
 		}

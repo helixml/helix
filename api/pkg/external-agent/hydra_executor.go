@@ -69,7 +69,7 @@ type HydraExecutor struct {
 	licenseKey string
 
 	// desktopRootless runs spec-task / agent desktops unprivileged via rootless
-	// Podman instead of Docker --privileged. Default false; gated on a
+	// Docker instead of Docker --privileged. Default false; gated on a
 	// desktop-image rebuild. See design/2026-10-08-desktop-root-isolation.md.
 	desktopRootless bool
 	// desktopRootlessProjectIDs restricts rootless desktops to an explicit
@@ -126,7 +126,7 @@ type HydraExecutorConfig struct {
 	Connman                       connmanInterface
 	GPUVendor                     string
 	LicenseKey                    string // License key to pass to nested Helix instances
-	DesktopRootless               bool   // run desktops unprivileged via rootless Podman
+	DesktopRootless               bool   // run desktops unprivileged via rootless Docker
 	DesktopRootlessProjectIDs     []string
 }
 
@@ -1751,7 +1751,7 @@ type containerIsolation struct {
 // externalAgentIsolation decides the per-session container engine. Without
 // one the container is unprivileged, runs no engine, and may only create the
 // namespaces Chrome's renderer sandbox needs. A desktop is privileged today;
-// with desktopRootless it runs unprivileged via rootless Podman instead, so
+// with desktopRootless it runs unprivileged via rootless Docker instead, so
 // root inside it cannot reach the runner host or sibling tenants (see
 // design/2026-10-08-desktop-root-isolation.md).
 func externalAgentIsolation(containerType string, noContainerEngine, desktopRootless bool) containerIsolation {
@@ -1834,14 +1834,16 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 
 	if !agent.NoContainerEngine {
 		// Rootless engines (headless agents, and desktops in rootless mode)
-		// run Podman, whose storage lives under the user's home rather than
+		// run Docker, whose storage lives under the user's home rather than
 		// /var/lib/docker.
 		containerDataDestination := "/var/lib/docker"
+		containerDataSource := fmt.Sprintf("docker-data-%s", agent.SessionID)
 		if containerType == "headless" || desktopRootless {
-			containerDataDestination = "/home/retro/.local/share/containers"
+			containerDataDestination = "/home/retro/.local/share/docker"
+			containerDataSource = fmt.Sprintf("rootless-docker-data-%s", agent.SessionID)
 		}
 		mounts = append(mounts, hydra.MountConfig{
-			Source:      fmt.Sprintf("docker-data-%s", agent.SessionID),
+			Source:      containerDataSource,
 			Destination: containerDataDestination,
 			Type:        "volume",
 		})

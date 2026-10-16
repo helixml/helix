@@ -321,16 +321,18 @@ func (c *Controller) buildMounts(sandbox *types.Sandbox, spec *RuntimeSpec) []hy
 	// Desktop-only mounts — same as the spec-task hydra executor, minus the
 	// Zed-specific paths since HELIX_DISABLE_AGENT=1 keeps the agent stack
 	// off. Without the container-engine storage volume the desktop init
-	// script errors out and the container exits. A rootless desktop runs
-	// Podman, whose storage lives under the user's home, not /var/lib/docker.
+	// script errors out and the container exits. Rootless Docker storage lives
+	// under the user's home, not /var/lib/docker.
 	if spec.ContainerType == hydra.DevContainerTypeUbuntu || spec.ContainerType == hydra.DevContainerTypeSway {
 		containerDataDestination := "/var/lib/docker"
+		containerDataSource := fmt.Sprintf("docker-data-%s", sandbox.ID)
 		if spec.DesktopRootless {
-			containerDataDestination = "/home/retro/.local/share/containers"
+			containerDataDestination = "/home/retro/.local/share/docker"
+			containerDataSource = fmt.Sprintf("rootless-docker-data-%s", sandbox.ID)
 		}
 		mounts = append(mounts,
 			hydra.MountConfig{
-				Source:      fmt.Sprintf("docker-data-%s", sandbox.ID),
+				Source:      containerDataSource,
 				Destination: containerDataDestination,
 				Type:        "volume",
 			},

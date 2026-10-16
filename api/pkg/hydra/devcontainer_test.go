@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	dockertypes "github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/stretchr/testify/require"
 )
@@ -151,7 +152,7 @@ func TestBuildHostConfigRootlessContainerEngine(t *testing.T) {
 	require.False(t, hostConfig.Privileged)
 	require.Empty(t, hostConfig.CapAdd)
 	require.Equal(t, []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}, []string(hostConfig.CapDrop))
-	require.Equal(t, []string{"seccomp=unconfined"}, hostConfig.SecurityOpt)
+	require.Equal(t, []string{"seccomp=unconfined", "apparmor=helix-rootless-docker"}, hostConfig.SecurityOpt)
 	require.NotNil(t, hostConfig.MaskedPaths)
 	require.Empty(t, hostConfig.MaskedPaths)
 	require.NotNil(t, hostConfig.ReadonlyPaths)
@@ -170,8 +171,8 @@ func TestBuildHostConfigRootlessContainerEngine(t *testing.T) {
 
 // TestBuildHostConfigDesktopRootlessIsNonEscalating proves the hardened
 // desktop HostConfig cannot reach the runner host or sibling tenants: it is
-// unprivileged, carries no host block devices, keeps AppArmor enforced (not
-// unconfined), and drops the host-level capabilities. See
+// unprivileged, carries no host block devices, and drops host-level
+// capabilities. See
 // design/2026-10-08-desktop-root-isolation.md.
 func TestBuildHostConfigDesktopRootlessIsNonEscalating(t *testing.T) {
 	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
@@ -186,10 +187,7 @@ func TestBuildHostConfigDesktopRootlessIsNonEscalating(t *testing.T) {
 	// device cgroup, no host device bind access.
 	require.False(t, hostConfig.Privileged)
 
-	// AppArmor stays enforced (Docker default). --privileged would have set
-	// apparmor=unconfined, which is what let a root desktop user mount a
-	// sibling tenant's zvol or the host root fs.
-	require.NotContains(t, hostConfig.SecurityOpt, "apparmor=unconfined")
+	require.Equal(t, []string{"seccomp=unconfined", "apparmor=helix-rootless-docker"}, hostConfig.SecurityOpt)
 
 	// Desktop users can reach fresh Docker exec processes, so SYS_ADMIN must be
 	// absent from the container's bounding set rather than dropped by PID 1.
@@ -252,6 +250,7 @@ func TestArchivePersistentRootlessRuntime(t *testing.T) {
 	runtimeDir := filepath.Join(root, "pipewire")
 	podmanData := filepath.Join(root, "podman-data")
 	require.NoError(t, os.MkdirAll(filepath.Join(runtimeDir, "libpod", "tmp"), 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(runtimeDir, "dockerd-rootless"), 0o700))
 	require.NoError(t, os.MkdirAll(filepath.Join(runtimeDir, "buildkit-rootlesskit"), 0o700))
 	require.NoError(t, os.MkdirAll(podmanData, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(runtimeDir, "pipewire-0"), []byte("keep"), 0o600))
@@ -265,8 +264,10 @@ func TestArchivePersistentRootlessRuntime(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, root, filepath.Dir(archive))
 	require.NoDirExists(t, filepath.Join(runtimeDir, "libpod"))
+	require.NoDirExists(t, filepath.Join(runtimeDir, "dockerd-rootless"))
 	require.NoDirExists(t, filepath.Join(runtimeDir, "buildkit-rootlesskit"))
 	require.DirExists(t, filepath.Join(archive, "libpod"))
+	require.DirExists(t, filepath.Join(archive, "dockerd-rootless"))
 	require.DirExists(t, filepath.Join(archive, "buildkit-rootlesskit"))
 	require.FileExists(t, filepath.Join(runtimeDir, "pipewire-0"))
 	require.FileExists(t, filepath.Join(podmanData, "storage"))
@@ -340,7 +341,7 @@ func TestBuildHostConfigPrivilegedDesktopUnchanged(t *testing.T) {
 	require.Equal(t, []string{"seccomp=unconfined", "apparmor=unconfined"}, hostConfig.SecurityOpt)
 }
 
-func TestBuildEnvDesktopRootlessSetsPodmanAndSudoSignal(t *testing.T) {
+func TestBuildEnvDesktopRootlessSetsDockerAndSudoSignal(t *testing.T) {
 	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
 		ContainerType:   DevContainerTypeUbuntu,
 		DesktopRootless: true,
@@ -355,7 +356,7 @@ func TestBuildEnvDesktopRootlessSetsPodmanAndSudoSignal(t *testing.T) {
 	require.Contains(t, env, "HELIX_ROOTLESS_CONTAINER_ENGINE=1")
 	require.Contains(t, env, "HELIX_DESKTOP_ROOTLESS=1")
 	require.Equal(t, 1, countEnvVar(env, "DOCKER_HOST"))
-	require.Contains(t, env, "DOCKER_HOST=unix:///run/user/1000/podman/podman.sock")
+	require.Contains(t, env, "DOCKER_HOST=unix:///run/user/1000/docker.sock")
 }
 
 func TestBuildEnvFlagOffDisablesCallerSuppliedDesktopRootless(t *testing.T) {
@@ -425,13 +426,11 @@ func TestBuildEnvRootlessContainerEngine(t *testing.T) {
 	require.Equal(t, 1, countEnvVar(env, "HELIX_ROOTLESS_CONTAINER_ENGINE"))
 	require.Contains(t, env, "HELIX_ROOTLESS_CONTAINER_ENGINE=1")
 	require.Equal(t, 1, countEnvVar(env, "DOCKER_HOST"))
-	require.Contains(t, env, "DOCKER_HOST=unix:///run/user/1000/podman/podman.sock")
-	require.Equal(t, 1, countEnvVar(env, "CONTAINER_HOST"))
-	require.Contains(t, env, "CONTAINER_HOST=unix:///run/user/1000/podman/podman.sock")
+	require.Contains(t, env, "DOCKER_HOST=unix:///run/user/1000/docker.sock")
+	require.Zero(t, countEnvVar(env, "CONTAINER_HOST"))
 	require.Equal(t, 1, countEnvVar(env, "DOCKER_BUILDKIT"))
-	require.Contains(t, env, "DOCKER_BUILDKIT=0")
-	require.Equal(t, 1, countEnvVar(env, "BUILDX_BUILDER"))
-	require.Contains(t, env, "BUILDX_BUILDER=helix-rootless")
+	require.Contains(t, env, "DOCKER_BUILDKIT=1")
+	require.Zero(t, countEnvVar(env, "BUILDX_BUILDER"))
 	require.Zero(t, countEnvVar(env, "BUILDKIT_HOST"))
 	require.Zero(t, countEnvVar(env, "HELIX_REGISTRY"))
 }
@@ -510,16 +509,16 @@ func TestBuildMountsRedirectsDesktopRootlessStorageWithoutGoldenCache(t *testing
 		ContainerType:   DevContainerTypeUbuntu,
 		DesktopRootless: true,
 		Mounts: []MountConfig{{
-			Source:      "docker-data-ses_rootless",
-			Destination: "/home/retro/.local/share/containers",
+			Source:      "rootless-docker-data-ses_rootless",
+			Destination: "/home/retro/.local/share/docker",
 			Type:        "volume",
 		}},
 	})
 	require.NoError(t, err)
 	require.Len(t, mounts, 1)
 	require.Equal(t, "bind", string(mounts[0].Type))
-	require.Equal(t, filepath.Join(sessionsBaseDir, "docker-data-ses_rootless", "podman"), mounts[0].Source)
-	require.Equal(t, "/home/retro/.local/share/containers", mounts[0].Target)
+	require.Equal(t, filepath.Join(sessionsBaseDir, "rootless-docker-data-ses_rootless", "rootless-docker"), mounts[0].Source)
+	require.Equal(t, "/home/retro/.local/share/docker", mounts[0].Target)
 	require.NoFileExists(t, filepath.Join(mounts[0].Source, goldenCopyCompleteMarker))
 	require.NoFileExists(t, filepath.Join(mounts[0].Source, "legacy-layer"))
 
@@ -530,17 +529,17 @@ func TestBuildMountsRedirectsDesktopRootlessStorageWithoutGoldenCache(t *testing
 		ContainerType:   DevContainerTypeUbuntu,
 		DesktopRootless: true,
 		Mounts: []MountConfig{{
-			Source:      "docker-data-ses_rootless",
-			Destination: "/home/retro/.local/share/containers",
+			Source:      "rootless-docker-data-ses_rootless",
+			Destination: "/home/retro/.local/share/docker",
 			Type:        "volume",
 		}},
 	})
 	require.NoError(t, err)
 	require.FileExists(t, sentinel)
-	require.Equal(t, "/home/retro/.local/share/containers", mounts[0].Target)
+	require.Equal(t, "/home/retro/.local/share/docker", mounts[0].Target)
 }
 
-func TestBuildMountsKeepsDockerAndPodmanGoldensSeparate(t *testing.T) {
+func TestBuildMountsKeepsDockerEngineGoldensSeparate(t *testing.T) {
 	t.Setenv("CONTAINER_DOCKER_PATH", "/container-docker")
 	originalSessionsBaseDir := sessionsBaseDir
 	sessionsBaseDir = t.TempDir()
@@ -558,10 +557,20 @@ func TestBuildMountsKeepsDockerAndPodmanGoldensSeparate(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(goldenDirForKind(projectID, dockerGoldenCache), "docker-only"), []byte("docker"), 0600))
 	require.NoError(t, os.MkdirAll(goldenDirForKind(projectID, podmanGoldenCache), 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(goldenDirForKind(projectID, podmanGoldenCache), "podman-only"), []byte("podman"), 0600))
+	require.NoError(t, os.MkdirAll(goldenDirForKind(projectID, rootlessDockerGoldenCache), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(goldenDirForKind(projectID, rootlessDockerGoldenCache), "rootless-docker-only"), []byte("rootless-docker"), 0600))
 	sessionPodmanDir := filepath.Join(sessionsBaseDir, "docker-data-ses_rootless", "podman")
 	require.NoError(t, os.MkdirAll(sessionPodmanDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(sessionPodmanDir, "podman-only"), []byte("podman"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(sessionPodmanDir, goldenCopyCompleteMarker), []byte("complete"), 0600))
+	sessionRootlessDockerDir := filepath.Join(sessionsBaseDir, "rootless-docker-data-ses_rootless", "rootless-docker")
+	require.NoError(t, os.MkdirAll(sessionRootlessDockerDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(sessionRootlessDockerDir, "rootless-docker-only"), []byte("rootless-docker"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(sessionRootlessDockerDir, goldenCopyCompleteMarker), []byte("complete"), 0600))
+	sessionDockerDir := filepath.Join(sessionsBaseDir, "docker-data-ses_rootless", "docker")
+	require.NoError(t, os.MkdirAll(sessionDockerDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(sessionDockerDir, "docker-only"), []byte("docker"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(sessionDockerDir, goldenCopyCompleteMarker), []byte("complete"), 0600))
 
 	dm := &DevContainerManager{
 		manager:            &Manager{dataDir: t.TempDir()},
@@ -569,19 +578,20 @@ func TestBuildMountsKeepsDockerAndPodmanGoldensSeparate(t *testing.T) {
 	}
 	mounts, err := dm.buildMounts(&CreateDevContainerRequest{
 		SessionID:       "ses_rootless",
-		ProjectID:       projectID,
+		ProjectID:       "prj_without_golden",
 		ContainerType:   DevContainerTypeUbuntu,
 		DesktopRootless: true,
 		Mounts: []MountConfig{{
-			Source:      "docker-data-ses_rootless",
-			Destination: "/home/retro/.local/share/containers",
+			Source:      "rootless-docker-data-ses_rootless",
+			Destination: "/home/retro/.local/share/docker",
 			Type:        "volume",
 		}},
 	})
 	require.NoError(t, err)
-	require.Equal(t, sessionPodmanDir, mounts[0].Source)
-	require.FileExists(t, filepath.Join(mounts[0].Source, "podman-only"))
+	require.Equal(t, sessionRootlessDockerDir, mounts[0].Source)
+	require.FileExists(t, filepath.Join(mounts[0].Source, "rootless-docker-only"))
 	require.NoFileExists(t, filepath.Join(mounts[0].Source, "docker-only"))
+	require.NoFileExists(t, filepath.Join(mounts[0].Source, "podman-only"))
 	require.FileExists(t, filepath.Join(mounts[0].Source, goldenCopyCompleteMarker))
 
 	mounts, err = dm.buildMounts(&CreateDevContainerRequest{
@@ -598,9 +608,10 @@ func TestBuildMountsKeepsDockerAndPodmanGoldensSeparate(t *testing.T) {
 	require.FileExists(t, filepath.Join(mounts[0].Source, "docker-only"))
 	require.FileExists(t, filepath.Join(sessionPodmanDir, "podman-only"))
 	require.FileExists(t, filepath.Join(sessionPodmanDir, goldenCopyCompleteMarker))
+	require.FileExists(t, filepath.Join(sessionRootlessDockerDir, "rootless-docker-only"))
 }
 
-func TestBuildMountsPreservesLegacyPodmanAndRetriesInterruptedCopies(t *testing.T) {
+func TestBuildMountsPreservesLegacyPodmanAndRetriesRootlessDockerCopies(t *testing.T) {
 	t.Setenv("CONTAINER_DOCKER_PATH", "/container-docker")
 	originalSessionsBaseDir := sessionsBaseDir
 	sessionsBaseDir = t.TempDir()
@@ -614,7 +625,7 @@ func TestBuildMountsPreservesLegacyPodmanAndRetriesInterruptedCopies(t *testing.
 	t.Cleanup(resetZFSState)
 
 	projectID := "prj_restart"
-	for _, kind := range []goldenCacheKind{dockerGoldenCache, podmanGoldenCache} {
+	for _, kind := range []goldenCacheKind{dockerGoldenCache, rootlessDockerGoldenCache} {
 		require.NoError(t, os.MkdirAll(goldenDirForKind(projectID, kind), 0755))
 		require.NoError(t, os.WriteFile(
 			filepath.Join(goldenDirForKind(projectID, kind), "golden-layer"),
@@ -626,35 +637,35 @@ func TestBuildMountsPreservesLegacyPodmanAndRetriesInterruptedCopies(t *testing.
 		goldenCopyProgress: make(map[string]*GoldenCopyProgress),
 	}
 
-	legacyVolume := "docker-data-ses_legacy_podman"
-	legacyPodmanDir := filepath.Join(sessionsBaseDir, legacyVolume, string(podmanGoldenCache))
+	legacyVolume := "rootless-docker-data-ses_legacy_podman"
+	legacyPodmanDir := filepath.Join(sessionsBaseDir, "docker-data-ses_legacy_podman", string(podmanGoldenCache))
 	require.NoError(t, os.MkdirAll(legacyPodmanDir, 0755))
 	legacyLayer := filepath.Join(legacyPodmanDir, "legacy-layer")
 	require.NoError(t, os.WriteFile(legacyLayer, []byte("keep"), 0600))
 	mounts, err := dm.buildMounts(&CreateDevContainerRequest{
 		SessionID:       "ses_legacy_podman",
-		ProjectID:       projectID,
+		ProjectID:       "prj_without_golden",
 		ContainerType:   DevContainerTypeUbuntu,
 		DesktopRootless: true,
 		Mounts: []MountConfig{{
 			Source:      legacyVolume,
-			Destination: "/home/retro/.local/share/containers",
+			Destination: "/home/retro/.local/share/docker",
 			Type:        "volume",
 		}},
 	})
 	require.NoError(t, err)
-	require.Equal(t, legacyPodmanDir, mounts[0].Source)
+	require.Equal(t, filepath.Join(sessionsBaseDir, legacyVolume, string(rootlessDockerGoldenCache)), mounts[0].Source)
 	require.FileExists(t, legacyLayer)
-	require.NoFileExists(t, filepath.Join(legacyPodmanDir, "golden-layer"))
+	require.NoFileExists(t, filepath.Join(mounts[0].Source, "golden-layer"))
 
-	completedVolume := "docker-data-ses_completed_podman"
-	completedPodmanDir := filepath.Join(sessionsBaseDir, completedVolume, string(podmanGoldenCache))
+	completedVolume := "rootless-docker-data-ses_completed_podman"
+	completedPodmanDir := filepath.Join(sessionsBaseDir, completedVolume, string(rootlessDockerGoldenCache))
 	require.NoError(t, os.MkdirAll(completedPodmanDir, 0755))
 	completedLayer := filepath.Join(completedPodmanDir, "completed-layer")
 	require.NoError(t, os.WriteFile(completedLayer, []byte("keep"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(completedPodmanDir, goldenCopyCompleteMarker), []byte("complete"), 0600))
 	require.NoError(t, os.WriteFile(
-		goldenCopyInProgressMarkerPath(completedVolume, podmanGoldenCache),
+		goldenCopyInProgressMarkerPath(completedVolume, rootlessDockerGoldenCache),
 		[]byte("copying"), 0600,
 	))
 	mounts, err = dm.buildMounts(&CreateDevContainerRequest{
@@ -664,19 +675,19 @@ func TestBuildMountsPreservesLegacyPodmanAndRetriesInterruptedCopies(t *testing.
 		DesktopRootless: true,
 		Mounts: []MountConfig{{
 			Source:      completedVolume,
-			Destination: "/home/retro/.local/share/containers",
+			Destination: "/home/retro/.local/share/docker",
 			Type:        "volume",
 		}},
 	})
 	require.NoError(t, err)
 	require.Equal(t, completedPodmanDir, mounts[0].Source)
 	require.FileExists(t, completedLayer)
-	require.NoFileExists(t, goldenCopyInProgressMarkerPath(completedVolume, podmanGoldenCache))
+	require.NoFileExists(t, goldenCopyInProgressMarkerPath(completedVolume, rootlessDockerGoldenCache))
 
-	staleMarkerVolume := "docker-data-ses_stale_marker"
-	require.NoError(t, os.MkdirAll(filepath.Dir(goldenCopyInProgressMarkerPath(staleMarkerVolume, podmanGoldenCache)), 0755))
+	staleMarkerVolume := "rootless-docker-data-ses_stale_marker"
+	require.NoError(t, os.MkdirAll(filepath.Dir(goldenCopyInProgressMarkerPath(staleMarkerVolume, rootlessDockerGoldenCache)), 0755))
 	require.NoError(t, os.WriteFile(
-		goldenCopyInProgressMarkerPath(staleMarkerVolume, podmanGoldenCache),
+		goldenCopyInProgressMarkerPath(staleMarkerVolume, rootlessDockerGoldenCache),
 		[]byte("copying"), 0600,
 	))
 	mounts, err = dm.buildMounts(&CreateDevContainerRequest{
@@ -686,25 +697,25 @@ func TestBuildMountsPreservesLegacyPodmanAndRetriesInterruptedCopies(t *testing.
 		DesktopRootless: true,
 		Mounts: []MountConfig{{
 			Source:      staleMarkerVolume,
-			Destination: "/home/retro/.local/share/containers",
+			Destination: "/home/retro/.local/share/docker",
 			Type:        "volume",
 		}},
 	})
 	require.NoError(t, err)
 	require.DirExists(t, mounts[0].Source)
-	require.NoFileExists(t, goldenCopyInProgressMarkerPath(staleMarkerVolume, podmanGoldenCache))
+	require.NoFileExists(t, goldenCopyInProgressMarkerPath(staleMarkerVolume, rootlessDockerGoldenCache))
 
 	t.Run("retries interrupted copies", func(t *testing.T) {
 		if runtime.GOOS != "linux" {
 			t.Skip("requires Linux and GNU cp --reflink")
 		}
 
-		interruptedPodmanVolume := "docker-data-ses_interrupted_podman"
-		interruptedPodmanDir := filepath.Join(sessionsBaseDir, interruptedPodmanVolume, string(podmanGoldenCache))
+		interruptedPodmanVolume := "rootless-docker-data-ses_interrupted_podman"
+		interruptedPodmanDir := filepath.Join(sessionsBaseDir, interruptedPodmanVolume, string(rootlessDockerGoldenCache))
 		require.NoError(t, os.MkdirAll(interruptedPodmanDir, 0755))
 		require.NoError(t, os.WriteFile(filepath.Join(interruptedPodmanDir, "partial-layer"), []byte("partial"), 0600))
 		require.NoError(t, os.WriteFile(
-			goldenCopyInProgressMarkerPath(interruptedPodmanVolume, podmanGoldenCache),
+			goldenCopyInProgressMarkerPath(interruptedPodmanVolume, rootlessDockerGoldenCache),
 			[]byte("copying"), 0600,
 		))
 		mounts, err = dm.buildMounts(&CreateDevContainerRequest{
@@ -714,7 +725,7 @@ func TestBuildMountsPreservesLegacyPodmanAndRetriesInterruptedCopies(t *testing.
 			DesktopRootless: true,
 			Mounts: []MountConfig{{
 				Source:      interruptedPodmanVolume,
-				Destination: "/home/retro/.local/share/containers",
+				Destination: "/home/retro/.local/share/docker",
 				Type:        "volume",
 			}},
 		})
@@ -723,7 +734,7 @@ func TestBuildMountsPreservesLegacyPodmanAndRetriesInterruptedCopies(t *testing.
 		require.NoFileExists(t, filepath.Join(interruptedPodmanDir, "partial-layer"))
 		require.FileExists(t, filepath.Join(interruptedPodmanDir, "golden-layer"))
 		require.FileExists(t, filepath.Join(interruptedPodmanDir, goldenCopyCompleteMarker))
-		require.NoFileExists(t, goldenCopyInProgressMarkerPath(interruptedPodmanVolume, podmanGoldenCache))
+		require.NoFileExists(t, goldenCopyInProgressMarkerPath(interruptedPodmanVolume, rootlessDockerGoldenCache))
 
 		interruptedDockerVolume := "docker-data-ses_interrupted_docker"
 		interruptedDockerDir := filepath.Join(sessionsBaseDir, interruptedDockerVolume, string(dockerGoldenCache))
@@ -754,10 +765,10 @@ func TestBuildMountsPreservesLegacyPodmanAndRetriesInterruptedCopies(t *testing.
 		require.NoFileExists(t, goldenCopyInProgressMarkerPath(interruptedDockerVolume, dockerGoldenCache))
 
 		markerFailureProject := "prj_marker_failure"
-		markerFailureGolden := goldenDirForKind(markerFailureProject, podmanGoldenCache)
+		markerFailureGolden := goldenDirForKind(markerFailureProject, rootlessDockerGoldenCache)
 		require.NoError(t, os.MkdirAll(filepath.Join(markerFailureGolden, goldenCopyCompleteMarker), 0755))
 		require.NoError(t, os.WriteFile(filepath.Join(markerFailureGolden, "golden-layer"), []byte("podman"), 0600))
-		markerFailureVolume := "docker-data-ses_marker_failure"
+		markerFailureVolume := "rootless-docker-data-ses_marker_failure"
 		mounts, err = dm.buildMounts(&CreateDevContainerRequest{
 			SessionID:       "ses_marker_failure",
 			ProjectID:       markerFailureProject,
@@ -765,21 +776,27 @@ func TestBuildMountsPreservesLegacyPodmanAndRetriesInterruptedCopies(t *testing.
 			DesktopRootless: true,
 			Mounts: []MountConfig{{
 				Source:      markerFailureVolume,
-				Destination: "/home/retro/.local/share/containers",
+				Destination: "/home/retro/.local/share/docker",
 				Type:        "volume",
 			}},
 		})
 		require.NoError(t, err)
-		markerFailureDir := filepath.Join(sessionsBaseDir, markerFailureVolume, string(podmanGoldenCache))
+		markerFailureDir := filepath.Join(sessionsBaseDir, markerFailureVolume, string(rootlessDockerGoldenCache))
 		require.Equal(t, markerFailureDir, mounts[0].Source)
 		require.DirExists(t, markerFailureDir)
 		require.NoFileExists(t, filepath.Join(markerFailureDir, "golden-layer"))
-		require.NoFileExists(t, goldenCopyInProgressMarkerPath(markerFailureVolume, podmanGoldenCache))
+		require.NoFileExists(t, goldenCopyInProgressMarkerPath(markerFailureVolume, rootlessDockerGoldenCache))
 	})
 }
 
-func TestBuildMountsKeepsHeadlessRootlessStorageAsNamedVolume(t *testing.T) {
+func TestBuildMountsRedirectsHeadlessRootlessDockerStorage(t *testing.T) {
 	t.Setenv("CONTAINER_DOCKER_PATH", "/container-docker")
+	originalSessionsBaseDir := sessionsBaseDir
+	sessionsBaseDir = t.TempDir()
+	t.Cleanup(func() { sessionsBaseDir = originalSessionsBaseDir })
+	resetZFSState()
+	zfsAvailableOnce.Do(func() {})
+	t.Cleanup(resetZFSState)
 
 	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
 	mounts, err := dm.buildMounts(&CreateDevContainerRequest{
@@ -787,15 +804,15 @@ func TestBuildMountsKeepsHeadlessRootlessStorageAsNamedVolume(t *testing.T) {
 		ContainerType:           DevContainerTypeHeadless,
 		RootlessContainerEngine: true,
 		Mounts: []MountConfig{{
-			Source:      "docker-data-ses_rootless",
-			Destination: "/home/retro/.local/share/containers",
+			Source:      "rootless-docker-data-ses_rootless",
+			Destination: "/home/retro/.local/share/docker",
 			Type:        "volume",
 		}},
 	})
 	require.NoError(t, err)
 	require.Len(t, mounts, 1)
-	require.Equal(t, "volume", string(mounts[0].Type))
-	require.Equal(t, "docker-data-ses_rootless", mounts[0].Source)
+	require.Equal(t, "bind", string(mounts[0].Type))
+	require.Equal(t, filepath.Join(sessionsBaseDir, "rootless-docker-data-ses_rootless", "rootless-docker"), mounts[0].Source)
 }
 
 func TestBuildMountsRedirectsLegacyDockerStorage(t *testing.T) {
@@ -828,7 +845,41 @@ func TestUsesGoldenContainerCache(t *testing.T) {
 	require.False(t, usesGoldenContainerCache(&CreateDevContainerRequest{RootlessContainerEngine: true}))
 	require.True(t, usesGoldenContainerCache(&CreateDevContainerRequest{DesktopRootless: true}))
 	require.Equal(t, dockerGoldenCache, goldenCacheKindForRequest(&CreateDevContainerRequest{}))
-	require.Equal(t, podmanGoldenCache, goldenCacheKindForRequest(&CreateDevContainerRequest{DesktopRootless: true}))
+	require.Equal(t, rootlessDockerGoldenCache, goldenCacheKindForRequest(&CreateDevContainerRequest{DesktopRootless: true}))
+	require.Equal(t, rootlessDockerGoldenCache, goldenCacheKindForRequest(&CreateDevContainerRequest{RootlessContainerEngine: true}))
+	require.Equal(t, "docker-data-ses_1", containerDataVolumeName("ses_1", dockerGoldenCache))
+	require.Equal(t, "docker-data-ses_1", containerDataVolumeName("ses_1", podmanGoldenCache))
+	require.Equal(t, "rootless-docker-data-ses_1", containerDataVolumeName("ses_1", rootlessDockerGoldenCache))
+	sessionID, ok := sessionIDFromContainerDataDir("docker-data-ses_1")
+	require.True(t, ok)
+	require.Equal(t, "ses_1", sessionID)
+	sessionID, ok = sessionIDFromContainerDataDir("rootless-docker-data-ses_1")
+	require.True(t, ok)
+	require.Equal(t, "ses_1", sessionID)
+	sessionID, ok = sessionIDFromContainerDataDir("unrelated-data-ses_1")
+	require.False(t, ok)
+	require.Empty(t, sessionID)
+	require.Equal(t, rootlessDockerGoldenCache, cacheKindFromLabels(map[string]string{containerCacheKindLabel: "rootless-docker"}))
+	require.Equal(t, dockerGoldenCache, cacheKindFromLabels(nil))
+	require.Equal(t, podmanGoldenCache, cacheKindFromContainer(dockertypes.ContainerJSON{
+		Config: &container.Config{Env: []string{"DOCKER_HOST=unix:///run/user/1000/podman/podman.sock"}},
+	}))
+	require.Equal(t, podmanGoldenCache, cacheKindFromContainer(dockertypes.ContainerJSON{
+		Config: &container.Config{Env: []string{"CONTAINER_HOST=unix:///run/user/1000/podman/podman.sock"}},
+	}))
+	require.Equal(t, dockerGoldenCache, cacheKindFromContainer(dockertypes.ContainerJSON{
+		Config: &container.Config{Env: []string{"USER_NOTE=/podman/podman.sock"}},
+	}))
+	require.Equal(t, podmanGoldenCache, cacheKindFromContainer(dockertypes.ContainerJSON{
+		Mounts: []dockertypes.MountPoint{{Destination: "/home/retro/.local/share/containers"}},
+	}))
+	require.Equal(t, rootlessDockerGoldenCache, cacheKindFromContainer(dockertypes.ContainerJSON{
+		Mounts: []dockertypes.MountPoint{{Destination: "/home/retro/.local/share/docker"}},
+	}))
+	require.Equal(t, rootlessDockerGoldenCache, cacheKindFromContainer(dockertypes.ContainerJSON{
+		Config: &container.Config{Labels: map[string]string{containerCacheKindLabel: "rootless-docker"}},
+		Mounts: []dockertypes.MountPoint{{Destination: "/home/retro/.local/share/containers"}},
+	}))
 }
 
 func TestBuildHostConfigDesktopUsesPrivateIPC(t *testing.T) {

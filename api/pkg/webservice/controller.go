@@ -648,7 +648,7 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 		return err
 	}
 
-	script := deployScript(repo.CloneURL, sha, repoDirName(repo), containerPort)
+	script := deployScript(deployCloneURL(repo), sha, repoDirName(repo), containerPort)
 
 	// Inject prod-scoped project secrets via the exec environment (NOT inlined
 	// into the shell script) so the values don't leak into command logs. The
@@ -680,6 +680,10 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 		return fmt.Errorf("bootstrap exited %d: %s", *resp.ExitCode, strings.TrimSpace(resp.Stderr+resp.Stdout))
 	}
 	return nil
+}
+
+func deployCloneURL(repo *types.GitRepository) string {
+	return fmt.Sprintf("%s/git/%s", hydra.SandboxAPIProxyURL, repo.ID)
 }
 
 // mintDeployGitToken creates a short-lived API key owned by the deploying user
