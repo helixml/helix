@@ -663,11 +663,8 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 
 	q := db.Model(&types.Interaction{})
 
-	if query.PerPage == 0 {
-		query.PerPage = -1
-	}
-
-	offset := query.Page * query.PerPage
+	perPage := unboundedIfZero(query.PerPage)
+	offset := pageIndexOffset(query.Page, perPage)
 
 	if query.SessionID != "" {
 		q = q.Where("session_id = ?", query.SessionID)
@@ -706,7 +703,7 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 
 	var interactions []*types.Interaction
 	// Oldest to newest
-	err = q.Order(query.Order).Offset(offset).Limit(query.PerPage).Find(&interactions).Error
+	err = q.Order(query.Order).Offset(offset).Limit(perPage).Find(&interactions).Error
 	if err != nil {
 		return nil, 0, err
 	}

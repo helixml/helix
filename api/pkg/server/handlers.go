@@ -792,19 +792,8 @@ func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Requ
 	}
 
 	// Parse query parameters
-	page := 1
-	if p := req.URL.Query().Get("page"); p != "" {
-		if parsedPage, err := strconv.Atoi(p); err == nil && parsedPage > 0 {
-			page = parsedPage
-		}
-	}
-
-	perPage := 50
-	if pp := req.URL.Query().Get("per_page"); pp != "" {
-		if parsedPerPage, err := strconv.Atoi(pp); err == nil && parsedPerPage > 0 {
-			perPage = parsedPerPage
-		}
-	}
+	page := queryIntAtLeast(req.URL.Query(), "page", 1, 1)
+	perPage := queryIntAtLeast(req.URL.Query(), "per_page", 1, 50)
 
 	// Build query
 	query := &store.ListUsersQuery{

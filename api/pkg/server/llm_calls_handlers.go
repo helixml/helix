@@ -3,7 +3,6 @@ package server
 import (
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -24,15 +23,8 @@ import (
 // @Security BearerAuth
 func (s *HelixAPIServer) listLLMCalls(_ http.ResponseWriter, r *http.Request) (*types.PaginatedLLMCalls, *system.HTTPError) {
 	// Parse query parameters
-	page, err := strconv.Atoi(r.URL.Query().Get("page"))
-	if err != nil || page < 1 {
-		page = 1
-	}
-
-	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
-	if err != nil || pageSize < 1 {
-		pageSize = 10 // Default page size
-	}
+	page := queryIntAtLeast(r.URL.Query(), "page", 1, 1)
+	pageSize := queryIntAtLeast(r.URL.Query(), "pageSize", 1, 10)
 
 	sessionFilter := r.URL.Query().Get("session")
 	interactionFilter := r.URL.Query().Get("interaction")
@@ -100,15 +92,8 @@ func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request)
 	}
 
 	// Parse query parameters
-	page, err := strconv.Atoi(r.URL.Query().Get("page"))
-	if err != nil || page < 1 {
-		page = 1
-	}
-
-	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
-	if err != nil || pageSize < 1 {
-		pageSize = 10 // Default page size
-	}
+	page := queryIntAtLeast(r.URL.Query(), "page", 1, 1)
+	pageSize := queryIntAtLeast(r.URL.Query(), "pageSize", 1, 10)
 
 	sessionFilter := r.URL.Query().Get("session")
 	interactionFilter := r.URL.Query().Get("interaction")
@@ -177,16 +162,9 @@ func (s *HelixAPIServer) listAppInteractions(_ http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// Parse query parameters. Page is 0-indexed (matches the store's offset = Page * PerPage).
-	page, err := strconv.Atoi(r.URL.Query().Get("page"))
-	if err != nil || page < 0 {
-		page = 0
-	}
-
-	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
-	if err != nil || pageSize < 1 {
-		pageSize = 10 // Default page size
-	}
+	// Page is 0-indexed for interactions.
+	page := queryIntAtLeast(r.URL.Query(), "page", 0, 0)
+	pageSize := queryIntAtLeast(r.URL.Query(), "pageSize", 1, 10)
 
 	feedback := r.URL.Query().Get("feedback")
 	sessionID := r.URL.Query().Get("session")

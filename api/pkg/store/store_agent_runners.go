@@ -143,12 +143,12 @@ func (s *PostgresStore) ListAgentRunners(ctx context.Context, query types.ListAg
 	q = q.Order(orderBy)
 
 	// Apply pagination
-	if query.PageSize == 0 {
-		query.PageSize = 20
+	pageSize := query.PageSize
+	if pageSize == 0 {
+		pageSize = 20
 	}
-	if query.PageSize > 0 {
-		offset := query.Page * query.PageSize
-		q = q.Offset(offset).Limit(query.PageSize)
+	if pageSize > 0 {
+		q = q.Offset(pageIndexOffset(query.Page, pageSize)).Limit(pageSize)
 	}
 
 	var runners []*types.AgentRunner
