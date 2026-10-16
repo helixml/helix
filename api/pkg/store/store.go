@@ -224,7 +224,9 @@ var (
 	// (== / errors.Is) match across the store and orgstore packages.
 	ErrNotFound = orgstore.ErrNotFound
 	ErrMultiple = errors.New("multiple found")
-	ErrConflict = errors.New("conflict")
+	// ErrConflict aliases the org subsystem's sentinel so errors returned by
+	// embedded orgstore methods can be classified by API handlers.
+	ErrConflict = orgstore.ErrConflict
 )
 
 type Store interface {
