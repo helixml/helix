@@ -26,6 +26,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -538,25 +539,8 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
 	}
 
-	// Ensure mount source directories exist before creating container
-	for _, m := range req.Mounts {
-		// Skip volume mounts (Docker creates named volumes automatically)
-		if m.Type == "volume" {
-			continue
-		}
-		// Skip socket files and runtime directories - they're not directories to create
-		if m.Source == "" ||
-			strings.HasPrefix(m.Source, "/run/") ||
-			strings.HasPrefix(m.Source, "/var/run/") ||
-			strings.HasSuffix(m.Source, ".sock") {
-			continue
-		}
-		// Create the directory if it doesn't exist
-		if err := os.MkdirAll(m.Source, 0755); err != nil {
-			log.Warn().Err(err).Str("path", m.Source).Msg("Failed to create mount source directory")
-		} else {
-			log.Debug().Str("path", m.Source).Msg("Ensured mount source directory exists")
-		}
+	if err := prepareMountSources(req); err != nil {
+		return nil, err
 	}
 	if err := materializeWorkspaceFiles(req.Mounts, req.WorkspaceFiles); err != nil {
 		return nil, fmt.Errorf("materialize workspace files: %w", err)
@@ -876,6 +860,103 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		GPUVendor:      gpuVendor,
 		RenderNode:     renderNode,
 	}, nil
+}
+
+func prepareMountSources(req *CreateDevContainerRequest) error {
+	for _, m := range req.Mounts {
+		if m.Type == "volume" {
+			continue
+		}
+		if m.Source == "" ||
+			strings.HasPrefix(m.Source, "/run/") ||
+			strings.HasPrefix(m.Source, "/var/run/") ||
+			strings.HasSuffix(m.Source, ".sock") {
+			continue
+		}
+
+		rootlessPersistentData := (req.RootlessContainerEngine || req.DesktopRootless) &&
+			req.Persistent && !m.ReadOnly && m.Destination == "/data"
+		if rootlessPersistentData {
+			if err := prepareRootlessPersistentDataMount(m.Source); err != nil {
+				return fmt.Errorf("prepare rootless persistent data mount %s: %w", m.Source, err)
+			}
+			log.Debug().Str("path", m.Source).Msg("Ensured mount source directory exists")
+			continue
+		}
+		if err := os.MkdirAll(m.Source, 0o755); err != nil {
+			log.Warn().Err(err).Str("path", m.Source).Msg("Failed to create mount source directory")
+			continue
+		}
+		log.Debug().Str("path", m.Source).Msg("Ensured mount source directory exists")
+	}
+	return nil
+}
+
+func prepareRootlessPersistentDataMount(path string) error {
+	cleanPath := filepath.Clean(path)
+	if path != cleanPath || !filepath.IsAbs(path) || path == string(filepath.Separator) {
+		return fmt.Errorf("data mount source must be a canonical absolute non-root path")
+	}
+	fd, created, err := openOrCreateDirNoFollow(path)
+	if err != nil {
+		return err
+	}
+	dir := os.NewFile(uintptr(fd), path)
+	defer dir.Close()
+
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return err
+	}
+	if !created && (stat.Uid != 0 || stat.Gid != 0 || uint32(stat.Mode) != uint32(unix.S_IFDIR|0o755)) {
+		return nil
+	}
+
+	_, err = dir.Readdirnames(1)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, io.EOF) {
+		return err
+	}
+	if err := unix.Fchown(fd, instanceUID, instanceUID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func openOrCreateDirNoFollow(path string) (fd int, leafCreated bool, err error) {
+	fd, err = unix.Open(string(filepath.Separator), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return -1, false, err
+	}
+	defer func() {
+		if err != nil {
+			unix.Close(fd)
+		}
+	}()
+
+	parts := strings.Split(strings.TrimPrefix(path, string(filepath.Separator)), string(filepath.Separator))
+	for i, part := range parts {
+		created := false
+		if mkdirErr := unix.Mkdirat(fd, part, 0o755); mkdirErr == nil {
+			created = true
+		} else if !errors.Is(mkdirErr, unix.EEXIST) {
+			err = mkdirErr
+			return
+		}
+		nextFD, openErr := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if openErr != nil {
+			err = openErr
+			return
+		}
+		unix.Close(fd)
+		fd = nextFD
+		if i == len(parts)-1 {
+			leafCreated = created
+		}
+	}
+	return fd, leafCreated, nil
 }
 
 // Legacy desktop containers persisted process-bound engine state beside

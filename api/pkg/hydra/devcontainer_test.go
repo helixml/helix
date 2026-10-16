@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 func TestImageTag(t *testing.T) {
@@ -167,6 +168,238 @@ func TestBuildHostConfigRootlessContainerEngine(t *testing.T) {
 	require.Equal(t, "/dev/net/tun", hostConfig.Resources.Devices[1].PathInContainer)
 	require.Equal(t, "rwm", hostConfig.Resources.Devices[1].CgroupPermissions)
 	require.Equal(t, "rw,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0700", hostConfig.Tmpfs["/run/user/1000"])
+}
+
+func TestPrepareMountSourcesRootlessPersistentDataRejectsUnsafeSources(t *testing.T) {
+	t.Run("symlink", func(t *testing.T) {
+		root := rootlessMountTestPath(t)
+		target := filepath.Join(root, "target")
+		require.NoError(t, os.Mkdir(target, 0o755))
+		link := filepath.Join(root, "data")
+		require.NoError(t, os.Symlink(target, link))
+
+		err := prepareMountSources(rootlessPersistentDataRequest(link))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "prepare rootless persistent data mount")
+	})
+
+	t.Run("ancestor symlink", func(t *testing.T) {
+		root := rootlessMountTestPath(t)
+		target := filepath.Join(root, "target")
+		require.NoError(t, os.Mkdir(target, 0o755))
+		link := filepath.Join(root, "link")
+		require.NoError(t, os.Symlink(target, link))
+
+		err := prepareMountSources(rootlessPersistentDataRequest(filepath.Join(link, "child", "data")))
+		require.Error(t, err)
+		require.NoDirExists(t, filepath.Join(target, "child"))
+	})
+
+	t.Run("noncanonical symlink path", func(t *testing.T) {
+		root := rootlessMountTestPath(t)
+		target := filepath.Join(root, "target")
+		require.NoError(t, os.Mkdir(target, 0o755))
+		link := filepath.Join(root, "link")
+		require.NoError(t, os.Symlink(target, link))
+
+		err := prepareMountSources(rootlessPersistentDataRequest(link + "/../data"))
+		require.Error(t, err)
+		require.NoDirExists(t, filepath.Join(root, "data"))
+	})
+
+	t.Run("non directory", func(t *testing.T) {
+		path := rootlessMountTestPath(t, "data")
+		require.NoError(t, os.WriteFile(path, []byte("data"), 0o644))
+
+		err := prepareMountSources(rootlessPersistentDataRequest(path))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "prepare rootless persistent data mount")
+	})
+
+	for _, path := range []string{"/", "relative/data"} {
+		t.Run(path, func(t *testing.T) {
+			require.Error(t, prepareMountSources(rootlessPersistentDataRequest(path)))
+		})
+	}
+}
+
+func TestPrepareMountSourcesLeavesExistingDataUnchanged(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, path string)
+	}{
+		{
+			name: "populated",
+			setup: func(t *testing.T, path string) {
+				require.NoError(t, os.Mkdir(path, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(path, "database"), []byte("keep"), 0o644))
+			},
+		},
+		{
+			name: "custom mode",
+			setup: func(t *testing.T, path string) {
+				require.NoError(t, os.Mkdir(path, 0o755))
+				require.NoError(t, os.Chmod(path, os.ModeSticky|0o755))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := rootlessMountTestPath(t, "data")
+			tt.setup(t, path)
+			before, err := os.Lstat(path)
+			require.NoError(t, err)
+			beforeUID, beforeGID := fileOwnership(t, path)
+
+			require.NoError(t, prepareMountSources(rootlessPersistentDataRequest(path)))
+
+			after, err := os.Lstat(path)
+			require.NoError(t, err)
+			afterUID, afterGID := fileOwnership(t, path)
+			require.Equal(t, before.Mode(), after.Mode())
+			require.Equal(t, beforeUID, afterUID)
+			require.Equal(t, beforeGID, afterGID)
+		})
+	}
+}
+
+func TestPrepareMountSourcesLeavesCustomOwnerUnchanged(t *testing.T) {
+	path := rootlessMountTestPath(t, "data")
+	require.NoError(t, os.Mkdir(path, 0o755))
+	wantUID := os.Geteuid()
+	if wantUID == 0 {
+		wantUID = instanceUID + 1
+		require.NoError(t, os.Chown(path, wantUID, wantUID))
+	}
+
+	require.NoError(t, prepareMountSources(rootlessPersistentDataRequest(path)))
+
+	uid, _ := fileOwnership(t, path)
+	require.Equal(t, uint32(wantUID), uid)
+}
+
+func TestPrepareMountSourcesAdoptsFreshAndEmptyRootOwnedData(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root to create and chown root-owned fixture")
+	}
+
+	tests := []struct {
+		name         string
+		existing     bool
+		desktop      bool
+		setgidParent bool
+	}{
+		{name: "fresh headless"},
+		{name: "fresh desktop", desktop: true},
+		{name: "fresh under setgid parent", setgidParent: true},
+		{name: "existing empty", existing: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := rootlessMountTestPath(t, "data")
+			if tt.setgidParent {
+				parent := filepath.Dir(path)
+				require.NoError(t, os.Chown(parent, 0, instanceUID+1))
+				require.NoError(t, os.Chmod(parent, os.ModeSetgid|0o755))
+			}
+			if tt.existing {
+				require.NoError(t, os.Mkdir(path, 0o755))
+			}
+			req := rootlessPersistentDataRequest(path)
+			if tt.desktop {
+				req.RootlessContainerEngine = false
+				req.DesktopRootless = true
+			}
+
+			oldUmask := unix.Umask(0o077)
+			err := prepareMountSources(req)
+			unix.Umask(oldUmask)
+			require.NoError(t, err)
+
+			uid, gid := fileOwnership(t, path)
+			require.Equal(t, uint32(instanceUID), uid)
+			require.Equal(t, uint32(instanceUID), gid)
+			info, err := os.Lstat(path)
+			require.NoError(t, err)
+			wantMode := os.FileMode(0o700)
+			if tt.existing {
+				wantMode = 0o755
+			}
+			require.Equal(t, wantMode, info.Mode().Perm())
+		})
+	}
+}
+
+func TestPrepareMountSourcesLeavesOtherMountsUnchanged(t *testing.T) {
+	tests := []struct {
+		name string
+		req  *CreateDevContainerRequest
+	}{
+		{name: "rootful data", req: &CreateDevContainerRequest{Persistent: true}},
+		{name: "nonpersistent data", req: &CreateDevContainerRequest{RootlessContainerEngine: true}},
+		{name: "read only data", req: &CreateDevContainerRequest{RootlessContainerEngine: true, Persistent: true}},
+		{name: "ordinary bind", req: &CreateDevContainerRequest{RootlessContainerEngine: true, Persistent: true}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := rootlessMountTestPath(t, "mount")
+			mount := MountConfig{Source: path, Destination: "/data"}
+			switch tt.name {
+			case "read only data":
+				mount.ReadOnly = true
+			case "ordinary bind":
+				mount.Destination = "/workspace"
+			}
+			tt.req.Mounts = []MountConfig{mount}
+
+			require.NoError(t, prepareMountSources(tt.req))
+			info, err := os.Lstat(path)
+			require.NoError(t, err)
+			require.True(t, info.IsDir())
+			uid, _ := fileOwnership(t, path)
+			require.Equal(t, uint32(os.Geteuid()), uid)
+		})
+	}
+
+	volumeSource := rootlessMountTestPath(t, "volume")
+	require.NoError(t, prepareMountSources(&CreateDevContainerRequest{
+		RootlessContainerEngine: true,
+		Persistent:              true,
+		Mounts: []MountConfig{{
+			Source:      volumeSource,
+			Destination: "/data",
+			Type:        "volume",
+		}},
+	}))
+	_, err := os.Lstat(volumeSource)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func rootlessPersistentDataRequest(path string) *CreateDevContainerRequest {
+	return &CreateDevContainerRequest{
+		RootlessContainerEngine: true,
+		Persistent:              true,
+		Mounts: []MountConfig{{
+			Source:      path,
+			Destination: "/data",
+		}},
+	}
+}
+
+func fileOwnership(t *testing.T, path string) (uint32, uint32) {
+	t.Helper()
+	var stat unix.Stat_t
+	require.NoError(t, unix.Lstat(path, &stat))
+	return stat.Uid, stat.Gid
+}
+
+func rootlessMountTestPath(t *testing.T, elem ...string) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	return filepath.Join(append([]string{root}, elem...)...)
 }
 
 // TestBuildHostConfigDesktopRootlessIsNonEscalating proves the hardened
