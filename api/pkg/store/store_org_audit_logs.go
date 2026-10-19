@@ -60,15 +60,11 @@ func (s *PostgresStore) ListOrgAuditLogs(ctx context.Context, filters *types.Org
 		return nil, fmt.Errorf("failed to count org audit logs: %w", err)
 	}
 
-	limit := 50
+	limit := auditLogDefaultLimit
 	offset := 0
 	if filters != nil {
-		if filters.Limit > 0 && filters.Limit <= 100 {
-			limit = filters.Limit
-		}
-		if filters.Offset > 0 {
-			offset = filters.Offset
-		}
+		limit = boundedLimit(filters.Limit, auditLogDefaultLimit, auditLogMaxLimit)
+		offset = max(filters.Offset, 0)
 	}
 	if err := db.Order("created_at DESC").Limit(limit).Offset(offset).Find(&logs).Error; err != nil {
 		return nil, fmt.Errorf("failed to list org audit logs: %w", err)

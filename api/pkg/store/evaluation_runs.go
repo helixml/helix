@@ -86,12 +86,7 @@ func (s *PostgresStore) ListEvaluationRuns(ctx context.Context, req *types.ListE
 		query = query.Where("organization_id = ?", req.OrganizationID)
 	}
 
-	if req.Limit > 0 {
-		query = query.Limit(req.Limit)
-	}
-	if req.Offset > 0 {
-		query = query.Offset(req.Offset)
-	}
+	query = limitOffset(query, req.Limit, req.Offset)
 
 	var runs []*types.EvaluationRun
 	if err := query.Order("created DESC").Find(&runs).Error; err != nil {

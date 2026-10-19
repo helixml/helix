@@ -55,15 +55,11 @@ func (s *PostgresStore) ListProjectAuditLogs(ctx context.Context, filters *types
 	}
 
 	// Apply pagination
-	limit := 50
+	limit := auditLogDefaultLimit
 	offset := 0
 	if filters != nil {
-		if filters.Limit > 0 && filters.Limit <= 100 {
-			limit = filters.Limit
-		}
-		if filters.Offset > 0 {
-			offset = filters.Offset
-		}
+		limit = boundedLimit(filters.Limit, auditLogDefaultLimit, auditLogMaxLimit)
+		offset = max(filters.Offset, 0)
 	}
 
 	// Order by created_at descending (most recent first)

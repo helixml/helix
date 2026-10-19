@@ -8,7 +8,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -266,15 +265,8 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	}
 
 	// Parse query parameters
-	page, err := strconv.Atoi(req.URL.Query().Get("page"))
-	if err != nil || page < 1 {
-		page = 0
-	}
-
-	pageSize, err := strconv.Atoi(req.URL.Query().Get("page_size"))
-	if err != nil || pageSize < 1 {
-		pageSize = 50 // Default page size
-	}
+	page := queryIntAtLeast(req.URL.Query(), "page", 1, 0)
+	pageSize := queryIntAtLeast(req.URL.Query(), "page_size", 1, 50)
 
 	query.Page = page
 	query.PerPage = pageSize
