@@ -533,9 +533,15 @@ run_ssh() { $SSH_CMD "$@"; }
 
 if ! step_done "install_zfs"; then
     log "Installing ZFS 2.4.1+ from arter97 PPA..."
-    run_ssh "sudo add-apt-repository -y ppa:arter97/zfs && sudo apt-get update && sudo apt-get install -y zfsutils-linux" || {
-        log "ZFS install may need a reboot for DKMS. Continuing..."
-    }
+    # The kernel module comes with Ubuntu's kernel; only the userland is installed
+    # here, so there is no DKMS build to wait for. An image without zpool can't
+    # import the data pool and the app hangs at "Setting up storage".
+    for attempt in 1 2 3; do
+        run_ssh "sudo add-apt-repository -y ppa:arter97/zfs && sudo apt-get update && sudo apt-get install -y zfsutils-linux && zpool version" && break
+        [ "$attempt" -lt 3 ] || { log "ERROR: ZFS install failed"; exit 1; }
+        log "ZFS install failed (attempt $attempt), retrying in 30s..."
+        sleep 30
+    done
     mark_step "install_zfs"
 fi
 
