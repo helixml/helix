@@ -1658,14 +1658,34 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// When archiving, stop any running external agents in the background.
-	// Stopping a desktop is slow (screenshot capture, container teardown,
-	// billing settle, key revocation) and must not block the archive response.
+	// When archiving a task whose work is already finished, stop any external
+	// agents still holding a desktop for it. Stopping a desktop is slow
+	// (screenshot capture, container teardown, billing settle, key revocation)
+	// and must not block the archive response.
+	//
+	// Archive is bookkeeping: it must never kill an agent that is still working.
+	// A caller clearing finished lanes while other lanes run would otherwise
+	// silently destroy an in-flight turn (issue #3427). Only stop when the task
+	// is in a terminal state and its agent is not actively running; anything
+	// still live is left alone and must be stopped explicitly via spectask stop.
 	if req.Archived {
 		planningSessionID := task.PlanningSessionID
 		stopCtx, stopCancel := detachContext(r.Context(), 5*time.Minute)
 		go func() {
 			defer stopCancel()
+
+			// Never tear down an agent whose turn is still in progress. The
+			// task status alone is not enough: a task can sit in an active
+			// status while its agent is idle, and conversely an agent may
+			// still be finishing after the status went terminal.
+			if s.specTaskAgentIsLive(stopCtx, taskID, planningSessionID) {
+				log.Info().
+					Str("task_id", taskID).
+					Str("session_id", planningSessionID).
+					Str("status", string(task.Status)).
+					Msg("Skipping agent stop when archiving: agent is still live (archive is bookkeeping only)")
+				return
+			}
 
 			// Stop the external agent if it's running
 			if planningSessionID != "" {
@@ -2017,4 +2037,44 @@ func deriveAgentWorkState(task *types.SpecTask, latest *types.Interaction) types
 		return types.AgentWorkStateWorking
 	}
 	return types.AgentWorkStateIdle
+}
+
+// specTaskAgentIsLive reports whether the task still has an agent that would
+// lose in-flight work if its desktop were stopped right now.
+//
+// Archiving a spec task is bookkeeping (issue #3427): it must not kill an agent
+// that is still working. Callers use this to decide whether stopping is safe.
+// It is deliberately pessimistic — any of the following counts as live, because
+// the cost of wrongly stopping is a lost agent turn while the cost of wrongly
+// skipping is a desktop that the caller can stop explicitly:
+//
+//   - the external-agent row says "running" or "starting", or
+//   - the session reports the agent as "running" / "starting" / "restarting", or
+//   - the latest interaction is still waiting (the agent is mid-turn).
+func (s *HelixAPIServer) specTaskAgentIsLive(ctx context.Context, taskID, planningSessionID string) bool {
+	if agent, err := s.Store.GetSpecTaskExternalAgent(ctx, taskID); err == nil && agent != nil {
+		switch agent.Status {
+		case "running", "starting":
+			return true
+		}
+	}
+
+	if planningSessionID == "" {
+		return false
+	}
+
+	if session, err := s.Store.GetSession(ctx, planningSessionID); err == nil && session != nil {
+		switch session.Metadata.ExternalAgentStatus {
+		case "running", "starting", "restarting":
+			return true
+		}
+	}
+
+	if latestBySession, err := s.Store.GetLatestInteractionsForSessions(ctx, []string{planningSessionID}); err == nil {
+		if latest := latestBySession[planningSessionID]; latest != nil && latest.State == types.InteractionStateWaiting {
+			return true
+		}
+	}
+
+	return false
 }
