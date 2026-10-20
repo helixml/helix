@@ -221,6 +221,9 @@ func (s *ControllerBillingSuite) TestResolveSandboxResourcesAllowsOnlyPresets() 
 		{name: "small", req: &types.CreateSandboxRequest{VCPUs: 1, MemoryMB: 2048}, vcpus: 1, memoryMB: 2048},
 		{name: "medium", req: &types.CreateSandboxRequest{VCPUs: 4, MemoryMB: 8192}, vcpus: 4, memoryMB: 8192},
 		{name: "large", req: &types.CreateSandboxRequest{VCPUs: 8, MemoryMB: 16384}, vcpus: 8, memoryMB: 16384},
+		{name: "xlarge", req: &types.CreateSandboxRequest{VCPUs: 12, MemoryMB: 24576}, vcpus: 12, memoryMB: 24576},
+		{name: "2xlarge", req: &types.CreateSandboxRequest{VCPUs: 16, MemoryMB: 32768}, vcpus: 16, memoryMB: 32768},
+		{name: "4xlarge", req: &types.CreateSandboxRequest{VCPUs: 32, MemoryMB: 65536}, vcpus: 32, memoryMB: 65536},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
@@ -229,6 +232,16 @@ func (s *ControllerBillingSuite) TestResolveSandboxResourcesAllowsOnlyPresets() 
 			s.Require().Equal(tt.vcpus, vcpus)
 			s.Require().Equal(tt.memoryMB, memoryMB)
 		})
+	}
+}
+
+// The sandboxes API ladder must match the spec-task ladder exactly, so a size
+// offered on one surface is never refused on the other.
+func (s *ControllerBillingSuite) TestResourcePresetsMatchSpecTaskLadder() {
+	s.Require().Len(allowedResourcePresets, len(types.SpecTaskSandboxPresets))
+	for i, preset := range types.SpecTaskSandboxPresets {
+		s.Require().Equal(preset.VCPUs, allowedResourcePresets[i].VCPUs)
+		s.Require().Equal(preset.MemoryMB, allowedResourcePresets[i].MemoryMB)
 	}
 }
 

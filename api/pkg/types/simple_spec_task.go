@@ -149,6 +149,7 @@ var SpecTaskSandboxPresets = []SandboxResourceOverrides{
 	{VCPUs: 8, MemoryMB: 16384},
 	{VCPUs: 12, MemoryMB: 24576},
 	{VCPUs: 16, MemoryMB: 32768},
+	{VCPUs: 32, MemoryMB: 65536},
 }
 
 // DefaultSpecTaskSandboxResources returns the operator-configured default, or
