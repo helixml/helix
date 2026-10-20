@@ -3766,24 +3766,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
+    - cron
     - local
     - helix_events
-    - github
-    - cron
-    - gitlab
-    - webhook
-    - slack
     - email
+    - webhook
+    - gitlab
+    - github
+    - slack
     type: string
     x-enum-varnames:
+    - KindCron
     - KindLocal
     - KindHelixEvents
-    - KindGitHub
-    - KindCron
-    - KindGitLab
-    - KindWebhook
-    - KindSlack
     - KindEmail
+    - KindWebhook
+    - KindGitLab
+    - KindGitHub
+    - KindSlack
   transport.ResolvedActivation:
     properties:
       address:
@@ -6885,6 +6885,13 @@ definitions:
         $ref: '#/definitions/types.GitHub'
       gitlab:
         $ref: '#/definitions/types.GitLab'
+      initial_executable_files:
+        description: |-
+          InitialExecutableFiles lists paths in InitialFiles committed as executable
+          (mode 100755), e.g. scripts a template expects to run as ./script.
+        items:
+          type: string
+        type: array
       initial_files:
         additionalProperties:
           type: string
