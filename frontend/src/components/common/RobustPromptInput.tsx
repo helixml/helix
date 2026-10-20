@@ -61,6 +61,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import { Api } from '../../api/api'
 import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
+import { mightBePlaceholderClipboardImage } from '../../utils/clipboardPlaceholder'
 import {
   nextQueueVisibilityDeadline,
   selectVisibleQueuedPrompts,
@@ -1330,27 +1331,46 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     }
 
     const clipboardFiles = filesFromClipboard(e.clipboardData)
+    const placeholderCandidate = !!pastedText && clipboardFiles.some(mightBePlaceholderClipboardImage)
+    console.info('[Composer paste]', {
+      types: Array.from(e.clipboardData?.types ?? []),
+      files: clipboardFiles.map((file) => `${file.type || 'unknown'}:${file.size}`),
+      textLength: pastedText?.length ?? 0,
+      path: placeholderCandidate ? 'placeholder-check' : clipboardFiles.length > 0 ? 'attach-files' : 'native',
+    })
+
+    if (placeholderCandidate && pastedText) {
+      // A desktop copy on Safari carries a 1x1 placeholder PNG next to its
+      // text, recognisable only by reading the PNG header. The native paste
+      // has to be cancelled before that async read, so the text must always
+      // land: on any read failure, or if the browser refuses the insert,
+      // write it into the draft directly.
+      e.preventDefault()
+      const target = e.currentTarget
+      const insertText = () => {
+        target.focus()
+        if (!document.execCommand('insertText', false, pastedText)) {
+          const needsSpace = draft.length > 0 && !/\s$/.test(draft)
+          setDraft(draft + (needsSpace ? ' ' : '') + pastedText)
+        }
+      }
+      void withoutPlaceholderImages(clipboardFiles)
+        .catch(() => clipboardFiles.filter((file) => !mightBePlaceholderClipboardImage(file)))
+        .then((files) => {
+          if (files.length > 0) {
+            addFilesAsAttachments(files)
+          } else if (isLargeText) {
+            attachLargeText(pastedText)
+          } else {
+            insertText()
+          }
+        })
+      return
+    }
+
     if (clipboardFiles.length > 0) {
       e.preventDefault()
-      if (!pastedText) {
-        addFilesAsAttachments(clipboardFiles)
-        return
-      }
-      // Files alongside text may be a desktop copy's placeholder image, which
-      // can only be recognised by reading its header. The native paste is
-      // already cancelled, so re-insert the text ourselves if that is all the
-      // clipboard really held.
-      const target = e.currentTarget
-      void withoutPlaceholderImages(clipboardFiles).then((files) => {
-        if (files.length > 0) {
-          addFilesAsAttachments(files)
-        } else if (isLargeText) {
-          attachLargeText(pastedText)
-        } else {
-          target.focus()
-          document.execCommand('insertText', false, pastedText)
-        }
-      })
+      addFilesAsAttachments(clipboardFiles)
       return
     }
 

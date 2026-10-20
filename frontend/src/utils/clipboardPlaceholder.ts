@@ -32,3 +32,13 @@ export async function isPlaceholderClipboardImage(file: Blob): Promise<boolean> 
   const view = new DataView(header.buffer)
   return view.getUint32(16) === 1 && view.getUint32(20) === 1
 }
+
+// Upper bound for a PNG that could be the placeholder after the browser
+// re-encodes it (it may gain colour-profile chunks, ~3 KB for sRGB). Only
+// pastes carrying such a small PNG next to text need the async header check;
+// every other paste is decided synchronously.
+const PLACEHOLDER_CANDIDATE_MAX_BYTES = 64 * 1024
+
+export function mightBePlaceholderClipboardImage(file: { type: string; size: number }): boolean {
+  return file.type === 'image/png' && file.size <= PLACEHOLDER_CANDIDATE_MAX_BYTES
+}

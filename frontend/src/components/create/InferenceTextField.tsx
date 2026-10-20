@@ -17,6 +17,7 @@ import {
 
 import { PROMPT_LABELS } from '../../config'
 import { withoutPlaceholderImages } from '../common/chatAttachments'
+import { mightBePlaceholderClipboardImage } from '../../utils/clipboardPlaceholder'
 
 const InferenceTextField: FC<{
   type: ISessionType,
@@ -162,23 +163,28 @@ const InferenceTextField: FC<{
 
       event.preventDefault()
       const text = event.clipboardData?.getData('text/plain')
-      if (!text) {
+      if (!text || !pastedImages.some(mightBePlaceholderClipboardImage)) {
         attachImages(pastedImages)
         return
       }
       // A text copy out of the remote desktop on Safari carries a 1x1
       // placeholder PNG alongside the real text, recognisable only by reading
-      // its header. The native paste is already cancelled, so re-insert the
-      // text ourselves if that is all the clipboard really held.
+      // its header. The native paste is already cancelled, so the text must
+      // always land: on a read failure, or if the browser refuses the insert,
+      // append it to the prompt directly.
       const target = event.currentTarget
-      void withoutPlaceholderImages(pastedImages).then((images) => {
-        if (images.length > 0) {
-          attachImages(images)
-        } else {
+      void withoutPlaceholderImages(pastedImages)
+        .catch(() => pastedImages.filter((file) => !mightBePlaceholderClipboardImage(file)))
+        .then((images) => {
+          if (images.length > 0) {
+            attachImages(images)
+            return
+          }
           target.focus()
-          document.execCommand('insertText', false, text)
-        }
-      })
+          if (!document.execCommand('insertText', false, text)) {
+            onUpdate(value + text)
+          }
+        })
     }
 
     const attachImages = (imageFiles: File[]) => {

@@ -8,6 +8,7 @@ import { QUEUE_DISPATCH_GRACE_MS } from '../../utils/promptQueueVisibility'
 const updateInterrupt = vi.fn()
 const saveToHistory = vi.fn()
 const clearDraft = vi.fn()
+const setDraft = vi.fn()
 
 let pendingPrompts: PromptHistoryEntry[] = []
 
@@ -19,7 +20,7 @@ vi.mock('../../hooks/usePromptHistory', async () => {
     ...actual,
     usePromptHistory: () => ({
       draft: '',
-      setDraft: vi.fn(),
+      setDraft,
       saveToHistory,
       markAsSent: vi.fn(),
       markAsFailed: vi.fn(),
@@ -558,6 +559,39 @@ describe('RobustPromptInput rich attachments', () => {
       paste(composer, [pngFile(64, 64, 4096, 'screenshot.png')], 'caption')
 
       expect(await screen.findByRole('button', { name: 'Preview screenshot.png' })).toBeInTheDocument()
+      expect(insertText).not.toHaveBeenCalled()
+    })
+
+    it('still inserts the text when the image header cannot be read', async () => {
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+      const unreadable = pngFile(1, 1, 88, 'image.png')
+      Object.defineProperty(unreadable, 'slice', {
+        value: () => ({ arrayBuffer: () => Promise.reject(new Error('NotReadableError')) }),
+      })
+
+      paste(composer, [unreadable], 'hello from wispr')
+
+      await waitFor(() => expect(insertText).toHaveBeenCalledWith('insertText', false, 'hello from wispr'))
+      expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+    })
+
+    it('writes the text into the draft when the browser refuses the insert', async () => {
+      insertText.mockReturnValue(false)
+      setDraft.mockClear()
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+
+      paste(composer, [pngFile(1, 1, 88, 'image.png')], 'hello from wispr')
+
+      await waitFor(() => expect(setDraft).toHaveBeenCalledWith('hello from wispr'))
+    })
+
+    it('leaves large images to the synchronous attach path', async () => {
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+
+      const notPrevented = paste(composer, [pngFile(1, 1, 200 * 1024, 'photo.png')], 'caption')
+
+      expect(notPrevented).toBe(false)
+      expect(await screen.findByRole('button', { name: 'Preview photo.png' })).toBeInTheDocument()
       expect(insertText).not.toHaveBeenCalled()
     })
 
