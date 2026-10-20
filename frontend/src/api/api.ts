@@ -2431,14 +2431,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
+  KindCron = "cron",
   KindLocal = "local",
   KindHelixEvents = "helix_events",
-  KindGitHub = "github",
-  KindCron = "cron",
-  KindGitLab = "gitlab",
-  KindWebhook = "webhook",
-  KindSlack = "slack",
   KindEmail = "email",
+  KindWebhook = "webhook",
+  KindGitLab = "gitlab",
+  KindGitHub = "github",
+  KindSlack = "slack",
 }
 
 export interface TransportResolvedActivation {
@@ -4410,6 +4410,11 @@ export interface TypesGitRepositoryCreateRequest {
   git_provider_connection_id?: string;
   github?: TypesGitHub;
   gitlab?: TypesGitLab;
+  /**
+   * InitialExecutableFiles lists paths in InitialFiles committed as executable
+   * (mode 100755), e.g. scripts a template expects to run as ./script.
+   */
+  initial_executable_files?: string[];
   initial_files?: Record<string, string>;
   /** True for GitHub/GitLab/ADO, false for Helix-hosted */
   is_external?: boolean;

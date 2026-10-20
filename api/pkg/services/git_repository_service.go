@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -487,7 +488,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 				"README.md": fmt.Sprintf("# %s\n\n%s\n", request.Name, request.Description),
 			}
 		}
-		err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, initialFiles, true, request.CreatorName, request.CreatorEmail)
+		err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, initialFiles, request.InitialExecutableFiles, true, request.CreatorName, request.CreatorEmail)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize git repository: %w", err)
 		}
@@ -1237,6 +1238,15 @@ func (s *GitRepositoryService) BuildAuthenticatedCloneURL(repoID, apiKey string)
 	return strings.Replace(baseURL, "://", fmt.Sprintf("://api:%s@", apiKey), 1) + "/git/" + repoID
 }
 
+// initialFileMode is the mode an initial file is written with; git records
+// 100755 for the executable ones.
+func initialFileMode(path string, executable []string) os.FileMode {
+	if slices.Contains(executable, path) {
+		return 0755
+	}
+	return 0644
+}
+
 // initializeGitRepository initializes a new git repository with initial files
 // userName and userEmail are required - must be the actual user's credentials for enterprise deployments
 //
@@ -1246,6 +1256,7 @@ func (s *GitRepositoryService) initializeGitRepository(
 	defaultBranch string,
 	repoName string,
 	initialFiles map[string]string,
+	executableFiles []string,
 	isBare bool,
 	userName string,
 	userEmail string,
@@ -1300,7 +1311,7 @@ func (s *GitRepositoryService) initializeGitRepository(
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				return fmt.Errorf("failed to create directory %s: %w", dir, err)
 			}
-			if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			if err := os.WriteFile(fullPath, []byte(content), initialFileMode(filePath, executableFiles)); err != nil {
 				return fmt.Errorf("failed to write file %s: %w", filePath, err)
 			}
 		}
@@ -1401,7 +1412,7 @@ func (s *GitRepositoryService) initializeGitRepository(
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(fullPath, []byte(content), initialFileMode(filePath, executableFiles)); err != nil {
 			return fmt.Errorf("failed to write file %s: %w", filePath, err)
 		}
 	}

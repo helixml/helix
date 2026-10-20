@@ -29546,24 +29546,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
+                "cron",
                 "local",
                 "helix_events",
-                "github",
-                "cron",
-                "gitlab",
+                "email",
                 "webhook",
-                "slack",
-                "email"
+                "gitlab",
+                "github",
+                "slack"
             ],
             "x-enum-varnames": [
+                "KindCron",
                 "KindLocal",
                 "KindHelixEvents",
-                "KindGitHub",
-                "KindCron",
-                "KindGitLab",
+                "KindEmail",
                 "KindWebhook",
-                "KindSlack",
-                "KindEmail"
+                "KindGitLab",
+                "KindGitHub",
+                "KindSlack"
             ]
         },
         "transport.ResolvedActivation": {
@@ -33748,6 +33748,13 @@ const docTemplate = `{
                 },
                 "gitlab": {
                     "$ref": "#/definitions/types.GitLab"
+                },
+                "initial_executable_files": {
+                    "description": "InitialExecutableFiles lists paths in InitialFiles committed as executable\n(mode 100755), e.g. scripts a template expects to run as ./script.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "initial_files": {
                     "type": "object",
