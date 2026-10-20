@@ -1642,7 +1642,7 @@ func (s *HelixAPIServer) deleteSpecTaskCascade(ctx context.Context, taskID strin
 
 // archiveSpecTask godoc
 // @Summary Archive or unarchive a spec task
-// @Description Archive a spec task to hide it from the main view, or unarchive to restore it
+// @Description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.
 // @Tags spec-driven-tasks
 // @Accept json
 // @Produce json
@@ -1697,33 +1697,42 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// When archiving a task whose work is already finished, stop any external
-	// agents still holding a desktop for it. Stopping a desktop is slow
-	// (screenshot capture, container teardown, billing settle, key revocation)
-	// and must not block the archive response.
+	// When archiving, by default stop any external agent still holding a
+	// desktop for the task, so releasing a finished lane frees the sandbox.
+	// That is the documented behaviour callers rely on (issue #3427); the
+	// caller can now opt out with stop_agent=false.
 	//
-	// Archive is bookkeeping: it must never kill an agent that is still working.
-	// A caller clearing finished lanes while other lanes run would otherwise
-	// silently destroy an in-flight turn (issue #3427). Only stop when the task
-	// is in a terminal state and its agent is not actively running; anything
-	// still live is left alone and must be stopped explicitly via spectask stop.
-	if req.Archived {
+	// Stopping a desktop is slow (screenshot capture, container teardown,
+	// billing settle, key revocation) and must not block the archive response.
+	//
+	// A live agent is a different matter: the default is deliberately safe and
+	// refuses to kill an agent mid-turn, because a caller clearing finished
+	// lanes while other work runs must not destroy an in-flight turn. Opting
+	// in to stopping a live agent is explicit and logged.
+	if req.Archived && req.StopAgentEnabled() {
 		planningSessionID := task.PlanningSessionID
 		stopCtx, stopCancel := detachContext(r.Context(), 5*time.Minute)
 		go func() {
 			defer stopCancel()
 
-			// Never tear down an agent whose turn is still in progress. The
+			// A live agent is only stopped when the caller asked for it. The
 			// task status alone is not enough: a task can sit in an active
 			// status while its agent is idle, and conversely an agent may
 			// still be finishing after the status went terminal.
 			if s.specTaskAgentIsLive(stopCtx, taskID, planningSessionID) {
+				if !req.StopAgentExplicit {
+					log.Info().
+						Str("task_id", taskID).
+						Str("session_id", planningSessionID).
+						Str("status", string(task.Status)).
+						Msg("Skipping agent stop when archiving: agent is still live (pass stop_agent=true to stop it anyway)")
+					return
+				}
 				log.Info().
 					Str("task_id", taskID).
 					Str("session_id", planningSessionID).
 					Str("status", string(task.Status)).
-					Msg("Skipping agent stop when archiving: agent is still live (archive is bookkeeping only)")
-				return
+					Msg("Stopping live agent on archive: stop_agent was requested explicitly")
 			}
 
 			// Stop the external agent if it's running

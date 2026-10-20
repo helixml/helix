@@ -60,9 +60,11 @@ func (s *SpecTaskArchiveStopSuite) TearDownTest() {
 }
 
 func (s *SpecTaskArchiveStopSuite) makeArchiveRequest() *http.Request {
-	buf, err := json.Marshal(types.SpecTaskArchiveRequest{Archived: true})
-	s.Require().NoError(err)
-	req := httptest.NewRequest("PATCH", "/api/v1/spec-tasks/"+s.taskID+"/archive", bytes.NewReader(buf))
+	return s.makeArchiveRequestBody(`{"archived":true}`)
+}
+
+func (s *SpecTaskArchiveStopSuite) makeArchiveRequestBody(body string) *http.Request {
+	req := httptest.NewRequest("PATCH", "/api/v1/spec-tasks/"+s.taskID+"/archive", bytes.NewReader([]byte(body)))
 	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: s.userID}))
 	return mux.SetURLVars(req, map[string]string{"taskId": s.taskID})
 }
@@ -85,16 +87,12 @@ func (s *SpecTaskArchiveStopSuite) expectArchiveBookkeeping(task *types.SpecTask
 	s.store.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 }
 
-// The regression: an agent mid-turn must survive an archive of its own task.
-func (s *SpecTaskArchiveStopSuite) TestArchive_WithLiveAgent_DoesNotStopDesktop() {
-	task := s.makeTask(types.TaskStatusImplementation)
-	s.expectArchiveBookkeeping(task)
-
-	// The agent is connected, the container is up, and the latest interaction
-	// is still waiting for the model — i.e. a turn is in progress.
+// expectLiveAgent arranges for the task's agent to look mid-turn.
+func (s *SpecTaskArchiveStopSuite) expectLiveAgent() {
 	s.store.EXPECT().
 		GetSpecTaskExternalAgent(gomock.Any(), s.taskID).
-		Return(&types.SpecTaskExternalAgent{SpecTaskID: s.taskID, Status: "running"}, nil)
+		Return(&types.SpecTaskExternalAgent{SpecTaskID: s.taskID, Status: "running"}, nil).
+		AnyTimes()
 	s.store.EXPECT().
 		GetSession(gomock.Any(), s.sessionID).
 		Return(&types.Session{
@@ -105,6 +103,14 @@ func (s *SpecTaskArchiveStopSuite) TestArchive_WithLiveAgent_DoesNotStopDesktop(
 			},
 		}, nil).
 		AnyTimes()
+}
+
+// The regression: an agent mid-turn must survive an archive of its own task,
+// even though the request does not mention stop_agent at all (the default).
+func (s *SpecTaskArchiveStopSuite) TestArchive_WithLiveAgent_DoesNotStopDesktop() {
+	task := s.makeTask(types.TaskStatusImplementation)
+	s.expectArchiveBookkeeping(task)
+	s.expectLiveAgent()
 	// No executor expectation: gomock fails the test if StopDesktop is called.
 
 	rr := httptest.NewRecorder()
@@ -153,8 +159,83 @@ func (s *SpecTaskArchiveStopSuite) TestArchive_WithFinishedAgent_StopsDesktop() 
 	s.waitForArchiveSideEffects()
 }
 
-// The stop runs in a detached goroutine, so expectations are checked in a
-// bounded loop rather than immediately. gomock has no "wait" primitive.
+// stop_agent=false is the explicit "bookkeeping only" switch: even a finished
+// agent keeps its sandbox.
+func (s *SpecTaskArchiveStopSuite) TestArchive_StopAgentFalse_KeepsSandbox() {
+	task := s.makeTask(types.TaskStatusDone)
+	s.expectArchiveBookkeeping(task)
+	// No store or executor expectations for the stop path at all.
+
+	rr := httptest.NewRecorder()
+	s.server.archiveSpecTask(rr, s.makeArchiveRequestBody(`{"archived":true,"stop_agent":false}`))
+
+	s.Equal(http.StatusOK, rr.Code)
+	s.waitForArchiveSideEffects()
+}
+
+// An explicit stop_agent=true is the caller saying "stop it anyway": a live
+// agent is torn down rather than skipped.
+func (s *SpecTaskArchiveStopSuite) TestArchive_StopAgentTrue_StopsLiveAgent() {
+	task := s.makeTask(types.TaskStatusImplementation)
+	s.expectArchiveBookkeeping(task)
+
+	// The agent row is "running" with an id, which is what makes it live and
+	// what the stop path itself targets (externalAgent.ID, not the session).
+	s.store.EXPECT().
+		GetSpecTaskExternalAgent(gomock.Any(), s.taskID).
+		Return(&types.SpecTaskExternalAgent{
+			SpecTaskID: s.taskID,
+			ID:         "agent_archive_test",
+			Status:     "running",
+		}, nil).
+		AnyTimes()
+	s.store.EXPECT().
+		GetSession(gomock.Any(), s.sessionID).
+		Return(&types.Session{
+			ID: s.sessionID,
+			Metadata: types.SessionMetadata{
+				AgentType:           "zed_external",
+				ExternalAgentStatus: "running",
+			},
+		}, nil).
+		AnyTimes()
+	s.store.EXPECT().
+		ReapWaitingInteractions(gomock.Any(), s.sessionID, types.InteractionStateInterrupted, "spec task archived").
+		Return(nil, nil).
+		Times(1)
+	// An explicit stop tears down both the session desktop and the task's
+	// external-agent container, so both targets are expected.
+	s.executor.EXPECT().StopDesktop(gomock.Any(), s.sessionID).Return(nil).Times(1)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "agent_archive_test").Return(nil).Times(1)
+	s.store.EXPECT().UpdateSpecTaskExternalAgent(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	rr := httptest.NewRecorder()
+	s.server.archiveSpecTask(rr, s.makeArchiveRequestBody(`{"archived":true,"stop_agent":true}`))
+
+	s.Equal(http.StatusOK, rr.Code)
+	s.waitForArchiveSideEffects()
+}
+
+// The request decoding keeps the default and the explicit flag distinct.
+func (s *SpecTaskArchiveStopSuite) TestArchiveRequest_StopAgentSemantics() {
+	var omitted types.SpecTaskArchiveRequest
+	s.Require().NoError(json.Unmarshal([]byte(`{"archived":true}`), &omitted))
+	s.True(omitted.StopAgentEnabled(), "omitting stop_agent must keep the historical stop-on-archive default")
+	s.False(omitted.StopAgentExplicit)
+
+	var off types.SpecTaskArchiveRequest
+	s.Require().NoError(json.Unmarshal([]byte(`{"archived":true,"stop_agent":false}`), &off))
+	s.False(off.StopAgentEnabled())
+	s.True(off.StopAgentExplicit)
+
+	var on types.SpecTaskArchiveRequest
+	s.Require().NoError(json.Unmarshal([]byte(`{"archived":true,"stop_agent":true}`), &on))
+	s.True(on.StopAgentEnabled())
+	s.True(on.StopAgentExplicit)
+}
+
+// The stop runs in a detached goroutine, so expectations are checked after a
+// short wait rather than immediately. gomock has no "wait" primitive.
 func (s *SpecTaskArchiveStopSuite) waitForArchiveSideEffects() {
 	time.Sleep(300 * time.Millisecond)
 }
