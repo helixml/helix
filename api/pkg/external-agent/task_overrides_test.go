@@ -123,3 +123,9 @@ func TestEffectiveSpecTaskSandboxResourcesUsesDefault(t *testing.T) {
 	require.Equal(t, types.DefaultSpecTaskSandboxVCPUs, resources.VCPUs)
 	require.Equal(t, types.DefaultSpecTaskSandboxMemoryMB, resources.MemoryMB)
 }
+
+func TestSpecTaskSandboxPresetListNamesEveryRung(t *testing.T) {
+	require.Equal(t,
+		"1 CPU/2 GB, 4 CPU/8 GB, 8 CPU/16 GB, 12 CPU/24 GB, 16 CPU/32 GB, 32 CPU/64 GB",
+		types.SpecTaskSandboxPresetList())
+}

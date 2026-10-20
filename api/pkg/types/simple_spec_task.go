@@ -208,6 +208,16 @@ func specTaskSandboxVCPUList() string {
 // list, for tool descriptions and validation errors.
 func SpecTaskSandboxVCPUList() string { return specTaskSandboxVCPUList() }
 
+// SpecTaskSandboxPresetList renders every rung as "N CPU/M GB", for validation
+// errors shown to a user who picked a size.
+func SpecTaskSandboxPresetList() string {
+	rungs := make([]string, 0, len(SpecTaskSandboxPresets))
+	for _, preset := range SpecTaskSandboxPresets {
+		rungs = append(rungs, fmt.Sprintf("%d CPU/%d GB", preset.VCPUs, preset.MemoryMB/1024))
+	}
+	return strings.Join(rungs, ", ")
+}
+
 // Sandbox display resolution presets. Empty resolves to 1080p.
 const (
 	SandboxResolution1080p = "1080p"

@@ -189,7 +189,7 @@ func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.Response
 		return
 	}
 	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
-		http.Error(w, "sandbox size must be 1 CPU/2 GB, 4 CPU/8 GB, or 8 CPU/16 GB", http.StatusBadRequest)
+		http.Error(w, "sandbox size must be one of "+types.SpecTaskSandboxPresetList(), http.StatusBadRequest)
 		return
 	}
 	if err := req.SandboxDisplay.Validate(); err != nil {
