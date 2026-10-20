@@ -51,6 +51,7 @@ const RESOURCE_PRESETS = [
   { value: 'large', label: '8 CPU / 16GB RAM', vcpus: 8, memoryMB: 16384 },
   { value: 'xlarge', label: '12 CPU / 24GB RAM', vcpus: 12, memoryMB: 24576 },
   { value: '2xlarge', label: '16 CPU / 32GB RAM', vcpus: 16, memoryMB: 32768 },
+  { value: '4xlarge', label: '32 CPU / 64GB RAM', vcpus: 32, memoryMB: 65536 },
 ]
 
 // CreateSandboxDialog asks for a name, runtime, and optional TTL/env.

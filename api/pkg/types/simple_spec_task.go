@@ -149,6 +149,7 @@ var SpecTaskSandboxPresets = []SandboxResourceOverrides{
 	{VCPUs: 8, MemoryMB: 16384},
 	{VCPUs: 12, MemoryMB: 24576},
 	{VCPUs: 16, MemoryMB: 32768},
+	{VCPUs: 32, MemoryMB: 65536},
 }
 
 // DefaultSpecTaskSandboxResources returns the operator-configured default, or
@@ -206,6 +207,16 @@ func specTaskSandboxVCPUList() string {
 // SpecTaskSandboxVCPUList is the selectable vCPU counts as a human-readable
 // list, for tool descriptions and validation errors.
 func SpecTaskSandboxVCPUList() string { return specTaskSandboxVCPUList() }
+
+// SpecTaskSandboxPresetList renders every rung as "N CPU/M GB", for validation
+// errors shown to a user who picked a size.
+func SpecTaskSandboxPresetList() string {
+	rungs := make([]string, 0, len(SpecTaskSandboxPresets))
+	for _, preset := range SpecTaskSandboxPresets {
+		rungs = append(rungs, fmt.Sprintf("%d CPU/%d GB", preset.VCPUs, preset.MemoryMB/1024))
+	}
+	return strings.Join(rungs, ", ")
+}
 
 // Sandbox display resolution presets. Empty resolves to 1080p.
 const (
