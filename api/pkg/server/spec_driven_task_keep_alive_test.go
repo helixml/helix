@@ -232,7 +232,14 @@ func (s *SpecTaskKeepAliveSuite) TestArchiveTask_ReturnsBeforeDesktopStopComplet
 	stopFinished := make(chan struct{})
 	s.store.EXPECT().GetSpecTask(gomock.Any(), s.taskID).Return(existingTask, nil)
 	s.store.EXPECT().GetProject(gomock.Any(), "project_keepalive").Return(project, nil)
-	s.store.EXPECT().GetSession(gomock.Any(), "session_keepalive").Return(session, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "session_keepalive").Return(session, nil).AnyTimes()
+	// The archive path first asks whether the agent is still live (#3427);
+	// here it is not, so the stop proceeds.
+	s.store.EXPECT().GetLatestInteractionsForSessions(gomock.Any(), []string{"session_keepalive"}).
+		Return(map[string]*types.Interaction{
+			"session_keepalive": {State: types.InteractionStateComplete},
+		}, nil).
+		AnyTimes()
 	s.executor.EXPECT().StopDesktop(gomock.Any(), "session_keepalive").DoAndReturn(
 		func(_ context.Context, _ string) error {
 			close(stopStarted)
@@ -242,12 +249,17 @@ func (s *SpecTaskKeepAliveSuite) TestArchiveTask_ReturnsBeforeDesktopStopComplet
 	)
 	// The turn in flight when the task is archived is ended, so auto-wake
 	// does not read it as a stuck cold start and boot the desktop again.
-	s.store.EXPECT().ReapWaitingInteractions(gomock.Any(), "session_keepalive", types.InteractionStateInterrupted, "spec task archived").
-		Return(nil, nil)
+	// The liveness probe now asks for the agent row first, and the stop path
+	// asks again; both see "no external agent" so only the session agent stops.
 	s.store.EXPECT().GetSpecTaskExternalAgent(gomock.Any(), s.taskID).DoAndReturn(
 		func(_ context.Context, _ string) (*types.SpecTaskExternalAgent, error) {
-			defer close(stopFinished)
 			return nil, errors.New("no external agent")
+		},
+	).AnyTimes()
+	s.store.EXPECT().ReapWaitingInteractions(gomock.Any(), "session_keepalive", types.InteractionStateInterrupted, "spec task archived").DoAndReturn(
+		func(_ context.Context, _ string, _ types.InteractionState, _ string) ([]*types.Interaction, error) {
+			defer close(stopFinished)
+			return nil, nil
 		},
 	)
 	s.store.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(
