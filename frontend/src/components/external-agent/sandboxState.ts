@@ -11,6 +11,11 @@ export interface DerivedSandboxState {
    * provisioned and subsequently stopped so callers can render the launch
    * transition instead of a misleading "Desktop Paused" action.
    *
+   * A session whose desktop has run before (dev_container_id is written by
+   * every successful start and never cleared) always has lifecycle state, so
+   * a row that has lost its status fields still offers a Start button rather
+   * than reading as a launch that never ends.
+   *
    * It also distinguishes an external-agent session from a plain LLM chat,
    * which has no sandbox at all and must never be treated as one that stopped.
    */
@@ -41,6 +46,7 @@ export const deriveSandboxState = (
   const desiredState =
     (config as SessionConfigWithDesiredState)?.desired_state || "";
   const hasContainer = !!config.container_name;
+  const hasRunBefore = !!config.dev_container_id;
   const statusMessage = config.status_message || "";
 
   // Map session metadata to sandbox state.
@@ -73,7 +79,12 @@ export const deriveSandboxState = (
   return {
     sandboxState,
     statusMessage,
-    hasDesktopLifecycleState: !!(status || desiredState || hasContainer),
+    hasDesktopLifecycleState: !!(
+      status ||
+      desiredState ||
+      hasContainer ||
+      hasRunBefore
+    ),
   };
 };
 

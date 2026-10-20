@@ -510,16 +510,18 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	ctx = startCtx //nolint:govet // intentional shadow — request ctx no longer needed
 
 	// Mark session as "starting" so the frontend shows the starting UI
-	// (with progress messages) instead of the paused/absent state.
-	h.setExternalAgentStatus(ctx, agent.SessionID, "starting")
+	// (with progress messages) instead of the paused/absent state. Clearing the
+	// message drops the reason a previous attempt failed.
+	h.setExternalAgentLifecycle(ctx, agent.SessionID, "starting", "")
 
-	// Guarantee status cleanup on any error: if StartDesktop returns an error the
-	// status must not remain "starting" permanently (issue #1 from ZFS deployment).
+	// A failed start must leave a terminal, user-recoverable state: "stopped"
+	// with the reason, which the UI renders as a stopped desktop with a Start
+	// button. Never "starting" (spinner forever) and never "" — a session with
+	// no lifecycle state reads as one that has not been launched yet.
 	startErr := error(nil)
 	defer func() {
 		if startErr != nil {
-			h.setExternalAgentStatus(context.Background(), agent.SessionID, "")
-			h.updateSessionStatusMessage(context.Background(), agent.SessionID, "")
+			h.setExternalAgentLifecycle(context.Background(), agent.SessionID, "stopped", desktopStartFailedMessage(startErr))
 		}
 	}()
 
@@ -527,35 +529,37 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// If a golden cache exists, the Hydra side copies it before creating the container.
 	// We poll a separate Hydra endpoint and update session.StatusMessage so the
 	// frontend/CLI can show "Unpacking build cache (2.1/7.0 GB)" instead of just "Starting Desktop...".
-	stopProgress := make(chan struct{})
+	progressCtx, stopProgress := context.WithCancel(ctx)
+	progressDone := make(chan struct{})
 	go func() {
+		defer close(progressDone)
 		// Use a separate RevDial client for concurrent progress polling
 		progressClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-stopProgress:
-				return
-			case <-ctx.Done():
+			case <-progressCtx.Done():
 				return
 			case <-ticker.C:
-				progress, err := progressClient.GetGoldenCopyProgress(ctx, agent.ProjectID)
+				progress, err := progressClient.GetGoldenCopyProgress(progressCtx, agent.ProjectID)
 				if err != nil || progress == nil {
 					continue // no copy in progress (yet or anymore)
 				}
 				copiedGB := float64(progress.CopiedBytes) / 1e9
 				totalGB := float64(progress.TotalBytes) / 1e9
 				msg := fmt.Sprintf("Unpacking build cache (%.1f/%.1f GB)", copiedGB, totalGB)
-				h.updateSessionStatusMessage(ctx, agent.SessionID, msg)
+				h.updateSessionStatusMessage(progressCtx, agent.SessionID, msg)
 			}
 		}
 	}()
 
 	resp, err := hydraClient.CreateDevContainer(ctx, req)
 
-	// Signal progress goroutine to stop and clear the status message
-	close(stopProgress)
+	// Stop the progress goroutine and wait for it: its full-row session write
+	// must not land after the outcome below and revert it to "starting".
+	stopProgress()
+	<-progressDone
 	h.updateSessionStatusMessage(ctx, agent.SessionID, "")
 
 	if err != nil {
@@ -1108,24 +1112,22 @@ func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, d
 	// will reuse or create a new one. The map grows only by number of unique
 	// sessions which is bounded.
 
-	// Clear external_agent_status and persist the paused screenshot path together.
+	// Mark the session stopped and persist the paused screenshot path together.
 	//
 	// Preserve an existing "restarting" marker because its caller owns the boot
-	// that follows this stop. Other statuses are cleared normally.
-	if dbSession, err := h.store.GetSession(ctx, sessionID); err == nil {
-		restarting := dbSession.Metadata.ExternalAgentStatus == "restarting"
-		if !restarting {
-			dbSession.Metadata.ExternalAgentStatus = ""
-			dbSession.Metadata.StatusMessage = ""
-		}
-		dbSession.Metadata.PausedScreenshotPath = screenshotPath
-		if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
-			log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update session after stop")
-		}
-	} else {
-		// Fallback: just clear the status the old way
-		h.setExternalAgentStatus(ctx, sessionID, "")
-		h.updateSessionStatusMessage(ctx, sessionID, "")
+	// that follows this stop.
+	dbSession, err := h.store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to load session to record stop")
+		return nil
+	}
+	if dbSession.Metadata.ExternalAgentStatus != "restarting" {
+		dbSession.Metadata.ExternalAgentStatus = "stopped"
+		dbSession.Metadata.StatusMessage = ""
+	}
+	dbSession.Metadata.PausedScreenshotPath = screenshotPath
+	if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to update session after stop")
 	}
 
 	return nil
@@ -1387,8 +1389,6 @@ func (h *HydraExecutor) updateSessionStatusMessage(ctx context.Context, sessionI
 	}
 }
 
-// setExternalAgentStatus updates the session's external agent status in the database.
-// This controls which UI state the frontend shows (starting, running, stopped, etc.).
 // capturePausedScreenshot fetches a screenshot from the running desktop container
 // via RevDial and saves it to disk so it can be served after the container stops.
 // Returns the file path on success, empty string on any failure (best-effort).
@@ -1451,18 +1451,27 @@ func (h *HydraExecutor) pausedScreenshotPath(sessionID string) string {
 	return filepath.Join(filestoreRoot, "workspaces", "paused-screenshots", sessionID+".jpg")
 }
 
-func (h *HydraExecutor) setExternalAgentStatus(ctx context.Context, sessionID, status string) {
+// setExternalAgentLifecycle writes external_agent_status and status_message in
+// one update. The status controls which UI state the frontend shows (starting,
+// running, stopped, etc.); the message is shown alongside it.
+func (h *HydraExecutor) setExternalAgentLifecycle(ctx context.Context, sessionID, status, message string) {
 	dbSession, err := h.store.GetSession(ctx, sessionID)
 	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Str("status", status).Msg("Failed to load session to update external agent status")
 		return
 	}
-	if dbSession.Metadata.ExternalAgentStatus == status {
+	if dbSession.Metadata.ExternalAgentStatus == status && dbSession.Metadata.StatusMessage == message {
 		return
 	}
 	dbSession.Metadata.ExternalAgentStatus = status
+	dbSession.Metadata.StatusMessage = message
 	if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
-		log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update external agent status")
+		log.Warn().Err(err).Str("session_id", sessionID).Str("status", status).Msg("Failed to update external agent status")
 	}
+}
+
+func desktopStartFailedMessage(err error) string {
+	return "Desktop failed to start: " + err.Error()
 }
 
 // parseContainerType converts desktop type string to container type

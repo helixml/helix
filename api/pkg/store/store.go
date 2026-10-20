@@ -307,8 +307,8 @@ type Store interface {
 	// before StopDesktop so the teardown+boot window reads as "a boot is in
 	// flight" rather than "stopped" (StopDesktop preserves this marker).
 	MarkSessionRestarting(ctx context.Context, sessionID string) error
-	// ClearSessionStartingStatus reverts a "starting"/"restarting" session
-	// back to empty status + empty message, but only when a boot is actually
+	// ClearSessionStartingStatus moves a "starting"/"restarting" session to
+	// "stopped" with an empty message, but only when a boot is actually
 	// marked in flight. Used by the auto-wake worker on retry exhaustion and
 	// by the restart handler's error paths, so the spinner reverts to
 	// "Desktop Paused" instead of staying on a spinner forever.
