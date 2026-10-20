@@ -12,6 +12,8 @@ import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import InputBase from '@mui/material/InputBase'
+import Checkbox from '@mui/material/Checkbox'
+import FormControlLabel from '@mui/material/FormControlLabel'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { Archive, FolderPlus, Plus, Search, SquarePen } from 'lucide-react'
@@ -140,6 +142,9 @@ const ProjectChatSidebar: FC<{
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
   const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now())
   const [archiveConfirmation, setArchiveConfirmation] = useState<SidebarItem | null>(null)
+  // Archive stops the task's agent and frees its sandbox by default; the
+  // dialog offers to keep it running instead. Reset on every open.
+  const [stopAgentOnArchive, setStopAgentOnArchive] = useState(true)
   const [deleteInstanceConfirmation, setDeleteInstanceConfirmation] = useState<SidebarItem | null>(null)
   const deleteBotInstance = useDeleteBotInstance()
   const [contextMenuItem, setContextMenuItem] = useState<SidebarItem | null>(null)
@@ -470,7 +475,7 @@ const ProjectChatSidebar: FC<{
     })
   }
 
-  const performArchive = async (item: SidebarItem) => {
+  const performArchive = async (item: SidebarItem, stopAgent = stopAgentOnArchive) => {
     if (archivingItemId) return
     // In the Archived view the same control restores the item instead.
     const archived = !showArchived
@@ -478,7 +483,12 @@ const ProjectChatSidebar: FC<{
     setArchivingItemId(item.id)
     try {
       if (item.kind === 'spec-task') {
-        await archiveSpecTask.mutateAsync({ taskId: item.id, archived })
+        await archiveSpecTask.mutateAsync({
+          taskId: item.id,
+          archived,
+          // Only archiving takes the option; restoring never stops anything.
+          stopAgent: archived ? stopAgent : undefined,
+        })
       } else {
         await archiveSession.mutateAsync({ sessionId: item.id, archived })
       }
@@ -516,6 +526,7 @@ const ProjectChatSidebar: FC<{
       return
     }
     if (shouldConfirmArchive(item, orgAgentAppIds, showArchived)) {
+      setStopAgentOnArchive(true)
       setArchiveConfirmation(item)
       return
     }
@@ -1030,17 +1041,38 @@ const ProjectChatSidebar: FC<{
       {archiveConfirmation && (
         <SimpleConfirmWindow
           title={archiveConfirmation.kind === 'spec-task' ? 'Archive spec task' : 'Archive chat'}
-          // Only reached when archiving really does stop an agent — see
+          // Only reached when archiving really can stop an agent — see
           // shouldConfirmArchive. Plain chats archive without a prompt.
           message={`Archive “${archiveConfirmation.title}”? ${archiveConfirmation.kind === 'spec-task'
-            ? 'Any running task agent will be stopped.'
-            : 'Its external agent will be stopped.'} You can restore it from the Archived view.`}
+            ? 'The task agent and its sandbox are stopped unless you keep them running.'
+            : 'Its external agent is stopped unless you keep it running.'} You can restore it from the Archived view.`}
           confirmTitle={archivingItemId === archiveConfirmation.id ? 'Archiving…' : 'Archive'}
           onCancel={() => {
             if (!archivingItemId) setArchiveConfirmation(null)
           }}
-          onSubmit={() => void performArchive(archiveConfirmation)}
-        />
+          onSubmit={() => void performArchive(archiveConfirmation, stopAgentOnArchive)}
+        >
+          <FormControlLabel
+            sx={{ width: '100%', pl: 1, alignItems: 'flex-start' }}
+            control={(
+              <Checkbox
+                size="small"
+                checked={stopAgentOnArchive}
+                onChange={(e) => setStopAgentOnArchive(e.target.checked)}
+                inputProps={{ 'aria-describedby': 'archive-stop-agent-hint' }}
+                disabled={archivingItemId === archiveConfirmation.id}
+              />
+            )}
+            label={(
+              <Box>
+                <Typography variant="body2">Stop the agent and free its sandbox</Typography>
+                <Typography id="archive-stop-agent-hint" variant="caption" color="text.secondary">
+                  Uncheck to archive without interrupting work that is in progress (bookkeeping only).
+                </Typography>
+              </Box>
+            )}
+          />
+        </SimpleConfirmWindow>
       )}
 
       {createProjectOpen && (
