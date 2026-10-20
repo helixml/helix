@@ -321,6 +321,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 	services.DismissTaskAttentionEvents(ctx, s.Store, specTask.ID)
+	s.gitHTTPServer.NotifyDefaultBranchMerged(repo, targetBranch, user.ID)
 
 	log.Info().
 		Str("task_id", specTask.ID).
@@ -881,6 +882,7 @@ func (s *HelixAPIServer) mergeInternalRepoBranch(ctx context.Context, repo *type
 	if _, err := services.MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, repo.DefaultBranch); err != nil {
 		return fmt.Errorf("fast-forward merge %s into %s: %w", task.BranchName, repo.DefaultBranch, err)
 	}
+	s.gitHTTPServer.NotifyDefaultBranchMerged(repo, repo.DefaultBranch, task.UserID)
 
 	log.Info().
 		Str("repo_name", repo.Name).

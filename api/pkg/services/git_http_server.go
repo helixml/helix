@@ -127,6 +127,18 @@ func (s *GitHTTPServer) SetOnDefaultBranchPush(fn func(ctx context.Context, repo
 	s.onDefaultBranchPush = fn
 }
 
+// NotifyDefaultBranchMerged fires the default-branch hook after the server
+// itself merged into an internal repo's default branch (Accept, auto-merge).
+// Those merges move the ref without a receive-pack, so without this the
+// web-service auto-deploy only ran for direct pushes to main. External repos
+// are skipped: their merge is pushed upstream and deployed from there.
+func (s *GitHTTPServer) NotifyDefaultBranchMerged(repo *types.GitRepository, branch, userID string) {
+	if s == nil || s.onDefaultBranchPush == nil || repo == nil || repo.IsExternal || branch == "" || branch != repo.DefaultBranch {
+		return
+	}
+	go s.onDefaultBranchPush(context.Background(), repo.ID, branch, userID)
+}
+
 // GitHTTPServerConfig holds configuration for the git HTTP server
 type GitHTTPServerConfig struct {
 	ServerBaseURL   string        `json:"server_base_url"`
@@ -1351,6 +1363,7 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 		return
 	}
 	DismissTaskAttentionEvents(ctx, s.store, task.ID)
+	s.NotifyDefaultBranchMerged(repo, targetBranch, task.ImplementationApprovedBy)
 
 	log.Info().
 		Str("task_id", task.ID).
@@ -1447,6 +1460,7 @@ func (s *GitHTTPServer) tryAutoMergeBotRun(ctx context.Context, taskID string, r
 		log.Error().Err(err).Str("task_id", task.ID).Msg("bot auto-merge: failed to record merge on task")
 		return
 	}
+	s.NotifyDefaultBranchMerged(repo, repo.DefaultBranch, task.UserID)
 
 	log.Info().
 		Str("task_id", task.ID).
