@@ -128,6 +128,12 @@ function renderEditorValue(root: HTMLElement, value: string, darkMode: boolean):
   root.replaceChildren(fragment)
 }
 
+// Temporary diagnostics for intermittently lost pastes on macOS Chrome
+// (Wispr Flow / Cmd+V): records each step that can lose freshly inserted text.
+function logComposerEvent(event: string, detail: Record<string, unknown>): void {
+  console.info('[Composer editor]', event, JSON.stringify(detail))
+}
+
 interface SandboxPromptEditorProps {
   value: string
   placeholder: string
@@ -168,10 +174,23 @@ const SandboxPromptEditor = forwardRef<HTMLDivElement, SandboxPromptEditorProps>
   }, [ref])
 
   useEffect(() => {
+    logComposerEvent('mount', { valueLength: value.length })
+    return () => logComposerEvent('unmount', {})
+    // Mount/unmount only; value is logged as of mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
     const root = editorRef.current
     if (!root) return
     const themeChanged = renderedThemeRef.current !== theme.palette.mode
     if (!themeChanged && value === lastInputValueRef.current) return
+    logComposerEvent('rerender-from-state', {
+      domLength: readSandboxPromptEditor(root).length,
+      valueLength: value.length,
+      lastInputLength: lastInputValueRef.current?.length ?? null,
+      themeChanged,
+    })
     renderEditorValue(root, value, theme.palette.mode === 'dark')
     renderedThemeRef.current = theme.palette.mode
     lastInputValueRef.current = value
@@ -189,9 +208,19 @@ const SandboxPromptEditor = forwardRef<HTMLDivElement, SandboxPromptEditorProps>
       contentEditable={disabled ? false : 'plaintext-only'}
       suppressContentEditableWarning
       spellCheck={false}
+      onBeforeInput={(event) => {
+        const native = event.nativeEvent as InputEvent
+        logComposerEvent('beforeinput', { inputType: native.inputType, dataLength: native.data?.length ?? null })
+      }}
       onInput={(event) => {
         const root = event.currentTarget
         const nextValue = readSandboxPromptEditor(root)
+        const native = event.nativeEvent as InputEvent
+        logComposerEvent('input', {
+          inputType: native.inputType,
+          dataLength: native.data?.length ?? null,
+          valueLength: nextValue.length,
+        })
         lastInputValueRef.current = nextValue
         onValueChange(nextValue, getSandboxPromptEditorCursor(root))
       }}
@@ -206,7 +235,23 @@ const SandboxPromptEditor = forwardRef<HTMLDivElement, SandboxPromptEditorProps>
       onMouseUp={(event) => onCursorChange(getSandboxPromptEditorCursor(event.currentTarget))}
       onFocus={onFocus}
       onBlur={onBlur}
-      onPaste={onPaste}
+      onPaste={(event) => {
+        const root = event.currentTarget
+        const selection = window.getSelection()
+        logComposerEvent('paste', {
+          editorFocused: document.activeElement === root,
+          caretInEditor: !!selection?.anchorNode && root.contains(selection.anchorNode),
+          domLength: readSandboxPromptEditor(root).length,
+        })
+        onPaste(event)
+        window.setTimeout(() => {
+          logComposerEvent('paste+400ms', {
+            prevented: event.defaultPrevented,
+            domLength: readSandboxPromptEditor(root).length,
+            editorStillMounted: root.isConnected,
+          })
+        }, 400)
+      }}
       sx={{
         width: '100%',
         border: 'none',
