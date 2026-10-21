@@ -61,6 +61,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import { Api } from '../../api/api'
 import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
+import { mightBePlaceholderClipboardImage } from '../../utils/clipboardPlaceholder'
 import {
   nextQueueVisibilityDeadline,
   selectVisibleQueuedPrompts,
@@ -85,6 +86,7 @@ import {
   filesFromClipboard,
   PendingChatAttachment,
   validateChatAttachmentFiles,
+  withoutPlaceholderImages,
 } from './chatAttachments'
 import {
   appendWorkspaceReviewComments,
@@ -1312,19 +1314,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
     if (!attachmentsEnabled) return
 
-    const clipboardFiles = filesFromClipboard(e.clipboardData)
-    if (clipboardFiles.length > 0) {
-      e.preventDefault()
-      addFilesAsAttachments(clipboardFiles)
-      return
-    }
-
-    // Check for large text paste - convert to text file attachment
     const pastedText = e.clipboardData?.getData('text/plain')
-    if (handleFileUploadCallback && pastedText && pastedText.length > LARGE_TEXT_THRESHOLD) {
-      e.preventDefault()
+    const isLargeText = !!handleFileUploadCallback && !!pastedText && pastedText.length > LARGE_TEXT_THRESHOLD
+
+    // Convert a large text paste into a text file attachment.
+    const attachLargeText = (text: string) => {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-      const file = new File([pastedText], `pasted-text-${timestamp}.txt`, { type: 'text/plain' })
+      const file = new File([text], `pasted-text-${timestamp}.txt`, { type: 'text/plain' })
       addFilesAsAttachments([file])
       // Add a note to the draft about the attached file
       const note = '[Large text pasted as attachment]'
@@ -1332,6 +1328,55 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         const needsSpace = draft.length > 0 && !draft.startsWith(' ') && !draft.startsWith('\n')
         setDraft(note + (needsSpace ? ' ' : '') + draft)
       }
+    }
+
+    const clipboardFiles = filesFromClipboard(e.clipboardData)
+    const placeholderCandidate = !!pastedText && clipboardFiles.some(mightBePlaceholderClipboardImage)
+    console.info('[Composer paste]', {
+      types: Array.from(e.clipboardData?.types ?? []),
+      files: clipboardFiles.map((file) => `${file.type || 'unknown'}:${file.size}`),
+      textLength: pastedText?.length ?? 0,
+      path: placeholderCandidate ? 'placeholder-check' : clipboardFiles.length > 0 ? 'attach-files' : 'native',
+    })
+
+    if (placeholderCandidate && pastedText) {
+      // A desktop copy on Safari carries a 1x1 placeholder PNG next to its
+      // text, recognisable only by reading the PNG header. The native paste
+      // has to be cancelled before that async read, so the text must always
+      // land: on any read failure, or if the browser refuses the insert,
+      // write it into the draft directly.
+      e.preventDefault()
+      const target = e.currentTarget
+      const insertText = () => {
+        target.focus()
+        if (!document.execCommand('insertText', false, pastedText)) {
+          const needsSpace = draft.length > 0 && !/\s$/.test(draft)
+          setDraft(draft + (needsSpace ? ' ' : '') + pastedText)
+        }
+      }
+      void withoutPlaceholderImages(clipboardFiles)
+        .catch(() => clipboardFiles.filter((file) => !mightBePlaceholderClipboardImage(file)))
+        .then((files) => {
+          if (files.length > 0) {
+            addFilesAsAttachments(files)
+          } else if (isLargeText) {
+            attachLargeText(pastedText)
+          } else {
+            insertText()
+          }
+        })
+      return
+    }
+
+    if (clipboardFiles.length > 0) {
+      e.preventDefault()
+      addFilesAsAttachments(clipboardFiles)
+      return
+    }
+
+    if (pastedText && isLargeText) {
+      e.preventDefault()
+      attachLargeText(pastedText)
     }
   }, [addFilesAsAttachments, attachmentsEnabled, handleFileUploadCallback, setDraft, draft])
 

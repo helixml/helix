@@ -15,6 +15,18 @@ Object.defineProperty(window, 'isSecureContext', {
   value: true,
 });
 
+// jsdom's Blob predates Blob.arrayBuffer(), which every supported browser has.
+if (typeof Blob.prototype.arrayBuffer !== 'function') {
+  Blob.prototype.arrayBuffer = function arrayBuffer(this: Blob) {
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as ArrayBuffer)
+      reader.onerror = () => reject(reader.error)
+      reader.readAsArrayBuffer(this)
+    })
+  }
+}
+
 // Stub localStorage if not fully provided by jsdom
 if (!global.localStorage || typeof global.localStorage.clear !== 'function') {
   const store: Record<string, string> = {};
