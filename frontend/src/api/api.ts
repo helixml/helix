@@ -2431,14 +2431,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindCron = "cron",
-  KindLocal = "local",
-  KindHelixEvents = "helix_events",
-  KindEmail = "email",
-  KindWebhook = "webhook",
   KindGitLab = "gitlab",
   KindGitHub = "github",
+  KindCron = "cron",
   KindSlack = "slack",
+  KindWebhook = "webhook",
+  KindHelixEvents = "helix_events",
+  KindLocal = "local",
+  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -2652,6 +2652,12 @@ export interface TypesAggregatedUsageMetric {
 export interface TypesApiKey {
   app_id?: SqlNullString;
   created?: string;
+  /**
+   * EmbedInteractive lets an embed key also DRIVE its one session's desktop
+   * (keyboard, mouse, clipboard). Off for public embeds; set for an operator
+   * that embeds a tenant's own agent for that tenant. Ignored on other types.
+   */
+  embed_interactive?: boolean;
   key?: string;
   name?: string;
   /** Used for isolation and metrics tracking */
@@ -8882,6 +8888,8 @@ export interface TypesUser {
   deactivated?: boolean;
   deleted_at?: GormDeletedAt;
   email?: string;
+  /** EmbedInteractive: an embed key that may drive its bound session's desktop. */
+  embed_interactive?: boolean;
   full_name?: string;
   git_commit_email?: string;
   /**

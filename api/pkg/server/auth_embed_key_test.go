@@ -399,3 +399,54 @@ func TestSessionOnlyEmbedKeyCannotDriveTheDesktop(t *testing.T) {
 		}
 	}
 }
+
+// An INTERACTIVE embed key may drive its own session's desktop — the input
+// socket and the clipboard — and nothing else it could not already reach.
+func TestInteractiveEmbedKeyDrivesOnlyItsOwnDesktop(t *testing.T) {
+	u := embedUser()
+	u.EmbedInteractive = true
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/api/v1/external-agents/ses_A/ws/input"},
+		{"GET", "/api/v1/external-agents/ses_A/clipboard"},
+		{"POST", "/api/v1/external-agents/ses_A/clipboard"},
+	} {
+		if !embedKeyAllows(u, req(c.method, c.path)) {
+			t.Errorf("interactive embed key denied %s %s on its own session", c.method, c.path)
+		}
+	}
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/api/v1/external-agents/ses_B/ws/input"},
+		{"POST", "/api/v1/external-agents/ses_B/clipboard"},
+		{"GET", "/api/v1/sessions/ses_A/terminal"},
+		{"GET", "/api/v1/external-agents/ses_A/screenshot"},
+		{"PUT", "/api/v1/spec-tasks/spt_A"},
+		{"GET", "/api/v1/spec-tasks"},
+	} {
+		if embedKeyAllows(u, req(c.method, c.path)) {
+			t.Errorf("SECURITY: interactive embed key allowed %s %s", c.method, c.path)
+		}
+	}
+	// A session-less key has no desktop to drive.
+	noSession := &types.User{ID: "user_service", APIKeyType: types.APIkeytypeEmbed, SpecTaskID: "spt_A", EmbedInteractive: true}
+	if embedKeyAllows(noSession, req("GET", "/api/v1/external-agents/ses_A/ws/input")) {
+		t.Error("SECURITY: interactive key without a session reached a desktop")
+	}
+}
+
+// The video socket keeps input for interactive embed keys only.
+func TestDesktopStreamReadOnlyFollowsInteractive(t *testing.T) {
+	ro := embedUser()
+	rw := embedUser()
+	rw.EmbedInteractive = true
+	full := &types.User{ID: "user_owner", APIKeyType: types.APIkeytypeAPI}
+	for name, c := range map[string]struct {
+		u    *types.User
+		want bool
+	}{"embed": {ro, true}, "interactive embed": {rw, false}, "api key": {full, false}} {
+		r := httptest.NewRequest("GET", "/api/v1/external-agents/ses_A/ws/stream", nil)
+		r = r.WithContext(setRequestUser(r.Context(), *c.u))
+		if got := desktopStreamIsReadOnly(r); got != c.want {
+			t.Errorf("%s: read-only %v, want %v", name, got, c.want)
+		}
+	}
+}

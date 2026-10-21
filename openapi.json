@@ -34285,24 +34285,24 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
-                    "cron",
-                    "local",
-                    "helix_events",
-                    "email",
-                    "webhook",
                     "gitlab",
                     "github",
-                    "slack"
+                    "cron",
+                    "slack",
+                    "webhook",
+                    "helix_events",
+                    "local",
+                    "email"
                 ],
                 "x-enum-varnames": [
-                    "KindCron",
-                    "KindLocal",
-                    "KindHelixEvents",
-                    "KindEmail",
-                    "KindWebhook",
                     "KindGitLab",
                     "KindGitHub",
-                    "KindSlack"
+                    "KindCron",
+                    "KindSlack",
+                    "KindWebhook",
+                    "KindHelixEvents",
+                    "KindLocal",
+                    "KindEmail"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -34817,6 +34817,10 @@
                     },
                     "created": {
                         "type": "string"
+                    },
+                    "embed_interactive": {
+                        "description": "EmbedInteractive lets an embed key also DRIVE its one session's desktop\n(keyboard, mouse, clipboard). Off for public embeds; set for an operator\nthat embeds a tenant's own agent for that tenant. Ignored on other types.",
+                        "type": "boolean"
                     },
                     "key": {
                         "type": "string"
@@ -48093,6 +48097,10 @@
                     },
                     "email": {
                         "type": "string"
+                    },
+                    "embed_interactive": {
+                        "description": "EmbedInteractive: an embed key that may drive its bound session's desktop.",
+                        "type": "boolean"
                     },
                     "full_name": {
                         "type": "string"

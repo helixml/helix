@@ -247,6 +247,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.ProjectID = apiKey.ProjectID
 		user.SpecTaskID = apiKey.SpecTaskID
 		user.SessionID = apiKey.SessionID
+		user.EmbedInteractive = apiKey.Type == types.APIkeytypeEmbed && apiKey.EmbedInteractive
 		user.OrganizationID = apiKey.OrganizationID
 
 		// Ensure user_meta exists with slug for GitHub-style URLs
