@@ -161,28 +161,14 @@ func (s *Server) enableClipboardGNOME() error {
 }
 
 // handleSelectionOwnerChanged records what the new clipboard owner offers.
-// SelectionOwnerChanged signal: (options: a{sv}) with "mime-types" (as) and
-// "session-is-owner" (b).
 func (s *Server) handleSelectionOwnerChanged(sig *dbus.Signal) {
-	if sig.Path != s.rdSessionPath || len(sig.Body) < 1 {
+	if sig.Path != s.rdSessionPath {
 		return
 	}
-	options, ok := sig.Body[0].(map[string]dbus.Variant)
-	if !ok {
-		s.logger.Warn("SelectionOwnerChanged: invalid options")
+	mimeTypes, sessionOwned, err := parseSelectionOwnerChanged(sig.Body)
+	if err != nil {
+		s.logger.Warn("SelectionOwnerChanged: invalid signal", "err", err)
 		return
-	}
-
-	var mimeTypes []string
-	if v, ok := options["mime-types"]; ok {
-		if err := v.Store(&mimeTypes); err != nil {
-			s.logger.Warn("SelectionOwnerChanged: invalid mime-types", "err", err)
-			return
-		}
-	}
-	var sessionOwned bool
-	if v, ok := options["session-is-owner"]; ok {
-		_ = v.Store(&sessionOwned)
 	}
 
 	s.clipboardMu.Lock()
@@ -191,6 +177,33 @@ func (s *Server) handleSelectionOwnerChanged(sig *dbus.Signal) {
 	s.clipboardMu.Unlock()
 
 	s.logger.Debug("clipboard owner changed", "mime_types", mimeTypes, "session_is_owner", sessionOwned)
+}
+
+// parseSelectionOwnerChanged decodes a SelectionOwnerChanged signal body:
+// (options: a{sv}) with "mime-types" and "session-is-owner" (b). Mutter sends
+// "mime-types" as a one-field struct wrapping the list, (as), not a bare as.
+// The options are empty when the selection is cleared.
+func parseSelectionOwnerChanged(body []interface{}) (mimeTypes []string, sessionOwned bool, err error) {
+	if len(body) < 1 {
+		return nil, false, fmt.Errorf("empty body")
+	}
+	options, ok := body[0].(map[string]dbus.Variant)
+	if !ok {
+		return nil, false, fmt.Errorf("options are %T, not a{sv}", body[0])
+	}
+	if v, ok := options["mime-types"]; ok {
+		var wrapped struct{ MimeTypes []string }
+		if err := v.Store(&wrapped); err != nil {
+			return nil, false, fmt.Errorf("mime-types (%s): %w", v.Signature(), err)
+		}
+		mimeTypes = wrapped.MimeTypes
+	}
+	if v, ok := options["session-is-owner"]; ok {
+		if err := v.Store(&sessionOwned); err != nil {
+			return nil, false, fmt.Errorf("session-is-owner (%s): %w", v.Signature(), err)
+		}
+	}
+	return mimeTypes, sessionOwned, nil
 }
 
 func (s *Server) getClipboardGNOME() (*ClipboardData, error) {

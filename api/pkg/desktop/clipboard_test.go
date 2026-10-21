@@ -3,6 +3,7 @@ package desktop
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/godbus/dbus/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -186,4 +188,61 @@ func TestImageFileFromURIList_RejectsAnythingButOneLocalImage(t *testing.T) {
 	got, ok := imageFileFromURIList([]byte("# comment\n" + fileURI(a) + "\n"))
 	assert.True(t, ok, "comment lines are ignored")
 	assert.NotEmpty(t, got)
+}
+
+// selectionOwnerChangedBody round-trips a SelectionOwnerChanged signal through
+// the D-Bus wire format, so the test sees the body exactly as godbus decodes it.
+func selectionOwnerChangedBody(t *testing.T, options map[string]dbus.Variant) []interface{} {
+	t.Helper()
+	msg := &dbus.Message{
+		Type: dbus.TypeSignal,
+		Headers: map[dbus.HeaderField]dbus.Variant{
+			dbus.FieldPath:      dbus.MakeVariant(dbus.ObjectPath("/org/gnome/Mutter/RemoteDesktop/Session/u1")),
+			dbus.FieldInterface: dbus.MakeVariant(remoteDesktopSessionIface),
+			dbus.FieldMember:    dbus.MakeVariant("SelectionOwnerChanged"),
+			dbus.FieldSignature: dbus.MakeVariant(dbus.SignatureOf(options)),
+		},
+		Body: []interface{}{options},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, msg.EncodeTo(&buf, binary.LittleEndian))
+	decoded, err := dbus.DecodeMessage(&buf)
+	require.NoError(t, err)
+	return decoded.Body
+}
+
+func TestParseSelectionOwnerChanged_MutterWireFormat(t *testing.T) {
+	// As captured with dbus-monitor from Mutter after a Ctrl+C in Loupe:
+	// mime-types is a variant holding the struct (as).
+	loupe := []string{"application/vnd.portal.files", "application/vnd.portal.filetransfer", "text/uri-list", "text/plain;charset=utf-8"}
+	body := selectionOwnerChangedBody(t, map[string]dbus.Variant{
+		"mime-types":       dbus.MakeVariant(struct{ MimeTypes []string }{loupe}),
+		"session-is-owner": dbus.MakeVariant(false),
+	})
+	require.Equal(t, "(as)", body[0].(map[string]dbus.Variant)["mime-types"].Signature().String())
+
+	mimeTypes, sessionOwned, err := parseSelectionOwnerChanged(body)
+	require.NoError(t, err)
+	assert.Equal(t, loupe, mimeTypes)
+	assert.False(t, sessionOwned)
+}
+
+func TestParseSelectionOwnerChanged_SessionOwner(t *testing.T) {
+	body := selectionOwnerChangedBody(t, map[string]dbus.Variant{
+		"mime-types":       dbus.MakeVariant(struct{ MimeTypes []string }{[]string{"image/png"}}),
+		"session-is-owner": dbus.MakeVariant(true),
+	})
+
+	mimeTypes, sessionOwned, err := parseSelectionOwnerChanged(body)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"image/png"}, mimeTypes)
+	assert.True(t, sessionOwned)
+}
+
+func TestParseSelectionOwnerChanged_ClearedSelection(t *testing.T) {
+	// Mutter sends empty options when the selection is cleared.
+	mimeTypes, sessionOwned, err := parseSelectionOwnerChanged(selectionOwnerChangedBody(t, map[string]dbus.Variant{}))
+	require.NoError(t, err)
+	assert.Empty(t, mimeTypes)
+	assert.False(t, sessionOwned)
 }
