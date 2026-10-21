@@ -174,11 +174,12 @@ const (
 	StreamMsgCursorImage = 0x50 // Cursor image data when cursor changes
 	StreamMsgCursorName  = 0x51 // CSS cursor name for fallback rendering (when pixels unavailable)
 	// Multi-user cursor message types (server → all clients)
-	StreamMsgRemoteCursor = 0x53 // Remote user cursor position
-	StreamMsgRemoteUser   = 0x54 // Remote user joined/left
-	StreamMsgAgentCursor  = 0x55 // AI agent cursor position/action
-	StreamMsgRemoteTouch  = 0x56 // Remote user touch event
-	StreamMsgSelfId       = 0x58 // Tell client their own clientId
+	StreamMsgRemoteCursor     = 0x53 // Remote user cursor position
+	StreamMsgRemoteUser       = 0x54 // Remote user joined/left
+	StreamMsgAgentCursor      = 0x55 // AI agent cursor position/action
+	StreamMsgRemoteTouch      = 0x56 // Remote user touch event
+	StreamMsgSelfId           = 0x58 // Tell client their own clientId
+	StreamMsgClipboardChanged = 0x59 // The desktop's clipboard changed (not by a paste from a viewer)
 )
 
 // Video codec types

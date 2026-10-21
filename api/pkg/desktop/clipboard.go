@@ -177,6 +177,12 @@ func (s *Server) handleSelectionOwnerChanged(sig *dbus.Signal) {
 	s.clipboardMu.Unlock()
 
 	s.logger.Debug("clipboard owner changed", "mime_types", mimeTypes, "session_is_owner", sessionOwned)
+
+	// A paste from a viewer (the bridge owns the selection) is already on that
+	// viewer's clipboard; an empty offer is the selection being cleared.
+	if !sessionOwned && len(mimeTypes) > 0 {
+		GetSessionRegistry().BroadcastClipboardChanged()
+	}
 }
 
 // parseSelectionOwnerChanged decodes a SelectionOwnerChanged signal body:
