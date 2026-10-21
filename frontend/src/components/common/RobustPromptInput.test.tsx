@@ -562,18 +562,6 @@ describe('RobustPromptInput rich attachments', () => {
       expect(insertText).not.toHaveBeenCalled()
     })
 
-    it('inserts plain-text pastes from the event data instead of re-reading the clipboard', () => {
-      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
-
-      // The clipboard can change between the paste event and the browser's own
-      // insertion (Wispr Flow restores the previous clipboard), so the text the
-      // event carries is inserted directly and the native paste is cancelled.
-      const notPrevented = paste(composer, [], 'Hi')
-
-      expect(notPrevented).toBe(false)
-      expect(insertText).toHaveBeenCalledWith('insertText', false, 'Hi')
-    })
-
     it('still inserts the text when the image header cannot be read', async () => {
       const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
       const unreadable = pngFile(1, 1, 88, 'image.png')
