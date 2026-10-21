@@ -49,5 +49,8 @@ func desktopStreamIsReadOnly(r *http.Request) bool {
 		// ever does, watching is the safe interpretation.
 		return true
 	}
-	return user.APIKeyType == types.APIkeytypeEmbed
+	// An interactive embed key belongs to the desktop's operator (a tenant
+	// driving its own agent), so it keeps input; it is still bound to one
+	// session by embedKeyAllows.
+	return user.APIKeyType == types.APIkeytypeEmbed && !user.EmbedInteractive
 }

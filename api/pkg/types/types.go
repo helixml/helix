@@ -1043,6 +1043,10 @@ type ApiKey struct { //nolint:revive
 	ProjectID      string          `json:"project_id"`      // Used for isolation and metrics tracking
 	SpecTaskID     string          `json:"spec_task_id"`    // Used for isolation and metrics tracking
 	SessionID      string          `json:"session_id"`      // Session this key is scoped to (ephemeral keys)
+	// EmbedInteractive lets an embed key also DRIVE its one session's desktop
+	// (keyboard, mouse, clipboard). Off for public embeds; set for an operator
+	// that embeds a tenant's own agent for that tenant. Ignored on other types.
+	EmbedInteractive bool `json:"embed_interactive,omitempty"`
 }
 
 type OwnerContext struct {

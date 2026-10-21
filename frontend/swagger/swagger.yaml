@@ -3766,24 +3766,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - cron
-    - local
-    - helix_events
-    - email
-    - webhook
     - gitlab
     - github
+    - cron
     - slack
+    - webhook
+    - helix_events
+    - local
+    - email
     type: string
     x-enum-varnames:
-    - KindCron
-    - KindLocal
-    - KindHelixEvents
-    - KindEmail
-    - KindWebhook
     - KindGitLab
     - KindGitHub
+    - KindCron
     - KindSlack
+    - KindWebhook
+    - KindHelixEvents
+    - KindLocal
+    - KindEmail
   transport.ResolvedActivation:
     properties:
       address:
@@ -4139,6 +4139,12 @@ definitions:
         $ref: '#/definitions/sql.NullString'
       created:
         type: string
+      embed_interactive:
+        description: |-
+          EmbedInteractive lets an embed key also DRIVE its one session's desktop
+          (keyboard, mouse, clipboard). Off for public embeds; set for an operator
+          that embeds a tenant's own agent for that tenant. Ignored on other types.
+        type: boolean
       key:
         type: string
       name:
@@ -14065,6 +14071,10 @@ definitions:
         $ref: '#/definitions/gorm.DeletedAt'
       email:
         type: string
+      embed_interactive:
+        description: 'EmbedInteractive: an embed key that may drive its bound session''s
+          desktop.'
+        type: boolean
       full_name:
         type: string
       git_commit_email:

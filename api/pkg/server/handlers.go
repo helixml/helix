@@ -1105,12 +1105,21 @@ func (apiServer *HelixAPIServer) adminMintUserAPIKey(_ http.ResponseWriter, req 
 		}
 		keyType = types.APIkeytypeEmbed
 	}
+	// interactive=true: the embed may also drive its session's desktop. Only for
+	// an embed key, and only with a session to drive. Callers put "interactive"
+	// in the key name so the (user, name) idempotency above never hands a
+	// read-only key back for an interactive request or the reverse.
+	interactive := req.URL.Query().Get("interactive") == "true"
+	if interactive && (keyType != types.APIkeytypeEmbed || sessionID == "") {
+		return nil, system.NewHTTPError400("interactive=true needs type=embed and a session_id: it lets the key drive that session's desktop")
+	}
 
 	created, err := apiServer.Controller.CreateAPIKey(ctx, targetUser, &types.ApiKey{
-		Name:       name,
-		Type:       keyType,
-		SpecTaskID: specTaskID,
-		SessionID:  sessionID,
+		Name:             name,
+		Type:             keyType,
+		SpecTaskID:       specTaskID,
+		SessionID:        sessionID,
+		EmbedInteractive: interactive,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to create API key: " + err.Error())
