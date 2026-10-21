@@ -254,7 +254,25 @@ interface SpecTaskDetailContentProps {
    * visible instances mirror the same URL param.
    */
   syncViewWithUrl?: boolean;
+  /**
+   * Hide everything that operates the TASK (accept, start/stop/restart the
+   * desktop, the actions menu, the terminal). For embeds whose viewer may chat
+   * and watch or drive the desktop but not manage the task — an embed key
+   * cannot, so those controls would only fail.
+   */
+  hideControls?: boolean;
 }
+
+// What hideControls switches off on the view toolbar.
+const embedControlOverrides = {
+  showStart: false,
+  showStop: false,
+  showRestart: false,
+  showKeepAlive: false,
+  showUpload: false,
+  renderMenuItems: undefined,
+  onToggleTerminal: undefined,
+};
 
 const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
@@ -266,6 +284,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   onClose,
   onTaskArchived,
   syncViewWithUrl = true,
+  hideControls = false,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
@@ -1528,7 +1547,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     variant: "inline" | "stacked",
     density: ToolbarDensity = "comfortable",
   ) => {
-    if (!task) return null;
+    if (!task || hideControls) return null;
 
     return (
       <SpecTaskActionButtons
@@ -2986,6 +3005,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     allowContentCollapse ? collapseContentPanel : undefined
                   }
                   onClosePanel={allowContentCollapse ? undefined : onClose}
+                  {...(hideControls ? embedControlOverrides : {})}
                 />
 
                 {/* In split-view layout, "chat" falls through to desktop since chat
@@ -3152,6 +3172,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 onClosePanel={
                   allowContentCollapse && isBigScreen ? undefined : onClose
                 }
+                {...(hideControls ? embedControlOverrides : {})}
               />
             )}
 
