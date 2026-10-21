@@ -119,6 +119,13 @@ var gnomeTextMimeTypes = []string{"text/plain;charset=utf-8", "text/plain", "UTF
 // time a session starts, including after recreation, because both the clipboard
 // enablement and the signal match are per session.
 func (s *Server) enableClipboardGNOME() error {
+	// Forget the previous session's owner first, so a failed enable can't leave
+	// stale clipboard state behind for the new session.
+	s.clipboardMu.Lock()
+	s.clipboardOffer = nil
+	s.clipboardSessionOwned = false
+	s.clipboardMu.Unlock()
+
 	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 	if err := rdSession.Call(remoteDesktopSessionIface+".EnableClipboard", 0, map[string]dbus.Variant{}).Err; err != nil {
 		return fmt.Errorf("EnableClipboard: %w", err)
@@ -133,11 +140,6 @@ func (s *Server) enableClipboardGNOME() error {
 			return fmt.Errorf("subscribe to %s: %w", member, err)
 		}
 	}
-
-	s.clipboardMu.Lock()
-	s.clipboardOffer = nil
-	s.clipboardSessionOwned = false
-	s.clipboardMu.Unlock()
 
 	s.clipboardSignalsOnce.Do(func() {
 		signalChan := make(chan *dbus.Signal, 10)

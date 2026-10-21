@@ -620,8 +620,11 @@ func (s *Server) startSession(ctx context.Context) error {
 	if err := rdSession.Call(remoteDesktopSessionIface+".Start", 0).Err; err != nil {
 		return fmt.Errorf("start RemoteDesktop session: %w", err)
 	}
+	// Clipboard sync is not worth losing the desktop over: without it copy and
+	// paste between the browser and the desktop stop working, but video and
+	// input are unaffected. Same treatment as the scanout path in desktop.go.
 	if err := s.enableClipboardGNOME(); err != nil {
-		return fmt.Errorf("enable clipboard: %w", err)
+		s.logger.Warn("failed to enable clipboard, copy/paste with the desktop will not work", "err", err)
 	}
 	s.logger.Info("session started, waiting for PipeWireStreamAdded signal...")
 
