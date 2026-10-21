@@ -99,6 +99,14 @@ export type ClipboardWritePayload =
   | { mime: "text/plain"; text: string }
   | { mime: "image/png"; base64: string };
 
+type ClipboardToastAction = { label: string; onClick: () => void };
+
+// A desktop clipboard change is copied to the local clipboard only if this
+// viewer had input this recently: a copy made with a button or menu in the
+// desktop lands milliseconds after the click, while an agent's or another
+// viewer's copy must not overwrite the clipboard of someone not using it.
+const DESKTOP_COPY_INPUT_WINDOW_MS = 10_000;
+
 async function clipboardWrite(payload: ClipboardWritePayload): Promise<void> {
   // Prefer the direct Async Clipboard API. It works both in a top-level tab and
   // in a cross-origin iframe when the embedding host delegates clipboard-write
@@ -635,6 +643,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     message: string;
     type: "success" | "error";
     visible: boolean;
+    action?: ClipboardToastAction;
   }>({ message: "", type: "success", visible: false });
 
   // Video start timeout - detect GStreamer pipeline failures that cause hangs
@@ -749,16 +758,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // Show clipboard toast notification
   const showClipboardToast = useCallback(
-    (message: string, type: "success" | "error") => {
+    (
+      message: string,
+      type: "success" | "error",
+      action?: ClipboardToastAction,
+    ) => {
       // Clear any existing timeout
       if (clipboardToastTimeoutRef.current) {
         clearTimeout(clipboardToastTimeoutRef.current);
       }
 
-      setClipboardToast({ message, type, visible: true });
+      setClipboardToast({ message, type, visible: true, action });
 
-      // Auto-hide after delay (longer for errors so user can read the reason)
-      const hideDelay = type === "error" ? 4000 : 2000;
+      // Auto-hide after delay (longer for errors so user can read the reason,
+      // and for actions so there is time to click)
+      const hideDelay = action ? 10000 : type === "error" ? 4000 : 2000;
       clipboardToastTimeoutRef.current = setTimeout(() => {
         setClipboardToast((prev) => ({ ...prev, visible: false }));
       }, hideDelay);
@@ -770,6 +784,77 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   );
 
   const helixApi = useApi();
+
+  // Copies made inside the desktop with a button or menu (not Ctrl+C in the
+  // viewer, which the key handler below fetches itself) are announced by the
+  // bridge as clipboardChanged events and copied to the local clipboard here.
+  const lastViewerInputRef = useRef(0);
+  const copyInFlightRef = useRef(false);
+  const lastSyncedClipboardHashRef = useRef("");
+  const clipboardSyncRunningRef = useRef(false);
+  const clipboardResyncRef = useRef(false);
+
+  const syncDesktopClipboardOnce = async () => {
+    const sessionId = sessionIdRef.current;
+    if (!sessionId || copyInFlightRef.current || !document.hasFocus()) return;
+    if (Date.now() - lastViewerInputRef.current > DESKTOP_COPY_INPUT_WINDOW_MS) {
+      return;
+    }
+    const { data } = await helixApi
+      .getApiClient()
+      .v1ExternalAgentsClipboardDetail(sessionId);
+    const hash = hashClipboardData(data);
+    if (!hash || hash === lastSyncedClipboardHashRef.current) return;
+    const kind = data.type === "image" ? "image" : "text";
+    const payload: ClipboardWritePayload =
+      data.type === "image"
+        ? { mime: "image/png", base64: data.data! }
+        : { mime: "text/plain", text: data.data! };
+    try {
+      await clipboardWrite(payload);
+      lastSyncedClipboardHashRef.current = hash;
+      showClipboardToast(`Copied ${kind} from desktop`, "success");
+    } catch (err) {
+      // Safari, and Firefox outside its user-activation window, only write
+      // the clipboard from a click.
+      console.warn("[Clipboard] desktop copy needs a click to sync:", err);
+      showClipboardToast(`Desktop copied ${kind}`, "success", {
+        label: "Copy",
+        onClick: () => {
+          clipboardWrite(payload)
+            .then(() => {
+              lastSyncedClipboardHashRef.current = hash;
+              showClipboardToast(`Copied ${kind}`, "success");
+            })
+            .catch(() =>
+              showClipboardToast("Local clipboard blocked", "error"),
+            );
+        },
+      });
+    }
+  };
+
+  // Mutter announces one copy as several owner changes in a burst; run one
+  // sync at a time and repeat once if more arrived meanwhile.
+  const syncDesktopClipboard = async () => {
+    if (clipboardSyncRunningRef.current) {
+      clipboardResyncRef.current = true;
+      return;
+    }
+    clipboardSyncRunningRef.current = true;
+    try {
+      do {
+        clipboardResyncRef.current = false;
+        await syncDesktopClipboardOnce();
+      } while (clipboardResyncRef.current);
+    } catch (err) {
+      console.warn("[Clipboard] desktop clipboard sync failed:", err);
+    } finally {
+      clipboardSyncRunningRef.current = false;
+    }
+  };
+  const syncDesktopClipboardRef = useRef(syncDesktopClipboard);
+  syncDesktopClipboardRef.current = syncDesktopClipboard;
   const account = useAccount();
 
   // Connect to stream
@@ -1383,6 +1468,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             next.delete(data.userId);
             return next;
           });
+        } else if (data.type === "clipboardChanged") {
+          void syncDesktopClipboardRef.current();
         } else if (data.type === "agentCursor") {
           // Always update agent cursor state (visibility handled in render based on lastSeen)
           setAgentCursor(data.agent);
@@ -4161,6 +4248,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         event.preventDefault();
         event.stopPropagation();
         const sessionId = sessionIdRef.current;
+        // This copy writes the local clipboard itself; ignore the bridge's
+        // clipboardChanged announcements for it.
+        copyInFlightRef.current = true;
         const apiClient = helixApi.getApiClient();
 
         // Snapshot the pre-copy clipboard hash in parallel with forwarding
@@ -4326,6 +4416,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             .write([clipboardItem])
             .then(() =>
               fetchPromise.then((d) => {
+                lastSyncedClipboardHashRef.current = hashClipboardData(d);
                 const kind = d?.type === "image" ? "image" : "text";
                 showClipboardToast(`Copied ${kind}`, "success");
               }),
@@ -4336,6 +4427,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 "Copied on remote — local clipboard blocked",
                 "error",
               );
+            })
+            .finally(() => {
+              copyInFlightRef.current = false;
             });
         } else {
           // Chromium/Firefox, iframes (postMessage bridge) and browsers
@@ -4349,9 +4443,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             .then(async (d) => {
               if (d?.type === "text" && d.data) {
                 await clipboardWrite({ mime: "text/plain", text: d.data });
+                lastSyncedClipboardHashRef.current = hashClipboardData(d);
                 showClipboardToast("Copied text", "success");
               } else if (d?.type === "image" && d.data) {
                 await clipboardWrite({ mime: "image/png", base64: d.data });
+                lastSyncedClipboardHashRef.current = hashClipboardData(d);
                 showClipboardToast("Copied image", "success");
               } else {
                 showClipboardToast("Clipboard empty", "error");
@@ -4364,6 +4460,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 `Copied on remote — local sync failed: ${msg}`,
                 "error",
               );
+            })
+            .finally(() => {
+              copyInFlightRef.current = false;
             });
         }
 
@@ -4602,6 +4701,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       });
     };
 
+    const markViewerInput = () => {
+      lastViewerInputRef.current = Date.now();
+    };
+
     // Reset input state when window regains focus (prevents stuck modifiers after Alt+Tab)
     const handleWindowFocus = () => {
       console.log(
@@ -4626,6 +4729,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     container.addEventListener("focusout", releaseHeldKeys);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pagehide", releaseHeldKeys);
+    container.addEventListener("pointerdown", markViewerInput, true);
+    container.addEventListener("keydown", markViewerInput, true);
     container.addEventListener("keydown", handleKeyDown);
     container.addEventListener("keyup", handleKeyUp);
     container.addEventListener("beforeinput", handleBeforeInput);
@@ -4638,6 +4743,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       container.removeEventListener("focusout", releaseHeldKeys);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", releaseHeldKeys);
+      container.removeEventListener("pointerdown", markViewerInput, true);
+      container.removeEventListener("keydown", markViewerInput, true);
       container.removeEventListener("keydown", handleKeyDown);
       container.removeEventListener("keyup", handleKeyUp);
       container.removeEventListener("beforeinput", handleBeforeInput);
@@ -5623,7 +5730,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           boxShadow: "0 4px 12px rgba(0, 0, 0, 0.4)",
           opacity: clipboardToast.visible ? 1 : 0,
           transition: "opacity 0.2s ease, transform 0.2s ease",
-          pointerEvents: "none",
+          pointerEvents:
+            clipboardToast.visible && clipboardToast.action ? "auto" : "none",
           display: "flex",
           alignItems: "center",
           gap: 1,
@@ -5637,6 +5745,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }}
       >
         {clipboardToast.type === "success" ? "✓" : "✕"} {clipboardToast.message}
+        {clipboardToast.action && (
+          <Button
+            size="small"
+            variant="contained"
+            onClick={clipboardToast.action.onClick}
+            sx={{ ml: 1, py: 0, minWidth: 0, textTransform: "none" }}
+          >
+            {clipboardToast.action.label}
+          </Button>
+        )}
       </Box>
     </Box>
   );
