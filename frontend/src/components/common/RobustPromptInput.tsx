@@ -1312,29 +1312,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // Explorer. Read the DataTransfer file list first so PDFs and other binary
   // assets follow the same upload path as images.
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
+    // Plain-text pastes are left to the app-wide handler (utils/plainTextPaste).
+    if (!attachmentsEnabled) return
+
     const pastedText = e.clipboardData?.getData('text/plain')
-
-    // Insert text this paste event already carries rather than letting the
-    // browser read the clipboard a second time to do the insertion. Chrome
-    // re-reads the system clipboard after the paste event; if it changed in
-    // between (dictation apps like Wispr Flow restore the previous clipboard
-    // right after pasting) the paste silently inserts nothing.
-    const insertText = (target: HTMLElement, text: string) => {
-      target.focus()
-      if (!document.execCommand('insertText', false, text)) {
-        const needsSpace = draft.length > 0 && !/\s$/.test(draft)
-        setDraft(draft + (needsSpace ? ' ' : '') + text)
-      }
-    }
-
-    if (!attachmentsEnabled) {
-      if (pastedText) {
-        e.preventDefault()
-        insertText(e.currentTarget, pastedText)
-      }
-      return
-    }
-
     const isLargeText = !!handleFileUploadCallback && !!pastedText && pastedText.length > LARGE_TEXT_THRESHOLD
 
     // Convert a large text paste into a text file attachment.
@@ -1352,13 +1333,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
     const clipboardFiles = filesFromClipboard(e.clipboardData)
     const placeholderCandidate = !!pastedText && clipboardFiles.some(mightBePlaceholderClipboardImage)
-    console.info('[Composer paste]', {
-      types: Array.from(e.clipboardData?.types ?? []),
-      files: clipboardFiles.map((file) => `${file.type || 'unknown'}:${file.size}`),
-      textLength: pastedText?.length ?? 0,
-      path: placeholderCandidate ? 'placeholder-check' : clipboardFiles.length > 0 ? 'attach-files' : pastedText ? 'insert-text' : 'native',
-    })
-
     if (placeholderCandidate && pastedText) {
       // A desktop copy on Safari carries a 1x1 placeholder PNG next to its
       // text, recognisable only by reading the PNG header. The native paste
@@ -1367,6 +1341,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       // write it into the draft directly.
       e.preventDefault()
       const target = e.currentTarget
+      const insertText = () => {
+        target.focus()
+        if (!document.execCommand('insertText', false, pastedText)) {
+          const needsSpace = draft.length > 0 && !/\s$/.test(draft)
+          setDraft(draft + (needsSpace ? ' ' : '') + pastedText)
+        }
+      }
       void withoutPlaceholderImages(clipboardFiles)
         .catch(() => clipboardFiles.filter((file) => !mightBePlaceholderClipboardImage(file)))
         .then((files) => {
@@ -1375,7 +1356,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           } else if (isLargeText) {
             attachLargeText(pastedText)
           } else {
-            insertText(target, pastedText)
+            insertText()
           }
         })
       return
@@ -1387,12 +1368,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       return
     }
 
-    if (!pastedText) return
-    e.preventDefault()
-    if (isLargeText) {
+    if (pastedText && isLargeText) {
+      e.preventDefault()
       attachLargeText(pastedText)
-    } else {
-      insertText(e.currentTarget, pastedText)
     }
   }, [addFilesAsAttachments, attachmentsEnabled, handleFileUploadCallback, setDraft, draft])
 
