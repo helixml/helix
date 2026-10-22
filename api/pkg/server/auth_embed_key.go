@@ -132,6 +132,10 @@ var embedRules = []embedRule{
 var embedInteractiveRules = []embedRule{
 	{methods: []string{"GET"}, prefix: "/api/v1/external-agents/", suffix: "/ws/input", scope: scopeSession},
 	{methods: []string{"GET", "POST"}, prefix: "/api/v1/external-agents/", suffix: "/clipboard", scope: scopeSession},
+	// Starting the desktop again once it has stopped (Helix restarted, or the
+	// sandbox idled out). Without it the operator sees "Desktop paused" with a
+	// Start button that is refused, and has to abandon the run.
+	{methods: []string{"POST"}, prefix: "/api/v1/sessions/", suffix: "/resume", scope: scopeSession},
 }
 
 // embedBodyRules covers endpoints whose subject is in the JSON body rather than
