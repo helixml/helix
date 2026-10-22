@@ -15,8 +15,9 @@ func TestParseSandboxMaxSandboxes(t *testing.T) {
 		{value: "", want: 0, ok: true},
 		{value: " 1 ", want: 1, ok: true},
 		{value: "20", want: 20, ok: true},
-		{value: "0", want: 0, ok: false},
-		{value: "-1", want: 0, ok: false},
+		{value: "0", want: 0, ok: true},
+		{value: "-1", want: -1, ok: true},
+		{value: "-2", want: 0, ok: false},
 		{value: "invalid", want: 0, ok: false},
 	}
 

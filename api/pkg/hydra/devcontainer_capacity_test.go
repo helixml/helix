@@ -166,6 +166,31 @@ func TestCreateDevContainerEnforcesRunnerCapacity(t *testing.T) {
 	require.ErrorContains(t, err, "runner is at capacity (1/1 dev containers)")
 }
 
+func TestCreateDevContainerUnlimitedRunnerOverridesAPICapacity(t *testing.T) {
+	t.Setenv("HELIX_DISK_PRESSURE_ENABLED", "false")
+	resetDiskPressureConfig()
+	t.Cleanup(resetDiskPressureConfig)
+
+	socketPath := newUnixDockerListServer(t, `[{"Id":"existing","Names":["/ubuntu-external-existing"],"Labels":{"helix.session_id":"ses_existing"}}]`)
+	dm := &DevContainerManager{
+		containers:         make(map[string]*DevContainer),
+		creatingContainers: make(map[string]chan struct{}),
+		maxSandboxes:       -1,
+	}
+	_, err := dm.CreateDevContainer(context.Background(), &CreateDevContainerRequest{
+		SessionID:           "ses_new",
+		Image:               "ubuntu:22.04",
+		ContainerName:       "ubuntu-external-new",
+		ContainerType:       DevContainerTypeHeadless,
+		DockerSocket:        socketPath,
+		SkipImageValidation: true,
+		MaxSandboxes:        1,
+		Network:             "forbidden",
+	})
+	require.ErrorContains(t, err, "unsupported sandbox network")
+	assert.NotContains(t, err.Error(), "runner is at capacity")
+}
+
 func TestCreateDevContainerFailureReleasesRunnerCapacity(t *testing.T) {
 	t.Setenv("HELIX_DISK_PRESSURE_ENABLED", "false")
 	resetDiskPressureConfig()

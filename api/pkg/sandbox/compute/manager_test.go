@@ -770,6 +770,66 @@ func TestD3DoesNotScaleWhenHeadroomSufficient(t *testing.T) {
 	}
 }
 
+func TestD3DoesNotScaleForUnlimitedReadyRunner(t *testing.T) {
+	m, _, store := newD3Manager(t, 1, 3, 2)
+	seedReadyRow(t, store, "sbx_unlimited", 100, -1)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("unlimited runner must not trigger D3 scale-up; got %d rows", len(rows))
+	}
+	if m.demandPressureExists(rows) {
+		t.Fatal("unlimited runner must not report demand pressure")
+	}
+}
+
+func TestD3OfflineUnlimitedRunnerDoesNotHidePressure(t *testing.T) {
+	m, _, store := newD3Manager(t, 1, 4, 1)
+	seedReadyRow(t, store, "sbx_full", 10, 10)
+	_ = store.RegisterSandboxInstance(context.Background(), &types.SandboxInstance{
+		ID: "sbx_offline_unlimited", Provider: "stub", ComputeState: string(StateReady),
+		Status: "offline", MaxSandboxes: -1,
+	})
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 3 {
+		t.Fatalf("offline unlimited runner must not suppress D3 scale-up; got %d rows", len(rows))
+	}
+}
+
+func TestD3UnlimitedRunnerStillMaintainsFloor(t *testing.T) {
+	m, _, store := newD3Manager(t, 2, 3, 1)
+	seedReadyRow(t, store, "sbx_unlimited", 100, -1)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 2 {
+		t.Fatalf("unlimited capacity must not disable floor maintenance; got %d rows", len(rows))
+	}
+}
+
+func TestD3DoesNotSubtractNegativeProvisioningCapacity(t *testing.T) {
+	m, _, _ := newD3Manager(t, 1, 4, 1)
+	needed := m.computeNeeded([]*types.SandboxInstance{
+		{
+			ID: "sbx_full", Provider: "stub", ComputeState: string(StateReady),
+			Status: "online", ActiveSandboxes: 10, MaxSandboxes: 10,
+		},
+		{
+			ID: "sbx_provisioning", Provider: "stub", ComputeState: string(StateProvisioning),
+			Status: "offline", MaxSandboxes: -1,
+		},
+	})
+	if needed != 1 {
+		t.Fatalf("negative provisioning capacity must not be subtracted; got need %d", needed)
+	}
+}
+
 func TestD3RespectsMaxCeiling(t *testing.T) {
 	// Floor=1, Max=2, HeadroomMin=2: two Ready hosts both at full
 	// capacity (zero headroom). Demand pressure exists but Max is

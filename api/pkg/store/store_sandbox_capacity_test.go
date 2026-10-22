@@ -28,15 +28,21 @@ func TestHeartbeatPersistsRunnerReportedMaxSandboxes(t *testing.T) {
 	ctx := context.Background()
 	store := newSandboxInstanceTestStore(t)
 	require.NoError(t, store.RegisterSandboxInstance(ctx, &types.SandboxInstance{ID: "reported", MaxSandboxes: 20, Status: "online"}))
+	require.NoError(t, store.RegisterSandboxInstance(ctx, &types.SandboxInstance{ID: "unlimited", MaxSandboxes: 20, Status: "online"}))
 	require.NoError(t, store.RegisterSandboxInstance(ctx, &types.SandboxInstance{ID: "silent", MaxSandboxes: 20, Status: "online"}))
 
 	require.NoError(t, store.UpdateSandboxHeartbeat(ctx, "reported", &types.SandboxHeartbeatRequest{MaxSandboxes: 1}, 20))
+	require.NoError(t, store.UpdateSandboxHeartbeat(ctx, "unlimited", &types.SandboxHeartbeatRequest{MaxSandboxes: -1}, 20))
 	require.NoError(t, store.UpdateSandboxHeartbeat(ctx, "silent", &types.SandboxHeartbeatRequest{}, 20))
 
 	reported, err := store.GetSandboxInstance(ctx, "reported")
 	require.NoError(t, err)
 	require.Equal(t, 1, reported.MaxSandboxes)
 	require.True(t, reported.MaxSandboxesFromRunner)
+	unlimited, err := store.GetSandboxInstance(ctx, "unlimited")
+	require.NoError(t, err)
+	require.Equal(t, -1, unlimited.MaxSandboxes)
+	require.True(t, unlimited.MaxSandboxesFromRunner)
 
 	silent, err := store.GetSandboxInstance(ctx, "silent")
 	require.NoError(t, err)
@@ -51,6 +57,9 @@ func TestHeartbeatPersistsRunnerReportedMaxSandboxes(t *testing.T) {
 	reported, err = store.GetSandboxInstance(ctx, "reported")
 	require.NoError(t, err)
 	require.Equal(t, 1, reported.MaxSandboxes)
+	unlimited, err = store.GetSandboxInstance(ctx, "unlimited")
+	require.NoError(t, err)
+	require.Equal(t, -1, unlimited.MaxSandboxes)
 
 	silent, err = store.GetSandboxInstance(ctx, "silent")
 	require.NoError(t, err)
@@ -61,6 +70,12 @@ func TestHeartbeatPersistsRunnerReportedMaxSandboxes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 7, reported.MaxSandboxes)
 	require.False(t, reported.MaxSandboxesFromRunner)
+
+	require.NoError(t, store.UpdateSandboxHeartbeat(ctx, "unlimited", &types.SandboxHeartbeatRequest{}, 7))
+	unlimited, err = store.GetSandboxInstance(ctx, "unlimited")
+	require.NoError(t, err)
+	require.Equal(t, 7, unlimited.MaxSandboxes)
+	require.False(t, unlimited.MaxSandboxesFromRunner)
 }
 
 func TestHeartbeatRejectsInvalidGlobalMaxSandboxes(t *testing.T) {
@@ -70,6 +85,9 @@ func TestHeartbeatRejectsInvalidGlobalMaxSandboxes(t *testing.T) {
 
 	err := store.UpdateSandboxHeartbeat(ctx, "silent", &types.SandboxHeartbeatRequest{}, 0)
 	require.ErrorContains(t, err, "refusing non-positive default max_sandboxes")
+
+	err = store.UpdateSandboxHeartbeat(ctx, "silent", &types.SandboxHeartbeatRequest{MaxSandboxes: -2}, 20)
+	require.ErrorContains(t, err, "refusing invalid max_sandboxes")
 }
 
 func TestFindAvailableSandboxInstanceSkipsFullRunners(t *testing.T) {
@@ -92,14 +110,22 @@ func TestFindAvailableSandboxInstanceSkipsFullRunners(t *testing.T) {
 	// "full" sorts first (fewer active) but is at its cap of 1.
 	register("full", 1, 1)
 	register("roomy", 2, 3)
+	register("unlimited", 100, -1)
 
 	host, err := store.FindAvailableSandboxInstance(ctx, "ubuntu", false)
 	require.NoError(t, err)
 	require.NotNil(t, host)
 	require.Equal(t, "roomy", host.ID)
 
-	// Fill the other runner too: placement must report capacity, not "no runner".
+	// Once finite runners fill up, the busy unlimited runner still accepts work.
 	require.NoError(t, store.SetSandboxContainerCount(ctx, "roomy", 3))
+	host, err = store.FindAvailableSandboxInstance(ctx, "ubuntu", false)
+	require.NoError(t, err)
+	require.NotNil(t, host)
+	require.Equal(t, "unlimited", host.ID)
+
+	// Remove the unlimited runner's matching image so only full runners remain.
+	require.NoError(t, store.gdb.WithContext(ctx).Model(&types.SandboxInstance{}).Where("id = ?", "unlimited").Update("desktop_versions", []byte(`{}`)).Error)
 	host, err = store.FindAvailableSandboxInstance(ctx, "ubuntu", false)
 	require.ErrorIs(t, err, ErrAllSandboxHostsFull)
 	require.Nil(t, host)

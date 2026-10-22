@@ -3782,7 +3782,8 @@ func (s *SandboxInstance) CanHostDesktop() bool {
 }
 
 // AtCapacity reports whether the Runner already hosts its maximum number
-// of dev containers. A non-positive MaxSandboxes means "no cap".
+// of dev containers. -1 means unlimited; 0 is not enforced while awaiting
+// the control plane fallback.
 func (s *SandboxInstance) AtCapacity() bool {
 	return s.MaxSandboxes > 0 && s.ActiveSandboxes >= s.MaxSandboxes
 }
@@ -3819,8 +3820,8 @@ type SandboxHeartbeatRequest struct {
 	HelixVersion string `json:"helix_version,omitempty"`
 
 	// MaxSandboxes is the runner's own cap on concurrent dev containers,
-	// from its MAX_SANDBOXES env var. 0 (omitted) means the runner did not
-	// report one and the API's HELIX_SANDBOX_MAX_DEV_CONTAINERS applies.
+	// from its MAX_SANDBOXES env var. -1 means unlimited. 0 (omitted) means
+	// the runner did not report one and the API's fallback applies.
 	MaxSandboxes int `json:"max_sandboxes,omitempty"`
 
 	// --- Sandbox-absorbs-runner pivot fields ---

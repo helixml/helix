@@ -575,7 +575,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	defer dockerClient.Close()
 
 	maxSandboxes := req.MaxSandboxes
-	if dm.maxSandboxes > 0 {
+	if dm.maxSandboxes == -1 || dm.maxSandboxes > 0 {
 		maxSandboxes = dm.maxSandboxes
 	}
 	if !req.GoldenBuild && maxSandboxes > 0 {

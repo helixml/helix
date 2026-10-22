@@ -79,6 +79,7 @@ sandbox:
   # Maximum number of concurrent sandboxes (dev containers) on this runner.
   # Reported to the control plane via heartbeat and enforced at placement;
   # overrides the control plane's HELIX_SANDBOX_MAX_DEV_CONTAINERS for this runner.
+  # Set to -1 to disable the per-runner limit.
   maxSandboxes: 10
 
   # Comma-separated private CIDRs that session containers may reach. Empty

@@ -71,7 +71,7 @@ type HeartbeatRequest struct {
 	GPUVendor             string                    `json:"gpu_vendor,omitempty"`    // nvidia, amd, intel, none
 	InstanceType          string                    `json:"instance_type,omitempty"` // cloud instance type via IMDS; empty on bare metal
 	HelixVersion          string                    `json:"helix_version,omitempty"` // git commit hash or release version
-	MaxSandboxes          int                       `json:"max_sandboxes,omitempty"` // per-runner cap from MAX_SANDBOXES; omitted when unset
+	MaxSandboxes          int                       `json:"max_sandboxes,omitempty"` // per-runner cap; -1 means unlimited, omitted when unset
 
 	// Sandbox-absorbs-runner pivot: rich GPU inventory used by the inference
 	// router's profile-compatibility check. Detected via nvidia-smi /
@@ -145,7 +145,7 @@ func main() {
 	maxSandboxes, ok := types.ParseSandboxMaxSandboxes(os.Getenv("MAX_SANDBOXES"))
 	if !ok {
 		log.Warn().Str("MAX_SANDBOXES", os.Getenv("MAX_SANDBOXES")).
-			Msg("Ignoring invalid MAX_SANDBOXES (must be a positive integer); API will use its global default")
+			Msg("Ignoring invalid MAX_SANDBOXES (must be -1, 0, or a positive integer); API will use its global default")
 	}
 
 	log.Info().

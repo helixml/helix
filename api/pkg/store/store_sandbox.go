@@ -19,7 +19,10 @@ func (s *PostgresStore) RegisterSandboxInstance(ctx context.Context, instance *t
 
 // UpdateSandboxHeartbeat updates a sandbox's heartbeat data
 func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest, defaultMaxSandboxes int) error {
-	if req.MaxSandboxes <= 0 && defaultMaxSandboxes <= 0 {
+	if req.MaxSandboxes < -1 {
+		return fmt.Errorf("UpdateSandboxHeartbeat refusing invalid max_sandboxes %d", req.MaxSandboxes)
+	}
+	if req.MaxSandboxes == 0 && defaultMaxSandboxes <= 0 {
 		return fmt.Errorf("UpdateSandboxHeartbeat refusing non-positive default max_sandboxes %d", defaultMaxSandboxes)
 	}
 	updates := map[string]interface{}{
@@ -37,7 +40,7 @@ func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, r
 
 	// Runner-reported sandbox cap (MAX_SANDBOXES) overrides the global
 	// HELIX_SANDBOX_MAX_DEV_CONTAINERS. Omitting it clears a prior override.
-	if req.MaxSandboxes > 0 {
+	if req.MaxSandboxes == -1 || req.MaxSandboxes > 0 {
 		updates["max_sandboxes"] = req.MaxSandboxes
 		updates["max_sandboxes_from_runner"] = true
 	} else {
