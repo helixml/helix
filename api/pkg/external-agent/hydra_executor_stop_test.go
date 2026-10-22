@@ -77,10 +77,30 @@ func TestHydraExecutorStopMarksSessionStopped(t *testing.T) {
 			stored = s
 			return &s, nil
 		}).AnyTimes()
+	mockStore.EXPECT().DecrementSandboxContainerCount(gomock.Any(), "local").Return(nil)
 	mockStore.EXPECT().ListAPIKeys(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	require.NoError(t, h.StopDesktop(context.Background(), "ses_x"))
 
 	assert.Equal(t, "stopped", stored.Metadata.ExternalAgentStatus)
 	assert.Empty(t, stored.Metadata.StatusMessage)
+}
+
+func TestHydraExecutorStaleLocalSessionDecrementsContainerCount(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	h := newTestExecutor(mockStore)
+	h.connman = fakeConnman{}
+	h.sessions["ses_stale"] = &ZedSession{
+		SessionID:   "ses_stale",
+		ContainerID: "c1",
+		SandboxID:   "local",
+		Status:      "running",
+	}
+
+	mockStore.EXPECT().DecrementSandboxContainerCount(gomock.Any(), "local").Return(nil)
+
+	assert.False(t, h.HasRunningContainer(context.Background(), "ses_stale"))
+	_, stillTracked := h.sessions["ses_stale"]
+	assert.False(t, stillTracked)
 }

@@ -108,12 +108,14 @@ func TestDiscoverContainersFromSandbox_ResurrectsStoppedSession(t *testing.T) {
 func TestDiscoverContainersFromSandboxCountsOnlyRunningNonGoldenContainers(t *testing.T) {
 	tests := []struct {
 		name      string
+		sandboxID string
 		body      string
 		wantCount int
 		tracked   []string
 	}{
 		{
-			name: "mixed",
+			name:      "mixed",
+			sandboxID: "sbox_1",
 			body: `{"containers":[
 				{"session_id":"ses_running","status":"running"},
 				{"session_id":"ses_exited","status":"stopped"},
@@ -123,7 +125,19 @@ func TestDiscoverContainersFromSandboxCountsOnlyRunningNonGoldenContainers(t *te
 			tracked:   []string{"ses_running", "ses_golden"},
 		},
 		{
-			name:      "zero running",
+			name:      "local mixed",
+			sandboxID: "local",
+			body: `{"containers":[
+				{"session_id":"ses_running","status":"running"},
+				{"session_id":"ses_exited","status":"stopped"},
+				{"session_id":"ses_golden","status":"running","is_golden_build":true}
+			]}`,
+			wantCount: 1,
+			tracked:   []string{"ses_running", "ses_golden"},
+		},
+		{
+			name:      "local zero running",
+			sandboxID: "local",
 			body:      `{"containers":[{"session_id":"ses_exited","status":"stopped"}]}`,
 			wantCount: 0,
 		},
@@ -136,13 +150,13 @@ func TestDiscoverContainersFromSandboxCountsOnlyRunningNonGoldenContainers(t *te
 			h := newTestExecutor(mockStore)
 			h.connman = fakeConnman{listBody: test.body}
 			for _, sessionID := range test.tracked {
-				h.sessions[sessionID] = &ZedSession{SessionID: sessionID, SandboxID: "sbox_1", Status: "running"}
+				h.sessions[sessionID] = &ZedSession{SessionID: sessionID, SandboxID: test.sandboxID, Status: "running"}
 			}
 
-			mockStore.EXPECT().SetSandboxContainerCount(gomock.Any(), "sbox_1", test.wantCount).Return(nil)
-			mockStore.EXPECT().ListSessionsBySandbox(gomock.Any(), "sbox_1").Return([]*types.Session{}, nil)
+			mockStore.EXPECT().SetSandboxContainerCount(gomock.Any(), test.sandboxID, test.wantCount).Return(nil)
+			mockStore.EXPECT().ListSessionsBySandbox(gomock.Any(), test.sandboxID).Return([]*types.Session{}, nil)
 
-			require.NoError(t, h.DiscoverContainersFromSandbox(context.Background(), "sbox_1"))
+			require.NoError(t, h.DiscoverContainersFromSandbox(context.Background(), test.sandboxID))
 		})
 	}
 }

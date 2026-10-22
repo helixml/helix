@@ -638,13 +638,12 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// for the same session (counter would otherwise double-count).
 	// Skipping golden builds: they aren't user-facing workload and the
 	// hydra-side monitorGoldenBuild path doesn't go through StopDesktop,
-	// so counting them would create a one-way drift up. Skipping the
-	// "local" sentinel: no Runner row exists when SandboxID is unset.
+	// so counting them would create a one-way drift up.
 	//
 	// The matching decrement lives in StopDesktop, gated on the session
 	// actually being present in h.sessions at stop time (so double-stop
 	// can't over-decrement).
-	if !alreadyTracked && !agent.GoldenBuild && sandboxID != "" && sandboxID != "local" {
+	if !alreadyTracked && !agent.GoldenBuild && sandboxID != "" {
 		if incErr := h.store.IncrementSandboxContainerCount(ctx, sandboxID); incErr != nil {
 			log.Warn().
 				Err(incErr).
@@ -1090,8 +1089,7 @@ func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, d
 	//      (so the matching increment fired earlier; double-stop and
 	//      stop-of-untracked-session both have exists=false here).
 	//   2. The delete succeeded (failures return above with tracking intact).
-	// Skip the "local" sentinel (no Runner row to decrement).
-	if exists && sandboxID != "" && sandboxID != "local" {
+	if exists && sandboxID != "" {
 		if decErr := h.store.DecrementSandboxContainerCount(ctx, sandboxID); decErr != nil {
 			log.Warn().
 				Err(decErr).
@@ -1326,7 +1324,7 @@ func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID strin
 			// (autoscaler would never see them released). Same guards
 			// as the StopDesktop decrement: was-tracked, not a golden
 			// build, real Runner row.
-			if stillTracked && !session.GoldenBuild && sandboxID != "" && sandboxID != "local" {
+			if stillTracked && !session.GoldenBuild && sandboxID != "" {
 				if decErr := h.store.DecrementSandboxContainerCount(ctx, sandboxID); decErr != nil {
 					log.Warn().Err(decErr).
 						Str("sandbox_id", sandboxID).
@@ -2032,7 +2030,7 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 	// prevent). SET (not Increment) writes the exact count, recovering
 	// from any drift accumulated by missed Increment/Decrement calls
 	// (API restart, hydra-side internal deletes, failed StopDesktop).
-	if sandboxID != "" && sandboxID != "local" {
+	if sandboxID != "" {
 		if setErr := h.store.SetSandboxContainerCount(ctx, sandboxID, activeContainers); setErr != nil {
 			log.Warn().
 				Err(setErr).
