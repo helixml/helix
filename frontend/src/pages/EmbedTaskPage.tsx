@@ -25,6 +25,9 @@ const EmbedTaskPage: FC = () => {
   // subheading let the host name its own agent; they only show on the welcome
   // screen, before anyone has said anything.
   const minimal = route.params.minimal === '1' || route.params.minimal === 'true'
+  // ?controls=0: the full workspace (chat, desktop, views) without the task's
+  // own controls — for a host that embeds a customer's agent for that customer.
+  const hideControls = route.params.controls === '0' || route.params.controls === 'false'
   // Read the welcome copy from the RAW query, not from route.params: router5
   // form-encodes a space as "+" when it re-serialises the URL on start, so a
   // host that correctly sent %20 had its heading rendered with literal plus
@@ -81,7 +84,7 @@ const EmbedTaskPage: FC = () => {
     // DesktopStreamViewer.tsx toggleFullscreen), the iframe's window
     // is resized to the browser viewport and 100dvh expands with it.
     <Box sx={{ height: '100dvh', overflow: 'hidden', backgroundColor: bg }}>
-      <SpecTaskDetailContent taskId={taskId} enableForegroundPRRefresh={false} />
+      <SpecTaskDetailContent taskId={taskId} enableForegroundPRRefresh={false} hideControls={hideControls} />
     </Box>
   )
 }

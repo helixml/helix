@@ -29,9 +29,28 @@ const (
 type goldenCacheKind string
 
 const (
-	dockerGoldenCache goldenCacheKind = "docker"
-	podmanGoldenCache goldenCacheKind = "podman"
+	dockerGoldenCache         goldenCacheKind = "docker"
+	podmanGoldenCache         goldenCacheKind = "podman"
+	rootlessDockerGoldenCache goldenCacheKind = "rootless-docker"
 )
+
+var goldenCacheKinds = []goldenCacheKind{dockerGoldenCache, podmanGoldenCache, rootlessDockerGoldenCache}
+
+func containerDataVolumeName(sessionID string, kind goldenCacheKind) string {
+	if kind == rootlessDockerGoldenCache {
+		return "rootless-docker-data-" + sessionID
+	}
+	return "docker-data-" + sessionID
+}
+
+func sessionIDFromContainerDataDir(name string) (string, bool) {
+	for _, prefix := range []string{"docker-data-", "rootless-docker-data-"} {
+		if strings.HasPrefix(name, prefix) {
+			return strings.TrimPrefix(name, prefix), true
+		}
+	}
+	return "", false
+}
 
 // sessionsBaseDir is where per-session Docker data lives.
 // Var (not const) so tests can override it.
@@ -505,7 +524,7 @@ func CleanupSessionDockerDir(volumeName string) error {
 // Handles both file-based golden dirs and ZFS zvol-based goldens.
 func DeleteGolden(projectID string) error {
 	if ZFSAvailable() {
-		for _, kind := range []goldenCacheKind{dockerGoldenCache, podmanGoldenCache} {
+		for _, kind := range goldenCacheKinds {
 			goldenName := goldenZvolNameForKind(projectID, kind)
 			if !zfsDatasetExists(goldenName) {
 				continue
@@ -521,7 +540,7 @@ func DeleteGolden(projectID string) error {
 		}
 	}
 
-	for _, kind := range []goldenCacheKind{dockerGoldenCache, podmanGoldenCache} {
+	for _, kind := range goldenCacheKinds {
 		if err := deleteGoldenForKind(projectID, kind); err != nil {
 			return err
 		}
@@ -868,7 +887,7 @@ func GCStaleGoldenDirs(maxAge time.Duration) (int, int64, error) {
 		name := entry.Name()
 		projectDir := filepath.Join(baseDir, name)
 
-		for _, kind := range []goldenCacheKind{dockerGoldenCache, podmanGoldenCache} {
+		for _, kind := range goldenCacheKinds {
 			// 1. Clean up .old directories (leftover from failed promotion)
 			oldDir := filepath.Join(projectDir, string(kind)+".old")
 			if info, err := os.Stat(oldDir); err == nil {
@@ -987,9 +1006,11 @@ func GCOrphanedSessionDirs(activeSessions map[string]bool) (int, int64, error) {
 			continue
 		}
 
-		// Session dirs are named "docker-data-ses_xxxxx"
 		name := entry.Name()
-		sessionID := strings.TrimPrefix(name, "docker-data-")
+		sessionID, ok := sessionIDFromContainerDataDir(name)
+		if !ok {
+			continue
+		}
 		dir := filepath.Join(sessionsBaseDir, name)
 
 		if activeSessions[sessionID] {

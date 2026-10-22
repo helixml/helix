@@ -60,6 +60,7 @@ import AgentCursorOverlay from "./AgentCursorOverlay";
 import CursorRenderer from "./CursorRenderer";
 import InsecureContextWarning from "./InsecureContextWarning";
 import { isMobileOrTablet } from "../../utils/isMobileOrTablet";
+import { PLACEHOLDER_PNG_BASE64 } from "../../utils/clipboardPlaceholder";
 
 /**
  * Clipboard helpers: WKWebView (macOS Wails app) blocks navigator.clipboard
@@ -80,6 +81,15 @@ import { isMobileOrTablet } from "../../utils/isMobileOrTablet";
  */
 const isInIframe = typeof window !== "undefined" && window.parent !== window;
 
+// WebKit (Safari, and every browser on iOS) only honours a clipboard write that
+// is started synchronously inside the user-gesture task, so it needs the
+// deferred ClipboardItem in the copy handler — which forces declaring every MIME
+// type up front and therefore the placeholder PNG. Chromium and Firefox accept a
+// write made after the remote clipboard has been fetched, so they write only
+// the real representation.
+const isWebKit =
+  typeof navigator !== "undefined" && /Apple/i.test(navigator.vendor ?? "");
+
 export type ClipboardReadResult =
   | { mime: "text/plain"; text: string }
   | { mime: "image/png"; base64: string }
@@ -88,6 +98,14 @@ export type ClipboardReadResult =
 export type ClipboardWritePayload =
   | { mime: "text/plain"; text: string }
   | { mime: "image/png"; base64: string };
+
+type ClipboardToastAction = { label: string; onClick: () => void };
+
+// A desktop clipboard change is copied to the local clipboard only if this
+// viewer had input this recently: a copy made with a button or menu in the
+// desktop lands milliseconds after the click, while an agent's or another
+// viewer's copy must not overwrite the clipboard of someone not using it.
+const DESKTOP_COPY_INPUT_WINDOW_MS = 10_000;
 
 async function clipboardWrite(payload: ClipboardWritePayload): Promise<void> {
   // Prefer the direct Async Clipboard API. It works both in a top-level tab and
@@ -251,18 +269,6 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   }
   return bytes;
 }
-
-// Minimal valid 1x1 transparent PNG. The gesture-anchored ClipboardItem in
-// the copy handler must declare both text/plain and image/png up front (we
-// don't know which the remote produced until the async fetch resolves). Chrome
-// runs every image written to the clipboard through a decode/sanitize step and
-// REJECTS the entire navigator.clipboard.write() if any image/png
-// representation fails to decode — so the "no image this time" fallback must be
-// a fully decodable PNG, not a zero-byte Blob (which silently broke all text
-// copy on Chrome). Generated with Pillow (RGBA 1x1, alpha 0) and verified:
-// 70 bytes, valid signature, IHDR/IDAT/IEND with correct CRC-32s.
-const PLACEHOLDER_PNG_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNgYGBgAAAABQABeqhXUAAAAABJRU5ErkJggg==";
 
 function hashClipboardData(d: TypesClipboardData | null | undefined): string {
   if (!d || !d.type || !d.data) return "";
@@ -637,6 +643,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     message: string;
     type: "success" | "error";
     visible: boolean;
+    action?: ClipboardToastAction;
   }>({ message: "", type: "success", visible: false });
 
   // Video start timeout - detect GStreamer pipeline failures that cause hangs
@@ -751,16 +758,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // Show clipboard toast notification
   const showClipboardToast = useCallback(
-    (message: string, type: "success" | "error") => {
+    (
+      message: string,
+      type: "success" | "error",
+      action?: ClipboardToastAction,
+    ) => {
       // Clear any existing timeout
       if (clipboardToastTimeoutRef.current) {
         clearTimeout(clipboardToastTimeoutRef.current);
       }
 
-      setClipboardToast({ message, type, visible: true });
+      setClipboardToast({ message, type, visible: true, action });
 
-      // Auto-hide after delay (longer for errors so user can read the reason)
-      const hideDelay = type === "error" ? 4000 : 2000;
+      // Auto-hide after delay (longer for errors so user can read the reason,
+      // and for actions so there is time to click)
+      const hideDelay = action ? 10000 : type === "error" ? 4000 : 2000;
       clipboardToastTimeoutRef.current = setTimeout(() => {
         setClipboardToast((prev) => ({ ...prev, visible: false }));
       }, hideDelay);
@@ -772,6 +784,77 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   );
 
   const helixApi = useApi();
+
+  // Copies made inside the desktop with a button or menu (not Ctrl+C in the
+  // viewer, which the key handler below fetches itself) are announced by the
+  // bridge as clipboardChanged events and copied to the local clipboard here.
+  const lastViewerInputRef = useRef(0);
+  const copyInFlightRef = useRef(false);
+  const lastSyncedClipboardHashRef = useRef("");
+  const clipboardSyncRunningRef = useRef(false);
+  const clipboardResyncRef = useRef(false);
+
+  const syncDesktopClipboardOnce = async () => {
+    const sessionId = sessionIdRef.current;
+    if (!sessionId || copyInFlightRef.current || !document.hasFocus()) return;
+    if (Date.now() - lastViewerInputRef.current > DESKTOP_COPY_INPUT_WINDOW_MS) {
+      return;
+    }
+    const { data } = await helixApi
+      .getApiClient()
+      .v1ExternalAgentsClipboardDetail(sessionId);
+    const hash = hashClipboardData(data);
+    if (!hash || hash === lastSyncedClipboardHashRef.current) return;
+    const kind = data.type === "image" ? "image" : "text";
+    const payload: ClipboardWritePayload =
+      data.type === "image"
+        ? { mime: "image/png", base64: data.data! }
+        : { mime: "text/plain", text: data.data! };
+    try {
+      await clipboardWrite(payload);
+      lastSyncedClipboardHashRef.current = hash;
+      showClipboardToast(`Copied ${kind} from desktop`, "success");
+    } catch (err) {
+      // Safari, and Firefox outside its user-activation window, only write
+      // the clipboard from a click.
+      console.warn("[Clipboard] desktop copy needs a click to sync:", err);
+      showClipboardToast(`Desktop copied ${kind}`, "success", {
+        label: "Copy",
+        onClick: () => {
+          clipboardWrite(payload)
+            .then(() => {
+              lastSyncedClipboardHashRef.current = hash;
+              showClipboardToast(`Copied ${kind}`, "success");
+            })
+            .catch(() =>
+              showClipboardToast("Local clipboard blocked", "error"),
+            );
+        },
+      });
+    }
+  };
+
+  // Mutter announces one copy as several owner changes in a burst; run one
+  // sync at a time and repeat once if more arrived meanwhile.
+  const syncDesktopClipboard = async () => {
+    if (clipboardSyncRunningRef.current) {
+      clipboardResyncRef.current = true;
+      return;
+    }
+    clipboardSyncRunningRef.current = true;
+    try {
+      do {
+        clipboardResyncRef.current = false;
+        await syncDesktopClipboardOnce();
+      } while (clipboardResyncRef.current);
+    } catch (err) {
+      console.warn("[Clipboard] desktop clipboard sync failed:", err);
+    } finally {
+      clipboardSyncRunningRef.current = false;
+    }
+  };
+  const syncDesktopClipboardRef = useRef(syncDesktopClipboard);
+  syncDesktopClipboardRef.current = syncDesktopClipboard;
   const account = useAccount();
 
   // Connect to stream
@@ -1385,6 +1468,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             next.delete(data.userId);
             return next;
           });
+        } else if (data.type === "clipboardChanged") {
+          void syncDesktopClipboardRef.current();
         } else if (data.type === "agentCursor") {
           // Always update agent cursor state (visibility handled in render based on lastSeen)
           setAgentCursor(data.agent);
@@ -4163,6 +4248,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         event.preventDefault();
         event.stopPropagation();
         const sessionId = sessionIdRef.current;
+        // This copy writes the local clipboard itself; ignore the bridge's
+        // clipboardChanged announcements for it.
+        copyInFlightRef.current = true;
         const apiClient = helixApi.getApiClient();
 
         // Snapshot the pre-copy clipboard hash in parallel with forwarding
@@ -4237,9 +4325,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
         // Bounded poll: ask the API every ~30ms for up to ~500ms, resolve
         // as soon as the clipboard hash differs from the pre-copy snapshot.
-        // Replaces the previous unconditional setTimeout(300ms). The result
-        // is consumed by the deferred-resolution ClipboardItem promises
-        // below, which keeps the local write anchored to the user gesture
+        // Replaces the previous unconditional setTimeout(300ms). On WebKit
+        // the result is consumed by deferred-resolution ClipboardItem
+        // promises, which keep the local write anchored to the user gesture
         // (required by Safari's stricter Async Clipboard API enforcement —
         // see https://webkit.org/blog/10855/async-clipboard-api/).
         const POLL_INTERVAL_MS = 30;
@@ -4271,39 +4359,39 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           return lastData;
         })();
 
-        // Build per-MIME Blob promises. Each resolves with the real Blob
-        // if the fetched type matches, or an empty Blob of that type if
-        // not — paste destinations naturally read whichever MIME they
-        // prefer (text/plain for editors, image/png for image apps).
-        const textBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
-          if (d?.type === "text" && d.data) {
-            return new Blob([d.data], { type: "text/plain" });
-          }
-          return new Blob([], { type: "text/plain" });
-        });
-        const imageBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
-          if (d?.type === "image" && d.data) {
-            return new Blob([base64ToBytes(d.data)], { type: "image/png" });
-          }
-          // Not an image copy: fall back to a valid 1x1 transparent PNG, NOT a
-          // zero-byte Blob. Chrome rejects the whole clipboard write if the
-          // image/png representation can't be decoded, which would discard the
-          // valid text/plain alongside it (the Chrome copy regression).
-          return new Blob([base64ToBytes(PLACEHOLDER_PNG_BASE64)], {
-            type: "image/png",
-          });
-        });
-
-        // Plain browser (not iframe) with modern ClipboardItem support:
-        // synchronously start the gesture-anchored write. Both Safari and
-        // Chrome accept this — the promise is resolved later but the call
-        // itself happens inside the user gesture task, satisfying WebKit's
-        // strict "must be triggered during a user gesture" rule.
+        // WebKit, plain browser (not iframe) with ClipboardItem support:
+        // synchronously start the gesture-anchored write. The promises are
+        // resolved later but the call itself happens inside the user gesture
+        // task, satisfying WebKit's strict "must be triggered during a user
+        // gesture" rule. The cost is the placeholder PNG alongside text
+        // copies, which image-preferring paste targets (WhatsApp, our own
+        // composer before it learned to ignore it) pick over the text.
         if (
+          isWebKit &&
           !isInIframe &&
           typeof ClipboardItem !== "undefined" &&
           navigator.clipboard?.write
         ) {
+          // Per-MIME Blob promises. Each resolves with the real Blob if the
+          // fetched type matches, or a stand-in of that type if not.
+          const textBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
+            if (d?.type === "text" && d.data) {
+              return new Blob([d.data], { type: "text/plain" });
+            }
+            return new Blob([], { type: "text/plain" });
+          });
+          const imageBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
+            if (d?.type === "image" && d.data) {
+              return new Blob([base64ToBytes(d.data)], { type: "image/png" });
+            }
+            // Not an image copy: a valid 1x1 transparent PNG, NOT a zero-byte
+            // Blob — a write whose image/png representation can't be decoded
+            // is rejected outright, discarding the valid text/plain with it.
+            return new Blob([base64ToBytes(PLACEHOLDER_PNG_BASE64)], {
+              type: "image/png",
+            });
+          });
+
           const supportsImage =
             typeof (
               ClipboardItem as unknown as {
@@ -4328,6 +4416,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             .write([clipboardItem])
             .then(() =>
               fetchPromise.then((d) => {
+                lastSyncedClipboardHashRef.current = hashClipboardData(d);
                 const kind = d?.type === "image" ? "image" : "text";
                 showClipboardToast(`Copied ${kind}`, "success");
               }),
@@ -4338,20 +4427,27 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 "Copied on remote — local clipboard blocked",
                 "error",
               );
+            })
+            .finally(() => {
+              copyInFlightRef.current = false;
             });
         } else {
-          // Fallback: iframe (postMessage bridge) or browsers without
-          // ClipboardItem. Resolve the fetch first, then dispatch on type.
-          // The iframe path routes through the parent's NSPasteboard
-          // bridge for both text and image (App.tsx handles the mime
-          // discriminator).
+          // Chromium/Firefox, iframes (postMessage bridge) and browsers
+          // without ClipboardItem: resolve the fetch first, then write only
+          // the representation the remote actually produced — no
+          // placeholder. The ≤500ms poll stays well inside the transient
+          // user-activation window. The iframe path routes through the
+          // parent's NSPasteboard bridge for both text and image (App.tsx
+          // handles the mime discriminator).
           fetchPromise
             .then(async (d) => {
               if (d?.type === "text" && d.data) {
                 await clipboardWrite({ mime: "text/plain", text: d.data });
+                lastSyncedClipboardHashRef.current = hashClipboardData(d);
                 showClipboardToast("Copied text", "success");
               } else if (d?.type === "image" && d.data) {
                 await clipboardWrite({ mime: "image/png", base64: d.data });
+                lastSyncedClipboardHashRef.current = hashClipboardData(d);
                 showClipboardToast("Copied image", "success");
               } else {
                 showClipboardToast("Clipboard empty", "error");
@@ -4364,6 +4460,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 `Copied on remote — local sync failed: ${msg}`,
                 "error",
               );
+            })
+            .finally(() => {
+              copyInFlightRef.current = false;
             });
         }
 
@@ -4602,6 +4701,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       });
     };
 
+    const markViewerInput = () => {
+      lastViewerInputRef.current = Date.now();
+    };
+
     // Reset input state when window regains focus (prevents stuck modifiers after Alt+Tab)
     const handleWindowFocus = () => {
       console.log(
@@ -4626,6 +4729,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     container.addEventListener("focusout", releaseHeldKeys);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pagehide", releaseHeldKeys);
+    container.addEventListener("pointerdown", markViewerInput, true);
+    container.addEventListener("keydown", markViewerInput, true);
     container.addEventListener("keydown", handleKeyDown);
     container.addEventListener("keyup", handleKeyUp);
     container.addEventListener("beforeinput", handleBeforeInput);
@@ -4638,6 +4743,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       container.removeEventListener("focusout", releaseHeldKeys);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", releaseHeldKeys);
+      container.removeEventListener("pointerdown", markViewerInput, true);
+      container.removeEventListener("keydown", markViewerInput, true);
       container.removeEventListener("keydown", handleKeyDown);
       container.removeEventListener("keyup", handleKeyUp);
       container.removeEventListener("beforeinput", handleBeforeInput);
@@ -5623,7 +5730,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           boxShadow: "0 4px 12px rgba(0, 0, 0, 0.4)",
           opacity: clipboardToast.visible ? 1 : 0,
           transition: "opacity 0.2s ease, transform 0.2s ease",
-          pointerEvents: "none",
+          pointerEvents:
+            clipboardToast.visible && clipboardToast.action ? "auto" : "none",
           display: "flex",
           alignItems: "center",
           gap: 1,
@@ -5637,6 +5745,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }}
       >
         {clipboardToast.type === "success" ? "✓" : "✕"} {clipboardToast.message}
+        {clipboardToast.action && (
+          <Button
+            size="small"
+            variant="contained"
+            onClick={clipboardToast.action.onClick}
+            sx={{ ml: 1, py: 0, minWidth: 0, textTransform: "none" }}
+          >
+            {clipboardToast.action.label}
+          </Button>
+        )}
       </Box>
     </Box>
   );

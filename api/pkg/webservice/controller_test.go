@@ -32,6 +32,38 @@ func TestShellEscape(t *testing.T) {
 	}
 }
 
+func TestDeployCloneURL(t *testing.T) {
+	tests := []struct {
+		name string
+		repo *types.GitRepository
+		want string
+	}{
+		{
+			name: "hosted repository uses sandbox API proxy",
+			repo: &types.GitRepository{ID: "repo_123", CloneURL: "https://helix.example/git/repo_123"},
+			want: hydra.SandboxAPIProxyURL + "/git/repo_123",
+		},
+		{
+			name: "external mirror uses sandbox API proxy",
+			repo: &types.GitRepository{
+				ID:          "repo_456",
+				IsExternal:  true,
+				ExternalURL: "https://github.com/helixml/helix.git",
+				CloneURL:    "https://helix.example/git/repo_456",
+			},
+			want: hydra.SandboxAPIProxyURL + "/git/repo_456",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := deployCloneURL(tt.repo); got != tt.want {
+				t.Fatalf("deployCloneURL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestProjectSecretEnv(t *testing.T) {
 	ctx := context.Background()
 
@@ -76,7 +108,7 @@ func TestProjectSecretEnv(t *testing.T) {
 // script must kill the previous app instance BEFORE launching the new one, so
 // the durable /data dir is never opened by two processes at once.
 func TestDeployScriptStopsBeforeStart(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "abc123", "myrepo", 3000)
+	script := deployScript("https://github.com/o/r.git", "abc123", "main", "myrepo", 3000)
 
 	killIdx := strings.Index(script, "kill -TERM")
 	launchIdx := strings.Index(script, "startup.sh")
@@ -94,7 +126,7 @@ func TestDeployScriptStopsBeforeStart(t *testing.T) {
 // TestDeployScriptExportsDataDirAndPort — the app receives the durable data
 // dir and its port via env so it knows where to persist state.
 func TestDeployScriptExportsDataDirAndPort(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "", "myrepo", 8080)
+	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
 	for _, want := range []string{
 		"HELIX_WEB_SERVICE_DATA_DIR=/data",
 		"HELIX_WEB_SERVICE_PORT=8080",
@@ -103,10 +135,6 @@ func TestDeployScriptExportsDataDirAndPort(t *testing.T) {
 		if !strings.Contains(script, want) {
 			t.Errorf("deploy script missing %q:\n%s", want, script)
 		}
-	}
-	// No SHA → no SHA checkout (the quoted-SHA form).
-	if strings.Contains(script, "checkout '") {
-		t.Errorf("empty SHA should not produce a SHA checkout:\n%s", script)
 	}
 	// The startup script is sourced from the helix-specs branch, checked out as
 	// a SIBLING worktree of the code (not overlaid into it).
@@ -118,8 +146,8 @@ func TestDeployScriptExportsDataDirAndPort(t *testing.T) {
 // TestDeployScriptChecksOutSHA — when a SHA is given it is checked out (in the
 // code worktree).
 func TestDeployScriptChecksOutSHA(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "deadbeef", "myrepo", 8080)
-	if !strings.Contains(script, "checkout 'deadbeef'") {
+	script := deployScript("https://github.com/o/r.git", "deadbeef", "main", "myrepo", 8080)
+	if !strings.Contains(script, "checkout --detach 'deadbeef'") {
 		t.Errorf("expected checkout of the requested SHA:\n%s", script)
 	}
 }
@@ -130,7 +158,7 @@ func TestDeployScriptChecksOutSHA(t *testing.T) {
 // helix-specs is a SIBLING worktree (never a subdir of the code); startup.sh is
 // invoked with CWD = the code dir and $0 = the helix-specs worktree.
 func TestDeployScriptMirrorsSpecTaskLayout(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "", "myrepo", 8080)
+	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
 	for _, want := range []string{
 		`CODE='/workspace/myrepo'`,
 		`SPECS=/workspace/helix-specs`,
@@ -257,4 +285,33 @@ func TestMarkLiveIfCurrentDoesNotOverwriteNewerDeploy(t *testing.T) {
 	st.EXPECT().ListWebServiceDeploys(gomock.Any(), "prj_1", 1).Return([]*types.WebServiceDeploy{{ID: "wsd_new"}}, nil)
 
 	c.markLiveIfCurrent(context.Background(), "prj_1", "wsd_old", "sbx_old")
+}
+
+// TestDeployScriptWithoutSHADeploysBranchTip — a redeploy with no SHA (the
+// Deploy button, default-branch push auto-deploy) must check out the fetched
+// tip. Fetching alone leaves the first clone's commit in the worktree, so the
+// "redeploy" rebuilt old code.
+func TestDeployScriptWithoutSHADeploysBranchTip(t *testing.T) {
+	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
+	fetch := strings.Index(script, `git -C "$CODE" fetch --all`)
+	checkout := strings.Index(script, "checkout --detach 'origin/main'")
+	if fetch < 0 || checkout < fetch {
+		t.Fatalf("expected the fetched origin/main to be checked out after the fetch:\n%s", script)
+	}
+	if !strings.Contains(deployScript("u", "", "", "myrepo", 8080), "checkout --detach 'origin/HEAD'") {
+		t.Error("no default branch recorded: expected origin/HEAD")
+	}
+	if !strings.Contains(script, deployedSHAMarker) {
+		t.Error("the script must report the commit it checked out")
+	}
+}
+
+func TestDeployedSHAFromOutput(t *testing.T) {
+	out := "Cloning...\n" + deployedSHAMarker + "70e2a08abc\n"
+	if got := deployedSHAFromOutput(out); got != "70e2a08abc" {
+		t.Fatalf("got %q", got)
+	}
+	if got := deployedSHAFromOutput("no marker"); got != "" {
+		t.Fatalf("got %q", got)
+	}
 }

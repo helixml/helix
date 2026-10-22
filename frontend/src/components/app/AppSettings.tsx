@@ -1083,8 +1083,11 @@ const AppSettings: FC<AppSettingsProps> = ({
             {focusedExternal ? 'Desktop' : 'Sandbox settings'}
           </Typography>
           )}
-          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
+          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
             Display
+          </Typography>
+          <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1.5 }}>
+            Applies to sessions started directly from this agent. Spec tasks set their own resolution from the task's compute menu.
           </Typography>
           <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
             <FormControl size="small" sx={{ minWidth: 160 }}>

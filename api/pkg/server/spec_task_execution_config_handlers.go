@@ -59,7 +59,7 @@ func (s *HelixAPIServer) resolveSpecTaskExecutionConfig(ctx context.Context, tas
 
 // updateSpecTaskExecutionConfig godoc
 // @Summary Update task execution configuration
-// @Description Replaces a task's planning or implementation code-agent configuration, or its sandbox resource preset. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.
+// @Description Replaces a task's planning or implementation code-agent configuration, its sandbox resource preset, or its sandbox display. Display changes take effect when the desktop next starts; sandbox_display_requires_restart reports a running desktop. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.
 // @Tags spec-driven-tasks
 // @Accept json
 // @Produce json
@@ -86,9 +86,18 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 		http.Error(w, "agent_id and code_agent_overrides are no longer supported; provide code_agent_config", http.StatusBadRequest)
 		return
 	}
-	codeChange := req.CodeAgentConfig != nil
-	if codeChange == (req.SandboxResourceOverrides != nil) {
+	changes := 0
+	for _, set := range []bool{req.CodeAgentConfig != nil, req.SandboxResourceOverrides != nil, req.SandboxDisplay != nil} {
+		if set {
+			changes++
+		}
+	}
+	if changes != 1 {
 		http.Error(w, "provide exactly one execution configuration change", http.StatusBadRequest)
+		return
+	}
+	if err := req.SandboxDisplay.Validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -110,7 +119,7 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 	response := &types.SpecTaskExecutionConfigUpdateResponse{Task: task}
 	if req.SandboxResourceOverrides != nil {
 		if !req.SandboxResourceOverrides.ValidPreset() {
-			http.Error(w, "sandbox size must be 1 CPU/2 GB, 4 CPU/8 GB, or 8 CPU/16 GB", http.StatusBadRequest)
+			http.Error(w, "sandbox size must be one of "+types.SpecTaskSandboxPresetList(), http.StatusBadRequest)
 			return
 		}
 		if reflect.DeepEqual(task.SandboxResourceOverrides, req.SandboxResourceOverrides) {
@@ -138,6 +147,34 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 			}
 			http.Error(w, fmt.Sprintf("failed to save sandbox resources: %v", err), http.StatusInternalServerError)
 			return
+		}
+		response.Task = task
+		writeResponse(w, response, http.StatusOK)
+		return
+	}
+
+	if req.SandboxDisplay != nil {
+		display := req.SandboxDisplay
+		if *display == (types.SandboxDisplay{}) {
+			display = nil
+		}
+		if reflect.DeepEqual(task.SandboxDisplay, display) {
+			writeResponse(w, response, http.StatusOK)
+			return
+		}
+		oldW, oldH := task.SandboxDisplay.EffectiveSize()
+		oldZoom := task.SandboxDisplay.EffectiveZoomLevel()
+		newW, newH := display.EffectiveSize()
+		effectiveChange := oldW != newW || oldH != newH || oldZoom != display.EffectiveZoomLevel()
+		task.SandboxDisplay = display
+		if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
+			http.Error(w, fmt.Sprintf("failed to save sandbox display: %v", err), http.StatusInternalServerError)
+			return
+		}
+		// The desktop size is fixed at container start; never restart here, as
+		// that would kill the agent's in-flight turn. The caller decides.
+		if effectiveChange && task.PlanningSessionID != "" && s.externalAgentExecutor != nil && s.externalAgentExecutor.HasRunningContainer(ctx, task.PlanningSessionID) {
+			response.SandboxDisplayRequiresRestart = true
 		}
 		response.Task = task
 		writeResponse(w, response, http.StatusOK)

@@ -467,10 +467,15 @@ func (s *ProvisionSuite) TestProvisionDesktopBuildsFullEnvAndMounts() {
 	s.Require().Equal(filepath.Join("/sandbox-host", "runtime", sbID, "crash-dumps"), cores.Source)
 }
 
-// TestProvisionDesktopRootlessSetsUnprivilegedRequest: an allowlisted project
-// gets an unprivileged desktop request carrying DesktopRootless so hydra builds
-// the hardened HostConfig. See design/2026-10-08-desktop-root-isolation.md.
 func (s *ProvisionSuite) TestProvisionDesktopRootlessSetsUnprivilegedRequest() {
+	s.testProvisionRootlessRequest(false, "")
+}
+
+func (s *ProvisionSuite) TestProvisionRootlessWebServiceSetsPersistentDataRequest() {
+	s.testProvisionRootlessRequest(true, types.SandboxPurposeWebService)
+}
+
+func (s *ProvisionSuite) testProvisionRootlessRequest(persistent bool, purpose string) {
 	runtimes, err := NewRuntimeRegistry(config.Sandboxes{
 		Runtimes:                  "headless-ubuntu=ubuntu:22.04|sleep infinity",
 		DefaultRuntime:            "headless-ubuntu",
@@ -492,6 +497,8 @@ func (s *ProvisionSuite) TestProvisionDesktopRootlessSetsUnprivilegedRequest() {
 		DisplayWidth:   1920,
 		DisplayHeight:  1080,
 		DisplayFPS:     30,
+		Persistent:     persistent,
+		Purpose:        purpose,
 		Env:            mustMarshal(map[string]string{}),
 	}
 	versions := mustMarshal(map[string]string{"ubuntu": "abc123"})
@@ -516,6 +523,8 @@ func (s *ProvisionSuite) TestProvisionDesktopRootlessSetsUnprivilegedRequest() {
 		DisplayHeight: 1080,
 		DisplayFPS:    30,
 		ProjectID:     "prj_target",
+		Persistent:    persistent,
+		Purpose:       purpose,
 	})
 	s.Require().NoError(err)
 	s.controller.waitProvisions()
@@ -525,6 +534,24 @@ func (s *ProvisionSuite) TestProvisionDesktopRootlessSetsUnprivilegedRequest() {
 	s.Require().Equal(hydra.DevContainerTypeUbuntu, req.ContainerType)
 	s.Require().False(req.Privileged, "hardened desktop must not be privileged")
 	s.Require().True(req.DesktopRootless, "hardened desktop must request rootless mode")
+	s.Require().Equal(persistent, req.Persistent)
+	var rootlessData hydra.MountConfig
+	var persistentData hydra.MountConfig
+	for _, item := range req.Mounts {
+		if item.Destination == "/home/retro/.local/share/docker" {
+			rootlessData = item
+		}
+		if item.Destination == "/data" {
+			persistentData = item
+		}
+	}
+	s.Require().Equal("rootless-docker-data-"+sbID, rootlessData.Source)
+	if persistent {
+		s.Require().Equal("/sandbox-host/webservice/prj_target/data", persistentData.Source)
+		s.Require().False(persistentData.ReadOnly)
+	} else {
+		s.Require().Empty(persistentData)
+	}
 }
 
 func (s *ProvisionSuite) TestProvisionDesktopOutsideRootlessAllowlistRemainsPrivileged() {

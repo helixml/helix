@@ -1,4 +1,5 @@
 import { createRandomId } from '../../utils/randomId'
+import { isPlaceholderClipboardImage } from '../../utils/clipboardPlaceholder'
 
 export const CHAT_ATTACHMENT_MAX_COUNT = 10
 export const CHAT_ATTACHMENT_MAX_BYTES = 500 * 1024 * 1024
@@ -79,6 +80,17 @@ export function validateChatAttachmentFiles(
   }
 
   return { accepted, rejected }
+}
+
+// A text copy out of the remote desktop on Safari leaves a 1x1 transparent
+// placeholder PNG alongside the real text/plain (see
+// utils/clipboardPlaceholder.ts for why the copy handler cannot omit it there).
+// Treating it as an attachment swallows the paste and loses the text. Only call
+// this when the clipboard also carries non-empty text: genuine image copies out
+// of the desktop carry an EMPTY text/plain.
+export async function withoutPlaceholderImages(files: File[]): Promise<File[]> {
+  const placeholder = await Promise.all(files.map(isPlaceholderClipboardImage))
+  return files.filter((_, i) => !placeholder[i])
 }
 
 export function filesFromClipboard(data: DataTransfer): File[] {

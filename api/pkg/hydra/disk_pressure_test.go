@@ -160,13 +160,13 @@ func (s *DiskPressureSuite) TestPoolFreeBytes_UnparsableOutput() {
 
 func (s *DiskPressureSuite) TestPoolFreeBytes_ZFSUnavailable() {
 	zfsAvailableFlag = false
-	_, err := poolFreeBytes()
+	_, err := poolFreeBytesZFS()
 	require.Error(s.T(), err)
 }
 
 func (s *DiskPressureSuite) TestPoolFreeBytes_EmptyPoolName() {
 	zfsParentDataset = ""
-	_, err := poolFreeBytes()
+	_, err := poolFreeBytesZFS()
 	require.Error(s.T(), err)
 }
 
@@ -188,7 +188,7 @@ func (s *DiskPressureSuite) TestCheckStart_RefusesWhenLow() {
 
 func (s *DiskPressureSuite) TestCreateHandlerReturnsInsufficientStorage() {
 	s.zpoolOut = "1000\t10\n"
-	server := NewServer(NewManager(s.T().TempDir(), s.T().TempDir()), "")
+	server := &Server{devContainerManager: &DevContainerManager{}}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/dev-containers", strings.NewReader(`{
 		"session_id":"ses_test","image":"helix-ubuntu:2.12.8-linux-amd64","container_name":"desktop-test"
 	}`))

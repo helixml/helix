@@ -53,6 +53,19 @@ func (w *Wallet) IsSubscriptionActive() bool {
 	return false
 }
 
+// HasPaidPlan reports whether the wallet's org may use the product: an admin
+// plan override of "pro" (paid out-of-band, e.g. by contract or through a
+// reseller) or, absent a "free" override, a live Stripe subscription.
+func (w *Wallet) HasPaidPlan() bool {
+	switch w.PlanOverride {
+	case PlanOverridePro:
+		return true
+	case PlanOverrideFree:
+		return false
+	}
+	return w.IsSubscriptionActive()
+}
+
 type TransactionMetadata struct {
 	InteractionID           string          `json:"interaction_id"`
 	LLMCallID               string          `json:"llm_call_id"`

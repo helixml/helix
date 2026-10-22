@@ -1,6 +1,6 @@
 #!/bin/bash
-# Start the per-session container engine. Desktop sessions use rootful Docker;
-# unprivileged headless sessions use a rootless Podman compatibility socket.
+# Start the per-session container engine. Rootless sessions use Docker under the
+# retro user; legacy desktop sessions use rootful Docker.
 # Org bot instances run none: their container is unprivileged and has no
 # engine storage.
 #
@@ -14,23 +14,19 @@ fi
 
 if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     export ENGINE_STOP_FILE=/tmp/.container-engine-stop
-    PODMAN_DATA=/home/retro/.local/share/containers
-    PODMAN_RUNTIME=/run/user/1000
-    PODMAN_SOCKET=${PODMAN_RUNTIME}/podman/podman.sock
-    BUILDKIT_RUNTIME=${PODMAN_RUNTIME}/buildkit
-    BUILDKIT_SOCKET=${BUILDKIT_RUNTIME}/buildkitd.sock
-    BUILDKIT_ROOTLESSKIT_STATE=${PODMAN_RUNTIME}/buildkit-rootlesskit
-    BUILDKIT_DATA=${PODMAN_DATA}/buildkit-state
-    BUILDKIT_TMP=${PODMAN_DATA}/buildkit-tmp
+    DOCKER_DATA=/home/retro/.local/share/docker
+    DOCKER_RUNTIME=/run/user/1000
+    DOCKER_SOCKET=${DOCKER_RUNTIME}/docker.sock
+    DOCKER_ROOTLESSKIT_STATE=${DOCKER_RUNTIME}/dockerd-rootless
     rm -f "${ENGINE_STOP_FILE}"
 
-    if ! mountpoint -q "${PODMAN_DATA}" 2>/dev/null; then
-        echo "[podman] ERROR: ${PODMAN_DATA} is not a volume mount"
+    if ! mountpoint -q "${DOCKER_DATA}" 2>/dev/null; then
+        echo "[dockerd-rootless] ERROR: ${DOCKER_DATA} is not a volume mount"
         exit 1
     fi
     for device in /dev/fuse /dev/net/tun; do
         if [ ! -c "${device}" ]; then
-            echo "[podman] ERROR: required device ${device} is unavailable"
+            echo "[dockerd-rootless] ERROR: required device ${device} is unavailable"
             exit 1
         fi
     done
@@ -40,148 +36,82 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     # parent directories back to the unprivileged user before it starts.
     install -d -m 0755 -o retro -g retro /home/retro/.local /home/retro/.local/share
     install -d -m 0700 -o retro -g retro \
-        "${PODMAN_DATA}" \
-        "${PODMAN_RUNTIME}" \
-        "${PODMAN_RUNTIME}/podman" \
-        "${BUILDKIT_RUNTIME}" \
-        "${BUILDKIT_ROOTLESSKIT_STATE}" \
-        "${BUILDKIT_DATA}" \
-        "${BUILDKIT_TMP}"
-    install -d -m 0755 -o retro -g retro /home/retro/.config/containers
-    cp /opt/helix/headless-containers.conf /home/retro/.config/containers/containers.conf
-    chown retro:retro /home/retro/.config/containers/containers.conf
+        "${DOCKER_DATA}" \
+        "${DOCKER_RUNTIME}" \
+        "${DOCKER_ROOTLESSKIT_STATE}"
 
     chmod u-s /usr/bin/newuidmap /usr/bin/newgidmap
     setcap cap_setuid=ep /usr/bin/newuidmap
     setcap cap_setgid=ep /usr/bin/newgidmap
-    if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
-        install -d -m 0700 -o retro -g retro /run/buildkit
-    fi
 
     if ! gosu retro env \
         HOME=/home/retro \
         USER=retro \
-        XDG_RUNTIME_DIR="${PODMAN_RUNTIME}" \
+        XDG_RUNTIME_DIR="${DOCKER_RUNTIME}" \
         /usr/bin/rootlesskit /bin/true; then
-        echo "[buildkit] FATAL: the host blocked /usr/bin/rootlesskit from creating and re-executing in a user namespace"
-        echo "[buildkit] Enable unprivileged user namespaces and permit /usr/bin/rootlesskit in the host security policy"
+        echo "[dockerd-rootless] FATAL: the host blocked /usr/bin/rootlesskit from creating and re-executing in a user namespace"
+        echo "[dockerd-rootless] Enable unprivileged user namespaces and permit /usr/bin/rootlesskit in the host security policy"
         exit 1
     fi
 
-    rm -f "${PODMAN_SOCKET}"
-    gosu retro env \
-        HOME=/home/retro \
-        XDG_RUNTIME_DIR="${PODMAN_RUNTIME}" \
-        CONTAINERS_CONF=/home/retro/.config/containers/containers.conf \
-        PODMAN_SOCKET="${PODMAN_SOCKET}" \
-        ENGINE_STOP_FILE="${ENGINE_STOP_FILE}" \
-        bash -c '
-        podman_command=(podman)
-        if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
-            # Keep the API service in the subordinate user namespace it manages.
-            podman_command+=(unshare podman)
-        fi
-        while true; do
-            if [ -f "${ENGINE_STOP_FILE}" ]; then
-                break
-            fi
-            echo "[$(date -Iseconds)] Starting rootless Podman API service..."
-            env -u CONTAINER_HOST -u DOCKER_HOST \
-                "${podman_command[@]}" system service --time=0 "unix://${PODMAN_SOCKET}"
-            EXIT_CODE=$?
-            if [ -f "${ENGINE_STOP_FILE}" ]; then
-                break
-            fi
-            echo "[$(date -Iseconds)] Podman API service exited with code ${EXIT_CODE}, restarting in 2s..."
-            sleep 2
-        done
-    ' 2>&1 | gosu retro sed -u 's/^/[ROOTLESS-PODMAN] /' &
-
-    # Polled every 0.1s: the engines are usually up within a second, and every
-    # tenth of a second here delays the agent's start.
-    echo "[podman] Waiting for Docker-compatible API..."
-    for i in $(seq 1 300); do
-        if DOCKER_HOST="unix://${PODMAN_SOCKET}" docker info >/dev/null 2>&1; then
-            echo "[podman] Rootless container engine is ready (attempt ${i})"
-            break
-        fi
-        if [ "${i}" -eq 300 ]; then
-            echo "[podman] FATAL: rootless container engine not ready after 30s"
-            exit 1
-        fi
-        sleep 0.1
-    done
-
     rm -f \
-        "${BUILDKIT_SOCKET}" \
-        "${BUILDKIT_ROOTLESSKIT_STATE}/api.sock" \
-        "${BUILDKIT_ROOTLESSKIT_STATE}/child_pid" \
-        "${BUILDKIT_ROOTLESSKIT_STATE}/lock"
+        "${DOCKER_SOCKET}" \
+        "${DOCKER_ROOTLESSKIT_STATE}/api.sock" \
+        "${DOCKER_ROOTLESSKIT_STATE}/child_pid" \
+        "${DOCKER_ROOTLESSKIT_STATE}/lock"
     gosu retro env \
         HOME=/home/retro \
         USER=retro \
-        XDG_RUNTIME_DIR="${PODMAN_RUNTIME}" \
-        TMPDIR="${BUILDKIT_TMP}" \
-        BUILDKIT_SOCKET="${BUILDKIT_SOCKET}" \
-        BUILDKIT_ROOTLESSKIT_STATE="${BUILDKIT_ROOTLESSKIT_STATE}" \
-        BUILDKIT_DATA="${BUILDKIT_DATA}" \
+        XDG_RUNTIME_DIR="${DOCKER_RUNTIME}" \
+        DOCKER_HOST="unix://${DOCKER_SOCKET}" \
+        DOCKERD_ROOTLESS_ROOTLESSKIT_STATE_DIR="${DOCKER_ROOTLESSKIT_STATE}" \
+        DOCKER_DATA="${DOCKER_DATA}" \
+        DOCKER_SOCKET="${DOCKER_SOCKET}" \
         ENGINE_STOP_FILE="${ENGINE_STOP_FILE}" \
         bash -c '
         while true; do
             if [ -f "${ENGINE_STOP_FILE}" ]; then
                 break
             fi
-            echo "[$(date -Iseconds)] Starting rootless BuildKit daemon..."
-            env -u BUILDKIT_HOST /usr/bin/rootlesskit \
-                --state-dir="${BUILDKIT_ROOTLESSKIT_STATE}" \
-                buildkitd \
-                --root="${BUILDKIT_DATA}" \
-                --addr="unix://${BUILDKIT_SOCKET}" \
-                --oci-worker-no-process-sandbox
+            echo "[$(date -Iseconds)] Starting rootless Docker daemon..."
+            dockerd-rootless.sh \
+                --data-root="${DOCKER_DATA}" \
+                --host="unix://${DOCKER_SOCKET}" \
+                --log-level=warn
             EXIT_CODE=$?
             if [ -f "${ENGINE_STOP_FILE}" ]; then
                 break
             fi
-            echo "[$(date -Iseconds)] BuildKit exited with code ${EXIT_CODE}, restarting in 2s..."
+            echo "[$(date -Iseconds)] Rootless Docker daemon exited with code ${EXIT_CODE}, restarting in 2s..."
             rm -f \
-                "${BUILDKIT_SOCKET}" \
-                "${BUILDKIT_ROOTLESSKIT_STATE}/api.sock" \
-                "${BUILDKIT_ROOTLESSKIT_STATE}/child_pid" \
-                "${BUILDKIT_ROOTLESSKIT_STATE}/lock"
+                "${DOCKER_SOCKET}" \
+                "${DOCKER_ROOTLESSKIT_STATE}/api.sock" \
+                "${DOCKER_ROOTLESSKIT_STATE}/child_pid" \
+                "${DOCKER_ROOTLESSKIT_STATE}/lock"
             sleep 2
         done
-    ' 2>&1 | gosu retro sed -u 's/^/[ROOTLESS-BUILDKIT] /' &
+    ' 2>&1 | gosu retro sed -u 's/^/[ROOTLESS-DOCKER] /' &
 
-    echo "[buildkit] Waiting for rootless BuildKit API..."
+    # Polled every 0.1s: the engines are usually up within a second, and every
+    # tenth of a second here delays the agent's start.
+    echo "[dockerd-rootless] Waiting for Docker API..."
     for i in $(seq 1 300); do
-        if gosu retro buildctl --addr "unix://${BUILDKIT_SOCKET}" debug workers >/dev/null 2>&1; then
-            echo "[buildkit] Rootless BuildKit is ready (attempt ${i})"
+        if DOCKER_HOST="unix://${DOCKER_SOCKET}" docker info >/dev/null 2>&1; then
+            echo "[dockerd-rootless] Rootless Docker is ready (attempt ${i})"
             break
         fi
         if [ "${i}" -eq 300 ]; then
-            echo "[buildkit] FATAL: rootless BuildKit not ready after 30s"
+            echo "[dockerd-rootless] FATAL: rootless Docker not ready after 30s"
             exit 1
         fi
         sleep 0.1
     done
 
-    if ! gosu retro env -u BUILDX_BUILDER \
-        HOME=/home/retro \
-        DOCKER_HOST="unix://${PODMAN_SOCKET}" \
-        docker buildx inspect helix-rootless >/dev/null 2>&1; then
-        gosu retro env -u BUILDX_BUILDER \
-            HOME=/home/retro \
-            DOCKER_HOST="unix://${PODMAN_SOCKET}" \
-            docker buildx create \
-                --name helix-rootless \
-                --driver remote \
-                "unix://${BUILDKIT_SOCKET}"
-    fi
     gosu retro env -u BUILDX_BUILDER \
         HOME=/home/retro \
-        DOCKER_HOST="unix://${PODMAN_SOCKET}" \
-        docker buildx use helix-rootless --default
-    echo "[buildkit] Configured helix-rootless as the default Buildx builder"
+        DOCKER_HOST="unix://${DOCKER_SOCKET}" \
+        docker buildx use default --default
+    echo "[dockerd-rootless] Using the rootless Docker builder"
 
     return 0
 fi

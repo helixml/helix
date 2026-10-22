@@ -8,6 +8,7 @@ import { QUEUE_DISPATCH_GRACE_MS } from '../../utils/promptQueueVisibility'
 const updateInterrupt = vi.fn()
 const saveToHistory = vi.fn()
 const clearDraft = vi.fn()
+const setDraft = vi.fn()
 
 let pendingPrompts: PromptHistoryEntry[] = []
 
@@ -19,7 +20,7 @@ vi.mock('../../hooks/usePromptHistory', async () => {
     ...actual,
     usePromptHistory: () => ({
       draft: '',
-      setDraft: vi.fn(),
+      setDraft,
       saveToHistory,
       markAsSent: vi.fn(),
       markAsFailed: vi.fn(),
@@ -507,6 +508,102 @@ describe('RobustPromptInput rich attachments', () => {
 
     expect(onSend).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Preview diagram.png' })).toBeInTheDocument()
+  })
+
+  describe('desktop copy placeholder image', () => {
+    // A 1x1 PNG header padded to 88 bytes: the placeholder as Chrome on Linux
+    // hands it back after re-encoding it through the OS clipboard.
+    const pngFile = (width: number, height: number, size: number, name: string) => {
+      const bytes = new Uint8Array(size)
+      bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+      const view = new DataView(bytes.buffer)
+      view.setUint32(16, width)
+      view.setUint32(20, height)
+      return new File([bytes], name, { type: 'image/png' })
+    }
+
+    let insertText: ReturnType<typeof vi.fn>
+    beforeEach(() => {
+      insertText = vi.fn(() => true)
+      Object.defineProperty(document, 'execCommand', { configurable: true, value: insertText })
+    })
+
+    const renderComposer = (onFileUpload: (file: File) => Promise<string>) => {
+      render(<RobustPromptInput sessionId="ses_test" onSend={vi.fn()} onFileUpload={onFileUpload} />)
+      return screen.getByPlaceholderText('Send message to agent...')
+    }
+
+    const paste = (target: HTMLElement, files: File[], text: string) =>
+      fireEvent.paste(target, {
+        clipboardData: {
+          files,
+          items: [],
+          getData: (type: string) => (type === 'text/plain' ? text : ''),
+        },
+      })
+
+    it('pastes desktop-copied text as text instead of the placeholder', async () => {
+      const onFileUpload = vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`)
+      const composer = renderComposer(onFileUpload)
+
+      paste(composer, [pngFile(1, 1, 88, 'image.png')], 'hello from the desktop')
+
+      await waitFor(() => expect(insertText).toHaveBeenCalledWith('insertText', false, 'hello from the desktop'))
+      expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+      expect(onFileUpload).not.toHaveBeenCalled()
+    })
+
+    it('still attaches a real image pasted alongside text', async () => {
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+
+      paste(composer, [pngFile(64, 64, 4096, 'screenshot.png')], 'caption')
+
+      expect(await screen.findByRole('button', { name: 'Preview screenshot.png' })).toBeInTheDocument()
+      expect(insertText).not.toHaveBeenCalled()
+    })
+
+    it('still inserts the text when the image header cannot be read', async () => {
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+      const unreadable = pngFile(1, 1, 88, 'image.png')
+      Object.defineProperty(unreadable, 'slice', {
+        value: () => ({ arrayBuffer: () => Promise.reject(new Error('NotReadableError')) }),
+      })
+
+      paste(composer, [unreadable], 'hello from wispr')
+
+      await waitFor(() => expect(insertText).toHaveBeenCalledWith('insertText', false, 'hello from wispr'))
+      expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+    })
+
+    it('writes the text into the draft when the browser refuses the insert', async () => {
+      insertText.mockReturnValue(false)
+      setDraft.mockClear()
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+
+      paste(composer, [pngFile(1, 1, 88, 'image.png')], 'hello from wispr')
+
+      await waitFor(() => expect(setDraft).toHaveBeenCalledWith('hello from wispr'))
+    })
+
+    it('leaves large images to the synchronous attach path', async () => {
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+
+      const notPrevented = paste(composer, [pngFile(1, 1, 200 * 1024, 'photo.png')], 'caption')
+
+      expect(notPrevented).toBe(false)
+      expect(await screen.findByRole('button', { name: 'Preview photo.png' })).toBeInTheDocument()
+      expect(insertText).not.toHaveBeenCalled()
+    })
+
+    it('still converts a large desktop text paste into a text attachment', async () => {
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+
+      paste(composer, [pngFile(1, 1, 88, 'image.png')], 'x'.repeat(20000))
+
+      expect(await screen.findByText(/pasted-text-.*\.txt/)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+      expect(insertText).not.toHaveBeenCalled()
+    })
   })
 
   it('keeps a failed upload visible and blocks send until it is retried', async () => {

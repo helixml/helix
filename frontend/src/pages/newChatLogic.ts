@@ -2,6 +2,7 @@ import {
   TypesCodeAgentExecutionConfig,
   TypesCreateTaskRequest,
   TypesSandboxResourceOverrides,
+  TypesSandboxDisplay,
   TypesSandboxRuntime,
   TypesSpecTaskPriority,
 } from '../api/api'
@@ -66,6 +67,7 @@ export function buildNewChatTaskRequest({
   codeAgentConfig,
   sandboxResourceOverrides,
   sandboxRuntime,
+  sandboxDisplay,
   autoApprovePullRequests,
 }: {
   /** Omitted lets the server apply the project's default. */
@@ -76,6 +78,7 @@ export function buildNewChatTaskRequest({
   prompt: string
   sandboxResourceOverrides?: TypesSandboxResourceOverrides
   sandboxRuntime?: TypesSandboxRuntime
+  sandboxDisplay?: TypesSandboxDisplay
 }): TypesCreateTaskRequest {
   return {
     auto_start: false,
@@ -92,6 +95,7 @@ export function buildNewChatTaskRequest({
       ? { sandbox_resource_overrides: sandboxResourceOverrides }
       : {}),
     ...(sandboxRuntime ? { sandbox_runtime: sandboxRuntime } : {}),
+    ...(sandboxDisplay ? { sandbox_display: sandboxDisplay } : {}),
     ...(autoApprovePullRequests !== undefined
       ? { auto_approve_pull_requests: autoApprovePullRequests }
       : {}),

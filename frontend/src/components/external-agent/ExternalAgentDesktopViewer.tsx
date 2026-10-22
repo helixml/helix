@@ -173,6 +173,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     string | undefined
   >();
   const uploadCountRef = useRef(0);
+  // A stopped desktop carries the reason its last start failed in
+  // status_message; show it with the Start button.
+  const pausedDetail = startupErrorMessage || statusMessage || undefined;
   const desktopLimitError =
     startupErrorMessage && startupErrorMessage.toLowerCase().startsWith('desktop limit reached')
       ? startupErrorMessage
@@ -462,7 +465,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             <TaskSessionPlaceholder
               variant="overlay"
               tone="paused"
-              detail={startupErrorMessage}
+              detail={pausedDetail}
               primaryAction={
                 connectSubscriptionLabel && onConnectSubscription
                   ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }
@@ -605,7 +608,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           <TaskSessionPlaceholder
             variant="overlay"
             tone="paused"
-            detail={startupErrorMessage}
+            detail={pausedDetail}
             primaryAction={
               connectSubscriptionLabel && onConnectSubscription
                 ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }
@@ -695,7 +698,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 <TaskSessionPlaceholder
                   variant="overlay"
                   tone="paused"
-                  detail={startupErrorMessage}
+                  detail={pausedDetail}
                   primaryAction={
                     connectSubscriptionLabel && onConnectSubscription
                       ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }

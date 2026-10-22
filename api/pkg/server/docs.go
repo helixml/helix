@@ -21756,7 +21756,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Replaces a task's planning or implementation code-agent configuration, or its sandbox resource preset. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.",
+                "description": "Replaces a task's planning or implementation code-agent configuration, its sandbox resource preset, or its sandbox display. Display changes take effect when the desktop next starts; sandbox_display_requires_restart reports a running desktop. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.",
                 "consumes": [
                     "application/json"
                 ],
@@ -29546,24 +29546,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "local",
-                "webhook",
-                "github",
-                "email",
-                "helix_events",
                 "gitlab",
+                "github",
+                "cron",
                 "slack",
-                "cron"
+                "webhook",
+                "helix_events",
+                "local",
+                "email"
             ],
             "x-enum-varnames": [
-                "KindLocal",
-                "KindWebhook",
-                "KindGitHub",
-                "KindEmail",
-                "KindHelixEvents",
                 "KindGitLab",
+                "KindGitHub",
+                "KindCron",
                 "KindSlack",
-                "KindCron"
+                "KindWebhook",
+                "KindHelixEvents",
+                "KindLocal",
+                "KindEmail"
             ]
         },
         "transport.ResolvedActivation": {
@@ -30078,6 +30078,10 @@ const docTemplate = `{
                 },
                 "created": {
                     "type": "string"
+                },
+                "embed_interactive": {
+                    "description": "EmbedInteractive lets an embed key also DRIVE its one session's desktop\n(keyboard, mouse, clipboard). Off for public embeds; set for an operator\nthat embeds a tenant's own agent for that tenant. Ignored on other types.",
+                    "type": "boolean"
                 },
                 "key": {
                     "type": "string"
@@ -32145,6 +32149,20 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ContainerOOMKills": {
+            "type": "object",
+            "properties": {
+                "container_id": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ContextMenuAction": {
             "type": "object",
             "properties": {
@@ -32583,6 +32601,9 @@ const docTemplate = `{
                 },
                 "prompt": {
                     "type": "string"
+                },
+                "sandbox_display": {
+                    "$ref": "#/definitions/types.SandboxDisplay"
                 },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
@@ -33731,6 +33752,13 @@ const docTemplate = `{
                 },
                 "gitlab": {
                     "$ref": "#/definitions/types.GitLab"
+                },
+                "initial_executable_files": {
+                    "description": "InitialExecutableFiles lists paths in InitialFiles committed as executable\n(mode 100755), e.g. scripts a template expects to run as ./script.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "initial_files": {
                     "type": "object",
@@ -38310,6 +38338,19 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SandboxDisplay": {
+            "type": "object",
+            "properties": {
+                "resolution": {
+                    "description": "\"1080p\" (default), \"4k\", or \"5k\"",
+                    "type": "string"
+                },
+                "zoom_level": {
+                    "description": "GNOME zoom percentage; 0 =\u003e 100 for 1080p, 200 for 4k/5k",
+                    "type": "integer"
+                }
+            }
+        },
         "types.SandboxFileUploadResponse": {
             "type": "object",
             "properties": {
@@ -38330,6 +38371,13 @@ const docTemplate = `{
         "types.SandboxHeartbeatRequest": {
             "type": "object",
             "properties": {
+                "container_oom_kills": {
+                    "description": "Cumulative cgroup OOM kills for Helix containers on this runner.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ContainerOOMKills"
+                    }
+                },
                 "container_usage": {
                     "description": "Container disk usage (per-container storage)",
                     "type": "array",
@@ -40474,6 +40522,14 @@ const docTemplate = `{
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
                 },
+                "sandbox_display": {
+                    "description": "SandboxDisplay is the desktop resolution; nil means 1080p.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxDisplay"
+                        }
+                    ]
+                },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
                 },
@@ -40966,6 +41022,9 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "sandbox_display": {
+                    "$ref": "#/definitions/types.SandboxDisplay"
+                },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
                 }
@@ -40975,6 +41034,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "agent_thread_restarted": {
+                    "type": "boolean"
+                },
+                "sandbox_display_requires_restart": {
+                    "description": "SandboxDisplayRequiresRestart is set when the display changed while the\ndesktop is running; it takes effect only after the desktop restarts.",
                     "type": "boolean"
                 },
                 "sandbox_resources_applied": {
@@ -41530,6 +41593,14 @@ const docTemplate = `{
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
+                },
+                "sandbox_display": {
+                    "description": "SandboxDisplay is the desktop resolution; nil means 1080p.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxDisplay"
+                        }
+                    ]
                 },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
@@ -43287,6 +43358,10 @@ const docTemplate = `{
                 },
                 "email": {
                     "type": "string"
+                },
+                "embed_interactive": {
+                    "description": "EmbedInteractive: an embed key that may drive its bound session's desktop.",
+                    "type": "boolean"
                 },
                 "full_name": {
                     "type": "string"

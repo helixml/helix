@@ -31,6 +31,10 @@ export const getSpecTaskLaunchPhase = ({
     // planning_session_id is persisted before repository sync and StartDesktop.
     // Until StartDesktop writes lifecycle fields, the session is launching rather
     // than paused. A lifecycle state means the normal desktop UI can take over.
+    // This cannot strand a session: once StartDesktop has written "starting"
+    // a failure leaves "stopped", a first launch that fails before that moves
+    // the task back to backlog, and a session that has ever run a desktop
+    // always has lifecycle state (see deriveSandboxState).
     if (!activeSessionId || !hasDesktopLifecycleState) return "starting";
   }
 

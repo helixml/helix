@@ -2431,14 +2431,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindLocal = "local",
-  KindWebhook = "webhook",
-  KindGitHub = "github",
-  KindEmail = "email",
-  KindHelixEvents = "helix_events",
   KindGitLab = "gitlab",
-  KindSlack = "slack",
+  KindGitHub = "github",
   KindCron = "cron",
+  KindSlack = "slack",
+  KindWebhook = "webhook",
+  KindHelixEvents = "helix_events",
+  KindLocal = "local",
+  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -2652,6 +2652,12 @@ export interface TypesAggregatedUsageMetric {
 export interface TypesApiKey {
   app_id?: SqlNullString;
   created?: string;
+  /**
+   * EmbedInteractive lets an embed key also DRIVE its one session's desktop
+   * (keyboard, mouse, clipboard). Off for public embeds; set for an operator
+   * that embeds a tenant's own agent for that tenant. Ignored on other types.
+   */
+  embed_interactive?: boolean;
   key?: string;
   name?: string;
   /** Used for isolation and metrics tracking */
@@ -3657,6 +3663,12 @@ export interface TypesContainerDiskUsage {
   size_bytes?: number;
 }
 
+export interface TypesContainerOOMKills {
+  container_id?: string;
+  count?: number;
+  session_id?: string;
+}
+
 export interface TypesContextMenuAction {
   /** Forms the grouping in the UI */
   action_label?: string;
@@ -3878,6 +3890,7 @@ export interface TypesCreateTaskRequest {
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   prompt?: string;
+  sandbox_display?: TypesSandboxDisplay;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   sandbox_runtime?: TypesSandboxRuntime;
   type?: string;
@@ -4403,6 +4416,11 @@ export interface TypesGitRepositoryCreateRequest {
   git_provider_connection_id?: string;
   github?: TypesGitHub;
   gitlab?: TypesGitLab;
+  /**
+   * InitialExecutableFiles lists paths in InitialFiles committed as executable
+   * (mode 100755), e.g. scripts a template expects to run as ./script.
+   */
+  initial_executable_files?: string[];
   initial_files?: Record<string, string>;
   /** True for GitHub/GitLab/ADO, false for Helix-hosted */
   is_external?: boolean;
@@ -6472,6 +6490,13 @@ export interface TypesSandboxCacheState {
   updated?: string;
 }
 
+export interface TypesSandboxDisplay {
+  /** "1080p" (default), "4k", or "5k" */
+  resolution?: string;
+  /** GNOME zoom percentage; 0 => 100 for 1080p, 200 for 4k/5k */
+  zoom_level?: number;
+}
+
 export interface TypesSandboxFileUploadResponse {
   /** Original filename */
   filename?: string;
@@ -6482,6 +6507,8 @@ export interface TypesSandboxFileUploadResponse {
 }
 
 export interface TypesSandboxHeartbeatRequest {
+  /** Cumulative cgroup OOM kills for Helix containers on this runner. */
+  container_oom_kills?: TypesContainerOOMKills[];
   /** Container disk usage (per-container storage) */
   container_usage?: TypesContainerDiskUsage[];
   /**
@@ -7639,6 +7666,8 @@ export interface TypesSpecTask {
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** SandboxDisplay is the desktop resolution; nil means 1080p. */
+  sandbox_display?: TypesSandboxDisplay;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   sandbox_runtime?: TypesSandboxRuntime;
   /** "absent", "running", "starting" — derived from session config in listTasks */
@@ -7839,11 +7868,17 @@ export interface TypesSpecTaskDesignReviewSubmitRequest {
 export interface TypesSpecTaskExecutionConfigUpdateRequest {
   code_agent_config?: TypesCodeAgentExecutionConfig;
   phase?: "planning" | "implementation";
+  sandbox_display?: TypesSandboxDisplay;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
 }
 
 export interface TypesSpecTaskExecutionConfigUpdateResponse {
   agent_thread_restarted?: boolean;
+  /**
+   * SandboxDisplayRequiresRestart is set when the display changed while the
+   * desktop is running; it takes effect only after the desktop restarts.
+   */
+  sandbox_display_requires_restart?: boolean;
   sandbox_resources_applied?: boolean;
   task?: TypesSpecTask;
 }
@@ -8110,6 +8145,8 @@ export interface TypesSpecTaskWithProject {
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** SandboxDisplay is the desktop resolution; nil means 1080p. */
+  sandbox_display?: TypesSandboxDisplay;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   sandbox_runtime?: TypesSandboxRuntime;
   /** "absent", "running", "starting" — derived from session config in listTasks */
@@ -8851,6 +8888,8 @@ export interface TypesUser {
   deactivated?: boolean;
   deleted_at?: GormDeletedAt;
   email?: string;
+  /** EmbedInteractive: an embed key that may drive its bound session's desktop. */
+  embed_interactive?: boolean;
   full_name?: string;
   git_commit_email?: string;
   /**
@@ -19574,7 +19613,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Replaces a task's planning or implementation code-agent configuration, or its sandbox resource preset. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.
+     * @description Replaces a task's planning or implementation code-agent configuration, its sandbox resource preset, or its sandbox display. Display changes take effect when the desktop next starts; sandbox_display_requires_restart reports a running desktop. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksExecutionConfigPartialUpdate

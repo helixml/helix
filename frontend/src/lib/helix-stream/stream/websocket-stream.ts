@@ -758,6 +758,9 @@ export class WebSocketStream {
       case WsMessageType.SelfId:
         this.handleSelfId(data)
         break
+      case WsMessageType.ClipboardChanged:
+        this.dispatchInfoEvent({ type: "clipboardChanged" })
+        break
       default:
         // Only warn on unknown types (rare, not a hot path)
         console.warn("[WebSocketStream] Unknown message type:", msgType, "hex=0x" + msgType.toString(16))

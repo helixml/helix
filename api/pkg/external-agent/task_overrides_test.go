@@ -77,6 +77,8 @@ func TestSandboxResourceOverridesValidPreset(t *testing.T) {
 	require.True(t, (types.SandboxResourceOverrides{VCPUs: 8, MemoryMB: 16384}).ValidPreset())
 	require.True(t, (types.SandboxResourceOverrides{VCPUs: 12, MemoryMB: 24576}).ValidPreset())
 	require.True(t, (types.SandboxResourceOverrides{VCPUs: 16, MemoryMB: 32768}).ValidPreset())
+	require.True(t, (types.SandboxResourceOverrides{VCPUs: 32, MemoryMB: 65536}).ValidPreset())
+	require.False(t, (types.SandboxResourceOverrides{VCPUs: 32, MemoryMB: 32768}).ValidPreset())
 	require.False(t, (types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 4096}).ValidPreset())
 	require.False(t, (types.SandboxResourceOverrides{}).ValidPreset())
 }
@@ -90,6 +92,8 @@ func TestSandboxResourceOverridesExistingRungsStayValid(t *testing.T) {
 		{VCPUs: 1, MemoryMB: 2048},
 		{VCPUs: 4, MemoryMB: 8192},
 		{VCPUs: 8, MemoryMB: 16384},
+		{VCPUs: 12, MemoryMB: 24576},
+		{VCPUs: 16, MemoryMB: 32768},
 	} {
 		require.True(t, legacy.ValidPreset(), "rung %+v must remain selectable", legacy)
 	}
@@ -118,4 +122,10 @@ func TestEffectiveSpecTaskSandboxResourcesUsesDefault(t *testing.T) {
 	resources := types.EffectiveSpecTaskSandboxResources(nil)
 	require.Equal(t, types.DefaultSpecTaskSandboxVCPUs, resources.VCPUs)
 	require.Equal(t, types.DefaultSpecTaskSandboxMemoryMB, resources.MemoryMB)
+}
+
+func TestSpecTaskSandboxPresetListNamesEveryRung(t *testing.T) {
+	require.Equal(t,
+		"1 CPU/2 GB, 4 CPU/8 GB, 8 CPU/16 GB, 12 CPU/24 GB, 16 CPU/32 GB, 32 CPU/64 GB",
+		types.SpecTaskSandboxPresetList())
 }

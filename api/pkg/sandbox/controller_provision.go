@@ -49,6 +49,7 @@ var allowedResourcePresets = []resourcePreset{
 	{VCPUs: 8, MemoryMB: 16384},
 	{VCPUs: 12, MemoryMB: 24576},
 	{VCPUs: 16, MemoryMB: 32768},
+	{VCPUs: 32, MemoryMB: 65536},
 }
 
 func resolveSandboxResources(req *types.CreateSandboxRequest) (int, int, error) {
@@ -62,7 +63,11 @@ func resolveSandboxResources(req *types.CreateSandboxRequest) (int, int, error) 
 			return vcpus, memoryMB, nil
 		}
 	}
-	return 0, 0, fmt.Errorf("invalid sandbox resources: choose one of 1 CPU / 2GB RAM, 4 CPU / 8GB RAM, or 8 CPU / 16GB RAM")
+	choices := make([]string, 0, len(allowedResourcePresets))
+	for _, preset := range allowedResourcePresets {
+		choices = append(choices, fmt.Sprintf("%d CPU / %dGB RAM", preset.VCPUs, preset.MemoryMB/1024))
+	}
+	return 0, 0, fmt.Errorf("invalid sandbox resources: choose one of %s", strings.Join(choices, ", "))
 }
 
 // provision picks a hydra host and asks it to launch the container.
@@ -321,16 +326,18 @@ func (c *Controller) buildMounts(sandbox *types.Sandbox, spec *RuntimeSpec) []hy
 	// Desktop-only mounts — same as the spec-task hydra executor, minus the
 	// Zed-specific paths since HELIX_DISABLE_AGENT=1 keeps the agent stack
 	// off. Without the container-engine storage volume the desktop init
-	// script errors out and the container exits. A rootless desktop runs
-	// Podman, whose storage lives under the user's home, not /var/lib/docker.
+	// script errors out and the container exits. Rootless Docker storage lives
+	// under the user's home, not /var/lib/docker.
 	if spec.ContainerType == hydra.DevContainerTypeUbuntu || spec.ContainerType == hydra.DevContainerTypeSway {
 		containerDataDestination := "/var/lib/docker"
+		containerDataSource := fmt.Sprintf("docker-data-%s", sandbox.ID)
 		if spec.DesktopRootless {
-			containerDataDestination = "/home/retro/.local/share/containers"
+			containerDataDestination = "/home/retro/.local/share/docker"
+			containerDataSource = fmt.Sprintf("rootless-docker-data-%s", sandbox.ID)
 		}
 		mounts = append(mounts,
 			hydra.MountConfig{
-				Source:      fmt.Sprintf("docker-data-%s", sandbox.ID),
+				Source:      containerDataSource,
 				Destination: containerDataDestination,
 				Type:        "volume",
 			},

@@ -265,9 +265,17 @@ func (c *Controller) runDeploy(
 	}
 
 	// Deploy the requested code in place (stops the old app first).
-	if err := c.deployInPlace(ctx, sb, repo, req.ProjectID, req.CommitSHA, state.ContainerPort, gitToken); err != nil {
+	deployedSHA, err := c.deployInPlace(ctx, sb, repo, req.ProjectID, req.CommitSHA, state.ContainerPort, gitToken)
+	if err != nil {
 		c.markFailedIfCurrent(ctx, req.ProjectID, deployID, sb.ID, fmt.Sprintf("deploy: %s", err))
 		return
+	}
+	// Record what was actually checked out — it is the rollback baseline for
+	// the next deploy, and a branch-tip deploy has no SHA until now.
+	if deployedSHA != "" {
+		if err := c.store.UpdateWebServiceDeploy(ctx, deployID, map[string]interface{}{"commit_sha": deployedSHA}); err != nil {
+			log.Warn().Err(err).Str("deploy_id", deployID).Msg("failed to record deployed commit")
+		}
 	}
 
 	// Poll the container port until the app responds. We treat any HTTP
@@ -642,13 +650,13 @@ func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, proje
 // Prod-scoped project secrets are injected via the exec environment (see
 // projectSecretEnv) so they reach startup.sh without being written into the
 // command line or logs.
-func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, sha string, containerPort int, gitToken string) error {
+func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, sha string, containerPort int, gitToken string) (string, error) {
 	hydraClient, err := c.sandboxes.HydraClient(sb)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	script := deployScript(repo.CloneURL, sha, repoDirName(repo), containerPort)
+	script := deployScript(deployCloneURL(repo), sha, repo.DefaultBranch, repoDirName(repo), containerPort)
 
 	// Inject prod-scoped project secrets via the exec environment (NOT inlined
 	// into the shell script) so the values don't leak into command logs. The
@@ -671,15 +679,32 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 		TimeoutSeconds: int(c.bootstrapWait.Seconds()),
 	})
 	if execErr != nil {
-		return execErr
+		return "", execErr
 	}
 	// The bootstrap backgrounds the app and exits 0 on success. A non-zero exit
 	// means clone/fetch/launch failed — fail the deploy now rather than waiting
 	// out the full readiness window against an app that will never bind.
 	if resp != nil && resp.ExitCode != nil && *resp.ExitCode != 0 {
-		return fmt.Errorf("bootstrap exited %d: %s", *resp.ExitCode, strings.TrimSpace(resp.Stderr+resp.Stdout))
+		return "", fmt.Errorf("bootstrap exited %d: %s", *resp.ExitCode, strings.TrimSpace(resp.Stderr+resp.Stdout))
 	}
-	return nil
+	if resp == nil {
+		return "", nil
+	}
+	return deployedSHAFromOutput(resp.Stdout), nil
+}
+
+// deployedSHAFromOutput reads the commit the deploy script reported checking out.
+func deployedSHAFromOutput(stdout string) string {
+	for _, line := range strings.Split(stdout, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), deployedSHAMarker); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+func deployCloneURL(repo *types.GitRepository) string {
+	return fmt.Sprintf("%s/git/%s", hydra.SandboxAPIProxyURL, repo.ID)
 }
 
 // mintDeployGitToken creates a short-lived API key owned by the deploying user
@@ -740,7 +765,7 @@ func (c *Controller) rollback(ctx context.Context, sb *types.Sandbox, repo *type
 		log.Warn().Str("sandbox_id", sb.ID).Msg("deploy failed and no previous commit to roll back to; app left stopped")
 		return
 	}
-	if err := c.deployInPlace(ctx, sb, repo, projectID, previousSHA, containerPort, gitToken); err != nil {
+	if _, err := c.deployInPlace(ctx, sb, repo, projectID, previousSHA, containerPort, gitToken); err != nil {
 		log.Error().Err(err).Str("sandbox_id", sb.ID).Str("rollback_sha", previousSHA).Msg("rollback to previous commit failed")
 		return
 	}
@@ -802,12 +827,23 @@ func repoDirName(repo *types.GitRepository) string {
 // whole process group on the next deploy. It receives HELIX_WEB_SERVICE_PORT
 // and HELIX_WEB_SERVICE_DATA_DIR=/data — apps put their database/uploads under
 // the latter so state survives redeploys and reboots.
-func deployScript(cloneURL, sha, codeDir string, containerPort int) string {
+// deployedSHAMarker prefixes the line on which the deploy script reports the
+// commit it checked out.
+const deployedSHAMarker = "HELIX_DEPLOYED_SHA="
+
+func deployScript(cloneURL, sha, defaultBranch, codeDir string, containerPort int) string {
 	code := "/workspace/" + codeDir
-	checkout := ""
-	if sha != "" {
-		checkout = "git -C " + shellEscape(code) + " checkout " + shellEscape(sha)
+	// No SHA means the tip of the default branch. The fetch alone only moves
+	// origin/*, so it must be checked out explicitly or a redeploy rebuilds
+	// whatever the first clone left in the worktree.
+	ref := "origin/HEAD"
+	if defaultBranch != "" {
+		ref = "origin/" + defaultBranch
 	}
+	if sha != "" {
+		ref = sha
+	}
+	checkout := "git -C " + shellEscape(code) + " checkout --detach " + shellEscape(ref)
 	return strings.Join([]string{
 		"set -e",
 		"mkdir -p /data /workspace",
@@ -839,6 +875,7 @@ func deployScript(cloneURL, sha, codeDir string, containerPort int) string {
 		`fi`,
 		`git -C "$CODE" fetch --all`,
 		checkout,
+		`echo "` + deployedSHAMarker + `$(git -C "$CODE" rev-parse HEAD)"`,
 		// The startup script is sourced exclusively from the project's
 		// helix-specs branch (its canonical Helix-metadata branch) — never from
 		// the deployed app branch — so there is a single definition of how the

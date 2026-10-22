@@ -226,6 +226,10 @@ type AuthProvider string
 const (
 	AuthProviderRegular AuthProvider = "regular" // Embedded in Helix, no external dependencies
 	AuthProviderOIDC    AuthProvider = "oidc"
+	// AuthProviderService is a non-human account an admin creates for an
+	// orchestrator (POST /admin/service-accounts). It has no password and no
+	// IdP identity, so it can only act through the API keys minted for it.
+	AuthProviderService AuthProvider = "service"
 	// TODO: oauth github, google, etc
 )
 
@@ -245,6 +249,8 @@ type User struct {
 	// it authenticated with one. Carried so the auth middleware can apply the
 	// per-type restrictions (app keys: chat paths only; embed keys: one spec task).
 	APIKeyType APIKeyType `json:"api_key_type" gorm:"-"`
+	// EmbedInteractive: an embed key that may drive its bound session's desktop.
+	EmbedInteractive bool `json:"embed_interactive,omitempty" gorm:"-"`
 	// if the token is associated with an app
 	AppID          string `json:"app_id"`
 	ProjectID      string `json:"project_id" gorm:"-"`      // When running in Helix Code sandbox

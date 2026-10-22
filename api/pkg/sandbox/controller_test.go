@@ -319,7 +319,7 @@ func TestRuntimeRegistryDesktopRootlessFlagFlipsBuiltinDesktop(t *testing.T) {
 		t.Fatalf("default desktop should be privileged and not rootless, got privileged=%v rootless=%v", spec.Privileged, spec.DesktopRootless)
 	}
 
-	// Flag on: desktop runs unprivileged via rootless Podman.
+	// Flag on: desktop runs unprivileged via rootless Docker.
 	hardened, err := NewRuntimeRegistry(config.Sandboxes{
 		Runtimes:        "headless-ubuntu=ubuntu:22.04",
 		DefaultRuntime:  "headless-ubuntu",

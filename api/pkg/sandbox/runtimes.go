@@ -29,7 +29,7 @@ type RuntimeSpec struct {
 	// Privileged is true for runtimes that need /dev access (today only the
 	// desktop runtime). Headless containers run unprivileged.
 	Privileged bool
-	// DesktopRootless runs a desktop runtime unprivileged (rootless Podman)
+	// DesktopRootless runs a desktop runtime unprivileged (rootless Docker)
 	// instead of privileged. When set it overrides Privileged: the desktop
 	// keeps display/input/GPU and sudo but can no longer reach the runner host
 	// or sibling tenants. See design/2026-10-08-desktop-root-isolation.md.

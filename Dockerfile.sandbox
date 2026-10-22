@@ -90,6 +90,7 @@ apt-get install -y --reinstall --no-install-recommends \
 
 echo "**** Install base packages ****"
 apt-get install -y --no-install-recommends \
+    apparmor \
     fuse \
     libnss3 \
     wget \
@@ -258,10 +259,13 @@ RUN mkdir -p /etc/helix
 # ====================================================================
 
 # Start dockerd script
+COPY sandbox/apparmor/helix-rootless-docker /etc/apparmor.d/helix-rootless-docker
+COPY sandbox/03-load-apparmor.sh /etc/cont-init.d/35-load-apparmor.sh
 COPY sandbox/04-start-dockerd.sh /etc/cont-init.d/40-start-dockerd.sh
 COPY sandbox/desktop-image-gc.sh /usr/local/lib/helix-desktop-image-gc.sh
 COPY sandbox/desktop-image-metadata.sh /usr/local/lib/helix-desktop-image-metadata.sh
-RUN chmod +x /etc/cont-init.d/40-start-dockerd.sh
+RUN chmod +x /etc/cont-init.d/35-load-apparmor.sh \
+    /etc/cont-init.d/40-start-dockerd.sh
 
 # Start (and supervise) the sandbox DNS proxy AFTER dockerd so nested
 # containers can resolve names. Re-added after it was dropped in 099156501.
