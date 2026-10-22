@@ -6569,7 +6569,7 @@ export interface TypesSandboxInstance {
   /**
    * Sandbox capacity. MaxSandboxes is set explicitly at auto-register
    * and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
-   * (default 20); the gorm default below only applies to rows inserted
+   * (default -1, unlimited); the gorm default below only applies to rows inserted
    * via paths that don't set the field. Kept aligned with the env-var
    * default to avoid surprises.
    */

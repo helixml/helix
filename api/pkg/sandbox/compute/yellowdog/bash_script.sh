@@ -26,7 +26,7 @@
 #                    unset; see below). An explicit value always wins.
 #   GPU_FLAGS      - docker run hardware flags (--gpus all on nvidia)
 #   DEVICE_FLAGS   - docker run --device flags (NVIDIA DRI nodes on nvidia)
-#   MAX_SANDBOXES  - per-runner sandbox cap (2)
+#   MAX_SANDBOXES  - per-runner sandbox cap (-1 means unlimited)
 #
 # When Helix grows multi-profile support these become first-class
 # Provider.Spec fields and the Provider populates the task Environment
@@ -57,7 +57,7 @@ if [ -z "${GPU_VENDOR:-}" ]; then
     fi
   done
 fi
-MAX_SANDBOXES="${MAX_SANDBOXES:-2}"
+MAX_SANDBOXES="${MAX_SANDBOXES:--1}"
 # GPU_FLAGS / DEVICE_FLAGS are unquoted on use - operator-provided
 # strings are tokenised by the shell to become individual docker run args.
 if [ "$GPU_VENDOR" = "neuron" ]; then

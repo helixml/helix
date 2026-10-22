@@ -26,6 +26,26 @@ func newFakeStore() *fakeStore {
 	}
 }
 
+func TestDefaultMaxSandboxes(t *testing.T) {
+	tests := []struct {
+		name string
+		in   int
+		want int
+	}{
+		{name: "unset defaults to unlimited", in: 0, want: -1},
+		{name: "unlimited is preserved", in: -1, want: -1},
+		{name: "positive cap is preserved", in: 12, want: 12},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := defaultMaxSandboxes(Spec{MaxSandboxes: test.in}); got != test.want {
+				t.Fatalf("defaultMaxSandboxes(%d) = %d, want %d", test.in, got, test.want)
+			}
+		})
+	}
+}
+
 // setAssignment is a test helper that records a profile assignment for
 // the given runner_id. Used by tests covering the D4 profile-assigned
 // protection path.

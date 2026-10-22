@@ -24,16 +24,27 @@ func newSandboxInstanceTestStore(t *testing.T) *PostgresStore {
 	return &PostgresStore{gdb: db, Store: orgstore.New(db)}
 }
 
+func TestSandboxInstanceDefaultsToUnlimited(t *testing.T) {
+	ctx := context.Background()
+	store := newSandboxInstanceTestStore(t)
+	require.NoError(t, store.RegisterSandboxInstance(ctx, &types.SandboxInstance{ID: "default", Status: "online"}))
+
+	instance, err := store.GetSandboxInstance(ctx, "default")
+	require.NoError(t, err)
+	require.Equal(t, -1, instance.MaxSandboxes)
+}
+
 func TestHeartbeatPersistsRunnerReportedMaxSandboxes(t *testing.T) {
 	ctx := context.Background()
 	store := newSandboxInstanceTestStore(t)
 	require.NoError(t, store.RegisterSandboxInstance(ctx, &types.SandboxInstance{ID: "reported", MaxSandboxes: 20, Status: "online"}))
 	require.NoError(t, store.RegisterSandboxInstance(ctx, &types.SandboxInstance{ID: "unlimited", MaxSandboxes: 20, Status: "online"}))
 	require.NoError(t, store.RegisterSandboxInstance(ctx, &types.SandboxInstance{ID: "silent", MaxSandboxes: 20, Status: "online"}))
+	require.NoError(t, store.RegisterSandboxInstance(ctx, &types.SandboxInstance{ID: "legacy", MaxSandboxes: 20, Status: "online"}))
 
 	require.NoError(t, store.UpdateSandboxHeartbeat(ctx, "reported", &types.SandboxHeartbeatRequest{MaxSandboxes: 1}, 20))
 	require.NoError(t, store.UpdateSandboxHeartbeat(ctx, "unlimited", &types.SandboxHeartbeatRequest{MaxSandboxes: -1}, 20))
-	require.NoError(t, store.UpdateSandboxHeartbeat(ctx, "silent", &types.SandboxHeartbeatRequest{}, 20))
+	require.NoError(t, store.UpdateSandboxHeartbeat(ctx, "silent", &types.SandboxHeartbeatRequest{}, -1))
 
 	reported, err := store.GetSandboxInstance(ctx, "reported")
 	require.NoError(t, err)
@@ -46,11 +57,12 @@ func TestHeartbeatPersistsRunnerReportedMaxSandboxes(t *testing.T) {
 
 	silent, err := store.GetSandboxInstance(ctx, "silent")
 	require.NoError(t, err)
-	require.Equal(t, 20, silent.MaxSandboxes)
+	require.Equal(t, -1, silent.MaxSandboxes)
 	require.False(t, silent.MaxSandboxesFromRunner)
 
-	// Boot-time backfill must only touch rows that didn't report a cap.
-	rows, err := store.BackfillSandboxMaxSandboxes(ctx, 5)
+	// Boot-time backfill removes legacy fallback caps without changing
+	// runner-reported values.
+	rows, err := store.BackfillSandboxMaxSandboxes(ctx, -1)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, rows)
 
@@ -63,7 +75,10 @@ func TestHeartbeatPersistsRunnerReportedMaxSandboxes(t *testing.T) {
 
 	silent, err = store.GetSandboxInstance(ctx, "silent")
 	require.NoError(t, err)
-	require.Equal(t, 5, silent.MaxSandboxes)
+	require.Equal(t, -1, silent.MaxSandboxes)
+	legacy, err := store.GetSandboxInstance(ctx, "legacy")
+	require.NoError(t, err)
+	require.Equal(t, -1, legacy.MaxSandboxes)
 
 	require.NoError(t, store.UpdateSandboxHeartbeat(ctx, "reported", &types.SandboxHeartbeatRequest{}, 7))
 	reported, err = store.GetSandboxInstance(ctx, "reported")
@@ -84,10 +99,18 @@ func TestHeartbeatRejectsInvalidGlobalMaxSandboxes(t *testing.T) {
 	require.NoError(t, store.RegisterSandboxInstance(ctx, &types.SandboxInstance{ID: "silent", MaxSandboxes: 20, Status: "online"}))
 
 	err := store.UpdateSandboxHeartbeat(ctx, "silent", &types.SandboxHeartbeatRequest{}, 0)
-	require.ErrorContains(t, err, "refusing non-positive default max_sandboxes")
+	require.ErrorContains(t, err, "refusing invalid default max_sandboxes")
+
+	err = store.UpdateSandboxHeartbeat(ctx, "silent", &types.SandboxHeartbeatRequest{}, -2)
+	require.ErrorContains(t, err, "refusing invalid default max_sandboxes")
 
 	err = store.UpdateSandboxHeartbeat(ctx, "silent", &types.SandboxHeartbeatRequest{MaxSandboxes: -2}, 20)
 	require.ErrorContains(t, err, "refusing invalid max_sandboxes")
+
+	for _, invalid := range []int{0, -2} {
+		_, err = store.BackfillSandboxMaxSandboxes(ctx, invalid)
+		require.ErrorContains(t, err, "refusing to write invalid value")
+	}
 }
 
 func TestFindAvailableSandboxInstanceSkipsFullRunners(t *testing.T) {

@@ -250,7 +250,7 @@ services:
       - HELIX_API_BASE_URL=http://api:8080
       - SANDBOX_INSTANCE_ID=local
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - MAX_SANDBOXES=${MAX_SANDBOXES:-10}
+      - MAX_SANDBOXES=${MAX_SANDBOXES:--1}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
@@ -352,7 +352,7 @@ services:
       - HELIX_API_BASE_URL=http://api:8080
       - SANDBOX_INSTANCE_ID=local
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - MAX_SANDBOXES=${MAX_SANDBOXES:-10}
+      - MAX_SANDBOXES=${MAX_SANDBOXES:--1}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
@@ -452,7 +452,7 @@ services:
       - HELIX_API_BASE_URL=http://api:8080
       - SANDBOX_INSTANCE_ID=local
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - MAX_SANDBOXES=${MAX_SANDBOXES:-10}
+      - MAX_SANDBOXES=${MAX_SANDBOXES:--1}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
@@ -546,7 +546,7 @@ services:
       - HELIX_API_BASE_URL=http://api:8080
       - SANDBOX_INSTANCE_ID=local
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - MAX_SANDBOXES=${MAX_SANDBOXES:-10}
+      - MAX_SANDBOXES=${MAX_SANDBOXES:--1}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}

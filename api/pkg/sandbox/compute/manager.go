@@ -1234,10 +1234,10 @@ func newSandboxID() string {
 var sandboxIDPattern = regexp.MustCompile(`^sbx_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // defaultMaxSandboxes picks the per-host inner-desktop capacity from
-// the spec, falling back to 20 (matching server.go's legacy default).
+// the spec, falling back to unlimited.
 func defaultMaxSandboxes(spec Spec) int {
 	if spec.MaxSandboxes > 0 {
 		return spec.MaxSandboxes
 	}
-	return 20
+	return -1
 }

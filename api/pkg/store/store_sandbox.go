@@ -22,8 +22,8 @@ func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, r
 	if req.MaxSandboxes < -1 {
 		return fmt.Errorf("UpdateSandboxHeartbeat refusing invalid max_sandboxes %d", req.MaxSandboxes)
 	}
-	if req.MaxSandboxes == 0 && defaultMaxSandboxes <= 0 {
-		return fmt.Errorf("UpdateSandboxHeartbeat refusing non-positive default max_sandboxes %d", defaultMaxSandboxes)
+	if req.MaxSandboxes == 0 && defaultMaxSandboxes != -1 && defaultMaxSandboxes <= 0 {
+		return fmt.Errorf("UpdateSandboxHeartbeat refusing invalid default max_sandboxes %d", defaultMaxSandboxes)
 	}
 	updates := map[string]interface{}{
 		"last_seen":       time.Now(),
@@ -265,15 +265,11 @@ func (s *PostgresStore) SetSandboxContainerCount(ctx context.Context, id string,
 // Idempotent: only writes rows where max_sandboxes already differs, so
 // repeat boots with the same config are no-ops.
 //
-// Zero-guard: refuses to backfill with value <= 0. The env var binding
-// defaults to 20, so receiving 0 here means the operator either set
-// HELIX_SANDBOX_MAX_DEV_CONTAINERS=0 explicitly (almost certainly a
-// mistake - it would render every Runner permanently "full") or the
-// config was loaded into an uninitialised struct. Either way, safer
-// to skip than to zero the entire fleet's ceiling.
+// Accepts -1 (unlimited) or a positive cap. Zero is reserved for an
+// unreported Runner override and is not a valid persisted API default.
 func (s *PostgresStore) BackfillSandboxMaxSandboxes(ctx context.Context, value int) (int64, error) {
-	if value <= 0 {
-		return 0, fmt.Errorf("BackfillSandboxMaxSandboxes refusing to write non-positive value %d (would render every Runner permanently full)", value)
+	if value != -1 && value <= 0 {
+		return 0, fmt.Errorf("BackfillSandboxMaxSandboxes refusing to write invalid value %d", value)
 	}
 	res := s.gdb.WithContext(ctx).
 		Model(&types.SandboxInstance{}).

@@ -3675,10 +3675,10 @@ type SandboxInstance struct {
 	// in its heartbeat, that value wins and MaxSandboxesFromRunner is set
 	// (so the boot-time backfill leaves it alone). Otherwise it is set at
 	// auto-register and Manager-provisioned paths from
-	// HELIX_SANDBOX_MAX_DEV_CONTAINERS (default 20); the gorm default below
+	// HELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1, unlimited); the gorm default below
 	// only applies to rows inserted via paths that don't set the field.
 	ActiveSandboxes        int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
-	MaxSandboxes           int  `json:"max_sandboxes" gorm:"default:20"`   // Maximum allowed containers
+	MaxSandboxes           int  `json:"max_sandboxes" gorm:"default:-1"`   // Maximum allowed containers; -1 means unlimited
 	MaxSandboxesFromRunner bool `json:"max_sandboxes_from_runner" gorm:"default:false"`
 	PrivilegedMode         bool `json:"privileged_mode" gorm:"default:false"`
 

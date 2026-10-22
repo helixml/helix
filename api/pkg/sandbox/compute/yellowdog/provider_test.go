@@ -283,6 +283,31 @@ func TestTaskEnvironmentSetsGPUVendor(t *testing.T) {
 	}
 }
 
+func TestTaskEnvironmentSetsMaxSandboxes(t *testing.T) {
+	p, err := NewProvider(Config{
+		APIKeyID: "k", APISecret: "s", Namespace: "n", DeploymentTag: "d", WorkerTag: "w",
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	for _, test := range []struct {
+		name string
+		max  int
+		want string
+	}{
+		{name: "unlimited", max: -1, want: "-1"},
+		{name: "positive cap", max: 12, want: "12"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			env := p.taskEnvironment(compute.Spec{MaxSandboxes: test.max})
+			if env["MAX_SANDBOXES"] != test.want {
+				t.Fatalf("MAX_SANDBOXES=%q, want %q", env["MAX_SANDBOXES"], test.want)
+			}
+		})
+	}
+}
+
 func TestTaskEnvironmentForwardsRunnerKnobs(t *testing.T) {
 	// The cache URL + readiness timeout are read by compose-manager INSIDE the
 	// sandbox; on a YD runner they only arrive if taskEnvironment emits them

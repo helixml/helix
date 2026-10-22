@@ -43197,7 +43197,7 @@
                         "type": "string"
                     },
                     "active_sandboxes": {
-                        "description": "Sandbox capacity. MaxSandboxes is set explicitly at auto-register\nand Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS\n(default 20); the gorm default below only applies to rows inserted\nvia paths that don't set the field. Kept aligned with the env-var\ndefault to avoid surprises.",
+                        "description": "Sandbox capacity. MaxSandboxes is set explicitly at auto-register\nand Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS\n(default -1, unlimited); the gorm default below only applies to rows inserted\nvia paths that don't set the field. Kept aligned with the env-var\ndefault to avoid surprises.",
                         "type": "integer"
                     },
                     "compute_state": {

@@ -120,22 +120,24 @@ type ServerConfig struct {
 	//
 	// A Runner that reports its own MAX_SANDBOXES in its heartbeat
 	// overrides this value for its row (MaxSandboxesFromRunner=true); this
-	// setting is the fallback for Runners that don't report one.
+	// setting is the fallback for Runners that don't report one. The packaged
+	// Runner default is -1, so set MAX_SANDBOXES=0 on a Runner when this global
+	// positive fallback should apply.
 	//
-	// The cap is enforced: FindAvailableSandboxInstance skips Runners with
+	// Positive caps are enforced: FindAvailableSandboxInstance skips Runners with
 	// active_sandboxes >= max_sandboxes and returns
 	// store.ErrAllSandboxHostsFull when all eligible Runners are full. The
 	// ComputeManager's autoscaler also treats
 	// `headroom = sum(max_sandboxes) - sum(active_sandboxes) < ScaleUpHeadroomMin`
-	// as demand pressure.
+	// as demand pressure. An online, ready, render-capable Runner set to -1
+	// supplies unlimited capacity and suppresses that scale-up signal.
 	//
-	// Default 20. Range is not enforced - sane values are typically 1-50,
-	// beyond which the host kernel will OOM before the limit binds.
+	// Default -1 (unlimited). Set a positive value to enforce a per-Runner cap.
 	//
 	// A boot-time backfill rewrites rows that disagree with the current
 	// config (skipping Runner-reported rows), so a change takes effect
 	// across the fleet on next API restart.
-	SandboxMaxDevContainers int `envconfig:"HELIX_SANDBOX_MAX_DEV_CONTAINERS" default:"20"`
+	SandboxMaxDevContainers int `envconfig:"HELIX_SANDBOX_MAX_DEV_CONTAINERS" default:"-1"`
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`

@@ -80,7 +80,7 @@ sandbox:
   # Reported to the control plane via heartbeat and enforced at placement;
   # overrides the control plane's HELIX_SANDBOX_MAX_DEV_CONTAINERS for this runner.
   # Set to -1 to disable the per-runner limit.
-  maxSandboxes: 10
+  maxSandboxes: -1
 
   # Comma-separated private CIDRs that session containers may reach. Empty
   # keeps private, link-local, host, and control-plane networks blocked.
