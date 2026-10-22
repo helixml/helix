@@ -409,6 +409,7 @@ func TestInteractiveEmbedKeyDrivesOnlyItsOwnDesktop(t *testing.T) {
 		{"GET", "/api/v1/external-agents/ses_A/ws/input"},
 		{"GET", "/api/v1/external-agents/ses_A/clipboard"},
 		{"POST", "/api/v1/external-agents/ses_A/clipboard"},
+		{"POST", "/api/v1/sessions/ses_A/resume"},
 	} {
 		if !embedKeyAllows(u, req(c.method, c.path)) {
 			t.Errorf("interactive embed key denied %s %s on its own session", c.method, c.path)
@@ -417,6 +418,8 @@ func TestInteractiveEmbedKeyDrivesOnlyItsOwnDesktop(t *testing.T) {
 	for _, c := range []struct{ method, path string }{
 		{"GET", "/api/v1/external-agents/ses_B/ws/input"},
 		{"POST", "/api/v1/external-agents/ses_B/clipboard"},
+		{"POST", "/api/v1/sessions/ses_B/resume"},
+		{"DELETE", "/api/v1/sessions/ses_A/stop-external-agent"},
 		{"GET", "/api/v1/sessions/ses_A/terminal"},
 		{"GET", "/api/v1/external-agents/ses_A/screenshot"},
 		{"PUT", "/api/v1/spec-tasks/spt_A"},

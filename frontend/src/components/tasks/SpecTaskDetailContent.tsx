@@ -238,8 +238,6 @@ interface SpecTaskDetailContentProps {
   initialView?: TaskView;
   /** Keep standalone task content inset while allowing sibling drawers to span the workspace. */
   padContent?: boolean;
-  /** Whether tasks awaiting spec review should open the review automatically. */
-  autoOpenReview?: boolean;
   /** Replace route close with reversible content-panel collapse. */
   allowContentCollapse?: boolean;
   /** Poll GitHub while this task is visible. Disabled for read-only embeds. */
@@ -278,7 +276,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
   initialView,
   padContent = false,
-  autoOpenReview = true,
   allowContentCollapse = false,
   enableForegroundPRRefresh = true,
   onClose,
@@ -1372,14 +1369,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   };
 
-  // Auto-open spec review when enabled and the task is ready for review.
-  // The Chat task route disables this so selecting a task preserves the Chat context.
+  // Auto-open spec review when the task is ready for review.
   // The sessionStorage marker limits auto-open to once per SPA session/task.
   // The spec_approved_at guard prevents bouncing the user back to the review page in the
   // brief window between approval and the cached task.status transitioning away from spec_review.
   useEffect(() => {
     if (
-      autoOpenReview &&
       task?.id &&
       !getAutoOpenedSpecTasks().has(task.id) &&
       !task?.spec_approved_at &&
@@ -1396,7 +1391,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       }
     }
   }, [
-    autoOpenReview,
     syncViewWithUrl,
     task?.id,
     task?.status,

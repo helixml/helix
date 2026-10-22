@@ -18,7 +18,6 @@ import { useSpecTask } from "../services/specTaskService";
 import { useGetProject } from "../services";
 import useAccount from "../hooks/useAccount";
 import { cacheTaskName } from "../lib/navHistory";
-import { shouldAutoOpenSpecTaskReview } from "../lib/specTaskAutoOpen";
 import NotFound from "./NotFound";
 
 /**
@@ -171,7 +170,6 @@ const SpecTaskDetailPage: FC = () => {
             onTaskArchived={isChatView ? handleTaskArchived : undefined}
             allowContentCollapse={isChatView}
             padContent
-            autoOpenReview={shouldAutoOpenSpecTaskReview(route.name)}
           />
         </Box>
 

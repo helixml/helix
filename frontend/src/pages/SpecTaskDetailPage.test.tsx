@@ -4,13 +4,15 @@ import SpecTaskDetailPage from "./SpecTaskDetailPage";
 
 const mocks = vi.hoisted(() => ({
   cacheTaskName: vi.fn(),
+  detailContent: vi.fn(),
+  routeName: "org_project-task-detail",
   task: { id: "task-1", name: "Test task", project_id: "project-1" },
 }));
 
 vi.mock("react-router5", () => ({
   useRoute: () => ({
     route: {
-      name: "org_project-task-detail",
+      name: mocks.routeName,
       params: { id: "project-1", taskId: "task-1" },
     },
   }),
@@ -31,7 +33,10 @@ vi.mock("../components/system/Page", () => ({
   ),
 }));
 vi.mock("../components/tasks/SpecTaskDetailContent", () => ({
-  default: () => <div data-testid="task-content" />,
+  default: (props: Record<string, unknown>) => {
+    mocks.detailContent(props);
+    return <div data-testid="task-content" />;
+  },
 }));
 vi.mock("../components/tasks/NewSpecTaskForm", () => ({
   default: () => <div data-testid="new-spec-task-form" />,
@@ -43,7 +48,19 @@ vi.mock("./NotFound", () => ({
 describe("SpecTaskDetailPage", () => {
   beforeEach(() => {
     mocks.cacheTaskName.mockClear();
+    mocks.detailContent.mockClear();
+    mocks.routeName = "org_project-task-detail";
     mocks.task.project_id = "project-1";
+  });
+
+  it("keeps review auto-open enabled in the Chat task view", () => {
+    mocks.routeName = "org_chat-task";
+
+    render(<SpecTaskDetailPage />);
+
+    expect(mocks.detailContent.mock.lastCall?.[0]).not.toHaveProperty(
+      "autoOpenReview",
+    );
   });
 
   it("does not open a new task when Enter comes from a shadow-DOM editor", () => {
