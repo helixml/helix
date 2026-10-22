@@ -941,14 +941,28 @@ RUN apt-get update && \
 
 # Chrome installation - use Google Chrome on amd64, Chromium on arm64
 # Google Chrome doesn't provide arm64 Linux packages
-RUN <<_INSTALL_CHROME
+# apt's package cache and lists live in per-arch cache mounts, so a rebuild of
+# this layer reuses the Chromium packages and PPA index it downloaded last time
+# instead of needing Launchpad to be up (it often isn't: 503s from its CDN failed
+# 2.12.37's first build). The mounts are on the runner, not in the image.
+# The XtraDeb PPA's source (key fingerprint 5301FA4FD93244FBC6F6149982BB6851C64F6880,
+# as published on Launchpad) is checked in rather than added with
+# add-apt-repository, which needs Launchpad's API for the key, and which would add
+# the PPA only after the first apt-get update had already dropped its cached index.
+RUN --mount=type=cache,id=apt-cache-chrome-${TARGETARCH},target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=apt-lists-chrome-${TARGETARCH},target=/var/lib/apt/lists,sharing=locked \
+    --mount=type=bind,source=desktop/ubuntu-config/xtradeb-apps.sources,target=/tmp/xtradeb-apps.sources \
+    <<_INSTALL_CHROME
 set -e
 
-# Launchpad is intermittently unavailable; both `add-apt-repository`
-# (which hits launchpad.net for the PPA's GPG key) and `apt-get update`
-# (which fetches InRelease from ppa.launchpadcontent.net) fail with
-# timeouts during outages. Three consecutive CI failures on 2026-05-02
-# prompted this retry wrapper. Backoff: 5s, 15s, 30s, 60s.
+# The base image deletes downloaded packages after every apt run; keep them in
+# the cache for this step, and restore the hook for later steps.
+mv /etc/apt/apt.conf.d/docker-clean /tmp/docker-clean
+
+# Launchpad is intermittently unavailable; `apt-get update` and package
+# downloads from ppa.launchpadcontent.net fail with timeouts and 503s during
+# outages. Three consecutive CI failures on 2026-05-02 prompted this retry
+# wrapper. Backoff: 5s, 15s, 30s, 60s.
 # POSIX-compatible (no `local`) so it works under dash, the default
 # `RUN` shell.
 retry_apt() {
@@ -966,17 +980,40 @@ retry_apt() {
     done
 }
 
+# When ppa.launchpadcontent.net (the PPA's CDN) fails, launchpadlibrarian.net
+# usually still serves the same files: download the PPA packages apt wants from
+# there into its cache, where apt finds them by name and checksum.
+fetch_ppa_debs_from_librarian() {
+    apt-get install -y --print-uris "$@" \
+        | sed -n "s|^'https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu/pool/[^']*/\([^'/]*\.deb\)' \([^ ]*\) .*|\1 \2|p" \
+        | while read -r file name; do
+            echo "Fetching $file from launchpadlibrarian.net"
+            curl -fsSL --retry 3 -o "/var/cache/apt/archives/$name" \
+                "https://launchpad.net/~xtradeb/+archive/ubuntu/apps/+files/$file"
+        done
+}
+
+if [ "${TARGETARCH}" = "arm64" ]; then
+    cp /tmp/xtradeb-apps.sources /etc/apt/sources.list.d/xtradeb-ubuntu-apps-questing.sources
+fi
+
+# A failed index download keeps the cached index ("old ones used instead").
 retry_apt apt-get update
 
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Installing Chromium for arm64 (XtraDeb PPA) ==="
     # Ubuntu's chromium-browser is a snap transitional package (no snapd in containers).
     # XtraDeb PPA provides real .deb packages named "chromium" (NOT "chromium-browser").
-    retry_apt apt-get install -y software-properties-common
-    retry_apt add-apt-repository -y ppa:xtradeb/apps
-    retry_apt apt-get update
     # Install the real chromium package from XtraDeb + chromedriver
-    retry_apt apt-get install -y chromium chromium-driver
+    if ! apt-get install -y chromium chromium-driver; then
+        fetch_ppa_debs_from_librarian chromium chromium-driver || true
+        retry_apt apt-get install -y chromium chromium-driver
+    fi
+    # Without the PPA's index, "chromium" resolves to Ubuntu's snap stub instead.
+    if ! dpkg-query -W -f='${Version}' chromium | grep -q xtradeb; then
+        echo "FATAL: chromium did not come from the XtraDeb PPA: $(dpkg-query -W -f='${Version}' chromium)"
+        exit 1
+    fi
     # Remove the snap transitional chromium-browser if it got pulled in as a dependency
     apt-get remove -y chromium-browser 2>/dev/null || true
 
@@ -1079,7 +1116,7 @@ else
     echo "=== Google Chrome installed for amd64 ==="
 fi
 
-rm -rf /var/lib/apt/lists/*
+mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
 _INSTALL_CHROME
 
 # Set Chrome/Chromium as default browser (GNOME defaults to Firefox otherwise)

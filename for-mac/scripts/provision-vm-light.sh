@@ -532,12 +532,14 @@ run_ssh() { $SSH_CMD "$@"; }
 # =============================================================================
 
 if ! step_done "install_zfs"; then
-    log "Installing ZFS 2.4.1+ from arter97 PPA..."
+    log "Installing ZFS from Ubuntu's archive..."
     # The kernel module comes with Ubuntu's kernel; only the userland is installed
-    # here, so there is no DKMS build to wait for. An image without zpool can't
-    # import the data pool and the app hangs at "Setting up storage".
+    # here, so there is no DKMS build to wait for. Ubuntu 26.04's zfsutils-linux
+    # (2.4.1, which has the fast_dedup DDT fix) matches that module, and its
+    # archive is mirrored, unlike the Launchpad PPA used before. An image without
+    # zpool can't import the data pool and the app hangs at "Setting up storage".
     for attempt in 1 2 3; do
-        run_ssh "sudo add-apt-repository -y ppa:arter97/zfs && sudo apt-get update && sudo apt-get install -y zfsutils-linux && zpool version" && break
+        run_ssh "sudo apt-get update && sudo apt-get install -y zfsutils-linux && zpool version" && break
         [ "$attempt" -lt 3 ] || { log "ERROR: ZFS install failed"; exit 1; }
         log "ZFS install failed (attempt $attempt), retrying in 30s..."
         sleep 30
