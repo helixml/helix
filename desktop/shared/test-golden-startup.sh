@@ -10,10 +10,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 export HELIX_GOLDEN_IDLE_TIMEOUT=4 HELIX_GOLDEN_IDLE_POLL=2
-# A fake agent CPU tier: tests simulate build activity by bumping usage_usec.
-export HELIX_GOLDEN_ACTIVITY_CGROUP="$TMP/cgroup"
-mkdir "$HELIX_GOLDEN_ACTIVITY_CGROUP"
-echo "259:0 rbytes=0 wbytes=0" > "$HELIX_GOLDEN_ACTIVITY_CGROUP/io.stat"
+# A fake agent CPU tier: tests simulate build activity by bumping its counters.
+export HELIX_GOLDEN_AGENT_CGROUP="$TMP/cgroup"
+PROCS="$HELIX_GOLDEN_AGENT_CGROUP/procs"
+BUILDKIT="$HELIX_GOLDEN_AGENT_CGROUP/docker/buildkit"
+mkdir -p "$PROCS" "$BUILDKIT"
 
 check() {
     local name="$1" expected="$2" actual="$3"
@@ -25,7 +26,10 @@ check() {
 }
 
 run() {
-    echo "usage_usec 0" > "$HELIX_GOLDEN_ACTIVITY_CGROUP/cpu.stat"
+    for cgroup in "$PROCS" "$BUILDKIT"; do
+        echo "usage_usec 0" > "$cgroup/cpu.stat"
+        echo "259:0 rbytes=0 wbytes=0" > "$cgroup/io.stat"
+    done
     printf '%s\n' "$1" > "$TMP/startup.sh"
     local start=$SECONDS code=0
     timeout 60 "$SCRIPT_DIR/helix-golden-startup.sh" "$TMP/startup.sh" >"$TMP/out" 2>&1 || code=$?
@@ -47,8 +51,14 @@ echo "ok: server processes killed"
 read -r code _ <<<"$(run 'read -r line; echo "got: $line"; exit 0')"
 check "prompt does not block" 0 "$code"
 
-# Builds by the inner engine show up only in the tier's counters.
-read -r code took <<<"$(run 'for i in $(seq 1 10); do echo "usage_usec ${i}000000" > '"$HELIX_GOLDEN_ACTIVITY_CGROUP"'/cpu.stat; sleep 1; done; exit 0')"
-check "busy script is not stopped" 0 "$code"
-[ "$took" -ge 10 ] || { echo "FAIL: busy script stopped after ${took}s"; exit 1; }
-echo "ok: busy script ran to completion"
+# BuildKit steps run outside the script's processes; they show up only in the
+# tier's counters.
+read -r code took <<<"$(run 'for i in $(seq 1 10); do echo "usage_usec ${i}000000" > '"$BUILDKIT"'/cpu.stat; sleep 1; done; exit 0')"
+check "script waiting on a BuildKit build is not stopped" 0 "$code"
+[ "$took" -ge 10 ] || { echo "FAIL: script stopped after ${took}s"; exit 1; }
+echo "ok: script with a BuildKit build ran to completion"
+
+read -r code took <<<"$(run 'for i in $(seq 1 10); do echo "259:0 rbytes=0 wbytes=${i}00000000" > '"$PROCS"'/io.stat; sleep 1; done; exit 0')"
+check "script pulling images is not stopped" 0 "$code"
+[ "$took" -ge 10 ] || { echo "FAIL: script stopped after ${took}s"; exit 1; }
+echo "ok: script pulling images ran to completion"
