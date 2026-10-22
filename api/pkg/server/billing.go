@@ -10,7 +10,7 @@ func (s *HelixAPIServer) ensureActiveSubscription(ctx context.Context, orgID str
 	if err != nil {
 		return fmt.Errorf("failed to get wallet: %w", err)
 	}
-	if !wallet.IsSubscriptionActive() {
+	if !wallet.HasPaidPlan() {
 		return fmt.Errorf("organization '%s' does not have an active subscription", orgID)
 	}
 	return nil

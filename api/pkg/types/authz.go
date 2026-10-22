@@ -226,6 +226,10 @@ type AuthProvider string
 const (
 	AuthProviderRegular AuthProvider = "regular" // Embedded in Helix, no external dependencies
 	AuthProviderOIDC    AuthProvider = "oidc"
+	// AuthProviderService is a non-human account an admin creates for an
+	// orchestrator (POST /admin/service-accounts). It has no password and no
+	// IdP identity, so it can only act through the API keys minted for it.
+	AuthProviderService AuthProvider = "service"
 	// TODO: oauth github, google, etc
 )
 
