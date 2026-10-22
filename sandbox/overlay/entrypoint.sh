@@ -6,6 +6,9 @@ set -e
 
 # Source functions from GOW utils
 source /opt/gow/bash-lib/utils.sh
+source /opt/helix/resolve-sandbox-instance-id.sh
+
+helix_resolve_sandbox_instance_id
 
 # This script is PID 1, and the kernel drops any signal PID 1 has no handler
 # for. Trap SIGTERM (docker stop) so the sandbox tears its desktops and nested

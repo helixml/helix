@@ -71,6 +71,7 @@ steps:
       # build` step is needed any more.)
       - helm lint charts/helix-controlplane
       - helm lint charts/helix-sandbox
+      - sh scripts/test-sandbox-runner-identity-chart.sh
       # Lint controlplane with production-like example values
       - helm lint charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml
       # Template render to catch runtime errors (missing helpers, bad references)
@@ -110,6 +111,7 @@ steps:
       - git config --global user.name "CI"
       - chmod +x ./desktop/shared/test-helix-specs-creation.sh
       - ./desktop/shared/test-helix-specs-creation.sh
+      - bash sandbox/tests/resolve-sandbox-instance-id.sh
     when:
       event:
         - push

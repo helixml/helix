@@ -1,4 +1,17 @@
 {{- if or (not .Values.deployment) (eq (default "Deployment" .Values.deployment.type) "Deployment") }}
+{{- $strategyType := "Recreate" }}
+{{- if and .Values.deployment .Values.deployment.strategy }}
+{{- $strategyType = default "Recreate" .Values.deployment.strategy.type }}
+{{- end }}
+{{- if ne (int .Values.replicaCount) 1 }}
+{{- fail "helix-sandbox Deployment requires replicaCount: 1 because one runner identity cannot be shared by multiple pods; use deployment.type: StatefulSet for multiple replicas" }}
+{{- end }}
+{{- if ne $strategyType "Recreate" }}
+{{- fail "helix-sandbox Deployment requires deployment.strategy.type: Recreate because concurrent pods cannot share one runner identity" }}
+{{- end }}
+{{- if and (not .Values.sandbox.instanceId) (not .Values.persistence.hydraData.enabled) }}
+{{- fail "helix-sandbox Deployment requires persistence.hydraData.enabled: true when sandbox.instanceId is empty; set a stable sandbox.instanceId when persistence is disabled" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -94,6 +107,14 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
               {{- end }}
+            {{- if not .Values.sandbox.instanceId }}
+            - name: SANDBOX_INSTANCE_ID_FROM_POD
+              value: "true"
+            {{- end }}
+            {{- if .Values.persistence.hydraData.enabled }}
+            - name: SANDBOX_INSTANCE_ID_FILE
+              value: "/hydra-data/.helix-runner-id"
+            {{- end }}
             - name: MAX_SANDBOXES
               value: {{ .Values.sandbox.maxSandboxes | quote }}
 

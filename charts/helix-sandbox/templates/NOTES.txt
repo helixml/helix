@@ -9,6 +9,18 @@ Configuration:
   Hydra Isolation: {{ .Values.hydra.enabled }}
   Max Sessions: {{ .Values.sandbox.maxSandboxes }}
 
+Runner identity:
+  Deployment defaults seed from the pod name for old-image compatibility, then
+  the updated image persists and reuses /hydra-data/.helix-runner-id. This
+  automatic mode requires hydraData persistence and both the updated chart and
+  runner image. On the first rollout of an existing runner, set
+  sandbox.instanceId to its exact current ID: the old image did not store that
+  ID locally, so a new pod name would break existing bindings. An explicit ID
+  initializes the marker and must match it thereafter; removing the override
+  reuses the stored ID. StatefulSet uses ordinal pod names and is unchanged.
+  Do not share IDs or use one fixed ID with RollingUpdate; there is no automatic
+  rebinding or cleanup of old runner records.
+
 Connectivity:
   The sandbox uses RevDial to establish an outbound connection to the control plane.
   No inbound ports or LoadBalancer are required.
