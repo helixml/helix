@@ -25,13 +25,11 @@ deployment:
   # - Multi-replica deployments (stable pod names for sandbox IDs)
   # - Per-pod persistent volumes (automatic via volumeClaimTemplates)
   # Use Deployment for:
-  # - Single replica deployments
-  # - Simpler configuration
+  # - Single replica deployments with Recreate
+  # - Automatic identity only when hydraData persistence is enabled
   type: "Deployment"
 
-  # Deployment strategy (only for type: "Deployment")
-  # Use "Recreate" for single-GPU setups where RollingUpdate can't schedule
-  # a new pod until the old one releases the GPU
+  # Deployment runner identity requires the Recreate strategy.
   strategy:
     type: "Recreate"
 
@@ -72,8 +70,15 @@ sandbox:
   runnerTokenExistingSecret: ""
   runnerTokenExistingSecretKey: ""  # defaults to "token" if not specified
 
-  # Sandbox instance ID (defaults to pod name)
-  # Leave empty to use pod name as instance ID
+  # Runner identity for a single-replica Deployment. Must be unique among all
+  # runners connected to the same control plane. Empty seeds from the pod name
+  # for old-image compatibility, then the updated image persists and reuses
+  # /hydra-data/.helix-runner-id. Automatic identity requires hydraData
+  # persistence and an updated chart plus runner image. An explicit ID may run
+  # without hydraData; when persisted, it must match the marker thereafter.
+  # Removing an explicit override reuses the stored ID. StatefulSet uses stable
+  # ordinal pod names and does not use this marker or identity setting.
+  # Do not use one fixed ID with replicas > 1 or a RollingUpdate Deployment.
   instanceId: ""
 
   # Maximum number of concurrent sessions (desktop containers)
