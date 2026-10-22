@@ -390,6 +390,20 @@ func (g *GoldenBuildService) runGoldenBuildOnSandbox(project *types.Project, san
 	ctx, cancel := context.WithTimeout(g.ctx, goldenBuildTimeout)
 	defer cancel()
 
+	// Hydra would run the build but never see it finish, so it would sit at
+	// "building" until goldenBuildTimeout.
+	sandbox, err := g.store.GetSandboxInstance(ctx, sandboxID)
+	if err != nil {
+		log.Error().Err(err).Str("project_id", project.ID).Str("sandbox_id", sandboxID).Msg("Golden build: failed to get sandbox")
+		g.setFailed(ctx, project.ID, sandboxID, "", fmt.Sprintf("Failed to get sandbox: %v", err))
+		return
+	}
+	if sandbox.GoldenCacheUnavailable {
+		log.Warn().Str("project_id", project.ID).Str("sandbox_id", sandboxID).Msg("Golden build: sandbox has no CONTAINER_DOCKER_PATH")
+		g.setFailed(ctx, project.ID, sandboxID, "", "Docker cache pre-warming is not available on this sandbox: set CONTAINER_DOCKER_PATH on it to a host path for desktop container data")
+		return
+	}
+
 	// Get project repositories
 	projectRepos, err := g.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 		ProjectID: project.ID,

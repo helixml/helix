@@ -22,6 +22,8 @@ import (
 type fakeGoldenBuilds struct {
 	mu   sync.Mutex
 	rows map[string]*types.SandboxCacheState
+	// sandboxNoGoldenCache makes every sandbox report GoldenCacheUnavailable.
+	sandboxNoGoldenCache bool
 }
 
 func (f *fakeGoldenBuilds) get(projectID, sandboxID string) *types.SandboxCacheState {
@@ -43,6 +45,12 @@ func (f *fakeGoldenBuilds) set(row *types.SandboxCacheState) {
 }
 
 func (f *fakeGoldenBuilds) install(m *store.MockStore) {
+	m.EXPECT().GetSandboxInstance(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, id string) (*types.SandboxInstance, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			return &types.SandboxInstance{ID: id, Status: "online", GoldenCacheUnavailable: f.sandboxNoGoldenCache}, nil
+		}).AnyTimes()
 	m.EXPECT().UpdateGoldenBuild(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, projectID, sandboxID string, update func(*types.SandboxCacheState) bool) (*types.SandboxCacheState, error) {
 			f.mu.Lock()
@@ -274,6 +282,19 @@ func (s *GoldenBuildServiceSuite) TestManualTriggerWhileBuildingQueuesPending() 
 	require.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "already running")
 	assert.True(s.T(), s.builds.get("prj_test", "sb_1").PendingRebuild)
+}
+
+// A sandbox without CONTAINER_DOCKER_PATH can't build a golden cache: fail at
+// once instead of starting a build that sits at "building" until the deadline.
+func (s *GoldenBuildServiceSuite) TestBuildFailsFastOnSandboxWithoutGoldenCache() {
+	s.allowBuildStarts(s.service)
+	s.builds.sandboxNoGoldenCache = true
+
+	s.service.TriggerGoldenBuild(context.Background(), s.project)
+
+	row := s.waitFor("failed", func(r *types.SandboxCacheState) bool { return r.Status == types.GoldenBuildStatusFailed })
+	assert.Contains(s.T(), row.Error, "CONTAINER_DOCKER_PATH")
+	s.assertNoStart()
 }
 
 func (s *GoldenBuildServiceSuite) TestSuccessfulBuildIsReadyAndPersistsAttempt() {

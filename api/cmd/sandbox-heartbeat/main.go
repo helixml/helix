@@ -72,6 +72,9 @@ type HeartbeatRequest struct {
 	InstanceType          string                    `json:"instance_type,omitempty"` // cloud instance type via IMDS; empty on bare metal
 	HelixVersion          string                    `json:"helix_version,omitempty"` // git commit hash or release version
 	MaxSandboxes          int                       `json:"max_sandboxes,omitempty"` // per-runner cap; -1 means unlimited, omitted when unset
+	// Without CONTAINER_DOCKER_PATH, Hydra keeps desktops' container data in
+	// plain Docker volumes, where it can neither promote nor seed a golden cache.
+	GoldenCacheUnavailable bool `json:"golden_cache_unavailable,omitempty"`
 
 	// Sandbox-absorbs-runner pivot: rich GPU inventory used by the inference
 	// router's profile-compatibility check. Detected via nvidia-smi /
@@ -285,20 +288,21 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 
 	// Build request
 	req := HeartbeatRequest{
-		DesktopVersions:       desktopVersions,
-		DiskUsage:             diskUsage,
-		ContainerUsage:        containerUsage,
-		ContainerOOMKills:     containerOOMKills,
-		PrivilegedModeEnabled: privilegedModeEnabled,
-		GPUVendor:             gpuVendor,
-		InstanceType:          instType,
-		HelixVersion:          data.GetHelixVersion(),
-		MaxSandboxes:          maxSandboxes,
-		GPUs:                  gpus,
-		ProfileStatus:         profileStatus,
-		ProfileError:          profileError,
-		ServiceHealth:         serviceHealth,
-		ProfileProgress:       profileProgress,
+		DesktopVersions:        desktopVersions,
+		DiskUsage:              diskUsage,
+		ContainerUsage:         containerUsage,
+		ContainerOOMKills:      containerOOMKills,
+		PrivilegedModeEnabled:  privilegedModeEnabled,
+		GPUVendor:              gpuVendor,
+		InstanceType:           instType,
+		HelixVersion:           data.GetHelixVersion(),
+		MaxSandboxes:           maxSandboxes,
+		GoldenCacheUnavailable: os.Getenv("CONTAINER_DOCKER_PATH") == "",
+		GPUs:                   gpus,
+		ProfileStatus:          profileStatus,
+		ProfileError:           profileError,
+		ServiceHealth:          serviceHealth,
+		ProfileProgress:        profileProgress,
 	}
 
 	// Log disk status

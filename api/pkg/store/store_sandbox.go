@@ -26,11 +26,12 @@ func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, r
 		return fmt.Errorf("UpdateSandboxHeartbeat refusing invalid default max_sandboxes %d", defaultMaxSandboxes)
 	}
 	updates := map[string]interface{}{
-		"last_seen":       time.Now(),
-		"status":          "online",
-		"gpu_vendor":      req.GPUVendor,
-		"render_node":     req.RenderNode,
-		"privileged_mode": req.PrivilegedModeEnabled,
+		"last_seen":                time.Now(),
+		"status":                   "online",
+		"gpu_vendor":               req.GPUVendor,
+		"render_node":              req.RenderNode,
+		"privileged_mode":          req.PrivilegedModeEnabled,
+		"golden_cache_unavailable": req.GoldenCacheUnavailable,
 	}
 
 	// Store helix version if provided
