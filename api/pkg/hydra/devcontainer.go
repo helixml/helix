@@ -85,6 +85,10 @@ type DevContainerManager struct {
 	containers map[string]*DevContainer
 	mu         sync.RWMutex
 
+	admissionMu        sync.Mutex
+	creatingContainers map[string]chan struct{}
+	maxSandboxes       int
+
 	// Golden build results, keyed by projectID. Persists after container deletion
 	// so the API can query the outcome.
 	goldenBuildResults   map[string]*GoldenBuildResult
@@ -109,9 +113,12 @@ func NewDevContainerManager(manager *Manager) *DevContainerManager {
 // also fans inner-container logs into the supplied LogBuffer. Pass nil to
 // disable buffering (equivalent to NewDevContainerManager).
 func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer) *DevContainerManager {
+	maxSandboxes, _ := types.ParseSandboxMaxSandboxes(os.Getenv("MAX_SANDBOXES"))
 	dm := &DevContainerManager{
 		manager:            manager,
 		containers:         make(map[string]*DevContainer),
+		creatingContainers: make(map[string]chan struct{}),
+		maxSandboxes:       maxSandboxes,
 		goldenBuildResults: make(map[string]*GoldenBuildResult),
 		goldenCopyProgress: make(map[string]*GoldenCopyProgress),
 		logBuffer:          logBuffer,
@@ -427,6 +434,92 @@ func recoverImageFromSources(ctx context.Context, dockerClient imageRecoveryClie
 	return false
 }
 
+func (dm *DevContainerManager) reserveContainerSlot(ctx context.Context, sessionID string, maxSandboxes int, running func() (map[string]struct{}, error)) (func(), error) {
+	for {
+		dm.admissionMu.Lock()
+		if dm.creatingContainers == nil {
+			dm.creatingContainers = make(map[string]chan struct{})
+		}
+		if done, creating := dm.creatingContainers[sessionID]; creating {
+			dm.admissionMu.Unlock()
+			select {
+			case <-done:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		runningSessions, err := running()
+		if err != nil {
+			dm.admissionMu.Unlock()
+			return nil, fmt.Errorf("list running dev containers for capacity admission: %w", err)
+		}
+		for creatingSessionID := range dm.creatingContainers {
+			runningSessions[creatingSessionID] = struct{}{}
+		}
+		_, alreadyRunning := runningSessions[sessionID]
+		if !alreadyRunning && len(runningSessions) >= maxSandboxes {
+			dm.admissionMu.Unlock()
+			return nil, fmt.Errorf("runner is at capacity (%d/%d dev containers); raise MAX_SANDBOXES or add runners", len(runningSessions), maxSandboxes)
+		}
+
+		done := make(chan struct{})
+		dm.creatingContainers[sessionID] = done
+		dm.admissionMu.Unlock()
+		return func() {
+			dm.admissionMu.Lock()
+			delete(dm.creatingContainers, sessionID)
+			close(done)
+			dm.admissionMu.Unlock()
+		}, nil
+	}
+}
+
+func runningCapacitySessions(ctx context.Context, dockerClient *client.Client) (map[string]struct{}, error) {
+	containers, err := dockerClient.ContainerList(ctx, container.ListOptions{All: false})
+	if err != nil {
+		return nil, err
+	}
+
+	sessions := make(map[string]struct{}, len(containers))
+	for _, runningContainer := range containers {
+		if runningContainer.Labels[containerGoldenBuildLabel] == "true" {
+			continue
+		}
+		sessionID := runningContainer.Labels[containerSessionIDLabel]
+		if sessionID == "" {
+			for _, name := range runningContainer.Names {
+				if parts := strings.Split(strings.TrimPrefix(name, "/"), "-external-"); len(parts) == 2 {
+					sessionID = "ses_" + parts[1]
+					break
+				}
+			}
+		}
+		if sessionID != "" {
+			sessions[sessionID] = struct{}{}
+		}
+	}
+	return sessions, nil
+}
+
+func trackedExistingContainer(req *CreateDevContainerRequest, existing dockertypes.ContainerJSON, ipAddress string) *DevContainer {
+	isGoldenBuild := existing.Config != nil && existing.Config.Labels[containerGoldenBuildLabel] == "true"
+	projectID := ""
+	if existing.Config != nil {
+		projectID = existing.Config.Labels[containerProjectIDLabel]
+	}
+	return &DevContainer{
+		SessionID:       req.SessionID,
+		ContainerID:     existing.ID,
+		ContainerName:   req.ContainerName,
+		IPAddress:       ipAddress,
+		IsGoldenBuild:   isGoldenBuild,
+		ProjectID:       projectID,
+		goldenCacheKind: cacheKindFromContainer(existing),
+	}
+}
+
 // CreateDevContainer creates and starts a dev container
 func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
 	// Validate that image has a specific version tag - never accept :latest.
@@ -480,6 +573,20 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 	defer dockerClient.Close()
+
+	maxSandboxes := req.MaxSandboxes
+	if dm.maxSandboxes == -1 || dm.maxSandboxes > 0 {
+		maxSandboxes = dm.maxSandboxes
+	}
+	if !req.GoldenBuild && maxSandboxes > 0 {
+		release, err := dm.reserveContainerSlot(ctx, req.SessionID, maxSandboxes, func() (map[string]struct{}, error) {
+			return runningCapacitySessions(ctx, dockerClient)
+		})
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
 	if req.DiskSizeGB > 0 {
 		if _, _, inspectErr := dockerClient.ImageInspectWithRaw(ctx, resolvedImage); inspectErr != nil {
 			if !dm.tryRecoverImage(ctx, dockerClient, resolvedImage, req.Image) {
@@ -620,13 +727,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 			// Track container in our map
 			dm.mu.Lock()
-			dm.containers[req.SessionID] = &DevContainer{
-				SessionID:       req.SessionID,
-				ContainerID:     existingContainer.ID,
-				ContainerName:   req.ContainerName,
-				IPAddress:       ipAddress,
-				goldenCacheKind: cacheKindFromContainer(existingContainer),
-			}
+			dm.containers[req.SessionID] = trackedExistingContainer(req, existingContainer, ipAddress)
 			dm.mu.Unlock()
 
 			return &DevContainerResponse{
@@ -690,13 +791,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 			// Track container
 			dm.mu.Lock()
-			dm.containers[req.SessionID] = &DevContainer{
-				SessionID:       req.SessionID,
-				ContainerID:     existingContainer.ID,
-				ContainerName:   req.ContainerName,
-				IPAddress:       ipAddress,
-				goldenCacheKind: cacheKindFromContainer(existingContainer),
-			}
+			dm.containers[req.SessionID] = trackedExistingContainer(req, inspect, ipAddress)
 			dm.mu.Unlock()
 
 			log.Info().
@@ -2614,6 +2709,7 @@ func (dm *DevContainerManager) ListDevContainers(ctx context.Context) *ListDevCo
 			Status:        status,
 			IPAddress:     ip,
 			ContainerType: dc.ContainerType,
+			IsGoldenBuild: dc.IsGoldenBuild,
 		})
 	}
 

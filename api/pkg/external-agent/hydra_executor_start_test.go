@@ -59,6 +59,8 @@ func TestStartDesktopFailureLeavesSessionStoppedWithReason(t *testing.T) {
 
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "usr_1"}).
 		Return(&types.User{ID: "usr_1", Email: "dev@example.com", FullName: "Dev"}, nil).AnyTimes()
+	mockStore.EXPECT().GetSandboxInstance(gomock.Any(), "sbx_1").
+		Return(&types.SandboxInstance{ID: "sbx_1", MaxSandboxes: 1}, nil)
 
 	_, err := executor.StartDesktop(context.Background(), &types.DesktopAgent{
 		SessionID:   "ses_1",

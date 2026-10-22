@@ -880,7 +880,7 @@ type Store interface {
 
 	// Sandbox host registry methods (hydra hosts running dev containers)
 	RegisterSandboxInstance(ctx context.Context, instance *types.SandboxInstance) error
-	UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest) error
+	UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest, defaultMaxSandboxes int) error
 	GetSandboxInstance(ctx context.Context, id string) (*types.SandboxInstance, error)
 	ListSandboxInstances(ctx context.Context) ([]*types.SandboxInstance, error)
 	DeregisterSandboxInstance(ctx context.Context, id string) error

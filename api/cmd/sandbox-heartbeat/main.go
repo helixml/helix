@@ -71,6 +71,7 @@ type HeartbeatRequest struct {
 	GPUVendor             string                    `json:"gpu_vendor,omitempty"`    // nvidia, amd, intel, none
 	InstanceType          string                    `json:"instance_type,omitempty"` // cloud instance type via IMDS; empty on bare metal
 	HelixVersion          string                    `json:"helix_version,omitempty"` // git commit hash or release version
+	MaxSandboxes          int                       `json:"max_sandboxes,omitempty"` // per-runner cap; -1 means unlimited, omitted when unset
 
 	// Sandbox-absorbs-runner pivot: rich GPU inventory used by the inference
 	// router's profile-compatibility check. Detected via nvidia-smi /
@@ -138,10 +139,20 @@ func main() {
 	// Check if privileged mode is enabled
 	privilegedModeEnabled := os.Getenv("HYDRA_PRIVILEGED_MODE_ENABLED") == "true"
 
+	// Per-runner sandbox cap, reported to the API so dispatch honours it.
+	// 0 means "not reported" and the API falls back to its global
+	// HELIX_SANDBOX_MAX_DEV_CONTAINERS.
+	maxSandboxes, ok := types.ParseSandboxMaxSandboxes(os.Getenv("MAX_SANDBOXES"))
+	if !ok {
+		log.Warn().Str("MAX_SANDBOXES", os.Getenv("MAX_SANDBOXES")).
+			Msg("Ignoring invalid MAX_SANDBOXES (must be -1, 0, or a positive integer); API will use its global default")
+	}
+
 	log.Info().
 		Str("api_url", apiURL).
 		Str("sandbox_instance_id", sandboxInstanceID).
 		Bool("privileged_mode_enabled", privilegedModeEnabled).
+		Int("max_sandboxes", maxSandboxes).
 		Dur("interval", HeartbeatInterval).
 		Msg("Starting sandbox heartbeat daemon")
 
@@ -154,13 +165,13 @@ func main() {
 	defer ticker.Stop()
 
 	// Send initial heartbeat immediately
-	sendHeartbeat(apiURL, runnerToken, sandboxInstanceID, privilegedModeEnabled)
+	sendHeartbeat(apiURL, runnerToken, sandboxInstanceID, privilegedModeEnabled, maxSandboxes)
 
 	// Main loop
 	for {
 		select {
 		case <-ticker.C:
-			sendHeartbeat(apiURL, runnerToken, sandboxInstanceID, privilegedModeEnabled)
+			sendHeartbeat(apiURL, runnerToken, sandboxInstanceID, privilegedModeEnabled, maxSandboxes)
 		case sig := <-sigChan:
 			log.Info().Str("signal", sig.String()).Msg("Received signal, shutting down")
 			return
@@ -242,7 +253,7 @@ func detectInstanceType(ctx context.Context) string {
 	return it
 }
 
-func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedModeEnabled bool) {
+func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedModeEnabled bool, maxSandboxes int) {
 	// Discover all desktop versions dynamically
 	// Scans /opt/images/helix-*.version files
 	desktopVersions := discoverDesktopVersions()
@@ -282,6 +293,7 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 		GPUVendor:             gpuVendor,
 		InstanceType:          instType,
 		HelixVersion:          data.GetHelixVersion(),
+		MaxSandboxes:          maxSandboxes,
 		GPUs:                  gpus,
 		ProfileStatus:         profileStatus,
 		ProfileError:          profileError,

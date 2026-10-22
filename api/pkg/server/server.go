@@ -2636,11 +2636,12 @@ func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sa
 
 	// Not registered - auto-register it.
 	//
-	// MaxSandboxes comes from HELIX_SANDBOX_MAX_DEV_CONTAINERS (default 20).
+	// MaxSandboxes comes from HELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1,
+	// unlimited).
 	// This is the per-Runner ceiling on isolated dev containers that hydra
 	// will spawn inside this helix-sandbox host. Operators tuning for
-	// smaller hosts or wanting the autoscaler to trigger sooner can drop
-	// this without redeploying the runner image.
+	// smaller hosts or wanting the autoscaler to trigger sooner can set a
+	// positive value without redeploying the runner image.
 	instance := &types.SandboxInstance{
 		ID:           sandboxID,
 		Hostname:     fmt.Sprintf("sandbox-%s", sandboxID),

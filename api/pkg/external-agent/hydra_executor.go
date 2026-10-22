@@ -305,6 +305,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 
 	// Determine sandbox ID - use agent's preference or find an available one
 	sandboxID := agent.SandboxID
+	maxSandboxes := 0
 	if sandboxID == "" {
 		// Headless agents use the helix-ubuntu toolchain image, so placement must
 		// select a host advertising that image even though the created container
@@ -323,6 +324,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 		if sandbox != nil {
 			sandboxID = sandbox.ID
+			maxSandboxes = sandbox.MaxSandboxes
 			log.Info().
 				Str("sandbox_id", sandboxID).
 				Str("container_type", containerType).
@@ -330,6 +332,12 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		} else {
 			return nil, fmt.Errorf("no eligible sandbox runner available for container type %q (required image %q); check runner status, heartbeat, and advertised desktop image versions", containerType, placementImage)
 		}
+	} else if sandboxID != "local" && !agent.GoldenBuild {
+		sandbox, err := h.store.GetSandboxInstance(ctx, sandboxID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load sandbox runner %s: %w", sandboxID, err)
+		}
+		maxSandboxes = sandbox.MaxSandboxes
 	}
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
 	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
@@ -464,6 +472,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// NOTE: GPUVendor is empty - Hydra reads it from its own GPU_VENDOR env var
 	req := &hydra.CreateDevContainerRequest{
 		SessionID:               agent.SessionID,
+		MaxSandboxes:            maxSandboxes,
 		Image:                   image,
 		ContainerName:           containerName,
 		Hostname:                containerName,
@@ -629,13 +638,12 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// for the same session (counter would otherwise double-count).
 	// Skipping golden builds: they aren't user-facing workload and the
 	// hydra-side monitorGoldenBuild path doesn't go through StopDesktop,
-	// so counting them would create a one-way drift up. Skipping the
-	// "local" sentinel: no Runner row exists when SandboxID is unset.
+	// so counting them would create a one-way drift up.
 	//
 	// The matching decrement lives in StopDesktop, gated on the session
 	// actually being present in h.sessions at stop time (so double-stop
 	// can't over-decrement).
-	if !alreadyTracked && !agent.GoldenBuild && sandboxID != "" && sandboxID != "local" {
+	if !alreadyTracked && !agent.GoldenBuild && sandboxID != "" {
 		if incErr := h.store.IncrementSandboxContainerCount(ctx, sandboxID); incErr != nil {
 			log.Warn().
 				Err(incErr).
@@ -1081,8 +1089,7 @@ func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, d
 	//      (so the matching increment fired earlier; double-stop and
 	//      stop-of-untracked-session both have exists=false here).
 	//   2. The delete succeeded (failures return above with tracking intact).
-	// Skip the "local" sentinel (no Runner row to decrement).
-	if exists && sandboxID != "" && sandboxID != "local" {
+	if exists && sandboxID != "" {
 		if decErr := h.store.DecrementSandboxContainerCount(ctx, sandboxID); decErr != nil {
 			log.Warn().
 				Err(decErr).
@@ -1317,7 +1324,7 @@ func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID strin
 			// (autoscaler would never see them released). Same guards
 			// as the StopDesktop decrement: was-tracked, not a golden
 			// build, real Runner row.
-			if stillTracked && !session.GoldenBuild && sandboxID != "" && sandboxID != "local" {
+			if stillTracked && !session.GoldenBuild && sandboxID != "" {
 				if decErr := h.store.DecrementSandboxContainerCount(ctx, sandboxID); decErr != nil {
 					log.Warn().Err(decErr).
 						Str("sandbox_id", sandboxID).
@@ -2007,6 +2014,14 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 		return nil
 	}
 
+	runningContainers := filterRunningContainers(containerList.Containers)
+	activeContainers := 0
+	for _, container := range runningContainers {
+		if !container.IsGoldenBuild {
+			activeContainers++
+		}
+	}
+
 	// Resync active_sandboxes from ground truth FIRST, before any
 	// early-return on the empty-list case. hydra is the source of truth:
 	// if it reports 0 containers, the DB MUST become 0 too (otherwise a
@@ -2015,17 +2030,16 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 	// prevent). SET (not Increment) writes the exact count, recovering
 	// from any drift accumulated by missed Increment/Decrement calls
 	// (API restart, hydra-side internal deletes, failed StopDesktop).
-	if sandboxID != "" && sandboxID != "local" {
-		if setErr := h.store.SetSandboxContainerCount(ctx, sandboxID, len(containerList.Containers)); setErr != nil {
+	if sandboxID != "" {
+		if setErr := h.store.SetSandboxContainerCount(ctx, sandboxID, activeContainers); setErr != nil {
 			log.Warn().
 				Err(setErr).
 				Str("sandbox_id", sandboxID).
-				Int("container_count", len(containerList.Containers)).
+				Int("container_count", activeContainers).
 				Msg("Failed to set active_sandboxes from discovery; counter may be stale")
 		}
 	}
 
-	runningContainers := filterRunningContainers(containerList.Containers)
 	if exited := len(containerList.Containers) - len(runningContainers); exited > 0 {
 		log.Info().
 			Str("sandbox_id", sandboxID).

@@ -25,6 +25,7 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
+	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -7442,17 +7443,17 @@ func (mr *MockStoreMockRecorder) UpdateSandbox(ctx, sandbox any) *gomock.Call {
 }
 
 // UpdateSandboxHeartbeat mocks base method.
-func (m *MockStore) UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest) error {
+func (m *MockStore) UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest, defaultMaxSandboxes int) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateSandboxHeartbeat", ctx, id, req)
+	ret := m.ctrl.Call(m, "UpdateSandboxHeartbeat", ctx, id, req, defaultMaxSandboxes)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateSandboxHeartbeat indicates an expected call of UpdateSandboxHeartbeat.
-func (mr *MockStoreMockRecorder) UpdateSandboxHeartbeat(ctx, id, req any) *gomock.Call {
+func (mr *MockStoreMockRecorder) UpdateSandboxHeartbeat(ctx, id, req, defaultMaxSandboxes any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandboxHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateSandboxHeartbeat), ctx, id, req)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandboxHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateSandboxHeartbeat), ctx, id, req, defaultMaxSandboxes)
 }
 
 // UpdateSandboxInstanceComputeState mocks base method.
@@ -7996,6 +7997,7 @@ func (mr *MockStoreMockRecorder) UpsertZedSettingsOverride(ctx, override any) *g
 type MockSecretIntakeStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockSecretIntakeStoreMockRecorder
+	isgomock struct{}
 }
 
 // MockSecretIntakeStoreMockRecorder is the mock recorder for MockSecretIntakeStore.

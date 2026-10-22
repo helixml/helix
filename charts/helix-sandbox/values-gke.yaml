@@ -53,7 +53,7 @@ sandbox:
   # apiUrl: "http://my-helix-controlplane.helix.svc.cluster.local"
   runnerTokenExistingSecret: "helix-sandbox-token"
   runnerTokenExistingSecretKey: "token"
-  maxSandboxes: 5
+  maxSandboxes: -1
 
 gpu:
   vendor: "nvidia"

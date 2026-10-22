@@ -3670,14 +3670,17 @@ type SandboxInstance struct {
 	// (e.g. "inf2.8xlarge"). Empty on bare-metal / non-AWS hosts.
 	InstanceType string `json:"instance_type,omitempty" gorm:"type:varchar(100)"`
 
-	// Sandbox capacity. MaxSandboxes is set explicitly at auto-register
-	// and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
-	// (default 20); the gorm default below only applies to rows inserted
-	// via paths that don't set the field. Kept aligned with the env-var
-	// default to avoid surprises.
-	ActiveSandboxes int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
-	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:20"`   // Maximum allowed containers
-	PrivilegedMode  bool `json:"privileged_mode" gorm:"default:false"`
+	// Sandbox capacity. MaxSandboxes is the hard per-Runner cap enforced
+	// by FindAvailableSandboxInstance. When the Runner reports MAX_SANDBOXES
+	// in its heartbeat, that value wins and MaxSandboxesFromRunner is set
+	// (so the boot-time backfill leaves it alone). Otherwise it is set at
+	// auto-register and Manager-provisioned paths from
+	// HELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1, unlimited); the gorm default below
+	// only applies to rows inserted via paths that don't set the field.
+	ActiveSandboxes        int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
+	MaxSandboxes           int  `json:"max_sandboxes" gorm:"default:-1"`   // Maximum allowed containers; -1 means unlimited
+	MaxSandboxesFromRunner bool `json:"max_sandboxes_from_runner" gorm:"default:false"`
+	PrivilegedMode         bool `json:"privileged_mode" gorm:"default:false"`
 
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty" gorm:"type:varchar(255)"`
@@ -3778,6 +3781,13 @@ func (s *SandboxInstance) CanHostDesktop() bool {
 	return s.RenderNode != "SOFTWARE"
 }
 
+// AtCapacity reports whether the Runner already hosts its maximum number
+// of dev containers. -1 means unlimited; 0 is not enforced while awaiting
+// the control plane fallback.
+func (s *SandboxInstance) AtCapacity() bool {
+	return s.MaxSandboxes > 0 && s.ActiveSandboxes >= s.MaxSandboxes
+}
+
 // SandboxHeartbeatRequest is sent by sandbox-heartbeat daemon every 30 seconds
 type SandboxHeartbeatRequest struct {
 	// Desktop image versions (content-addressable Docker image hashes)
@@ -3808,6 +3818,11 @@ type SandboxHeartbeatRequest struct {
 
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty"`
+
+	// MaxSandboxes is the runner's own cap on concurrent dev containers,
+	// from its MAX_SANDBOXES env var. -1 means unlimited. 0 (omitted) means
+	// the runner did not report one and the API's fallback applies.
+	MaxSandboxes int `json:"max_sandboxes,omitempty"`
 
 	// --- Sandbox-absorbs-runner pivot fields ---
 	// Reported by the compose-manager process inside the sandbox.

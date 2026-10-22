@@ -105,19 +105,78 @@ func TestDiscoverContainersFromSandbox_ResurrectsStoppedSession(t *testing.T) {
 	// staying in its terminal state is guaranteed by construction.
 }
 
+func TestDiscoverContainersFromSandboxCountsOnlyRunningNonGoldenContainers(t *testing.T) {
+	tests := []struct {
+		name      string
+		sandboxID string
+		body      string
+		wantCount int
+		tracked   []string
+	}{
+		{
+			name:      "mixed",
+			sandboxID: "sbox_1",
+			body: `{"containers":[
+				{"session_id":"ses_running","status":"running"},
+				{"session_id":"ses_exited","status":"stopped"},
+				{"session_id":"ses_golden","status":"running","is_golden_build":true}
+			]}`,
+			wantCount: 1,
+			tracked:   []string{"ses_running", "ses_golden"},
+		},
+		{
+			name:      "local mixed",
+			sandboxID: "local",
+			body: `{"containers":[
+				{"session_id":"ses_running","status":"running"},
+				{"session_id":"ses_exited","status":"stopped"},
+				{"session_id":"ses_golden","status":"running","is_golden_build":true}
+			]}`,
+			wantCount: 1,
+			tracked:   []string{"ses_running", "ses_golden"},
+		},
+		{
+			name:      "local zero running",
+			sandboxID: "local",
+			body:      `{"containers":[{"session_id":"ses_exited","status":"stopped"}]}`,
+			wantCount: 0,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			h := newTestExecutor(mockStore)
+			h.connman = fakeConnman{listBody: test.body}
+			for _, sessionID := range test.tracked {
+				h.sessions[sessionID] = &ZedSession{SessionID: sessionID, SandboxID: test.sandboxID, Status: "running"}
+			}
+
+			mockStore.EXPECT().SetSandboxContainerCount(gomock.Any(), test.sandboxID, test.wantCount).Return(nil)
+			mockStore.EXPECT().ListSessionsBySandbox(gomock.Any(), test.sandboxID).Return([]*types.Session{}, nil)
+
+			require.NoError(t, h.DiscoverContainersFromSandbox(context.Background(), test.sandboxID))
+		})
+	}
+}
+
 // fakeConnman serves canned HTTP responses over an in-memory connection,
 // routing by request method and path. It lets a test drive
 // hydra.NewRevDialClient (constructed inside HydraExecutor methods) without a
 // live sandbox.
-type fakeConnman struct{}
+type fakeConnman struct {
+	listBody string
+}
 
-func (fakeConnman) Dial(ctx context.Context, deviceID string) (net.Conn, error) {
-	return &fakeConn{}, nil
+func (f fakeConnman) Dial(ctx context.Context, deviceID string) (net.Conn, error) {
+	return &fakeConn{listBody: f.listBody}, nil
 }
 
 type fakeConn struct {
-	req []byte
-	r   *bytes.Reader
+	req      []byte
+	r        *bytes.Reader
+	listBody string
 }
 
 func (c *fakeConn) Write(p []byte) (int, error) {
@@ -143,6 +202,9 @@ func (c *fakeConn) response() []byte {
 	}
 	switch {
 	case req.Method == "GET" && req.URL.Path == "/api/v1/dev-containers":
+		if c.listBody != "" {
+			return httpResponse("200 OK", "application/json", c.listBody)
+		}
 		body := `{"containers":[{"session_id":"ses_x","container_id":"c1","container_name":"ubuntu-external-ses_x","ip_address":"10.0.0.9","status":"running"}]}`
 		return httpResponse("200 OK", "application/json", body)
 	case req.Method == "GET":
@@ -154,14 +216,14 @@ func (c *fakeConn) response() []byte {
 	}
 }
 
-func (c *fakeConn) Close() error                  { return nil }
-func (c *fakeConn) LocalAddr() net.Addr          { return fakeAddr{} }
-func (c *fakeConn) RemoteAddr() net.Addr         { return fakeAddr{} }
+func (c *fakeConn) Close() error         { return nil }
+func (c *fakeConn) LocalAddr() net.Addr  { return fakeAddr{} }
+func (c *fakeConn) RemoteAddr() net.Addr { return fakeAddr{} }
 func (c *fakeConn) Deadline() (time.Time, time.Time, error) {
 	return time.Time{}, time.Time{}, nil
 }
-func (c *fakeConn) SetDeadline(t time.Time) error    { return nil }
-func (c *fakeConn) SetReadDeadline(t time.Time) error { return nil }
+func (c *fakeConn) SetDeadline(t time.Time) error      { return nil }
+func (c *fakeConn) SetReadDeadline(t time.Time) error  { return nil }
 func (c *fakeConn) SetWriteDeadline(t time.Time) error { return nil }
 
 type fakeAddr struct{}

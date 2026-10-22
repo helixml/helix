@@ -111,7 +111,7 @@ func (apiServer *HelixAPIServer) sandboxHeartbeat(rw http.ResponseWriter, req *h
 	}
 
 	// Update heartbeat
-	if err := apiServer.Store.UpdateSandboxHeartbeat(req.Context(), sandboxID, &heartbeat); err != nil {
+	if err := apiServer.Store.UpdateSandboxHeartbeat(req.Context(), sandboxID, &heartbeat, apiServer.Cfg.SandboxMaxDevContainers); err != nil {
 		log.Error().Err(err).Str("sandbox_id", sandboxID).Msg("Failed to update sandbox heartbeat")
 		http.Error(rw, "Failed to update heartbeat", http.StatusInternalServerError)
 		return

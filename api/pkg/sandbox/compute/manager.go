@@ -422,6 +422,9 @@ func (m *Manager) demandPressureExists(rows []*types.SandboxInstance) bool {
 			continue
 		}
 		readyAny = true
+		if r.MaxSandboxes == -1 {
+			return false
+		}
 		readyCapacity += int(r.MaxSandboxes)
 		readyDemand += int(r.ActiveSandboxes)
 	}
@@ -734,6 +737,7 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 	readyOnlineCount := 0
 	readyCapacity := 0
 	readyDemand := 0
+	unlimitedReadyCapacity := false
 	// provisioningCapacity is the MaxSandboxes total across rows we've
 	// ALREADY submitted a Provision for but that haven't reached Ready
 	// yet. Counted toward "committed capacity" in the D3 headroom
@@ -761,11 +765,17 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 		// floor runner is still kept alive.
 		if isReadyAndOnline(r) && r.CanHostDesktop() {
 			readyOnlineCount++
-			readyCapacity += int(r.MaxSandboxes)
+			if r.MaxSandboxes == -1 {
+				unlimitedReadyCapacity = true
+			} else {
+				readyCapacity += int(r.MaxSandboxes)
+			}
 			readyDemand += int(r.ActiveSandboxes)
 		}
 		if State(r.ComputeState) == StateProvisioning {
-			provisioningCapacity += int(r.MaxSandboxes)
+			if r.MaxSandboxes > 0 {
+				provisioningCapacity += int(r.MaxSandboxes)
+			}
 		}
 	}
 
@@ -807,7 +817,7 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 	// it), so the fallback constant 20 was always used - under-
 	// provisioning 4x on smaller-capacity hosts.
 	demandNeed := 0
-	if m.cfg.Max > m.cfg.Floor && readyOnlineCount > 0 {
+	if m.cfg.Max > m.cfg.Floor && readyOnlineCount > 0 && !unlimitedReadyCapacity {
 		// Committed capacity: Ready+online (real serving) PLUS in-flight
 		// provisioning (will serve soon). Both contribute slots toward
 		// the headroom we already have on order. The readyOnlineCount
@@ -1224,10 +1234,10 @@ func newSandboxID() string {
 var sandboxIDPattern = regexp.MustCompile(`^sbx_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // defaultMaxSandboxes picks the per-host inner-desktop capacity from
-// the spec, falling back to 20 (matching server.go's legacy default).
+// the spec, falling back to unlimited.
 func defaultMaxSandboxes(spec Spec) int {
 	if spec.MaxSandboxes > 0 {
 		return spec.MaxSandboxes
 	}
-	return 20
+	return -1
 }
