@@ -3809,6 +3809,11 @@ type SandboxHeartbeatRequest struct {
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty"`
 
+	// MaxSandboxes is the runner's own cap on concurrent dev containers,
+	// from its MAX_SANDBOXES env var. 0 (omitted) means the runner did not
+	// report one and the API's HELIX_SANDBOX_MAX_DEV_CONTAINERS applies.
+	MaxSandboxes int `json:"max_sandboxes,omitempty"`
+
 	// --- Sandbox-absorbs-runner pivot fields ---
 	// Reported by the compose-manager process inside the sandbox.
 
