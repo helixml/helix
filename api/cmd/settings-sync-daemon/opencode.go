@@ -107,6 +107,17 @@ type openCodeModelOption struct {
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 }
 
+func openCodeModalities(modalities []string) []string {
+	result := make([]string, len(modalities))
+	for i, modality := range modalities {
+		if modality == "file" {
+			modality = "pdf"
+		}
+		result[i] = modality
+	}
+	return result
+}
+
 // openCodeProviderID is the single provider opencode is allowed to use. The
 // model id the agent selects is "<openCodeProviderID>/<helix provider>/<model>"
 // — opencode treats everything after the first slash as the model name, which
@@ -132,8 +143,8 @@ func (d *SettingsDaemon) buildOpenCodeConfig(baseURL string) openCodeConfig {
 	}
 	if len(d.codeAgentConfig.InputModalities) > 0 || len(d.codeAgentConfig.OutputModalities) > 0 {
 		model.Modalities = &openCodeModelModalities{
-			Input:  d.codeAgentConfig.InputModalities,
-			Output: d.codeAgentConfig.OutputModalities,
+			Input:  openCodeModalities(d.codeAgentConfig.InputModalities),
+			Output: openCodeModalities(d.codeAgentConfig.OutputModalities),
 		}
 		for _, modality := range d.codeAgentConfig.InputModalities {
 			if modality != "text" {

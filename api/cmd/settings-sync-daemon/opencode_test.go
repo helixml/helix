@@ -218,6 +218,22 @@ func TestOpenCodeImageCapabilityIntegration(t *testing.T) {
 	}, model["modalities"])
 }
 
+func TestOpenCodeConfigMapsFileModalityToPDF(t *testing.T) {
+	d := openCodeDaemon()
+	d.codeAgentConfig.Model = "anthropic/claude-fable-5"
+	d.codeAgentConfig.InputModalities = []string{"text", "image", "file"}
+	d.codeAgentConfig.OutputModalities = []string{"text"}
+
+	decoded := decodeOpenCodeConfig(t, d.generateAgentServerConfig())
+	providers := decoded["provider"].(map[string]interface{})
+	models := providers["helix"].(map[string]interface{})["models"].(map[string]interface{})
+	model := models["anthropic/claude-fable-5"].(map[string]interface{})
+	assert.Equal(t, map[string]interface{}{
+		"input":  []interface{}{"text", "image", "pdf"},
+		"output": []interface{}{"text"},
+	}, model["modalities"])
+}
+
 func TestOpenCodeConfigDoesNotGuessAttachmentSupport(t *testing.T) {
 	d := openCodeDaemon()
 	d.codeAgentConfig.InputModalities = nil
