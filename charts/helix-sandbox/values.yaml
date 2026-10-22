@@ -76,7 +76,9 @@ sandbox:
   # Leave empty to use pod name as instance ID
   instanceId: ""
 
-  # Maximum number of concurrent sessions (desktop containers)
+  # Maximum number of concurrent sandboxes (dev containers) on this runner.
+  # Reported to the control plane via heartbeat and enforced at placement;
+  # overrides the control plane's HELIX_SANDBOX_MAX_DEV_CONTAINERS for this runner.
   maxSandboxes: 10
 
   # Comma-separated private CIDRs that session containers may reach. Empty

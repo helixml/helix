@@ -533,13 +533,22 @@ func (c *Controller) pickHostForSandbox(ctx context.Context, sandbox *types.Sand
 	if err != nil {
 		return nil, fmt.Errorf("list hosts: %w", err)
 	}
+	sawFull := false
 	for _, h := range hosts {
 		// Headless containers run no compositor and no encoder, so any
 		// online host will do - including CPU-only and inference
 		// accelerator hosts that cannot stream a desktop.
-		if h.Status == "online" {
-			return h, nil
+		if h.Status != "online" {
+			continue
 		}
+		if h.AtCapacity() {
+			sawFull = true
+			continue
+		}
+		return h, nil
+	}
+	if sawFull {
+		return nil, store.ErrAllSandboxHostsFull
 	}
 	return nil, errors.New("no available sandbox host with the requested runtime")
 }

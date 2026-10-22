@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -29,6 +30,14 @@ func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, r
 	// Store helix version if provided
 	if req.HelixVersion != "" {
 		updates["helix_version"] = req.HelixVersion
+	}
+
+	// Runner-reported sandbox cap (MAX_SANDBOXES) overrides the global
+	// HELIX_SANDBOX_MAX_DEV_CONTAINERS. Flag the row so the boot-time
+	// backfill doesn't overwrite it.
+	if req.MaxSandboxes > 0 {
+		updates["max_sandboxes"] = req.MaxSandboxes
+		updates["max_sandboxes_from_runner"] = true
 	}
 
 	// Store cloud instance type if detected. Empty on bare-metal / non-AWS
@@ -239,7 +248,8 @@ func (s *PostgresStore) SetSandboxContainerCount(ctx context.Context, id string,
 }
 
 // BackfillSandboxMaxSandboxes rewrites max_sandboxes on every existing
-// Runner row to the supplied value. Called once at API boot so a change
+// Runner row to the supplied value, except rows whose cap was reported by
+// the Runner itself (MAX_SANDBOXES in the heartbeat). Called once at API boot so a change
 // to HELIX_SANDBOX_MAX_DEV_CONTAINERS takes effect across the entire
 // fleet on next restart, not just for Runners that re-register after
 // the change. Returns the number of rows updated for logging.
@@ -259,7 +269,7 @@ func (s *PostgresStore) BackfillSandboxMaxSandboxes(ctx context.Context, value i
 	}
 	res := s.gdb.WithContext(ctx).
 		Model(&types.SandboxInstance{}).
-		Where("max_sandboxes != ?", value).
+		Where("max_sandboxes != ? AND max_sandboxes_from_runner = ?", value, false).
 		UpdateColumn("max_sandboxes", value)
 	if res.Error != nil {
 		return 0, res.Error
@@ -279,8 +289,14 @@ func (s *PostgresStore) GetSandboxInstancesOlderThanHeartbeat(ctx context.Contex
 	return instances, nil
 }
 
+// ErrAllSandboxHostsFull is returned by FindAvailableSandboxInstance when at
+// least one otherwise-eligible Runner exists but every one is at its
+// max_sandboxes cap.
+var ErrAllSandboxHostsFull = errors.New("all sandbox runners are at capacity (max_sandboxes reached; raise MAX_SANDBOXES on the runner, HELIX_SANDBOX_MAX_DEV_CONTAINERS on the control plane, or add runners)")
+
 // FindAvailableSandboxInstance finds a sandbox host that is online, has recent heartbeat, and has the required desktop version.
-// Returns nil if no suitable sandbox host is found.
+// Returns nil if no suitable sandbox host is found, or ErrAllSandboxHostsFull
+// if suitable hosts exist but all are at their max_sandboxes cap.
 //
 // requiresDisplay narrows the search to render-capable hosts. Pass true when
 // the container will run a compositor and be streamed; pass false for
@@ -307,6 +323,7 @@ func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, deskto
 	}
 
 	// Find one with the required desktop version
+	sawFull := false
 	for _, instance := range instances {
 		// Streamed desktops only run on render-capable hosts. A neuron/inf2
 		// host (no /dev/dri render node) would otherwise be picked on load
@@ -321,11 +338,18 @@ func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, deskto
 				continue // Skip sandboxes with invalid version JSON
 			}
 			if version, ok := versions[desktopType]; ok && version != "" {
+				if instance.AtCapacity() {
+					sawFull = true
+					continue
+				}
 				return instance, nil
 			}
 		}
 	}
 
+	if sawFull {
+		return nil, ErrAllSandboxHostsFull
+	}
 	return nil, nil // No suitable sandbox found
 }
 
