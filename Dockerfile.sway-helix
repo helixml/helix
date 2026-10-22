@@ -1029,6 +1029,7 @@ ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup
 ADD desktop/shared/helix-git-mtime.py /usr/local/bin/helix-git-mtime
 ADD desktop/shared/helix-chrome-devtools-mcp.sh /usr/local/bin/helix-chrome-devtools-mcp
 ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
+ADD desktop/shared/helix-golden-startup.sh /usr/local/bin/helix-golden-startup
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
 ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
@@ -1037,7 +1038,7 @@ RUN chmod +x /usr/local/bin/start-zed-helix.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
     /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-git-mtime \
     /usr/local/bin/helix-chrome-devtools-mcp \
-    /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/helix-run-startup-script.sh /usr/local/bin/helix-golden-startup \
     /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
     /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
 
