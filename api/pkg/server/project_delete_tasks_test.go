@@ -83,6 +83,7 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectDeletesAllTasksIncludingArchi
 	}).Return([]*types.SpecTask{withSession, archived}, nil)
 
 	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_1").Return(nil)
+	s.sto.EXPECT().DeleteSession(gomock.Any(), "ses_1").Return(&types.Session{ID: "ses_1"}, nil)
 	s.expectTaskDeleted("t1")
 	// t2 has no planning session: no stop, but it is still deleted.
 	s.expectTaskDeleted("t2")
@@ -144,6 +145,7 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectSkipsDesktopsOnDisconnectedHo
 	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_explore").Return(gone)
 	s.sto.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{task}, nil)
 	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_task").Return(gone)
+	s.sto.EXPECT().DeleteSession(gomock.Any(), "ses_task").Return(&types.Session{ID: "ses_task"}, nil)
 	s.expectTaskDeleted("t1")
 	s.sto.EXPECT().ListArtifacts(gomock.Any(), gomock.Any()).Return([]*types.Artifact{}, nil)
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
@@ -158,4 +160,36 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectSkipsDesktopsOnDisconnectedHo
 	_, httpErr = s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Require().NotNil(httpErr)
 	s.Contains(httpErr.Error(), "stop exploratory session")
+}
+
+func (s *DeleteProjectTasksSuite) TestDeleteProjectRetriesAfterSessionWasDeleted() {
+	project := &types.Project{ID: "prj_del", UserID: s.userID}
+	task := &types.SpecTask{ID: "t1", ProjectID: "prj_del", PlanningSessionID: "ses_task"}
+
+	s.sto.EXPECT().GetProject(gomock.Any(), "prj_del").Return(project, nil)
+	s.sto.EXPECT().GetProjectExploratorySession(gomock.Any(), "prj_del").Return(nil, nil)
+	s.sto.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{task}, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_task").Return(nil)
+	s.sto.EXPECT().DeleteSession(gomock.Any(), "ses_task").Return(nil, store.ErrNotFound)
+	s.expectTaskDeleted("t1")
+	s.sto.EXPECT().ListArtifacts(gomock.Any(), gomock.Any()).Return([]*types.Artifact{}, nil)
+	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+
+	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
+	s.Require().Nil(httpErr)
+}
+
+func (s *DeleteProjectTasksSuite) TestDeleteProjectAbortsWhenSessionDeleteFails() {
+	project := &types.Project{ID: "prj_del", UserID: s.userID}
+	task := &types.SpecTask{ID: "t1", ProjectID: "prj_del", PlanningSessionID: "ses_task"}
+
+	s.sto.EXPECT().GetProject(gomock.Any(), "prj_del").Return(project, nil)
+	s.sto.EXPECT().GetProjectExploratorySession(gomock.Any(), "prj_del").Return(nil, nil)
+	s.sto.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{task}, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_task").Return(nil)
+	s.sto.EXPECT().DeleteSession(gomock.Any(), "ses_task").Return(nil, fmt.Errorf("db down"))
+
+	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
+	s.Require().NotNil(httpErr)
+	s.Contains(httpErr.Error(), "delete session ses_task")
 }

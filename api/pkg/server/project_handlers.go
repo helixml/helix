@@ -1037,6 +1037,9 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 			if stopErr != nil && !sandboxHostGone(stopErr, task.PlanningSessionID) {
 				return nil, system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
 			}
+			if _, delErr := s.Store.DeleteSession(r.Context(), task.PlanningSessionID); delErr != nil && !errors.Is(delErr, store.ErrNotFound) {
+				return nil, system.NewHTTPError500(fmt.Sprintf("delete session %s before project deletion: %s", task.PlanningSessionID, delErr))
+			}
 		}
 
 		if delErr := s.deleteSpecTaskCascade(r.Context(), task.ID); delErr != nil {
