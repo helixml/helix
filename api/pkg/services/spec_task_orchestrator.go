@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -733,6 +734,56 @@ func ImplementationQueueReason(project *types.Project, projectTasks []*types.Spe
 	return ""
 }
 
+// sandboxCapacityQueueReason reports whether a queued implementation task must
+// wait for a free sandbox slot. It returns (false, "", nil) — no gating — when
+// any online runner advertises unlimited capacity (MaxSandboxes == -1), or when
+// no finite fleet capacity can be measured yet. Otherwise it compares the
+// number of spec tasks already holding an implementation slot (fleet-wide)
+// against the summed per-runner cap, so that over-cap dispatches queue and
+// retry on a later tick instead of being started and rejected by the runner's
+// per-container limit. The implementation-status count is used (not the
+// asynchronously-updated ActiveSandboxes counter) because the status transition
+// to implementation is the synchronous claim, which keeps this gate race-free
+// within a replica: a task promoted earlier in the same tick is already counted
+// when the next queued task is evaluated.
+func (o *SpecTaskOrchestrator) sandboxCapacityQueueReason(ctx context.Context) (bool, string, error) {
+	instances, err := o.store.ListSandboxInstances(ctx)
+	if err != nil {
+		return false, "", fmt.Errorf("listing sandbox instances for capacity gate: %w", err)
+	}
+
+	staleThreshold := time.Now().Add(-config.DefaultSandboxDispatchStaleThreshold)
+	capacity := 0
+	anyOnline := false
+	for _, inst := range instances {
+		if inst.Status != "online" || inst.LastSeen.Before(staleThreshold) {
+			continue
+		}
+		anyOnline = true
+		if inst.MaxSandboxes < 0 {
+			// At least one online runner is unlimited: never gate on capacity.
+			return false, "", nil
+		}
+		capacity += inst.MaxSandboxes
+	}
+	if !anyOnline || capacity <= 0 {
+		// No online runner, or none advertises a finite positive cap yet.
+		// Leave the existing path to proceed rather than wedging the queue.
+		return false, "", nil
+	}
+
+	inUse, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		Status: types.TaskStatusImplementation,
+	})
+	if err != nil {
+		return false, "", fmt.Errorf("counting in-flight implementation tasks: %w", err)
+	}
+	if len(inUse) >= capacity {
+		return true, fmt.Sprintf("Waiting for sandbox capacity — %d of %d sandbox slots in use.", len(inUse), capacity), nil
+	}
+	return false, "", nil
+}
+
 // countPhrase renders "1 task is" / "3 tasks are" with correct grammar.
 func countPhrase(n int, noun string) string {
 	if n == 1 {
@@ -871,6 +922,26 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 			Str("project_id", latestTask.ProjectID).
 			Str("queue_reason", reason).
 			Msg("Leaving spec task queued - implementation capacity or dependency is blocked")
+		return nil
+	}
+
+	// Gate on real sandbox-fleet capacity so we never promote more
+	// implementation tasks than there are sandbox slots. When every online
+	// runner enforces a finite cap and all slots are taken, the task stays
+	// queued and the orchestration loop retries it as capacity frees — instead
+	// of starting it and failing when no sandbox can be acquired. Any runner
+	// with unlimited capacity (MaxSandboxes == -1) disables this gate.
+	if blocked, reason, err := o.sandboxCapacityQueueReason(ctx); err != nil {
+		// Fail open: a transient capacity-query error must not wedge the queue.
+		log.Warn().Err(err).
+			Str("task_id", latestTask.ID).
+			Msg("Sandbox capacity check failed; promoting without the capacity gate")
+	} else if blocked {
+		log.Info().
+			Str("task_id", latestTask.ID).
+			Str("project_id", latestTask.ProjectID).
+			Str("queue_reason", reason).
+			Msg("Leaving spec task queued - sandbox capacity is full")
 		return nil
 	}
 

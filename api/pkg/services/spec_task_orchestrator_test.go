@@ -729,6 +729,11 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_ClaimsAcr
 		return []*types.SpecTask{newTaskSnapshot()}, nil
 	}).Times(2)
 	s.store.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{}, nil).Times(2)
+	// An unlimited runner makes the sandbox-capacity gate a no-op, so this test
+	// keeps exercising only the WIP-claim race.
+	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{
+		{Status: "online", LastSeen: time.Now(), MaxSandboxes: -1},
+	}, nil).AnyTimes()
 
 	var claimAttempts atomic.Int32
 	s.store.EXPECT().TransitionSpecTaskStatus(
