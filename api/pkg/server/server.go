@@ -1408,6 +1408,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	adminRouter.HandleFunc("/admin/orgs", apiServer.adminListOrganizations).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/orgs/{id}/plan", apiServer.adminSetOrgPlan).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/service-accounts", system.Wrapper(apiServer.adminCreateServiceAccount)).Methods(http.MethodPost)
 
 	// Sandbox-absorbs-runner pivot: /scheduler/heartbeats and /slots
 	// endpoints removed — no scheduler, no slots.

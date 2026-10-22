@@ -29,7 +29,7 @@ func (c *Controller) HasEnoughBalance(ctx context.Context, user *types.User, org
 		if err != nil {
 			return false, fmt.Errorf("failed to get subscription: %w", err)
 		}
-		if !subscription.IsSubscriptionActive() {
+		if !subscription.HasPaidPlan() {
 			return false, fmt.Errorf("organization '%s' does not have an active subscription", orgID)
 		}
 	}
