@@ -222,7 +222,7 @@ func TestOpenCodeConfigMapsFileModalityToPDF(t *testing.T) {
 	d := openCodeDaemon()
 	d.codeAgentConfig.Model = "anthropic/claude-fable-5"
 	d.codeAgentConfig.InputModalities = []string{"text", "image", "file"}
-	d.codeAgentConfig.OutputModalities = []string{"text"}
+	d.codeAgentConfig.OutputModalities = []string{"text", "file"}
 
 	decoded := decodeOpenCodeConfig(t, d.generateAgentServerConfig())
 	providers := decoded["provider"].(map[string]interface{})
@@ -230,7 +230,7 @@ func TestOpenCodeConfigMapsFileModalityToPDF(t *testing.T) {
 	model := models["anthropic/claude-fable-5"].(map[string]interface{})
 	assert.Equal(t, map[string]interface{}{
 		"input":  []interface{}{"text", "image", "pdf"},
-		"output": []interface{}{"text"},
+		"output": []interface{}{"text", "pdf"},
 	}, model["modalities"])
 }
 
