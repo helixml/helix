@@ -1,10 +1,25 @@
 package types
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/datatypes"
 )
+
+// ParseSandboxMaxSandboxes parses the runner's MAX_SANDBOXES value.
+func ParseSandboxMaxSandboxes(value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, true
+	}
+	maxSandboxes, err := strconv.Atoi(value)
+	if err != nil || maxSandboxes <= 0 {
+		return 0, false
+	}
+	return maxSandboxes, true
+}
 
 // SandboxRuntime identifies the type of sandbox to create.
 type SandboxRuntime string

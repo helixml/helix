@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"go.uber.org/mock/gomock"
@@ -126,9 +127,9 @@ func TestSandboxRegistryRoutes_AdminCannotHeartbeat(t *testing.T) {
 func TestSandboxRegistryRoutes_RunnerCanHeartbeat(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().UpdateSandboxHeartbeat(gomock.Any(), "sbx_1", gomock.Any()).Return(nil)
+	mockStore.EXPECT().UpdateSandboxHeartbeat(gomock.Any(), "sbx_1", gomock.Any(), gomock.Any()).Return(nil)
 
-	router := newSandboxRegistryTestRouter(&HelixAPIServer{Store: mockStore}, &registryTestRunner)
+	router := newSandboxRegistryTestRouter(&HelixAPIServer{Store: mockStore, Cfg: &config.ServerConfig{SandboxMaxDevContainers: 20}}, &registryTestRunner)
 	if rec := serveRegistry(router, http.MethodPost, "/sandboxes/sbx_1/heartbeat", `{}`); rec.Code != http.StatusOK {
 		t.Fatalf("POST heartbeat as runner: got %d %q", rec.Code, rec.Body.String())
 	}

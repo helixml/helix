@@ -142,7 +142,7 @@ func main() {
 	// Per-runner sandbox cap, reported to the API so dispatch honours it.
 	// 0 means "not reported" and the API falls back to its global
 	// HELIX_SANDBOX_MAX_DEV_CONTAINERS.
-	maxSandboxes, ok := parseMaxSandboxes(os.Getenv("MAX_SANDBOXES"))
+	maxSandboxes, ok := types.ParseSandboxMaxSandboxes(os.Getenv("MAX_SANDBOXES"))
 	if !ok {
 		log.Warn().Str("MAX_SANDBOXES", os.Getenv("MAX_SANDBOXES")).
 			Msg("Ignoring invalid MAX_SANDBOXES (must be a positive integer); API will use its global default")
@@ -251,21 +251,6 @@ func detectInstanceType(ctx context.Context) string {
 		return ""
 	}
 	return it
-}
-
-// parseMaxSandboxes parses the MAX_SANDBOXES env value. Returns 0 for an
-// unset value; ok is false only when the value is set but not a positive
-// integer.
-func parseMaxSandboxes(v string) (n int, ok bool) {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return 0, true
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil || n <= 0 {
-		return 0, false
-	}
-	return n, true
 }
 
 func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedModeEnabled bool, maxSandboxes int) {

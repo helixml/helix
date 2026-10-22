@@ -200,6 +200,7 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 
 	createReq := &hydra.CreateDevContainerRequest{
 		SessionID:           sandbox.ID,
+		MaxSandboxes:        host.MaxSandboxes,
 		Image:               image,
 		ContainerName:       containerName,
 		Hostname:            containerName,

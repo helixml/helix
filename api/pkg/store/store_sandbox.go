@@ -18,7 +18,10 @@ func (s *PostgresStore) RegisterSandboxInstance(ctx context.Context, instance *t
 }
 
 // UpdateSandboxHeartbeat updates a sandbox's heartbeat data
-func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest) error {
+func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest, defaultMaxSandboxes int) error {
+	if req.MaxSandboxes <= 0 && defaultMaxSandboxes <= 0 {
+		return fmt.Errorf("UpdateSandboxHeartbeat refusing non-positive default max_sandboxes %d", defaultMaxSandboxes)
+	}
 	updates := map[string]interface{}{
 		"last_seen":       time.Now(),
 		"status":          "online",
@@ -33,11 +36,13 @@ func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, r
 	}
 
 	// Runner-reported sandbox cap (MAX_SANDBOXES) overrides the global
-	// HELIX_SANDBOX_MAX_DEV_CONTAINERS. Flag the row so the boot-time
-	// backfill doesn't overwrite it.
+	// HELIX_SANDBOX_MAX_DEV_CONTAINERS. Omitting it clears a prior override.
 	if req.MaxSandboxes > 0 {
 		updates["max_sandboxes"] = req.MaxSandboxes
 		updates["max_sandboxes_from_runner"] = true
+	} else {
+		updates["max_sandboxes"] = defaultMaxSandboxes
+		updates["max_sandboxes_from_runner"] = false
 	}
 
 	// Store cloud instance type if detected. Empty on bare-metal / non-AWS
