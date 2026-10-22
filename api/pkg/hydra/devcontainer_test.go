@@ -772,6 +772,65 @@ func TestBuildMountsRedirectsDesktopRootlessStorageWithoutGoldenCache(t *testing
 	require.Equal(t, "/home/retro/.local/share/docker", mounts[0].Target)
 }
 
+// Without CONTAINER_DOCKER_PATH, a mounted /container-docker still gives
+// desktops per-session data dirs (the default install.sh and dev compose setup).
+func TestBuildMountsUsesMountedContainerDataRootWithoutEnv(t *testing.T) {
+	t.Setenv("CONTAINER_DOCKER_PATH", "")
+	origRun := execCmdRun
+	execCmdRun = func(name string, args ...string) error {
+		if name == "mountpoint" && args[len(args)-1] == containerDockerRoot {
+			return nil
+		}
+		return origRun(name, args...)
+	}
+	t.Cleanup(func() { execCmdRun = origRun })
+	originalSessionsBaseDir, originalVolumesDir := sessionsBaseDir, dockerVolumesDir
+	sessionsBaseDir, dockerVolumesDir = t.TempDir(), t.TempDir()
+	t.Cleanup(func() { sessionsBaseDir, dockerVolumesDir = originalSessionsBaseDir, originalVolumesDir })
+	resetZFSState()
+	zfsAvailableOnce.Do(func() {})
+	t.Cleanup(resetZFSState)
+
+	require.True(t, ContainerDataRootAvailable())
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	mounts, err := dm.buildMounts(&CreateDevContainerRequest{
+		SessionID:     "ses_new",
+		ProjectID:     "prj_abc",
+		ContainerType: DevContainerTypeUbuntu,
+		Mounts:        []MountConfig{{Source: "docker-data-ses_new", Destination: "/var/lib/docker", Type: "volume"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, mounts, 1)
+	require.Equal(t, "bind", string(mounts[0].Type))
+	require.Equal(t, filepath.Join(sessionsBaseDir, "docker-data-ses_new", "docker"), mounts[0].Source)
+}
+
+// A session whose data predates the container data root keeps its named
+// volume, so a restart doesn't come back with empty Docker storage.
+func TestBuildMountsKeepsExistingSessionVolume(t *testing.T) {
+	t.Setenv("CONTAINER_DOCKER_PATH", "/container-docker")
+	originalSessionsBaseDir, originalVolumesDir := sessionsBaseDir, dockerVolumesDir
+	sessionsBaseDir, dockerVolumesDir = t.TempDir(), t.TempDir()
+	t.Cleanup(func() { sessionsBaseDir, dockerVolumesDir = originalSessionsBaseDir, originalVolumesDir })
+	resetZFSState()
+	zfsAvailableOnce.Do(func() {})
+	t.Cleanup(resetZFSState)
+	require.NoError(t, os.MkdirAll(filepath.Join(dockerVolumesDir, "docker-data-ses_old", "_data"), 0755))
+
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	mounts, err := dm.buildMounts(&CreateDevContainerRequest{
+		SessionID:     "ses_old",
+		ProjectID:     "prj_abc",
+		ContainerType: DevContainerTypeUbuntu,
+		Mounts:        []MountConfig{{Source: "docker-data-ses_old", Destination: "/var/lib/docker", Type: "volume"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, mounts, 1)
+	require.Equal(t, "volume", string(mounts[0].Type))
+	require.Equal(t, "docker-data-ses_old", mounts[0].Source)
+	require.NoDirExists(t, filepath.Join(sessionsBaseDir, "docker-data-ses_old"))
+}
+
 func TestBuildMountsKeepsDockerEngineGoldensSeparate(t *testing.T) {
 	t.Setenv("CONTAINER_DOCKER_PATH", "/container-docker")
 	originalSessionsBaseDir := sessionsBaseDir

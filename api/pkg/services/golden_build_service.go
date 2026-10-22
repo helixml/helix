@@ -399,8 +399,8 @@ func (g *GoldenBuildService) runGoldenBuildOnSandbox(project *types.Project, san
 		return
 	}
 	if sandbox.GoldenCacheUnavailable {
-		log.Warn().Str("project_id", project.ID).Str("sandbox_id", sandboxID).Msg("Golden build: sandbox has no CONTAINER_DOCKER_PATH")
-		g.setFailed(ctx, project.ID, sandboxID, "", "Docker cache pre-warming is not available on this sandbox: set CONTAINER_DOCKER_PATH on it to a host path for desktop container data")
+		log.Warn().Str("project_id", project.ID).Str("sandbox_id", sandboxID).Msg("Golden build: sandbox has no container data root")
+		g.setFailed(ctx, project.ID, sandboxID, "", "Docker cache pre-warming is not available on this sandbox: mount a host directory at /container-docker in the sandbox container (install.sh does this by default)")
 		return
 	}
 

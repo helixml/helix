@@ -3685,8 +3685,8 @@ type SandboxInstance struct {
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty" gorm:"type:varchar(255)"`
 
-	// GoldenCacheUnavailable is set when the sandbox has no CONTAINER_DOCKER_PATH,
-	// so Hydra can't build or seed golden Docker caches. Negative so sandboxes
+	// GoldenCacheUnavailable is set when the sandbox has no container data root
+	// (/container-docker), so Hydra can't build or seed golden Docker caches. Negative so sandboxes
 	// whose heartbeat predates it keep building.
 	GoldenCacheUnavailable bool `json:"golden_cache_unavailable" gorm:"default:false"`
 

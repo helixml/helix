@@ -1706,15 +1706,35 @@ func cacheKindFromMounts(mounts []dockertypes.MountPoint) goldenCacheKind {
 	return dockerGoldenCache
 }
 
+// ContainerDataRootAvailable reports whether desktops' container data can live
+// below /container-docker: CONTAINER_DOCKER_PATH is set, or the sandbox mounts
+// /container-docker (install.sh and the dev compose file always do). Without
+// it, desktops use plain Docker volumes and golden caches are unavailable.
+func ContainerDataRootAvailable() bool {
+	return os.Getenv("CONTAINER_DOCKER_PATH") != "" || isMounted(containerDockerRoot)
+}
+
+// dockerVolumesDir is the sandbox dockerd's named-volume store.
+var dockerVolumesDir = "/var/lib/docker/volumes"
+
+// dockerVolumeExists reports whether a session already has its container data
+// in a named volume (created before the sandbox had a container data root), so
+// a restart keeps that data rather than starting from an empty dir.
+func dockerVolumeExists(name string) bool {
+	_, err := os.Stat(filepath.Join(dockerVolumesDir, name))
+	return err == nil
+}
+
 // buildMounts builds the mount configuration
 func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mount.Mount, error) {
 	var mounts []mount.Mount
 
-	// CONTAINER_DOCKER_PATH: if set, per-session inner dockerd data uses bind mounts
-	// from a ZFS-backed path instead of Docker named volumes. This keeps the sandbox's
-	// own Docker storage on the root disk (so provisioned desktop images persist)
-	// while inner dockerd data benefits from ZFS dedup+compression.
-	containerDockerPath := os.Getenv("CONTAINER_DOCKER_PATH")
+	// When the sandbox has a container data root (/container-docker), per-session
+	// inner dockerd data uses bind mounts below it instead of Docker named
+	// volumes, which is what lets Hydra build and seed golden caches. This keeps
+	// the sandbox's own Docker storage separate (so provisioned desktop images
+	// persist) and lets the data root sit on ZFS for dedup and clones.
+	containerDataRoot := ContainerDataRootAvailable()
 
 	for _, m := range req.Mounts {
 		if (req.RootlessContainerEngine || req.DesktopRootless) && m.Destination == "/run/user/1000" {
@@ -1730,9 +1750,10 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mo
 		//
 		// Rootful and rootless Docker each seed from their own compatible
 		// project golden cache.
-		if containerDockerPath != "" && m.Type == "volume" &&
+		if containerDataRoot && m.Type == "volume" &&
 			(m.Destination == "/var/lib/docker" ||
-				m.Destination == "/home/retro/.local/share/docker") {
+				m.Destination == "/home/retro/.local/share/docker") &&
+			!dockerVolumeExists(m.Source) {
 			volumeName := m.Source
 
 			dockerDir, err := dm.resolveDockerDataDir(req, volumeName)
@@ -2330,7 +2351,7 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	// Docker data instead of re-copying 30+ GB of golden cache (~28s).
 	// The periodic GCOrphanedSessions() (every 10 min) handles cleanup of
 	// session dirs that no longer have a running container.
-	if os.Getenv("CONTAINER_DOCKER_PATH") != "" {
+	if ContainerDataRootAvailable() {
 		if dc.IsGoldenBuild && dc.ProjectID != "" {
 			log.Info().
 				Str("project_id", dc.ProjectID).
@@ -2431,7 +2452,7 @@ func (dm *DevContainerManager) autoCommitHelixSpecs(ctx context.Context, dockerC
 // running containers, and cleans up stale golden cache state.
 // Should be called periodically and on startup.
 func (dm *DevContainerManager) GCOrphanedSessions() {
-	if os.Getenv("CONTAINER_DOCKER_PATH") == "" {
+	if !ContainerDataRootAvailable() {
 		return // Not using per-session docker dirs
 	}
 

@@ -198,6 +198,10 @@ spec:
           volumeMounts:
             - name: docker-storage
               mountPath: /var/lib/docker
+            # Desktops' container data; lets Hydra build golden Docker caches.
+            - name: docker-storage
+              mountPath: /container-docker
+              subPath: helix-container-docker
             - name: hydra-data
               mountPath: /hydra-data
             - name: workspace-data

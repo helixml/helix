@@ -284,7 +284,7 @@ func (s *GoldenBuildServiceSuite) TestManualTriggerWhileBuildingQueuesPending() 
 	assert.True(s.T(), s.builds.get("prj_test", "sb_1").PendingRebuild)
 }
 
-// A sandbox without CONTAINER_DOCKER_PATH can't build a golden cache: fail at
+// A sandbox without a container data root can't build a golden cache: fail at
 // once instead of starting a build that sits at "building" until the deadline.
 func (s *GoldenBuildServiceSuite) TestBuildFailsFastOnSandboxWithoutGoldenCache() {
 	s.allowBuildStarts(s.service)
@@ -293,7 +293,7 @@ func (s *GoldenBuildServiceSuite) TestBuildFailsFastOnSandboxWithoutGoldenCache(
 	s.service.TriggerGoldenBuild(context.Background(), s.project)
 
 	row := s.waitFor("failed", func(r *types.SandboxCacheState) bool { return r.Status == types.GoldenBuildStatusFailed })
-	assert.Contains(s.T(), row.Error, "CONTAINER_DOCKER_PATH")
+	assert.Contains(s.T(), row.Error, "/container-docker")
 	s.assertNoStart()
 }
 
