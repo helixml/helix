@@ -23,6 +23,7 @@ import { useGetOrgByName } from '../../services/orgService'
 import { useListProviders } from '../../services/providersService'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
+import { useHelixOrgSettings } from '../../services/helixOrgService'
 import useRouter from '../../hooks/useRouter'
 import { matchesAllTokens } from '../../utils/searchUtils'
 import {
@@ -51,6 +52,7 @@ import {
   providersForCodeAgentRuntime,
 } from '../../utils/codeAgentProviders'
 import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
+import { parseOrgDefaultRuntime } from '../../pages/newChatLogic'
 import {
   currentNativeModels,
   isLegacyNativeModel,
@@ -212,6 +214,40 @@ function defaultCodeAgentConfig(
   return undefined
 }
 
+function orgDefaultCodeAgentConfig(
+  preferredRuntime: Runtime | undefined,
+  configured: TypesCodeAgentExecutionConfig | undefined,
+  selectableRuntimes: Runtime[],
+  harnesses: TypesOrgCodeAgentHarnessStatus[],
+  providers: TypesProviderEndpoint[],
+): TypesCodeAgentExecutionConfig | undefined {
+  if (!configured) return undefined
+  if (preferredRuntime && preferredRuntime !== configured.runtime) return undefined
+  const runtime = configured.runtime
+  if (!runtime || !selectableRuntimes.includes(runtime)) return undefined
+
+  const harness = findHarnessStatus(harnesses, runtime)
+  if (configured.credential_type === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription) {
+    if (!isSubscriptionRuntime(runtime)
+      || harness?.subscription_enabled !== true
+      || !harness.viewer_has_subscription
+      || !subscriptionModelOptions(runtime).some(({ id }) => id === configured.model)) return undefined
+    return { ...configured, runtime, provider_ref: undefined }
+  }
+
+  if (configured.credential_type !== TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey) {
+    return undefined
+  }
+  const allowedProviders = providersAllowedForHarness(providers, harness, true, runtime)
+  const provider = resolveProviderEndpointRef(allowedProviders, configured.provider_ref)
+  if (!provider || !apiModelOptions([provider]).some(({ id }) => id === configured.model)) return undefined
+  return {
+    ...configured,
+    runtime,
+    provider_ref: providerRef(provider),
+  }
+}
+
 const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   value,
   disabled = false,
@@ -234,6 +270,13 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   } = useOrgCodeAgentHarnesses(org?.id, { enabled: !loadingOrg })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const { data: codexSubscriptions } = useCodexSubscriptions()
+  const shouldLoadOrgDefault = autoSelectDefault && !!orgName && !isEmbedRoute
+  const {
+    data: orgSettings,
+    isLoading: loadingOrgSettings,
+    isFetching: fetchingOrgSettings,
+    isError: orgSettingsError,
+  } = useHelixOrgSettings({ enabled: shouldLoadOrgDefault })
 
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [noAgentsOpen, setNoAgentsOpen] = useState(false)
@@ -255,7 +298,9 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
       findHarnessStatus(orgHarnesses, option)?.enabled)
   const runtimeStatus = findHarnessStatus(orgHarnesses, runtime)
   const settingsLoaded = !loadingOrg && !loadingOrgHarnesses && !loadingProviders
-  const policySettled = settingsLoaded && !refetchingOrgHarnesses
+  const orgDefaultSettled = !shouldLoadOrgDefault
+    || (!loadingOrgSettings && !fetchingOrgSettings)
+  const policySettled = settingsLoaded && !refetchingOrgHarnesses && orgDefaultSettled
   const hasAnyRuntime = selectableRuntimes.length > 0
   const selectedRuntimeEnabled = !orgName
     || !!findHarnessStatus(orgHarnesses, value?.runtime)?.enabled
@@ -303,7 +348,17 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
       && !!codexStatus.viewer_has_subscription
     : !!codexSubscriptions?.some((subscription) => subscription.owner_type === 'user')
 
-  const automaticDefault = defaultCodeAgentConfig(
+  const orgDefaultValue = orgSettings?.specs?.find((spec) => spec.key === 'agent.default')?.value
+  const configuredOrgDefault = parseOrgDefaultRuntime(orgDefaultValue)
+  const orgSettingsUnavailable = orgSettingsError && !orgSettings
+  const inheritedDefault = orgDefaultCodeAgentConfig(
+    value?.runtime,
+    configuredOrgDefault,
+    selectableRuntimes,
+    orgHarnesses,
+    providers,
+  )
+  const automaticDefault = inheritedDefault || defaultCodeAgentConfig(
     value?.runtime,
     selectableRuntimes,
     orgHarnesses,
@@ -315,7 +370,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
 
   useEffect(() => {
     if (!autoSelectDefault || !policySettled) return
-    if (value?.model && selectedConfigurationAllowed) return
+    if ((value?.model && selectedConfigurationAllowed) || orgSettingsUnavailable) return
     if (automaticDefault) onChangeRef.current(automaticDefault, 'auto')
   }, [
     autoSelectDefault,
@@ -323,6 +378,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     value?.model,
     policySettled,
     selectedConfigurationAllowed,
+    orgSettingsUnavailable,
     automaticDefault?.runtime,
     automaticDefault?.credential_type,
     automaticDefault?.provider_ref,

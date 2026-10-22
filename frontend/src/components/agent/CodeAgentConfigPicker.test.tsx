@@ -16,6 +16,12 @@ import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfi
 const harnessState = vi.hoisted(() => ({ harnesses: [] as any[] }))
 const providerState = vi.hoisted(() => ({ providers: [] as any[] }))
 const routerState = vi.hoisted(() => ({ name: 'org_chat' }))
+const orgSettingsState = vi.hoisted(() => ({
+  data: { specs: [] } as any,
+  isLoading: false,
+  isFetching: false,
+  isError: false,
+}))
 const navigate = vi.hoisted(() => vi.fn())
 
 vi.mock('../../services/orgService', () => ({
@@ -33,6 +39,9 @@ vi.mock('../account/ClaudeSubscriptionConnect', () => ({
 vi.mock('../../services/codexSubscriptionsService', () => ({
   useCodexSubscriptions: () => ({ data: [] }),
 }))
+vi.mock('../../services/helixOrgService', () => ({
+  useHelixOrgSettings: () => orgSettingsState,
+}))
 vi.mock('../../services/codeAgentHarnessesService', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/codeAgentHarnessesService')>()),
   useOrgCodeAgentHarnesses: () => ({
@@ -44,7 +53,13 @@ vi.mock('../../services/codeAgentHarnessesService', async (importOriginal) => ({
 
 function renderPicker(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+  const result = render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+  return {
+    ...result,
+    rerender: (next: ReactElement) => result.rerender(
+      <QueryClientProvider client={client}>{next}</QueryClientProvider>,
+    ),
+  }
 }
 
 function AutoSelectingPicker({
@@ -71,6 +86,10 @@ describe('CodeAgentConfigPicker', () => {
   beforeEach(() => {
     navigate.mockClear()
     routerState.name = 'org_chat'
+    orgSettingsState.data = { specs: [] }
+    orgSettingsState.isLoading = false
+    orgSettingsState.isFetching = false
+    orgSettingsState.isError = false
     providerState.providers = [
       {
         id: 'provider-1',
@@ -234,6 +253,199 @@ describe('CodeAgentConfigPicker', () => {
       model: 'claude-opus-5-5',
     }, 'auto'))
     expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('Claude Opus 5.5')
+  })
+
+  it('inherits the org model for a runtime-only project before the first available model', async () => {
+    harnessState.harnesses = harnessState.harnesses.map((harness) => ({
+      ...harness,
+      viewer_has_subscription: false,
+      subscription_enabled: false,
+    }))
+    providerState.providers = [
+      {
+        id: 'provider-2',
+        name: 'Anthropic',
+        status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+        available_models: [{ id: 'claude-fable-5', enabled: true, type: 'chat' }],
+      },
+      {
+        id: 'provider-3',
+        name: 'Z.AI',
+        status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+        available_models: [{ id: 'glm-5.3-flash', enabled: true, type: 'chat' }],
+      },
+    ]
+    orgSettingsState.data = { specs: [{
+      key: 'agent.default',
+      value: JSON.stringify({
+        code_agent_runtime: 'opencode',
+        code_agent_credential_type: 'api_key',
+        provider: 'provider-3',
+        model: 'glm-5.3-flash',
+        reasoning_effort: 'none',
+      }),
+    }] }
+    const onChange = vi.fn()
+    renderPicker(<AutoSelectingPicker
+      onChange={onChange}
+      initial={{ runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode }}
+    />)
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith({
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_ref: 'provider-3',
+      model: 'glm-5.3-flash',
+      reasoning_effort: 'none',
+    }, 'auto'))
+  })
+
+  it('keeps a complete valid project config over a conflicting org default', async () => {
+    orgSettingsState.data = { specs: [{
+      key: 'agent.default',
+      value: JSON.stringify({
+        code_agent_runtime: 'opencode',
+        code_agent_credential_type: 'api_key',
+        provider: 'provider-1',
+        model: 'api-model',
+      }),
+    }] }
+    const onChange = vi.fn()
+    renderPicker(<AutoSelectingPicker
+      onChange={onChange}
+      initial={{
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+        provider_ref: 'provider-2',
+        model: 'claude-fable-5',
+      }}
+    />)
+
+    await waitFor(() => expect(onChange).not.toHaveBeenCalled())
+  })
+
+  it('ignores an org default for a different explicit runtime', async () => {
+    harnessState.harnesses = harnessState.harnesses.map((harness) => ({
+      ...harness,
+      viewer_has_subscription: false,
+      subscription_enabled: false,
+    }))
+    orgSettingsState.data = { specs: [{
+      key: 'agent.default',
+      value: JSON.stringify({
+        code_agent_runtime: 'zed_agent',
+        code_agent_credential_type: 'api_key',
+        provider: 'provider-2',
+        model: 'claude-fable-5',
+      }),
+    }] }
+    const onChange = vi.fn()
+    renderPicker(<AutoSelectingPicker
+      onChange={onChange}
+      initial={{ runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode }}
+    />)
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith({
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_ref: 'provider-1',
+      model: 'api-model',
+    }, 'auto'))
+  })
+
+  it('ignores an org default whose harness is disabled', async () => {
+    harnessState.harnesses = harnessState.harnesses.map((harness) =>
+      harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode
+        ? { ...harness, enabled: false }
+        : harness)
+    orgSettingsState.data = { specs: [{
+      key: 'agent.default',
+      value: JSON.stringify({
+        code_agent_runtime: 'opencode',
+        code_agent_credential_type: 'api_key',
+        provider: 'provider-2',
+        model: 'claude-fable-5',
+      }),
+    }] }
+    const onChange = vi.fn()
+    renderPicker(<AutoSelectingPicker onChange={onChange} />)
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith({
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+      model: 'claude-opus-5-5',
+    }, 'auto'))
+  })
+
+  it('waits for org defaults before auto-selecting', async () => {
+    orgSettingsState.data = undefined
+    orgSettingsState.isLoading = true
+    orgSettingsState.isFetching = true
+    const onChange = vi.fn()
+    const picker = () => <AutoSelectingPicker
+        onChange={onChange}
+        initial={{ runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode }}
+      />
+    const view = renderPicker(picker())
+
+    await waitFor(() => expect(onChange).not.toHaveBeenCalled())
+
+    orgSettingsState.data = { specs: [{
+      key: 'agent.default',
+      value: JSON.stringify({
+        code_agent_runtime: 'opencode',
+        code_agent_credential_type: 'api_key',
+        provider: 'provider-2',
+        model: 'claude-fable-5',
+      }),
+    }] }
+    orgSettingsState.isLoading = false
+    orgSettingsState.isFetching = false
+    view.rerender(picker())
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+      provider_ref: 'provider-2',
+      model: 'claude-fable-5',
+    }), 'auto'))
+  })
+
+  it('falls back within the selected runtime when the org default is unavailable', async () => {
+    harnessState.harnesses = harnessState.harnesses.map((harness) => ({
+      ...harness,
+      viewer_has_subscription: false,
+      subscription_enabled: false,
+    }))
+    orgSettingsState.data = { specs: [{
+      key: 'agent.default',
+      value: JSON.stringify({
+        code_agent_runtime: 'opencode',
+        code_agent_credential_type: 'api_key',
+        provider: 'provider-2',
+        model: 'disabled-model',
+      }),
+    }] }
+    const onChange = vi.fn()
+    renderPicker(<AutoSelectingPicker
+      onChange={onChange}
+      initial={{ runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode }}
+    />)
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith({
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_ref: 'provider-1',
+      model: 'api-model',
+    }, 'auto'))
+  })
+
+  it('does not choose an arbitrary model when org settings fail to load', async () => {
+    orgSettingsState.data = undefined
+    orgSettingsState.isError = true
+    const onChange = vi.fn()
+    renderPicker(<AutoSelectingPicker onChange={onChange} />)
+
+    await waitFor(() => expect(onChange).not.toHaveBeenCalled())
   })
 
   it('defaults a new task to GPT-6 Sol when only Codex subscription is available', async () => {
