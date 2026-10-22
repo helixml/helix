@@ -29,9 +29,7 @@ deployment:
   # - Automatic identity only when hydraData persistence is enabled
   type: "Deployment"
 
-  # Deployment strategy (only for type: "Deployment")
-  # Use "Recreate" for single-GPU setups where RollingUpdate can't schedule
-  # a new pod until the old one releases the GPU
+  # Deployment runner identity requires the Recreate strategy.
   strategy:
     type: "Recreate"
 

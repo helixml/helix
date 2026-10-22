@@ -17,6 +17,10 @@ render() {
 }
 
 render > "$work/default.yaml"
+grep -A2 '^  strategy:$' "$work/default.yaml" | grep -q 'type: Recreate' || fail "default Deployment strategy is not Recreate"
+if grep -q 'rollingUpdate:' "$work/default.yaml"; then
+    fail "default Deployment rendered unreachable rollingUpdate configuration"
+fi
 grep -q 'name: SANDBOX_INSTANCE_ID_FILE' "$work/default.yaml" || fail "default Deployment has no identity file"
 grep -q 'value: "/hydra-data/.helix-runner-id"' "$work/default.yaml" || fail "default Deployment has wrong identity file"
 grep -A4 'name: SANDBOX_INSTANCE_ID$' "$work/default.yaml" | grep -q 'fieldPath: metadata.name' || fail "default Deployment is not compatible with an older sandbox image"
@@ -54,5 +58,11 @@ if render --set deployment.strategy.type=RollingUpdate > "$work/rolling.yaml" 2>
     fail "RollingUpdate Deployment rendered"
 fi
 grep -q 'requires deployment.strategy.type: Recreate' "$work/rolling.err" || fail "missing strategy guard message"
+
+render --set-json deployment.strategy=null > "$work/unset-strategy.yaml"
+grep -A2 '^  strategy:$' "$work/unset-strategy.yaml" | grep -q 'type: Recreate' || fail "empty Deployment strategy is not Recreate"
+if grep -q 'rollingUpdate:' "$work/unset-strategy.yaml"; then
+    fail "empty Deployment strategy rendered rollingUpdate configuration"
+fi
 
 echo "Helm runner identity tests passed"

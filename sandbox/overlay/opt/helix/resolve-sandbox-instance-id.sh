@@ -24,6 +24,15 @@ helix_resolve_sandbox_instance_id() {
         return 0
     fi
 
+    instance_id_dir=${instance_id_file%/*}
+    if [[ "$instance_id_dir" == "$instance_id_file" ]]; then
+        instance_id_dir=.
+    fi
+    if [[ ! -d "$instance_id_dir" ]]; then
+        echo "ERROR: sandbox instance ID directory does not exist: $instance_id_dir" >&2
+        return 1
+    fi
+
     if [[ -e "$instance_id_file" ]]; then
         if [[ ! -f "$instance_id_file" || ! -r "$instance_id_file" ]]; then
             echo "ERROR: sandbox instance ID file is not a readable regular file: $instance_id_file" >&2
@@ -40,6 +49,14 @@ helix_resolve_sandbox_instance_id() {
             echo "ERROR: configured sandbox instance ID does not match persisted ID in $instance_id_file" >&2
             return 1
         fi
+        if ! sync "$instance_id_file"; then
+            echo "ERROR: failed to synchronize sandbox instance ID file: $instance_id_file" >&2
+            return 1
+        fi
+        if ! sync "$instance_id_dir"; then
+            echo "ERROR: failed to synchronize sandbox instance ID directory: $instance_id_dir" >&2
+            return 1
+        fi
 
         export SANDBOX_INSTANCE_ID="$persisted_instance_id"
         return 0
@@ -47,15 +64,6 @@ helix_resolve_sandbox_instance_id() {
 
     instance_id="${configured_instance_id:-${HOSTNAME:-}}"
     helix_validate_sandbox_instance_id "$instance_id" || return 1
-
-    instance_id_dir=${instance_id_file%/*}
-    if [[ "$instance_id_dir" == "$instance_id_file" ]]; then
-        instance_id_dir=.
-    fi
-    if [[ ! -d "$instance_id_dir" ]]; then
-        echo "ERROR: sandbox instance ID directory does not exist: $instance_id_dir" >&2
-        return 1
-    fi
 
     old_umask=$(umask)
     umask 077
@@ -70,6 +78,12 @@ helix_resolve_sandbox_instance_id() {
         echo "ERROR: failed to persist sandbox instance ID to $instance_id_file" >&2
         return 1
     fi
+    if ! sync "$temp_file"; then
+        rm -f "$temp_file"
+        umask "$old_umask"
+        echo "ERROR: failed to synchronize sandbox instance ID file: $temp_file" >&2
+        return 1
+    fi
     if ! ln "$temp_file" "$instance_id_file"; then
         rm -f "$temp_file"
         umask "$old_umask"
@@ -80,8 +94,16 @@ helix_resolve_sandbox_instance_id() {
         echo "ERROR: failed to persist sandbox instance ID to $instance_id_file" >&2
         return 1
     fi
-    rm -f "$temp_file"
+    if ! rm -f "$temp_file"; then
+        umask "$old_umask"
+        echo "ERROR: failed to remove temporary sandbox instance ID file: $temp_file" >&2
+        return 1
+    fi
     umask "$old_umask"
+    if ! sync "$instance_id_dir"; then
+        echo "ERROR: failed to synchronize sandbox instance ID directory: $instance_id_dir" >&2
+        return 1
+    fi
 
     export SANDBOX_INSTANCE_ID="$instance_id"
 }

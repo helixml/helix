@@ -20,18 +20,8 @@ metadata:
     {{- include "helix-sandbox.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
-  {{- if and .Values.deployment .Values.deployment.strategy }}
-  strategy:
-    type: {{ .Values.deployment.strategy.type | default "Recreate" }}
-    {{- if eq .Values.deployment.strategy.type "RollingUpdate" }}
-    rollingUpdate:
-      maxSurge: {{ .Values.deployment.strategy.rollingUpdate.maxSurge | default "25%" }}
-      maxUnavailable: {{ .Values.deployment.strategy.rollingUpdate.maxUnavailable | default "25%" }}
-    {{- end }}
-  {{- else }}
   strategy:
     type: Recreate
-  {{- end }}
   selector:
     matchLabels:
       {{- include "helix-sandbox.selectorLabels" . | nindent 6 }}
