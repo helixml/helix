@@ -3117,17 +3117,17 @@ func goldenBuildTimeout(req *CreateDevContainerRequest) time.Duration {
 var errGoldenBuildTimeout = errors.New("golden build timed out")
 
 // waitForGoldenBuildResult polls paths (in order) every interval until one is
-// readable and returns its contents. It gives up with an error once timeout
-// elapses, or as soon as exited reports the build container has stopped
-// without writing a result — a dead build must not hold its data until the
-// (hours-long) deadline.
+// readable and non-blank, and returns its contents. It gives up with an error
+// once timeout elapses, or as soon as exited reports the build container has
+// stopped without writing a result - a dead build must not hold its data until
+// the (hours-long) deadline.
 func waitForGoldenBuildResult(timeout, interval time.Duration, exited func() (bool, string), paths ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	readResult := func() ([]byte, bool) {
 		for _, p := range paths {
-			if data, err := os.ReadFile(p); err == nil {
+			if data, err := os.ReadFile(p); err == nil && strings.TrimSpace(string(data)) != "" {
 				return data, true
 			}
 		}
