@@ -106,12 +106,13 @@ steps:
   - name: shell-script-tests
     image: alpine:3.21
     commands:
-      - apk add --no-cache bash git
+      - apk add --no-cache bash git procps
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./desktop/shared/test-helix-specs-creation.sh
       - ./desktop/shared/test-helix-specs-creation.sh
       - bash sandbox/tests/resolve-sandbox-instance-id.sh
+      - ./desktop/shared/test-golden-startup.sh
     when:
       event:
         - push
