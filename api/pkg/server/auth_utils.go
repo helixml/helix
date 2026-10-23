@@ -93,6 +93,21 @@ func getQueryToken(r *http.Request) string {
 	return r.URL.Query().Get("access_token")
 }
 
+// namesOwnAPIKey reports whether the request carries a Helix API key it was
+// given explicitly (a header, or ?access_token= on a WebSocket or EventSource,
+// which cannot set headers), as opposed to one the browser sends by itself.
+// Such a key says who the caller is, so it must win over the browser's
+// session cookie: an embed in another product's page runs in a browser that
+// may also hold the viewer's own Helix session.
+func namesOwnAPIKey(r *http.Request) bool {
+	for _, token := range []string{getBearerToken(r), r.Header.Get("x-api-key"), r.Header.Get("api-key"), getQueryToken(r)} {
+		if strings.HasPrefix(token, types.APIKeyPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func getRequestToken(r *http.Request) string {
 	// First try to get from Authorization header
 	token := getBearerToken(r)
