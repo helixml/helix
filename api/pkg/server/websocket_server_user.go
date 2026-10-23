@@ -3,12 +3,15 @@ package server
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	authpkg "github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -31,8 +34,15 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		// Try BFF session authentication first (from helix_session cookie)
-		// This is the primary auth method for browser clients
-		user, err := apiServer.authMiddleware.getUserFromSession(r.Context(), r)
+		// This is the primary auth method for browser clients — unless the
+		// request carries its own Helix API key (an embed key in another
+		// product's iframe), which wins over the viewer's cookie; see
+		// extractMiddleware.
+		var user *types.User
+		err := authpkg.ErrSessionNotFound
+		if !strings.HasPrefix(getRequestToken(r), types.APIKeyPrefix) {
+			user, err = apiServer.authMiddleware.getUserFromSession(r.Context(), r)
+		}
 		if err != nil {
 			// Session auth failed, fall back to token-based auth (API keys, runner tokens)
 			log.Trace().Err(err).Str("path", path).Msg("WebSocket session auth failed, trying token auth")
