@@ -21,6 +21,7 @@ import (
 // controller calls during provision()/Delete(). Extracted so tests can swap
 // in a fake without standing up a RevDial connection.
 type hydraProvisionClient interface {
+	Ready(ctx context.Context) error
 	CreateDevContainer(ctx context.Context, req *hydra.CreateDevContainerRequest) (*hydra.DevContainerResponse, error)
 	ListDevContainers(ctx context.Context) (*hydra.ListDevContainersResponse, error)
 	DeleteDevContainer(ctx context.Context, sessionID string) (*hydra.DevContainerResponse, error)
@@ -458,6 +459,11 @@ func (c *Controller) HostReadyForReplacement(ctx context.Context, sandbox *types
 	if spec.VersionKey != "" && !instanceAdvertisesVersion(host, spec.VersionKey) {
 		return false, fmt.Sprintf("pinned host %s no longer advertises the %q image for runtime %s",
 			host.ID, spec.VersionKey, spec.Name)
+	}
+	readyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := c.newHydraClient(host.ID).Ready(readyCtx); err != nil {
+		return false, fmt.Sprintf("pinned host %s Hydra is not ready: %v", host.ID, err)
 	}
 	return true, ""
 }

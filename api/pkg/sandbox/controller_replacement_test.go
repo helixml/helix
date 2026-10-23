@@ -43,6 +43,8 @@ func (s *HostReadyForReplacementSuite) SetupTest() {
 	})
 	s.Require().NoError(err)
 	s.controller = New(s.store, nil, runtimes, "", "")
+	fake := &fakeHydra{}
+	s.controller.newHydraClient = func(string) hydraProvisionClient { return fake }
 }
 
 func (s *HostReadyForReplacementSuite) TearDownTest() { s.ctrl.Finish() }
@@ -74,6 +76,15 @@ func (s *HostReadyForReplacementSuite) TestReadyWhenHostOnlineAndAdvertising() {
 	ready, why := s.controller.HostReadyForReplacement(s.ctx, desktopSandbox())
 	s.True(ready)
 	s.Empty(why)
+}
+
+func (s *HostReadyForReplacementSuite) TestRefusesWhenHydraIsNotReady() {
+	s.store.EXPECT().GetSandboxInstance(s.ctx, "code-for-app").Return(onlineDesktopHost(), nil)
+	fake := &fakeHydra{readyErr: errors.New("revdial disconnected")}
+	s.controller.newHydraClient = func(string) hydraProvisionClient { return fake }
+	ready, why := s.controller.HostReadyForReplacement(s.ctx, desktopSandbox())
+	s.False(ready)
+	s.Contains(why, "Hydra is not ready")
 }
 
 // The 2026-09-27 outage: the reaper had flipped the runner to offline, so the

@@ -36,9 +36,12 @@ type fakeHydra struct {
 	createErr  error
 	listResp   *hydra.ListDevContainersResponse
 	listErr    error
+	readyErr   error
 	deleteErr  error
 	forgetErr  error
 }
+
+func (f *fakeHydra) Ready(context.Context) error { return f.readyErr }
 
 func (f *fakeHydra) ListDevContainers(_ context.Context) (*hydra.ListDevContainersResponse, error) {
 	f.mu.Lock()
@@ -718,6 +721,43 @@ func (s *ProvisionSuite) TestDeleteContinuesWhenHydraDeleteFails() {
 
 	s.hydra.deleteErr = errors.New("hydra unreachable")
 	s.Require().NoError(s.controller.Delete(s.ctx, sb.ID))
+}
+
+func (s *ProvisionSuite) TestDeleteForRecoveryPreservesStateWhenHydraDeleteFails() {
+	sb := &types.Sandbox{
+		ID:             "sbx_recovery",
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		HostDeviceID:   "host-z",
+		Status:         types.SandboxStatusRunning,
+		StatusMessage:  "serving",
+	}
+	s.store.EXPECT().GetSandbox(s.ctx, sb.ID).Return(sb, nil)
+	s.hydra.deleteErr = errors.New("revdial disconnected")
+
+	err := s.controller.DeleteForRecovery(s.ctx, sb.ID)
+	var unconfirmed *RecoveryTeardownUnconfirmedError
+	s.Require().ErrorAs(err, &unconfirmed)
+	s.Equal(types.SandboxStatusRunning, sb.Status)
+	s.Equal("serving", sb.StatusMessage)
+}
+
+func (s *ProvisionSuite) TestDeleteForRecoveryDeletesStateAfterConfirmedTeardown() {
+	sb := &types.Sandbox{
+		ID:             "sbx_recovery",
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		HostDeviceID:   "host-z",
+		Status:         types.SandboxStatusPending,
+	}
+	s.store.EXPECT().GetSandbox(s.ctx, sb.ID).Return(sb, nil)
+	s.store.EXPECT().DecrementSandboxContainerCount(s.ctx, "host-z").Return(nil)
+	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().DeleteSandbox(s.ctx, sb.ID).Return(nil)
+
+	s.Require().NoError(s.controller.DeleteForRecovery(s.ctx, sb.ID))
+	s.Equal([]string{sb.ID}, s.hydra.deleteCalls)
+	s.Equal([]string{sb.ID}, s.hydra.forgetCalls)
 }
 
 // TestDeleteSkipsHydraWhenSandboxHasNoHost: a sandbox whose provision step
