@@ -345,8 +345,15 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 		var err error
 
 		// First, try BFF session authentication (from helix_session cookie)
-		// This is the primary auth method for browser clients
-		if auth.sessionManager != nil {
+		// This is the primary auth method for browser clients — unless the
+		// request names its own credential. A Helix API key in the
+		// Authorization header is the caller saying who it is: an embed key in
+		// an iframe on another product's page, sent by a browser that also
+		// happens to hold the viewer's own Helix session. Letting the cookie win
+		// there authorises the request as the viewer instead (a waitlisted
+		// viewer gets "waiting for approval", anyone else "not found"), and the
+		// embed spins forever.
+		if auth.sessionManager != nil && !strings.HasPrefix(getBearerToken(r), types.APIKeyPrefix) {
 			user, err = auth.getUserFromSession(r.Context(), r)
 			if err == nil && user != nil {
 				if rejectWaitlisted(w, user) {
