@@ -20,8 +20,17 @@ func implTasks(n int) []*types.SpecTask {
 	return tasks
 }
 
+// onlineRunner is an online runner whose cap the runner itself confirmed
+// (MaxSandboxesFromRunner), i.e. an authoritative cap the gate must trust.
 func onlineRunner(max int) *types.SandboxInstance {
-	return &types.SandboxInstance{Status: "online", LastSeen: time.Now(), MaxSandboxes: max}
+	return &types.SandboxInstance{Status: "online", LastSeen: time.Now(), MaxSandboxes: max, MaxSandboxesFromRunner: true}
+}
+
+// unconfirmedRunner is an online runner whose cap was NOT reported by the
+// runner — it is the API's HELIX_SANDBOX_MAX_DEV_CONTAINERS fallback, which may
+// not match what the runner actually enforces. The gate must not trust it.
+func unconfirmedRunner(max int) *types.SandboxInstance {
+	return &types.SandboxInstance{Status: "online", LastSeen: time.Now(), MaxSandboxes: max, MaxSandboxesFromRunner: false}
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_UnlimitedRunnerNeverGates() {
@@ -95,6 +104,58 @@ func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_StoreErrorFailsOpen(
 	blocked, _, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
 	s.Error(err)
 	s.False(blocked) // caller treats an error as "do not gate"
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_UnconfirmedCapDoesNotInflate() {
+	ctx := context.Background()
+	// A confirmed runner caps the fleet at 2. An unconfirmed runner advertises
+	// an inflated fallback of 20 (e.g. HELIX_SANDBOX_MAX_DEV_CONTAINERS) while
+	// really enforcing far less. The gate must ignore the unconfirmed cap, so
+	// capacity is 2 (not 22) and 2 in-flight tasks fill it.
+	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{
+		onlineRunner(2), unconfirmedRunner(20),
+	}, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{Status: types.TaskStatusImplementation}).
+		Return(implTasks(2), nil)
+
+	blocked, reason, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
+	s.NoError(err)
+	s.True(blocked)
+	s.Contains(reason, "2 of 2")
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_UnconfirmedUnlimitedDoesNotDisableGate() {
+	ctx := context.Background()
+	// The auto-register default is MaxSandboxes=-1 with MaxSandboxesFromRunner
+	// =false. That unconfirmed -1 must NOT be read as "unlimited" and disable
+	// the gate; the confirmed runner's cap of 2 still governs.
+	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{
+		onlineRunner(2), unconfirmedRunner(-1),
+	}, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{Status: types.TaskStatusImplementation}).
+		Return(implTasks(2), nil)
+
+	blocked, reason, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
+	s.NoError(err)
+	s.True(blocked)
+	s.Contains(reason, "2 of 2")
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_OnlyUnconfirmedRunnersFailOpen() {
+	ctx := context.Background()
+	// No runner has confirmed a cap (the live 20/null box). We cannot verify
+	// real capacity, so the gate fails open rather than trusting the inflated
+	// fallback or wedging the queue. (Correctness for this box needs the runner
+	// to report its real MAX_SANDBOXES.) No ListSpecTasks call is expected
+	// because the gate returns before counting in-flight tasks.
+	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{
+		unconfirmedRunner(20),
+	}, nil)
+
+	blocked, reason, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
+	s.NoError(err)
+	s.False(blocked)
+	s.Empty(reason)
 }
 
 // Guard against an accidental gomock import prune.
