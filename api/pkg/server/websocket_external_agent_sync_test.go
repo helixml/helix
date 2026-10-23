@@ -10,6 +10,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server/wsprotocol"
 	"github.com/helixml/helix/api/pkg/services"
@@ -3936,6 +3937,256 @@ func (s *WebSocketSyncSuite) TestLateJoinerCatchUp_ActiveStreamingContext() {
 // ──────────────────────────────────────────────────────────────────────────────
 // reconnect resume tests (resolveWaitingInteraction + applyResumeDecision)
 // ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestRetryPendingCancellationStopsContainerBeforeSettling() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_cancel_retry", Owner: "usr_test", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_cancel_retry", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_cancel_retry",
+		ExternalAgentCancelRequestedAt: &now,
+		PendingQuestion:                &types.PendingQuestion{RequestID: "question_cancel_retry"},
+	}
+	settled := *waiting
+	settled.PendingQuestion = nil
+	settled.QuestionHistory = []types.ResolvedQuestion{{
+		PendingQuestion: *waiting.PendingQuestion,
+		Outcome:         "cancelled",
+	}}
+	interrupted := settled
+	interrupted.State = types.InteractionStateInterrupted
+	interrupted.ExternalAgentCancelRequestedAt = nil
+
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+	executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(true)
+	executor.EXPECT().StopDesktop(gomock.Any(), session.ID).Return(nil)
+	s.server.externalAgentWSManager.registerConnection(session.ID, &ExternalAgentWSConnection{
+		SessionID: session.ID, SendChan: make(chan types.ExternalAgentCommand),
+	})
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil).Times(3)
+	resolveQuestion := s.store.EXPECT().ResolveInteractionPendingQuestion(
+		gomock.Any(), waiting.ID, waiting.GenerationID, "question_cancel_retry", "cancelled", map[string]string(nil),
+	).Return(&settled, true, nil)
+	markInterrupted := s.store.EXPECT().MarkInteractionInterruptedIfWaiting(
+		gomock.Any(), waiting.ID, waiting.GenerationID,
+	).Return(true, nil)
+	gomock.InOrder(resolveQuestion, markInterrupted)
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(&interrupted, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).Times(2)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{&interrupted}, int64(1), nil,
+	)
+	drained := make(chan struct{})
+	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), session.ID).DoAndReturn(
+		func(context.Context, string) (*types.PromptHistoryEntry, error) {
+			close(drained)
+			return nil, nil
+		},
+	)
+
+	// An unbuffered channel without a reader makes the send fail immediately,
+	// avoiding the production backoff while exercising retry exhaustion.
+	s.server.retryPendingExternalAgentCancellationWithAttempts(
+		session.ID, waiting.ID, waiting.ExternalAgentRequestID, 1,
+	)
+	select {
+	case <-drained:
+	case <-time.After(time.Second):
+		s.T().Fatal("settled cancellation did not resume the prompt queue")
+	}
+	s.server.lockPromptDrain(session.ID)()
+	s.NoError(s.server.cancelTurnsForSwitch(context.Background(), session.ID))
+}
+
+func (s *WebSocketSyncSuite) TestSettledCancellationResumesQueuedPrompt() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_cancel_queue", Owner: "usr_test", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_cancel_queue", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_cancel_queue",
+		ExternalAgentCancelRequestedAt: &now,
+	}
+	interrupted := *waiting
+	interrupted.State = types.InteractionStateInterrupted
+	prompt := &types.PromptHistoryEntry{ID: "prompt_cancel_queue", SessionID: session.ID, Content: "next turn"}
+	commands := make(chan types.ExternalAgentCommand, 1)
+	s.server.externalAgentWSManager.registerConnection(session.ID, &ExternalAgentWSConnection{
+		SessionID: session.ID, SendChan: commands,
+	})
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+	executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(false)
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil)
+	mark := s.store.EXPECT().MarkInteractionInterruptedIfWaiting(gomock.Any(), waiting.ID, waiting.GenerationID).Return(true, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(&interrupted, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).AnyTimes()
+	claim := s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), session.ID).Return(prompt, nil)
+	gomock.InOrder(mark, claim)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{&interrupted}, int64(1), nil)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			s.Equal(prompt.ID, interaction.PromptID)
+			s.Equal(types.InteractionStateWaiting, interaction.State)
+			return interaction, nil
+		},
+	)
+	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+
+	s.server.settleUnacknowledgedExternalAgentCancellation(session.ID, waiting.ID, waiting.ExternalAgentRequestID, 1)
+	select {
+	case command := <-commands:
+		s.Equal("chat_message", command.Type)
+		s.Equal(prompt.Content, command.Data["message"])
+		s.Equal(true, command.Data["from_queue"])
+	case <-time.After(time.Second):
+		s.T().Fatal("settled cancellation did not dispatch the queued prompt")
+	}
+	s.server.lockPromptDrain(session.ID)()
+}
+
+func TestSettledCancellationQueueDrainRequiresDurableTransition(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		transitioned bool
+		markErr      error
+		reloadErr    error
+		sessionErr   error
+	}{
+		{name: "lost CAS"},
+		{name: "transition error", markErr: fmt.Errorf("database unavailable")},
+		{name: "reload error", transitioned: true, reloadErr: fmt.Errorf("reload unavailable")},
+		{name: "session error", transitioned: true, sessionErr: fmt.Errorf("session unavailable")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &WebSocketSyncSuite{}
+			s.SetT(t)
+			s.SetupTest()
+			defer s.TearDownTest()
+			now := time.Now()
+			waiting := &types.Interaction{
+				ID: "int_cancel_drain", SessionID: "ses_cancel_drain", GenerationID: 1,
+				State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_cancel_drain",
+				ExternalAgentCancelRequestedAt: &now,
+			}
+			executor := external_agent.NewMockExecutor(s.ctrl)
+			s.server.externalAgentExecutor = executor
+			executor.EXPECT().HasRunningContainer(gomock.Any(), waiting.SessionID).Return(false)
+			s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil)
+			mark := s.store.EXPECT().MarkInteractionInterruptedIfWaiting(gomock.Any(), waiting.ID, waiting.GenerationID).Return(tc.transitioned, tc.markErr)
+			drained := make(chan struct{})
+			if tc.transitioned {
+				s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, tc.reloadErr)
+				if tc.reloadErr == nil {
+					s.store.EXPECT().GetSession(gomock.Any(), waiting.SessionID).Return(nil, tc.sessionErr)
+				}
+				claim := s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), waiting.SessionID).DoAndReturn(
+					func(context.Context, string) (*types.PromptHistoryEntry, error) {
+						close(drained)
+						return nil, nil
+					},
+				)
+				gomock.InOrder(mark, claim)
+			}
+			s.server.settleUnacknowledgedExternalAgentCancellation(waiting.SessionID, waiting.ID, waiting.ExternalAgentRequestID, 1)
+			if tc.transitioned {
+				select {
+				case <-drained:
+				case <-time.After(time.Second):
+					t.Fatal("frontend notification failure prevented the queue drain")
+				}
+				s.server.lockPromptDrain(waiting.SessionID)()
+			}
+		})
+	}
+}
+
+func (s *WebSocketSyncSuite) TestRetryPendingCancellationLeavesInteractionWaitingWhenStopFails() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_cancel_stop_failed", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_cancel_stop_failed", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_cancel_stop_failed",
+		ExternalAgentCancelRequestedAt: &now,
+	}
+
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+	executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(true)
+	executor.EXPECT().StopDesktop(gomock.Any(), session.ID).Return(fmt.Errorf("stop failed"))
+	s.server.externalAgentWSManager.registerConnection(session.ID, &ExternalAgentWSConnection{
+		SessionID: session.ID, SendChan: make(chan types.ExternalAgentCommand),
+	})
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil).Times(3)
+
+	s.server.retryPendingExternalAgentCancellationWithAttempts(
+		session.ID, waiting.ID, waiting.ExternalAgentRequestID, 1,
+	)
+}
+
+func (s *WebSocketSyncSuite) TestRetryPendingCancellationDoesNotStopContainerAfterLateTerminalTransition() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_cancel_late_ack", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_cancel_late_ack", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_cancel_late_ack",
+		ExternalAgentCancelRequestedAt: &now,
+	}
+	interrupted := *waiting
+	interrupted.State = types.InteractionStateInterrupted
+	interrupted.ExternalAgentCancelRequestedAt = nil
+	s.server.externalAgentWSManager.registerConnection(session.ID, &ExternalAgentWSConnection{
+		SessionID: session.ID, SendChan: make(chan types.ExternalAgentCommand),
+	})
+
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(&interrupted, nil)
+
+	s.server.retryPendingExternalAgentCancellationWithAttempts(
+		session.ID, waiting.ID, waiting.ExternalAgentRequestID, 1,
+	)
+}
+
+func (s *WebSocketSyncSuite) TestRetryPendingCancellationRevalidatesBeforeStoppingContainer() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_cancel_late_completion", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_cancel_late_completion", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_cancel_late_completion",
+		ExternalAgentCancelRequestedAt: &now,
+	}
+	completed := *waiting
+	completed.State = types.InteractionStateComplete
+	completed.ExternalAgentCancelRequestedAt = nil
+
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+	executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(true)
+	s.server.externalAgentWSManager.registerConnection(session.ID, &ExternalAgentWSConnection{
+		SessionID: session.ID, SendChan: make(chan types.ExternalAgentCommand),
+	})
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil).Times(2)
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(&completed, nil)
+
+	s.server.retryPendingExternalAgentCancellationWithAttempts(
+		session.ID, waiting.ID, waiting.ExternalAgentRequestID, 1,
+	)
+}
+
+func (s *WebSocketSyncSuite) TestRetryPendingCancellationIgnoresReboundRequestID() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_cancel_rebound", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_cancel_rebound", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting, ExternalAgentRequestID: "req_current",
+		ExternalAgentCancelRequestedAt: &now,
+	}
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil)
+
+	s.server.retryPendingExternalAgentCancellationWithAttempts(
+		session.ID, waiting.ID, "req_stale", 1,
+	)
+}
 
 func (s *WebSocketSyncSuite) TestCancelActiveTurn_InterruptsQueuedTurnBeforeDispatch() {
 	session := &types.Session{ID: "ses_queued", Owner: "usr_test", GenerationID: 1}
