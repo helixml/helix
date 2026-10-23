@@ -149,3 +149,40 @@ func TestBackoffGrowsWithConsecutiveFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestDeferredRecoveryIsEligibleOnNextProbeWithoutResettingFailureHistory(t *testing.T) {
+	m := NewHealthMonitor(nil, nil)
+	const pid = "prj_deferred"
+	m.lastRecov[pid] = time.Now()
+	m.recovFails[pid] = 2
+
+	m.recordRecoveryDeferred(pid)
+
+	if _, exists := m.lastRecov[pid]; exists {
+		t.Fatal("deferred recovery retained cooldown")
+	}
+	if got, want := m.fails[pid], m.failThreshold-1; got != want {
+		t.Fatalf("probe failures = %d, want %d", got, want)
+	}
+	if got := m.recovFails[pid]; got != 2 {
+		t.Fatalf("recovery failure history = %d, want 2", got)
+	}
+}
+
+func TestRecoveryInFlightBlocksAnotherAttemptPastCooldown(t *testing.T) {
+	m := NewHealthMonitor(nil, nil)
+	const pid = "prj_inflight"
+	oldTrigger := time.Now().Add(-2 * m.cooldown)
+	m.lastRecov[pid] = oldTrigger
+	m.fails[pid] = m.failThreshold - 1
+	m.recovering[pid] = true
+
+	m.onFailure(pid)
+
+	if got := m.lastRecov[pid]; !got.Equal(oldTrigger) {
+		t.Fatalf("second recovery changed trigger time from %v to %v", oldTrigger, got)
+	}
+	if !m.recovering[pid] {
+		t.Fatal("in-flight recovery guard was cleared")
+	}
+}

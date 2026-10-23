@@ -174,6 +174,27 @@ func (dm *DevContainerManager) getDockerClient(socketPath string) (*client.Clien
 	)
 }
 
+// Ready verifies that Hydra can reach the Docker daemon it manages.
+func (dm *DevContainerManager) Ready(ctx context.Context) error {
+	dockerClient := dm.docker
+	closeClient := false
+	if dockerClient == nil {
+		var err error
+		dockerClient, err = dm.getDockerClient("")
+		if err != nil {
+			return fmt.Errorf("create Docker client: %w", err)
+		}
+		closeClient = true
+	}
+	if closeClient {
+		defer dockerClient.Close()
+	}
+	if _, err := dockerClient.Ping(ctx); err != nil {
+		return fmt.Errorf("ping Docker daemon: %w", err)
+	}
+	return nil
+}
+
 // validateImageVersion validates that the image has a specific version tag, never :latest.
 // The API should always resolve versions from sandbox heartbeat before calling Hydra.
 // Returns an error if :latest is passed - this indicates a bug in the API.

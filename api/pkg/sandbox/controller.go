@@ -40,6 +40,19 @@ var ErrNoDisplayCapableHost = errors.New(
 	"this deployment has no sandbox host with a display/render node, so desktop runtimes are unavailable; " +
 		"use a headless runtime, or add a sandbox host with a GPU")
 
+// RecoveryTeardownUnconfirmedError means automatic recovery could not confirm
+// that Hydra removed the old container, so the sandbox row remains authoritative.
+type RecoveryTeardownUnconfirmedError struct {
+	SandboxID string
+	Err       error
+}
+
+func (e *RecoveryTeardownUnconfirmedError) Error() string {
+	return fmt.Sprintf("recovery teardown for sandbox %s was not confirmed: %v", e.SandboxID, e.Err)
+}
+
+func (e *RecoveryTeardownUnconfirmedError) Unwrap() error { return e.Err }
+
 // recoverGoroutine turns a panic in a detached goroutine into a logged error
 // instead of a process-wide crash (a panic in ANY goroutine kills the whole
 // API binary — every sandbox and web service with it). Guard every fire-and-
@@ -309,6 +322,42 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 		}
 	}
 
+	c.revokeSandboxAPIToken(ctx, sandbox)
+	return c.store.DeleteSandbox(ctx, id)
+}
+
+// DeleteForRecovery tears down a web-service sandbox only after Hydra confirms
+// the container was removed or already absent. Unlike Delete, a transport or
+// Docker failure preserves the row, token, and capacity count for a later retry.
+func (c *Controller) DeleteForRecovery(ctx context.Context, id string) error {
+	sandbox, err := c.store.GetSandbox(ctx, id)
+	if err != nil {
+		return err
+	}
+	if sandbox.SessionBacked() {
+		return fmt.Errorf("sandbox %s is session-backed", id)
+	}
+	if sandbox.HostDeviceID == "" {
+		return &RecoveryTeardownUnconfirmedError{SandboxID: id, Err: errors.New("sandbox has no pinned host")}
+	}
+
+	hydraClient := c.newHydraClient(sandbox.HostDeviceID)
+	teardownCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	if _, err := hydraClient.DeleteDevContainer(teardownCtx, sandbox.ID); err != nil {
+		return &RecoveryTeardownUnconfirmedError{SandboxID: id, Err: err}
+	}
+
+	if err := c.billSandboxFinal(ctx, sandbox, time.Now()); err != nil {
+		return err
+	}
+	if err := c.store.DecrementSandboxContainerCount(ctx, sandbox.HostDeviceID); err != nil {
+		log.Warn().Err(err).Str("sandbox_id", id).Str("host_device_id", sandbox.HostDeviceID).
+			Msg("Failed to decrement active_sandboxes on Runner after recovery teardown")
+	}
+	if err := hydraClient.ForgetSandboxOps(ctx, sandbox.ID); err != nil {
+		log.Debug().Err(err).Str("sandbox_id", id).Msg("hydra ForgetSandboxOps failed")
+	}
 	c.revokeSandboxAPIToken(ctx, sandbox)
 	return c.store.DeleteSandbox(ctx, id)
 }

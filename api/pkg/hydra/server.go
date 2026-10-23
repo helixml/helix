@@ -338,6 +338,7 @@ func (s *Server) Stop(ctx context.Context) error {
 func (s *Server) registerRoutes(router *mux.Router) {
 	// Health check
 	router.HandleFunc("/health", s.handleHealth).Methods("GET")
+	router.HandleFunc("/ready", s.handleReady).Methods("GET")
 
 	api := router.PathPrefix("/api/v1").Subrouter()
 
@@ -427,6 +428,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// handleReady reports whether Hydra can currently operate its Docker daemon.
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.devContainerManager.Ready(ctx); err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // handleCreateDevContainer creates a new dev container (desktop container lifecycle)

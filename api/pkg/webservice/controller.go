@@ -63,17 +63,40 @@ type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string,
 
 var errDeploySuperseded = errors.New("deploy superseded")
 
+// RecoveryDeferredError means recovery made no destructive change because the
+// pinned runner could not safely confirm readiness or teardown.
+type RecoveryDeferredError struct {
+	Reason string
+	Err    error
+}
+
+func (e *RecoveryDeferredError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("web service recovery deferred: %s: %v", e.Reason, e.Err)
+	}
+	return fmt.Sprintf("web service recovery deferred: %s", e.Reason)
+}
+
+func (e *RecoveryDeferredError) Unwrap() error { return e.Err }
+
+func IsRecoveryDeferred(err error) bool {
+	var deferred *RecoveryDeferredError
+	return errors.As(err, &deferred)
+}
+
 // Controller orchestrates project web service deploys.
 type Controller struct {
-	store            store.Store
-	sandboxes        *sandbox.Controller
-	provisionWait    time.Duration // upper bound for waiting for sandbox status=running
-	provisionPoll    time.Duration // poll interval while waiting
-	bootstrapWait    time.Duration // upper bound for the in-place deploy exec (clone/fetch/launch)
-	readinessWait    time.Duration // upper bound for waiting for the app to bind to its port
-	readinessPoll    time.Duration // poll interval while waiting
-	deployRunLocks   sync.Map      // map[project_id]*sync.Mutex
-	deployStateLocks sync.Map      // map[project_id]*sync.Mutex
+	store                    store.Store
+	sandboxes                *sandbox.Controller
+	provisionWait            time.Duration // upper bound for waiting for sandbox status=running
+	provisionPoll            time.Duration // poll interval while waiting
+	bootstrapWait            time.Duration // upper bound for the in-place deploy exec (clone/fetch/launch)
+	readinessWait            time.Duration // upper bound for waiting for the app to bind to its port
+	readinessPoll            time.Duration // poll interval while waiting
+	deployRunLocks           sync.Map      // map[project_id]*sync.Mutex
+	deployStateLocks         sync.Map      // map[project_id]*sync.Mutex
+	hostReadyForReplacement  func(context.Context, *types.Sandbox) (bool, string)
+	deleteSandboxForRecovery func(context.Context, string) error
 
 	// getProjectSecrets, when set, supplies prod-scoped project secrets to
 	// inject into the web service container env. Optional — nil means no
@@ -86,7 +109,7 @@ type Controller struct {
 // cold-start plus a generous window for the app to bind its port.
 // (Web-service deploys source .helix/startup.sh from the helix-specs branch.)
 func New(s store.Store, sc *sandbox.Controller) *Controller {
-	return &Controller{
+	c := &Controller{
 		store:         s,
 		sandboxes:     sc,
 		provisionWait: 3 * time.Minute,
@@ -100,6 +123,9 @@ func New(s store.Store, sc *sandbox.Controller) *Controller {
 		readinessWait: 10 * time.Minute,
 		readinessPoll: 3 * time.Second,
 	}
+	c.hostReadyForReplacement = sc.HostReadyForReplacement
+	c.deleteSandboxForRecovery = sc.DeleteForRecovery
+	return c
 }
 
 // SetProjectSecretsGetter wires the prod-scoped secret injection callback.
@@ -495,6 +521,9 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) (*
 	}
 
 	sb, sbErr := c.sandboxes.Get(ctx, state.ActiveSandboxID)
+	if sbErr != nil && !errors.Is(sbErr, store.ErrNotFound) {
+		return nil, fmt.Errorf("get active sandbox %s: %w", state.ActiveSandboxID, sbErr)
+	}
 
 	// In-place-first: don't overreact to a transient blip. The monitor fires
 	// recovery after 3 failed probes, but a control-plane restart (e.g. a CD
@@ -510,6 +539,27 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) (*
 				Msg("health-monitor: web service healthy on re-probe — skipping recovery (transient blip, e.g. RevDial reconnect)")
 			return nil, nil
 		}
+	}
+
+	replacementTarget := sb
+	if replacementTarget == nil {
+		replacementTarget = &types.Sandbox{
+			ID:           state.ActiveSandboxID,
+			Runtime:      types.SandboxRuntimeUbuntuDesktop,
+			Persistent:   true,
+			HostDeviceID: state.HostDeviceID,
+		}
+	}
+	if replacementTarget.HostDeviceID == "" && state.HostDeviceID != "" {
+		copy := *replacementTarget
+		copy.HostDeviceID = state.HostDeviceID
+		replacementTarget = &copy
+	}
+	if replacementTarget.HostDeviceID == "" {
+		return nil, &RecoveryDeferredError{Reason: "active sandbox pinned runner is unknown"}
+	}
+	if ready, why := c.hostReadyForReplacement(ctx, replacementTarget); !ready {
+		return nil, &RecoveryDeferredError{Reason: why}
 	}
 
 	recreate := false
@@ -537,24 +587,14 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) (*
 		// carry restart=unless-stopped, so leaving them alone means the
 		// service comes back on its own the moment the runner recovers, with
 		// no deploy at all.
-		if ready, why := c.sandboxes.HostReadyForReplacement(ctx, sb); !ready {
-			log.Error().
-				Str("project_id", projectID).
-				Str("sandbox_id", state.ActiveSandboxID).
-				Str("probe_reason", reason).
-				Str("host_reason", why).
-				Msg("health-monitor: NOT recreating web-service sandbox — its runner cannot take a replacement, so the existing container is left in place")
-			// Reported as a failed recovery on purpose: it grows the monitor's
-			// backoff and drives helix_webservice_consecutive_recovery_failures,
-			// so HelixWebServiceRecoveryLooping pages a human for what is an
-			// infrastructure problem we cannot fix by redeploying.
-			return nil, fmt.Errorf("refusing destructive recovery: %s (probe reported: %s)", why, reason)
-		}
 		log.Warn().Str("project_id", projectID).Str("sandbox_id", state.ActiveSandboxID).
 			Str("reason", reason).Msg("health-monitor: recreating web-service sandbox")
-		if delErr := c.sandboxes.Delete(context.Background(), state.ActiveSandboxID); delErr != nil {
-			log.Warn().Err(delErr).Str("sandbox_id", state.ActiveSandboxID).
-				Msg("health-monitor: failed to delete broken sandbox (continuing to redeploy)")
+		if delErr := c.deleteSandboxForRecovery(ctx, state.ActiveSandboxID); delErr != nil {
+			var unconfirmed *sandbox.RecoveryTeardownUnconfirmedError
+			if errors.As(delErr, &unconfirmed) {
+				return nil, &RecoveryDeferredError{Reason: "old sandbox teardown was not confirmed", Err: delErr}
+			}
+			return nil, fmt.Errorf("delete broken sandbox: %w", delErr)
 		}
 	} else {
 		log.Info().Str("project_id", projectID).Str("reason", reason).

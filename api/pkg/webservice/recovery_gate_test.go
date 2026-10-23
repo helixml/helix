@@ -3,6 +3,7 @@ package webservice
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -94,11 +95,8 @@ func (s *RecoveryGateSuite) TestRefusesToDeleteWhenRunnerOffline() {
 
 	s.Nil(deploy, "no deploy should be started when the runner cannot take one")
 	s.Require().Error(err, "must report a failed recovery, not a silent no-op")
-	s.Contains(err.Error(), "refusing destructive recovery")
+	s.True(IsRecoveryDeferred(err))
 	s.Contains(err.Error(), "offline")
-	// The probe's own verdict is carried through so the log/alert says why we
-	// thought it was broken as well as why we declined to act.
-	s.Contains(err.Error(), "probe reported")
 }
 
 // The middle window that made this so hard to see: the row still reads
@@ -126,6 +124,55 @@ func (s *RecoveryGateSuite) TestRefusesToDeleteWhenRunnerStoppedAdvertisingImage
 	s.Nil(deploy)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "advertises")
+}
+
+func (s *RecoveryGateSuite) TestMissingSandboxUsesPinnedHostBeforeRedeploy() {
+	s.store.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_findai").Return(&types.ProjectWebServiceState{
+		ProjectID: "prj_findai", Enabled: true, ActiveSandboxID: "sbx_missing", HostDeviceID: "host-pinned",
+	}, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_findai").Return(&types.Project{ID: "prj_findai", UserID: "usr_1"}, nil)
+	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_missing").Return(nil, store.ErrNotFound)
+	s.ctlr.hostReadyForReplacement = func(_ context.Context, sb *types.Sandbox) (bool, string) {
+		s.Equal("host-pinned", sb.HostDeviceID)
+		return false, "revdial disconnected"
+	}
+
+	deploy, err := s.ctlr.RecoverWebService(s.ctx, "prj_findai")
+	s.Nil(deploy)
+	s.True(IsRecoveryDeferred(err))
+}
+
+func (s *RecoveryGateSuite) TestSandboxLookupFailureIsNotTreatedAsMissing() {
+	s.store.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_findai").Return(&types.ProjectWebServiceState{
+		ProjectID: "prj_findai", Enabled: true, ActiveSandboxID: "sbx_web", HostDeviceID: "host-pinned",
+	}, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_findai").Return(&types.Project{ID: "prj_findai", UserID: "usr_1"}, nil)
+	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_web").Return(nil, errors.New("database unavailable"))
+
+	deploy, err := s.ctlr.RecoverWebService(s.ctx, "prj_findai")
+	s.Nil(deploy)
+	s.Require().Error(err)
+	s.False(IsRecoveryDeferred(err))
+	s.Contains(err.Error(), "database unavailable")
+}
+
+func (s *RecoveryGateSuite) TestUnconfirmedStrictTeardownDoesNotRedeploy() {
+	s.store.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_findai").Return(&types.ProjectWebServiceState{
+		ProjectID: "prj_findai", Enabled: true, ActiveSandboxID: "sbx_web", HostDeviceID: "host-pinned",
+	}, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_findai").Return(&types.Project{ID: "prj_findai", UserID: "usr_1"}, nil)
+	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_web").Return(&types.Sandbox{
+		ID: "sbx_web", Runtime: types.SandboxRuntimeUbuntuDesktop, Persistent: true,
+		HostDeviceID: "host-pinned", Status: types.SandboxStatusStopped,
+	}, nil)
+	s.ctlr.hostReadyForReplacement = func(context.Context, *types.Sandbox) (bool, string) { return true, "" }
+	s.ctlr.deleteSandboxForRecovery = func(_ context.Context, id string) error {
+		return &sandbox.RecoveryTeardownUnconfirmedError{SandboxID: id, Err: errors.New("revdial disconnected")}
+	}
+
+	deploy, err := s.ctlr.RecoverWebService(s.ctx, "prj_findai")
+	s.Nil(deploy)
+	s.True(IsRecoveryDeferred(err))
 }
 
 // Nothing to recover: the guard must not fire, and nothing else is touched.
