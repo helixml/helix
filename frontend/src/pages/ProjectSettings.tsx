@@ -345,6 +345,18 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     setWaitingForBuildStart(false);
   }, [waitingForBuildStart, buildingSandboxId]);
 
+  // A build can also fail before it starts (e.g. the sandbox can't build a
+  // golden cache). It is the new build when triggered_at moved since the click.
+  const primeTriggeredAtRef = useRef<Record<string, string | undefined>>({});
+  const failedSincePrime = waitingForBuildStart
+    ? sandboxEntries.some(
+        ([sbId, s]) => s.status === "failed" && s.triggered_at !== primeTriggeredAtRef.current[sbId],
+      )
+    : false;
+  useEffect(() => {
+    if (failedSincePrime) setWaitingForBuildStart(false);
+  }, [failedSincePrime]);
+
   const blkioSamplesRef = useRef<{ time: number; writeBytes: number }[]>([]);
   const lastBuildSessionRef = useRef<string | undefined>();
 
@@ -504,6 +516,9 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const primeCacheMutation = useMutation({
     mutationFn: async () => {
+      primeTriggeredAtRef.current = Object.fromEntries(
+        sandboxEntries.map(([sbId, s]) => [sbId, s.triggered_at]),
+      );
       await api
         .getApiClient()
         .v1ProjectsDockerCacheBuildCreate(projectId);

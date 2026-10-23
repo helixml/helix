@@ -174,6 +174,8 @@ The project startup script (installs deps, starts dev servers) runs automaticall
 
 If the startup script hasn't run yet, the log won't exist. You can re-run it manually: ` + "`bash /home/retro/work/helix-specs/.helix/startup.sh`" + `
 
+The pre-warm Docker cache build runs the same script with ` + "`HELIX_GOLDEN_BUILD=true`" + ` and finishes when it exits. If you edit it, put long-running servers after ` + "`[ \"${HELIX_GOLDEN_BUILD:-}\" = true ] && exit 0`" + `.
+
 ## Document Your Learnings
 
 **Your design docs may be cloned to similar projects.** Write down what you discover:

@@ -21,6 +21,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/gpudetect"
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -72,6 +73,9 @@ type HeartbeatRequest struct {
 	InstanceType          string                    `json:"instance_type,omitempty"` // cloud instance type via IMDS; empty on bare metal
 	HelixVersion          string                    `json:"helix_version,omitempty"` // git commit hash or release version
 	MaxSandboxes          int                       `json:"max_sandboxes,omitempty"` // per-runner cap; -1 means unlimited, omitted when unset
+	// Without a container data root, Hydra keeps desktops' container data in
+	// plain Docker volumes, where it can neither promote nor seed a golden cache.
+	GoldenCacheUnavailable bool `json:"golden_cache_unavailable,omitempty"`
 
 	// Sandbox-absorbs-runner pivot: rich GPU inventory used by the inference
 	// router's profile-compatibility check. Detected via nvidia-smi /
@@ -285,20 +289,21 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 
 	// Build request
 	req := HeartbeatRequest{
-		DesktopVersions:       desktopVersions,
-		DiskUsage:             diskUsage,
-		ContainerUsage:        containerUsage,
-		ContainerOOMKills:     containerOOMKills,
-		PrivilegedModeEnabled: privilegedModeEnabled,
-		GPUVendor:             gpuVendor,
-		InstanceType:          instType,
-		HelixVersion:          data.GetHelixVersion(),
-		MaxSandboxes:          maxSandboxes,
-		GPUs:                  gpus,
-		ProfileStatus:         profileStatus,
-		ProfileError:          profileError,
-		ServiceHealth:         serviceHealth,
-		ProfileProgress:       profileProgress,
+		DesktopVersions:        desktopVersions,
+		DiskUsage:              diskUsage,
+		ContainerUsage:         containerUsage,
+		ContainerOOMKills:      containerOOMKills,
+		PrivilegedModeEnabled:  privilegedModeEnabled,
+		GPUVendor:              gpuVendor,
+		InstanceType:           instType,
+		HelixVersion:           data.GetHelixVersion(),
+		MaxSandboxes:           maxSandboxes,
+		GoldenCacheUnavailable: !hydra.ContainerDataRootAvailable(),
+		GPUs:                   gpus,
+		ProfileStatus:          profileStatus,
+		ProfileError:           profileError,
+		ServiceHealth:          serviceHealth,
+		ProfileProgress:        profileProgress,
 	}
 
 	// Log disk status

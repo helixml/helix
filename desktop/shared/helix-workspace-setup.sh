@@ -1052,8 +1052,8 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
         exec sleep infinity
     }
 
-    # Run startup script in foreground (blocking)
-    if bash -i "$STARTUP_SCRIPT"; then
+    # Run startup script in foreground (blocking until it exits or goes idle)
+    if helix-golden-startup "$STARTUP_SCRIPT"; then
         echo ""
         echo "✅ Golden build: startup script completed successfully"
 

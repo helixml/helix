@@ -3685,6 +3685,11 @@ type SandboxInstance struct {
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty" gorm:"type:varchar(255)"`
 
+	// GoldenCacheUnavailable is set when the sandbox has no container data root
+	// (/container-docker), so Hydra can't build or seed golden Docker caches. Negative so sandboxes
+	// whose heartbeat predates it keep building.
+	GoldenCacheUnavailable bool `json:"golden_cache_unavailable" gorm:"default:false"`
+
 	// --- Sandbox-absorbs-runner pivot fields (Decision 13 in design.md) ---
 	// Populated by the sandbox's compose-manager process (where present).
 	// Drive the API server's inference router and the admin UI's
@@ -3815,6 +3820,9 @@ type SandboxHeartbeatRequest struct {
 
 	// Privileged mode (host Docker access for development)
 	PrivilegedModeEnabled bool `json:"privileged_mode_enabled,omitempty"`
+
+	// GoldenCacheUnavailable: see SandboxInstance.GoldenCacheUnavailable.
+	GoldenCacheUnavailable bool `json:"golden_cache_unavailable,omitempty"`
 
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty"`

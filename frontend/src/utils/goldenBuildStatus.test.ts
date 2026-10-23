@@ -37,4 +37,18 @@ describe("goldenBuildStatus", () => {
       goldenBuildStatusDetail({ status: "building", attempt: 2, interrupt_reason: "Hydra restarted" }),
     ).toEqual({ text: "Previous attempt interrupted: Hydra restarted", severity: "warning" });
   });
+
+  it("shows how long a build has been running", () => {
+    const start = Date.parse("2026-10-22T10:00:00Z");
+    const state = { status: "building", attempt: 1, max_attempts: 3, last_build_at: "2026-10-22T10:00:00Z" };
+    expect(goldenBuildStatusLabel(state, start + 12 * 60000)).toBe("Building for 12 min (attempt 1 of 3)");
+    expect(goldenBuildStatusLabel(state, start + 95 * 60000)).toBe("Building for 1 h 35 min (attempt 1 of 3)");
+  });
+
+  it("hints at a startup script that never exits once a build is slow", () => {
+    const start = Date.parse("2026-10-22T10:00:00Z");
+    const state = { status: "building", attempt: 1, last_build_at: "2026-10-22T10:00:00Z" };
+    expect(goldenBuildStatusDetail(state, start + 10 * 60000)).toBeUndefined();
+    expect(goldenBuildStatusDetail(state, start + 31 * 60000)?.text).toContain("HELIX_GOLDEN_BUILD=true");
+  });
 });
