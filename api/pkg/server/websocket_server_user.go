@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -40,7 +39,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 		// extractMiddleware.
 		var user *types.User
 		err := authpkg.ErrSessionNotFound
-		if !strings.HasPrefix(getRequestToken(r), types.APIKeyPrefix) {
+		if !namesOwnAPIKey(r) {
 			user, err = apiServer.authMiddleware.getUserFromSession(r.Context(), r)
 		}
 		if err != nil {

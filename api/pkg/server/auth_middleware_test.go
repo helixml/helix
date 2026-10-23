@@ -356,28 +356,37 @@ func TestGetUserFromToken_PersonalAPIKeyInheritsAdmin(t *testing.T) {
 // session; a waitlisted viewer's cookie must not turn the embed's request
 // into "waiting for approval", nor any other viewer's into theirs.
 func TestExtractMiddlewareExplicitAPIKeyBeatsSessionCookie(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockStore := store.NewMockStore(ctrl)
-	service := &types.User{ID: "usr-service"}
-	// No GetUserSession expectation: the viewer's session must not be read.
-	mockStore.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hl-embed"}).Return(&types.ApiKey{
-		Key: "hl-embed", Owner: service.ID, OwnerType: types.OwnerTypeUser, Type: types.APIkeytypeAPI,
-	}, nil)
-	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: service.ID}).Return(service, nil).AnyTimes()
-	mockStore.EXPECT().EnsureUserMeta(gomock.Any(), types.UserMeta{ID: service.ID}).Return(&types.UserMeta{ID: service.ID}, nil).AnyTimes()
-	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{}, nil, authpkg.NewSessionManager(mockStore, nil, nil))
-	auth.lastSeenCache.Store(service.ID, time.Now())
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
-	request.AddCookie(&http.Cookie{Name: authpkg.SessionCookieName, Value: "viewer-session"})
-	request.Header.Set("Authorization", "Bearer hl-embed")
-	response := httptest.NewRecorder()
+	for name, withKey := range map[string]func(*http.Request){
+		"authorization header": func(r *http.Request) { r.Header.Set("Authorization", "Bearer hl-embed") },
+		// WebSockets and EventSource cannot set headers, so the embed puts its
+		// key in the query string: this is how the desktop stream connects.
+		"query parameter": func(r *http.Request) { r.URL.RawQuery = "access_token=hl-embed" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			service := &types.User{ID: "usr-service"}
+			// No GetUserSession expectation: the viewer's session must not be read.
+			mockStore.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hl-embed"}).Return(&types.ApiKey{
+				Key: "hl-embed", Owner: service.ID, OwnerType: types.OwnerTypeUser, Type: types.APIkeytypeAPI,
+			}, nil)
+			mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: service.ID}).Return(service, nil).AnyTimes()
+			mockStore.EXPECT().EnsureUserMeta(gomock.Any(), types.UserMeta{ID: service.ID}).Return(&types.UserMeta{ID: service.ID}, nil).AnyTimes()
+			auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{}, nil, authpkg.NewSessionManager(mockStore, nil, nil))
+			auth.lastSeenCache.Store(service.ID, time.Now())
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/external-agents/ses_A/ws/stream", nil)
+			request.AddCookie(&http.Cookie{Name: authpkg.SessionCookieName, Value: "viewer-session"})
+			withKey(request)
+			response := httptest.NewRecorder()
 
-	var seen string
-	auth.extractMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		seen = getRequestUser(r).ID
-		w.WriteHeader(http.StatusNoContent)
-	})).ServeHTTP(response, request)
+			var seen string
+			auth.extractMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seen = getRequestUser(r).ID
+				w.WriteHeader(http.StatusNoContent)
+			})).ServeHTTP(response, request)
 
-	assert.Equal(t, http.StatusNoContent, response.Code)
-	assert.Equal(t, service.ID, seen, "the request must be authorised as the key's owner, not the cookie's")
+			assert.Equal(t, http.StatusNoContent, response.Code)
+			assert.Equal(t, service.ID, seen, "the request must be authorised as the key's owner, not the cookie's")
+		})
+	}
 }
