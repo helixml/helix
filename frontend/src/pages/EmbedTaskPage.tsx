@@ -1,6 +1,6 @@
 import React, { FC } from 'react'
 import { useRoute } from 'react-router5'
-import { Box, CircularProgress, useTheme } from '@mui/material'
+import { Box, Button, CircularProgress, Typography, useTheme } from '@mui/material'
 import SpecTaskDetailContent from '../components/tasks/SpecTaskDetailContent'
 import AgentChat from '../components/session/AgentChat'
 import { useSpecTask } from '../services/specTaskService'
@@ -10,7 +10,7 @@ const EmbedTaskPage: FC = () => {
   const { route } = useRoute()
   const theme = useTheme()
   const taskId = route.params.taskId as string
-  const { data: task, isLoading } = useSpecTask(taskId, { enabled: !!taskId })
+  const { data: task, isLoading, error } = useSpecTask(taskId, { enabled: !!taskId })
 
   // Minimal mode: a conversation and nothing else.
   //
@@ -49,6 +49,15 @@ const EmbedTaskPage: FC = () => {
     )
   }
 
+  // The task could not be loaded at all. Say so instead of spinning: the
+  // workspace below waits for a task that will never arrive, which is how a
+  // Helix Recruiter customer was left watching an endless spinner (a
+  // permissions fault, Helix #3455). Any future fault of that kind now shows
+  // the reason, and the host's reload or a new link fixes the rest.
+  if (!task && error) {
+    return <EmbedLoadError error={error} background={bg} />
+  }
+
   if (minimal) {
     const sessionId = task?.planning_session_id
     if (!sessionId) {
@@ -85,6 +94,44 @@ const EmbedTaskPage: FC = () => {
     // is resized to the browser viewport and 100dvh expands with it.
     <Box sx={{ height: '100dvh', overflow: 'hidden', backgroundColor: bg }}>
       <SpecTaskDetailContent taskId={taskId} enableForegroundPRRefresh={false} hideControls={hideControls} />
+    </Box>
+  )
+}
+
+// EmbedLoadError explains, inside the iframe, why the embedded task did not load.
+const EmbedLoadError: FC<{ error: unknown; background: string }> = ({ error, background }) => {
+  const response = (error as { response?: { status?: number; data?: unknown } })?.response
+  const status = response?.status
+  const reason = typeof response?.data === 'string' ? response.data.trim() : ''
+  let message = "This agent view couldn't load."
+  if (status === 401 || status === 403) {
+    message = "This agent view isn't allowed to open its task. The link may have expired: reload the page."
+  } else if (status === 404) {
+    message = 'This agent run no longer exists.'
+  }
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100dvh',
+        p: 3,
+        textAlign: 'center',
+        backgroundColor: background,
+      }}
+    >
+      <Typography variant="body1">{message}</Typography>
+      {(reason || status) && (
+        <Typography variant="body2" color="text.secondary">
+          {reason || `Error ${status}`}
+        </Typography>
+      )}
+      <Button variant="outlined" size="small" onClick={() => window.location.reload()}>
+        Reload
+      </Button>
     </Box>
   )
 }
