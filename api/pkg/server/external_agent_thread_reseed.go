@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -35,30 +36,30 @@ func isUnrestorableThreadError(errMsg string) bool {
 	return strings.Contains(errMsg, unrestorableThreadMarker)
 }
 
-// Bounds on the replayed transcript. The seed rides in front of the user's own
-// message on a turn that is already retrying, so it must stay small enough to
-// be worth sending on every restart: enough for the agent to know what it was
-// doing, not a second copy of the conversation.
-const (
-	reseedMaxTurns        = 6
-	reseedMaxCharsPerTurn = 700
-	reseedMaxTotalChars   = 6000
-)
+// reseedBytesPerContextToken sizes the seed against the model's own window
+// when that window is known: about half of it, at ~4 bytes per token, so the
+// agent's system prompt, tools and its reply still fit. maxTranscriptBytes
+// (sized for 200k windows) stays the ceiling.
+const reseedBytesPerContextToken = 2
 
 // buildThreadReseedPreamble renders the context an agent needs to carry on in a
-// fresh session after its previous one became unrestorable.
+// fresh thread after its previous one was lost — the workspace holding the
+// agent's session store was recreated, the agent reported the thread missing,
+// or the agent cannot reopen sessions at all.
 //
-// The agent's own memory died with its process and the protocol offers no way
-// to recover it, so the choice is between a fresh session that knows what it
-// was doing and one that does not. Helix holds the authoritative transcript and
-// (for a spec task) the goal, branch and workspace, which is why the seed is
-// composed here rather than in Zed.
+// The agent's memory of the thread is gone; Helix holds the authoritative
+// transcript and (for a spec task) the goal, branch and design docs. The
+// transcript is serialized exactly as an agent switch does
+// (serializeTranscriptWithMode), within reseedBudget.
+//
+// currentInteractionID is the turn about to be sent right after the seed; it is
+// excluded so the agent does not read its pending question as already asked.
 //
 // Returns "" when there is nothing worth seeding — a first turn, or a session
 // with no task and no history — so the caller sends the user's message alone.
-func (apiServer *HelixAPIServer) buildThreadReseedPreamble(ctx context.Context, session *types.Session, currentInteractionID string) string {
+func (apiServer *HelixAPIServer) buildThreadReseedPreamble(ctx context.Context, session *types.Session, currentInteractionID string) (string, transcriptStats) {
 	if session == nil {
-		return ""
+		return "", transcriptStats{}
 	}
 
 	var task *types.SpecTask
@@ -76,16 +77,28 @@ func (apiServer *HelixAPIServer) buildThreadReseedPreamble(ctx context.Context, 
 		}
 	}
 
-	transcript := apiServer.recentTranscript(ctx, session.ID, currentInteractionID)
+	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: session.GenerationID,
+		PerPage:      10_000,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).
+			Msg("thread reseed: could not list interactions for context preamble")
+	}
+	interactions = slices.DeleteFunc(interactions, func(in *types.Interaction) bool {
+		return in == nil || in.ID == currentInteractionID
+	})
+	transcript, stats := serializeTranscriptWithMode(interactions, apiServer.reseedBudget(ctx, session), truncateOldestFirst)
 	if task == nil && transcript == "" {
-		return ""
+		return "", stats
 	}
 
 	var b strings.Builder
-	b.WriteString("[Helix: your previous session ended and this agent cannot resume it, ")
+	b.WriteString("[Helix: your previous agent session for this conversation was lost, ")
 	b.WriteString("so you are continuing in a fresh session. ")
-	b.WriteString("The workspace on disk is unchanged — any work already committed or written is still there. ")
-	b.WriteString("Re-read files before relying on them; the summary below is all that survived.]\n")
+	b.WriteString("The workspace on disk may differ from what the conversation below describes — ")
+	b.WriteString("re-read files before relying on them.]\n")
 
 	if task != nil {
 		b.WriteString("\n## Task\n")
@@ -93,7 +106,7 @@ func (apiServer *HelixAPIServer) buildThreadReseedPreamble(ctx context.Context, 
 			fmt.Fprintf(&b, "%s\n", task.Name)
 		}
 		if task.OriginalPrompt != "" {
-			fmt.Fprintf(&b, "\nOriginal request:\n%s\n", truncate(task.OriginalPrompt, reseedMaxCharsPerTurn))
+			fmt.Fprintf(&b, "\nOriginal request:\n%s\n", task.OriginalPrompt)
 		}
 		if task.BranchName != "" {
 			fmt.Fprintf(&b, "\nBranch: %s\n", task.BranchName)
@@ -104,80 +117,35 @@ func (apiServer *HelixAPIServer) buildThreadReseedPreamble(ctx context.Context, 
 	}
 
 	if transcript != "" {
-		b.WriteString("\n## Conversation so far\n")
+		b.WriteString("\n## Conversation so far\n\n")
 		b.WriteString(transcript)
+		b.WriteString("\n")
 	}
 
 	b.WriteString("\n---\n\nThe user's message follows.\n\n")
 
-	return truncate(b.String(), reseedMaxTotalChars)
+	return b.String(), stats
 }
 
-// recentTranscript renders the tail of the conversation as plain dialogue.
-//
-// The turn being replayed is excluded: it is sent immediately after the seed,
-// and including it would have the agent read its own pending question as
-// something already asked and answered.
-//
-// Only the tail is fetched. Interaction ids are `int_<ulid>` (see
-// api/pkg/system/uuid.go), so id order is chronological and "id DESC" with a
-// limit reads the newest turns without dragging every prompt and response in
-// the session through the query — this runs on a turn that is already
-// recovering, and a long session's full history is a lot of text to pull for
-// six lines of summary. One extra row covers the replayed turn landing inside
-// the window; a turn with no text of its own simply yields fewer lines, which
-// is fine for a bounded summary.
-func (apiServer *HelixAPIServer) recentTranscript(ctx context.Context, sessionID, currentInteractionID string) string {
-	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-		SessionID:    sessionID,
-		GenerationID: -1,
-		Order:        "id DESC",
-		PerPage:      reseedMaxTurns + 1,
-	})
-	if err != nil {
-		log.Warn().Err(err).Str("session_id", sessionID).
-			Msg("thread reseed: could not list interactions for context preamble")
-		return ""
+// reseedBudget caps the seed transcript at maxTranscriptBytes, or at about half
+// the session's model window when that is smaller. The window comes from the
+// same code-agent config the desktop is configured with (model catalogue,
+// overridden by the provider's advertised max_model_len).
+func (apiServer *HelixAPIServer) reseedBudget(ctx context.Context, session *types.Session) int {
+	app, _ := apiServer.runtimeAppForSession(ctx, session)
+	if app == nil {
+		return maxTranscriptBytes
 	}
-	// Back to chronological, so the agent reads the exchange in the order it
-	// happened.
-	slices.Reverse(interactions)
-
-	var turns []string
-	for _, interaction := range interactions {
-		if interaction == nil || interaction.ID == currentInteractionID {
-			continue
-		}
-		var turn strings.Builder
-		if prompt := strings.TrimSpace(interaction.PromptMessage); prompt != "" {
-			fmt.Fprintf(&turn, "User: %s\n", truncate(prompt, reseedMaxCharsPerTurn))
-		}
-		if response := strings.TrimSpace(interaction.ResponseMessage); response != "" {
-			fmt.Fprintf(&turn, "Assistant: %s\n", truncate(response, reseedMaxCharsPerTurn))
-		}
-		if turn.Len() > 0 {
-			turns = append(turns, turn.String())
-		}
+	cfg := apiServer.buildCodeAgentConfig(ctx, app, hydra.SandboxAPIProxyURL, "")
+	if cfg == nil {
+		return maxTranscriptBytes
 	}
-
-	// Keep the most recent turns: the tail is what the agent was in the middle
-	// of, and the head is the part the task description already covers.
-	if len(turns) > reseedMaxTurns {
-		turns = turns[len(turns)-reseedMaxTurns:]
-	}
-
-	return strings.Join(turns, "\n")
+	return reseedBudgetForContext(cfg.MaxTokens)
 }
 
-// truncate shortens s to at most max characters, marking where it was cut so
-// the agent can tell an elided message from a short one.
-func truncate(s string, max int) string {
-	if max <= 0 || len(s) <= max {
-		return s
+func reseedBudgetForContext(contextTokens int) int {
+	if contextTokens <= 0 {
+		return maxTranscriptBytes
 	}
-	const ellipsis = "… [truncated]"
-	if max <= len(ellipsis) {
-		return s[:max]
-	}
-	return s[:max-len(ellipsis)] + ellipsis
+	return min(maxTranscriptBytes, contextTokens*reseedBytesPerContextToken)
 }

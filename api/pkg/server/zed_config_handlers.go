@@ -569,6 +569,29 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 
 	agentName := "zed-agent" // Default to Zed's built-in agent
 
+	runtimeApp, source := apiServer.runtimeAppForSession(ctx, session)
+	if runtimeApp == nil {
+		return agentName
+	}
+
+	codeAgentConfig := apiServer.buildCodeAgentConfig(ctx, runtimeApp, hydra.SandboxAPIProxyURL, "")
+	if codeAgentConfig != nil {
+		agentName = codeAgentConfig.AgentName
+		log.Info().
+			Str("session_id", session.ID).
+			Str("source", source).
+			Str("app_id", runtimeApp.ID).
+			Str("agent_name", agentName).
+			Str("runtime", string(codeAgentConfig.Runtime)).
+			Msg("Using code agent config")
+	}
+
+	return agentName
+}
+
+// runtimeAppForSession resolves the execution source whose code_agent_runtime
+// and model drive this session. Returns nil when none can be resolved.
+func (apiServer *HelixAPIServer) runtimeAppForSession(ctx context.Context, session *types.Session) (*types.App, string) {
 	// Resolve the execution source whose code_agent_runtime drives this
 	// session's runtime choice. Two sources, in order:
 	//   - task-owned CodeAgentConfig for spec-task-driven sessions
@@ -607,23 +630,7 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 			source = "parent_app"
 		}
 	}
-	if runtimeApp == nil {
-		return agentName
-	}
-
-	codeAgentConfig := apiServer.buildCodeAgentConfig(ctx, runtimeApp, hydra.SandboxAPIProxyURL, "")
-	if codeAgentConfig != nil {
-		agentName = codeAgentConfig.AgentName
-		log.Info().
-			Str("session_id", session.ID).
-			Str("source", source).
-			Str("app_id", runtimeApp.ID).
-			Str("agent_name", agentName).
-			Str("runtime", string(codeAgentConfig.Runtime)).
-			Msg("Using code agent config")
-	}
-
-	return agentName
+	return runtimeApp, source
 }
 
 // buildCodeAgentConfig creates a CodeAgentConfig from the app's zed_external assistant configuration.

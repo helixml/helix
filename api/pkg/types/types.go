@@ -610,6 +610,19 @@ type SessionMetadata struct {
 	// though ParentSessionID is empty (the session continues from itself).
 	AgentSwitchedAt time.Time `json:"agent_switched_at,omitempty"`
 
+	// ThreadReseedFrom is the id of a Zed/ACP thread whose agent-side state is
+	// gone (workspace recreated, or the agent reported the thread missing).
+	// While set and ZedThreadID is empty, the first message of the new thread
+	// carries the Postgres transcript (see buildThreadReseedPreamble).
+	// handleThreadCreated clears it once the new thread exists.
+	ThreadReseedFrom string `json:"thread_reseed_from,omitempty"`
+
+	// WorkspaceID is the identity hydra stamped on the workspace this session
+	// last ran in (<workspace>/.helix/workspace-id). A different id on a later
+	// StartDesktop means the workspace — and every harness's thread store in
+	// it — was recreated.
+	WorkspaceID string `json:"workspace_id,omitempty"`
+
 	// AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop
 	// settings-sync daemon's /agent-config-applied callback for the most recent
 	// in-place switch. They are the explicit "the fast hot-reload path worked"

@@ -225,7 +225,7 @@ func TestTransitionSpecTaskToImplementation_DifferentHarnessSwitchesAndSeeds(t *
 		"the model must be told not to summarise the prepended transcript")
 
 	// The seeded transcript is actually delivered, not just stored.
-	seeded := srv.maybePrependTranscript(ctx, updated, handoff.PromptMessage)
+	seeded := srv.maybePrependTranscript(ctx, updated, handoff.PromptMessage, "")
 	assert.Contains(t, seeded, "user turn 0")
 	assert.Contains(t, seeded, prompt)
 }

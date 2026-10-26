@@ -361,9 +361,25 @@ func findForkSeed(interactions []*types.Interaction) *types.Interaction {
 // The seed is only injected once per forked session, on the first message
 // that creates the thread. After that, the agent has the context in its own
 // thread state and subsequent messages flow normally.
-func (apiServer *HelixAPIServer) maybePrependTranscript(ctx context.Context, session *types.Session, message string) string {
+//
+// A session whose previous thread was lost (ThreadReseedFrom set) is seeded
+// from its own live transcript instead, minus currentInteractionID — the turn
+// this message carries. That seed already contains everything a fork_seed
+// would, so it takes precedence.
+func (apiServer *HelixAPIServer) maybePrependTranscript(ctx context.Context, session *types.Session, message, currentInteractionID string) string {
 	if session == nil || session.Metadata.ZedThreadID != "" {
 		return message
+	}
+	if session.Metadata.ThreadReseedFrom != "" {
+		preamble, stats := apiServer.buildThreadReseedPreamble(ctx, session, currentInteractionID)
+		log.Info().
+			Str("session_id", session.ID).
+			Str("old_thread_id", session.Metadata.ThreadReseedFrom).
+			Str("interaction_id", currentInteractionID).
+			Int("transcript_bytes", stats.finalBytes).
+			Bool("truncated", stats.truncated).
+			Msg("thread reseed: seeding new thread with the prior transcript")
+		return preamble + message
 	}
 	// Cheap precondition: only forked sessions (parent_session_id) or
 	// in-place agent switches (agent_switched_at) carry a fork_seed

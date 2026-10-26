@@ -190,7 +190,7 @@ func TestMaybePrependTranscript_NoOpWhenThreadAlreadyExists(t *testing.T) {
 	require.NoError(t, err)
 	freshChild, _ := mem.GetSession(context.Background(), child.ID)
 
-	got := srv.maybePrependTranscript(context.Background(), freshChild, "follow-up")
+	got := srv.maybePrependTranscript(context.Background(), freshChild, "follow-up", "")
 	assert.Equal(t, "follow-up", got, "must not prepend once a thread is open")
 }
 
@@ -199,7 +199,7 @@ func TestMaybePrependTranscript_NoOpOnNonForkedSession(t *testing.T) {
 	parent := newTestParentSession("user_a")
 	seedParentWithInteractions(t, mem, parent, 1)
 
-	got := srv.maybePrependTranscript(context.Background(), parent, "hello")
+	got := srv.maybePrependTranscript(context.Background(), parent, "hello", "")
 	assert.Equal(t, "hello", got, "non-forked session has no fork_seed; must pass through")
 }
 
@@ -215,7 +215,7 @@ func TestMaybePrependTranscript_PrependsOnFirstMessageOfForkedSession(t *testing
 	freshChild, _ := mem.GetSession(context.Background(), child.ID)
 	require.Equal(t, "", freshChild.Metadata.ZedThreadID, "child must start with no Zed thread")
 
-	got := srv.maybePrependTranscript(context.Background(), freshChild, "now do X")
+	got := srv.maybePrependTranscript(context.Background(), freshChild, "now do X", "")
 
 	assert.NotEqual(t, "now do X", got, "the seed should have been prepended")
 	assert.Contains(t, got, "transcript of a prior session", "must include the bridge framing")

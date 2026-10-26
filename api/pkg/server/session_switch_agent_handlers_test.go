@@ -331,7 +331,7 @@ func TestReconcileSessionAgentWithApp_RepairsBeforeUserTurn(t *testing.T) {
 	}
 	assert.Equal(t, 1, seedCount)
 	assert.Zero(t, handoffCount, "the real user turn replaces the synthetic handoff during reconciliation")
-	assert.Contains(t, srv.maybePrependTranscript(ctx, updated, "next user turn"), "next user turn")
+	assert.Contains(t, srv.maybePrependTranscript(ctx, updated, "next user turn", ""), "next user turn")
 }
 
 // maybePrependTranscript must seed the new thread on an in-place switch (where
@@ -356,7 +356,7 @@ func TestMaybePrependTranscript_PrependsAfterInPlaceSwitch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "", updated.Metadata.ZedThreadID)
 
-	got := srv.maybePrependTranscript(ctx, updated, "continue please")
+	got := srv.maybePrependTranscript(ctx, updated, "continue please", "")
 	assert.NotEqual(t, "continue please", got, "transcript should be prepended after a switch")
 	assert.Contains(t, got, "continue please", "the user message must still be present")
 }

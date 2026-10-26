@@ -34,7 +34,7 @@ const (
 type ExternalAgentHooks struct {
 	WaitForExternalAgentReady func(ctx context.Context, sessionID string, timeout time.Duration) error
 	GetAgentNameForSession    func(ctx context.Context, session *types.Session) string
-	PrepareMessage            func(ctx context.Context, session *types.Session, message string) string
+	PrepareMessage            func(ctx context.Context, session *types.Session, message, interactionID string) string
 	SendCommand               func(sessionID string, command types.ExternalAgentCommand) error
 	StoreResponseChannel      func(sessionID, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error)
 	// CleanupResponseChannel drops the waiter channels registered under
@@ -162,6 +162,17 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	// Readiness is the agent's own connection. The executor's session map is
 	// filled when StartDesktop returns, which a fast sandbox's agent can beat,
 	// so it is not consulted here.
+	//
+	// Re-read the session: the wait can span a desktop start, and StartDesktop
+	// clears ZedThreadID (and sets ThreadReseedFrom) when it finds the
+	// workspace recreated. Sending the pre-wait snapshot's thread id would
+	// make the agent load a thread its fresh store has never seen.
+	if fresh, err := c.Options.Store.GetSession(ctx, req.Session.ID); err == nil && fresh != nil {
+		req.Session = fresh
+	} else {
+		log.Warn().Err(err).Str("session_id", req.Session.ID).
+			Msg("could not refresh session after external agent readiness; using the pre-wait snapshot")
+	}
 	log.Info().
 		Str("session_id", req.Session.ID).
 		Str("user_message", userMessage).
@@ -174,7 +185,7 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	}
 	outgoingMessage := userMessage
 	if hooks.PrepareMessage != nil {
-		outgoingMessage = hooks.PrepareMessage(ctx, req.Session, userMessage)
+		outgoingMessage = hooks.PrepareMessage(ctx, req.Session, userMessage, interaction.ID)
 	}
 
 	command := types.ExternalAgentCommand{

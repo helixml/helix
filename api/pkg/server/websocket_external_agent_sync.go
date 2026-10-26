@@ -903,6 +903,9 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		// The agent name is persisted so we use the correct agent for this thread
 		// even if the project's default agent changes later.
 		helixSession.Metadata.ZedThreadID = contextID
+		// The new thread received the reseed on its first message; later
+		// messages continue it normally.
+		helixSession.Metadata.ThreadReseedFrom = ""
 		if helixSession.Metadata.ZedAgentName == "" {
 			helixSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), helixSession)
 		}
@@ -978,6 +981,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 					Msg("⚠️ [HELIX] Duplicate thread_created for an in-flight turn — rebinding to its session instead of forking a new one")
 
 				boundSession.Metadata.ZedThreadID = contextID
+				boundSession.Metadata.ThreadReseedFrom = ""
 				boundSession.Updated = time.Now()
 				if _, err := apiServer.Controller.Options.Store.UpdateSession(context.Background(), *boundSession); err != nil {
 					return fmt.Errorf("failed to rebind session %s to duplicate thread: %w", boundSession.ID, err)
@@ -2325,7 +2329,7 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 	// Forked sessions get the parent's transcript prepended on the very first
 	// message (when ZedThreadID=="" so Zed will create a new thread). No-op
 	// on regular sessions and on follow-up messages.
-	outgoingMessage := apiServer.maybePrependTranscript(ctx, session, message)
+	outgoingMessage := apiServer.maybePrependTranscript(ctx, session, message, interactionID)
 
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
@@ -3974,7 +3978,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// (when ZedThreadID is empty so Zed will create a new thread). No-op on
 	// regular / follow-up sends. maybePrependTranscript loads the seed from
 	// the fork_seed interaction's ResponseMessage exactly once.
-	outgoingMessage := apiServer.maybePrependTranscript(ctx, session, prompt.Content)
+	outgoingMessage := apiServer.maybePrependTranscript(ctx, session, prompt.Content, createdInteraction.ID)
 
 	// Create the command to send to the external agent
 	// NOTE: acp_thread_id can be empty on first message - this triggers thread creation in Zed
@@ -4139,12 +4143,13 @@ func (apiServer *HelixAPIServer) replayableInteraction(ctx context.Context, sess
 	return interaction, nil
 }
 
-// reseedContext asks for the replayed turn to carry a summary of what the agent
-// was doing. It is set only when the agent CANNOT restore sessions at all: for
-// a thread that merely went missing, the agent still keeps its own session
-// store, and paying tokens to re-explain the task on every such recovery is not
-// obviously wanted. See buildThreadReseedPreamble.
-func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessionID, acpThreadID, requestID string, reseedContext bool) (bool, error) {
+// recoverMissingThread handles a thread the agent can no longer load: it clears
+// the dead thread id, marks the session for a transcript reseed
+// (ThreadReseedFrom), and replays the waiting turn — if any — into a new thread.
+// Whatever the agent knew about the old thread is gone, so the new thread's
+// first message carries the transcript (see maybePrependTranscript). With no
+// turn to replay, the flag makes the user's NEXT message carry it instead.
+func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessionID, acpThreadID, requestID string) (bool, error) {
 	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		return false, fmt.Errorf("load session for stale thread recovery: %w", err)
@@ -4153,24 +4158,12 @@ func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessi
 		return true, nil
 	}
 
-	// With no turn to replay there is nothing to carry context on, and for an
-	// agent that cannot restore sessions the dead thread id is the only thing
-	// that will tell us to reseed. Clearing it here would let the user's NEXT
-	// message open a fresh thread quietly — no error, no context, exactly the
-	// silent amnesia the reseed exists to prevent. Leaving it costs that message
-	// one failed load (no model call, sub-second) and routes it back here with a
-	// request_id, which is the path that seeds. A thread that merely went
-	// missing has no such need, so it is still cleared eagerly.
 	interaction, err := apiServer.replayableInteraction(ctx, sessionID, requestID)
 	if err != nil {
 		return false, err
 	}
-	if reseedContext && interaction == nil {
-		log.Info().Str("session_id", sessionID).Str("unrestorable_thread_id", acpThreadID).
-			Msg("Keeping unrestorable ACP thread id so the next message is reseeded rather than silently starting fresh")
-		return true, nil
-	}
 
+	session.Metadata.ThreadReseedFrom = acpThreadID
 	session.Metadata.ZedThreadID = ""
 	if err := apiServer.Controller.Options.Store.UpdateSessionMetadata(ctx, sessionID, session.Metadata); err != nil {
 		return false, fmt.Errorf("clear stale ACP thread: %w", err)
@@ -4197,16 +4190,7 @@ func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessi
 	}
 	apiServer.externalAgentWSManager.readinessMu.Unlock()
 
-	// The replay lands in a brand-new agent session, so whatever the agent knew
-	// about this task died with the old one. Rebuild enough of it to carry on —
-	// otherwise the turn succeeds mechanically and the agent answers a follow-up
-	// with no idea what it was working on.
-	message := interaction.PromptMessage
-	if reseedContext {
-		if preamble := apiServer.buildThreadReseedPreamble(ctx, session, interaction.ID); preamble != "" {
-			message = preamble + message
-		}
-	}
+	message := apiServer.maybePrependTranscript(ctx, session, interaction.PromptMessage, interaction.ID)
 	if interaction.SystemPrompt != "" {
 		message = interaction.SystemPrompt + "\n\n**User Request:**\n" + message
 	}
@@ -4272,7 +4256,7 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 			recoverySessionID = sessionID
 		}
 		helixSessionID = recoverySessionID
-		handled, err := apiServer.recoverMissingThread(context.Background(), recoverySessionID, acpThreadID, requestID, isUnrestorableThreadError(errorMsg))
+		handled, err := apiServer.recoverMissingThread(context.Background(), recoverySessionID, acpThreadID, requestID)
 		if err != nil {
 			return err
 		}

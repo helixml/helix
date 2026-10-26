@@ -28,6 +28,7 @@ func TestRunExternalAgentBlocking(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	mockExecutor := external_agent.NewMockExecutor(ctrl)
 	c := &Controller{
 		Options: Options{
@@ -78,7 +79,7 @@ func TestRunExternalAgentBlocking(t *testing.T) {
 		GetAgentNameForSession: func(_ context.Context, _ *types.Session) string {
 			return "zed-agent"
 		},
-		PrepareMessage: func(_ context.Context, _ *types.Session, message string) string {
+		PrepareMessage: func(_ context.Context, _ *types.Session, message, _ string) string {
 			return "seeded transcript\n\n" + message
 		},
 		SendCommand: func(_ string, command types.ExternalAgentCommand) error {
@@ -147,6 +148,7 @@ func TestRunExternalAgentLoserDoesNotReleaseDispatchClaim(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	mockExecutor := external_agent.NewMockExecutor(ctrl)
 	c := &Controller{
 		Options: Options{
@@ -218,6 +220,7 @@ func TestRunExternalAgentStreaming(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	mockExecutor := external_agent.NewMockExecutor(ctrl)
 	c := &Controller{
 		Options: Options{
@@ -334,6 +337,7 @@ func TestRunExternalAgentErrorPaths(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 		mockExecutor := external_agent.NewMockExecutor(ctrl)
 		c := &Controller{
 			Options: Options{
@@ -375,6 +379,7 @@ func TestRunExternalAgentErrorPaths(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 		mockExecutor := external_agent.NewMockExecutor(ctrl)
 		c := &Controller{
 			Options: Options{
@@ -440,6 +445,7 @@ func TestRunExternalAgentDoesNotNeedExecutorSession(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	mockExecutor := external_agent.NewMockExecutor(ctrl)
 	c := &Controller{Options: Options{Store: mockStore, ExternalAgentExecutor: mockExecutor}}
 	session := &types.Session{
@@ -479,6 +485,7 @@ func TestRunExternalAgentUsesInteractionIDAsRequestID(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	mockExecutor := external_agent.NewMockExecutor(ctrl)
 	c := &Controller{
 		Options: Options{
@@ -556,6 +563,7 @@ func TestWaitTimeoutPreservesStreamedContent(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	mockExecutor := external_agent.NewMockExecutor(ctrl)
 	c := &Controller{
 		Options: Options{
@@ -640,6 +648,7 @@ func TestWaitExtendsWhileInteractionStillUpdating(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	mockExecutor := external_agent.NewMockExecutor(ctrl)
 	c := &Controller{
 		Options: Options{
@@ -717,6 +726,7 @@ func TestWaitTimeoutAlreadyCompleteIsSuccess(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	mockExecutor := external_agent.NewMockExecutor(ctrl)
 	c := &Controller{
 		Options: Options{
@@ -777,6 +787,7 @@ func TestAgentErrorPreservesStreamedContent(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	mockExecutor := external_agent.NewMockExecutor(ctrl)
 	c := &Controller{
 		Options: Options{
@@ -854,6 +865,7 @@ func TestMarkErrorDoesNotDemoteComplete(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	c := &Controller{
 		Options: Options{Store: mockStore},
 	}
@@ -879,4 +891,77 @@ func TestMarkErrorDoesNotDemoteComplete(t *testing.T) {
 	assert.Equal(t, types.InteractionStateComplete, interaction.State)
 	assert.Equal(t, "full reply that must stay", interaction.ResponseMessage)
 	assert.Empty(t, interaction.Error)
+}
+
+// The readiness wait can span a desktop start that found the workspace
+// recreated and cleared the thread id. The command must be built from the
+// session as it is after the wait, not the snapshot taken before it —
+// otherwise the agent is asked to load a thread its fresh store never had.
+func TestRunExternalAgentUsesSessionRefreshedAfterReadiness(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	c := &Controller{Options: Options{Store: mockStore, ExternalAgentExecutor: external_agent.NewMockExecutor(ctrl)}}
+
+	snapshot := &types.Session{
+		ID:           "session-1",
+		Metadata:     types.SessionMetadata{ZedThreadID: "thread-lost"},
+		Interactions: []*types.Interaction{{ID: "interaction-1", SessionID: "session-1"}},
+	}
+	refreshed := &types.Session{
+		ID:       "session-1",
+		Metadata: types.SessionMetadata{ThreadReseedFrom: "thread-lost"},
+	}
+	ready := false
+	mockStore.EXPECT().GetSession(gomock.Any(), "session-1").DoAndReturn(
+		func(_ context.Context, _ string) (*types.Session, error) {
+			require.True(t, ready, "the session must be re-read after the readiness wait")
+			return refreshed, nil
+		},
+	)
+
+	var sent types.ExternalAgentCommand
+	var preparedFor *types.Session
+	var mappedSessionID string
+	c.SetExternalAgentHooks(ExternalAgentHooks{
+		WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error {
+			ready = true
+			return nil
+		},
+		PrepareMessage: func(_ context.Context, session *types.Session, message, interactionID string) string {
+			preparedFor = session
+			assert.Equal(t, "interaction-1", interactionID)
+			return message
+		},
+		SendCommand: func(_ string, command types.ExternalAgentCommand) error {
+			sent = command
+			return fmt.Errorf("stop here")
+		},
+		StoreResponseChannel:         func(string, string, chan string, chan bool, chan error) {},
+		CleanupResponseChannel:       func(string, string, bool) {},
+		SetRequestInteractionMapping: func(string, string) {},
+		SetRequestSessionMapping:     func(_ string, sessionID string) { mappedSessionID = sessionID },
+	})
+	mockStore.EXPECT().GetInteraction(gomock.Any(), "interaction-1").Return(
+		&types.Interaction{ID: "interaction-1", SessionID: "session-1"}, nil,
+	).AnyTimes()
+	mockStore.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			return interaction, nil
+		},
+	).AnyTimes()
+
+	_, err := c.RunExternalAgent(context.Background(), RunExternalAgentRequest{
+		Session: snapshot,
+		ChatCompletionRequest: openai.ChatCompletionRequest{
+			Messages: []openai.ChatCompletionMessage{{Role: openai.ChatMessageRoleUser, Content: "what is my codeword?"}},
+		},
+		Mode:  ExternalAgentModeBlocking,
+		Start: time.Now(),
+	})
+	require.Error(t, err)
+	assert.Equal(t, "", sent.Data["acp_thread_id"], "a new thread must be opened")
+	assert.Same(t, refreshed, preparedFor, "the reseed decision needs the refreshed session")
+	assert.Equal(t, "session-1", mappedSessionID, "the new thread's thread_created must route back to this session")
 }

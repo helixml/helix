@@ -419,7 +419,7 @@ func (apiServer *HelixAPIServer) deliverResumedTurn(ctx context.Context, resume 
 	// Forked sessions: if this is the first message (no Zed thread yet) and a
 	// fork_seed interaction exists, prepend the parent transcript. No-op on
 	// non-forked sessions and on reconnect-to-existing-thread.
-	fullMessage = apiServer.maybePrependTranscript(ctx, session, fullMessage)
+	fullMessage = apiServer.maybePrependTranscript(ctx, session, fullMessage, resume.interactionID)
 
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",

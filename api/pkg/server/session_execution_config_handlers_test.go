@@ -321,7 +321,7 @@ func TestUpdateSessionExecutionConfigWhileStoppedStaysIdleAndSeedsNextTurn(t *te
 	interrupted, err := mem.GetInteraction(ctx, staleHandoff.ID)
 	require.NoError(t, err)
 	assert.Equal(t, types.InteractionStateInterrupted, interrupted.State)
-	seededPrompt := srv.maybePrependTranscript(ctx, updated, "first message after start")
+	seededPrompt := srv.maybePrependTranscript(ctx, updated, "first message after start", "")
 	assert.Contains(t, seededPrompt, "agent reply 1")
 	assert.Contains(t, seededPrompt, "first message after start")
 }
