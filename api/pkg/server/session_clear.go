@@ -110,18 +110,22 @@ func (b *zedACPBackend) Clear(ctx context.Context, sessionID string) error {
 	if session == nil {
 		return fmt.Errorf("session %s not found", sessionID)
 	}
-	if session.Metadata.ZedThreadID == "" {
+	if session.Metadata.ZedThreadID == "" && session.Metadata.ThreadReseedFrom == "" {
 		return nil // already at a fresh thread
 	}
 	discardedThreadID := session.Metadata.ZedThreadID
 	session.Metadata.ZedThreadID = ""
+	// A pending reseed would carry the history the clear is discarding.
+	session.Metadata.ThreadReseedFrom = ""
 	if err := b.store.UpdateSessionMetadata(ctx, sessionID, session.Metadata); err != nil {
 		return fmt.Errorf("failed to reset zed thread id: %w", err)
 	}
 
 	// 3. Close the discarded thread in Zed (best effort; the clear itself has
 	//    already succeeded).
-	b.transport.closeDiscardedZedThread(sessionID, discardedThreadID)
+	if discardedThreadID != "" {
+		b.transport.closeDiscardedZedThread(sessionID, discardedThreadID)
+	}
 	return nil
 }
 

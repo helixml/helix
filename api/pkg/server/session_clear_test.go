@@ -259,3 +259,24 @@ func (suite *SessionClearSuite) TestHandler_Unauthorized() {
 	suite.Require().NotNil(herr)
 	suite.Equal(http.StatusForbidden, herr.StatusCode)
 }
+
+// A clear discards the history a pending reseed would carry, so the flag goes
+// with it — even when the lost thread was already cleared.
+func (suite *SessionClearSuite) TestZedBackend_DropsPendingReseed() {
+	transport := &fakeTransport{}
+	b := &zedACPBackend{store: suite.store, transport: transport}
+
+	session := &types.Session{ID: "ses_zed", Metadata: types.SessionMetadata{
+		AgentType: "zed_external", ThreadReseedFrom: "thread-lost",
+	}}
+	suite.store.EXPECT().GetSession(gomock.Any(), "ses_zed").Return(session, nil)
+	suite.store.EXPECT().
+		UpdateSessionMetadata(gomock.Any(), "ses_zed", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, m types.SessionMetadata) error {
+			suite.Empty(m.ThreadReseedFrom)
+			return nil
+		})
+
+	suite.NoError(b.Clear(suite.ctx, "ses_zed"))
+	suite.Empty(transport.closedThreads, "there is no live thread to close")
+}

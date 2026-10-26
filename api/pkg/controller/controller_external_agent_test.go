@@ -179,6 +179,10 @@ func TestRunExternalAgentLoserDoesNotReleaseDispatchClaim(t *testing.T) {
 	c.SetExternalAgentHooks(ExternalAgentHooks{
 		WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error { return nil },
 		GetAgentNameForSession:    func(_ context.Context, _ *types.Session) string { return "qwen" },
+		PrepareMessage: func(_ context.Context, _ *types.Session, message, _ string) string {
+			t.Error("a loser does not send, so it must not build a (possibly transcript-seeded) message")
+			return message
+		},
 		SendCommand: func(_ string, _ types.ExternalAgentCommand) error {
 			sendCalled = true
 			return nil

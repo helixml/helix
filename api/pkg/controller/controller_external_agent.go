@@ -183,8 +183,10 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	if hooks.GetAgentNameForSession != nil {
 		agentName = hooks.GetAgentNameForSession(ctx, req.Session)
 	}
+	// Only the claim winner sends, so only it prepares: a first message may
+	// carry a full transcript seed, which a loser would build for nothing.
 	outgoingMessage := userMessage
-	if hooks.PrepareMessage != nil {
+	if dispatchMine && hooks.PrepareMessage != nil {
 		outgoingMessage = hooks.PrepareMessage(ctx, req.Session, userMessage, interaction.ID)
 	}
 
