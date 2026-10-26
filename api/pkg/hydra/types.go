@@ -214,6 +214,13 @@ type DevContainerResponse struct {
 	VCPUs          int    `json:"vcpus,omitempty"`
 	MemoryMB       int    `json:"memory_mb,omitempty"`
 	IsGoldenBuild  bool   `json:"is_golden_build,omitempty"`
+
+	// WorkspaceID identifies the workspace directory mounted at
+	// /home/retro/work (see prepareWorkspaceIdentity). It changes only when
+	// the directory is recreated — the signal that every agent thread stored
+	// in it is gone. WorkspaceCreated reports that this call created it.
+	WorkspaceID      string `json:"workspace_id,omitempty"`
+	WorkspaceCreated bool   `json:"workspace_created,omitempty"`
 }
 
 type UpdateDevContainerResourcesRequest struct {

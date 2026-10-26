@@ -666,6 +666,16 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
 	}
 
+	workspace, err := prepareWorkspaceIdentity(req.Mounts)
+	if err != nil {
+		return nil, err
+	}
+	if workspace.Created {
+		log.Info().
+			Str("session_id", req.SessionID).
+			Str("workspace_id", workspace.ID).
+			Msg("Created new workspace for session")
+	}
 	if err := prepareMountSources(req); err != nil {
 		return nil, err
 	}
@@ -752,9 +762,11 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 			dm.mu.Unlock()
 
 			return &DevContainerResponse{
-				ContainerID:   existingContainer.ID,
-				ContainerName: req.ContainerName,
-				IPAddress:     ipAddress,
+				ContainerID:      existingContainer.ID,
+				ContainerName:    req.ContainerName,
+				IPAddress:        ipAddress,
+				WorkspaceID:      workspace.ID,
+				WorkspaceCreated: workspace.Created,
 			}, nil
 		}
 
@@ -822,9 +834,11 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 				Msg("Existing container started successfully")
 
 			return &DevContainerResponse{
-				ContainerID:   existingContainer.ID,
-				ContainerName: req.ContainerName,
-				IPAddress:     ipAddress,
+				ContainerID:      existingContainer.ID,
+				ContainerName:    req.ContainerName,
+				IPAddress:        ipAddress,
+				WorkspaceID:      workspace.ID,
+				WorkspaceCreated: workspace.Created,
 			}, nil
 		}
 	}
@@ -965,15 +979,17 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	renderNode := getRenderNode()
 
 	return &DevContainerResponse{
-		SessionID:      req.SessionID,
-		ContainerID:    resp.ID,
-		ContainerName:  req.ContainerName,
-		Status:         DevContainerStatusRunning,
-		IPAddress:      ipAddress,
-		ContainerType:  req.ContainerType,
-		DesktopVersion: desktopVersion,
-		GPUVendor:      gpuVendor,
-		RenderNode:     renderNode,
+		SessionID:        req.SessionID,
+		ContainerID:      resp.ID,
+		ContainerName:    req.ContainerName,
+		Status:           DevContainerStatusRunning,
+		IPAddress:        ipAddress,
+		ContainerType:    req.ContainerType,
+		DesktopVersion:   desktopVersion,
+		GPUVendor:        gpuVendor,
+		RenderNode:       renderNode,
+		WorkspaceID:      workspace.ID,
+		WorkspaceCreated: workspace.Created,
 	}, nil
 }
 

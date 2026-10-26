@@ -5124,4 +5124,3 @@ func (s *WebSocketSyncSuite) TestUnrestorableThreadError_MatchesOnlyTheCapabilit
 		s.False(isUnrestorableThreadError(errMsg), errMsg)
 	}
 }
-

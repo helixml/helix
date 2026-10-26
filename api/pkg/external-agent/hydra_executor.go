@@ -356,10 +356,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	// Ensure workspace directory exists
-	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
-		log.Warn().Err(err).Str("workspace_dir", workspaceDir).Msg("Failed to create workspace directory")
-	}
+	// The directory lives on the sandbox, not here: hydra creates it (and
+	// stamps its identity) in CreateDevContainer.
 
 	// Build container name
 	containerName := fmt.Sprintf("%s-external-%s", containerType, strings.TrimPrefix(agent.SessionID, "ses_"))
@@ -582,6 +580,16 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("container_name", resp.ContainerName).
 		Str("ip_address", resp.IPAddress).
 		Msg("Dev container created successfully via Hydra")
+
+	// Before the agent can connect and be handed a thread id: if the
+	// workspace holding the agent's session store was recreated, the stored
+	// thread is gone and the next message must open a seeded new one.
+	if !agent.GoldenBuild {
+		if err := h.reconcileWorkspaceIdentity(ctx, agent.SessionID, resp); err != nil {
+			startErr = err
+			return nil, startErr
+		}
+	}
 
 	// Increment moved below to the point where the session enters
 	// h.sessions, so increment/decrement stay paired on the same
