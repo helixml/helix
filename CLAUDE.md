@@ -531,12 +531,15 @@ gh release create <tag> --target main --generate-notes   # e.g. 2.11.32
   `gh api -X POST repos/helixml/helix/releases/generate-notes -f tag_name=<tag> -f target_commitish=main --jq .body > /tmp/n.md && gh release edit <tag> --notes-file /tmp/n.md`.
 
 **Cutting the tag self-deploys to prod.** The tag triggers the Drone tag build, whose
-`deploy-prod` pipeline (`scripts/deploy-prod.sh`) SSHes to prod and rolls the new version:
-the **london controlplane** (`helix-cloud-london`: ZFS-snapshots the DB, bumps `HELIX_VERSION`
-in `/data/helix-app/helix/.env`, `docker compose pull/up api`, health-checks, auto-rolls-back
-on failure) and the **code.helix.ml runner** (bumps `SANDBOX_TAG`). See
-`design/2026-06-25-prod-version-bump-runbook.md`. Watch the build with `gh pr checks` / the
-Drone MCP tools and confirm `deploy-prod` goes green.
+`deploy-prod` pipeline (`scripts/deploy-prod.sh`) shows three deploy steps. The **prod
+control plane** (`helix-cloud-london`) runs first: it ZFS-snapshots the DB, bumps
+`HELIX_VERSION` in `/data/helix-app/helix/.env`, pulls and restarts the API, health-checks it,
+and auto-rolls back on failure. After that succeeds, the **prod runner code.helix.ml** and
+**prod runner dev.code.helix.ml** steps pull the released sandbox image and run their
+respective launchers; the legacy runner updates `SANDBOX_TAG`, while the dev runner updates
+the image tag in `/opt/HelixML/prod-app-runner/run.sh`. The CD key must be authorized on all
+three hosts. See `design/2026-06-25-prod-version-bump-runbook.md`. Watch the build with
+`gh pr checks` / the Drone MCP tools and confirm all three deploy steps go green.
 
 ## CI (Drone)
 **ALWAYS check CI yourself after pushing a PR.** Don't make the user discover the failure and tell you. As soon as a push is up, use `gh pr checks <num>` (or the Drone MCP tools / fallback below) to confirm green or surface failures. If failing, drill into the logs, fix, push the fix, and re-check — all without being asked.
