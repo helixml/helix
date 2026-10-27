@@ -181,6 +181,7 @@ func (apiServer *HelixAPIServer) resolveWaitingInteraction(
 		SessionID:    helixSessionID,
 		GenerationID: helixSession.GenerationID,
 		PerPage:      1000,
+		State:        types.InteractionStateWaiting,
 	})
 	if err != nil || len(interactions) == 0 {
 		return nil
@@ -564,7 +565,9 @@ func (apiServer *HelixAPIServer) newestWaitingInteraction(ctx context.Context, s
 	interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    session.ID,
 		GenerationID: session.GenerationID,
-		PerPage:      1000,
+		PerPage:      1,
+		State:        types.InteractionStateWaiting,
+		Order:        "id DESC",
 	})
 	if err != nil {
 		return nil

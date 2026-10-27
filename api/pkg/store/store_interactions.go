@@ -697,6 +697,10 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 		q = q.Where("feedback = ?", query.Feedback)
 	}
 
+	if query.State != "" {
+		q = q.Where("state = ?", query.State)
+	}
+
 	totalCount := int64(0)
 
 	err := q.Count(&totalCount).Error

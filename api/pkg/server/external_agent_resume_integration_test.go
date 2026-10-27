@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -222,4 +223,77 @@ func TestConnect_NoThread_SendsNoOpenThread(t *testing.T) {
 	data := agent.awaitCommand("no_open_thread", 3*time.Second)
 	require.NotNil(t, data, "a session with no thread must get no_open_thread on connect")
 	require.Equal(t, session.ID, data["session_id"])
+}
+
+func TestResumeOnReconnect_WaitingTurnBeyondHistoryPageIsDelivered(t *testing.T) {
+	mem := memorystore.New()
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	srv := NewTestServer(mem, ps)
+
+	ctx := context.Background()
+	session, err := mem.CreateSession(ctx, types.Session{
+		ID:        "ses_long_history_" + randSuffix(),
+		Owner:     "usr_resume",
+		OwnerType: types.OwnerTypeUser,
+		Type:      types.SessionTypeText,
+		Mode:      types.SessionModeInference,
+		Metadata:  types.SessionMetadata{AgentType: "zed_external"},
+	})
+	require.NoError(t, err)
+
+	for i := 0; i < 1001; i++ {
+		_, err = mem.CreateInteraction(ctx, &types.Interaction{
+			ID:           fmt.Sprintf("int_history_%04d", i),
+			SessionID:    session.ID,
+			GenerationID: session.GenerationID,
+			State:        types.InteractionStateComplete,
+		})
+		require.NoError(t, err)
+	}
+	waiting, err := mem.CreateInteraction(ctx, &types.Interaction{
+		ID:                     "int_waiting_1_" + randSuffix(),
+		SessionID:              session.ID,
+		GenerationID:           session.GenerationID,
+		State:                  types.InteractionStateWaiting,
+		PromptMessage:          "resume me",
+		ExternalAgentRequestID: "req_waiting",
+	})
+	require.NoError(t, err)
+	newerWaiting, err := mem.CreateInteraction(ctx, &types.Interaction{
+		ID:                     "int_waiting_2_" + randSuffix(),
+		SessionID:              session.ID,
+		GenerationID:           session.GenerationID,
+		State:                  types.InteractionStateWaiting,
+		PromptMessage:          "resume me later",
+		ExternalAgentRequestID: "req_waiting_later",
+	})
+	require.NoError(t, err)
+
+	httpSrv := httptest.NewServer(srv.ExternalAgentSyncHandler())
+	token, err := srv.generateExternalAgentToken(session.ID)
+	require.NoError(t, err)
+	conn, _, err := websocket.DefaultDialer.Dial(
+		"ws"+strings.TrimPrefix(httpSrv.URL, "http")+"?session_id="+session.ID,
+		http.Header{"Authorization": []string{"Bearer " + token}},
+	)
+	require.NoError(t, err)
+	agent := &resumeTestAgent{t: t, conn: conn, server: httpSrv}
+	t.Cleanup(agent.close)
+
+	require.NotNil(t, agent.awaitCommand("no_open_thread", 3*time.Second))
+	agent.send("agent_ready", map[string]interface{}{
+		"agent_name":   "claude",
+		"active_turns": []interface{}{},
+	})
+
+	cmd := agent.awaitCommand("chat_message", 3*time.Second)
+	require.NotNil(t, cmd, "the waiting turn must be found beyond the history page")
+	require.Equal(t, waiting.ID, cmd["interaction_id"])
+	require.Equal(t, "req_waiting", cmd["request_id"])
+
+	reloaded, err := mem.GetInteraction(ctx, waiting.ID)
+	require.NoError(t, err)
+	require.NotNil(t, reloaded.ExternalAgentDispatchedAt)
+	require.Equal(t, newerWaiting.ID, srv.newestWaitingInteraction(ctx, session).ID)
 }
