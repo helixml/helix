@@ -8,6 +8,8 @@ import {
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
 import { buildPickerAgents } from "./SpecTaskModelPicker";
 
+const catalogue = { claudeModels: [], codexModels: [] };
+
 const providers = [
   { id: "pe_anthropic", name: "user/anthropic", model: "claude-model" },
   { id: "pe_openai", name: "openai", model: "gpt-model" },
@@ -38,6 +40,7 @@ function agent(runtime: TypesCodeAgentRuntime): IApp {
 function models(runtime: TypesCodeAgentRuntime, providerRefs?: string[]): string[] {
   return buildPickerAgents(
     [agent(runtime)],
+    catalogue,
     providers,
     [{ runtime, enabled: true, provider_refs: providerRefs }],
     true,
@@ -63,6 +66,7 @@ describe("buildPickerAgents", () => {
     expect(models(TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI)).toEqual(["gpt-model"]);
     expect(buildPickerAgents(
       [agent(TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode)],
+      catalogue,
       providers,
       [{ runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode, enabled: true }],
       true,
@@ -70,6 +74,7 @@ describe("buildPickerAgents", () => {
     )[0].models[0].provider?.id).toBe("pe_anthropic");
     expect(buildPickerAgents(
       [agent(TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode)],
+      catalogue,
       providers,
       [{ runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode, enabled: true }],
       true,
@@ -96,6 +101,7 @@ describe("buildPickerAgents", () => {
     ];
     const build = (providerRefs?: string[]) => buildPickerAgents(
       [agent(TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent)],
+      catalogue,
       duplicateProviders,
       [{ runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent, enabled: true, provider_refs: providerRefs }],
       true,

@@ -4,6 +4,13 @@ import { describe, expect, it, vi } from 'vitest'
 
 import CodingAgentForm, { CodingAgentFormHandle } from './CodingAgentForm'
 
+vi.mock('../../hooks/useCodeAgentModelCatalogue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../hooks/useCodeAgentModelCatalogue')>()
+  const { testCodeAgentModels } = await import('../../hooks/useCodeAgentModelCatalogue.fixture')
+  const catalogue = actual.codeAgentModelCatalogue({ code_agent_models: testCodeAgentModels })
+  return { ...actual, useCodeAgentModelCatalogue: () => catalogue }
+})
+
 vi.mock('../../hooks/useApps', () => ({
   default: () => ({ createAgent: vi.fn() }),
 }))

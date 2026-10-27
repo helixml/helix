@@ -734,9 +734,10 @@ type ClaudeModel struct {
 // @Security BearerAuth
 // @Router /api/v1/claude-subscriptions/models [get]
 func (apiServer *HelixAPIServer) listClaudeModels(_ http.ResponseWriter, req *http.Request) ([]*ClaudeModel, *system.HTTPError) {
-	models := make([]*ClaudeModel, 0, len(types.ClaudeSubscriptionModels))
-	for _, m := range types.ClaudeSubscriptionModels {
-		models = append(models, &ClaudeModel{ID: m.ID, Name: m.Name, Description: m.Description})
+	options := types.CodeAgentModels[types.CodeAgentRuntimeClaudeCode]
+	models := make([]*ClaudeModel, 0, len(options))
+	for _, m := range options {
+		models = append(models, &ClaudeModel{ID: m.ID, Name: m.Name})
 	}
 	return models, nil
 }

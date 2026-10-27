@@ -28,7 +28,7 @@ describe('codeAgentExecutionConfigFromApp', () => {
       code_agent_credential_type: 'api_key',
       provider: 'provider-old',
       model: 'model-old',
-    }), {
+    }), 'claude-opus-5-5', {
       provider_ref: 'provider-new',
       model: 'gpt-5.6-sol',
       reasoning_effort: 'xhigh',
@@ -51,7 +51,7 @@ describe('codeAgentExecutionConfigFromApp', () => {
       code_agent_runtime: 'claude_code',
       code_agent_credential_type: 'subscription',
       claude_subscription_model: 'claude-opus-5',
-    }), { provider_ref: 'must-not-survive' })
+    }), 'claude-opus-5-5', { provider_ref: 'must-not-survive' })
 
     expect(config?.provider_ref).toBeUndefined()
     expect(config?.model).toBe('claude-opus-5')
@@ -64,9 +64,19 @@ describe('codeAgentExecutionConfigFromApp', () => {
       code_agent_credential_type: 'subscription',
       claude_subscription_model: 'claude-opus-5',
     })
-    const config = codeAgentExecutionConfigFromApp(app)
+    const config = codeAgentExecutionConfigFromApp(app, 'claude-opus-5-5')
 
-    expect(findCodeAgentAppForConfig([app], config)?.id).toBe(app.id)
+    expect(findCodeAgentAppForConfig([app], config, 'claude-opus-5-5')?.id).toBe(app.id)
+  })
+
+  it('falls back to the catalogue default when a Claude subscription agent names no model', () => {
+    const config = codeAgentExecutionConfigFromApp(appWithAssistant({
+      agent_type: 'zed_external',
+      code_agent_runtime: 'claude_code',
+      code_agent_credential_type: 'subscription',
+    }), 'claude-opus-9')
+
+    expect(config?.model).toBe('claude-opus-9')
   })
 })
 
