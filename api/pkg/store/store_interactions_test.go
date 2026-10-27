@@ -344,6 +344,38 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_Interactions() {
 	suite.Equal("agent unresponsive", gotInteraction.Error)
 }
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListInteractionsFiltersStateBeforeLimit() {
+	ctx := context.Background()
+	userID := "user-state-filter-test"
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: userID, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	_, err = suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+		GenerationID: 1, State: types.InteractionStateComplete,
+	})
+	suite.Require().NoError(err)
+	waiting, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+
+	interactions, total, err := suite.db.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: 1,
+		PerPage:      1,
+		State:        types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(interactions, 1)
+	suite.Equal(waiting.ID, interactions[0].ID)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ClearSessionInteractions() {
 	userID := "user-clear-test"
 	ctx := context.Background()

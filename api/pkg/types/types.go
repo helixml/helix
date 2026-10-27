@@ -266,6 +266,7 @@ type ListInteractionsQuery struct {
 	Page          int
 	PerPage       int
 	Feedback      string
+	State         InteractionState
 	Order         string // Defaults to ID ASC
 }
 

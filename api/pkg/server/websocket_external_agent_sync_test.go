@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 // WebSocketSyncSuite tests the individual sync handler methods on HelixAPIServer
@@ -1153,14 +1154,12 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_NoWaitingInteraction() {
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_nw").Return(session, nil)
 
-	// All interactions are already complete
-	completeInteraction := &types.Interaction{
-		ID:        "int-nw",
-		SessionID: "ses_nw",
-		State:     types.InteractionStateComplete,
-	}
-	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
-		[]*types.Interaction{completeInteraction}, int64(1), nil,
+	// All interactions are already complete.
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
+			s.Equal(types.InteractionStateWaiting, query.State)
+			return nil, 0, nil
+		},
 	)
 
 	// processPromptQueue still runs
@@ -3188,6 +3187,35 @@ func (s *WebSocketSyncSuite) TestResumeRedeliverySettlesStalePendingQuestion() {
 // (design/2026-08-16-api-restart-live-turn-reconnect.md)
 // ──────────────────────────────────────────────────────────────────────────────
 
+func (s *WebSocketSyncSuite) TestStreamingContext_RecordNotFoundFallsBackToLatestWaiting() {
+	session := &types.Session{ID: "ses_lookup_miss", GenerationID: 1}
+	history := make([]*types.Interaction, 1000)
+	for i := range history {
+		history[i] = &types.Interaction{State: types.InteractionStateComplete}
+	}
+	waiting := &types.Interaction{
+		ID: "int_latest_waiting", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting,
+	}
+	s.server.requestToInteractionMapping["req_lookup_miss"] = "int_missing"
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
+			if query.State == types.InteractionStateWaiting {
+				return []*types.Interaction{waiting}, 1, nil
+			}
+			return history, int64(len(history) + 1), nil
+		},
+	).AnyTimes()
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int_missing").Return(nil, gorm.ErrRecordNotFound)
+	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), "req_lookup_miss").Return(nil, gorm.ErrRecordNotFound)
+
+	sctx := s.server.getOrCreateStreamingContext(context.Background(), session.ID, "req_lookup_miss")
+	s.Require().NotNil(sctx)
+	s.Equal(waiting.ID, sctx.interactionID)
+}
+
 func (s *WebSocketSyncSuite) TestStreamingContext_RevivesErroredTurnStillStreaming() {
 	// The 2026-08-16 incident: a rejected duplicate delivery moved the LIVE
 	// turn to error, after which every remaining chunk was dropped as
@@ -3247,9 +3275,14 @@ func (s *WebSocketSyncSuite) TestStreamingContext_DoesNotReviveConcludedOrCrashe
 
 			s.store.EXPECT().GetSession(gomock.Any(), "ses_dead").
 				Return(&types.Session{ID: "ses_dead", GenerationID: 1}, nil)
-			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
-				[]*types.Interaction{tc.interaction}, int64(1), nil,
-			)
+			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
+					if query.State == types.InteractionStateWaiting {
+						return nil, 0, nil
+					}
+					return []*types.Interaction{tc.interaction}, 1, nil
+				},
+			).AnyTimes()
 
 			sctx := s.server.getOrCreateStreamingContext(context.Background(), "ses_dead", "req-dead")
 			// A context with no interaction is the "content dropped" path —

@@ -536,6 +536,9 @@ func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInter
 		if query.GenerationID >= 0 && i.GenerationID != query.GenerationID {
 			continue
 		}
+		if query.State != "" && i.State != query.State {
+			continue
+		}
 		cp := *i
 		result = append(result, &cp)
 	}
