@@ -39,12 +39,7 @@ import useDebouncedCallback from '../../hooks/useDebouncedCallback'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
 import AgentHarness from '../agent/AgentHarness'
-import {
-  CLAUDE_SUBSCRIPTION_MODELS,
-  CODEX_SUBSCRIPTION_MODELS,
-  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
-  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
-} from '../agent/CodingAgentForm'
+import { useCodeAgentModelCatalogue } from '../../hooks/useCodeAgentModelCatalogue'
 import CodeAgentEffortSelect, { getCodeAgentEffortOptions } from '../agent/CodeAgentEffortSelect'
 import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
@@ -263,10 +258,10 @@ const AppSettings: FC<AppSettingsProps> = ({
     app.generation_model_provider ? 'api_key' : 'subscription'
   )
 
-  // Claude subscription model (Opus/Sonnet/Haiku). Empty defaults to Opus.
-  const [claudeSubscriptionModel, setClaudeSubscriptionModel] = useState(
-    app.claude_subscription_model || DEFAULT_CLAUDE_SUBSCRIPTION_MODEL
-  )
+  // Claude subscription model. Empty means the catalogue's top entry.
+  const catalogue = useCodeAgentModelCatalogue()
+  const [claudeSubscriptionPick, setClaudeSubscriptionModel] = useState(app.claude_subscription_model || '')
+  const claudeSubscriptionModel = claudeSubscriptionPick || catalogue.defaultClaudeModel
 
   // Provider availability checks for Claude Code mode selector
   const router = useRouter()
@@ -373,7 +368,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       setClaudeCodeMode(
         app.code_agent_credential_type === 'subscription' ? 'subscription' : 'api_key'
       )
-      setClaudeSubscriptionModel(app.claude_subscription_model || DEFAULT_CLAUDE_SUBSCRIPTION_MODEL)
+      setClaudeSubscriptionModel(app.claude_subscription_model || '')
       // External agent display settings
       setResolution(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
       setDesktopType(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -720,8 +715,8 @@ const AppSettings: FC<AppSettingsProps> = ({
                     const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code' | 'opencode' | 'deepseek_harness';
                     setCodeAgentRuntime(newRuntime);
                     if (newRuntime === 'codex_cli' && !model) {
-                      setModel(DEFAULT_CODEX_SUBSCRIPTION_MODEL)
-                      onUpdate({ code_agent_runtime: newRuntime, model: DEFAULT_CODEX_SUBSCRIPTION_MODEL })
+                      setModel(catalogue.defaultCodexModel)
+                      onUpdate({ code_agent_runtime: newRuntime, model: catalogue.defaultCodexModel })
                     } else {
                       onUpdate({ code_agent_runtime: newRuntime })
                     }
@@ -835,7 +830,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                             })
                           } else {
                             setProvider('')
-                            const codexModel = model || DEFAULT_CODEX_SUBSCRIPTION_MODEL
+                            const codexModel = model || catalogue.defaultCodexModel
                             setModel(codexModel)
                             onUpdate({ code_agent_credential_type: 'subscription', model: codexModel, provider: '' })
                           }
@@ -939,7 +934,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                               onUpdate({ claude_subscription_model: nextModel })
                             }}
                           >
-                            {CLAUDE_SUBSCRIPTION_MODELS.map((m) => (
+                            {catalogue.claudeModels.map((m) => (
                               <MenuItem key={m.id} value={m.id}>
                                 <Typography variant="body2">{m.label}</Typography>
                               </MenuItem>
@@ -968,7 +963,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                         <FormControl fullWidth>
                           <Select
                             size="small"
-                            value={model || DEFAULT_CODEX_SUBSCRIPTION_MODEL}
+                            value={model || catalogue.defaultCodexModel}
                             disabled={readOnly}
                             onChange={(e) => {
                               const nextModel = e.target.value
@@ -976,7 +971,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                               onUpdate({ model: nextModel })
                             }}
                           >
-                            {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                            {catalogue.codexModels.map((supportedModel) => (
                               <MenuItem key={supportedModel.id} value={supportedModel.id}>
                                 <Typography variant="body2">{supportedModel.label}</Typography>
                               </MenuItem>

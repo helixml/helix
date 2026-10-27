@@ -45,7 +45,8 @@ import { useGetOrgByName } from '../../services/orgService';
 import { resolveProviderEndpointRef } from '../../utils/codeAgentProviders';
 
 import useRouter from '../../hooks/useRouter';
-import { isLegacyNativeModel, nativeProviderForEndpoint } from '../../utils/nativeModels';
+import { isLegacyNativeModel, nativeProviderForEndpoint, runtimeForNativeProvider } from '../../utils/nativeModels';
+import { useCodeAgentModelCatalogue } from '../../hooks/useCodeAgentModelCatalogue';
 import { getProviderEndpointLabel } from '../providers/ProviderEndpointIcon';
 
 interface AdvancedModelPickerProps {
@@ -205,6 +206,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   onExternalClose,
 }) => {
   const router = useRouter()
+  const catalogue = useCodeAgentModelCatalogue();
   const lightTheme = useLightTheme();
   const [internalDialogOpen, setInternalDialogOpen] = useState(false);
   const dialogOpen = externalOpen !== undefined ? externalOpen : internalDialogOpen;
@@ -378,12 +380,16 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     return models;
   }, [searchQuery, allModels, currentType, showOnlyEnabled, recommendedModels, dialogOpen]);
 
+  const nativeCurrentIds = (model: ModelWithProvider): string[] | undefined => {
+    const vendor = nativeProviderForEndpoint(model.provider)
+    return vendor ? catalogue.currentModels(runtimeForNativeProvider(vendor)) : undefined
+  }
   const currentModels = filteredModels.filter((model) =>
     model.id === selectedModelId
-    || !isLegacyNativeModel(model.id || '', nativeProviderForEndpoint(model.provider)))
+    || !isLegacyNativeModel(model.id || '', nativeCurrentIds(model)))
   const legacyModels = filteredModels.filter((model) =>
     model.id !== selectedModelId
-    && isLegacyNativeModel(model.id || '', nativeProviderForEndpoint(model.provider)))
+    && isLegacyNativeModel(model.id || '', nativeCurrentIds(model)))
   const displayedModels: Array<ModelWithProvider | null> = searchQuery || legacyModels.length === 0
     ? [...currentModels, ...legacyModels]
     : [...currentModels, null, ...(legacyModelsOpen ? legacyModels : [])]

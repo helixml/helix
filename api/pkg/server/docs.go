@@ -800,6 +800,45 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/service-accounts": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a non-human user that owns a new organization, so an orchestrator serving many customers can give each one its own org, projects and credentials instead of running them all as one account. Works on OIDC deployments (the account has no IdP identity; it acts only through API keys minted with POST /admin/users/{id}/api-keys). Idempotent per organization_name.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Create a service account and its organization (Admin only)",
+                "parameters": [
+                    {
+                        "description": "Service account",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.AdminCreateServiceAccountRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AdminServiceAccount"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}": {
             "delete": {
                 "security": [
@@ -26720,6 +26759,18 @@ const docTemplate = `{
                 }
             }
         },
+        "server.AdminCreateServiceAccountRequest": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "description": "OrganizationName is the URL-safe name of the organization the account\nowns. It is the idempotency key: asking again for the same name returns\nthe same account and organization.",
+                    "type": "string"
+                }
+            }
+        },
         "server.AdminOrganizationsResponse": {
             "type": "object",
             "properties": {
@@ -26740,6 +26791,17 @@ const docTemplate = `{
                 },
                 "totalPages": {
                     "type": "integer"
+                }
+            }
+        },
+        "server.AdminServiceAccount": {
+            "type": "object",
+            "properties": {
+                "organization": {
+                    "$ref": "#/definitions/types.Organization"
+                },
+                "user": {
+                    "$ref": "#/definitions/types.User"
                 }
             }
         },
@@ -27146,6 +27208,9 @@ const docTemplate = `{
                 "ip_address": {
                     "description": "Network info for RevDial/screenshot-server connections",
                     "type": "string"
+                },
+                "is_golden_build": {
+                    "type": "boolean"
                 },
                 "memory_mb": {
                     "type": "integer"
@@ -29546,24 +29611,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "gitlab",
-                "github",
-                "cron",
-                "slack",
+                "email",
                 "webhook",
+                "github",
                 "helix_events",
                 "local",
-                "email"
+                "gitlab",
+                "cron",
+                "slack"
             ],
             "x-enum-varnames": [
-                "KindGitLab",
-                "KindGitHub",
-                "KindCron",
-                "KindSlack",
+                "KindEmail",
                 "KindWebhook",
+                "KindGitHub",
                 "KindHelixEvents",
                 "KindLocal",
-                "KindEmail"
+                "KindGitLab",
+                "KindCron",
+                "KindSlack"
             ]
         },
         "transport.ResolvedActivation": {
@@ -30463,7 +30528,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
                 "claude_subscription_model": {
-                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\n\"claude-opus-5-5\" (the current 1M-context Opus model).",
+                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\nDefaultCodeAgentModel(CodeAgentRuntimeClaudeCode), the top of CodeAgentModels.",
                     "type": "string"
                 },
                 "code_agent_credential_type": {
@@ -31106,14 +31171,16 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "regular",
-                "oidc"
+                "oidc",
+                "service"
             ],
             "x-enum-comments": {
                 "AuthProviderRegular": "Embedded in Helix, no external dependencies"
             },
             "x-enum-varnames": [
                 "AuthProviderRegular",
-                "AuthProviderOIDC"
+                "AuthProviderOIDC",
+                "AuthProviderService"
             ]
         },
         "types.AuthenticatedResponse": {
@@ -31969,6 +32036,21 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CodeAgentModelOption": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "description": "Current marks a current-generation model. Pickers list current models\nfirst and group the rest as legacy.",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 }
             }
@@ -38399,6 +38481,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.DiskUsageMetric"
                     }
                 },
+                "golden_cache_unavailable": {
+                    "description": "GoldenCacheUnavailable: see SandboxInstance.GoldenCacheUnavailable.",
+                    "type": "boolean"
+                },
                 "gpu_vendor": {
                     "description": "GPU configuration",
                     "type": "string"
@@ -38417,6 +38503,10 @@ const docTemplate = `{
                 "instance_type": {
                     "description": "InstanceType is the cloud instance type (e.g. \"inf2.8xlarge\", \"g5.xlarge\")\ndetected via the AWS IMDS. Empty on bare-metal hosts (e.g. prime) and any\nnon-AWS environment — the admin UI then just shows the GPU model instead.",
                     "type": "string"
+                },
+                "max_sandboxes": {
+                    "description": "MaxSandboxes is the runner's own cap on concurrent dev containers,\nfrom its MAX_SANDBOXES env var. -1 means unlimited. 0 (omitted) means\nthe runner did not report one and the API's fallback applies.",
+                    "type": "integer"
                 },
                 "privileged_mode_enabled": {
                     "description": "Privileged mode (host Docker access for development)",
@@ -38458,7 +38548,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "active_sandboxes": {
-                    "description": "Sandbox capacity. MaxSandboxes is set explicitly at auto-register\nand Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS\n(default -1, unlimited); the gorm default below only applies to rows inserted\nvia paths that don't set the field. Kept aligned with the env-var\ndefault to avoid surprises.",
+                    "description": "Sandbox capacity. MaxSandboxes is the hard per-Runner cap enforced\nby FindAvailableSandboxInstance. When the Runner reports MAX_SANDBOXES\nin its heartbeat, that value wins and MaxSandboxesFromRunner is set\n(so the boot-time backfill leaves it alone). Otherwise it is set at\nauto-register and Manager-provisioned paths from\nHELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1, unlimited); the gorm default below\nonly applies to rows inserted via paths that don't set the field.",
                     "type": "integer"
                 },
                 "compute_state": {
@@ -38474,6 +38564,10 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "golden_cache_unavailable": {
+                    "description": "GoldenCacheUnavailable is set when the sandbox has no container data root\n(/container-docker), so Hydra can't build or seed golden Docker caches. Negative so sandboxes\nwhose heartbeat predates it keep building.",
+                    "type": "boolean"
                 },
                 "gpu_vendor": {
                     "description": "GPU configuration",
@@ -38510,8 +38604,11 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "max_sandboxes": {
-                    "description": "Maximum allowed containers",
+                    "description": "Maximum allowed containers; -1 means unlimited",
                     "type": "integer"
+                },
+                "max_sandboxes_from_runner": {
+                    "type": "boolean"
                 },
                 "privileged_mode": {
                     "type": "boolean"
@@ -38748,6 +38845,16 @@ const docTemplate = `{
                 "billing_enabled": {
                     "description": "Charging for usage",
                     "type": "boolean"
+                },
+                "code_agent_models": {
+                    "description": "CodeAgentModels is the vendor model catalogue per coding-agent harness,\nbest first (see CodeAgentModels). The UI pickers and their defaults read it\nfrom here so the backend list is the only place it is maintained.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/types.CodeAgentModelOption"
+                        }
+                    }
                 },
                 "default_chat_system_prompt": {
                     "description": "DefaultChatSystemPrompt is the system prompt the platform applies to\ndirect model chats when the user has not customised one. Surfaced to\nthe frontend so the chat-settings page can prefill the textbox.",

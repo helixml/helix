@@ -28,9 +28,9 @@ import { matchesAllTokens } from "../../utils/searchUtils";
 import AgentHarness from "../agent/AgentHarness";
 import { getProviderEndpointLabel } from "../providers/ProviderEndpointIcon";
 import {
-  CLAUDE_SUBSCRIPTION_MODELS,
-  CODEX_SUBSCRIPTION_MODELS,
-} from "../agent/CodingAgentForm";
+  CodeAgentModelCatalogue,
+  useCodeAgentModelCatalogue,
+} from "../../hooks/useCodeAgentModelCatalogue";
 import {
   ProviderIcon,
   providerRef,
@@ -337,6 +337,7 @@ function getAssistant(agent: IApp): IAssistantConfig | undefined {
 
 export function buildPickerAgents(
   agents: IApp[],
+  catalogue: Pick<CodeAgentModelCatalogue, "claudeModels" | "codexModels">,
   providers: TypesProviderEndpoint[],
   harnesses: TypesOrgCodeAgentHarnessStatus[] = [],
   enforceOrgPolicy = false,
@@ -355,9 +356,9 @@ export function buildPickerAgents(
         && !!harness.viewer_has_subscription);
     if (usesSubscription) {
       const subscriptionModels = runtime === "claude_code"
-        ? CLAUDE_SUBSCRIPTION_MODELS
+        ? catalogue.claudeModels
         : runtime === "codex_cli"
-          ? CODEX_SUBSCRIPTION_MODELS
+          ? catalogue.codexModels
           : [];
       models = subscriptionAllowed ? subscriptionModels.map((option) => ({
         ...option,
@@ -400,9 +401,11 @@ const ProviderAwareSpecTaskModelPicker: FC<SpecTaskModelPickerProps> = (props) =
     org?.id,
     { enabled: !loadingOrg },
   );
+  const catalogue = useCodeAgentModelCatalogue();
   const pickerAgents = useMemo(
-    () => buildPickerAgents(props.agents, providers, harnesses, !!orgName, org?.display_name || org?.name),
-    [props.agents, providers, harnesses, orgName, org?.display_name, org?.name],
+    () => buildPickerAgents(props.agents, catalogue, providers, harnesses, !!orgName, org?.display_name || org?.name),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.agents, catalogue.version, providers, harnesses, orgName, org?.display_name, org?.name],
   );
 
   return (

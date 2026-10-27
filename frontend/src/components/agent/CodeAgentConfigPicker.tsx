@@ -32,11 +32,9 @@ import {
   providerRef,
 } from '../create/AdvancedModelPicker'
 import {
-  CLAUDE_SUBSCRIPTION_MODELS,
-  CODEX_SUBSCRIPTION_MODELS,
-  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
-  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
-} from './CodingAgentForm'
+  CodeAgentModelCatalogue,
+  useCodeAgentModelCatalogue,
+} from '../../hooks/useCodeAgentModelCatalogue'
 import {
   findHarnessStatus,
   useOrgCodeAgentHarnesses,
@@ -53,11 +51,7 @@ import {
 } from '../../utils/codeAgentProviders'
 import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
 import { parseOrgDefaultRuntime } from '../../pages/newChatLogic'
-import {
-  currentNativeModels,
-  isLegacyNativeModel,
-  nativeProviderForRuntime,
-} from '../../utils/nativeModels'
+import { isLegacyNativeModel } from '../../utils/nativeModels'
 import { isEmbedRouteName } from '../../utils/organizations'
 
 type Runtime = TypesCodeAgentRuntime
@@ -134,10 +128,10 @@ function providersAllowedForHarness(
   return providersForCodeAgentRuntime(providers, runtime).filter(providerEndpointIsConnected)
 }
 
-function subscriptionModelOptions(runtime: Runtime): ModelOption[] {
+function subscriptionModelOptions(runtime: Runtime, catalogue: CodeAgentModelCatalogue): ModelOption[] {
   const models = runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
-    ? CLAUDE_SUBSCRIPTION_MODELS
-    : CODEX_SUBSCRIPTION_MODELS
+    ? catalogue.claudeModels
+    : catalogue.codexModels
   return models.map((model) => ({
     key: model.id,
     id: model.id,
@@ -149,9 +143,12 @@ function subscriptionModelOptions(runtime: Runtime): ModelOption[] {
   }))
 }
 
-function preferredModelOption(runtime: Runtime, options: ModelOption[]): ModelOption | undefined {
-  const nativeProvider = nativeProviderForRuntime(runtime)
-  const preferredModels = currentNativeModels(nativeProvider)
+function preferredModelOption(
+  runtime: Runtime,
+  options: ModelOption[],
+  catalogue: CodeAgentModelCatalogue,
+): ModelOption | undefined {
+  const preferredModels = catalogue.currentModels(runtime)
   for (const preferred of preferredModels) {
     const option = options.find(({ id }) => {
       const normalized = (id.split('/').pop() || id).toLowerCase()
@@ -159,7 +156,7 @@ function preferredModelOption(runtime: Runtime, options: ModelOption[]): ModelOp
     })
     if (option) return option
   }
-  return options.find(({ id }) => !isLegacyNativeModel(id, nativeProvider)) || options[0]
+  return options.find(({ id }) => !isLegacyNativeModel(id, preferredModels)) || options[0]
 }
 
 function defaultCodeAgentConfig(
@@ -170,6 +167,7 @@ function defaultCodeAgentConfig(
   enforceOrgPolicy: boolean,
   claudeSubscriptionAvailable: boolean,
   codexSubscriptionAvailable: boolean,
+  catalogue: CodeAgentModelCatalogue,
 ): TypesCodeAgentExecutionConfig | undefined {
   const nativeRuntimes = [
     TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
@@ -190,8 +188,8 @@ function defaultCodeAgentConfig(
         runtime,
         credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
         model: runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
-          ? DEFAULT_CLAUDE_SUBSCRIPTION_MODEL
-          : DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+          ? catalogue.defaultClaudeModel
+          : catalogue.defaultCodexModel,
       }
     }
   }
@@ -201,6 +199,7 @@ function defaultCodeAgentConfig(
     const option = preferredModelOption(
       runtime,
       apiModelOptions(providersAllowedForHarness(providers, harness, enforceOrgPolicy, runtime)),
+      catalogue,
     )
     if (option?.provider) {
       return {
@@ -220,6 +219,7 @@ function orgDefaultCodeAgentConfig(
   selectableRuntimes: Runtime[],
   harnesses: TypesOrgCodeAgentHarnessStatus[],
   providers: TypesProviderEndpoint[],
+  catalogue: CodeAgentModelCatalogue,
 ): TypesCodeAgentExecutionConfig | undefined {
   if (!configured) return undefined
   if (preferredRuntime && preferredRuntime !== configured.runtime) return undefined
@@ -231,7 +231,7 @@ function orgDefaultCodeAgentConfig(
     if (!isSubscriptionRuntime(runtime)
       || harness?.subscription_enabled !== true
       || !harness.viewer_has_subscription
-      || !subscriptionModelOptions(runtime).some(({ id }) => id === configured.model)) return undefined
+      || !subscriptionModelOptions(runtime, catalogue).some(({ id }) => id === configured.model)) return undefined
     return { ...configured, runtime, provider_ref: undefined }
   }
 
@@ -255,6 +255,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   onChange,
 }) => {
   const router = useRouter()
+  const catalogue = useCodeAgentModelCatalogue()
   const orgName = router.params.org_id
   const isEmbedRoute = isEmbedRouteName(router.name)
   const { data: org, isLoading: loadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
@@ -300,7 +301,10 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   const settingsLoaded = !loadingOrg && !loadingOrgHarnesses && !loadingProviders
   const orgDefaultSettled = !shouldLoadOrgDefault
     || (!loadingOrgSettings && !fetchingOrgSettings)
-  const policySettled = settingsLoaded && !refetchingOrgHarnesses && orgDefaultSettled
+  // The model catalogue arrives with /api/v1/config; until it has, a default
+  // would be an empty model.
+  const catalogueLoaded = catalogue.claudeModels.length > 0 || catalogue.codexModels.length > 0
+  const policySettled = settingsLoaded && !refetchingOrgHarnesses && orgDefaultSettled && catalogueLoaded
   const hasAnyRuntime = selectableRuntimes.length > 0
   const selectedRuntimeEnabled = !orgName
     || !!findHarnessStatus(orgHarnesses, value?.runtime)?.enabled
@@ -357,6 +361,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     selectableRuntimes,
     orgHarnesses,
     providers,
+    catalogue,
   )
   const automaticDefault = inheritedDefault || defaultCodeAgentConfig(
     value?.runtime,
@@ -366,6 +371,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     !!orgName,
     claudeSubscriptionDefaultAvailable,
     codexSubscriptionDefaultAvailable,
+    catalogue,
   )
 
   useEffect(() => {
@@ -412,7 +418,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   const organizationName = org?.display_name || org?.name
   const allowedProviders = providersAllowedForHarness(providers, runtimeStatus, !!orgName, runtime)
   const models = [
-    ...(subscriptionAvailable ? subscriptionModelOptions(runtime) : []),
+    ...(subscriptionAvailable ? subscriptionModelOptions(runtime, catalogue) : []),
     ...apiModelOptions(allowedProviders, organizationName),
   ]
   const visibleModels = models.filter((model) => matchesAllTokens(
@@ -422,11 +428,11 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     model.providerLabel,
     getAgentHarnessLabel(runtime),
   ))
-  const nativeProvider = nativeProviderForRuntime(runtime)
+  const currentIds = catalogue.currentModels(runtime)
   const currentModels = visibleModels.filter((model) =>
-    !isLegacyNativeModel(model.id, nativeProvider))
+    !isLegacyNativeModel(model.id, currentIds))
   const legacyModels = visibleModels.filter((model) =>
-    isLegacyNativeModel(model.id, nativeProvider))
+    isLegacyNativeModel(model.id, currentIds))
   const configuredProviders = providersAllowedForHarness(
     providers,
     configuredRuntimeStatus,
@@ -436,7 +442,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   const configuredModels = value?.credential_type
     === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
     && value.runtime
-    ? subscriptionModelOptions(value.runtime)
+    ? subscriptionModelOptions(value.runtime, catalogue)
     : apiModelOptions(configuredProviders, organizationName)
   const modelLabel = configuredModels.find((model) => model.id === value?.model
     && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '', providers)))?.label

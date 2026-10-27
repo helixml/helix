@@ -2,6 +2,7 @@ import React, { forwardRef, useImperativeHandle, useState } from 'react'
 import { useCodingAgentProviderState } from './useCodingAgentProviderState'
 import { Alert, Box, Button, CircularProgress, FormControl, FormControlLabel, MenuItem, Radio, RadioGroup, Select, Stack, TextField, Typography } from '@mui/material'
 import { SxProps, Theme } from '@mui/material/styles'
+import { useCodeAgentModelCatalogue } from '../../hooks/useCodeAgentModelCatalogue'
 
 import { CodeAgentRuntime, ICreateAgentParams } from '../../contexts/apps'
 import { TypesCodeAgentExecutionConfig } from '../../api/api'
@@ -12,32 +13,6 @@ import AgentHarness from './AgentHarness'
 
 export type ClaudeCodeMode = 'subscription' | 'api_key'
 
-// Claude Code model IDs available in subscription mode. Keep flagship models
-// versioned so the UI says exactly what will run; Sonnet and Haiku intentionally
-// use Claude Code's rolling aliases.
-export const CLAUDE_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
-  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5 (1M context, recommended)' },
-  { id: 'claude-opus-5', label: 'Claude Opus 5 (1M context)' },
-  { id: 'claude-fable-5', label: 'Claude Fable 5 (1M context)' },
-  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8 (1M context)' },
-  { id: 'sonnet', label: 'Claude Sonnet (latest)' },
-  { id: 'haiku', label: 'Claude Haiku (latest)' },
-]
-export const DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'claude-opus-5-5'
-
-export const CODEX_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
-  { id: 'gpt-6-sol', label: 'GPT-6 Sol' },
-  { id: 'gpt-6-astra', label: 'GPT-6 Astra' },
-  { id: 'gpt-6-luna', label: 'GPT-6 Luna' },
-  { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
-  { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
-  { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
-  { id: 'gpt-5.5', label: 'GPT-5.5' },
-  { id: 'gpt-5.4', label: 'GPT-5.4' },
-  { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
-  { id: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
-]
-export const DEFAULT_CODEX_SUBSCRIPTION_MODEL = 'gpt-6-sol'
 
 export interface CodingAgentFormValue {
   codeAgentRuntime: CodeAgentRuntime
@@ -144,10 +119,14 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
   const apps = useApps()
   const [createError, setCreateError] = useState('')
   const [isCreating, setIsCreating] = useState(false)
-  // Claude subscription mode has a fixed three-tier model choice (Opus/Sonnet/Haiku),
-  // kept local because the create-form parents don't round-trip extra value fields.
-  const [claudeSubscriptionModel, setClaudeSubscriptionModel] = useState(DEFAULT_CLAUDE_SUBSCRIPTION_MODEL)
-  const [codexSubscriptionModel, setCodexSubscriptionModel] = useState(DEFAULT_CODEX_SUBSCRIPTION_MODEL)
+  // Subscription model picks are kept local because the create-form parents
+  // don't round-trip extra value fields. Until the user picks, the backend
+  // catalogue's default applies.
+  const catalogue = useCodeAgentModelCatalogue()
+  const [claudeSubscriptionPick, setClaudeSubscriptionModel] = useState('')
+  const [codexSubscriptionPick, setCodexSubscriptionModel] = useState('')
+  const claudeSubscriptionModel = claudeSubscriptionPick || catalogue.defaultClaudeModel
+  const codexSubscriptionModel = codexSubscriptionPick || catalogue.defaultCodexModel
   const { hasAnthropicProvider, hasClaudeSubscription, hasCodexSubscription } = useCodingAgentProviderState(value, onChange, autoSelectRuntime)
   const isSubscriptionRuntime = (value.codeAgentRuntime === 'claude_code' || value.codeAgentRuntime === 'codex_cli') && value.claudeCodeMode === 'subscription'
   const showModelPicker = !isSubscriptionRuntime
@@ -432,7 +411,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
                   sx={selectSx}
                   MenuProps={{ PaperProps: { sx: menuPaperSx } }}
                 >
-                  {CLAUDE_SUBSCRIPTION_MODELS.map((m) => (
+                  {catalogue.claudeModels.map((m) => (
                     <MenuItem key={m.id} value={m.id}>
                       <Typography variant="body2">{m.label}</Typography>
                     </MenuItem>
@@ -464,7 +443,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
                   sx={selectSx}
                   MenuProps={{ PaperProps: { sx: menuPaperSx } }}
                 >
-                  {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                  {catalogue.codexModels.map((supportedModel) => (
                     <MenuItem key={supportedModel.id} value={supportedModel.id}>
                       <Typography variant="body2">{supportedModel.label}</Typography>
                     </MenuItem>
