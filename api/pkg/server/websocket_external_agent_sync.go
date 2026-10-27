@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
 )
 
 // ErrNoExternalAgentWS is returned by sendCommandToExternalAgent when no
@@ -1884,6 +1885,19 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				break
 			}
 		}
+		if targetInteraction == nil && len(interactions) >= 1000 {
+			mapped, lookupErr := apiServer.Controller.Options.Store.GetInteraction(ctx, expectedInteractionID)
+			if lookupErr != nil && !errors.Is(lookupErr, store.ErrNotFound) && !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				log.Error().Err(lookupErr).
+					Str("session_id", helixSessionID).
+					Str("interaction_id", expectedInteractionID).
+					Msg("Failed to load mapped interaction for streaming context")
+				return nil
+			}
+			if mapped != nil && mapped.SessionID == helixSessionID && mapped.GenerationID == helixSession.GenerationID {
+				targetInteraction = mapped
+			}
+		}
 	}
 	// Durable correlation: the in-memory request map does not survive an API
 	// restart, so an agent that keeps working across one addresses its turn by a
@@ -1908,11 +1922,30 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	//
 	// `complete` is never revived: that turn legitimately finished.
 	if targetInteraction == nil && requestID != "" {
-		for i := len(interactions) - 1; i >= 0; i-- {
-			if interactions[i].ExternalAgentRequestID != requestID {
-				continue
+		var candidate *types.Interaction
+		if len(interactions) < 1000 {
+			for i := len(interactions) - 1; i >= 0; i-- {
+				if interactions[i].ExternalAgentRequestID != requestID {
+					continue
+				}
+				candidate = interactions[i]
+				break
 			}
-			candidate := interactions[i]
+		}
+		if candidate == nil && len(interactions) >= 1000 {
+			durable, lookupErr := apiServer.Controller.Options.Store.GetInteractionByExternalAgentRequestID(ctx, requestID)
+			if lookupErr != nil && !errors.Is(lookupErr, store.ErrNotFound) && !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				log.Error().Err(lookupErr).
+					Str("session_id", helixSessionID).
+					Str("request_id", requestID).
+					Msg("Failed to load durable interaction for streaming context")
+				return nil
+			}
+			if durable != nil && durable.SessionID == helixSessionID && durable.GenerationID == helixSession.GenerationID {
+				candidate = durable
+			}
+		}
+		if candidate != nil {
 			if candidate.State == types.InteractionStateError &&
 				candidate.Completed.IsZero() &&
 				!isAgentCrashError(candidate.Error) {
@@ -1929,22 +1962,38 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 					log.Error().Err(err).
 						Str("interaction_id", candidate.ID).
 						Msg("Failed to revive errored interaction for live turn")
-					break
+					return nil
 				}
 			}
 			if candidate.State == types.InteractionStateWaiting {
 				targetInteraction = candidate
 			}
-			break
 		}
 	}
 	// Fallback: find most recent waiting interaction (for backward compat / old Zed without request_id)
-	if targetInteraction == nil {
+	if targetInteraction == nil && len(interactions) < 1000 {
 		for i := len(interactions) - 1; i >= 0; i-- {
 			if interactions[i].State == types.InteractionStateWaiting {
 				targetInteraction = interactions[i]
 				break
 			}
+		}
+	}
+	if targetInteraction == nil && len(interactions) >= 1000 {
+		waiting, _, listErr := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    helixSessionID,
+			GenerationID: helixSession.GenerationID,
+			PerPage:      1,
+			State:        types.InteractionStateWaiting,
+			Order:        "id DESC",
+		})
+		if listErr != nil {
+			log.Error().Err(listErr).Str("session_id", helixSessionID).
+				Msg("Failed to find waiting interaction for streaming context")
+			return nil
+		}
+		if len(waiting) > 0 {
+			targetInteraction = waiting[0]
 		}
 	}
 	// After an API restart, the most recent interaction may have been marked as
@@ -1960,9 +2009,28 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	// handleMessageCompleted's request_id-mapping resolver — see
 	// architecture-simplifications.md §1; broadening this scan does not fix that and
 	// risks misrouting, so it stays conservative.
-	if targetInteraction == nil && len(interactions) > 0 {
-		last := interactions[len(interactions)-1]
-		if last.State == types.InteractionStateError && last.Error == "Interrupted" {
+	if targetInteraction == nil {
+		var last *types.Interaction
+		if len(interactions) > 0 {
+			last = interactions[len(interactions)-1]
+		}
+		if len(interactions) >= 1000 {
+			latest, _, listErr := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+				SessionID:    helixSessionID,
+				GenerationID: helixSession.GenerationID,
+				PerPage:      1,
+				Order:        "id DESC",
+			})
+			if listErr != nil {
+				log.Error().Err(listErr).Str("session_id", helixSessionID).
+					Msg("Failed to find latest interaction for streaming context recovery")
+				return nil
+			}
+			if len(latest) > 0 {
+				last = latest[0]
+			}
+		}
+		if last != nil && last.State == types.InteractionStateError && last.Error == "Interrupted" {
 			last.State = types.InteractionStateWaiting
 			last.Error = ""
 			last.Completed = time.Time{}
@@ -3163,21 +3231,20 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
 			SessionID:    helixSessionID,
 			GenerationID: helixSession.GenerationID,
-			PerPage:      1000,
+			PerPage:      1,
+			State:        types.InteractionStateWaiting,
+			Order:        "id DESC",
 		})
 		if err != nil {
 			return fmt.Errorf("failed to list interactions for session %s: %w", helixSessionID, err)
 		}
 
-		for i := len(interactions) - 1; i >= 0; i-- {
-			if interactions[i].State == types.InteractionStateWaiting {
-				targetInteractionID = interactions[i].ID
-				log.Info().
-					Str("helix_session_id", helixSessionID).
-					Str("interaction_id", interactions[i].ID).
-					Msg("✅ [HELIX] Fallback: found waiting interaction via DB scan (no request_id mapping)")
-				break
-			}
+		if len(interactions) > 0 {
+			targetInteractionID = interactions[0].ID
+			log.Info().
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", interactions[0].ID).
+				Msg("✅ [HELIX] Fallback: found waiting interaction via DB scan (no request_id mapping)")
 		}
 	}
 
