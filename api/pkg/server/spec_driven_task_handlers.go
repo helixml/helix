@@ -1274,10 +1274,18 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		if errorMessage, ok := task.Metadata["error"].(string); ok && strings.TrimSpace(errorMessage) != "" {
 			stalePlanningSessionID = task.PlanningSessionID
 			if err := s.stopSessionAgent(ctx, stalePlanningSessionID, "retrying failed spec task"); err != nil {
-				log.Warn().Err(err).Str("task_id", task.ID).Str("session_id", stalePlanningSessionID).
-					Msg("Failed to stop agent session before retrying task")
-				http.Error(w, "failed to stop agent session", http.StatusInternalServerError)
-				return
+				if !sandboxHostGone(err, stalePlanningSessionID) {
+					log.Warn().Err(err).Str("task_id", task.ID).Str("session_id", stalePlanningSessionID).
+						Msg("Failed to stop agent session before retrying task")
+					http.Error(w, "failed to stop agent session", http.StatusInternalServerError)
+					return
+				}
+				if _, err := s.Store.ReapWaitingInteractions(ctx, stalePlanningSessionID, types.InteractionStateInterrupted, "retrying failed spec task"); err != nil {
+					log.Warn().Err(err).Str("task_id", task.ID).Str("session_id", stalePlanningSessionID).
+						Msg("Failed to interrupt agent session before retrying task")
+					http.Error(w, "failed to interrupt agent session", http.StatusInternalServerError)
+					return
+				}
 			}
 			task.PlanningSessionID = ""
 			task.ExternalAgentID = ""
