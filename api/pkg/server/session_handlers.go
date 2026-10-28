@@ -2383,6 +2383,7 @@ func (s *HelixAPIServer) resumeSessionInternal(ctx context.Context, user *types.
 
 	agent := &types.DesktopAgent{
 		SessionID:   id,
+		SandboxID:   session.SandboxID,
 		UserID:      user.ID,
 		Input:       "Resume session",
 		ProjectPath: "workspace",
@@ -3337,6 +3338,7 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 	zedAgent := &types.DesktopAgent{
 		OrganizationID: session.OrganizationID,
 		SessionID:      session.ID,
+		SandboxID:      session.SandboxID,
 		UserID:         userID,
 		Input:          "Initialize Zed development environment",
 		ProjectPath:    "workspace",

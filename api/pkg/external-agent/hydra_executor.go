@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 )
 
 type QuotaManager interface {
@@ -306,6 +308,16 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// Determine sandbox ID - use agent's preference or find an available one
 	sandboxID := agent.SandboxID
 	maxSandboxes := 0
+	if sandboxID != "" && sandboxID != "local" && !agent.GoldenBuild {
+		sandbox, err := h.store.GetSandboxInstance(ctx, sandboxID)
+		if err == nil {
+			maxSandboxes = sandbox.MaxSandboxes
+		} else if errors.Is(err, store.ErrNotFound) || errors.Is(err, gorm.ErrRecordNotFound) {
+			sandboxID = ""
+		} else {
+			return nil, fmt.Errorf("failed to load sandbox runner %s: %w", sandboxID, err)
+		}
+	}
 	if sandboxID == "" {
 		// Headless agents use the helix-ubuntu toolchain image, so placement must
 		// select a host advertising that image even though the created container
@@ -332,12 +344,6 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		} else {
 			return nil, fmt.Errorf("no eligible sandbox runner available for container type %q (required image %q); check runner status, heartbeat, and advertised desktop image versions", containerType, placementImage)
 		}
-	} else if sandboxID != "local" && !agent.GoldenBuild {
-		sandbox, err := h.store.GetSandboxInstance(ctx, sandboxID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load sandbox runner %s: %w", sandboxID, err)
-		}
-		maxSandboxes = sandbox.MaxSandboxes
 	}
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
 	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
@@ -2508,8 +2514,7 @@ func (h *HydraExecutor) OnSandboxDisconnected(sandboxID string) {
 		session.Metadata.ContainerID = ""
 		session.Metadata.ContainerIP = ""
 		session.Metadata.ExternalAgentStatus = "stopped"
-		// Keep DesiredState unchanged so reconciler can restart when sandbox returns
-		session.SandboxID = "" // Clear sandbox association
+		// Keep DesiredState and SandboxID so the session restarts with its workspace.
 
 		if _, err := h.store.UpdateSession(ctx, *session); err != nil {
 			log.Warn().Err(err).

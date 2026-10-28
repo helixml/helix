@@ -96,6 +96,7 @@ func (s *ExploratorySessionActivationSuite) TestActivationReusesExistingExplorat
 		ID:             existingSID,
 		Name:           existingName,
 		ProjectID:      projectID,
+		SandboxID:      "runner-original",
 		OrganizationID: orgID,
 		Owner:          userID,
 		OwnerType:      types.OwnerTypeUser,
@@ -170,6 +171,7 @@ func (s *ExploratorySessionActivationSuite) TestActivationReusesExistingExplorat
 	s.Require().NotNil(captured)
 	s.Equal(existingSID, captured.SessionID,
 		"StartDesktop must be invoked with the reused session id so h.sessions[ID] aligns with GetProjectExploratorySession")
+	s.Equal("runner-original", captured.SandboxID)
 }
 
 func (s *ExploratorySessionActivationSuite) TestActivationDeliveryReusesInitialInteractionOnRetry() {

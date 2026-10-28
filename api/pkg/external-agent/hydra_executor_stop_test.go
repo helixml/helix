@@ -104,3 +104,30 @@ func TestHydraExecutorStaleLocalSessionDecrementsContainerCount(t *testing.T) {
 	_, stillTracked := h.sessions["ses_stale"]
 	assert.False(t, stillTracked)
 }
+
+func TestHydraExecutorSandboxDisconnectPreservesRunnerAffinity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	h := newTestExecutor(mockStore)
+	session := &types.Session{
+		ID:        "ses_x",
+		SandboxID: "runner-1",
+		Metadata: types.SessionMetadata{
+			ContainerName:       "ubuntu-external-ses_x",
+			ContainerID:         "c1",
+			ExternalAgentStatus: "running",
+		},
+	}
+
+	mockStore.EXPECT().ListSessionsBySandbox(gomock.Any(), "runner-1").Return([]*types.Session{session}, nil)
+	mockStore.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated types.Session) (*types.Session, error) {
+			assert.Equal(t, "runner-1", updated.SandboxID)
+			assert.Equal(t, "stopped", updated.Metadata.ExternalAgentStatus)
+			assert.Empty(t, updated.Metadata.ContainerID)
+			return &updated, nil
+		},
+	)
+
+	h.OnSandboxDisconnected("runner-1")
+}

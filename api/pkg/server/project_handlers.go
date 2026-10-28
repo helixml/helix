@@ -1655,6 +1655,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 			zedAgent := &types.DesktopAgent{
 				OrganizationID:      project.OrganizationID,
 				SessionID:           existingSession.ID,
+				SandboxID:           existingSession.SandboxID,
 				UserID:              user.ID,
 				Input:               fmt.Sprintf("Explore the %s project", project.Name),
 				ProjectPath:         "workspace",
