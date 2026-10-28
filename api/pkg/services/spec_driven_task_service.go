@@ -2249,6 +2249,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	zedAgent := &types.DesktopAgent{
 		OrganizationID:      task.OrganizationID,
 		SessionID:           session.ID,
+		SandboxID:           session.SandboxID,
 		UserID:              task.UserID,
 		Input:               "Resuming Zed development environment after container restart",
 		ProjectPath:         "workspace",

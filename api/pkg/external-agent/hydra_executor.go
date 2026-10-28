@@ -2508,8 +2508,7 @@ func (h *HydraExecutor) OnSandboxDisconnected(sandboxID string) {
 		session.Metadata.ContainerID = ""
 		session.Metadata.ContainerIP = ""
 		session.Metadata.ExternalAgentStatus = "stopped"
-		// Keep DesiredState unchanged so reconciler can restart when sandbox returns
-		session.SandboxID = "" // Clear sandbox association
+		// Keep DesiredState and SandboxID so the session restarts with its workspace.
 
 		if _, err := h.store.UpdateSession(ctx, *session); err != nil {
 			log.Warn().Err(err).

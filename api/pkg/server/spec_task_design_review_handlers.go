@@ -1374,6 +1374,7 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 
 	agent := &types.DesktopAgent{
 		SessionID:   session.ID,
+		SandboxID:   session.SandboxID,
 		UserID:      session.Owner,
 		Input:       "Resume session",
 		ProjectPath: "workspace",
