@@ -19,6 +19,7 @@ import (
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
@@ -30,6 +31,7 @@ import (
 	"github.com/helixml/helix/api/pkg/server/helixorg"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -685,6 +687,178 @@ func TestInProcSpawnerClient_GetOutput_ReturnsStoreData(t *testing.T) {
 	require.Equal(t, "ses_test_1", out.SessionID)
 	// Status comes from the last interaction's State (set above).
 	require.Equal(t, string(types.InteractionStateComplete), out.Status)
+}
+
+func TestInProcSpawnerClient_DurableDeliveryReusesQueuedPrompt(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_delivery", Owner: user.ID})
+	require.NoError(t, err)
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID:        "int_busy",
+		SessionID: session.ID,
+		State:     types.InteractionStateWaiting,
+	})
+	require.NoError(t, err)
+
+	first, err := client.SendMessage(ctx, session.ID, "same activation", "stream/41", false)
+	require.NoError(t, err)
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID:        "int_after_first_delivery",
+		SessionID: session.ID,
+		State:     types.InteractionStateWaiting,
+	})
+	require.NoError(t, err)
+	second, err := client.SendMessage(ctx, session.ID, "same activation", "stream/41", true)
+	require.NoError(t, err)
+	require.Equal(t, first.PromptID, second.PromptID)
+	_, err = store.GetInteraction(ctx, "int_after_first_delivery")
+	require.NoError(t, err, "redelivery must not clear the current thread")
+
+	entries, err := store.ListPromptHistoryBySession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, "same activation", entries[0].Content)
+
+	third, err := client.SendMessage(ctx, session.ID, "same activation", "stream/42", false)
+	require.NoError(t, err)
+	require.NotEqual(t, first.PromptID, third.PromptID)
+	entries, err = store.ListPromptHistoryBySession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+}
+
+func TestInProcSpawnerClient_DurableDeliveryReusesInitialInteraction(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/51"
+	session, err := store.CreateSession(ctx, types.Session{
+		ID:    "ses_initial_delivery",
+		Owner: user.ID,
+		Metadata: types.SessionMetadata{
+			Paused: true,
+		},
+	})
+	require.NoError(t, err)
+	interactionID := activationDeliveryID(system.InteractionPrefix, deliveryID)
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID:            interactionID,
+		SessionID:     session.ID,
+		PromptMessage: "initial activation",
+		State:         types.InteractionStateComplete,
+	})
+	require.NoError(t, err)
+
+	result, err := client.SendMessage(ctx, session.ID, "initial activation", deliveryID, true)
+	require.NoError(t, err)
+	require.Equal(t, interactionID, result.InteractionID)
+	require.True(t, result.Completed)
+	require.Empty(t, result.PromptID)
+
+	interactions, _, err := store.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: session.ID, GenerationID: -1})
+	require.NoError(t, err)
+	require.Len(t, interactions, 1)
+	entries, err := store.ListPromptHistoryBySession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+}
+
+func TestInProcSpawnerClient_CompletedQueuedDeliveryReplaysWhilePaused(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/61"
+	session, err := store.CreateSession(ctx, types.Session{
+		ID:        "ses_paused_delivery",
+		Owner:     user.ID,
+		ParentApp: "app_removed_after_completion",
+		Metadata: types.SessionMetadata{
+			Paused:    true,
+			AgentType: string(types.AgentTypeZedExternal),
+		},
+	})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "completed activation", Status: "sent",
+	}))
+	interactionID := "int_completed_queued_delivery"
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID: interactionID, SessionID: session.ID, PromptID: promptID, State: types.InteractionStateComplete,
+	})
+	require.NoError(t, err)
+
+	result, err := client.SendMessage(ctx, session.ID, "completed activation", deliveryID, true)
+	require.NoError(t, err)
+	require.True(t, result.Completed)
+	require.Equal(t, promptID, result.PromptID)
+	require.Equal(t, interactionID, result.InteractionID)
+	_, err = store.GetInteraction(ctx, interactionID)
+	require.NoError(t, err, "completed replay must not clear the current thread")
+}
+
+func TestInProcSpawnerClient_FailedInitialDeliveryUsesStableRetryPrompt(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/71"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_failed_initial", Owner: user.ID})
+	require.NoError(t, err)
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID:            activationDeliveryID(system.InteractionPrefix, deliveryID),
+		SessionID:     session.ID,
+		PromptMessage: "retry activation",
+		State:         types.InteractionStateError,
+	})
+	require.NoError(t, err)
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_other_busy", SessionID: session.ID, State: types.InteractionStateWaiting,
+	})
+	require.NoError(t, err)
+
+	first, err := client.SendMessage(ctx, session.ID, "retry activation", deliveryID, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, first.PromptID)
+	second, err := client.SendMessage(ctx, session.ID, "retry activation", deliveryID, false)
+	require.NoError(t, err)
+	require.Equal(t, first.PromptID, second.PromptID)
+	entries, err := store.ListPromptHistoryBySession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+}
+
+func TestInProcSpawnerClient_DeletedDeliveryDoesNotRetry(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/81"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_deleted_delivery", Owner: user.ID})
+	require.NoError(t, err)
+	deletedAt := time.Now()
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "deleted activation", Status: "pending", DeletedAt: &deletedAt,
+	}))
+
+	_, err = client.SendMessage(ctx, session.ID, "deleted activation", deliveryID, false)
+	require.ErrorIs(t, err, activation.ErrNonRetryable)
+	entry, getErr := store.GetPromptHistoryEntry(ctx, promptID)
+	require.NoError(t, getErr)
+	require.NotNil(t, entry)
+	require.NotNil(t, entry.DeletedAt)
+}
+
+func TestInProcSpawnerClient_FailedQueuedDeliveryNudgesRetry(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/91"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_failed_delivery", Owner: user.ID})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "retry queued activation", Status: "failed",
+	}))
+
+	_, err = client.SendMessage(ctx, session.ID, "retry queued activation", deliveryID, false)
+	require.ErrorContains(t, err, "pending retry")
+	require.Eventually(t, func() bool {
+		interaction, getErr := store.GetLatestInteractionByPromptID(ctx, promptID)
+		return getErr == nil && interaction != nil
+	}, time.Second, 10*time.Millisecond)
+	entries, err := store.ListPromptHistoryBySession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
 }
 
 // TestInProcProjectService_GetAppConfig_RoundTrips seeds an app row and

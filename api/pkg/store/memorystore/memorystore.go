@@ -245,6 +245,22 @@ func (m *MemoryStore) GetInteraction(_ context.Context, id string) (*types.Inter
 	return &cp, nil
 }
 
+func (m *MemoryStore) GetLatestInteractionByPromptID(_ context.Context, promptID string) (*types.Interaction, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var latest *types.Interaction
+	for _, interaction := range m.interactions {
+		if interaction.PromptID == promptID && (latest == nil || interaction.Created.After(latest.Created) || (interaction.Created.Equal(latest.Created) && interaction.ID > latest.ID)) {
+			latest = interaction
+		}
+	}
+	if latest == nil {
+		return nil, nil
+	}
+	cp := *latest
+	return &cp, nil
+}
+
 func (m *MemoryStore) GetInteractionsSummary(_ context.Context, sessionID string, generationID int) (int64, time.Time, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -620,6 +636,28 @@ func (m *MemoryStore) CreatePromptHistoryEntry(_ context.Context, entry *types.P
 	cp := *entry
 	m.prompts[entry.ID] = &cp
 	return nil
+}
+
+func (m *MemoryStore) CreatePromptHistoryEntryIfAbsent(_ context.Context, entry *types.PromptHistoryEntry) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.prompts[entry.ID]; ok {
+		return false, nil
+	}
+	cp := *entry
+	m.prompts[entry.ID] = &cp
+	return true, nil
+}
+
+func (m *MemoryStore) GetPromptHistoryEntry(_ context.Context, id string) (*types.PromptHistoryEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	entry := m.prompts[id]
+	if entry == nil {
+		return nil, nil
+	}
+	cp := *entry
+	return &cp, nil
 }
 
 func (m *MemoryStore) ListPromptHistoryBySession(_ context.Context, sessionID string) ([]*types.PromptHistoryEntry, error) {

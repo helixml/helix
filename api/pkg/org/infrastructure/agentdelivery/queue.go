@@ -245,6 +245,12 @@ func (q *Queue) handle(msg *pubsub.Message) {
 		_ = msg.NakWithDelay(retryDelay(msg.NumDelivered))
 		return
 	}
+	if msg.Sequence == 0 {
+		q.logger.Error("agent delivery: missing stream sequence")
+		_ = msg.NakWithDelay(retryDelay(msg.NumDelivered))
+		return
+	}
+	delivery.Trigger.DeliveryID = fmt.Sprintf("%s/%d", streamName, msg.Sequence)
 	done := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)

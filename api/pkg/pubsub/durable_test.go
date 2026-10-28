@@ -37,6 +37,8 @@ func TestDurableConsumerRedeliversNak(t *testing.T) {
 	second := <-deliveries
 	require.Equal(t, []byte("hello"), second.Data)
 	require.Equal(t, uint64(2), second.NumDelivered)
+	require.NotZero(t, first.Sequence)
+	require.Equal(t, first.Sequence, second.Sequence)
 
 	stream, err := n.js.Stream(ctx, "DURABLE_REDELIVERY")
 	require.NoError(t, err)
