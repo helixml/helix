@@ -216,7 +216,7 @@ func (s *SystemSettings) ToResponseWithSource(dbToken, envToken string) *SystemS
 		SandboxHeadlessPriceCreditsPerSecond: s.SandboxHeadlessPriceCreditsPerSecond,
 		SandboxDesktopPriceCreditsPerSecond:  s.SandboxDesktopPriceCreditsPerSecond,
 		MaxConcurrentHeadlessSandboxes:       s.EffectiveMaxConcurrentHeadlessSandboxes(),
-		MaxConcurrentDesktopSandboxes:        s.EffectiveMaxConcurrentDesktopSandboxes(),
+		MaxConcurrentDesktopSandboxes:        s.MaxConcurrentDesktopSandboxes,
 		// OpenCodeBundledVersion is filled by the handler — types cannot import
 		// pkg/opencode (which imports types).
 		OpenCodeVersion:                     s.OpenCodeVersion,
@@ -241,7 +241,6 @@ const (
 	SystemSettingsID = "system"
 
 	DefaultMaxConcurrentHeadlessSandboxes = 10
-	DefaultMaxConcurrentDesktopSandboxes  = DefaultFreeDesktopSandboxes
 )
 
 func (s *SystemSettings) EffectiveMaxConcurrentHeadlessSandboxes() int {
@@ -249,13 +248,6 @@ func (s *SystemSettings) EffectiveMaxConcurrentHeadlessSandboxes() int {
 		return DefaultMaxConcurrentHeadlessSandboxes
 	}
 	return s.MaxConcurrentHeadlessSandboxes
-}
-
-func (s *SystemSettings) EffectiveMaxConcurrentDesktopSandboxes() int {
-	if s.MaxConcurrentDesktopSandboxes <= 0 {
-		return DefaultMaxConcurrentDesktopSandboxes
-	}
-	return s.MaxConcurrentDesktopSandboxes
 }
 
 func (s *SystemSettings) EffectiveMaxConcurrentDesktopSandboxesForPlan(pro bool) int {
