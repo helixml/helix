@@ -23,6 +23,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/llm"
 	openai "github.com/sashabaranov/go-openai"
+	"gorm.io/gorm"
 
 	"github.com/rs/zerolog/log"
 )
@@ -3295,9 +3296,29 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		session.Metadata.ZedAgentName = runtime.ZedAgentName()
 	}
 
-	session, err = appendOrOverwrite(session, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process session messages: %w", err)
+	var existingDelivery *types.Interaction
+	if req.InteractionID != "" {
+		existingDelivery, err = s.Store.GetInteraction(ctx, req.InteractionID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("load existing activation interaction: %w", err)
+		}
+		if existingDelivery != nil {
+			if existingDelivery.SessionID != session.ID || existingDelivery.PromptMessage != message {
+				return nil, fmt.Errorf("interaction delivery ID %s conflicts with another message", req.InteractionID)
+			}
+			if existingDelivery.State != types.InteractionStateWaiting {
+				return session, nil
+			}
+		}
+	}
+	if existingDelivery == nil {
+		session, err = appendOrOverwrite(session, req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to process session messages: %w", err)
+		}
+		if req.InteractionID != "" {
+			session.Interactions[len(session.Interactions)-1].ID = req.InteractionID
+		}
 	}
 	if err := s.snapshotLatestCodeAgentInteraction(ctx, session); err != nil {
 		return nil, fmt.Errorf("failed to snapshot coding configuration: %w", err)
@@ -3307,8 +3328,10 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		return nil, fmt.Errorf("failed to write session: %w", err)
 	}
 
-	if err := s.Controller.WriteInteractions(ctx, session.Interactions...); err != nil {
-		return nil, fmt.Errorf("failed to write interactions: %w", err)
+	if existingDelivery == nil {
+		if err := s.Controller.WriteInteractions(ctx, session.Interactions...); err != nil {
+			return nil, fmt.Errorf("failed to write interactions: %w", err)
+		}
 	}
 
 	zedAgent := &types.DesktopAgent{

@@ -890,6 +890,21 @@ func (mr *MockStoreMockRecorder) CreatePromptHistoryEntry(ctx, entry any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePromptHistoryEntry", reflect.TypeOf((*MockStore)(nil).CreatePromptHistoryEntry), ctx, entry)
 }
 
+// CreatePromptHistoryEntryIfAbsent mocks base method.
+func (m *MockStore) CreatePromptHistoryEntryIfAbsent(ctx context.Context, entry *types.PromptHistoryEntry) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePromptHistoryEntryIfAbsent", ctx, entry)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreatePromptHistoryEntryIfAbsent indicates an expected call of CreatePromptHistoryEntryIfAbsent.
+func (mr *MockStoreMockRecorder) CreatePromptHistoryEntryIfAbsent(ctx, entry any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePromptHistoryEntryIfAbsent", reflect.TypeOf((*MockStore)(nil).CreatePromptHistoryEntryIfAbsent), ctx, entry)
+}
+
 // CreateProviderEndpoint mocks base method.
 func (m *MockStore) CreateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
 	m.ctrl.T.Helper()
@@ -3144,6 +3159,21 @@ func (m *MockStore) GetLatestDesignReview(ctx context.Context, specTaskID string
 func (mr *MockStoreMockRecorder) GetLatestDesignReview(ctx, specTaskID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestDesignReview", reflect.TypeOf((*MockStore)(nil).GetLatestDesignReview), ctx, specTaskID)
+}
+
+// GetLatestInteractionByPromptID mocks base method.
+func (m *MockStore) GetLatestInteractionByPromptID(ctx context.Context, promptID string) (*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestInteractionByPromptID", ctx, promptID)
+	ret0, _ := ret[0].(*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLatestInteractionByPromptID indicates an expected call of GetLatestInteractionByPromptID.
+func (mr *MockStoreMockRecorder) GetLatestInteractionByPromptID(ctx, promptID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestInteractionByPromptID", reflect.TypeOf((*MockStore)(nil).GetLatestInteractionByPromptID), ctx, promptID)
 }
 
 // GetLatestInteractionsForSessions mocks base method.

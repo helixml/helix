@@ -311,10 +311,14 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		if triggers[0].Kind == activation.TriggerHire {
 			interactionTrigger = types.InteractionTriggerOrgHire
 		}
-		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, instructions, prompt, interactionTrigger, bot.PreserveContext, launch, publish)
+		delivery, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, instructions, prompt, interactionTrigger, triggers[0].DeliveryID, bot.PreserveContext, launch, publish)
 		if err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
+		}
+		if delivery.Completed {
+			publish(activation.OutcomeFromError(nil).Marker())
+			return nil
 		}
 
 		// Poll phase. Long-running but healthy sessions are normal — a
@@ -326,7 +330,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// ActivationRunawayGuard is the resource-safety backstop only.
 		pollCtx, pollCancel := context.WithTimeout(parentCtx, cfg.ActivationRunawayGuard)
 		defer pollCancel()
-		err = cfg.pollUntilDone(pollCtx, sessionID, priorInteractionID, publish)
+		err = cfg.pollUntilDone(pollCtx, delivery, publish)
 		publish(activation.OutcomeFromError(err).Marker())
 		return err
 	}
@@ -428,19 +432,19 @@ func sanitizeLogValue(value string) string {
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions, prompt, interactionTrigger string, preserveContext bool, launch SessionLaunchConfig, _ func(string)) (string, string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions, prompt, interactionTrigger, deliveryID string, preserveContext bool, launch SessionLaunchConfig, _ func(string)) (DeliveryResult, error) {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
-		return "", "", err
+		return DeliveryResult{}, err
 	}
 	if state.ProjectID == "" {
-		return "", "", fmt.Errorf("worker %s has no helix project — ensureProject must run first", workerID)
+		return DeliveryResult{}, fmt.Errorf("worker %s has no helix project - ensureProject must run first", workerID)
 	}
 	priorInteractionID := ""
 	if state.SessionID != "" {
 		out, err := c.Client.GetOutput(ctx, state.SessionID)
 		if err != nil && !errors.Is(err, ErrSessionNotFound) {
-			return "", "", fmt.Errorf("read session output before activation: %w", err)
+			return DeliveryResult{}, fmt.Errorf("read session output before activation: %w", err)
 		}
 		priorInteractionID = out.InteractionID
 	}
@@ -466,15 +470,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 	// own context-limit/compaction handling. Failing to read the Bot must
 	// not silently fall back to wiping a preserve-context Bot, so the
 	// error propagates.
-	if state.SessionID != "" && !preserveContext {
-		if err := c.Client.ClearSession(ctx, state.SessionID); err != nil {
-			return "", "", fmt.Errorf("clear session %s before re-activation: %w", state.SessionID, err)
-		}
-		if c.Logger != nil {
-			c.Logger.Info("spawner: cleared session before re-activation",
-				"worker", workerID, "session", state.SessionID)
-		}
-	} else if state.SessionID != "" && preserveContext {
+	if state.SessionID != "" && preserveContext {
 		if c.Logger != nil {
 			c.Logger.Info("spawner: preserving session context across re-activation",
 				"worker", workerID, "session", state.SessionID)
@@ -496,7 +492,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 	// new session is discoverable from Helix's per-project UI. Without
 	// one shared primitive the two paths drift apart and develop
 	// independent stale-session bugs.
-	sid, fresh, err := EnsureAndSend(ctx, c.Client, SendPromptParams{
+	delivery, fresh, err := EnsureAndSend(ctx, c.Client, SendPromptParams{
 		SessionID:   state.SessionID,
 		SessionName: sessionName,
 		ProjectID:   state.ProjectID,
@@ -513,30 +509,41 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 		WorkerID:           string(workerID),
 		Instructions:       instructions,
 		InteractionTrigger: interactionTrigger,
+		DeliveryID:         deliveryID,
+		ResetSession:       state.SessionID != "" && !preserveContext,
 		Launch:             launch,
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("ensure session: %w", err)
+		return DeliveryResult{}, fmt.Errorf("ensure session: %w", err)
 	}
 	if fresh {
 		if c.Logger != nil && state.SessionID != "" {
 			c.Logger.Info("spawner: persisted session unusable, opened fresh",
-				"worker", workerID, "stale_sid", state.SessionID, "new_sid", sid)
+				"worker", workerID, "stale_sid", state.SessionID, "new_sid", delivery.SessionID)
 		}
-		if err := SaveSession(ctx, c.Store, orgID, workerID, sid); err != nil {
-			return "", "", fmt.Errorf("persist session id: %w", err)
+		if err := SaveSession(ctx, c.Store, orgID, workerID, delivery.SessionID); err != nil {
+			return DeliveryResult{}, fmt.Errorf("persist session id: %w", err)
 		}
 	}
-	return sid, priorInteractionID, nil
+	if delivery.InteractionID == "" && delivery.PromptID == "" {
+		delivery.PreviousInteractionID = priorInteractionID
+	}
+	return delivery, nil
 }
 
-// pollUntilDone polls GetOutput with exponential backoff until a
+// pollUntilDone polls the dispatched delivery with exponential backoff until a
 // terminal status is reported or ctx fires.
-func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID, priorInteractionID string, publish func(string)) error {
+func (c SpawnerConfig) pollUntilDone(ctx context.Context, delivery DeliveryResult, publish func(string)) error {
 	delay := c.PollInitial
 	observedCurrentInteraction := false
 	for {
-		out, err := c.Client.GetOutput(ctx, sessionID)
+		var out types.SessionOutputResponse
+		var err error
+		if delivery.PromptID != "" || delivery.InteractionID != "" {
+			out, err = c.Client.GetDeliveryOutput(ctx, delivery)
+		} else {
+			out, err = c.Client.GetOutput(ctx, delivery.SessionID)
+		}
 		if err != nil {
 			// Restart deletes the old session before enqueueing a replacement
 			// activation. The old activation must release its per-bot queue
@@ -547,11 +554,11 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID, priorIntera
 			// Don't fail the activation on a transient poll error; just
 			// back off and retry until the timeout fires.
 			if c.Logger != nil {
-				c.Logger.Warn("helix poll", "session", sessionID, "err", err)
+				c.Logger.Warn("helix poll", "session", delivery.SessionID, "err", err)
 			}
 		} else if observedCurrentInteraction && out.InteractionID == "" {
 			return nil
-		} else if out.InteractionID != "" && out.InteractionID != priorInteractionID {
+		} else if out.InteractionID != "" && (delivery.PromptID != "" || delivery.InteractionID != "" || out.InteractionID != delivery.PreviousInteractionID) {
 			observedCurrentInteraction = true
 			if IsTerminalOutput(out) {
 				if out.Status == "error" {

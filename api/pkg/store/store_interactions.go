@@ -217,6 +217,18 @@ func (s *PostgresStore) GetInteraction(ctx context.Context, interactionID string
 	return &interaction, nil
 }
 
+func (s *PostgresStore) GetLatestInteractionByPromptID(ctx context.Context, promptID string) (*types.Interaction, error) {
+	if promptID == "" {
+		return nil, errors.New("prompt_id is required")
+	}
+	var interaction types.Interaction
+	err := s.gdb.WithContext(ctx).Where("prompt_id = ?", promptID).Order("created DESC, id DESC").First(&interaction).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &interaction, err
+}
+
 func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 	if interaction.ID == "" {
 		return nil, errors.New("id is required")

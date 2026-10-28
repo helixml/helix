@@ -47,6 +47,7 @@ type Message struct {
 	Data         []byte
 	Header       nats.Header
 	NumDelivered uint64
+	Sequence     uint64
 
 	msg acker
 }

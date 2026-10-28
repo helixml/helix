@@ -17,6 +17,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,11 +33,13 @@ import (
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	orgactivation "github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -1062,13 +1065,22 @@ func (c *inProcHelixClient) StopExternalAgent(ctx context.Context, sessionID str
 // message) via the shared StartExternalAgentSession primitive the cron
 // trigger uses. Non-blocking. session_role "exploratory" so the mirror's
 // GetProjectExploratorySession lookup resolves it.
-func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimehelix.StartSessionParams) (string, error) {
+func activationDeliveryID(prefix, deliveryID string) string {
+	sum := sha256.Sum256([]byte(deliveryID))
+	return prefix + "activation_" + fmt.Sprintf("%x", sum[:16])
+}
+
+func interactionCompleted(interaction *types.Interaction) bool {
+	return interaction != nil && interaction.State == types.InteractionStateComplete
+}
+
+func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimehelix.StartSessionParams) (runtimehelix.DeliveryResult, error) {
 	if params.Prompt == "" {
-		return "", errors.New("StartSession: Prompt is required")
+		return runtimehelix.DeliveryResult{}, errors.New("StartSession: Prompt is required")
 	}
 	user, err := c.resolveUser(ctx)
 	if err != nil {
-		return "", err
+		return runtimehelix.DeliveryResult{}, err
 	}
 	req := &types.SessionChatRequest{
 		ProjectID:      params.ProjectID,
@@ -1095,29 +1107,184 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 			Content: types.MessageContent{Parts: []any{params.Prompt}},
 		}},
 	}
+	if params.DeliveryID != "" {
+		req.InteractionID = activationDeliveryID(system.InteractionPrefix, params.DeliveryID)
+	}
 	session, err := c.server.StartExternalAgentSession(ctx, req, user.ID)
 	if err != nil {
-		return "", fmt.Errorf("start external agent session: %w", err)
+		return runtimehelix.DeliveryResult{}, fmt.Errorf("start external agent session: %w", err)
 	}
-	return session.ID, nil
+	result := runtimehelix.DeliveryResult{SessionID: session.ID, InteractionID: req.InteractionID}
+	if req.InteractionID != "" {
+		interaction, getErr := c.server.Store.GetInteraction(ctx, req.InteractionID)
+		if getErr != nil {
+			return runtimehelix.DeliveryResult{}, fmt.Errorf("load activation interaction: %w", getErr)
+		}
+		if interaction.State == types.InteractionStateError {
+			return c.SendMessage(ctx, session.ID, params.Prompt, params.DeliveryID, false)
+		}
+		result.Completed = interactionCompleted(interaction)
+	}
+	return result, nil
 }
 
 // SendMessage dispatches a follow-up turn via the same REST handler the
 // frontend / spec tasks use (POST /sessions/{id}/messages). Fire-and-
 // forget; Helix auto-starts a downed desktop and delivers on reconnect.
-func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt string) error {
+func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, deliveryID string, resetSession bool) (runtimehelix.DeliveryResult, error) {
 	if sessionID == "" {
-		return errors.New("SendMessage: sessionID is required")
+		return runtimehelix.DeliveryResult{}, errors.New("SendMessage: sessionID is required")
+	}
+	if deliveryID != "" {
+		user, err := c.resolveUser(ctx)
+		if err != nil {
+			return runtimehelix.DeliveryResult{}, err
+		}
+		session, err := c.server.Store.GetSession(ctx, sessionID)
+		if err != nil {
+			return runtimehelix.DeliveryResult{}, err
+		}
+		if err := c.server.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+			return runtimehelix.DeliveryResult{}, err
+		}
+		interactionID := activationDeliveryID(system.InteractionPrefix, deliveryID)
+		interaction, err := c.server.Store.GetInteraction(ctx, interactionID)
+		if err == nil {
+			if interaction.SessionID != sessionID || interaction.PromptMessage != prompt {
+				return runtimehelix.DeliveryResult{}, fmt.Errorf("activation interaction %s does not match delivery", interactionID)
+			}
+			if interaction.State != types.InteractionStateError {
+				return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: interactionID, Completed: interactionCompleted(interaction)}, nil
+			}
+		}
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) && !errors.Is(err, store.ErrNotFound) {
+			return runtimehelix.DeliveryResult{}, fmt.Errorf("load activation interaction: %w", err)
+		}
+		promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+		entry, err := c.server.Store.GetPromptHistoryEntry(ctx, promptID)
+		if err != nil {
+			return runtimehelix.DeliveryResult{}, fmt.Errorf("load activation prompt: %w", err)
+		}
+		if entry != nil {
+			if entry.SessionID != sessionID || entry.Content != prompt {
+				return runtimehelix.DeliveryResult{}, fmt.Errorf("prompt delivery ID %s conflicts with another message", promptID)
+			}
+			if entry.DeletedAt != nil {
+				return runtimehelix.DeliveryResult{}, fmt.Errorf("%w: activation prompt %s was deleted", orgactivation.ErrNonRetryable, promptID)
+			}
+			interaction, err = c.server.Store.GetLatestInteractionByPromptID(ctx, promptID)
+			if err != nil {
+				return runtimehelix.DeliveryResult{}, err
+			}
+			if interactionCompleted(interaction) {
+				return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: interaction.ID, PromptID: promptID, Completed: true}, nil
+			}
+		}
+		if err := requireUnpaused(session); err != nil {
+			return runtimehelix.DeliveryResult{}, errors.New(err.Error())
+		}
+		if err := c.server.reconcileSessionAgentWithApp(ctx, session); err != nil {
+			return runtimehelix.DeliveryResult{}, errors.New(err.Error())
+		}
+		defer c.server.lockPromptDrain(sessionID)()
+		entry = &types.PromptHistoryEntry{
+			ID:        promptID,
+			UserID:    session.Owner,
+			ProjectID: session.ProjectID,
+			SessionID: sessionID,
+			Content:   prompt,
+			Status:    "reserved",
+		}
+		created, err := c.server.Store.CreatePromptHistoryEntryIfAbsent(ctx, entry)
+		if err != nil {
+			return runtimehelix.DeliveryResult{}, fmt.Errorf("persist activation prompt: %w", err)
+		}
+		if !created {
+			entry, err = c.server.Store.GetPromptHistoryEntry(ctx, promptID)
+			if err != nil {
+				return runtimehelix.DeliveryResult{}, fmt.Errorf("reload activation prompt: %w", err)
+			}
+			if entry == nil || entry.SessionID != sessionID || entry.Content != prompt {
+				return runtimehelix.DeliveryResult{}, fmt.Errorf("prompt delivery ID %s conflicts with another message", promptID)
+			}
+			if entry.DeletedAt != nil {
+				return runtimehelix.DeliveryResult{}, fmt.Errorf("%w: activation prompt %s was deleted", orgactivation.ErrNonRetryable, promptID)
+			}
+		}
+		interaction, err = c.server.Store.GetLatestInteractionByPromptID(ctx, promptID)
+		if err != nil {
+			return runtimehelix.DeliveryResult{}, err
+		}
+		if entry.Status == "reserved" {
+			if resetSession {
+				if err := c.ClearSession(ctx, sessionID); err != nil {
+					return runtimehelix.DeliveryResult{}, err
+				}
+			}
+			if err := c.server.Store.MarkPromptAsPending(ctx, promptID); err != nil {
+				return runtimehelix.DeliveryResult{}, err
+			}
+			entry.Status = "pending"
+		}
+		if entry.Status == "sending" && interaction == nil {
+			if err := c.server.Store.MarkPromptAsPending(ctx, promptID); err != nil {
+				return runtimehelix.DeliveryResult{}, err
+			}
+			entry.Status = "pending"
+		}
+		if entry.Status == "failed" {
+			c.server.nudgeSessionQueue(sessionID)
+			return runtimehelix.DeliveryResult{}, fmt.Errorf("activation prompt %s is pending retry", promptID)
+		}
+		if entry.Status == "pending" {
+			c.server.nudgeSessionQueue(sessionID)
+		}
+		queuedInteractionID := ""
+		if interaction != nil {
+			queuedInteractionID = interaction.ID
+		}
+		return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: queuedInteractionID, PromptID: promptID, Completed: interactionCompleted(interaction)}, nil
+	}
+	if resetSession {
+		if err := c.ClearSession(ctx, sessionID); err != nil {
+			return runtimehelix.DeliveryResult{}, err
+		}
 	}
 	body := SessionMessageRequest{Content: prompt}
 	r, err := c.newRequest(ctx, http.MethodPost, "/api/v1/sessions/"+sessionID+"/messages", body, map[string]string{"id": sessionID})
 	if err != nil {
-		return err
+		return runtimehelix.DeliveryResult{}, err
 	}
 	if _, herr := c.server.sendSessionMessage(nil, r); herr != nil {
-		return fmt.Errorf("send session message to %s: %s", sessionID, herr.Error())
+		return runtimehelix.DeliveryResult{}, fmt.Errorf("send session message to %s: %s", sessionID, herr.Error())
 	}
-	return nil
+	return runtimehelix.DeliveryResult{SessionID: sessionID}, nil
+}
+
+func (c *inProcHelixClient) GetDeliveryOutput(ctx context.Context, delivery runtimehelix.DeliveryResult) (types.SessionOutputResponse, error) {
+	var interaction *types.Interaction
+	var err error
+	if delivery.PromptID != "" {
+		interaction, err = c.server.Store.GetLatestInteractionByPromptID(ctx, delivery.PromptID)
+	} else {
+		interaction, err = c.server.Store.GetInteraction(ctx, delivery.InteractionID)
+		if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, store.ErrNotFound) {
+			return types.SessionOutputResponse{}, nil
+		}
+	}
+	if err != nil || interaction == nil {
+		return types.SessionOutputResponse{}, err
+	}
+	output := interaction.ResponseMessage
+	if interaction.State == types.InteractionStateError {
+		output = interaction.Error
+	}
+	return types.SessionOutputResponse{
+		SessionID:     interaction.SessionID,
+		InteractionID: interaction.ID,
+		Status:        string(interaction.State),
+		Output:        output,
+	}, nil
 }
 
 // ClearSession wipes a session's conversation history — and, for a

@@ -65,7 +65,7 @@ type fakeHelixClient struct {
 	lastSyncLaunch SessionLaunchConfig
 }
 
-func (f *fakeHelixClient) StartSession(ctx context.Context, params StartSessionParams) (string, error) {
+func (f *fakeHelixClient) StartSession(ctx context.Context, params StartSessionParams) (DeliveryResult, error) {
 	atomic.AddInt32(&f.startCalls, 1)
 	f.mu.Lock()
 	f.lastStartParams = params
@@ -75,22 +75,27 @@ func (f *fakeHelixClient) StartSession(ctx context.Context, params StartSessionP
 		select {
 		case <-block:
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return DeliveryResult{}, ctx.Err()
 		}
 	}
 	if f.startErr != nil {
-		return "", f.startErr
+		return DeliveryResult{}, f.startErr
 	}
-	return f.startSessionID, nil
+	return DeliveryResult{SessionID: f.startSessionID}, nil
 }
 
-func (f *fakeHelixClient) SendMessage(_ context.Context, sessionID, prompt string) error {
+func (f *fakeHelixClient) SendMessage(ctx context.Context, sessionID, prompt, _ string, resetSession bool) (DeliveryResult, error) {
+	if resetSession {
+		if err := f.ClearSession(ctx, sessionID); err != nil {
+			return DeliveryResult{}, fmt.Errorf("clear session: %w", err)
+		}
+	}
 	atomic.AddInt32(&f.sendCalls, 1)
 	f.mu.Lock()
 	f.lastSendSID = sessionID
 	f.lastSendBody = prompt
 	f.mu.Unlock()
-	return f.sendErr
+	return DeliveryResult{SessionID: sessionID}, f.sendErr
 }
 
 func (f *fakeHelixClient) ClearSession(_ context.Context, sessionID string) error {
@@ -143,6 +148,10 @@ func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionO
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeHelixClient) GetDeliveryOutput(ctx context.Context, _ DeliveryResult) (types.SessionOutputResponse, error) {
+	return f.GetOutput(ctx, "")
 }
 
 func (f *fakeHelixClient) StopExternalAgent(_ context.Context, _ string) error { return nil }
@@ -672,9 +681,30 @@ func TestPollUntilDoneMarksInsufficientBalanceNonRetryable(t *testing.T) {
 	}
 	cfg := SpawnerConfig{Client: fc, PollInitial: time.Millisecond, PollMax: time.Millisecond}
 
-	err := cfg.pollUntilDone(context.Background(), "ses-test", "", func(string) {})
+	err := cfg.pollUntilDone(context.Background(), DeliveryResult{SessionID: "ses-test"}, func(string) {})
 	if !errors.Is(err, activation.ErrNonRetryable) {
 		t.Fatalf("error = %v, want activation.ErrNonRetryable", err)
+	}
+}
+
+func TestPollUntilDoneAcceptsExactInitialInteraction(t *testing.T) {
+	t.Parallel()
+	fc := &fakeHelixClient{outputs: []types.SessionOutputResponse{{
+		InteractionID: "int-delivery",
+		Status:        "complete",
+		Output:        "ok",
+	}}}
+	cfg := SpawnerConfig{Client: fc, PollInitial: time.Millisecond, PollMax: time.Millisecond}
+
+	err := cfg.pollUntilDone(context.Background(), DeliveryResult{
+		SessionID:     "ses-test",
+		InteractionID: "int-delivery",
+	}, func(string) {})
+	if err != nil {
+		t.Fatalf("poll exact interaction: %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.outputCalls); got != 1 {
+		t.Fatalf("output calls = %d, want 1", got)
 	}
 }
 
@@ -871,14 +901,14 @@ func (c *concurrencyClient) track() func() {
 	return func() { atomic.AddInt32(c.inflight, -1) }
 }
 
-func (c *concurrencyClient) StartSession(ctx context.Context, params StartSessionParams) (string, error) {
+func (c *concurrencyClient) StartSession(ctx context.Context, params StartSessionParams) (DeliveryResult, error) {
 	defer c.track()()
 	return c.inner.StartSession(ctx, params)
 }
 
-func (c *concurrencyClient) SendMessage(ctx context.Context, sessionID, prompt string) error {
+func (c *concurrencyClient) SendMessage(ctx context.Context, sessionID, prompt, deliveryID string, resetSession bool) (DeliveryResult, error) {
 	defer c.track()()
-	return c.inner.SendMessage(ctx, sessionID, prompt)
+	return c.inner.SendMessage(ctx, sessionID, prompt, deliveryID, resetSession)
 }
 
 func (c *concurrencyClient) ClearSession(ctx context.Context, sessionID string) error {
@@ -895,6 +925,10 @@ func (c *concurrencyClient) ServerStatus(ctx context.Context) (ServerStatus, err
 
 func (c *concurrencyClient) GetOutput(ctx context.Context, sid string) (types.SessionOutputResponse, error) {
 	return c.inner.GetOutput(ctx, sid)
+}
+
+func (c *concurrencyClient) GetDeliveryOutput(ctx context.Context, delivery DeliveryResult) (types.SessionOutputResponse, error) {
+	return c.inner.GetDeliveryOutput(ctx, delivery)
 }
 
 func (c *concurrencyClient) StopExternalAgent(ctx context.Context, sid string) error {

@@ -15,8 +15,10 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -168,6 +170,120 @@ func (s *ExploratorySessionActivationSuite) TestActivationReusesExistingExplorat
 	s.Require().NotNil(captured)
 	s.Equal(existingSID, captured.SessionID,
 		"StartDesktop must be invoked with the reused session id so h.sessions[ID] aligns with GetProjectExploratorySession")
+}
+
+func (s *ExploratorySessionActivationSuite) TestActivationDeliveryReusesInitialInteractionOnRetry() {
+	ctx := context.Background()
+	const (
+		projectID     = "prj_delivery_retry"
+		userID        = "user_op"
+		sessionID     = "ses_delivery_retry"
+		interactionID = "int_activation_delivery_retry"
+	)
+	existing := &types.Session{
+		ID:        sessionID,
+		ProjectID: projectID,
+		Owner:     userID,
+		Metadata: types.SessionMetadata{
+			SessionRole: "exploratory",
+		},
+	}
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: userID, Type: types.OwnerTypeUser}, nil).Times(2)
+	s.store.EXPECT().GetProjectExploratorySession(gomock.Any(), projectID).Return(existing, nil).Times(2)
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(existing, nil).AnyTimes()
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(existing, nil).AnyTimes()
+
+	var created *types.Interaction
+	s.store.EXPECT().GetInteraction(gomock.Any(), interactionID).DoAndReturn(
+		func(context.Context, string) (*types.Interaction, error) {
+			if created == nil {
+				return nil, store.ErrNotFound
+			}
+			return created, nil
+		},
+	).Times(2)
+	s.store.EXPECT().CreateInteractions(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interactions ...*types.Interaction) error {
+			s.Require().Len(interactions, 1)
+			created = interactions[0]
+			return nil
+		},
+	).Times(1)
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).Times(1)
+	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(&types.DesktopAgentResponse{DevContainerID: "dev_delivery"}, nil).Times(1)
+
+	req := &types.SessionChatRequest{
+		ProjectID:     projectID,
+		SessionRole:   "exploratory",
+		InteractionID: interactionID,
+		Messages: []*types.Message{{
+			Role:    "user",
+			Content: types.MessageContent{Parts: []any{"activation prompt"}},
+		}},
+	}
+	first, err := s.server.StartExternalAgentSession(ctx, req, userID)
+	s.Require().NoError(err)
+	s.Equal(sessionID, first.ID)
+	s.Require().NotNil(created)
+	s.Equal(interactionID, created.ID)
+
+	created.State = types.InteractionStateComplete
+	second, err := s.server.StartExternalAgentSession(ctx, req, userID)
+	s.Require().NoError(err)
+	s.Equal(sessionID, second.ID)
+}
+
+func (s *ExploratorySessionActivationSuite) TestUnsavedFailedInitialDeliveryQueuesStableRetry() {
+	const (
+		projectID = "prj_unsaved_retry"
+		userID    = "user_op"
+		sessionID = "ses_unsaved_retry"
+		delivery  = "HELIX_ORG_AGENT_ACTIVATIONS/101"
+		prompt    = "retry activation"
+	)
+	interactionID := activationDeliveryID(system.InteractionPrefix, delivery)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, delivery)
+	existing := &types.Session{
+		ID:        sessionID,
+		ProjectID: projectID,
+		Owner:     userID,
+		Metadata:  types.SessionMetadata{SessionRole: "exploratory"},
+	}
+	failed := &types.Interaction{
+		ID: interactionID, SessionID: sessionID, PromptMessage: prompt, State: types.InteractionStateError,
+	}
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: userID, Type: types.OwnerTypeUser}, nil)
+	s.store.EXPECT().GetProjectExploratorySession(gomock.Any(), projectID).Return(existing, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), interactionID).Return(failed, nil).Times(3)
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(existing, nil).AnyTimes()
+	s.store.EXPECT().GetPromptHistoryEntry(gomock.Any(), promptID).Return(nil, nil)
+	s.store.EXPECT().CreatePromptHistoryEntryIfAbsent(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, entry *types.PromptHistoryEntry) (bool, error) {
+			s.Equal(promptID, entry.ID)
+			s.Equal(prompt, entry.Content)
+			return true, nil
+		},
+	)
+	s.store.EXPECT().GetLatestInteractionByPromptID(gomock.Any(), promptID).Return(nil, nil)
+	s.store.EXPECT().MarkPromptAsPending(gomock.Any(), promptID).Return(nil)
+	drained := make(chan struct{})
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).DoAndReturn(
+		func(context.Context, string) ([]*types.PromptHistoryEntry, error) {
+			close(drained)
+			return nil, nil
+		},
+	)
+
+	client := NewInProcHelixClient(s.server)
+	ctx := runtimehelix.WithUser(context.Background(), &types.User{ID: userID, Type: types.OwnerTypeUser})
+	result, err := client.StartSession(ctx, runtimehelix.StartSessionParams{
+		ProjectID: projectID, AgentType: "zed_external", Prompt: prompt,
+		WorkerID: "b-retry", Instructions: "worker instructions", DeliveryID: delivery,
+	})
+	s.Require().NoError(err)
+	s.Equal(sessionID, result.SessionID)
+	s.Equal(promptID, result.PromptID)
+	<-drained
 }
 
 // Case 2: status pill flips to "running" after Resume. Pins the
