@@ -241,7 +241,7 @@ const (
 	SystemSettingsID = "system"
 
 	DefaultMaxConcurrentHeadlessSandboxes = 10
-	DefaultMaxConcurrentDesktopSandboxes  = 10
+	DefaultMaxConcurrentDesktopSandboxes  = DefaultFreeDesktopSandboxes
 )
 
 func (s *SystemSettings) EffectiveMaxConcurrentHeadlessSandboxes() int {
@@ -256,4 +256,14 @@ func (s *SystemSettings) EffectiveMaxConcurrentDesktopSandboxes() int {
 		return DefaultMaxConcurrentDesktopSandboxes
 	}
 	return s.MaxConcurrentDesktopSandboxes
+}
+
+func (s *SystemSettings) EffectiveMaxConcurrentDesktopSandboxesForPlan(pro bool) int {
+	if s.MaxConcurrentDesktopSandboxes > 0 {
+		return s.MaxConcurrentDesktopSandboxes
+	}
+	if pro {
+		return DefaultProDesktopSandboxes
+	}
+	return DefaultFreeDesktopSandboxes
 }

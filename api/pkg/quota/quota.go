@@ -70,9 +70,11 @@ func (m *DefaultQuotaManager) getOrgQuotas(ctx context.Context, orgID string) (*
 
 	quotas.OrganizationID = orgID
 
-	// Sandbox concurrency limits come from system settings, not from the
-	// per-tier subscription quotas — they're a global operator setting.
-	desktopMax := systemSettings.EffectiveMaxConcurrentDesktopSandboxes()
+	// A positive system setting is an operator override of the plan default.
+	desktopMax := quotas.MaxDesktopSandboxes
+	if systemSettings.MaxConcurrentDesktopSandboxes > 0 {
+		desktopMax = systemSettings.MaxConcurrentDesktopSandboxes
+	}
 	headlessMax := systemSettings.EffectiveMaxConcurrentHeadlessSandboxes()
 	if !systemSettings.EnforceQuotas {
 		desktopMax = -1
@@ -129,6 +131,7 @@ func (m *DefaultQuotaManager) planQuotas(systemSettings *types.SystemSettings, g
 	if !systemSettings.EnforceQuotas {
 		return &types.QuotaResponse{
 			MaxConcurrentDesktops: -1,
+			MaxDesktopSandboxes:   -1,
 			MaxProjects:           -1,
 			MaxRepositories:       -1,
 			MaxSpecTasks:          -1,
@@ -140,23 +143,16 @@ func (m *DefaultQuotaManager) planQuotas(systemSettings *types.SystemSettings, g
 		return nil, err
 	}
 
-	switch {
-	// Admin plan override (paid out-of-band; independent of Stripe, so it's
-	// never reverted by a webhook). Takes precedence over the subscription.
-	case wallet.PlanOverride == types.PlanOverridePro:
+	if wallet.UsesProQuotaTier() {
 		return m.getProQuotas(), nil
-	case wallet.PlanOverride == types.PlanOverrideFree:
-		return m.getFreeQuotas(), nil
-	case wallet.StripeSubscriptionID != "" && wallet.IsSubscriptionActive():
-		return m.getProQuotas(), nil
-	default:
-		return m.getFreeQuotas(), nil
 	}
+	return m.getFreeQuotas(), nil
 }
 
 func (m *DefaultQuotaManager) getFreeQuotas() *types.QuotaResponse {
 	quotas := &types.QuotaResponse{
 		MaxConcurrentDesktops: m.cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops,
+		MaxDesktopSandboxes:   types.DefaultFreeDesktopSandboxes,
 		MaxProjects:           m.cfg.SubscriptionQuotas.Projects.Free.MaxProjects,
 		MaxRepositories:       m.cfg.SubscriptionQuotas.Projects.Free.MaxRepositories,
 		MaxSpecTasks:          m.cfg.SubscriptionQuotas.Projects.Free.MaxSpecTasks,
@@ -167,6 +163,7 @@ func (m *DefaultQuotaManager) getFreeQuotas() *types.QuotaResponse {
 func (m *DefaultQuotaManager) getProQuotas() *types.QuotaResponse {
 	quotas := &types.QuotaResponse{
 		MaxConcurrentDesktops: m.cfg.SubscriptionQuotas.Projects.Pro.MaxConcurrentDesktops,
+		MaxDesktopSandboxes:   types.DefaultProDesktopSandboxes,
 		MaxProjects:           m.cfg.SubscriptionQuotas.Projects.Pro.MaxProjects,
 		MaxRepositories:       m.cfg.SubscriptionQuotas.Projects.Pro.MaxRepositories,
 		MaxSpecTasks:          m.cfg.SubscriptionQuotas.Projects.Pro.MaxSpecTasks,

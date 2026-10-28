@@ -131,6 +131,7 @@ func (s *QuotaManagerSuite) TestGetQuotas_UserFreeQuotas() {
 
 	s.Equal("user1", resp.UserID)
 	s.Equal(2, resp.MaxConcurrentDesktops)
+	s.Equal(types.DefaultFreeDesktopSandboxes, resp.MaxDesktopSandboxes)
 	s.Equal(3, resp.MaxProjects)
 	s.Equal(3, resp.MaxRepositories)
 	s.Equal(500, resp.MaxSpecTasks)
@@ -147,6 +148,7 @@ func (s *QuotaManagerSuite) TestGetQuotas_UserProQuotas() {
 	s.NoError(err)
 
 	s.Equal(5, resp.MaxConcurrentDesktops)
+	s.Equal(types.DefaultProDesktopSandboxes, resp.MaxDesktopSandboxes)
 	s.Equal(20, resp.MaxProjects)
 	s.Equal(20, resp.MaxRepositories)
 	s.Equal(10000, resp.MaxSpecTasks)
@@ -174,6 +176,7 @@ func (s *QuotaManagerSuite) TestGetQuotas_PlanOverrideProGrantsProWithoutSub() {
 	resp, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{UserID: "user1"})
 	s.NoError(err)
 	s.Equal(5, resp.MaxConcurrentDesktops, "PlanOverride=pro grants Pro without any subscription")
+	s.Equal(types.DefaultProDesktopSandboxes, resp.MaxDesktopSandboxes)
 }
 
 // PlanOverride="free" forces Free even when an active subscription exists

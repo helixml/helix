@@ -841,9 +841,8 @@ func (s *PostgresStore) ensureDefaultProject(ctx context.Context) error {
 			Metadata: types.ProjectMetadata{
 				BoardSettings: &types.BoardSettings{
 					WIPLimits: types.WIPLimits{
-						Planning:       3,
-						Review:         2,
-						Implementation: 5,
+						Planning: 3,
+						Review:   2,
 					},
 				},
 			},

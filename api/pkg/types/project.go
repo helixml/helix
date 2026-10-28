@@ -197,16 +197,17 @@ type ProjectApplyResponse struct {
 
 // Project represents a Helix project that can contain tasks and agent work
 type Project struct {
-	ID             string   `json:"id" gorm:"primaryKey"`
-	Name           string   `json:"name" gorm:"index"` // Indexed for search prefix matching
-	Description    string   `json:"description"`
-	UserID         string   `json:"user_id" gorm:"index"`
-	User           User     `json:"user" gorm:"-"` // Populated by the server if UserID is set
-	OrganizationID string   `json:"organization_id" gorm:"index"`
-	GitHubRepoURL  string   `json:"github_repo_url"`
-	DefaultBranch  string   `json:"default_branch"`
-	Technologies   []string `json:"technologies" gorm:"type:jsonb;serializer:json"`
-	Status         string   `json:"status"` // "active", "archived", "completed"
+	ID                  string   `json:"id" gorm:"primaryKey"`
+	Name                string   `json:"name" gorm:"index"` // Indexed for search prefix matching
+	Description         string   `json:"description"`
+	UserID              string   `json:"user_id" gorm:"index"`
+	User                User     `json:"user" gorm:"-"` // Populated by the server if UserID is set
+	OrganizationID      string   `json:"organization_id" gorm:"index"`
+	GitHubRepoURL       string   `json:"github_repo_url"`
+	DefaultBranch       string   `json:"default_branch"`
+	Technologies        []string `json:"technologies" gorm:"type:jsonb;serializer:json"`
+	Status              string   `json:"status"` // "active", "archived", "completed"
+	ImplementationLimit int      `json:"implementation_limit" gorm:"-"`
 
 	// Project-level repository management
 	// DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo

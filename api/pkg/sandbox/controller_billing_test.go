@@ -295,3 +295,31 @@ func (s *ControllerBillingSuite) TestCreateRejectsDesktopSandboxWhenOrgLimitReac
 	s.Require().Error(err)
 	s.Require().Contains(err.Error(), "desktop sandbox concurrency limit")
 }
+
+func (s *ControllerBillingSuite) TestDesktopSandboxLimitUsesProDefault() {
+	wallet := &types.Wallet{PlanOverride: types.PlanOverridePro}
+	s.store.EXPECT().GetWalletByOrg(gomock.Any(), "org_1").Return(wallet, nil).Times(2)
+
+	existing := make([]*types.Sandbox, 29)
+	for i := range existing {
+		existing[i] = &types.Sandbox{Runtime: types.SandboxRuntimeUbuntuDesktop, Status: types.SandboxStatusRunning}
+	}
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(existing, nil)
+	settings := &types.SystemSettings{EnforceQuotas: true}
+	s.Require().NoError(s.controller.ensureSandboxLimitsForType(s.ctx, "org_1", "desktop", "", settings))
+
+	existing = append(existing, &types.Sandbox{Runtime: types.SandboxRuntimeUbuntuDesktop, Status: types.SandboxStatusPending})
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(existing, nil)
+	err := s.controller.ensureSandboxLimitsForType(s.ctx, "org_1", "desktop", "", settings)
+	s.Require().ErrorContains(err, "limit (30)")
+}
+
+func (s *ControllerBillingSuite) TestDesktopSandboxOperatorOverrideBeatsProDefault() {
+	existing := make([]*types.Sandbox, 5)
+	for i := range existing {
+		existing[i] = &types.Sandbox{Runtime: types.SandboxRuntimeUbuntuDesktop, Status: types.SandboxStatusRunning}
+	}
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(existing, nil)
+	err := s.controller.ensureSandboxLimitsForType(s.ctx, "org_1", "desktop", "", &types.SystemSettings{MaxConcurrentDesktopSandboxes: 5})
+	s.Require().ErrorContains(err, "limit (5)")
+}

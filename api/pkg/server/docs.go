@@ -36394,6 +36394,9 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "implementation_limit": {
+                    "type": "integer"
+                },
                 "kodit_enabled": {
                     "type": "boolean"
                 },

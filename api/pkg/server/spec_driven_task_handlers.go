@@ -33,10 +33,13 @@ func (s *HelixAPIServer) populateQueueReasons(ctx context.Context, projectID str
 
 	// Fast path: only do the extra loads if something is actually queued.
 	hasQueued := false
+	hasQueuedImplementation := false
 	for _, t := range tasks {
 		if t.Status == types.TaskStatusQueuedSpecGeneration || t.Status == types.TaskStatusQueuedImplementation {
 			hasQueued = true
-			break
+			if t.Status == types.TaskStatusQueuedImplementation {
+				hasQueuedImplementation = true
+			}
 		}
 	}
 	if !hasQueued {
@@ -60,6 +63,14 @@ func (s *HelixAPIServer) populateQueueReasons(ctx context.Context, projectID str
 	for _, t := range projectTasks {
 		depsByID[t.ID] = t.DependsOn
 	}
+	implementationDefault := types.DefaultFreeImplementationTasks
+	if hasQueuedImplementation {
+		implementationDefault, err = services.ProjectImplementationWIPLimit(ctx, s.Store, project)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", projectID).Msg("failed to resolve implementation WIP limit")
+			return
+		}
+	}
 
 	for _, t := range tasks {
 		switch t.Status {
@@ -70,7 +81,7 @@ func (s *HelixAPIServer) populateQueueReasons(ctx context.Context, projectID str
 		case types.TaskStatusQueuedImplementation:
 			probe := *t
 			probe.DependsOn = depsByID[t.ID]
-			t.QueueReason = services.ImplementationQueueReason(project, projectTasks, &probe)
+			t.QueueReason = services.ImplementationQueueReason(project, projectTasks, &probe, implementationDefault)
 		}
 	}
 }
@@ -1945,10 +1956,17 @@ func (s *HelixAPIServer) getBoardSettings(w http.ResponseWriter, r *http.Request
 		// Return default settings if not found
 		boardSettings = types.BoardSettings{
 			WIPLimits: types.WIPLimits{
-				Planning:       3,
-				Review:         2,
-				Implementation: 5,
+				Planning: 3,
+				Review:   2,
 			},
+		}
+	}
+	if boardSettings.WIPLimits.Implementation <= 0 {
+		boardSettings.WIPLimits.Implementation, err = services.ProjectImplementationWIPLimit(ctx, s.Store, project)
+		if err != nil {
+			log.Error().Err(err).Str("project_id", project.ID).Msg("failed to resolve implementation WIP limit")
+			http.Error(w, "failed to resolve board settings", http.StatusInternalServerError)
+			return
 		}
 	}
 

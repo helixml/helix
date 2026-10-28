@@ -145,6 +145,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const { apps, loadApps } = useContext(AppsContext);
 
   const { data: project, isLoading, error } = useGetProject(projectId);
+  const defaultImplementationLimit = project?.implementation_limit || 5;
   const projectAccessDenied = isProjectAccessDeniedError(error);
   const projectDependentQueriesEnabled =
     !!projectId && !!project && !projectAccessDenied;
@@ -635,7 +636,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [wipLimits, setWipLimits] = useState({
     planning: 3,
     review: 2,
-    implementation: 5,
+    implementation: 0,
   });
 
   const [selectedProjectManagerAgentId, setSelectedProjectManagerAgentId] =
@@ -682,18 +683,19 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         project.pull_request_reviewer_helix_app_id || "",
       );
 
-      const projectWipLimits = project.metadata?.board_settings?.wip_limits;
-      if (projectWipLimits) {
-        setWipLimits({
-          planning: projectWipLimits.planning || 3,
-          review: projectWipLimits.review || 2,
-          implementation: projectWipLimits.implementation || 5,
-        });
-      }
-
       setProjectSkills(project.skills);
       setProjectAgentTools(project.agent_tools ?? []);
     }
+  }, [project?.id, project?.updated_at]);
+
+  useEffect(() => {
+    if (!project) return;
+    const projectWipLimits = project.metadata?.board_settings?.wip_limits;
+    setWipLimits({
+      planning: projectWipLimits?.planning || 3,
+      review: projectWipLimits?.review || 2,
+      implementation: projectWipLimits?.implementation || 0,
+    });
   }, [project?.id, project?.updated_at]);
 
   const handleSave = async (showSuccessMessage = true) => {
@@ -1651,7 +1653,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           />
           <TextField
             label="Implementation Limit"
-            value={wipLimits.implementation}
+            value={wipLimits.implementation || defaultImplementationLimit}
             onChange={(e) =>
               setWipLimits({
                 ...wipLimits,

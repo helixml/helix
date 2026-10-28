@@ -484,7 +484,14 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 		return nil
 	}
 
-	planningLimit, reviewLimit, implementationLimit := getProjectWIPLimits(project)
+	implementationDefault := types.DefaultFreeImplementationTasks
+	if latestTask.JustDoItMode {
+		implementationDefault, err = ProjectImplementationWIPLimit(ctx, o.store, project)
+		if err != nil {
+			return fmt.Errorf("resolve implementation WIP limit: %w", err)
+		}
+	}
+	planningLimit, reviewLimit, implementationLimit := getProjectWIPLimits(project, implementationDefault)
 	planningCount := countTasksByStatus(allProjectTasks,
 		types.TaskStatusQueuedSpecGeneration,
 		types.TaskStatusSpecGeneration,
@@ -588,10 +595,10 @@ func (o *SpecTaskOrchestrator) getBacklogProjectLock(projectID string) (*sync.Mu
 	return lock.(*sync.Mutex), nil
 }
 
-func getProjectWIPLimits(project *types.Project) (int, int, int) {
+func getProjectWIPLimits(project *types.Project, implementationDefault int) (int, int, int) {
 	planningLimit := 3
 	reviewLimit := 2
-	implementationLimit := 5
+	implementationLimit := implementationDefault
 
 	if project.Metadata.BoardSettings != nil {
 		if project.Metadata.BoardSettings.WIPLimits.Planning > 0 {
@@ -606,6 +613,32 @@ func getProjectWIPLimits(project *types.Project) (int, int, int) {
 	}
 
 	return planningLimit, reviewLimit, implementationLimit
+}
+
+func ProjectImplementationWIPLimit(ctx context.Context, projectStore store.Store, project *types.Project) (int, error) {
+	if project.Metadata.BoardSettings != nil && project.Metadata.BoardSettings.WIPLimits.Implementation > 0 {
+		return project.Metadata.BoardSettings.WIPLimits.Implementation, nil
+	}
+	settings, err := projectStore.GetSystemSettings(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if !settings.EnforceQuotas {
+		return types.DefaultFreeImplementationTasks, nil
+	}
+	var wallet *types.Wallet
+	if project.OrganizationID != "" {
+		wallet, err = projectStore.GetWalletByOrg(ctx, project.OrganizationID)
+	} else if project.UserID != "" {
+		wallet, err = projectStore.GetWalletByUser(ctx, project.UserID)
+	}
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return 0, err
+	}
+	if wallet.UsesProQuotaTier() {
+		return types.DefaultProImplementationTasks, nil
+	}
+	return types.DefaultFreeImplementationTasks, nil
 }
 
 func countTasksByStatus(tasks []*types.SpecTask, statuses ...types.SpecTaskStatus) int {
@@ -660,7 +693,7 @@ func PlanningQueueReason(project *types.Project, projectTasks []*types.SpecTask,
 		return reason
 	}
 
-	planningLimit, reviewLimit, _ := getProjectWIPLimits(project)
+	planningLimit, reviewLimit, _ := getProjectWIPLimits(project, types.DefaultFreeImplementationTasks)
 	planningCount := countTasksByStatus(projectTasks, types.TaskStatusSpecGeneration)
 	reviewCount := countTasksByStatus(projectTasks,
 		types.TaskStatusSpecReview,
@@ -683,12 +716,12 @@ func PlanningQueueReason(project *types.Project, projectTasks []*types.SpecTask,
 // start now, otherwise the reason. Explicit starts can enter the queue without
 // passing through handleBacklog, so the queued-state gate must enforce the WIP
 // limit as well as dependencies.
-func ImplementationQueueReason(project *types.Project, projectTasks []*types.SpecTask, task *types.SpecTask) string {
+func ImplementationQueueReason(project *types.Project, projectTasks []*types.SpecTask, task *types.SpecTask, implementationDefault int) string {
 	if reason := dependencyQueueReason(projectTasks, task); reason != "" {
 		return reason
 	}
 
-	_, _, implementationLimit := getProjectWIPLimits(project)
+	_, _, implementationLimit := getProjectWIPLimits(project, implementationDefault)
 	implementationCount := countTasksByStatus(projectTasks,
 		types.TaskStatusImplementationQueued,
 		types.TaskStatusImplementation,
@@ -745,7 +778,7 @@ func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, t
 	}
 
 	if reason := PlanningQueueReason(project, projectTasks, latestTask); reason != "" {
-		planningLimit, reviewLimit, _ := getProjectWIPLimits(project)
+		planningLimit, reviewLimit, _ := getProjectWIPLimits(project, types.DefaultFreeImplementationTasks)
 		planningCount := countTasksByStatus(projectTasks, types.TaskStatusSpecGeneration)
 		reviewCount := countTasksByStatus(projectTasks,
 			types.TaskStatusSpecReview,
@@ -828,7 +861,11 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 			break
 		}
 	}
-	if reason := ImplementationQueueReason(project, projectTasks, latestTask); reason != "" {
+	implementationDefault, err := ProjectImplementationWIPLimit(ctx, o.store, project)
+	if err != nil {
+		return fmt.Errorf("resolve implementation WIP limit: %w", err)
+	}
+	if reason := ImplementationQueueReason(project, projectTasks, latestTask, implementationDefault); reason != "" {
 		log.Info().
 			Str("task_id", latestTask.ID).
 			Str("project_id", latestTask.ProjectID).
