@@ -18,7 +18,7 @@ export default function OrgBotSessionResolver() {
   const botID = router.params.bot_id || ''
   const botKey = `${orgID}:${botID}`
   const attemptedBot = useRef('')
-  const [activationErrorBotKey, setActivationErrorBotKey] = useState('')
+  const [activationError, setActivationError] = useState<{ botKey: string; message: string } | null>(null)
   const [readySession, setReadySession] = useState<{ botKey: string; sessionID: string } | null>(null)
   const [introConfirmedBotKey, setIntroConfirmedBotKey] = useState('')
   const {
@@ -53,12 +53,15 @@ export default function OrgBotSessionResolver() {
   }, [botID, orgID, sessionID])
 
   useEffect(() => {
-    if (botFetching || botError || !bot?.id || sessionID || attemptedBot.current === botKey
+    if (botFetching || botError || !bot?.id || bot.activation_error || sessionID || attemptedBot.current === botKey
       || bot.status === 'running' || bot.status === 'starting') return
     attemptedBot.current = botKey
-    setActivationErrorBotKey('')
-    activateBot.mutateAsync(botID).catch(() => setActivationErrorBotKey(botKey))
-  }, [bot?.id, bot?.status, botFetching, botError, botID, orgID, sessionID]) // eslint-disable-line react-hooks/exhaustive-deps
+    setActivationError(null)
+    activateBot.mutateAsync(botID).catch((error: any) => setActivationError({
+      botKey,
+      message: error?.response?.data?.error ?? error?.message ?? `Could not start ${agentName}.`,
+    }))
+  }, [bot?.id, bot?.status, bot?.activation_error, botFetching, botError, botID, orgID, sessionID]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!botNotFound || botID !== CHIEF_OF_STAFF_BOT_ID || !orgID) return
@@ -72,9 +75,16 @@ export default function OrgBotSessionResolver() {
   }, [router.params.intro, botFetching, botError, bot?.id, bot?.status, botID, orgID, sessionID])
 
   const retryActivation = () => {
-    setActivationErrorBotKey('')
-    activateBot.mutateAsync(botID).catch(() => setActivationErrorBotKey(botKey))
+    setActivationError(null)
+    activateBot.mutateAsync(botID).catch((error: any) => setActivationError({
+      botKey,
+      message: error?.response?.data?.error ?? error?.message ?? `Could not start ${agentName}.`,
+    }))
   }
+
+  const activationErrorMessage = activationError?.botKey === botKey
+    ? activationError.message
+    : bot?.activation_error
 
   if (readySession?.botKey === botKey && readySession.sessionID === sessionID) {
     return <Session key={sessionID} orgChatView sessionId={sessionID} />
@@ -107,10 +117,10 @@ export default function OrgBotSessionResolver() {
             Retry
           </Button>
         </>
-      ) : activationErrorBotKey === botKey ? (
+      ) : activationErrorMessage && !activateBot.isPending ? (
         <>
           <Typography color="error" role="alert">
-            Could not start {agentName}.
+            {activationErrorMessage}
           </Typography>
           <Button
             variant="contained"

@@ -70,6 +70,9 @@ type BotDTO struct {
 	// AgentWorkState is "working" only while the running Bot's latest
 	// interaction is still waiting for its external agent.
 	AgentWorkState types.AgentWorkState `json:"agent_work_state,omitempty"`
+	// ActivationError is the latest completed activation failure. It clears
+	// when a newer activation starts or succeeds.
+	ActivationError string `json:"activation_error,omitempty"`
 	// RestartRequired is true when the sandbox is running but still holds
 	// the tool list and instructions from before the last save. Drives the
 	// restart banner on the bot page and the org chat panel.

@@ -136,6 +136,11 @@ definitions:
     type: object
   api.BotDTO:
     properties:
+      activation_error:
+        description: |-
+          ActivationError is the latest completed activation failure. It clears
+          when a newer activation starts or succeeds.
+        type: string
       agent_model:
         type: string
       agent_runtime:

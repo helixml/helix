@@ -3,6 +3,7 @@
 // bot at a time. Header shows which bot you are talking to.
 
 import { FC, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -128,6 +129,7 @@ const HelixOrgChatPanel: FC = () => {
   // Project + session for the selected bot (detail endpoint carries project_id).
   const { data: botDetail, refetch: refetchBot } = useHelixOrgBot(selectedBotId || undefined, {
     enabled: !!selectedBotId,
+    refetchInterval: 2000,
   })
   const projectID = botDetail?.project_id
   const activateAgent = useActivateBot()
@@ -187,7 +189,6 @@ const HelixOrgChatPanel: FC = () => {
     if (!selectedBotId) return
     try {
       await activateAgent.mutateAsync(selectedBotId)
-      snackbar.success('Starting agent…')
       await pollForSession(chatSessionId, false)
       void refetchBot()
     } catch (err: any) {
@@ -411,6 +412,11 @@ const HelixOrgChatPanel: FC = () => {
           overflow: 'hidden',
         }}
       >
+        {botDetail?.bot?.activation_error && (
+          <Alert severity="error" role="alert" sx={{ flexShrink: 0 }}>
+            {botDetail.bot.activation_error}
+          </Alert>
+        )}
         <Box sx={{ flexShrink: 0 }}>
           <AgentRestartRequiredBanner
             key={selectedBotId}

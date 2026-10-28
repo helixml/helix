@@ -250,6 +250,46 @@ func TestActivate_InFlightActivationIsNotDispatchedAgain(t *testing.T) {
 	}
 }
 
+func TestLatestErrorClearsForPendingAndSuccessfulActivation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := memory.New()
+	svc := New(Deps{Repo: st.Activations})
+	workerID := orgchart.NodeID("b-worker")
+	started := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+
+	failed, err := activation.New("a-failed", workerID, []activation.Trigger{{Kind: activation.TriggerManual}}, started, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Create(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Complete(ctx, "org-test", failed.ID, activation.Outcome{Status: activation.StatusError, Error: "capacity reached"}, started.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.LatestError(ctx, "org-test", workerID); err != nil || got != "capacity reached" {
+		t.Fatalf("latest error = %q, %v", got, err)
+	}
+
+	pending, err := activation.New("a-pending", workerID, []activation.Trigger{{Kind: activation.TriggerManual}}, started.Add(2*time.Second), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Create(ctx, pending); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.LatestError(ctx, "org-test", workerID); err != nil || got != "" {
+		t.Fatalf("pending activation did not clear error: %q, %v", got, err)
+	}
+	if err := st.Activations.Complete(ctx, "org-test", pending.ID, activation.Outcome{Status: activation.StatusOK}, started.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.LatestError(ctx, "org-test", workerID); err != nil || got != "" {
+		t.Fatalf("successful activation did not clear error: %q, %v", got, err)
+	}
+}
+
 func TestActivate_EstablishedChiefOfStaffSessionUsesManual(t *testing.T) {
 	t.Parallel()
 	st := memory.New()

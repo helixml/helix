@@ -18,6 +18,7 @@
 
 import { FC, Key, useEffect, useMemo, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
+import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
@@ -261,7 +262,6 @@ const HelixOrgBotDetail: FC = () => {
     if (!botId || activateAgent.isPending) return
     try {
       await activateAgent.mutateAsync(botId)
-      snackbar.success('Starting org bot…')
       await pollForSession(chatSessionId, false)
       void refetchBot()
     } catch (err: any) {
@@ -501,6 +501,12 @@ const HelixOrgBotDetail: FC = () => {
                   sticky
                   onRestart={() => { if (bot.id) void applyBotConfig.mutateAsync(bot.id) }}
                 />
+
+                {bot.activation_error && (
+                  <Alert severity="error" role="alert" sx={{ mb: 2 }}>
+                    {bot.activation_error}
+                  </Alert>
+                )}
 
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>Name</Typography>

@@ -45,6 +45,7 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 	helixorg.RegisterConfigSpecs(reg)
 
 	const orgID = "org-test"
+	require.NoError(t, reg.Set(ctx, orgID, helixorgconfig.MaxConcurrentActivationsKey, `48`))
 	store := helixstore.NewMockStore(gomock.NewController(t))
 	store.EXPECT().GetOrganization(gomock.Any(), &helixstore.GetOrganizationQuery{ID: orgID}).
 		Return(&types.Organization{ID: orgID, Owner: "usr-owner"}, nil)
@@ -66,6 +67,7 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, cfg.ProjectService, "ProjectService must be wired — its absence used to nil-deref WorkerProject.Ensure at project.go:156")
+	require.Equal(t, 48, cfg.MaxInflight)
 	// Same pointer round-tripped — confirms the builder copies the
 	// host-provided service, not some other one constructed inside.
 	require.Same(t, projectSvc, cfg.ProjectService.(*inProcHelixClient))

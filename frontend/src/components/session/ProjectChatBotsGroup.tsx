@@ -107,7 +107,7 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
     try {
       if (action === 'start') {
         await activateBot.mutateAsync(bot.id)
-        snackbar.success(`Starting ${bot.name}…`)
+        openBot(bot)
       } else if (action === 'stop') {
         await stopBot.mutateAsync(bot.id)
         snackbar.success(`${bot.name} stopped`)
