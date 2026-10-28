@@ -100,6 +100,7 @@ import useSnackbar from "../../hooks/useSnackbar";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
+import { readResponseError } from "../../utils/responseError";
 import BacklogTableView from "./BacklogTableView";
 import VCSConnectionLozenges from "./VCSConnectionLozenges";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
@@ -1454,7 +1455,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         credentials: "include",
       });
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await readResponseError(response);
         // Open the matching provider connection flow on OAuth enforcement.
         if (
           response.status === 422 &&
@@ -1490,7 +1491,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         throw new Error(
           errorData.message ||
             errorData.error ||
-            `Failed to start planning: ${response.statusText}`,
+            `Failed to start planning: ${response.statusText || `HTTP ${response.status}`}`,
         );
       }
 

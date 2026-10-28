@@ -68,6 +68,7 @@ import useRouter from "../../hooks/useRouter";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
+import { readResponseError } from "../../utils/responseError";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import { deriveDisplaySettings, sandboxResolutionLabel } from "../../services/externalAgentDisplay";
 import { useStreaming } from "../../contexts/streaming";
@@ -1039,7 +1040,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         credentials: "include",
       });
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await readResponseError(response);
         // Open the matching provider connection flow on OAuth enforcement.
         if (
           response.status === 422 &&
@@ -1075,7 +1076,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         throw new Error(
           errorData.message ||
             errorData.error ||
-            `Failed to start planning: ${response.statusText}`,
+            `Failed to start planning: ${response.statusText || `HTTP ${response.status}`}`,
         );
       }
 

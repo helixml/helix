@@ -55,6 +55,7 @@ import useApi from "../../hooks/useApi";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
+import { readResponseError } from "../../utils/responseError";
 import { useUpdateSpecTask, useSpecTask } from "../../services/specTaskService";
 import { useQuery } from "@tanstack/react-query";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
@@ -855,7 +856,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
         credentials: "include",
       });
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await readResponseError(response);
         // 422 + oauth_required → open the GitHub connect flow so the user
         // can retry, instead of surfacing the raw error.
         if (
@@ -892,7 +893,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
         throw new Error(
           errorData.message ||
             errorData.error ||
-            `Failed to start planning: ${response.statusText}`,
+            `Failed to start planning: ${response.statusText || `HTTP ${response.status}`}`,
         );
       }
 
