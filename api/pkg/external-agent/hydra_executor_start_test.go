@@ -3,12 +3,14 @@ package external_agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 )
 
 func TestStartDesktopRejectsMissingEligibleSandboxRunner(t *testing.T) {
@@ -25,6 +27,41 @@ func TestStartDesktopRejectsMissingEligibleSandboxRunner(t *testing.T) {
 		DesktopType: "headless",
 	})
 	require.EqualError(t, err, `no eligible sandbox runner available for container type "headless" (required image "ubuntu"); check runner status, heartbeat, and advertised desktop image versions`)
+}
+
+func TestStartDesktopMissingPinnedRunnerFallsBackToPlacement(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	executor := newTestExecutor(mockStore)
+	session := &types.Session{ID: "ses_1"}
+
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_1").Return(session, nil).Times(2)
+	mockStore.EXPECT().GetSandboxInstance(gomock.Any(), "runner-gone").Return(nil, fmt.Errorf("error getting sandbox: %w", gorm.ErrRecordNotFound))
+	mockStore.EXPECT().FindAvailableSandboxInstance(gomock.Any(), "ubuntu", false).Return(nil, nil)
+
+	_, err := executor.StartDesktop(context.Background(), &types.DesktopAgent{
+		SessionID:   "ses_1",
+		SandboxID:   "runner-gone",
+		DesktopType: "headless",
+	})
+	require.EqualError(t, err, `no eligible sandbox runner available for container type "headless" (required image "ubuntu"); check runner status, heartbeat, and advertised desktop image versions`)
+}
+
+func TestStartDesktopPinnedRunnerLookupFailureDoesNotReselect(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	executor := newTestExecutor(mockStore)
+	session := &types.Session{ID: "ses_1"}
+
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_1").Return(session, nil).Times(2)
+	mockStore.EXPECT().GetSandboxInstance(gomock.Any(), "runner-1").Return(nil, errors.New("database unavailable"))
+
+	_, err := executor.StartDesktop(context.Background(), &types.DesktopAgent{
+		SessionID:   "ses_1",
+		SandboxID:   "runner-1",
+		DesktopType: "headless",
+	})
+	require.EqualError(t, err, "failed to load sandbox runner runner-1: database unavailable")
 }
 
 // A start that fails after the boot was marked (here: Hydra unreachable over
@@ -60,7 +97,7 @@ func TestStartDesktopFailureLeavesSessionStoppedWithReason(t *testing.T) {
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "usr_1"}).
 		Return(&types.User{ID: "usr_1", Email: "dev@example.com", FullName: "Dev"}, nil).AnyTimes()
 	mockStore.EXPECT().GetSandboxInstance(gomock.Any(), "sbx_1").
-		Return(&types.SandboxInstance{ID: "sbx_1", MaxSandboxes: 1}, nil)
+		Return(&types.SandboxInstance{ID: "sbx_1", Status: "offline", MaxSandboxes: 1}, nil)
 
 	_, err := executor.StartDesktop(context.Background(), &types.DesktopAgent{
 		SessionID:   "ses_1",
