@@ -6,7 +6,7 @@
 // `useHelixOrgBot`, and driving `AgentRestartRequiredBanner.visible` off
 // `bot.restart_required`.
 
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Session from './Session'
@@ -41,6 +41,8 @@ const mocks = vi.hoisted(() => ({
   restartRequired: false,
   restartMutateAsync: vi.fn(),
   restartIsPending: false,
+  activateMutateAsync: vi.fn(),
+  snackbarError: vi.fn(),
   pageProps: undefined as Record<string, unknown> | undefined,
 }))
 
@@ -53,13 +55,13 @@ const sessionData = {
   type: 'text',
   mode: 'inference',
   interactions: [] as unknown[],
-  config: { org_worker_id: 'bot-one' },
+  config: { org_worker_id: 'bot-one' } as { org_worker_id: string; agent_type?: string },
 }
 
 vi.mock('../hooks/useRouter', () => ({ default: () => mocks.router }))
 vi.mock('../hooks/useApi', () => ({ default: () => ({ getApiClient: () => ({}) }) }))
 vi.mock('../hooks/useSnackbar', () => ({
-  default: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }),
+  default: () => ({ success: vi.fn(), error: mocks.snackbarError, info: vi.fn() }),
 }))
 vi.mock('../hooks/useAccount', () => ({
   default: () => ({
@@ -79,7 +81,11 @@ vi.mock('../hooks/useSubscriptionGate', () => ({
 vi.mock('../hooks/useCodeAgentConfigChange', () => ({ default: () => vi.fn() }))
 vi.mock('@mui/material/useMediaQuery', () => ({ default: () => true }))
 vi.mock('../contexts/streaming', () => ({
-  useStreaming: () => ({ NewInference: vi.fn(), setCurrentSessionId: vi.fn() }),
+  useStreaming: () => ({
+    NewInference: vi.fn(),
+    setCurrentSessionId: vi.fn(),
+    currentResponses: new Map(),
+  }),
 }))
 vi.mock('../services/sessionService', () => ({
   useGetSession: (sessionId: string) => {
@@ -109,7 +115,7 @@ vi.mock('../services/helixOrgService', () => ({
     isPending: mocks.restartIsPending,
   }),
   useApplyBotConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useActivateBot: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useActivateBot: () => ({ mutateAsync: mocks.activateMutateAsync, isPending: false }),
   useStopBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 vi.mock('../components/system/Page', () => ({
@@ -119,10 +125,16 @@ vi.mock('../components/system/Page', () => ({
   },
 }))
 vi.mock('../components/helix-org/OrgAgentSessionWorkspace', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  default: ({ children, onStart }: { children: React.ReactNode; onStart?: () => void }) => (
+    <div>
+      {onStart && <button onClick={onStart}>Start agent</button>}
+      {children}
+    </div>
+  ),
 }))
 vi.mock('../components/session/InteractionLiveStream', () => ({ default: () => null }))
 vi.mock('../components/session/Interaction', () => ({ default: () => null }))
+vi.mock('../components/session/AgentChat', () => ({ default: () => <div>Agent chat</div> }))
 vi.mock('../components/session/SessionToolbar', () => ({ default: () => null }))
 vi.mock('../components/session/ChatTurnNavigator', () => ({ default: () => null }))
 vi.mock('../components/common/RobustPromptInput', () => ({ default: () => <div>Prompt input</div> }))
@@ -136,9 +148,13 @@ describe('Session org chat restart banner', () => {
     mocks.restartRequired = false
     mocks.restartMutateAsync.mockReset()
     mocks.restartIsPending = false
+    mocks.activateMutateAsync.mockReset()
+    mocks.activateMutateAsync.mockResolvedValue({})
+    mocks.snackbarError.mockReset()
     mocks.pageProps = undefined
     sessionData.project_id = ''
     sessionData.config.org_worker_id = 'bot-one'
+    delete sessionData.config.agent_type
   })
 
   it('shows the restart banner when the session bot reports stale config', async () => {
@@ -152,6 +168,22 @@ describe('Session org chat restart banner', () => {
     render(<Session orgChatView />)
     await screen.findByText('Prompt input')
     expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()
+  })
+
+  it('shows the API error when starting the bot is rejected', async () => {
+    sessionData.config.agent_type = 'zed_external'
+    mocks.activateMutateAsync.mockRejectedValue({
+      response: { data: { error: 'This organization is already running 32 agents. Stop one and try again.' } },
+    })
+    render(<Session orgChatView />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start agent' }))
+
+    await waitFor(() => {
+      expect(mocks.snackbarError).toHaveBeenCalledWith(
+        'This organization is already running 32 agents. Stop one and try again.',
+      )
+    })
   })
 
   it('does not scroll to the latest message after the user scrolls up', () => {

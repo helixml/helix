@@ -17,6 +17,19 @@ func TestRegisterConfigSpecsDoesNotExposeHelixURL(t *testing.T) {
 	}
 }
 
+func TestRegisterConfigSpecsDefaultsOrganizationActivationLimit(t *testing.T) {
+	t.Parallel()
+	reg := helixorgconfig.New(orggorm.GetOrgTestDB(t).Configs)
+	RegisterConfigSpecs(reg)
+	limit, err := reg.GetMaxConcurrentActivations(context.Background(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if limit != 32 {
+		t.Fatalf("activation limit = %d, want 32", limit)
+	}
+}
+
 // TestRegisterHelixOrgConfigSpecs_RedactsTransportGitHubSecrets pins
 // down the spec registration for `transport.github`: both `token` and
 // `webhook_secret` MUST be redacted on `config get`. Without this, a

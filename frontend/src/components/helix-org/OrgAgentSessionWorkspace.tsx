@@ -10,6 +10,7 @@
 
 import { FC, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
+import Alert from '@mui/material/Alert'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import { PanelLeft, PanelRight } from 'lucide-react'
@@ -396,9 +397,16 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     />
   ) : null
 
+  const activationError = bot?.activation_error ? (
+    <Alert severity="error" role="alert" sx={{ flexShrink: 0 }}>
+      {bot.activation_error}
+    </Alert>
+  ) : null
+
   if (!isBigScreen) {
     return (
       <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {activationError}
         <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {content()}
         </Box>
@@ -410,6 +418,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   if (chatCollapsed) {
     return (
       <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {activationError}
         <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {content(true)}
         </Box>
@@ -420,6 +429,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
 
   return (
     <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    {activationError}
     <PanelGroup
       id="org-agent-session-workspace"
       orientation="horizontal"

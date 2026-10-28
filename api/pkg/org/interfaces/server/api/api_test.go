@@ -27,6 +27,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/triggers"
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -317,6 +318,44 @@ func TestPutSetting_PersistsValue(t *testing.T) {
 	}
 	if row.Value != `"zed_agent"` {
 		t.Errorf("value: got %q, want %q", row.Value, `"zed_agent"`)
+	}
+}
+
+func TestPutSettingRejectsNonPositiveActivationLimit(t *testing.T) {
+	deps, _, reg := newDeps(t)
+	reg.Register(configregistry.Spec{Key: configregistry.MaxConcurrentActivationsKey, Type: configregistry.TypeInt, Default: `32`})
+	h := orgapi.Handler(deps)
+	for _, value := range []string{`0`, `-1`} {
+		rec := do(t, h, "PUT", "/settings/"+configregistry.MaxConcurrentActivationsKey, orgapi.SetSettingRequest{Value: value})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("PUT %s status = %d, want 400", value, rec.Code)
+		}
+	}
+}
+
+func TestGetBotSurfacesLatestActivationError(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedBot(t, st, ctx, "b-worker", "# Worker")
+	started := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	act, err := activation.New("a-failed", "b-worker", []activation.Trigger{{Kind: activation.TriggerManual}}, started, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Create(ctx, act); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Complete(ctx, "org-test", act.ID, activation.Outcome{Status: activation.StatusError, Error: "organization capacity reached"}, started.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, orgapi.Handler(deps), "GET", "/bots/b-worker", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var detail orgapi.BotDetailDTO
+	decode(t, rec, &detail)
+	if detail.Bot.ActivationError != "organization capacity reached" {
+		t.Fatalf("activation error = %q", detail.Bot.ActivationError)
 	}
 }
 

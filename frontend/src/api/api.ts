@@ -94,6 +94,11 @@ export interface ApiBotChatDTO {
 }
 
 export interface ApiBotDTO {
+  /**
+   * ActivationError is the latest completed activation failure. It clears
+   * when a newer activation starts or succeeds.
+   */
+  activation_error?: string;
   agent_model?: string;
   agent_runtime?: string;
   /**

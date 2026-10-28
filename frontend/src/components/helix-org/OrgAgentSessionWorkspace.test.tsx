@@ -90,6 +90,26 @@ describe('OrgAgentSessionWorkspace', () => {
     expect(screen.getByText('Desktop for session-one')).toBeInTheDocument()
   })
 
+  it('shows the latest activation error above the workspace', () => {
+    render(
+      <OrgAgentSessionWorkspace
+        sessionId="session-error"
+        organizationId="acme"
+        bot={{
+          ...runningBot,
+          status: 'stopped',
+          activation_error: 'This organization is already running 32 agents. Stop one and try again.',
+        } as any}
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'This organization is already running 32 agents. Stop one and try again.',
+    )
+  })
+
   it('collapses and restores both sides of the desktop split', () => {
     render(
       <OrgAgentSessionWorkspace sessionId="session-panels" organizationId="acme">

@@ -193,6 +193,13 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 
 	dto := botDTO(b, a.managerIDs(ctx, orgID, id))
 	a.applyCanonicalAgentProfile(ctx, b, &dto, "get org bot")
+	if a.deps.Activations != nil {
+		dto.ActivationError, err = a.deps.Activations.LatestError(ctx, orgID, id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("get bot %s activation status: %w", id, err))
+			return
+		}
+	}
 	// Seeded nodes carry their built-in prompt so the UI can offer a
 	// reset to it; operator-created nodes have none and the field stays
 	// empty, which is the UI's signal to hide the affordance.

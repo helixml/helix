@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/transcript"
@@ -28,10 +29,38 @@ import (
 // ProjectID of its own — every AI Worker gets its own Helix project,
 // applied at hire time and persisted in the NodeRuntimeState
 // sidecar under the "helix" backend.
-// DefaultMaxInflight bounds concurrent activations when a SpawnerConfig
-// doesn't set MaxInflight. The host also uses it to size the shared
-// semaphore it injects via SpawnerConfig.Sem.
-const DefaultMaxInflight = 8
+// DefaultMaxInflight bounds concurrent activations within one organization.
+const DefaultMaxInflight = 32
+
+var ErrActivationCapacity = errors.New("organization activation capacity reached")
+
+// InflightLimiter applies independent activation limits per organization.
+type InflightLimiter struct {
+	mu     sync.Mutex
+	active map[string]int
+}
+
+func NewInflightLimiter() *InflightLimiter {
+	return &InflightLimiter{active: make(map[string]int)}
+}
+
+func (l *InflightLimiter) TryAcquire(orgID string, limit int) (int, func(), bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	active := l.active[orgID]
+	if active >= limit {
+		return active, nil, false
+	}
+	l.active[orgID] = active + 1
+	return active + 1, func() {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		l.active[orgID]--
+		if l.active[orgID] == 0 {
+			delete(l.active, orgID)
+		}
+	}, true
+}
 
 type SpawnerConfig struct {
 	Client         SpawnerClient
@@ -104,14 +133,9 @@ type SpawnerConfig struct {
 	// session API.
 	ActivationRunawayGuard time.Duration
 	MaxInflight            int
-	// Sem, when non-nil, is the inflight semaphore the Spawner acquires
-	// a slot from instead of minting its own from MaxInflight. The host
-	// builds one fresh SpawnerConfig per activation (so OrgID /
-	// OrgID stays scoped to the activating org — never frozen to
-	// whichever org activated first), and shares a single Sem across all
-	// of them to keep one process-wide inflight cap. Nil falls back to a
-	// per-config semaphore of size MaxInflight.
-	Sem         chan struct{}
+	// Limiter is shared by per-activation configs while keeping counts
+	// isolated by organization. Nil creates a limiter local to this Spawner.
+	Limiter     *InflightLimiter
 	PollInitial time.Duration // default 250ms
 	PollMax     time.Duration // default 30s
 	Logger      *slog.Logger
@@ -150,12 +174,9 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 	if cfg.MaxInflight <= 0 {
 		cfg.MaxInflight = DefaultMaxInflight
 	}
-	// Prefer a host-supplied shared semaphore so multiple per-org
-	// SpawnerConfigs enforce one global inflight cap; otherwise mint one
-	// sized to this config's MaxInflight.
-	sem := cfg.Sem
-	if sem == nil {
-		sem = make(chan struct{}, cfg.MaxInflight)
+	limiter := cfg.Limiter
+	if limiter == nil {
+		limiter = NewInflightLimiter()
 	}
 	return func(ctx context.Context, orgID string, workerID orgchart.NodeID, triggers []activation.Trigger) (retErr error) {
 		if len(triggers) == 0 {
@@ -167,16 +188,6 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		if cfg.Store == nil {
 			return errors.New("helix spawner: store is nil")
 		}
-		// Acquire global slot. The dispatcher serialises per-Worker, so
-		// blocking here only delays one Worker behind the rest of the
-		// org under burst load.
-		select {
-		case sem <- struct{}{}:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		defer func() { <-sem }()
-
 		// Record the audit row for this activation. Failures here are
 		// best-effort during the B5 transition — the transcript topic
 		// (next block) is still the primary record until callers depend
@@ -211,6 +222,20 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			recordTranscript(ctx, cfg, orgID, workerID, topicID, body)
 		}
 		publish(fmt.Sprintf("=== activation: %s ===", briefing.DescribeTriggers(triggers)))
+
+		active, release, ok := limiter.TryAcquire(orgID, cfg.MaxInflight)
+		if !ok {
+			err := fmt.Errorf("%w: %d bot activations are already running for this organization (limit %d); wait for one to finish or stop another bot, then try again", ErrActivationCapacity, active, cfg.MaxInflight)
+			if cfg.Logger != nil {
+				cfg.Logger.Warn("helix spawner: organization activation capacity reached", "org_id", orgID, "worker_id", workerID, "active", active, "limit", cfg.MaxInflight)
+			}
+			publish(activation.OutcomeFromError(err).Marker())
+			if triggers[0].Kind == activation.TriggerManual || triggers[0].Kind == activation.TriggerHire {
+				return activation.NonRetryable(err)
+			}
+			return err
+		}
+		defer release()
 
 		// Two deadlines, two phases. Startup work (project apply, MCP
 		// re-attach, secret injection, session creation, transcript WS
