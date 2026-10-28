@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -169,7 +170,15 @@ func (c *Controller) ensureSandboxLimitsForType(ctx context.Context, orgID, pric
 	}
 	limit := settings.EffectiveMaxConcurrentHeadlessSandboxes()
 	if pricingType == "desktop" {
-		limit = settings.EffectiveMaxConcurrentDesktopSandboxes()
+		pro := false
+		if settings.EnforceQuotas && settings.MaxConcurrentDesktopSandboxes <= 0 {
+			wallet, err := c.store.GetWalletByOrg(ctx, orgID)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("get organization wallet: %w", err)
+			}
+			pro = wallet.UsesProQuotaTier()
+		}
+		limit = settings.EffectiveMaxConcurrentDesktopSandboxesForPlan(pro)
 	}
 
 	sandboxes, err := c.store.ListSandboxes(ctx, &store.ListSandboxesQuery{

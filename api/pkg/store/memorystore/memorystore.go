@@ -63,6 +63,10 @@ func New() *MemoryStore {
 	}
 }
 
+func (m *MemoryStore) GetSystemSettings(_ context.Context) (*types.SystemSettings, error) {
+	return &types.SystemSettings{}, nil
+}
+
 // --- Test validation helpers (not part of store.Store interface) ---
 
 // GetAllSessions returns all sessions for test validation.

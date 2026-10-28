@@ -66,6 +66,21 @@ func (w *Wallet) HasPaidPlan() bool {
 	return w.IsSubscriptionActive()
 }
 
+// UsesProQuotaTier matches the subscription quota resolver. A status without
+// a Stripe subscription ID is stale state, not a paid subscription.
+func (w *Wallet) UsesProQuotaTier() bool {
+	if w == nil {
+		return false
+	}
+	switch w.PlanOverride {
+	case PlanOverridePro:
+		return true
+	case PlanOverrideFree:
+		return false
+	}
+	return w.StripeSubscriptionID != "" && w.IsSubscriptionActive()
+}
+
 type TransactionMetadata struct {
 	InteractionID           string          `json:"interaction_id"`
 	LLMCallID               string          `json:"llm_call_id"`

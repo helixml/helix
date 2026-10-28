@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -727,6 +728,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_ClaimsAcr
 	}).DoAndReturn(func(context.Context, *types.SpecTaskFilters) ([]*types.SpecTask, error) {
 		return []*types.SpecTask{newTaskSnapshot()}, nil
 	}).Times(2)
+	s.store.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{}, nil).Times(2)
 
 	var claimAttempts atomic.Int32
 	s.store.EXPECT().TransitionSpecTaskStatus(
@@ -1035,12 +1037,117 @@ func TestImplementationQueueReason(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ImplementationQueueReason(project, tt.projectTasks, tt.task)
+			got := ImplementationQueueReason(project, tt.projectTasks, tt.task, types.DefaultFreeImplementationTasks)
 			if tt.wantEmpty {
 				assert.Empty(t, got)
 			} else {
 				assert.Contains(t, got, tt.wantContains)
 			}
+		})
+	}
+}
+
+func TestImplementationQueueReasonUsesPlanDefaultAndProjectOverride(t *testing.T) {
+	queued := &types.SpecTask{ID: "queued", Status: types.TaskStatusQueuedImplementation}
+	tasks := make([]*types.SpecTask, 29)
+	for i := range tasks {
+		tasks[i] = &types.SpecTask{Status: types.TaskStatusImplementation}
+	}
+
+	assert.Empty(t, ImplementationQueueReason(&types.Project{}, tasks, queued, types.DefaultProImplementationTasks))
+	tasks = append(tasks, &types.SpecTask{Status: types.TaskStatusImplementation})
+	assert.Contains(t, ImplementationQueueReason(&types.Project{}, tasks, queued, types.DefaultProImplementationTasks), "limit 30")
+
+	project := &types.Project{Metadata: types.ProjectMetadata{BoardSettings: &types.BoardSettings{
+		WIPLimits: types.WIPLimits{Implementation: 5},
+	}}}
+	assert.Contains(t, ImplementationQueueReason(project, tasks[:5], queued, types.DefaultProImplementationTasks), "limit 5")
+}
+
+func TestProjectImplementationWIPLimit(t *testing.T) {
+	t.Run("pro", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		projectStore := store.NewMockStore(ctrl)
+		ctx := context.Background()
+		project := &types.Project{OrganizationID: "org_1"}
+
+		projectStore.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{EnforceQuotas: true}, nil)
+		projectStore.EXPECT().GetWalletByOrg(ctx, "org_1").Return(&types.Wallet{PlanOverride: types.PlanOverridePro}, nil)
+		limit, err := ProjectImplementationWIPLimit(ctx, projectStore, project)
+		require.NoError(t, err)
+		assert.Equal(t, types.DefaultProImplementationTasks, limit)
+	})
+
+	t.Run("quotas disabled", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		projectStore := store.NewMockStore(ctrl)
+		ctx := context.Background()
+
+		projectStore.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{}, nil)
+		limit, err := ProjectImplementationWIPLimit(ctx, projectStore, &types.Project{OrganizationID: "org_1"})
+		require.NoError(t, err)
+		assert.Equal(t, types.DefaultFreeImplementationTasks, limit)
+	})
+}
+
+func TestProImplementationLimitAtOrchestratorBoundaries(t *testing.T) {
+	for _, count := range []int{29, 30} {
+		t.Run(fmt.Sprintf("backlog_%d", count), func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			projectStore := store.NewMockStore(ctrl)
+			orchestrator := &SpecTaskOrchestrator{store: projectStore}
+			ctx := context.Background()
+			task := &types.SpecTask{ID: "task", ProjectID: "project", Status: types.TaskStatusBacklog, JustDoItMode: true}
+			project := &types.Project{ID: "project", OrganizationID: "org", AutoStartBacklogTasks: true}
+			tasks := make([]*types.SpecTask, count, count+1)
+			for i := range tasks {
+				tasks[i] = &types.SpecTask{Status: types.TaskStatusImplementation}
+			}
+			tasks = append(tasks, task)
+
+			projectStore.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{EnforceQuotas: true}, nil)
+			projectStore.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+			projectStore.EXPECT().GetProject(ctx, project.ID).Return(project, nil)
+			projectStore.EXPECT().ListSpecTasks(ctx, gomock.Any()).Return(tasks, nil)
+			projectStore.EXPECT().GetWalletByOrg(ctx, "org").Return(&types.Wallet{PlanOverride: types.PlanOverridePro}, nil)
+			if count == 29 {
+				projectStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, got *types.SpecTask) error {
+					assert.Equal(t, types.TaskStatusQueuedImplementation, got.Status)
+					return nil
+				})
+			}
+			require.NoError(t, orchestrator.handleBacklog(ctx, task))
+		})
+
+		t.Run(fmt.Sprintf("queued_%d", count), func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			projectStore := store.NewMockStore(ctrl)
+			workflow := &countingSpecTaskWorkflowService{}
+			orchestrator := &SpecTaskOrchestrator{store: projectStore, specTaskService: workflow}
+			ctx := context.Background()
+			task := &types.SpecTask{ID: "task", ProjectID: "project", Status: types.TaskStatusQueuedImplementation}
+			project := &types.Project{ID: "project", OrganizationID: "org"}
+			tasks := make([]*types.SpecTask, count, count+1)
+			for i := range tasks {
+				tasks[i] = &types.SpecTask{Status: types.TaskStatusImplementation}
+			}
+			tasks = append(tasks, task)
+
+			projectStore.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{EnforceQuotas: true}, nil)
+			projectStore.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+			projectStore.EXPECT().GetProject(ctx, project.ID).Return(project, nil)
+			projectStore.EXPECT().ListSpecTasks(ctx, gomock.Any()).Return(tasks, nil)
+			projectStore.EXPECT().GetWalletByOrg(ctx, "org").Return(&types.Wallet{PlanOverride: types.PlanOverridePro}, nil)
+			if count == 29 {
+				projectStore.EXPECT().TransitionSpecTaskStatus(ctx, task.ID, []types.SpecTaskStatus{types.TaskStatusQueuedImplementation}, types.TaskStatusImplementation, nil).Return(true, nil)
+			}
+			require.NoError(t, orchestrator.handleQueuedImplementation(ctx, task))
+			orchestrator.wg.Wait()
+			expectedStarts := int32(0)
+			if count == 29 {
+				expectedStarts = 1
+			}
+			assert.Equal(t, expectedStarts, workflow.justDoItStarts.Load())
 		})
 	}
 }

@@ -316,3 +316,25 @@ func TestBatchTaskProgressExcludesPreparingTasks(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, response.Code)
 }
+
+func TestPopulateQueueReasonsUsesProImplementationLimit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	ctx := context.Background()
+	project := &types.Project{ID: "project", OrganizationID: "org"}
+	queued := &types.SpecTask{ID: "queued", ProjectID: project.ID, Status: types.TaskStatusQueuedImplementation}
+	projectTasks := make([]*types.SpecTask, 30, 31)
+	for i := range projectTasks {
+		projectTasks[i] = &types.SpecTask{Status: types.TaskStatusImplementation}
+	}
+	projectTasks = append(projectTasks, queued)
+
+	mockStore.EXPECT().GetProject(ctx, project.ID).Return(project, nil)
+	mockStore.EXPECT().ListSpecTasks(ctx, gomock.Any()).Return(projectTasks, nil)
+	mockStore.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{EnforceQuotas: true}, nil)
+	mockStore.EXPECT().GetWalletByOrg(ctx, "org").Return(&types.Wallet{PlanOverride: types.PlanOverridePro}, nil)
+
+	server.populateQueueReasons(ctx, project.ID, []*types.SpecTask{queued})
+	require.Contains(t, queued.QueueReason, "limit 30")
+}

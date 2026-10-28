@@ -5583,6 +5583,7 @@ export interface TypesProject {
   /** Incremented on each update */
   guidelines_version?: number;
   id?: string;
+  implementation_limit?: number;
   kodit_enabled?: boolean;
   /** LastActivityAt is the latest active task or chat activity for sidebar ordering. */
   last_activity_at?: string;

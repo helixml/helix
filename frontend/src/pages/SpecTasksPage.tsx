@@ -107,6 +107,7 @@ const SpecTasksPage: FC = () => {
     error: projectError,
   } = useGetProject(projectId || "", !!projectId);
   const projectAccessDenied = isProjectAccessDeniedError(projectError);
+  const defaultImplementationLimit = project?.implementation_limit || 5;
   const projectDependentQueriesEnabled =
     !!projectId && !!project && !projectAccessDenied;
 
@@ -334,13 +335,13 @@ const SpecTasksPage: FC = () => {
 
   const boardWipLimits = useMemo(() => {
     const limits = project?.metadata?.board_settings?.wip_limits;
-    if (!limits) return undefined;
     return {
-      planning: limits.planning ?? 3,
-      review: limits.review ?? 2,
-      implementation: limits.implementation ?? 5,
+      planning: limits?.planning || 3,
+      review: limits?.review || 2,
+      implementation:
+        limits?.implementation || defaultImplementationLimit,
     };
-  }, [project?.metadata?.board_settings?.wip_limits]);
+  }, [project?.metadata?.board_settings?.wip_limits, defaultImplementationLimit]);
 
   // Track newly created task ID for focusing "Start Planning" button
   const [focusTaskId, setFocusTaskId] = useState<string | undefined>(undefined);

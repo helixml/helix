@@ -1,5 +1,12 @@
 package types
 
+const (
+	DefaultFreeImplementationTasks = 5
+	DefaultProImplementationTasks  = 30
+	DefaultFreeDesktopSandboxes    = 10
+	DefaultProDesktopSandboxes     = 30
+)
+
 type QuotaRequest struct {
 	UserID         string
 	OrganizationID string // Optional

@@ -227,6 +227,10 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	project.ImplementationLimit, err = services.ProjectImplementationWIPLimit(r.Context(), s.Store, project)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("resolve implementation WIP limit: %s", err))
+	}
 
 	cacheStatus, err := s.dockerCacheStatus(r.Context(), project.ID)
 	if err != nil {
