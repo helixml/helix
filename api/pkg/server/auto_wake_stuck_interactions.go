@@ -150,6 +150,10 @@ const (
 	//
 	// Override at runtime with HELIX_COLD_START_GRACE_SECONDS.
 	defaultColdStartGracePeriod = 5 * time.Minute
+
+	// agentNeverConnectedReason is the user-facing error shown when cold-start
+	// retries are exhausted without the agent opening its WebSocket.
+	agentNeverConnectedReason = "The AI agent didn't come online in time, so this message wasn't delivered. Try sending it again, or restart the desktop if this keeps happening."
 )
 
 // autoWakeStuckThreshold returns the configured stuck threshold.
@@ -489,7 +493,7 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 	}
 
 	if stuck.AutoWakeCount >= autoWakeMaxRetries {
-		reason := "The AI agent didn't come online in time, so this message wasn't delivered. Try sending it again, or restart the desktop if this keeps happening."
+		reason := agentNeverConnectedReason
 		// Before giving up with the generic banner, see if the dev
 		// container's workspace-setup script wrote a failure sentinel.
 		// If it did, the real cause is in there (e.g. a clone 403) and
