@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -330,6 +331,10 @@ func isHelixOrgPrivilegedMutation(r *http.Request) bool {
 // sees the same flat paths it serves from the standalone server's
 // own mux (/chart, /workers, /roles, …). The {org} segment is
 // captured by gorilla mux and stitched back into the prefix here.
+//
+// A forwarded path that is itself org-scoped (/orgs/...) is refused: the
+// outer middleware authorised exactly one org, and no inner route may
+// re-scope the request to another one from the URL.
 func stripOrgScopedPrefix(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		orgSeg := mux.Vars(r)["org"]
@@ -343,8 +348,20 @@ func stripOrgScopedPrefix(next http.Handler) http.Handler {
 		if stripped.URL.Path == "" {
 			stripped.URL.Path = "/"
 		}
+		if !strings.HasPrefix(stripped.URL.Path, "/") || isNestedOrgPath(stripped.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
 		stripped.URL.RawPath = ""
 		stripped.RequestURI = stripped.URL.RequestURI()
 		next.ServeHTTP(w, stripped)
 	})
+}
+
+// isNestedOrgPath reports whether a path forwarded past the org-scope prefix
+// still addresses an org, after cleaning so "//orgs" or "/./orgs" can't
+// slip past.
+func isNestedOrgPath(p string) bool {
+	cleaned := path.Clean(p)
+	return cleaned == "/orgs" || strings.HasPrefix(cleaned, "/orgs/")
 }
