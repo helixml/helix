@@ -21,9 +21,9 @@ import {
 import { AGENT_TYPE_ZED_EXTERNAL, IApp, IAssistantConfig } from "../../types";
 import useSnackbar from "../../hooks/useSnackbar";
 import {
-  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
-  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
-} from "../agent/CodingAgentForm";
+  CodeAgentModelCatalogue,
+  useCodeAgentModelCatalogue,
+} from "../../hooks/useCodeAgentModelCatalogue";
 import AgentHarness, { getAgentHarnessLabel } from "../agent/AgentHarness";
 import { getCodeAgentEffortOptions } from "../agent/CodeAgentEffortSelect";
 import { useModelReasoningEfforts } from "../../hooks/useModelReasoningEfforts";
@@ -77,19 +77,19 @@ function getAssistant(agent?: IApp): IAssistantConfig | undefined {
   ) || agent?.config?.helix?.assistants?.[0];
 }
 
-function getBaseModel(assistant?: IAssistantConfig): string {
+function getBaseModel(catalogue: CodeAgentModelCatalogue, assistant?: IAssistantConfig): string {
   if (!assistant) return "";
   if (
     assistant.code_agent_runtime === "claude_code" &&
     assistant.code_agent_credential_type === "subscription"
   ) {
-    return assistant.claude_subscription_model || DEFAULT_CLAUDE_SUBSCRIPTION_MODEL;
+    return assistant.claude_subscription_model || catalogue.defaultClaudeModel;
   }
   if (
     assistant.code_agent_runtime === "codex_cli" &&
     assistant.code_agent_credential_type === "subscription"
   ) {
-    return assistant.model || DEFAULT_CODEX_SUBSCRIPTION_MODEL;
+    return assistant.model || catalogue.defaultCodexModel;
   }
   if (assistant.code_agent_runtime === "claude_code") {
     return assistant.generation_model || assistant.model || "";
@@ -120,6 +120,7 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   grouped = false,
 }) => {
   const snackbar = useSnackbar();
+  const catalogue = useCodeAgentModelCatalogue();
   const [agentSettingsAnchor, setAgentSettingsAnchor] = useState<HTMLElement | null>(null);
   const [cpuAnchor, setCpuAnchor] = useState<HTMLElement | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -130,7 +131,7 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   );
   const assistant = useMemo(() => getAssistant(agent), [agent]);
   const runtime = assistant?.code_agent_runtime || currentExecutionConfig?.runtime || "zed_agent";
-  const effectiveModel = codeAgentOverrides.model || getBaseModel(assistant) || currentExecutionConfig?.model || "";
+  const effectiveModel = codeAgentOverrides.model || getBaseModel(catalogue, assistant) || currentExecutionConfig?.model || "";
   const effectiveProvider = codeAgentOverrides.provider_ref || getBaseProvider(assistant) || currentExecutionConfig?.provider_ref || "";
   const effectiveEffort = codeAgentOverrides.reasoning_effort
     || assistant?.reasoning_effort
@@ -167,7 +168,7 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
     try {
       const targetAgent = agents.find((candidate) => candidate.id === agentId);
       const taskConfig = targetAgent
-        ? codeAgentExecutionConfigFromApp(targetAgent, next)
+        ? codeAgentExecutionConfigFromApp(targetAgent, catalogue.defaultClaudeModel, next)
         : currentExecutionConfig?.code_agent_config
           ? {
               ...currentExecutionConfig.code_agent_config,

@@ -82,6 +82,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	}
 
 	config := types.ServerConfigForFrontend{
+		CodeAgentModels: types.CodeAgentModels,
 		RegistrationEnabled:                    apiServer.Cfg.Auth.RegistrationEnabled,
 		RequireActiveSubscription:              apiServer.Cfg.Stripe.RequireActiveSubscription,
 		AuthProvider:                           apiServer.Cfg.Auth.Provider,

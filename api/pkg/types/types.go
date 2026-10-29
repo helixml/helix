@@ -1240,6 +1240,10 @@ type Usage struct {
 // this is returned by the api server so that clients can see what
 // config it's using e.g. filestore prefix
 type ServerConfigForFrontend struct {
+	// CodeAgentModels is the vendor model catalogue per coding-agent harness,
+	// best first (see CodeAgentModels). The UI pickers and their defaults read it
+	// from here so the backend list is the only place it is maintained.
+	CodeAgentModels map[CodeAgentRuntime][]CodeAgentModelOption `json:"code_agent_models"`
 	// used to prepend onto raw filestore paths to download files
 	// the filestore path will have the user info in it - i.e.
 	// it's a low level filestore path
@@ -1728,7 +1732,7 @@ type AssistantConfig struct {
 	// CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
 	// which the claude-agent-acp package reads (resolveModelPreference) to pick the
 	// model — otherwise Claude Code defaults to Sonnet. Empty means
-	// "claude-opus-5-5" (the current 1M-context Opus model).
+	// DefaultCodeAgentModel(CodeAgentRuntimeClaudeCode), the top of CodeAgentModels.
 	ClaudeSubscriptionModel string `json:"claude_subscription_model,omitempty" yaml:"claude_subscription_model,omitempty"`
 
 	// GooseRecipeRepoURL is the external git URL of the attached repository

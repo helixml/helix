@@ -12,8 +12,14 @@ function codeAssistant(app?: IApp): IAssistantConfig | undefined {
   ) || app?.config?.helix?.assistants?.[0]
 }
 
+/**
+ * defaultClaudeModel is the backend catalogue's default
+ * (useCodeAgentModelCatalogue().defaultClaudeModel), used when a Claude
+ * subscription agent names no model.
+ */
 export function codeAgentExecutionConfigFromApp(
   app: IApp | undefined,
+  defaultClaudeModel: string,
   overrides: TypesCodeAgentOverrides = {},
 ): TypesCodeAgentExecutionConfig | undefined {
   const assistant = codeAssistant(app)
@@ -27,7 +33,7 @@ export function codeAgentExecutionConfigFromApp(
 
   if (runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode) {
     if (subscription) {
-      model = assistant.claude_subscription_model || 'claude-opus-5-5'
+      model = assistant.claude_subscription_model || defaultClaudeModel
     } else {
       providerRef = assistant.generation_model_provider || assistant.provider || ''
       model = assistant.generation_model || assistant.model || ''
@@ -52,10 +58,11 @@ export function codeAgentExecutionConfigFromApp(
 export function findCodeAgentAppForConfig(
   apps: IApp[] | undefined,
   config: TypesCodeAgentExecutionConfig | undefined,
+  defaultClaudeModel: string,
 ): IApp | undefined {
   if (!apps || !config) return undefined
   return apps.find((app) => {
-    const candidate = codeAgentExecutionConfigFromApp(app)
+    const candidate = codeAgentExecutionConfigFromApp(app, defaultClaudeModel)
     if (!candidate) return false
     return candidate.runtime === config.runtime
       && candidate.credential_type === config.credential_type

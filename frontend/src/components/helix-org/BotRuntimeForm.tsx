@@ -20,12 +20,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
-import {
-  CLAUDE_SUBSCRIPTION_MODELS,
-  CODEX_SUBSCRIPTION_MODELS,
-  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
-  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
-} from '../agent/CodingAgentForm'
+import { useCodeAgentModelCatalogue } from '../../hooks/useCodeAgentModelCatalogue'
 import CodeAgentEffortSelect, { getCodeAgentEffortOptions } from '../agent/CodeAgentEffortSelect'
 import { useHelixModelsForProvider, useHelixProviders } from '../../services/helixOrgService'
 import AgentHarness from '../agent/AgentHarness'
@@ -59,6 +54,7 @@ export const AgentConfigForm: FC<{
   const { data: providers } = useHelixProviders()
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const { data: codexSubscriptions } = useCodexSubscriptions()
+  const catalogue = useCodeAgentModelCatalogue()
   // Warm the models cache for the currently-selected provider.
   useHelixModelsForProvider(value.provider, { enabled: !!value.provider })
 
@@ -90,9 +86,9 @@ export const AgentConfigForm: FC<{
   const onRuntime = (v: string) => {
     const patch: Partial<AgentConfigValue> = { runtime: v }
     if (v === 'claude_code' && value.credentials === 'subscription') {
-      patch.model = DEFAULT_CLAUDE_SUBSCRIPTION_MODEL
+      patch.model = catalogue.defaultClaudeModel
     } else if (v === 'codex_cli' && value.credentials === 'subscription') {
-      patch.model = DEFAULT_CODEX_SUBSCRIPTION_MODEL
+      patch.model = catalogue.defaultCodexModel
     }
     // Runtimes without subscription support are always API-key routed; keep the stored value
     // consistent with what the server coerces to.
@@ -106,7 +102,7 @@ export const AgentConfigForm: FC<{
     const patch: Partial<AgentConfigValue> = { credentials }
     if (credentials === 'subscription') {
       patch.provider = ''
-      patch.model = isClaude ? DEFAULT_CLAUDE_SUBSCRIPTION_MODEL : DEFAULT_CODEX_SUBSCRIPTION_MODEL
+      patch.model = isClaude ? catalogue.defaultClaudeModel : catalogue.defaultCodexModel
     } else if (value.credentials === 'subscription') {
       patch.model = ''
     }
@@ -289,11 +285,11 @@ export const AgentConfigForm: FC<{
               <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>Model</Typography>
               <FormControl fullWidth size="small">
                 <Select
-                  value={value.model || DEFAULT_CODEX_SUBSCRIPTION_MODEL}
+                  value={value.model || catalogue.defaultCodexModel}
                   onChange={(event) => onChange({ model: event.target.value })}
                   disabled={disabled}
                 >
-                  {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                  {catalogue.codexModels.map((supportedModel) => (
                     <MenuItem key={supportedModel.id} value={supportedModel.id}>
                       <Typography variant="body2">{supportedModel.label}</Typography>
                     </MenuItem>
@@ -311,11 +307,11 @@ export const AgentConfigForm: FC<{
               <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>Model</Typography>
               <FormControl fullWidth size="small">
                 <Select
-                  value={value.model || DEFAULT_CLAUDE_SUBSCRIPTION_MODEL}
+                  value={value.model || catalogue.defaultClaudeModel}
                   onChange={(event) => onChange({ model: event.target.value })}
                   disabled={disabled}
                 >
-                  {CLAUDE_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                  {catalogue.claudeModels.map((supportedModel) => (
                     <MenuItem key={supportedModel.id} value={supportedModel.id}>
                       <Typography variant="body2">{supportedModel.label}</Typography>
                     </MenuItem>

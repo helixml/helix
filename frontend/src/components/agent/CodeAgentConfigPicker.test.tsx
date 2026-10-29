@@ -24,6 +24,13 @@ const orgSettingsState = vi.hoisted(() => ({
 }))
 const navigate = vi.hoisted(() => vi.fn())
 
+vi.mock('../../hooks/useCodeAgentModelCatalogue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../hooks/useCodeAgentModelCatalogue')>()
+  const { testCodeAgentModels } = await import('../../hooks/useCodeAgentModelCatalogue.fixture')
+  const catalogue = actual.codeAgentModelCatalogue({ code_agent_models: testCodeAgentModels })
+  return { ...actual, useCodeAgentModelCatalogue: () => catalogue }
+})
+
 vi.mock('../../services/orgService', () => ({
   useGetOrgByName: () => ({ data: { id: 'org-1', display_name: 'Probably' }, isLoading: false }),
 }))

@@ -7,6 +7,13 @@ import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
 import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
 import { DEFAULT_SANDBOX_PRESET } from "../../constants/sandboxPresets";
 
+vi.mock('../../hooks/useCodeAgentModelCatalogue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../hooks/useCodeAgentModelCatalogue')>()
+  const { testCodeAgentModels } = await import('../../hooks/useCodeAgentModelCatalogue.fixture')
+  const catalogue = actual.codeAgentModelCatalogue({ code_agent_models: testCodeAgentModels })
+  return { ...actual, useCodeAgentModelCatalogue: () => catalogue }
+})
+
 vi.mock("../../hooks/useSnackbar", () => ({
   default: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
