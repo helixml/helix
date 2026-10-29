@@ -101,6 +101,7 @@ func (s *AutoRestartCrashedAgentSuite) TestAutonomousRestartsAndIncrements() {
 	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: userID}, nil).AnyTimes()
 	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{ID: projectID, UserID: userID}, nil).AnyTimes()
 	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
 
 	// Capture every persisted session so we can assert the budget was spent.
 	var persistedCounts []int
@@ -179,4 +180,89 @@ func (s *AutoRestartCrashedAgentSuite) TestInflightDedup() {
 	// No store expectations at all — a deduped trigger must not even GetSession.
 
 	s.server.maybeAutoRestartCrashedAgent(sessionID)
+}
+
+// lastTurnError makes the session's last interaction a failed turn with errMsg,
+// which is what the auto-restart reads to decide whether to keep the thread.
+func (s *AutoRestartCrashedAgentSuite) lastTurnError(errMsg string) {
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{
+		{ID: "int_last", State: types.InteractionStateError, Error: errMsg},
+	}, int64(1), nil).AnyTimes()
+}
+
+// expectRestart wires the container recreation an auto-restart performs and
+// returns a channel closed once the restart has kicked the prompt queue.
+func (s *AutoRestartCrashedAgentSuite) expectRestart(session *types.Session) <-chan struct{} {
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).AnyTimes()
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: session.Owner}, nil).AnyTimes()
+	s.store.EXPECT().GetProject(gomock.Any(), session.ProjectID).Return(&types.Project{ID: session.ProjectID, UserID: session.Owner}, nil).AnyTimes()
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, sess types.Session) (*types.Session, error) { return &sess, nil }).AnyTimes()
+	s.store.EXPECT().MarkSessionRestarting(gomock.Any(), session.ID).Return(nil).AnyTimes()
+	s.executor.EXPECT().StopDesktop(gomock.Any(), session.ID).Return(nil).Times(1)
+	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(&types.DesktopAgentResponse{DevContainerID: "dev_new"}, nil).Times(1)
+	s.store.EXPECT().ResetCrashedPromptsForSession(gomock.Any(), session.ID).Return(1, nil).Times(1)
+	pumped := make(chan struct{})
+	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), session.ID).DoAndReturn(
+		func(_ context.Context, _ string) (*types.PromptHistoryEntry, error) {
+			close(pumped)
+			return nil, nil
+		}).Times(1)
+	return pumped
+}
+
+func (s *AutoRestartCrashedAgentSuite) waitPumped(pumped <-chan struct{}) {
+	select {
+	case <-pumped:
+	case <-time.After(2 * time.Second):
+		s.Fail("auto-restart did not recreate the container / kick the queue")
+	}
+}
+
+// TestAgentConnectFailureKeepsThread replays the incident where DNS in the
+// sandbox broke npm, so Zed could not start the agent and every load of the
+// thread failed with "agent connect failed". The thread was never loaded, so it
+// cannot be poisoned: the auto-restart must recreate the container but keep
+// ZedThreadID, so the reconnect reloads the conversation once the agent starts.
+func (s *AutoRestartCrashedAgentSuite) TestAgentConnectFailureKeepsThread() {
+	session := autonomousSession("ses_connect", "user_c", "prj_c", 0)
+	session.Metadata.ZedThreadID = "dd8b1c22-keep-me"
+	s.server.externalAgentWSManager = NewExternalAgentWSManager()
+	s.server.externalAgentWSManager.registerConnection(session.ID, &ExternalAgentWSConnection{
+		SessionID: session.ID,
+		SendChan:  make(chan types.ExternalAgentCommand, 8),
+	})
+	s.lastTurnError(`Thread load failed: Failed to load thread: agent connect failed: Other("failed to execute npm install subcommand:\nnpm error code EAI_AGAIN\nnpm error request to https://registry.npmjs.org/@agentclientprotocol%2fclaude-agent-acp failed, reason: getaddrinfo EAI_AGAIN registry.npmjs.org")`)
+	pumped := s.expectRestart(session)
+	s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), session.ID, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, meta types.SessionMetadata) error {
+			s.Failf("thread cleared", "agent connect failure must not blank ZedThreadID, got %q", meta.ZedThreadID)
+			return nil
+		}).AnyTimes()
+
+	s.server.maybeAutoRestartCrashedAgent(session.ID)
+	s.waitPumped(pumped)
+
+	s.Equal("dd8b1c22-keep-me", session.Metadata.ZedThreadID)
+}
+
+// TestAgentCrashResetsThread keeps the existing recovery for a crash inside a
+// loaded session: the thread may be poisoned, so the auto-restart clears it.
+func (s *AutoRestartCrashedAgentSuite) TestAgentCrashResetsThread() {
+	session := autonomousSession("ses_crash", "user_k", "prj_k", 0)
+	session.Metadata.ZedThreadID = "poisoned-thread"
+	s.lastTurnError("Thread load failed: Claude Agent process exited")
+	pumped := s.expectRestart(session)
+	clearedTo := "unset"
+	s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), session.ID, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, meta types.SessionMetadata) error {
+			clearedTo = meta.ZedThreadID
+			return nil
+		}).Times(1)
+
+	s.server.maybeAutoRestartCrashedAgent(session.ID)
+	s.waitPumped(pumped)
+
+	s.Equal("", clearedTo, "a crash inside a loaded session must still reset the thread")
 }
