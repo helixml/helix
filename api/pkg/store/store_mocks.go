@@ -6235,6 +6235,21 @@ func (mr *MockStoreMockRecorder) MarkSessionStartingIfIdle(ctx, sessionID any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSessionStartingIfIdle", reflect.TypeOf((*MockStore)(nil).MarkSessionStartingIfIdle), ctx, sessionID)
 }
 
+// MarkStaleInteractionErrorIfWaiting mocks base method.
+func (m *MockStore) MarkStaleInteractionErrorIfWaiting(ctx context.Context, interactionID string, generationID int, observedUpdated time.Time, reason string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkStaleInteractionErrorIfWaiting", ctx, interactionID, generationID, observedUpdated, reason)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkStaleInteractionErrorIfWaiting indicates an expected call of MarkStaleInteractionErrorIfWaiting.
+func (mr *MockStoreMockRecorder) MarkStaleInteractionErrorIfWaiting(ctx, interactionID, generationID, observedUpdated, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkStaleInteractionErrorIfWaiting", reflect.TypeOf((*MockStore)(nil).MarkStaleInteractionErrorIfWaiting), ctx, interactionID, generationID, observedUpdated, reason)
+}
+
 // MarkVHostRouteVerified mocks base method.
 func (m *MockStore) MarkVHostRouteVerified(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
