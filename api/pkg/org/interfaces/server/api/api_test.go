@@ -286,6 +286,36 @@ func TestGetSettings_RedactsSecretValues(t *testing.T) {
 	}
 }
 
+// TestGetSettings_RedactsWholeSecretValue covers scalar secrets such
+// as helix.api_key (the org owner's service key): any org member can
+// GET /settings, so the value must be masked, not returned verbatim.
+func TestGetSettings_RedactsWholeSecretValue(t *testing.T) {
+	deps, _, reg := newDeps(t)
+	reg.Register(configregistry.Spec{
+		Key:    "helix.api_key",
+		Type:   configregistry.TypeString,
+		Secret: true,
+	})
+	h := orgapi.Handler(deps)
+
+	if err := reg.Set(context.Background(), "org-test", "helix.api_key", `"hl-owner-sekrit"`); err != nil {
+		t.Fatalf("set value: %v", err)
+	}
+
+	rec := do(t, h, "GET", "/settings", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "hl-owner-sekrit") {
+		t.Fatalf("secret leaked into response: %s", rec.Body)
+	}
+	var resp orgapi.SettingsResponse
+	decode(t, rec, &resp)
+	if len(resp.Specs) != 1 || !resp.Specs[0].Configured || resp.Specs[0].Value != `"..."` {
+		t.Fatalf("specs = %+v, want one configured spec with value \"...\"", resp.Specs)
+	}
+}
+
 // TestPutSetting_PersistsValue PUTs a setting, GETs it back, asserts
 // round-trip. Anchors the registry.Set → store → GetRedacted path.
 func TestPutSetting_PersistsValue(t *testing.T) {
