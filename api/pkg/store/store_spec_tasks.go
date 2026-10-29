@@ -223,6 +223,63 @@ func (s *PostgresStore) TransitionSpecTaskStatus(
 	newStatus types.SpecTaskStatus,
 	extraFields map[string]any,
 ) (bool, error) {
+	return s.transitionSpecTaskStatus(ctx, taskID, fromStatuses, newStatus, extraFields, nil)
+}
+
+// sandboxCapacityAdmissionLockKey is the Postgres advisory-lock key that
+// serializes capacity-checked spec-task promotions across API replicas.
+const sandboxCapacityAdmissionLockKey int64 = 0x48656c6978534341 // "HelixSCA"
+
+// TransitionSpecTaskStatusWithinCapacity is TransitionSpecTaskStatus with an
+// admission check that is atomic across API replicas. Inside the claim's
+// transaction it takes a cluster-wide advisory lock, counts the tasks already
+// moved into newStatus since settleSince (claims whose sandboxes may not yet
+// show up in Runner heartbeats), and only claims when that count is below
+// budget (the free sandbox slots the caller measured from heartbeats).
+// Concurrent replicas therefore serialize on the lock and each sees the
+// previous one's claim, so they cannot both take the last free slot.
+//
+// Returns claimed=true when this caller moved the task, capacityFull=true when
+// it was refused because the budget is used up.
+func (s *PostgresStore) TransitionSpecTaskStatusWithinCapacity(
+	ctx context.Context,
+	taskID string,
+	fromStatuses []types.SpecTaskStatus,
+	newStatus types.SpecTaskStatus,
+	settleSince time.Time,
+	budget int,
+) (claimed bool, capacityFull bool, err error) {
+	full := false
+	claimed, err = s.transitionSpecTaskStatus(ctx, taskID, fromStatuses, newStatus, nil, func(tx *gorm.DB) (bool, error) {
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", sandboxCapacityAdmissionLockKey).Error; err != nil {
+			return false, fmt.Errorf("acquire sandbox admission lock: %w", err)
+		}
+		var recent int64
+		if err := tx.Model(&types.SpecTask{}).
+			Where("status = ? AND status_updated_at > ? AND archived = ?", newStatus, settleSince, false).
+			Count(&recent).Error; err != nil {
+			return false, fmt.Errorf("count recent sandbox admissions: %w", err)
+		}
+		if recent >= int64(budget) {
+			full = true
+			return false, nil
+		}
+		return true, nil
+	})
+	return claimed, full, err
+}
+
+// transitionSpecTaskStatus performs the conditional status transition. When
+// admit is non-nil it runs first inside the same transaction; returning false
+// aborts the transition without error.
+func (s *PostgresStore) transitionSpecTaskStatus(
+	ctx context.Context,
+	taskID string,
+	fromStatuses []types.SpecTaskStatus,
+	newStatus types.SpecTaskStatus,
+	extraFields map[string]any,
+	admit func(tx *gorm.DB) (bool, error),
+) (bool, error) {
 	if taskID == "" {
 		return false, fmt.Errorf("task ID is required")
 	}
@@ -249,6 +306,15 @@ func (s *PostgresStore) TransitionSpecTaskStatus(
 	transitioned := false
 	published := false
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if admit != nil {
+			ok, err := admit(tx)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return nil
+			}
+		}
 		var previous struct {
 			Status types.SpecTaskStatus
 		}
