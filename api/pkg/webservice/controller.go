@@ -934,8 +934,13 @@ func deployScript(cloneURL, sha, defaultBranch, codeDir string, containerPort in
 		// Invoke exactly like the spec-task runner (helix-run-startup-script.sh):
 		// CWD = code root, $0 = the sibling helix-specs worktree. setsid → own
 		// process group for a clean stop on the next deploy.
+		`STARTUP_USER=()`,
+		`if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-}" = "1" ]; then`,
+		`  chown -hR retro:retro "$CODE" "$SPECS"`,
+		`  STARTUP_USER=(gosu retro env HOME=/home/retro USER=retro LOGNAME=retro XDG_RUNTIME_DIR=/run/user/1000)`,
+		`fi`,
 		`cd "$CODE"`,
-		fmt.Sprintf(`setsid env HELIX_WEB_SERVICE_PORT=%d HELIX_WEB_SERVICE_DATA_DIR=/data bash "$SPECS/.helix/startup.sh" >"$LOGFILE" 2>&1 &`, containerPort),
+		fmt.Sprintf(`setsid "${STARTUP_USER[@]}" env HELIX_WEB_SERVICE_PORT=%d HELIX_WEB_SERVICE_DATA_DIR=/data bash "$SPECS/.helix/startup.sh" >"$LOGFILE" 2>&1 &`, containerPort),
 		`echo $! > "$PIDFILE"`,
 	}, "\n")
 }
