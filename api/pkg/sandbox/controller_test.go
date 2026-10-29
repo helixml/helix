@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -31,6 +32,12 @@ type ControllerSuite struct {
 
 func TestControllerSuite(t *testing.T) {
 	suite.Run(t, new(ControllerSuite))
+}
+
+func TestCreateSandboxRequestDoesNotAcceptHostPinFromJSON(t *testing.T) {
+	var req types.CreateSandboxRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"host_device_id":"attacker-controlled"}`), &req))
+	require.Empty(t, req.HostDeviceID)
 }
 
 func (s *ControllerSuite) SetupTest() {
