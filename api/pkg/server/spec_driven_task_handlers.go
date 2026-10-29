@@ -1642,7 +1642,7 @@ func (s *HelixAPIServer) deleteSpecTaskCascade(ctx context.Context, taskID strin
 
 // archiveSpecTask godoc
 // @Summary Archive or unarchive a spec task
-// @Description Archive a spec task to hide it from the main view, or unarchive to restore it
+// @Description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.
 // @Tags spec-driven-tasks
 // @Accept json
 // @Produce json
@@ -1697,14 +1697,43 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// When archiving, stop any running external agents in the background.
+	// When archiving, by default stop any external agent still holding a
+	// desktop for the task, so releasing a finished lane frees the sandbox.
+	// That is the documented behaviour callers rely on (issue #3427); the
+	// caller can now opt out with stop_agent=false.
+	//
 	// Stopping a desktop is slow (screenshot capture, container teardown,
 	// billing settle, key revocation) and must not block the archive response.
-	if req.Archived {
+	//
+	// A live agent is a different matter: the default is deliberately safe and
+	// refuses to kill an agent mid-turn, because a caller clearing finished
+	// lanes while other work runs must not destroy an in-flight turn. Opting
+	// in to stopping a live agent is explicit and logged.
+	if req.Archived && req.StopAgentEnabled() {
 		planningSessionID := task.PlanningSessionID
 		stopCtx, stopCancel := detachContext(r.Context(), 5*time.Minute)
 		go func() {
 			defer stopCancel()
+
+			// A live agent is only stopped when the caller asked for it. The
+			// task status alone is not enough: a task can sit in an active
+			// status while its agent is idle, and conversely an agent may
+			// still be finishing after the status went terminal.
+			if s.specTaskAgentIsLive(stopCtx, taskID, planningSessionID) {
+				if !req.StopAgentExplicit {
+					log.Info().
+						Str("task_id", taskID).
+						Str("session_id", planningSessionID).
+						Str("status", string(task.Status)).
+						Msg("Skipping agent stop when archiving: agent is still live (pass stop_agent=true to stop it anyway)")
+					return
+				}
+				log.Info().
+					Str("task_id", taskID).
+					Str("session_id", planningSessionID).
+					Str("status", string(task.Status)).
+					Msg("Stopping live agent on archive: stop_agent was requested explicitly")
+			}
 
 			// Stop the external agent if it's running
 			if planningSessionID != "" {
@@ -2063,4 +2092,58 @@ func deriveAgentWorkState(task *types.SpecTask, latest *types.Interaction) types
 		return types.AgentWorkStateWorking
 	}
 	return types.AgentWorkStateIdle
+}
+
+// specTaskAgentIsLive reports whether the task still has an agent that would
+// lose in-flight work if its desktop were stopped right now.
+//
+// Archiving a spec task is bookkeeping (issue #3427): it must not kill an agent
+// that is still working. Callers use this to decide whether stopping is safe.
+// It is deliberately pessimistic — any of the following counts as live, because
+// the cost of wrongly stopping is a lost agent turn while the cost of wrongly
+// skipping is a desktop that the caller can stop explicitly:
+//
+//   - the external-agent row says "running" or "starting", or
+//   - the session reports the agent as "running" / "starting" / "restarting", or
+//   - the latest interaction is still waiting (the agent is mid-turn).
+func (s *HelixAPIServer) specTaskAgentIsLive(ctx context.Context, taskID, planningSessionID string) bool {
+	// The external-agent probe is best-effort: "no agent row" is an ordinary
+	// store error here and means nothing is running, so only the session and
+	// interaction probes below can claim the agent is live.
+	agent, err := s.Store.GetSpecTaskExternalAgent(ctx, taskID)
+	if err == nil && agent != nil {
+		switch agent.Status {
+		case "running", "starting":
+			return true
+		}
+	}
+
+	if planningSessionID == "" {
+		return false
+	}
+
+	session, err := s.Store.GetSession(ctx, planningSessionID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Str("session_id", planningSessionID).
+			Msg("Session liveness probe failed; treating the agent as live so archiving does not stop it")
+		return true
+	}
+	if session != nil {
+		switch session.Metadata.ExternalAgentStatus {
+		case "running", "starting", "restarting":
+			return true
+		}
+	}
+
+	latestBySession, err := s.Store.GetLatestInteractionsForSessions(ctx, []string{planningSessionID})
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Str("session_id", planningSessionID).
+			Msg("Interaction liveness probe failed; treating the agent as live so archiving does not stop it")
+		return true
+	}
+	if latest := latestBySession[planningSessionID]; latest != nil && latest.State == types.InteractionStateWaiting {
+		return true
+	}
+
+	return false
 }
