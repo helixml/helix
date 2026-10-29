@@ -258,9 +258,40 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 	conn, connected := apiServer.externalAgentWSManager.getConnection(stuck.SessionID)
 	if !connected || conn == nil {
 		// Only consider a re-kick once the interaction is genuinely old.
-		// `created < now - threshold` was already enforced at the SQL
+		// `updated < now - threshold` was already enforced at the SQL
 		// level by ListStuckWaitingInteractions, but recheck defensively.
-		if time.Since(stuck.Created) < threshold {
+		if time.Since(stuck.Updated) < threshold {
+			return
+		}
+		if stuck.ResponseMessage != "" || len(stuck.ResponseEntries) > 0 {
+			session, err := apiServer.Store.GetSession(ctx, stuck.SessionID)
+			if err != nil {
+				log.Warn().Err(err).Str("interaction_id", stuck.ID).
+					Msg("[AUTO_WAKE] Failed to load session for stale partial response")
+				return
+			}
+			if session == nil || session.Metadata.AgentType != "zed_external" || apiServer.externalAgentExecutor == nil {
+				return
+			}
+			if !session.Metadata.LastAutoRestartAt.IsZero() && time.Since(session.Metadata.LastAutoRestartAt) < coldStartGracePeriod() {
+				return
+			}
+			stopped := session.Metadata.ExternalAgentStatus == "stopped" || session.Metadata.ExternalAgentStatus == "terminated_idle"
+			if !stopped || apiServer.externalAgentExecutor.HasRunningContainer(ctx, stuck.SessionID) {
+				return
+			}
+			transitioned, err := apiServer.Store.MarkStaleInteractionErrorIfWaiting(
+				ctx, stuck.ID, stuck.GenerationID, stuck.Updated, "External agent stopped before completing the turn",
+			)
+			if err != nil {
+				log.Warn().Err(err).Str("interaction_id", stuck.ID).
+					Msg("[AUTO_WAKE] Failed to settle partial response left by stopped agent")
+				return
+			}
+			if transitioned {
+				log.Warn().Str("interaction_id", stuck.ID).Str("session_id", stuck.SessionID).
+					Msg("[AUTO_WAKE] Settled partial response left by stopped agent")
+			}
 			return
 		}
 		apiServer.maybeKickColdStart(ctx, stuck)
@@ -356,13 +387,13 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 		}
 	}
 
-	// Same threshold, computed against interaction age now that we know
+	// Same threshold, computed against interaction activity now that we know
 	// the connection has been live long enough and there's no active
 	// streaming on the session. Caller has already filtered on
-	// `created < now - autoWakeStuckThreshold` at the SQL level using
+	// `updated < now - autoWakeStuckThreshold` at the SQL level using
 	// the previous threshold value, but recheck here defensively in
 	// case the env var was bumped UP between the SQL filter and now.
-	if time.Since(stuck.Created) < threshold {
+	if time.Since(stuck.Updated) < threshold {
 		return
 	}
 

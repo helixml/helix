@@ -363,6 +363,9 @@ type Store interface {
 	// from Waiting to Error. Returns false when another terminal transition
 	// already won.
 	MarkInteractionErrorIfWaiting(ctx context.Context, interactionID string, generationID int, reason string) (bool, error)
+	// MarkStaleInteractionErrorIfWaiting atomically errors a waiting interaction
+	// only if it has not streamed any activity since observedUpdated.
+	MarkStaleInteractionErrorIfWaiting(ctx context.Context, interactionID string, generationID int, observedUpdated time.Time, reason string) (bool, error)
 	// ReapWaitingInteractions transitions all state=waiting interactions for a
 	// session to newState (e.g. interrupted) when the external agent has gone
 	// away (desktop idle-stopped/crashed/found-stopped). This clears the
@@ -377,10 +380,9 @@ type Store interface {
 	// session in a single statement, leaving the session row itself intact.
 	// Used to "clear" a conversation so it can start fresh in the same session.
 	ClearSessionInteractions(ctx context.Context, sessionID string) error
-	// ListStuckWaitingInteractions returns up to `limit` interactions that
-	// are in state=waiting, have produced no response or entries, and were
-	// created before `olderThan`. Used by the auto-wake worker to find
-	// candidates for recovery or terminalization.
+	// ListStuckWaitingInteractions returns up to `limit` stale waiting turns from
+	// active external-agent sessions. Empty turns remain eligible for cold-start
+	// recovery; partial turns are eligible only after the session is stopped.
 	ListStuckWaitingInteractions(ctx context.Context, olderThan time.Time, limit int) ([]*types.Interaction, error)
 	// CountAutoWakeAttemptsSince returns the number of interactions in
 	// `sessionID` with auto_wake_count > 0 created strictly after `since`.
@@ -632,6 +634,7 @@ type Store interface {
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	UpdateSpecTaskFields(ctx context.Context, taskID string, updates map[string]any) error
 	TransitionSpecTaskStatus(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, extraFields map[string]any) (bool, error)
+	TransitionSpecTaskStatusWithinCapacity(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, settleSince time.Time, budget int) (claimed bool, capacityFull bool, err error)
 	// SetPlanningSessionIDIfEmpty atomically claims a spec task's planning_session_id
 	// slot. Returns true if this caller won the claim (row updated), false if another
 	// caller had already set planning_session_id to a non-empty value. The single SQL

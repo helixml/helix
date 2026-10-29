@@ -2605,9 +2605,7 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 		return nil, system.NewHTTPError400("session does not have an external Zed agent")
 	}
 
-	// Stop the desktop agent container
-	err = s.externalAgentExecutor.StopDesktop(ctx, sessionID)
-	if err != nil {
+	if err := s.stopSessionAgent(ctx, sessionID, "external agent session stopped"); err != nil {
 		log.Error().
 			Err(err).
 			Str("session_id", sessionID).

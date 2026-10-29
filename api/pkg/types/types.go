@@ -3787,6 +3787,26 @@ func (s *SandboxInstance) CanHostDesktop() bool {
 	return s.RenderNode != "SOFTWARE"
 }
 
+// EligibleForPlacement reports whether placement could put a sandbox needing
+// the given desktop version key on this Runner: it must advertise a non-empty
+// image for versionKey, and, when a display is required, be render-capable.
+// Liveness (online, fresh heartbeat) and capacity are checked by callers.
+// FindAvailableSandboxInstance and the spec-task sandbox-capacity gate share
+// this so the gate never counts capacity placement could not actually use.
+func (s *SandboxInstance) EligibleForPlacement(versionKey string, requiresDisplay bool) bool {
+	if requiresDisplay && !s.CanHostDesktop() {
+		return false
+	}
+	if len(s.DesktopVersions) == 0 {
+		return false
+	}
+	var versions map[string]string
+	if err := json.Unmarshal(s.DesktopVersions, &versions); err != nil {
+		return false
+	}
+	return versions[versionKey] != ""
+}
+
 // AtCapacity reports whether the Runner already hosts its maximum number
 // of dev containers. -1 means unlimited; 0 is not enforced while awaiting
 // the control plane fallback.

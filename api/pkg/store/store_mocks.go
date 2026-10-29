@@ -6235,6 +6235,21 @@ func (mr *MockStoreMockRecorder) MarkSessionStartingIfIdle(ctx, sessionID any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSessionStartingIfIdle", reflect.TypeOf((*MockStore)(nil).MarkSessionStartingIfIdle), ctx, sessionID)
 }
 
+// MarkStaleInteractionErrorIfWaiting mocks base method.
+func (m *MockStore) MarkStaleInteractionErrorIfWaiting(ctx context.Context, interactionID string, generationID int, observedUpdated time.Time, reason string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkStaleInteractionErrorIfWaiting", ctx, interactionID, generationID, observedUpdated, reason)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkStaleInteractionErrorIfWaiting indicates an expected call of MarkStaleInteractionErrorIfWaiting.
+func (mr *MockStoreMockRecorder) MarkStaleInteractionErrorIfWaiting(ctx, interactionID, generationID, observedUpdated, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkStaleInteractionErrorIfWaiting", reflect.TypeOf((*MockStore)(nil).MarkStaleInteractionErrorIfWaiting), ctx, interactionID, generationID, observedUpdated, reason)
+}
+
 // MarkVHostRouteVerified mocks base method.
 func (m *MockStore) MarkVHostRouteVerified(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -6900,6 +6915,22 @@ func (m *MockStore) TransitionSpecTaskStatus(ctx context.Context, taskID string,
 func (mr *MockStoreMockRecorder) TransitionSpecTaskStatus(ctx, taskID, fromStatuses, newStatus, extraFields any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TransitionSpecTaskStatus", reflect.TypeOf((*MockStore)(nil).TransitionSpecTaskStatus), ctx, taskID, fromStatuses, newStatus, extraFields)
+}
+
+// TransitionSpecTaskStatusWithinCapacity mocks base method.
+func (m *MockStore) TransitionSpecTaskStatusWithinCapacity(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, settleSince time.Time, budget int) (bool, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TransitionSpecTaskStatusWithinCapacity", ctx, taskID, fromStatuses, newStatus, settleSince, budget)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// TransitionSpecTaskStatusWithinCapacity indicates an expected call of TransitionSpecTaskStatusWithinCapacity.
+func (mr *MockStoreMockRecorder) TransitionSpecTaskStatusWithinCapacity(ctx, taskID, fromStatuses, newStatus, settleSince, budget any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TransitionSpecTaskStatusWithinCapacity", reflect.TypeOf((*MockStore)(nil).TransitionSpecTaskStatusWithinCapacity), ctx, taskID, fromStatuses, newStatus, settleSince, budget)
 }
 
 // UnifiedSearch mocks base method.

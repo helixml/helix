@@ -52,12 +52,14 @@ func (s *AutoWakeColdStartSuite) TearDownTest() {
 
 // stuckInteraction returns an interaction old enough to pass the threshold gate.
 func stuckInteraction(id, sessionID string, autoWakeCount int) *types.Interaction {
+	created := time.Now().Add(-5 * time.Minute)
 	return &types.Interaction{
 		ID:            id,
 		SessionID:     sessionID,
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
-		Created:       time.Now().Add(-5 * time.Minute),
+		Created:       created,
+		Updated:       created,
 		AutoWakeCount: autoWakeCount,
 	}
 }
@@ -156,6 +158,7 @@ func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileStartDesktopInFlight() {
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
 		Created:       time.Now().Add(-4 * time.Minute),
+		Updated:       time.Now().Add(-4 * time.Minute),
 		AutoWakeCount: 0,
 	}
 
@@ -193,6 +196,7 @@ func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileRunningButNoWS() {
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
 		Created:       time.Now().Add(-4 * time.Minute),
+		Updated:       time.Now().Add(-4 * time.Minute),
 		AutoWakeCount: 0,
 	}
 
@@ -230,6 +234,7 @@ func (s *AutoWakeColdStartSuite) TestKicksAfterColdStartGraceExpires() {
 		PromptMessage: "do the thing",
 		// Older than both stuck threshold (180s) AND the 1-second grace.
 		Created:       time.Now().Add(-5 * time.Minute),
+		Updated:       time.Now().Add(-5 * time.Minute),
 		AutoWakeCount: 0,
 	}
 
@@ -375,6 +380,61 @@ func (s *AutoWakeColdStartSuite) TestScanClearsFinishedInteractionObservation() 
 	s.False(observed)
 }
 
+func (s *AutoWakeColdStartSuite) TestSettlesPartialTurnWhenStoppedAgentContainerIsGone() {
+	stuck := stuckInteraction("int-partial", "ses-partial", 0)
+	stuck.GenerationID = 7
+	stuck.ResponseMessage = "partial tool output remains visible"
+	s.store.EXPECT().GetSession(gomock.Any(), stuck.SessionID).Return(&types.Session{
+		ID: stuck.SessionID,
+		Metadata: types.SessionMetadata{
+			AgentType:           "zed_external",
+			ExternalAgentStatus: "stopped",
+		},
+	}, nil)
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), stuck.SessionID).Return(false)
+	s.store.EXPECT().MarkStaleInteractionErrorIfWaiting(
+		gomock.Any(), stuck.ID, 7, stuck.Updated, "External agent stopped before completing the turn",
+	).Return(true, nil)
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	s.Equal("partial tool output remains visible", stuck.ResponseMessage)
+}
+
+func (s *AutoWakeColdStartSuite) TestLeavesPartialTurnWaitingWhileContainerRuns() {
+	stuck := stuckInteraction("int-partial-running", "ses-partial-running", 0)
+	stuck.ResponseMessage = "partial tool output"
+	s.store.EXPECT().GetSession(gomock.Any(), stuck.SessionID).Return(&types.Session{
+		ID: stuck.SessionID,
+		Metadata: types.SessionMetadata{
+			AgentType:           "zed_external",
+			ExternalAgentStatus: "stopped",
+		},
+	}, nil)
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), stuck.SessionID).Return(true)
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	s.Equal(types.InteractionStateWaiting, stuck.State)
+}
+
+func (s *AutoWakeColdStartSuite) TestLeavesPartialTurnWaitingDuringClaimedRestart() {
+	stuck := stuckInteraction("int-partial-restarting", "ses-partial-restarting", 0)
+	stuck.ResponseMessage = "partial tool output"
+	s.store.EXPECT().GetSession(gomock.Any(), stuck.SessionID).Return(&types.Session{
+		ID: stuck.SessionID,
+		Metadata: types.SessionMetadata{
+			AgentType:           "zed_external",
+			ExternalAgentStatus: "stopped",
+			LastAutoRestartAt:   time.Now(),
+		},
+	}, nil)
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	s.Equal(types.InteractionStateWaiting, stuck.State)
+}
+
 func (s *AutoWakeColdStartSuite) TestRestartGraceUsesPersistedRestartTime() {
 	stuck := stuckInteraction("int-restarting", "ses-restarting", 1)
 	session := &types.Session{
@@ -497,6 +557,7 @@ func (s *AutoWakeColdStartSuite) TestSkipsWhenInteractionIsYoung() {
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
 		Created:       time.Now().Add(-1 * time.Second), // way younger than threshold
+		Updated:       time.Now().Add(-1 * time.Second),
 		AutoWakeCount: 0,
 	}
 
@@ -572,6 +633,7 @@ func (s *AutoWakeConnectedSuite) TestLeavesQuiescentInteractionWaitingWithoutRep
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_connected").Return(session, nil)
 
 	stuck := stuckInteraction("int-connected", "ses_connected", 0)
+	stuck.ResponseMessage = "partial tool output"
 	s.server.maybeAutoWake(context.Background(), stuck)
 
 	s.Equal(types.InteractionStateWaiting, stuck.State)

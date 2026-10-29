@@ -12096,6 +12096,12 @@ definitions:
     properties:
       archived:
         type: boolean
+      stop_agent:
+        description: |-
+          StopAgent controls whether archiving stops the task's external agent and
+          frees its sandbox. Omitted (nil) means yes. Archiving never kills an agent
+          that is mid-turn unless the caller says so explicitly.
+        type: boolean
     type: object
   types.SpecTaskAttachment:
     properties:
