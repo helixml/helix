@@ -174,7 +174,7 @@ func (dm *DevContainerManager) getDockerClient(socketPath string) (*client.Clien
 	)
 }
 
-// Ready verifies that Hydra can reach the Docker daemon it manages.
+// Ready verifies that Hydra can accept a new dev container.
 func (dm *DevContainerManager) Ready(ctx context.Context) error {
 	dockerClient := dm.docker
 	closeClient := false
@@ -192,7 +192,7 @@ func (dm *DevContainerManager) Ready(ctx context.Context) error {
 	if _, err := dockerClient.Ping(ctx); err != nil {
 		return fmt.Errorf("ping Docker daemon: %w", err)
 	}
-	return nil
+	return checkDiskPressureForStart()
 }
 
 // validateImageVersion validates that the image has a specific version tag, never :latest.

@@ -161,6 +161,13 @@ REMOTE
   fi
   log "runner ${RUNNER_SSH} on ${VERSION}"
   DEPLOYED="${DEPLOYED:+${DEPLOYED}, }runner ${RUNNER_SSH}"
+
+  printf -v quoted_version '%q' "$VERSION"
+  RUNNER_IMAGE_REPORT="HELIX_RUNNER_CURRENT_VERSION=$quoted_version
+$(cat "$(dirname "$0")/cleanup-runner-images.sh")"
+  if ! rsh "$RUNNER_SSH" "$RUNNER_IMAGE_REPORT"; then
+    warn "runner image retention dry run failed on ${RUNNER_SSH}"
+  fi
 else
   log "DEPLOY_RUNNER=false - skipping runner upgrade"
 fi
