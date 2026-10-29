@@ -23,9 +23,9 @@ import (
 // from the stored session named by that key, never from caller-controlled URL
 // segments.
 type HelixOrgMCPBackend struct {
-	apiServer  *HelixAPIServer
-	orgHandler http.Handler
-	scope      *helixOrgScope
+	apiServer *HelixAPIServer
+	botMCP    http.Handler
+	scope     *helixOrgScope
 	// mcpServer and store serve bot instances, whose tools are the
 	// instance profile's tools rather than the bot's.
 	mcpServer *helixorgserver.Server
@@ -36,11 +36,11 @@ type HelixOrgMCPBackend struct {
 // helix-org server handler.
 func NewHelixOrgMCPBackend(apiServer *HelixAPIServer, orgHandlers *helixOrgHandlers) *HelixOrgMCPBackend {
 	return &HelixOrgMCPBackend{
-		apiServer:  apiServer,
-		orgHandler: orgHandlers.api,
-		scope:      orgHandlers.scope,
-		mcpServer:  orgHandlers.mcpServer,
-		store:      orgHandlers.store,
+		apiServer: apiServer,
+		botMCP:    orgHandlers.botMCP,
+		scope:     orgHandlers.scope,
+		mcpServer: orgHandlers.mcpServer,
+		store:     orgHandlers.store,
 	}
 }
 
@@ -77,26 +77,23 @@ func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 	}
 
 	workerID := session.Metadata.OrgWorkerID
-	// Carry the session id so org tools can route follow-ups back to this
-	// session (e.g. a secret-intake submission waking its requesting session).
-	rewritten := r.Clone(helixorgserver.WithOrgID(runtimehelix.WithSessionID(r.Context(), session.ID), session.OrganizationID))
-	rewritten.URL.Path = "/orgs/" + session.OrganizationID + "/workers/" + workerID + "/mcp"
-	rewritten.URL.RawPath = ""
-	rewritten.RequestURI = rewritten.URL.RequestURI()
-	// Forward the authenticated user's ID so helix-org tools can
-	// persist it onto domain state (e.g. hire_worker → WorkerState)
-	// without holding the api_key. The Spawner later asks the
-	// embedded SaaS to mint a fresh api_key for this user_id at
-	// activation time — no tokens stored at rest.
-	rewritten.Header.Set("X-Helix-Org-User-Id", user.ID)
+	// Org, bot, and acting user all come from the authenticated session —
+	// never from the URL or a client header — so the audit trail and any
+	// hiring-user attribution reflect the real principal. The session id
+	// lets org tools route follow-ups back to this session (e.g. a
+	// secret-intake submission waking its requesting session).
+	ctx := helixorgserver.WithOrgID(r.Context(), session.OrganizationID)
+	ctx = helixorgserver.WithBotID(ctx, workerID)
+	ctx = runtimehelix.WithUserID(ctx, user.ID)
+	ctx = runtimehelix.WithSessionID(ctx, session.ID)
 
 	log.Trace().
 		Str("user_id", user.ID).
 		Str("worker_id", workerID).
 		Str("orig_path", r.URL.Path).
-		Msg("helix-org MCP: forwarding to in-process handler")
+		Msg("helix-org MCP: serving bot MCP in-process")
 
-	b.orgHandler.ServeHTTP(w, rewritten)
+	b.botMCP.ServeHTTP(w, r.WithContext(ctx))
 }
 
 // instanceCaller is the tool.Caller for a bot instance. It acts as its bot,

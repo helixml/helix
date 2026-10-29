@@ -26,6 +26,23 @@ func OrgIDFromContext(ctx context.Context) string {
 	return v
 }
 
+// botIDKey is the unexported context key for the Bot whose MCP surface a
+// request is served against.
+type botIDKey struct{}
+
+// WithBotID binds the Bot that BotMCPHandler serves. Set only by code that
+// has authenticated the caller's right to act as that Bot (or by the
+// standalone route, which has no tenant authentication at all).
+func WithBotID(ctx context.Context, botID string) context.Context {
+	return context.WithValue(ctx, botIDKey{}, botID)
+}
+
+// BotIDFromContext returns the Bot bound by WithBotID, or empty.
+func BotIDFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(botIDKey{}).(string)
+	return v
+}
+
 // orgHandleKey is the unexported context key for the org handle exactly
 // as it appeared in the request URL.
 type orgHandleKey struct{}
