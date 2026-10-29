@@ -122,10 +122,6 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	requestedTools := toToolNames(req.Tools)
-	if (req.Owner || mcptools.HasNonDefaultBotTool(requestedTools)) && !helixorgserver.CanManageOrganization(ctx) {
-		writeError(w, http.StatusForbidden, errors.New("only organization owners and administrators can grant organization-management tools"))
-		return
-	}
 	// A standard Bot receives the complete worker set plus any explicitly
 	// requested additions. A manager receives that set plus the organization
 	// control-plane mutations used to hire and manage other Nodes.
@@ -141,6 +137,7 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		Name:    strings.TrimSpace(req.Name),
 		Content: req.Content,
 		Tools:   tools,
+		Grantor: restGrantor(ctx),
 
 		Sources:         toTriggerSources(req.Triggers),
 		ParentID:        orgchart.NodeID(strings.TrimSpace(req.ParentID)),
@@ -156,6 +153,10 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 			ReasoningEffort:         strings.TrimSpace(req.ReasoningEffort),
 		},
 	})
+	if errors.Is(err, nodes.ErrToolGrantForbidden) {
+		writeError(w, http.StatusForbidden, err)
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -276,10 +277,6 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 	var toolsPatch *[]tool.Name
 	if req.Tools != nil {
 		t := toToolNames(req.Tools)
-		if (mcptools.HasNonDefaultBotTool(t) || mcptools.HasNonDefaultBotTool(existing.Tools)) && !helixorgserver.CanManageOrganization(ctx) {
-			writeError(w, http.StatusForbidden, errors.New("only organization owners and administrators can modify organization-management tools"))
-			return
-		}
 		toolsPatch = &t
 	}
 	namePatch := req.Name
@@ -306,15 +303,8 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		vcpus := req.SandboxResourceOverrides.VCPUs
 		sandboxVCPUsPatch = &vcpus
 	}
-	if req.InstanceProfile != nil {
-		instanceTools := toToolNames(req.InstanceProfile.Tools)
-		existingInstanceTools := toToolNames(existing.EffectiveInstanceProfile().Tools)
-		if (mcptools.HasNonDefaultBotTool(instanceTools) || mcptools.HasNonDefaultBotTool(existingInstanceTools)) && !helixorgserver.CanManageOrganization(ctx) {
-			writeError(w, http.StatusForbidden, errors.New("only organization owners and administrators can grant organization-management tools to instances"))
-			return
-		}
-	}
 	projectIDsPatch := stringSlicePatch(req.ProjectIDs)
+	grantor := restGrantor(ctx)
 	updated := existing
 	nodeChange := namePatch != nil || contentPatch != nil || toolsPatch != nil || projectIDsPatch != nil ||
 		req.PreserveContext != nil || sandboxRuntimePatch != nil || sandboxVCPUsPatch != nil || req.InstanceProfile != nil
@@ -328,6 +318,7 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 			SandboxRuntime:  sandboxRuntimePatch,
 			SandboxVCPUs:    sandboxVCPUsPatch,
 			InstanceProfile: req.InstanceProfile,
+			Grantor:         grantor,
 		})
 		if err != nil {
 			writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
@@ -337,7 +328,7 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 	if updated.AgentID != "" && canonicalChange {
 		if err := a.deps.AgentUpdater.UpdateAgent(ctx, updated.AgentID, configPatch, namePatch, contentPatch); err != nil {
 			if nodeChange {
-				rollback := nodes.UpdateParams{}
+				rollback := nodes.UpdateParams{Grantor: grantor}
 				if namePatch != nil {
 					rollback.Name = &existing.Name
 				}
@@ -930,4 +921,11 @@ func applySandboxInfo(dto *BotDTO, info BotRuntimeInfo) {
 	dto.SandboxID = info.SandboxID
 	dto.SandboxStatus = info.SandboxStatus
 	dto.SandboxStatusMessage = info.SandboxStatusMessage
+}
+
+// restGrantor is the tool-grant authority of a REST caller: organization
+// owners and administrators have no ceiling; other members may change only
+// the standard worker set (nodes.AuthorizeTools).
+func restGrantor(ctx context.Context) nodes.Grantor {
+	return nodes.Grantor{Admin: helixorgserver.CanManageOrganization(ctx)}
 }

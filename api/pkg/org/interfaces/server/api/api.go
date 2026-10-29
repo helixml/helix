@@ -469,7 +469,7 @@ func errStatus(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, nodes.ErrUnknownTool), errors.Is(err, nodes.ErrInvalidInstanceProfile), errors.Is(err, instances.ErrInvalidRequest):
 		return http.StatusBadRequest
-	case errors.Is(err, instances.ErrForbidden):
+	case errors.Is(err, instances.ErrForbidden), errors.Is(err, nodes.ErrToolGrantForbidden):
 		return http.StatusForbidden
 	default:
 		return http.StatusInternalServerError

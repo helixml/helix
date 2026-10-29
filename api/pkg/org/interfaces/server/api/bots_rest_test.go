@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -533,7 +534,7 @@ func TestRESTUpdateBot_MemberCannotGrantManagerTools(t *testing.T) {
 
 	seedBot(t, st, ctx, "b-manager", "# Manager")
 	managerTools := mcptools.OwnerBotTools()
-	if _, err := deps.Nodes.Update(ctx, "org-test", "b-manager", nodes.UpdateParams{Tools: &managerTools}); err != nil {
+	if _, err := deps.Nodes.Update(ctx, "org-test", "b-manager", nodes.UpdateParams{Tools: &managerTools, Grantor: nodes.Grantor{Admin: true}}); err != nil {
 		t.Fatalf("seed manager tools: %v", err)
 	}
 	defaultsOnly := make([]string, 0, len(mcptools.DefaultBotTools()))
@@ -550,7 +551,7 @@ func TestRESTUpdateBot_MemberCannotGrantManagerTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !mcptools.HasNonDefaultBotTool(manager.Tools) {
+	if !slices.Contains(manager.Tools, mcptools.CreateBotName) {
 		t.Fatal("rejected downgrade stripped manager tools")
 	}
 }
@@ -618,6 +619,7 @@ func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 	}
 
 	mcpStore := orggorm.GetOrgTestDB(t)
+	seedCaller(t, mcpStore, "b-owner", mcptools.OwnerBotTools())
 	reg := mcpRegistry(t, mcpStore, clock, newID)
 	createBot, _ := reg.Get(mcptools.CreateBotName)
 	args, _ := json.Marshal(map[string]any{
@@ -641,6 +643,94 @@ func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 	if restBot.Content != mcpBot.Content {
 		t.Errorf("Content differs: REST=%q MCP=%q", restBot.Content, mcpBot.Content)
 	}
+	if !sameNames(restBot.Tools, mcpBot.Tools) {
+		t.Errorf("Tools differ: REST=%v MCP=%v", restBot.Tools, mcpBot.Tools)
+	}
+}
+
+// seedCaller persists the Bot an MCP test acts as, holding tools.
+func seedCaller(t *testing.T, st *store.Store, id string, tools []tool.Name) {
+	t.Helper()
+	b, err := orgchart.NewNode(orgchart.NodeID(id), "# "+id, tools, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatalf("NewNode %s: %v", id, err)
+	}
+	if err := st.Nodes.Create(context.Background(), b); err != nil {
+		t.Fatalf("create caller %s: %v", id, err)
+	}
+}
+
+// TestToolGrantCeilingParity_RESTvsMCP: REST and MCP enforce the one
+// tool-grant rule (nodes.AuthorizeTools) for the same inputs. A principal
+// without authority over an organization-management tool cannot grant it
+// on either surface; an owner (REST) or a Bot holding it (MCP) can.
+func TestToolGrantCeilingParity_RESTvsMCP(t *testing.T) {
+	ctx := context.Background()
+	privileged := []string{string(mcptools.DeleteBotName)}
+
+	restDeps, restStore, _ := newDeps(t)
+	h := orgapi.Handler(restDeps)
+	mcpStore := orggorm.GetOrgTestDB(t)
+	// The MCP caller can create bots and grant tools, but does not hold
+	// delete_bot — the same position a REST org member is in.
+	seedCaller(t, mcpStore, "b-lead", mcptools.MergeDefaultBotTools([]tool.Name{mcptools.CreateBotName, mcptools.AttachToolName}))
+	seedCaller(t, mcpStore, "b-cos", mcptools.OwnerBotTools())
+	seedCaller(t, mcpStore, "b-worker", mcptools.DefaultBotTools())
+	reg := mcpRegistry(t, mcpStore, time.Now, func() string { return "fixed" })
+	createBot, _ := reg.Get(mcptools.CreateBotName)
+	attachTool, _ := reg.Get(mcptools.AttachToolName)
+	invoke := func(tl tool.Tool, caller string, args map[string]any) error {
+		raw, _ := json.Marshal(args)
+		_, err := tl.Invoke(ctx, tool.Invocation{Caller: mcpCaller{id: caller, orgID: "org-test"}, Args: raw})
+		return err
+	}
+
+	// create with an organization-management tool.
+	rec := doAsRole(t, h, http.MethodPost, "/bots", orgapi.CreateBotRequest{ID: "b-new", Content: "# New", Tools: privileged}, types.OrganizationRoleMember, false)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("REST member create status = %d, want 403; body=%s", rec.Code, rec.Body)
+	}
+	err := invoke(createBot, "b-lead", map[string]any{"id": "b-new", "content": "# New", "tools": privileged, "triggers": []string{}})
+	if !errors.Is(err, nodes.ErrToolGrantForbidden) {
+		t.Fatalf("MCP create_bot by b-lead err = %v, want ErrToolGrantForbidden", err)
+	}
+	for name, st := range map[string]*store.Store{"REST": restStore, "MCP": mcpStore} {
+		if _, err := st.Nodes.Get(ctx, "org-test", "b-new"); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("%s refused create left a bot row: %v", name, err)
+		}
+	}
+
+	// grant to an existing bot — including the caller itself.
+	seedBot(t, restStore, ctx, "b-worker", "# Worker")
+	rec = doAsRole(t, h, http.MethodPatch, "/bots/b-worker", orgapi.UpdateBotRequest{Tools: privileged}, types.OrganizationRoleMember, false)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("REST member update status = %d, want 403; body=%s", rec.Code, rec.Body)
+	}
+	for _, target := range []string{"b-worker", "b-lead"} {
+		err = invoke(attachTool, "b-lead", map[string]any{"botId": target, "tools": privileged})
+		if !errors.Is(err, nodes.ErrToolGrantForbidden) {
+			t.Fatalf("MCP attach_tool to %s err = %v, want ErrToolGrantForbidden", target, err)
+		}
+		bot, _ := mcpStore.Nodes.Get(ctx, "org-test", orgchart.NodeID(target))
+		if slices.Contains(bot.Tools, mcptools.DeleteBotName) {
+			t.Fatalf("refused attach_tool persisted delete_bot on %s", target)
+		}
+	}
+
+	// Within authority both surfaces succeed: an owner over REST, a Bot
+	// holding the tool over MCP (the Chief of Staff onboarding path).
+	rec = doAsRole(t, h, http.MethodPost, "/bots", orgapi.CreateBotRequest{ID: "b-new", Content: "# New", Tools: privileged}, types.OrganizationRoleOwner, false)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("REST owner create status = %d, want 201; body=%s", rec.Code, rec.Body)
+	}
+	if err := invoke(createBot, "b-cos", map[string]any{"id": "b-new", "content": "# New", "tools": privileged, "triggers": []string{}}); err != nil {
+		t.Fatalf("MCP create_bot by b-cos: %v", err)
+	}
+	if err := invoke(attachTool, "b-lead", map[string]any{"botId": "b-worker", "tools": []string{string(mcptools.AttachToolName)}}); err != nil {
+		t.Fatalf("MCP attach_tool of a held tool: %v", err)
+	}
+	restBot, _ := restStore.Nodes.Get(ctx, "org-test", "b-new")
+	mcpBot, _ := mcpStore.Nodes.Get(ctx, "org-test", "b-new")
 	if !sameNames(restBot.Tools, mcpBot.Tools) {
 		t.Errorf("Tools differ: REST=%v MCP=%v", restBot.Tools, mcpBot.Tools)
 	}

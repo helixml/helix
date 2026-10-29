@@ -940,7 +940,7 @@ func seedActingBot(t *testing.T, s *store.Store, orgID, botID string, tools []to
 	t.Helper()
 	ctx := context.Background()
 	if _, err := nodes.New(nodes.Deps{Nodes: s.Nodes, BaseTools: mcptools.BaseReadTools}).
-		Create(ctx, orgID, nodes.CreateParams{ID: botID, Content: "# " + botID, Tools: tools}); err != nil {
+		Create(ctx, orgID, nodes.CreateParams{ID: botID, Content: "# " + botID, Tools: tools, Grantor: nodes.Grantor{Admin: true}}); err != nil {
 		t.Fatalf("seed bot %s: %v", botID, err)
 	}
 }

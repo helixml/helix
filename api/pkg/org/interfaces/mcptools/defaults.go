@@ -2,6 +2,7 @@ package mcptools
 
 import (
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
@@ -155,22 +156,11 @@ func MergeDefaultBotTools(existing []tool.Name) []tool.Name {
 	return nodes.MergeTools(existing, DefaultBotTools())
 }
 
-// HasNonDefaultBotTool reports whether tools requests any capability outside
-// the standard worker surface. Granting such a capability is an organization
-// administration action even when the caller does not request the complete
-// OwnerBotTools set.
-func HasNonDefaultBotTool(tools []tool.Name) bool {
-	defaultTools := DefaultBotTools()
-	defaults := make(map[tool.Name]struct{}, len(defaultTools))
-	for _, name := range defaultTools {
-		defaults[name] = struct{}{}
-	}
-	for _, name := range tools {
-		if _, ok := defaults[name]; !ok {
-			return true
-		}
-	}
-	return false
+// CallerGrantor is the tool-grant authority of an MCP caller: the Bot it
+// acts as, whose own tools cap what it may grant (nodes.AuthorizeTools).
+// A caller that is not a Bot resolves to no Node and so to no authority.
+func CallerGrantor(c tool.Caller) nodes.Grantor {
+	return nodes.Grantor{Bot: orgchart.NodeID(c.ID())}
 }
 
 // SpecTaskAgentTools is the catalogue offered to a spec task's coding agent —

@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,6 +49,21 @@ var ErrUnknownTool = errors.New("unknown tool")
 // never be valid (unsupported runtime, the org server named as an MCP server).
 var ErrInvalidInstanceProfile = errors.New("invalid instance profile")
 
+// ErrToolGrantForbidden is returned when a Grantor changes tools beyond its
+// own authority. Adapters map it to 403.
+var ErrToolGrantForbidden = errors.New("tool grant forbidden")
+
+// Grantor is the authority behind a change to a Node's tools. The zero
+// value may grant only the injected GrantableTools.
+type Grantor struct {
+	// Admin is an organization owner/administrator or the server itself
+	// (bootstrap seeding): no ceiling.
+	Admin bool
+	// Bot is the acting Bot. Its own live tools are its ceiling, so a Bot
+	// can never grant a capability it does not hold.
+	Bot orgchart.NodeID
+}
+
 // Nodes owns the node-mutation use cases.
 type Nodes struct {
 	nodes             store.Nodes
@@ -56,6 +72,7 @@ type Nodes struct {
 	now               func() time.Time
 	newID             func() string
 	baseTools         []tool.Name
+	grantableTools    map[tool.Name]struct{}
 	knownTools        func() map[tool.Name]bool
 	onToolsChanged    func(context.Context, string)
 	onRestartRequired func(context.Context, string, orgchart.NodeID)
@@ -77,6 +94,10 @@ type Deps struct {
 	// needs. Injected by the wiring (tools.BaseReadTools) to avoid an
 	// import cycle.
 	BaseTools []tool.Name
+	// GrantableTools is the standard worker set any Grantor may grant.
+	// Changing any other tool on a Node requires a Grantor with authority
+	// over it. Injected for the same reason as BaseTools.
+	GrantableTools []tool.Name
 	// KnownTools reports the live registry's catalogue, so Reconcile can
 	// prune a persisted name the registry no longer knows. Injected (not
 	// imported) for the same reason as BaseTools. nil disables pruning —
@@ -97,6 +118,10 @@ func New(deps Deps) *Nodes {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
+	grantable := make(map[tool.Name]struct{}, len(deps.GrantableTools))
+	for _, name := range deps.GrantableTools {
+		grantable[name] = struct{}{}
+	}
 	return &Nodes{
 		nodes:             deps.Nodes,
 		lines:             deps.Lines,
@@ -104,6 +129,7 @@ func New(deps Deps) *Nodes {
 		now:               now,
 		newID:             deps.NewID,
 		baseTools:         deps.BaseTools,
+		grantableTools:    grantable,
 		knownTools:        deps.KnownTools,
 		onToolsChanged:    deps.OnToolsChanged,
 		onRestartRequired: deps.OnRestartRequired,
@@ -121,6 +147,7 @@ type CreateParams struct {
 	AgentID         string
 	CodeAgentConfig *types.CodeAgentExecutionConfig
 	Tools           []tool.Name
+	Grantor         Grantor
 	PreserveContext bool
 	// SandboxRuntime / SandboxVCPUs are the node's own sandbox config; empty
 	// / 0 inherit the org default. VCPUs must be a spec-task preset rung.
@@ -146,6 +173,9 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 		return orgchart.Node{}, fmt.Errorf("check node id %q: %w", id, err)
 	}
 	if err := s.ValidateTools(p.Tools); err != nil {
+		return orgchart.Node{}, err
+	}
+	if err := s.AuthorizeTools(ctx, orgID, p.Grantor, p.Tools); err != nil {
 		return orgchart.Node{}, err
 	}
 	tools := MergeTools(p.Tools, s.baseTools)
@@ -195,6 +225,8 @@ type UpdateParams struct {
 	SandboxVCPUs   *int
 	// InstanceProfile replaces the Node's instance profile.
 	InstanceProfile *types.BotInstanceProfile
+	// Grantor authorises a Tools or InstanceProfile patch.
+	Grantor Grantor
 }
 
 // Update reads the existing Node, applies the patch via the domain's
@@ -217,6 +249,17 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 	existing, err := s.nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return orgchart.Node{}, err
+	}
+	if p.Tools != nil {
+		if err := s.AuthorizeTools(ctx, orgID, p.Grantor, append(slices.Clone(existing.Tools), *p.Tools...)); err != nil {
+			return orgchart.Node{}, err
+		}
+	}
+	if p.InstanceProfile != nil {
+		changed := append(toolNames(existing.EffectiveInstanceProfile().Tools), toolNames(p.InstanceProfile.Tools)...)
+		if err := s.AuthorizeTools(ctx, orgID, p.Grantor, changed); err != nil {
+			return orgchart.Node{}, fmt.Errorf("instance tools: %w", err)
+		}
 	}
 	updated := existing
 	if p.AgentID != nil {
@@ -296,12 +339,15 @@ func normalizeNames(projectIDs []string) []string {
 // persisted. Idempotent per name - names the Node already has are no-ops,
 // and a call that adds nothing writes nothing. Returns store.ErrNotFound
 // (wrapped) when the (orgID, id) row is absent.
-func (s *Nodes) AttachTools(ctx context.Context, orgID string, id orgchart.NodeID, names []tool.Name) (orgchart.Node, error) {
+func (s *Nodes) AttachTools(ctx context.Context, orgID string, id orgchart.NodeID, g Grantor, names []tool.Name) (orgchart.Node, error) {
 	if err := s.ValidateTools(names); err != nil {
 		return orgchart.Node{}, err
 	}
 	existing, err := s.nodes.Get(ctx, orgID, id)
 	if err != nil {
+		return orgchart.Node{}, err
+	}
+	if err := s.AuthorizeTools(ctx, orgID, g, append(slices.Clone(existing.Tools), names...)); err != nil {
 		return orgchart.Node{}, err
 	}
 	merged := MergeTools(existing.Tools, names)
@@ -324,7 +370,7 @@ func (s *Nodes) AttachTools(ctx context.Context, orgID string, id orgchart.NodeI
 // read-baseline tool — those are mandatory and the reconciler would
 // re-add them — failing the whole call before any write. Returns
 // store.ErrNotFound (wrapped) when the (orgID, id) row is absent.
-func (s *Nodes) DetachTools(ctx context.Context, orgID string, id orgchart.NodeID, names []tool.Name) (orgchart.Node, error) {
+func (s *Nodes) DetachTools(ctx context.Context, orgID string, id orgchart.NodeID, g Grantor, names []tool.Name) (orgchart.Node, error) {
 	base := make(map[tool.Name]struct{}, len(s.baseTools))
 	for _, b := range s.baseTools {
 		base[b] = struct{}{}
@@ -338,6 +384,9 @@ func (s *Nodes) DetachTools(ctx context.Context, orgID string, id orgchart.NodeI
 	}
 	existing, err := s.nodes.Get(ctx, orgID, id)
 	if err != nil {
+		return orgchart.Node{}, err
+	}
+	if err := s.AuthorizeTools(ctx, orgID, g, existing.Tools); err != nil {
 		return orgchart.Node{}, err
 	}
 	kept := make([]tool.Name, 0, len(existing.Tools))
@@ -549,6 +598,42 @@ func (s *Nodes) ValidateTools(names []tool.Name) error {
 	for _, name := range names {
 		if !known[name] {
 			return fmt.Errorf("%w %q", ErrUnknownTool, name)
+		}
+	}
+	return nil
+}
+
+// AuthorizeTools is the one tool-grant rule every surface (REST, MCP, chat)
+// goes through: changing a Node's tools requires authority over every tool
+// outside GrantableTools that the Node holds or would hold. Callers pass
+// the union of the before and after sets, so a Grantor can neither grant
+// a capability it lacks nor strip one from a Node more privileged than
+// itself. An Admin Grantor has no ceiling; a Bot Grantor's ceiling is its
+// own live tools; the zero Grantor may change only GrantableTools.
+func (s *Nodes) AuthorizeTools(ctx context.Context, orgID string, g Grantor, names []tool.Name) error {
+	if g.Admin {
+		return nil
+	}
+	var restricted []tool.Name
+	for _, name := range names {
+		if _, ok := s.grantableTools[name]; !ok {
+			restricted = append(restricted, name)
+		}
+	}
+	if len(restricted) == 0 {
+		return nil
+	}
+	var held []tool.Name
+	if g.Bot != "" {
+		bot, err := s.nodes.Get(ctx, orgID, g.Bot)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("load granting bot %q: %w", g.Bot, err)
+		}
+		held = bot.Tools
+	}
+	for _, name := range restricted {
+		if !slices.Contains(held, name) {
+			return fmt.Errorf("%w: %q is outside the caller's own authority; only organization owners and administrators, or a bot that already holds it, can change it", ErrToolGrantForbidden, name)
 		}
 	}
 	return nil

@@ -79,7 +79,7 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 	botsSvc := nodes.New(nodes.Deps{
 		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: topo,
 		Now: clock, NewID: newID, BaseTools: mcptools.BaseReadTools,
-		KnownTools: mcptools.Catalogue(toolReg),
+		GrantableTools: mcptools.DefaultBotTools(), KnownTools: mcptools.Catalogue(toolReg),
 	})
 	assetsSvc, err := assets.New(assets.Deps{
 		Assets: st.Assets, Links: st.AssetLinks, Nodes: st.Nodes,

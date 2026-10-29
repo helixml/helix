@@ -31,9 +31,12 @@ func newCreateBotCaller(t *testing.T, orgID string) (Config, orgchart.Node) {
 	deps.AgentCreator = testAgentCreator{}
 	deps.Now = func() time.Time { return time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC) }
 	deps.NewID = func() string { return "id-create-bot-test" }
-	caller, err := orgchart.NewNode("b-owner", "# Owner", nil, deps.Now(), orgID)
+	caller, err := orgchart.NewNode("b-owner", "# Owner", OwnerBotTools(), deps.Now(), orgID)
 	if err != nil {
 		t.Fatalf("new caller: %v", err)
+	}
+	if err := st.Nodes.Create(context.Background(), caller); err != nil {
+		t.Fatalf("create caller: %v", err)
 	}
 	return deps, caller
 }

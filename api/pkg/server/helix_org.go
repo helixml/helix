@@ -477,7 +477,7 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 	botsSvc := nodes.New(nodes.Deps{
 		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: deps.Reconciler,
 		Now: deps.Now, NewID: deps.NewID,
-		BaseTools: mcptools.BaseReadTools, KnownTools: knownTools,
+		BaseTools: mcptools.BaseReadTools, GrantableTools: mcptools.DefaultBotTools(), KnownTools: knownTools,
 		OnToolsChanged:    deps.ToolChangeNotifier,
 		OnRestartRequired: deps.RestartRequiredNotifier,
 	})

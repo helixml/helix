@@ -42,7 +42,8 @@ func TestUpdate_FiresRestartRequiredOnToolChange(t *testing.T) {
 	spy := &restartSpy{}
 
 	_, err := restartSvc(st, spy).Update(context.Background(), org, "b-one", nodes.UpdateParams{
-		Tools: ptrTools([]tool.Name{"chat", "get_secret"}),
+		Tools:   ptrTools([]tool.Name{"chat", "get_secret"}),
+		Grantor: nodes.Grantor{Admin: true},
 	})
 	require.NoError(t, err)
 
@@ -96,7 +97,8 @@ func TestUpdate_SilentOnNoOpToolResubmit(t *testing.T) {
 	spy := &restartSpy{}
 
 	_, err := restartSvc(st, spy).Update(context.Background(), org, "b-four", nodes.UpdateParams{
-		Tools: ptrTools([]tool.Name{"get_secret", "chat"}),
+		Tools:   ptrTools([]tool.Name{"get_secret", "chat"}),
+		Grantor: nodes.Grantor{Admin: true},
 	})
 	require.NoError(t, err)
 
@@ -108,7 +110,7 @@ func TestAttachTools_FiresRestartRequired(t *testing.T) {
 	seed(t, st, "b-five", []tool.Name{"chat"})
 	spy := &restartSpy{}
 
-	_, err := restartSvc(st, spy).AttachTools(context.Background(), org, "b-five", []tool.Name{"get_secret"})
+	_, err := restartSvc(st, spy).AttachTools(context.Background(), org, "b-five", nodes.Grantor{Admin: true}, []tool.Name{"get_secret"})
 	require.NoError(t, err)
 
 	require.Equal(t, []orgchart.NodeID{"b-five"}, spy.calls)
@@ -119,7 +121,7 @@ func TestAttachTools_SilentWhenNothingAdded(t *testing.T) {
 	seed(t, st, "b-six", []tool.Name{"chat", "get_secret"})
 	spy := &restartSpy{}
 
-	_, err := restartSvc(st, spy).AttachTools(context.Background(), org, "b-six", []tool.Name{"get_secret"})
+	_, err := restartSvc(st, spy).AttachTools(context.Background(), org, "b-six", nodes.Grantor{Admin: true}, []tool.Name{"get_secret"})
 	require.NoError(t, err)
 
 	require.Empty(t, spy.calls)
@@ -130,7 +132,7 @@ func TestDetachTools_FiresRestartRequired(t *testing.T) {
 	seed(t, st, "b-seven", []tool.Name{"chat", "get_secret"})
 	spy := &restartSpy{}
 
-	_, err := restartSvc(st, spy).DetachTools(context.Background(), org, "b-seven", []tool.Name{"get_secret"})
+	_, err := restartSvc(st, spy).DetachTools(context.Background(), org, "b-seven", nodes.Grantor{Admin: true}, []tool.Name{"get_secret"})
 	require.NoError(t, err)
 
 	require.Equal(t, []orgchart.NodeID{"b-seven"}, spy.calls)
@@ -143,7 +145,8 @@ func TestUpdate_NilHookIsSafe(t *testing.T) {
 	svc := nodes.New(nodes.Deps{Nodes: st.Nodes, Now: at, BaseTools: []tool.Name{"chat"}})
 
 	_, err := svc.Update(context.Background(), org, "b-eight", nodes.UpdateParams{
-		Tools: ptrTools([]tool.Name{"chat", "get_secret"}),
+		Tools:   ptrTools([]tool.Name{"chat", "get_secret"}),
+		Grantor: nodes.Grantor{Admin: true},
 	})
 	require.NoError(t, err)
 }

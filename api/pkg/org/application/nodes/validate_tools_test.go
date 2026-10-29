@@ -22,6 +22,7 @@ func TestCreate_RejectsUnknownTool(t *testing.T) {
 		ID:      "b-typo",
 		Content: "# Typo",
 		Tools:   []tool.Name{"chat", "not_a_real_tool_abc"},
+		Grantor: nodes.Grantor{Admin: true},
 	})
 	require.ErrorIs(t, err, nodes.ErrUnknownTool)
 	require.ErrorContains(t, err, "not_a_real_tool_abc")
@@ -46,7 +47,7 @@ func TestAttachTools_RejectsUnknownTool(t *testing.T) {
 	st := memory.New()
 	seed(t, st, "b-sam", []tool.Name{"chat"})
 
-	_, err := svc(st, nil, live).AttachTools(context.Background(), org, "b-sam", []tool.Name{"not_a_real_tool_abc"})
+	_, err := svc(st, nil, live).AttachTools(context.Background(), org, "b-sam", nodes.Grantor{Admin: true}, []tool.Name{"not_a_real_tool_abc"})
 	require.ErrorIs(t, err, nodes.ErrUnknownTool)
 
 	require.Equal(t, []tool.Name{"chat"}, toolsOf(t, st, "b-sam"))
@@ -60,6 +61,7 @@ func TestCreate_AcceptsRegisteredTools(t *testing.T) {
 		ID:      "b-ok",
 		Content: "# OK",
 		Tools:   []tool.Name{"chat", "attach_worker"},
+		Grantor: nodes.Grantor{Admin: true},
 	})
 	require.NoError(t, err)
 	require.Equal(t, []tool.Name{"chat", "attach_worker", "managers"}, node.Tools)
@@ -74,6 +76,7 @@ func TestCreate_UnwiredCatalogueSkipsValidation(t *testing.T) {
 		ID:      "b-nocat",
 		Content: "# No catalogue",
 		Tools:   []tool.Name{"whatever_tool"},
+		Grantor: nodes.Grantor{Admin: true},
 	})
 	require.NoError(t, err)
 	require.Equal(t, []tool.Name{"whatever_tool"}, toolsOf(t, st, "b-nocat"))

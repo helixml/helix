@@ -125,6 +125,7 @@ func (t *CreateBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		Content:   args.Content,
 		CreatedBy: string(inv.Caller.ID()),
 		Tools:     MergeDefaultBotTools(requestedTools),
+		Grantor:   CallerGrantor(inv.Caller),
 		Sources:   sources,
 		ParentID:  orgchart.NodeID(args.ParentID),
 	})

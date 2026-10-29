@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
@@ -37,7 +38,7 @@ func bulkTestEnv(t *testing.T) (*store.Store, *Registry, botCaller) {
 	if err := RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	owner, err := orgchart.NewNode("b-owner", "# Owner", nil, deps.Now(), "org-test")
+	owner, err := orgchart.NewNode("b-owner", "# Owner", OwnerBotTools(), deps.Now(), "org-test")
 	if err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
@@ -170,7 +171,7 @@ func TestToolChangeNotifiesLinkedAgentOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := deps.Build().Nodes.AttachTools(context.Background(), "org-test", "b-eng", []tool.Name{ChatName}); err != nil {
+	if _, err := deps.Build().Nodes.AttachTools(context.Background(), "org-test", "b-eng", nodes.Grantor{Admin: true}, []tool.Name{ChatName}); err != nil {
 		t.Fatal(err)
 	}
 	if len(notified) != 1 || notified[0] != "app-eng" {

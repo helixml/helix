@@ -51,3 +51,21 @@ not overwritten during startup because operators may have customized it; the
 live tool description supplies the safety rule until they explicitly reset
 instructions. The REST and MCP creation paths apply the same standard
 tool-set union.
+
+## Tool-grant ceiling (2026-10-29)
+
+The brief is a prompt contract; tool grants are not. Every change to a Bot's
+tools — REST create/update/instance profile, MCP `create_bot`,
+`attach_tool`, `detach_tool` — goes through `nodes.Nodes.AuthorizeTools`.
+Changing any tool outside the standard worker set (`DefaultBotTools`, injected
+as `GrantableTools`) requires authority over that tool, checked across the
+Bot's tools before and after the change:
+
+- org owners/administrators (REST) and server bootstrap: no ceiling;
+- a Bot acting over MCP: only tools it already holds, so it cannot
+  escalate itself, a new hire, or strip a more privileged Bot;
+- any other caller: the standard worker set only.
+
+The Chief of Staff holds `OwnerBotTools`, so its one-call tooled-up hire
+still works; a manager granted `create_bot` alone can hire only within its own
+tools.
