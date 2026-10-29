@@ -330,26 +330,19 @@ func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, deskto
 	// Find one with the required desktop version
 	sawFull := false
 	for _, instance := range instances {
-		// Streamed desktops only run on render-capable hosts. A neuron/inf2
-		// host (no /dev/dri render node) would otherwise be picked on load
-		// alone, then the desktop container FATALs at startup. Headless
-		// containers have no such constraint.
-		if requiresDisplay && !instance.CanHostDesktop() {
+		// Streamed desktops only run on render-capable hosts (a neuron/inf2
+		// host without /dev/dri would otherwise be picked on load alone and
+		// the desktop container FATALs at startup), and the host must
+		// advertise the required image. EligibleForPlacement is shared with
+		// the spec-task sandbox-capacity gate so the two cannot drift.
+		if !instance.EligibleForPlacement(desktopType, requiresDisplay) {
 			continue
 		}
-		if len(instance.DesktopVersions) > 0 {
-			var versions map[string]string
-			if err := json.Unmarshal(instance.DesktopVersions, &versions); err != nil {
-				continue // Skip sandboxes with invalid version JSON
-			}
-			if version, ok := versions[desktopType]; ok && version != "" {
-				if instance.AtCapacity() {
-					sawFull = true
-					continue
-				}
-				return instance, nil
-			}
+		if instance.AtCapacity() {
+			sawFull = true
+			continue
 		}
+		return instance, nil
 	}
 
 	if sawFull {
