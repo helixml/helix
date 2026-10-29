@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -23,7 +24,15 @@ import (
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	"github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/org/internal/orgtest"
+	"github.com/helixml/helix/api/pkg/types"
 )
+
+func standaloneOwnerHandler(s *server.Server) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := server.WithOrgAuthorization(r.Context(), types.OrganizationRoleOwner, false)
+		s.StandaloneHandler().ServeHTTP(w, r.WithContext(ctx))
+	})
+}
 
 type testAgentCreator struct{}
 
@@ -87,7 +96,7 @@ func TestDemoOwnerCreatesCEO(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
+	srv := httptest.NewServer(standaloneOwnerHandler(server.NewFromStore(s, reg, nil, nil, nil)))
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -940,7 +949,7 @@ func seedActingBot(t *testing.T, s *store.Store, orgID, botID string, tools []to
 	t.Helper()
 	ctx := context.Background()
 	if _, err := nodes.New(nodes.Deps{Nodes: s.Nodes, BaseTools: mcptools.BaseReadTools}).
-		Create(ctx, orgID, nodes.CreateParams{ID: botID, Content: "# " + botID, Tools: tools}); err != nil {
+		Create(ctx, orgID, nodes.CreateParams{ID: botID, Content: "# " + botID, Tools: tools, Grantor: nodes.Grantor{Admin: true}}); err != nil {
 		t.Fatalf("seed bot %s: %v", botID, err)
 	}
 }
@@ -999,7 +1008,7 @@ func TestCreateBotInjectsBaselineOverMCP(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
+	srv := httptest.NewServer(standaloneOwnerHandler(server.NewFromStore(s, reg, nil, nil, nil)))
 	t.Cleanup(srv.Close)
 
 	ownerSession := connectMCP(t, srv.URL, "b-owner")

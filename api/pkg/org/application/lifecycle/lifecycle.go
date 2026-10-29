@@ -194,8 +194,10 @@ type CreateParams struct {
 	Content string
 	// CreatedBy is the Worker (or operator) the create is attributed to.
 	// It is stamped onto the attachments made at creation.
-	CreatedBy       string
-	Tools           []tool.Name
+	CreatedBy string
+	Tools     []tool.Name
+	// Grantor authorises Tools; see nodes.Nodes.AuthorizeTools.
+	Grantor         nodes.Grantor
 	Sources         []eventsource.SourceRef
 	ParentID        orgchart.NodeID
 	PreserveContext bool
@@ -260,6 +262,9 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 	if err := s.Nodes.ValidateTools(p.Tools); err != nil {
 		return CreateResult{}, err
 	}
+	if err := s.Nodes.AuthorizeTools(ctx, orgID, p.Grantor, p.Tools); err != nil {
+		return CreateResult{}, err
+	}
 
 	agentName := strings.TrimSpace(p.Name)
 	if agentName == "" {
@@ -279,6 +284,7 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		AgentID:         createdAgent.LegacyAppID,
 		CodeAgentConfig: createdAgent.CodeAgentConfig,
 		Tools:           p.Tools,
+		Grantor:         p.Grantor,
 		PreserveContext: p.PreserveContext,
 		SandboxRuntime:  p.SandboxRuntime,
 		SandboxVCPUs:    p.SandboxVCPUs,

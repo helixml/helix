@@ -62,10 +62,12 @@ func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		http.Error(w, "session is not authorized for helix-org MCP access", http.StatusForbidden)
 		return
 	}
-	if _, err := b.apiServer.authorizeOrgMember(r.Context(), user, session.OrganizationID); err != nil {
+	membership, err := b.apiServer.authorizeOrgMember(r.Context(), user, session.OrganizationID)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	r = r.WithContext(helixorgserver.WithOrgAuthorization(r.Context(), membership.Role, isAdmin(user)))
 	if err := b.scope.ensureBootstrap(r.Context(), session.OrganizationID); err != nil {
 		http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -98,10 +100,16 @@ func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 
 // instanceCaller is the tool.Caller for a bot instance. It acts as its bot,
 // so messages it posts and audit entries carry the bot's id.
-type instanceCaller struct{ botID, orgID string }
+type instanceCaller struct {
+	botID, orgID string
+	admin        bool
+	tools        []tool.Name
+}
 
-func (c instanceCaller) ID() string             { return c.botID }
-func (c instanceCaller) OrganizationID() string { return c.orgID }
+func (c instanceCaller) ID() string                    { return c.botID }
+func (c instanceCaller) OrganizationID() string        { return c.orgID }
+func (c instanceCaller) CanManageOrganization() bool   { return c.admin }
+func (c instanceCaller) ToolGrantCeiling() []tool.Name { return c.tools }
 
 // serveInstance serves the org tools a bot instance may call: its profile's
 // tools that the bot itself still has, read live on every request. An
@@ -129,5 +137,8 @@ func (b *HelixOrgMCPBackend) serveInstance(w http.ResponseWriter, r *http.Reques
 	if token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); token != "" && token != r.Header.Get("Authorization") {
 		ctx = runtimehelix.WithBearerToken(ctx, token)
 	}
-	b.mcpServer.ServeMCPForCaller(w, r.WithContext(ctx), instanceCaller{botID: string(bot.ID), orgID: session.OrganizationID}, tools)
+	b.mcpServer.ServeMCPForCaller(w, r.WithContext(ctx), instanceCaller{
+		botID: string(bot.ID), orgID: session.OrganizationID,
+		admin: helixorgserver.CanManageOrganization(ctx), tools: tools,
+	}, tools)
 }

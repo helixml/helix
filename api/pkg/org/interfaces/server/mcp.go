@@ -22,10 +22,14 @@ import (
 // interface. The Bot aggregate is a plain struct (no ID()/OrganizationID()
 // methods), so this tiny value carries the two fields a tool invocation
 // needs to attribute the caller.
-type botCaller struct{ id, orgID string }
+type botCaller struct {
+	id, orgID string
+	admin     bool
+}
 
-func (c botCaller) ID() string             { return c.id }
-func (c botCaller) OrganizationID() string { return c.orgID }
+func (c botCaller) ID() string                  { return c.id }
+func (c botCaller) OrganizationID() string      { return c.orgID }
+func (c botCaller) CanManageOrganization() bool { return c.admin }
 
 // BotMCPHandler returns an http.Handler that speaks MCP over the Streamable
 // HTTP transport for one Bot. The org and bot come only from the request
@@ -86,7 +90,9 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 		return nil
 	}
 
-	return s.assembleMCPServer(string(botID), botCaller{id: string(bot.ID), orgID: bot.OrganizationID}, bot.Tools)
+	return s.assembleMCPServer(string(botID), botCaller{
+		id: string(bot.ID), orgID: bot.OrganizationID, admin: CanManageOrganization(ctx),
+	}, bot.Tools)
 }
 
 // assembleMCPServer builds the MCP server exposing exactly `tools` to

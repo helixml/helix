@@ -376,6 +376,7 @@ func (c Config) botsService() *nodes.Nodes {
 		Now:               c.Now,
 		NewID:             c.NewID,
 		BaseTools:         BaseReadTools,
+		GrantableTools:    DefaultBotTools(),
 		KnownTools:        c.KnownTools,
 		OnToolsChanged:    c.ToolChangeNotifier,
 		OnRestartRequired: c.RestartRequiredNotifier,

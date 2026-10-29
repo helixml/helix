@@ -57,7 +57,7 @@ func TestCreateBotRunsInjectedOrgReconcilers(t *testing.T) {
 	})
 	botSvc := nodes.New(nodes.Deps{
 		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: rec,
-		Now: deps.Now, NewID: deps.NewID, BaseTools: BaseReadTools,
+		Now: deps.Now, NewID: deps.NewID, BaseTools: BaseReadTools, GrantableTools: DefaultBotTools(),
 	})
 	spy := &spyOrgReconciler{}
 	deps.Lifecycle = &lifecycle.Service{

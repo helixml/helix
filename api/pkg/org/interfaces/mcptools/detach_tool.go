@@ -59,7 +59,7 @@ func (t *DetachTool) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	if orgID == "" {
 		return nil, fmt.Errorf("detach_tool: caller has no OrgID")
 	}
-	updated, err := t.deps.Nodes.DetachTools(ctx, orgID, orgchart.NodeID(args.NodeID), args.Tools)
+	updated, err := t.deps.Nodes.DetachTools(ctx, orgID, orgchart.NodeID(args.NodeID), CallerGrantor(inv.Caller), args.Tools)
 	if err != nil {
 		return nil, err
 	}
