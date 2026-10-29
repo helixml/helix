@@ -143,6 +143,21 @@ func TestDeployScriptExportsDataDirAndPort(t *testing.T) {
 	}
 }
 
+func TestDeployScriptRunsRootlessStartupAsRetro(t *testing.T) {
+	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
+	for _, want := range []string{
+		`STARTUP_USER=()`,
+		`[ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-}" = "1" ]`,
+		`chown -hR retro:retro "$CODE" "$SPECS"`,
+		`STARTUP_USER=(gosu retro env HOME=/home/retro USER=retro LOGNAME=retro XDG_RUNTIME_DIR=/run/user/1000)`,
+		`setsid "${STARTUP_USER[@]}" env HELIX_WEB_SERVICE_PORT=8080 HELIX_WEB_SERVICE_DATA_DIR=/data bash "$SPECS/.helix/startup.sh" >"$LOGFILE" 2>&1 &`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("deploy script missing %q:\n%s", want, script)
+		}
+	}
+}
+
 // TestDeployScriptChecksOutSHA — when a SHA is given it is checked out (in the
 // code worktree).
 func TestDeployScriptChecksOutSHA(t *testing.T) {
