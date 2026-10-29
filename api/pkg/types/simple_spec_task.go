@@ -881,10 +881,8 @@ func (SpecTaskExternalAgent) TableName() string {
 type SpecTaskArchiveRequest struct {
 	Archived bool `json:"archived"`
 	// StopAgent controls whether archiving stops the task's external agent and
-	// frees its sandbox. Omitted (nil) means yes — that is the long-standing
-	// behaviour, and it is what an "archive a finished lane" caller expects.
-	// A caller that wants archiving to be pure bookkeeping (e.g. a coordinator
-	// archiving its own lanes) sends false.
+	// frees its sandbox. Omitted (nil) means yes. Archiving never kills an agent
+	// that is mid-turn unless the caller says so explicitly.
 	StopAgent *bool `json:"stop_agent,omitempty"`
 	// StopAgentExplicit records that the caller supplied StopAgent. Archiving
 	// never kills an agent that is mid-turn unless the caller said so

@@ -2107,7 +2107,11 @@ func deriveAgentWorkState(task *types.SpecTask, latest *types.Interaction) types
 //   - the session reports the agent as "running" / "starting" / "restarting", or
 //   - the latest interaction is still waiting (the agent is mid-turn).
 func (s *HelixAPIServer) specTaskAgentIsLive(ctx context.Context, taskID, planningSessionID string) bool {
-	if agent, err := s.Store.GetSpecTaskExternalAgent(ctx, taskID); err == nil && agent != nil {
+	// The external-agent probe is best-effort: "no agent row" is an ordinary
+	// store error here and means nothing is running, so only the session and
+	// interaction probes below can claim the agent is live.
+	agent, err := s.Store.GetSpecTaskExternalAgent(ctx, taskID)
+	if err == nil && agent != nil {
 		switch agent.Status {
 		case "running", "starting":
 			return true
@@ -2118,17 +2122,27 @@ func (s *HelixAPIServer) specTaskAgentIsLive(ctx context.Context, taskID, planni
 		return false
 	}
 
-	if session, err := s.Store.GetSession(ctx, planningSessionID); err == nil && session != nil {
+	session, err := s.Store.GetSession(ctx, planningSessionID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Str("session_id", planningSessionID).
+			Msg("Session liveness probe failed; treating the agent as live so archiving does not stop it")
+		return true
+	}
+	if session != nil {
 		switch session.Metadata.ExternalAgentStatus {
 		case "running", "starting", "restarting":
 			return true
 		}
 	}
 
-	if latestBySession, err := s.Store.GetLatestInteractionsForSessions(ctx, []string{planningSessionID}); err == nil {
-		if latest := latestBySession[planningSessionID]; latest != nil && latest.State == types.InteractionStateWaiting {
-			return true
-		}
+	latestBySession, err := s.Store.GetLatestInteractionsForSessions(ctx, []string{planningSessionID})
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Str("session_id", planningSessionID).
+			Msg("Interaction liveness probe failed; treating the agent as live so archiving does not stop it")
+		return true
+	}
+	if latest := latestBySession[planningSessionID]; latest != nil && latest.State == types.InteractionStateWaiting {
+		return true
 	}
 
 	return false

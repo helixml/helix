@@ -1109,33 +1109,37 @@ const ProjectChatSidebar: FC<{
           // shouldConfirmArchive. Plain chats archive without a prompt.
           message={`Archive “${archiveConfirmation.title}”? ${archiveConfirmation.kind === 'spec-task'
             ? 'The task agent and its sandbox are stopped unless you keep them running.'
-            : 'Its external agent is stopped unless you keep it running.'} You can restore it from the Archived view.`}
+            : 'Its external agent is stopped.'} You can restore it from the Archived view.`}
           confirmTitle={archivingItemId === archiveConfirmation.id ? 'Archiving…' : 'Archive'}
           onCancel={() => {
             if (!archivingItemId) setArchiveConfirmation(null)
           }}
           onSubmit={() => void performArchive(archiveConfirmation, stopAgentOnArchive)}
         >
-          <FormControlLabel
-            sx={{ width: '100%', pl: 1, alignItems: 'flex-start' }}
-            control={(
-              <Checkbox
-                size="small"
-                checked={stopAgentOnArchive}
-                onChange={(e) => setStopAgentOnArchive(e.target.checked)}
-                inputProps={{ 'aria-describedby': 'archive-stop-agent-hint' }}
-                disabled={archivingItemId === archiveConfirmation.id}
-              />
-            )}
-            label={(
-              <Box>
-                <Typography variant="body2">Stop the agent and free its sandbox</Typography>
-                <Typography id="archive-stop-agent-hint" variant="caption" color="text.secondary">
-                  Uncheck to archive without interrupting work that is in progress (bookkeeping only).
-                </Typography>
-              </Box>
-            )}
-          />
+          {/* Only spec tasks carry stop_agent. Archiving a plain chat stops its
+              external agent unconditionally, so the box would be dead UI there. */}
+          {archiveConfirmation.kind === 'spec-task' && (
+            <FormControlLabel
+              sx={{ width: '100%', pl: 1, alignItems: 'flex-start' }}
+              control={(
+                <Checkbox
+                  size="small"
+                  checked={stopAgentOnArchive}
+                  onChange={(e) => setStopAgentOnArchive(e.target.checked)}
+                  inputProps={{ 'aria-describedby': 'archive-stop-agent-hint' }}
+                  disabled={archivingItemId === archiveConfirmation.id}
+                />
+              )}
+              label={(
+                <Box>
+                  <Typography variant="body2">Stop the agent and free its sandbox</Typography>
+                  <Typography id="archive-stop-agent-hint" variant="caption" color="text.secondary">
+                    Uncheck to archive without interrupting work that is in progress (bookkeeping only).
+                  </Typography>
+                </Box>
+              )}
+            />
+          )}
         </SimpleConfirmWindow>
       )}
 

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 
 	"encoding/json"
 	"net/http"
@@ -34,6 +35,11 @@ type SpecTaskArchiveStopSuite struct {
 	projectID  string
 	sessionID  string
 	archiveReq *bytes.Reader
+
+	// archiveFinished is closed by the last mock call the detached archive
+	// goroutine makes. Waiting on it beats sleeping: a fixed delay either
+	// flakes under CI load or wastes time when the goroutine is quick.
+	archiveFinished chan struct{}
 }
 
 func TestSpecTaskArchiveStopSuite(t *testing.T) {
@@ -53,6 +59,7 @@ func (s *SpecTaskArchiveStopSuite) SetupTest() {
 	s.taskID = "task_archive_test"
 	s.projectID = "project_archive_test"
 	s.sessionID = "session_archive_test"
+	s.archiveFinished = make(chan struct{})
 }
 
 func (s *SpecTaskArchiveStopSuite) TearDownTest() {
@@ -117,7 +124,6 @@ func (s *SpecTaskArchiveStopSuite) TestArchive_WithLiveAgent_DoesNotStopDesktop(
 	s.server.archiveSpecTask(rr, s.makeArchiveRequest())
 
 	s.Equal(http.StatusOK, rr.Code)
-	s.waitForArchiveSideEffects()
 }
 
 // A task whose agent already finished is still stopped when archived, so the
@@ -149,7 +155,10 @@ func (s *SpecTaskArchiveStopSuite) TestArchive_WithFinishedAgent_StopsDesktop() 
 	s.executor.EXPECT().StopDesktop(gomock.Any(), s.sessionID).Return(nil).Times(1)
 	s.store.EXPECT().
 		ReapWaitingInteractions(gomock.Any(), s.sessionID, types.InteractionStateInterrupted, "spec task archived").
-		Return(nil, nil).
+		DoAndReturn(func(context.Context, string, types.InteractionState, string) ([]*types.Interaction, error) {
+			defer close(s.archiveFinished)
+			return nil, nil
+		}).
 		Times(1)
 
 	rr := httptest.NewRecorder()
@@ -170,7 +179,6 @@ func (s *SpecTaskArchiveStopSuite) TestArchive_StopAgentFalse_KeepsSandbox() {
 	s.server.archiveSpecTask(rr, s.makeArchiveRequestBody(`{"archived":true,"stop_agent":false}`))
 
 	s.Equal(http.StatusOK, rr.Code)
-	s.waitForArchiveSideEffects()
 }
 
 // An explicit stop_agent=true is the caller saying "stop it anyway": a live
@@ -207,7 +215,14 @@ func (s *SpecTaskArchiveStopSuite) TestArchive_StopAgentTrue_StopsLiveAgent() {
 	// external-agent container, so both targets are expected.
 	s.executor.EXPECT().StopDesktop(gomock.Any(), s.sessionID).Return(nil).Times(1)
 	s.executor.EXPECT().StopDesktop(gomock.Any(), "agent_archive_test").Return(nil).Times(1)
-	s.store.EXPECT().UpdateSpecTaskExternalAgent(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	// The agent-status write is the goroutine's final step, so its completion
+	// is the signal that all of the above happened.
+	s.store.EXPECT().UpdateSpecTaskExternalAgent(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *types.SpecTaskExternalAgent) error {
+			defer close(s.archiveFinished)
+			return nil
+		},
+	).Times(1)
 
 	rr := httptest.NewRecorder()
 	s.server.archiveSpecTask(rr, s.makeArchiveRequestBody(`{"archived":true,"stop_agent":true}`))
@@ -234,8 +249,13 @@ func (s *SpecTaskArchiveStopSuite) TestArchiveRequest_StopAgentSemantics() {
 	s.True(on.StopAgentExplicit)
 }
 
-// The stop runs in a detached goroutine, so expectations are checked after a
-// short wait rather than immediately. gomock has no "wait" primitive.
+// The stop runs in a detached goroutine, so the test waits for the last
+// expected mock call instead of sleeping for a guessed interval. Tests that
+// expect no stop side effects do not call this at all.
 func (s *SpecTaskArchiveStopSuite) waitForArchiveSideEffects() {
-	time.Sleep(300 * time.Millisecond)
+	select {
+	case <-s.archiveFinished:
+	case <-time.After(5 * time.Second):
+		s.Fail("archive side effects did not complete")
+	}
 }
