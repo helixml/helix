@@ -515,7 +515,7 @@ func (s *AutoWakeColdStartSuite) TestMarksAsErrorAfterMaxRetries() {
 
 	s.server.maybeAutoWake(context.Background(), stuck)
 
-	s.Contains(reason, "helixml/helix#2397")
+	s.Equal(agentNeverConnectedReason, reason)
 }
 
 // TestClearsStartingStatusOnExhaustion: when the worker exhausts cold-start
