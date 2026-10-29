@@ -678,6 +678,38 @@ func (s *ProvisionSuite) TestProvisionMarksFailedWhenNoHostAvailable() {
 	s.Require().Empty(s.hydra.createCalls, "hydra CreateDevContainer must not be called when no host is available")
 }
 
+func (s *ProvisionSuite) TestCreatePreservesInternalHostPinForProvisioning() {
+	sb := &types.Sandbox{}
+	host := &types.SandboxInstance{ID: "host-pinned", Status: "online"}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().CreateSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, in *types.Sandbox) (*types.Sandbox, error) {
+			s.Equal("host-pinned", in.HostDeviceID)
+			*sb = *in
+			sb.ID = "sbx_pinned"
+			return sb, nil
+		},
+	)
+	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_pinned").Return(sb, nil)
+	s.store.EXPECT().GetSandboxInstance(gomock.Any(), "host-pinned").Return(host, nil)
+	s.store.EXPECT().IncrementSandboxContainerCount(gomock.Any(), "host-pinned").Return(nil)
+	s.store.EXPECT().SetSandboxContainer(gomock.Any(), "sbx_pinned", "host-pinned", gomock.Any()).Return(nil)
+	s.store.EXPECT().SetSandboxStatus(gomock.Any(), "sbx_pinned", types.SandboxStatusRunning, "").Return(nil)
+	s.hydra.createResp = &hydra.DevContainerResponse{
+		SessionID: "sbx_pinned", ContainerID: "ctr_pinned", Status: hydra.DevContainerStatusRunning,
+	}
+
+	_, err := s.controller.Create(s.ctx, "org_1", "user_1", &types.CreateSandboxRequest{
+		Runtime: types.SandboxRuntimeHeadlessUbuntu, Persistent: true, HostDeviceID: "host-pinned",
+	})
+	s.Require().NoError(err)
+	s.controller.waitProvisions()
+
+	s.Equal("host-pinned", s.hydra.hostID)
+}
+
 // TestDeleteCallsHydraDeleteAndForgetOps: Delete must tear down the hydra
 // container AND forget the cached command ops, in that order, before
 // soft-deleting the row.
