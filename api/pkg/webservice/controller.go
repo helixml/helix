@@ -884,12 +884,14 @@ func repoDirName(repo *types.GitRepository) string {
 //   - startup.sh is invoked with CWD = the code dir and
 //     $0 = $SPECS/.helix/startup.sh.
 //
-// It stops any previously-launched app (tracked via a pidfile under /data)
-// BEFORE starting the new one, guaranteeing a single writer of the durable
-// /data dir. The app is launched in its own session (setsid) so we can stop its
-// whole process group on the next deploy. It receives HELIX_WEB_SERVICE_PORT
-// and HELIX_WEB_SERVICE_DATA_DIR=/data — apps put their database/uploads under
-// the latter so state survives redeploys and reboots.
+// It prepares the new checkout before stopping any previously-launched app
+// (tracked via a pidfile under /data), then starts the replacement. This keeps
+// the old app serving when repository preparation fails while guaranteeing a
+// single writer of the durable /data dir during startup. The app is launched
+// in its own session (setsid) so we can stop its whole process group on the
+// next deploy. It receives HELIX_WEB_SERVICE_PORT and
+// HELIX_WEB_SERVICE_DATA_DIR=/data — apps put their database/uploads under the
+// latter so state survives redeploys and reboots.
 // deployedSHAMarker prefixes the line on which the deploy script reports the
 // commit it checked out.
 const deployedSHAMarker = "HELIX_DEPLOYED_SHA="
@@ -906,7 +908,7 @@ func deployScript(cloneURL, sha, defaultBranch, codeDir string, containerPort in
 	if sha != "" {
 		ref = sha
 	}
-	checkout := "git -C " + shellEscape(code) + " checkout --detach " + shellEscape(ref)
+	checkout := "git -c safe.directory=" + shellEscape(code) + " -C " + shellEscape(code) + " checkout --detach " + shellEscape(ref)
 	return strings.Join([]string{
 		"set -e",
 		"mkdir -p /data /workspace",
@@ -914,17 +916,6 @@ func deployScript(cloneURL, sha, defaultBranch, codeDir string, containerPort in
 		"LOGFILE=/data/.helix-webservice.log",
 		"CODE=" + shellEscape(code),
 		"SPECS=/workspace/helix-specs",
-		// Stop the previous app instance (single-writer guarantee). setsid made
-		// it a group leader, so PID == PGID and `kill -- -PID` stops the group.
-		`if [ -f "$PIDFILE" ]; then`,
-		`  OLDPID=$(cat "$PIDFILE" 2>/dev/null || true)`,
-		`  if [ -n "$OLDPID" ]; then`,
-		`    kill -TERM -"$OLDPID" 2>/dev/null || kill -TERM "$OLDPID" 2>/dev/null || true`,
-		`    for _ in $(seq 1 30); do kill -0 "$OLDPID" 2>/dev/null || break; sleep 1; done`,
-		`    kill -KILL -"$OLDPID" 2>/dev/null || true`,
-		`  fi`,
-		`  rm -f "$PIDFILE"`,
-		"fi",
 		// Embed the deploy token (passed via env, not the script string) into
 		// the clone URL so git can authenticate to Helix's private git server.
 		"CLONE_URL=" + shellEscape(cloneURL),
@@ -934,11 +925,11 @@ func deployScript(cloneURL, sha, defaultBranch, codeDir string, containerPort in
 		`if [ ! -d "$CODE/.git" ]; then`,
 		`  git clone --depth 50 "$CLONE_URL" "$CODE"`,
 		`else`,
-		`  git -C "$CODE" remote set-url origin "$CLONE_URL"`,
+		`  git -c safe.directory="$CODE" -C "$CODE" remote set-url origin "$CLONE_URL"`,
 		`fi`,
-		`git -C "$CODE" fetch --all`,
+		`git -c safe.directory="$CODE" -C "$CODE" fetch --all`,
 		checkout,
-		`echo "` + deployedSHAMarker + `$(git -C "$CODE" rev-parse HEAD)"`,
+		`echo "` + deployedSHAMarker + `$(git -c safe.directory="$CODE" -C "$CODE" rev-parse HEAD)"`,
 		// The startup script is sourced exclusively from the project's
 		// helix-specs branch (its canonical Helix-metadata branch) — never from
 		// the deployed app branch — so there is a single definition of how the
@@ -946,22 +937,34 @@ func deployScript(cloneURL, sha, defaultBranch, codeDir string, containerPort in
 		// detached at the fetched tip so redeploys never hit a branch-checkout
 		// conflict; remove any stale worktree first. Shallow clone implies
 		// --single-branch, so helix-specs must be fetched explicitly.
-		`git -C "$CODE" worktree remove --force "$SPECS" 2>/dev/null || true`,
+		`git -c safe.directory="$CODE" -C "$CODE" worktree remove --force "$SPECS" 2>/dev/null || true`,
 		`rm -rf "$SPECS"`,
-		`git -C "$CODE" fetch --depth 1 origin helix-specs`,
-		`git -C "$CODE" worktree add --force --detach "$SPECS" FETCH_HEAD`,
+		`git -c safe.directory="$CODE" -C "$CODE" fetch --depth 1 origin helix-specs`,
+		`git -c safe.directory="$CODE" -C "$CODE" worktree add --force --detach "$SPECS" FETCH_HEAD`,
 		`if [ ! -f "$SPECS/.helix/startup.sh" ]; then`,
 		`  echo 'No .helix/startup.sh found on the helix-specs branch' >&2; exit 2`,
 		`fi`,
 		`chmod +x "$SPECS/.helix/startup.sh" 2>/dev/null || true`,
-		// Invoke exactly like the spec-task runner (helix-run-startup-script.sh):
-		// CWD = code root, $0 = the sibling helix-specs worktree. setsid → own
-		// process group for a clean stop on the next deploy.
 		`STARTUP_USER=()`,
 		`if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-}" = "1" ]; then`,
 		`  chown -hR retro:retro "$CODE" "$SPECS"`,
 		`  STARTUP_USER=(gosu retro env HOME=/home/retro USER=retro LOGNAME=retro XDG_RUNTIME_DIR=/run/user/1000)`,
 		`fi`,
+		// Stop the previous app only after the replacement checkout is ready.
+		// setsid made it a group leader, so PID == PGID and `kill -- -PID`
+		// stops the group.
+		`if [ -f "$PIDFILE" ]; then`,
+		`  OLDPID=$(cat "$PIDFILE" 2>/dev/null || true)`,
+		`  if [ -n "$OLDPID" ]; then`,
+		`    kill -TERM -"$OLDPID" 2>/dev/null || kill -TERM "$OLDPID" 2>/dev/null || true`,
+		`    for _ in $(seq 1 30); do kill -0 "$OLDPID" 2>/dev/null || break; sleep 1; done`,
+		`    kill -KILL -"$OLDPID" 2>/dev/null || true`,
+		`  fi`,
+		`  rm -f "$PIDFILE"`,
+		"fi",
+		// Invoke exactly like the spec-task runner (helix-run-startup-script.sh):
+		// CWD = code root, $0 = the sibling helix-specs worktree. setsid → own
+		// process group for a clean stop on the next deploy.
 		`cd "$CODE"`,
 		fmt.Sprintf(`setsid "${STARTUP_USER[@]}" env HELIX_WEB_SERVICE_PORT=%d HELIX_WEB_SERVICE_DATA_DIR=/data bash "$SPECS/.helix/startup.sh" >"$LOGFILE" 2>&1 &`, containerPort),
 		`echo $! > "$PIDFILE"`,

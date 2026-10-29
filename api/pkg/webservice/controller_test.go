@@ -3,7 +3,12 @@ package webservice
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -106,22 +111,92 @@ func TestProjectSecretEnv(t *testing.T) {
 	}
 }
 
-// TestDeployScriptStopsBeforeStart is the single-writer guarantee: the deploy
-// script must kill the previous app instance BEFORE launching the new one, so
-// the durable /data dir is never opened by two processes at once.
-func TestDeployScriptStopsBeforeStart(t *testing.T) {
+// TestDeployScriptPreparesBeforeStop keeps the current app serving if Git or
+// startup-script validation fails, while preserving the single-writer rule.
+func TestDeployScriptPreparesBeforeStop(t *testing.T) {
 	script := deployScript("https://github.com/o/r.git", "abc123", "main", "myrepo", 3000)
 
+	prepareIdx := strings.Index(script, `if [ ! -f "$SPECS/.helix/startup.sh" ]`)
+	ownershipIdx := strings.Index(script, `chown -hR retro:retro "$CODE" "$SPECS"`)
 	killIdx := strings.Index(script, "kill -TERM")
-	launchIdx := strings.Index(script, "startup.sh")
+	launchIdx := strings.Index(script, `setsid "${STARTUP_USER[@]}"`)
+	if prepareIdx < 0 {
+		t.Fatalf("deploy script never validates the replacement startup script: %s", script)
+	}
 	if killIdx < 0 {
 		t.Fatalf("deploy script never stops the previous app: %s", script)
 	}
 	if launchIdx < 0 {
 		t.Fatalf("deploy script never launches startup.sh: %s", script)
 	}
+	if prepareIdx > killIdx {
+		t.Errorf("deploy script stops the old app before preparing the replacement (prepare@%d > kill@%d)", prepareIdx, killIdx)
+	}
+	if ownershipIdx < 0 || ownershipIdx > killIdx {
+		t.Errorf("deploy script stops the old app before preparing rootless ownership (ownership@%d > kill@%d)", ownershipIdx, killIdx)
+	}
 	if killIdx > launchIdx {
 		t.Errorf("deploy script launches the app before stopping the old one (kill@%d > launch@%d) — two writers on /data", killIdx, launchIdx)
+	}
+}
+
+func TestDeployScriptTrustsOnlyItsCheckout(t *testing.T) {
+	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
+	if !strings.Contains(script, `git -c safe.directory="$CODE" -C "$CODE" fetch --all`) {
+		t.Fatalf("Git commands do not trust the known checkout:\n%s", script)
+	}
+	if strings.Contains(script, `git -C "$CODE"`) || strings.Contains(script, "safe.directory=*") || strings.Contains(script, "config --global") {
+		t.Fatalf("deploy script grants broader Git trust than its checkout:\n%s", script)
+	}
+}
+
+func TestDeployScriptGitFailureLeavesCurrentAppRunning(t *testing.T) {
+	tmp := t.TempDir()
+	dataDir := filepath.Join(tmp, "data")
+	codeDir := filepath.Join(tmp, "workspace", "myrepo")
+	binDir := filepath.Join(tmp, "bin")
+	for _, dir := range []string{dataDir, filepath.Join(codeDir, ".git"), binDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sentinel := exec.Command("sleep", "30")
+	if err := sentinel.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = sentinel.Process.Kill()
+		_, _ = sentinel.Process.Wait()
+	})
+	if err := os.WriteFile(filepath.Join(dataDir, ".helix-webservice.pid"), []byte(strconv.Itoa(sentinel.Process.Pid)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gitArgs := filepath.Join(tmp, "git-args")
+	fakeGit := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$GIT_ARGS\"\nexit 42\n"
+	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(fakeGit), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
+	script = strings.ReplaceAll(script, "/workspace", filepath.Join(tmp, "workspace"))
+	script = strings.ReplaceAll(script, "/data", dataDir)
+	cmd := exec.Command("/bin/bash", "-c", script)
+	cmd.Env = append(os.Environ(), "PATH="+binDir+":"+os.Getenv("PATH"), "GIT_ARGS="+gitArgs)
+	if err := cmd.Run(); err == nil {
+		t.Fatal("deploy unexpectedly succeeded with failing Git")
+	}
+	if err := sentinel.Process.Signal(syscall.Signal(0)); err != nil {
+		t.Fatalf("current app was stopped before Git preparation failed: %v", err)
+	}
+	args, err := os.ReadFile(gitArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "-c\nsafe.directory=" + codeDir + "\n-C\n" + codeDir + "\n"
+	if !strings.HasPrefix(string(args), want) {
+		t.Fatalf("Git did not receive trust for the exact checkout; args:\n%s", args)
 	}
 }
 
@@ -179,7 +254,7 @@ func TestDeployScriptMirrorsSpecTaskLayout(t *testing.T) {
 	for _, want := range []string{
 		`CODE='/workspace/myrepo'`,
 		`SPECS=/workspace/helix-specs`,
-		`git -C "$CODE" worktree add --force --detach "$SPECS" FETCH_HEAD`,
+		`git -c safe.directory="$CODE" -C "$CODE" worktree add --force --detach "$SPECS" FETCH_HEAD`,
 		`cd "$CODE"`,
 		`bash "$SPECS/.helix/startup.sh"`,
 	} {
@@ -375,7 +450,7 @@ func TestMarkLiveIfCurrentDoesNotOverwriteNewerDeploy(t *testing.T) {
 // "redeploy" rebuilt old code.
 func TestDeployScriptWithoutSHADeploysBranchTip(t *testing.T) {
 	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
-	fetch := strings.Index(script, `git -C "$CODE" fetch --all`)
+	fetch := strings.Index(script, `git -c safe.directory="$CODE" -C "$CODE" fetch --all`)
 	checkout := strings.Index(script, "checkout --detach 'origin/main'")
 	if fetch < 0 || checkout < fetch {
 		t.Fatalf("expected the fetched origin/main to be checked out after the fetch:\n%s", script)
