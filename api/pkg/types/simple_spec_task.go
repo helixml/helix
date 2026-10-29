@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -879,6 +880,42 @@ func (SpecTaskExternalAgent) TableName() string {
 
 type SpecTaskArchiveRequest struct {
 	Archived bool `json:"archived"`
+	// StopAgent controls whether archiving stops the task's external agent and
+	// frees its sandbox. Omitted (nil) means yes. Archiving never kills an agent
+	// that is mid-turn unless the caller says so explicitly.
+	StopAgent *bool `json:"stop_agent,omitempty"`
+	// StopAgentExplicit records that the caller supplied StopAgent. Archiving
+	// never kills an agent that is mid-turn unless the caller said so
+	// explicitly — see issue #3427.
+	StopAgentExplicit bool `json:"-" yaml:"-"`
+}
+
+// StopAgentEnabled reports whether archiving should stop the task's agent.
+// The zero value keeps the historical default (stop), so existing callers and
+// clients that do not send the field are unaffected.
+func (r SpecTaskArchiveRequest) StopAgentEnabled() bool {
+	if r.StopAgent == nil {
+		return true
+	}
+	return *r.StopAgent
+}
+
+// UnmarshalJSON keeps StopAgentExplicit honest: it is true only when the
+// request actually carried a stop_agent key, not merely because it defaulted.
+func (r *SpecTaskArchiveRequest) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Archived  bool  `json:"archived"`
+		StopAgent *bool `json:"stop_agent"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*r = SpecTaskArchiveRequest{
+		Archived:          raw.Archived,
+		StopAgent:         raw.StopAgent,
+		StopAgentExplicit: raw.StopAgent != nil,
+	}
+	return nil
 }
 
 // CloneGroup tracks a batch of cloned tasks from the same source

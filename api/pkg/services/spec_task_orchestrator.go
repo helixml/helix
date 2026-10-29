@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -733,6 +734,74 @@ func ImplementationQueueReason(project *types.Project, projectTasks []*types.Spe
 	return ""
 }
 
+// sandboxAdmissionSettleWindow is how long a freshly promoted task's sandbox
+// may take to appear in Runner heartbeats (ActiveSandboxes). Promotions inside
+// this window are counted against the free-slot budget by the store-level
+// admission check, so heartbeat lag cannot let promotions overshoot.
+const sandboxAdmissionSettleWindow = 2 * time.Minute
+
+// specTaskPlacement mirrors how HydraExecutor places a spec task's sandbox:
+// both runtimes use the "ubuntu" image key, and only a headless-ubuntu task
+// skips the display (render-capable host) requirement.
+func specTaskPlacement(task *types.SpecTask) (versionKey string, requiresDisplay bool) {
+	return "ubuntu", types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime) != types.SandboxRuntimeHeadlessUbuntu
+}
+
+// sandboxCapacityBudget reports how many more sandboxes placement could start
+// for task right now. It mirrors FindAvailableSandboxInstance, so the gate and
+// placement cannot disagree:
+//
+//   - Only online, freshly heartbeating Runners that are EligibleForPlacement
+//     for the task's image (render-capable when it needs a display) count.
+//     Ineligible Runners no longer inflate capacity.
+//   - In-use comes from each Runner's reported ActiveSandboxes, which counts
+//     every live sandbox (planning desktops, implementation, any other
+//     session), not only implementation rows.
+//
+// Only a RUNNER-CONFIRMED cap (MaxSandboxesFromRunner) is trusted. An
+// unconfirmed cap is the API's HELIX_SANDBOX_MAX_DEV_CONTAINERS fallback, which
+// can overstate (or, at its -1 default, wrongly claim unlimited) what the
+// Runner enforces, so it neither adds capacity nor disables the gate.
+//
+// gated=false means do not gate (fail open): no eligible Runner has confirmed a
+// finite cap, or one has confirmed unlimited capacity. Heartbeats lag
+// promotions, so the caller pairs this budget with the store's atomic
+// admission check (TransitionSpecTaskStatusWithinCapacity).
+func (o *SpecTaskOrchestrator) sandboxCapacityBudget(ctx context.Context, task *types.SpecTask) (budget int, gated bool, err error) {
+	instances, err := o.store.ListSandboxInstances(ctx)
+	if err != nil {
+		return 0, false, fmt.Errorf("listing sandbox instances for capacity gate: %w", err)
+	}
+
+	versionKey, requiresDisplay := specTaskPlacement(task)
+	staleThreshold := time.Now().Add(-config.DefaultSandboxDispatchStaleThreshold)
+	free := 0
+	confirmed := false
+	for _, inst := range instances {
+		if inst.Status != "online" || inst.LastSeen.Before(staleThreshold) {
+			continue
+		}
+		if !inst.EligibleForPlacement(versionKey, requiresDisplay) {
+			continue
+		}
+		if !inst.MaxSandboxesFromRunner {
+			continue
+		}
+		if inst.MaxSandboxes <= 0 {
+			// Runner-confirmed unlimited (AtCapacity never trips): no gate.
+			return 0, false, nil
+		}
+		confirmed = true
+		if slots := inst.MaxSandboxes - inst.ActiveSandboxes; slots > 0 {
+			free += slots
+		}
+	}
+	if !confirmed {
+		return 0, false, nil
+	}
+	return free, true, nil
+}
+
 // countPhrase renders "1 task is" / "3 tasks are" with correct grammar.
 func countPhrase(n int, noun string) string {
 	if n == 1 {
@@ -874,17 +943,48 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 		return nil
 	}
 
+	// Gate on real sandbox capacity so we never promote a task placement cannot
+	// start: when every eligible Runner's confirmed cap is used up, the task
+	// stays queued and the orchestration loop retries it as capacity frees,
+	// instead of starting it and failing with ErrAllSandboxHostsFull.
+	budget, gated, err := o.sandboxCapacityBudget(ctx, latestTask)
+	if err != nil {
+		// Fail open: a transient capacity-query error must not wedge the queue.
+		log.Warn().Err(err).
+			Str("task_id", latestTask.ID).
+			Msg("Sandbox capacity check failed; promoting without the capacity gate")
+		gated = false
+	}
+
 	// Claim capacity before launching the goroutine. The claim must be durable:
 	// projectLock only serializes one API process, while multiple replicas can
-	// observe the same queued task concurrently.
+	// observe the same queued task concurrently. When gated, the capacity
+	// decision happens inside the claim's transaction under a cluster-wide
+	// advisory lock, so two replicas cannot both take the last free slot.
 	now := time.Now()
-	claimed, err := o.store.TransitionSpecTaskStatus(
-		ctx,
-		latestTask.ID,
-		[]types.SpecTaskStatus{types.TaskStatusQueuedImplementation},
-		types.TaskStatusImplementation,
-		nil,
-	)
+	from := []types.SpecTaskStatus{types.TaskStatusQueuedImplementation}
+	var claimed bool
+	if gated {
+		var full bool
+		if budget > 0 {
+			claimed, full, err = o.store.TransitionSpecTaskStatusWithinCapacity(
+				ctx, latestTask.ID, from, types.TaskStatusImplementation,
+				now.Add(-sandboxAdmissionSettleWindow), budget,
+			)
+		} else {
+			full = true
+		}
+		if err == nil && full {
+			log.Info().
+				Str("task_id", latestTask.ID).
+				Str("project_id", latestTask.ProjectID).
+				Int("free_sandbox_slots", budget).
+				Msg("Leaving spec task queued - sandbox capacity is full")
+			return nil
+		}
+	} else {
+		claimed, err = o.store.TransitionSpecTaskStatus(ctx, latestTask.ID, from, types.TaskStatusImplementation, nil)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to reserve implementation WIP slot: %w", err)
 	}

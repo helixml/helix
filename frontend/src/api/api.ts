@@ -7720,6 +7720,12 @@ export interface TypesSpecTask {
 
 export interface TypesSpecTaskArchiveRequest {
   archived?: boolean;
+  /**
+   * StopAgent controls whether archiving stops the task's external agent and frees its sandbox.
+   * Omitted means yes. Archiving never kills an agent that is mid-turn unless the caller says so
+   * explicitly.
+   */
+  stop_agent?: boolean;
 }
 
 export interface TypesSpecTaskAttachment {

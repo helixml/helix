@@ -729,6 +729,11 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_ClaimsAcr
 		return []*types.SpecTask{newTaskSnapshot()}, nil
 	}).Times(2)
 	s.store.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{}, nil).Times(2)
+	// An unlimited runner makes the sandbox-capacity gate a no-op, so this test
+	// keeps exercising only the WIP-claim race.
+	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{
+		{Status: "online", LastSeen: time.Now(), MaxSandboxes: -1},
+	}, nil).AnyTimes()
 
 	var claimAttempts atomic.Int32
 	s.store.EXPECT().TransitionSpecTaskStatus(
@@ -1139,6 +1144,10 @@ func TestProImplementationLimitAtOrchestratorBoundaries(t *testing.T) {
 			projectStore.EXPECT().ListSpecTasks(ctx, gomock.Any()).Return(tasks, nil)
 			projectStore.EXPECT().GetWalletByOrg(ctx, "org").Return(&types.Wallet{PlanOverride: types.PlanOverridePro}, nil)
 			if count == 29 {
+				// Under the plan limit, promotion reaches the sandbox-capacity
+				// gate. No runner reports a confirmed cap, so it fails open and
+				// this test stays focused on the Pro implementation limit.
+				projectStore.EXPECT().ListSandboxInstances(ctx).Return(nil, nil)
 				projectStore.EXPECT().TransitionSpecTaskStatus(ctx, task.ID, []types.SpecTaskStatus{types.TaskStatusQueuedImplementation}, types.TaskStatusImplementation, nil).Return(true, nil)
 			}
 			require.NoError(t, orchestrator.handleQueuedImplementation(ctx, task))

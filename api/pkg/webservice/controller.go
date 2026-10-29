@@ -561,6 +561,12 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) (*
 	if ready, why := c.hostReadyForReplacement(ctx, replacementTarget); !ready {
 		return nil, &RecoveryDeferredError{Reason: why}
 	}
+	if state.HostDeviceID != replacementTarget.HostDeviceID {
+		if err := c.store.SetWebServiceHostDeviceID(ctx, projectID, replacementTarget.HostDeviceID); err != nil {
+			return nil, fmt.Errorf("record web service runner pin: %w", err)
+		}
+		state.HostDeviceID = replacementTarget.HostDeviceID
+	}
 
 	recreate := false
 	reason := "restart in place"
@@ -619,19 +625,36 @@ func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, proje
 	if state.ActiveSandboxID != "" {
 		sb, err := c.sandboxes.Get(ctx, state.ActiveSandboxID)
 		if err == nil && sb != nil {
+			if sb.HostDeviceID == "" {
+				return nil, fmt.Errorf("web service sandbox %s has no pinned runner; refusing to deploy against persistent data", sb.ID)
+			}
+			if state.HostDeviceID != sb.HostDeviceID {
+				if err := c.store.SetWebServiceHostDeviceID(ctx, project.ID, sb.HostDeviceID); err != nil {
+					return nil, fmt.Errorf("record web service runner pin: %w", err)
+				}
+				state.HostDeviceID = sb.HostDeviceID
+			}
 			if sb.Status != types.SandboxStatusRunning {
 				return nil, fmt.Errorf("web service sandbox %s is not running (status=%s); its pinned runner may be offline — refusing to relocate (data is on the original runner)", sb.ID, sb.Status)
 			}
 			return sb, nil
 		}
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("get web service sandbox %s: %w", state.ActiveSandboxID, err)
+		}
+		if state.HostDeviceID == "" {
+			return nil, fmt.Errorf("web service sandbox %s is gone and its pinned runner is unknown; refusing to relocate persistent data", state.ActiveSandboxID)
+		}
 		// Row gone (deleted): fall through and provision a fresh one. The
-		// durable /data dir is keyed by project, so it is reattached.
+		// durable /data dir is keyed by project on the pinned runner, so it is
+		// reattached there.
 		log.Warn().Err(err).Str("project_id", project.ID).Str("sandbox_id", state.ActiveSandboxID).
 			Msg("recorded web-service sandbox is gone; provisioning a fresh one (durable /data is project-keyed and reattaches)")
 	}
 
 	createReq := &types.CreateSandboxRequest{
-		Name: fmt.Sprintf("web-service-%s", project.ID),
+		Name:         fmt.Sprintf("web-service-%s", project.ID),
+		HostDeviceID: state.HostDeviceID,
 		// The web service hosts whole docker-compose stacks, so it needs a
 		// Docker daemon. The desktop runtime is the Docker-capable image
 		// (privileged, ships dockerd + docker compose, gets the
@@ -658,13 +681,13 @@ func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, proje
 		switch latest.Status {
 		case types.SandboxStatusRunning:
 			// Record this sandbox as active and pin the project to its runner.
-			if err := c.store.SetActiveWebServiceSandbox(ctx, project.ID, latest.ID); err != nil {
-				log.Warn().Err(err).Str("project_id", project.ID).Msg("failed to record active web-service sandbox")
-			}
 			if latest.HostDeviceID != "" {
 				if err := c.store.SetWebServiceHostDeviceID(ctx, project.ID, latest.HostDeviceID); err != nil {
-					log.Warn().Err(err).Str("project_id", project.ID).Msg("failed to record web-service runner pin")
+					return nil, fmt.Errorf("record web service runner pin: %w", err)
 				}
+			}
+			if err := c.store.SetActiveWebServiceSandbox(ctx, project.ID, latest.ID); err != nil {
+				return nil, fmt.Errorf("record active web service sandbox: %w", err)
 			}
 			return latest, nil
 		case types.SandboxStatusFailed, types.SandboxStatusStopped:
@@ -934,8 +957,13 @@ func deployScript(cloneURL, sha, defaultBranch, codeDir string, containerPort in
 		// Invoke exactly like the spec-task runner (helix-run-startup-script.sh):
 		// CWD = code root, $0 = the sibling helix-specs worktree. setsid → own
 		// process group for a clean stop on the next deploy.
+		`STARTUP_USER=()`,
+		`if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-}" = "1" ]; then`,
+		`  chown -hR retro:retro "$CODE" "$SPECS"`,
+		`  STARTUP_USER=(gosu retro env HOME=/home/retro USER=retro LOGNAME=retro XDG_RUNTIME_DIR=/run/user/1000)`,
+		`fi`,
 		`cd "$CODE"`,
-		fmt.Sprintf(`setsid env HELIX_WEB_SERVICE_PORT=%d HELIX_WEB_SERVICE_DATA_DIR=/data bash "$SPECS/.helix/startup.sh" >"$LOGFILE" 2>&1 &`, containerPort),
+		fmt.Sprintf(`setsid "${STARTUP_USER[@]}" env HELIX_WEB_SERVICE_PORT=%d HELIX_WEB_SERVICE_DATA_DIR=/data bash "$SPECS/.helix/startup.sh" >"$LOGFILE" 2>&1 &`, containerPort),
 		`echo $! > "$PIDFILE"`,
 	}, "\n")
 }
