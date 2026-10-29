@@ -2902,6 +2902,23 @@ func (s *HelixAPIServer) threadIsWedged(ctx context.Context, session *types.Sess
 	return isAgentCrashError(last.Error) || isAuthoritativeMissingThreadError(last.Error)
 }
 
+// lastTurnFailedToConnectAgent reports whether the session's last turn failed
+// because the agent never connected (see isAgentConnectError). A read error
+// returns false, which keeps auto-restart's default of resetting the thread.
+func (s *HelixAPIServer) lastTurnFailedToConnectAgent(ctx context.Context, session *types.Session) bool {
+	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: session.GenerationID,
+		PerPage:      1,
+		Order:        "id DESC",
+	})
+	if err != nil || len(interactions) == 0 {
+		return false
+	}
+	last := interactions[0]
+	return last.State == types.InteractionStateError && isAgentConnectError(last.Error)
+}
+
 // restartSessionContainer is the single canonical "restart the agent" backend
 // operation. It tears down the existing desktop container and recreates it
 // from scratch, so a stuck or crashed worker is genuinely recovered (as
@@ -3122,12 +3139,24 @@ func (s *HelixAPIServer) maybeAutoRestartCrashedAgent(sessionID string) {
 		return
 	}
 
-	// Autonomous crash recovery ALWAYS resets the thread: the trigger is a genuine
+	// Autonomous crash recovery resets the thread: the trigger is a genuine
 	// crash (thread_load_error / chat_response_error), which frequently means a
 	// poisoned thread that would reproduce the wedge on reattach. Boot progress
 	// (a fresh thread that reaches agent_ready) is worth more than the lost
 	// conversation for an unattended surface, and the crashed prompt is re-fed.
-	if _, herr := s.restartSessionContainer(ctx, user, fresh, true); herr != nil {
+	//
+	// The exception is an agent that never connected (its npm install failed,
+	// say, because DNS was broken). No session was loaded, so the thread is not
+	// poisoned, and resetting it would throw away the whole conversation over a
+	// fault in the environment. Keep it so the restart reloads it.
+	resetThread := !s.lastTurnFailedToConnectAgent(ctx, fresh)
+	if !resetThread {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("zed_thread_id", fresh.Metadata.ZedThreadID).
+			Msg("Auto-restart: agent never connected — keeping the thread")
+	}
+	if _, herr := s.restartSessionContainer(ctx, user, fresh, resetThread); herr != nil {
 		log.Error().
 			Str("session_id", sessionID).
 			Str("error", herr.Error()).
