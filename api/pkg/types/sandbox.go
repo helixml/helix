@@ -155,6 +155,9 @@ func (s *Sandbox) HydraOpsID() string {
 // CreateSandboxRequest is the API payload for POST /organizations/{org}/sandboxes.
 type CreateSandboxRequest struct {
 	Name string `json:"name,omitempty"`
+	// HostDeviceID pins internal replacement workflows to the host that owns
+	// their persistent data. Public API payloads cannot set it.
+	HostDeviceID string `json:"-"`
 	// Runtime selects one of the operator-configured runtimes
 	// (e.g. "headless-ubuntu", "node22", "ubuntu-desktop"). Mutually
 	// exclusive with Image.

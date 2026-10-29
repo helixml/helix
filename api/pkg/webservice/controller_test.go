@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/hydra"
+	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"go.uber.org/mock/gomock"
@@ -210,6 +212,71 @@ func TestLastLiveSHANone(t *testing.T) {
 
 	if got := c.lastLiveSHA(context.Background(), "prj_1"); got != "" {
 		t.Errorf("lastLiveSHA = %q, want empty", got)
+	}
+}
+
+func TestEnsureSandboxPinsReplacementToRecordedHost(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	runtimes, err := sandbox.NewRuntimeRegistry(config.Sandboxes{
+		Runtimes:       "headless-ubuntu=ubuntu:22.04|sleep infinity",
+		DefaultRuntime: "headless-ubuntu",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := New(st, sandbox.New(st, nil, runtimes, "", ""))
+
+	st.EXPECT().GetSandbox(gomock.Any(), "sbx_gone").Return(nil, store.ErrNotFound)
+	st.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
+	st.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	st.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{{ID: "host-pinned", Status: "online"}}, nil)
+	st.EXPECT().CreateSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, sb *types.Sandbox) (*types.Sandbox, error) {
+			if sb.HostDeviceID != "host-pinned" {
+				t.Fatalf("replacement host = %q, want host-pinned", sb.HostDeviceID)
+			}
+			return nil, errors.New("stop after placement assertion")
+		},
+	)
+
+	_, err = c.ensureSandbox(context.Background(), DeployRequest{Owner: "usr_1"}, &types.Project{
+		ID: "prj_1", OrganizationID: "org_1",
+	}, &types.ProjectWebServiceState{
+		ProjectID: "prj_1", ActiveSandboxID: "sbx_gone", HostDeviceID: "host-pinned",
+	})
+	if err == nil || !strings.Contains(err.Error(), "stop after placement assertion") {
+		t.Fatalf("ensureSandbox error = %v", err)
+	}
+}
+
+func TestEnsureSandboxRepairsStaleRunnerPin(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	runtimes, err := sandbox.NewRuntimeRegistry(config.Sandboxes{
+		Runtimes:       "headless-ubuntu=ubuntu:22.04|sleep infinity",
+		DefaultRuntime: "headless-ubuntu",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := New(st, sandbox.New(st, nil, runtimes, "", ""))
+	state := &types.ProjectWebServiceState{
+		ProjectID: "prj_1", ActiveSandboxID: "sbx_live", HostDeviceID: "host-stale",
+	}
+	st.EXPECT().GetSandbox(gomock.Any(), "sbx_live").Return(&types.Sandbox{
+		ID: "sbx_live", HostDeviceID: "host-current", Status: types.SandboxStatusRunning,
+	}, nil)
+	st.EXPECT().SetWebServiceHostDeviceID(gomock.Any(), "prj_1", "host-current").Return(nil)
+
+	sb, err := c.ensureSandbox(context.Background(), DeployRequest{Owner: "usr_1"}, &types.Project{
+		ID: "prj_1", OrganizationID: "org_1",
+	}, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sb.ID != "sbx_live" || state.HostDeviceID != "host-current" {
+		t.Fatalf("sandbox=%q state host=%q", sb.ID, state.HostDeviceID)
 	}
 }
 
