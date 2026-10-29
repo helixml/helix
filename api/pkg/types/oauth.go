@@ -215,6 +215,10 @@ type GitProviderConnectionCreateRequest struct {
 	BaseURL         string                 `json:"base_url,omitempty"`
 }
 
+type GitProviderConnectionUpdateRequest struct {
+	Token string `json:"token"`
+}
+
 // BeforeCreate sets default values for new git provider connections
 func (c *GitProviderConnection) BeforeCreate(_ *gorm.DB) error {
 	if c.CreatedAt.IsZero() {
