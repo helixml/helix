@@ -120,6 +120,9 @@ type SharedVideoSource struct {
 	// New clients receive the entire GOP buffer to catch up to the live stream
 	gopBuffer   []VideoFrame
 	gopBufferMu sync.RWMutex
+	// gopComplete is true while gopBuffer holds every frame since its keyframe
+	// (none skipped at the maxGOPFrames cap), i.e. is safe to continue decoding.
+	gopComplete bool
 
 	// Error propagation
 	// When the pipeline fails, the error is stored and broadcast to all clients
@@ -208,6 +211,10 @@ type SharedVideoSourceRegistry struct {
 	failureCooldown map[uint32]time.Time // when to allow retry per node
 	breakerTrips    map[uint32]int       // how many times the breaker has opened per node
 
+	// retainedGOPs keeps the GOP of a scanout source whose grace period expired,
+	// for the next source on the same node. See retainScanoutGOP.
+	retainedGOPs map[uint32][]VideoFrame
+
 	// Metrics
 	cancelledStops atomic.Uint64 // stops cancelled by client reconnect
 	completedStops atomic.Uint64 // stops that completed after grace period
@@ -240,6 +247,7 @@ func GetSharedVideoRegistry() *SharedVideoSourceRegistry {
 			failureCounts:   make(map[uint32]int),
 			failureCooldown: make(map[uint32]time.Time),
 			breakerTrips:    make(map[uint32]int),
+			retainedGOPs:    make(map[uint32][]VideoFrame),
 		}
 		log.Info().Dur("grace_period", gracePeriod).Msg("[SHARED_VIDEO] Registry initialized")
 	})
@@ -399,6 +407,13 @@ func (r *SharedVideoSourceRegistry) GetOrCreateWithSource(nodeID uint32, source 
 		ctx:            ctx,
 		cancel:         cancel,
 	}
+	if gop, ok := r.retainedGOPs[nodeID]; ok {
+		delete(r.retainedGOPs, nodeID)
+		svs.gopBuffer = gop
+		svs.gopComplete = true
+		log.Info().Uint32("node_id", nodeID).Int("gop_frames", len(gop)).
+			Msg("[SHARED_VIDEO] Seeded new external source with the previous source's GOP")
+	}
 
 	r.sources[nodeID] = svs
 	log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Created new external source")
@@ -491,6 +506,7 @@ func (r *SharedVideoSourceRegistry) doStop(pending *pendingStop) {
 			return
 		}
 	}
+	r.retainScanoutGOP(pending.nodeID, pending.source)
 	r.mu.Unlock()
 
 	// Stop the pipeline (outside lock - may take time for cleanup)
@@ -500,12 +516,38 @@ func (r *SharedVideoSourceRegistry) doStop(pending *pendingStop) {
 	log.Info().Uint32("node_id", pending.nodeID).Msg("[SHARED_VIDEO] Pipeline stopped")
 }
 
+// retainScanoutGOP keeps a stopping scanout source's GOP for the node's next
+// source. Must be called with r.mu held.
+//
+// QEMU's scanout encoder (Helix for Mac) lives as long as the VM and only
+// encodes while a client is subscribed, so after this source unsubscribes it
+// resumes exactly where this GOP ends. A new source therefore receives
+// mid-GOP delta frames that reference this GOP; with it discarded, viewers
+// can decode nothing until the encoder's next scheduled keyframe, which on an
+// idle desktop (500ms keepalive frames, 60-frame GOP) is ~30s away. Retained
+// only when complete: it starts at a keyframe and no frame was skipped.
+// GStreamer sources build a fresh encoder that starts on a keyframe, so they
+// don't need this.
+func (r *SharedVideoSourceRegistry) retainScanoutGOP(nodeID uint32, source *SharedVideoSource) {
+	if source.externalSource == nil {
+		return
+	}
+	source.gopBufferMu.RLock()
+	defer source.gopBufferMu.RUnlock()
+	if !source.gopComplete || len(source.gopBuffer) == 0 || !source.gopBuffer[0].IsKeyframe {
+		delete(r.retainedGOPs, nodeID)
+		return
+	}
+	r.retainedGOPs[nodeID] = append([]VideoFrame(nil), source.gopBuffer...)
+}
+
 // Remove immediately removes and stops a SharedVideoSource from the registry.
 // This bypasses the grace period and is used for immediate cleanup.
 // Prefer ScheduleStop for normal client disconnect to enable pipeline reuse.
 func (r *SharedVideoSourceRegistry) Remove(nodeID uint32) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	delete(r.retainedGOPs, nodeID)
 
 	// Check active sources
 	if source, exists := r.sources[nodeID]; exists {
@@ -783,9 +825,15 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, <-chan error, uint64
 			return nil, nil, 0, err
 		}
 
-		// First client - add to map, start pipeline, no catchup needed (no GOP yet)
-		// Set state to live directly since there's nothing to catch up on
-		client.state.Store(clientStateLive)
+		// First client - add to map and start the pipeline. Normally there is no
+		// GOP yet, so the client goes live directly; a scanout source seeded with
+		// the previous source's GOP (retainScanoutGOP) replays it first instead.
+		s.gopBufferMu.RLock()
+		seeded := len(s.gopBuffer) > 0
+		s.gopBufferMu.RUnlock()
+		if !seeded {
+			client.state.Store(clientStateLive)
+		}
 
 		s.clientsMu.Lock()
 		s.clients[clientID] = client
@@ -815,6 +863,10 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, <-chan error, uint64
 		registry.mu.Lock()
 		registry.recordPipelineSuccess(s.nodeID)
 		registry.mu.Unlock()
+
+		if seeded {
+			go s.runCatchup(client)
+		}
 	} else {
 		// Subsequent client - needs catchup
 		// Check if pipeline had a start error
@@ -1360,6 +1412,7 @@ func (s *SharedVideoSource) broadcastFrames() {
 				oldLen := len(s.gopBuffer)
 				s.gopBuffer = nil // Release old slice for GC
 				s.gopBuffer = []VideoFrame{frame}
+				s.gopComplete = true
 				if keyframeCount <= 3 || keyframeCount%100 == 0 {
 					log.Info().
 						Uint64("keyframe", keyframeCount).
@@ -1375,6 +1428,8 @@ func (s *SharedVideoSource) broadcastFrames() {
 				maxGOPFrames := getDefaultGOPSize()
 				if len(s.gopBuffer) < maxGOPFrames {
 					s.gopBuffer = append(s.gopBuffer, frame)
+				} else {
+					s.gopComplete = false
 				}
 			}
 			s.gopBufferMu.Unlock()
