@@ -74,6 +74,18 @@ func isAgentCrashError(errMsg string) bool {
 	return false
 }
 
+// agentConnectFailureMarker is how Zed words a thread_load_error raised before
+// the agent process ever connected, e.g. when installing the agent's npm
+// package fails because the registry is unreachable. See thread_service.rs.
+const agentConnectFailureMarker = "agent connect failed"
+
+// isAgentConnectError reports whether errMsg is a failure to start or connect
+// the agent, as opposed to a failure inside a loaded session. No session was
+// loaded, so the thread cannot be its cause.
+func isAgentConnectError(errMsg string) bool {
+	return strings.Contains(errMsg, agentConnectFailureMarker)
+}
+
 func isMissingCodexRolloutError(errMsg string) bool {
 	return strings.Contains(errMsg, "no rollout found for thread id")
 }
