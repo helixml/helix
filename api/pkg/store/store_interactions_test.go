@@ -7,6 +7,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/sashabaranov/go-openai"
+	"gorm.io/datatypes"
 )
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_InteractionQuestionLifecycle() {
@@ -374,6 +375,75 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListInteractionsFiltersSt
 	suite.Equal(int64(1), total)
 	suite.Require().Len(interactions, 1)
 	suite.Equal(waiting.ID, interactions[0].ID)
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListStuckWaitingInteractionsIncludesStoppedPartialTurns() {
+	ctx := context.Background()
+	now := time.Now()
+	owner := "user-stuck-partial-test"
+	createSession := func(agentType, status string) *types.Session {
+		session, err := suite.db.CreateSession(ctx, types.Session{
+			ID: system.GenerateSessionID(), Owner: owner, Created: now, Updated: now,
+			Metadata: types.SessionMetadata{AgentType: agentType, ExternalAgentStatus: status},
+		})
+		suite.Require().NoError(err)
+		suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+		return session
+	}
+	stopped := createSession("zed_external", "stopped")
+	running := createSession("zed_external", "running")
+	regular := createSession("helix", "stopped")
+	archived := createSession("zed_external", "stopped")
+	archived.Archived = true
+	_, err := suite.db.UpdateSession(ctx, *archived)
+	suite.Require().NoError(err)
+	deleted := createSession("zed_external", "stopped")
+	createInteraction := func(sessionID string, state types.InteractionState, updated time.Time, response string, entries datatypes.JSON) *types.Interaction {
+		interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+			ID: system.GenerateInteractionID(), SessionID: sessionID, UserID: owner,
+			GenerationID: 1, State: state, Created: updated, Updated: updated,
+			ResponseMessage: response, ResponseEntries: entries,
+		})
+		suite.Require().NoError(err)
+		return interaction
+	}
+
+	createInteraction(deleted.ID, types.InteractionStateWaiting, now.Add(-22*time.Minute), "deleted partial", nil)
+	_, err = suite.db.DeleteSession(ctx, deleted.ID)
+	suite.Require().NoError(err)
+	createInteraction(archived.ID, types.InteractionStateWaiting, now.Add(-21*time.Minute), "archived partial", nil)
+	createInteraction(running.ID, types.InteractionStateWaiting, now.Add(-20*time.Minute), "healthy partial", nil)
+	createInteraction(stopped.ID, types.InteractionStateComplete, now.Add(-19*time.Minute), "done", nil)
+	createInteraction(regular.ID, types.InteractionStateWaiting, now.Add(-18*time.Minute), "not external", nil)
+	partialEntries := createInteraction(stopped.ID, types.InteractionStateWaiting, now.Add(-10*time.Minute), "", datatypes.JSON(`[{"type":"tool_call"}]`))
+	partialText := createInteraction(stopped.ID, types.InteractionStateWaiting, now.Add(-9*time.Minute), "partial output", nil)
+	createInteraction(stopped.ID, types.InteractionStateWaiting, now.Add(-time.Minute), "recent output", nil)
+
+	stuck, err := suite.db.ListStuckWaitingInteractions(ctx, now.Add(-3*time.Minute), 2)
+	suite.Require().NoError(err)
+	suite.Require().Len(stuck, 2)
+	suite.Equal(partialEntries.ID, stuck[0].ID)
+	suite.Equal(partialText.ID, stuck[1].ID)
+
+	transitioned, err := suite.db.MarkStaleInteractionErrorIfWaiting(ctx, partialText.ID, partialText.GenerationID, stuck[1].Updated, "agent stopped")
+	suite.Require().NoError(err)
+	suite.True(transitioned)
+	settled, err := suite.db.GetInteraction(ctx, partialText.ID)
+	suite.Require().NoError(err)
+	suite.Equal(types.InteractionStateError, settled.State)
+	suite.Equal("partial output", settled.ResponseMessage)
+
+	observedUpdated := stuck[0].Updated
+	suite.Require().NoError(suite.db.UpdateInteractionStreamingFields(
+		ctx, partialEntries.ID, partialEntries.GenerationID, "resumed output", datatypes.JSON(`[{"type":"text","content":"resumed"}]`), 0, "msg-2",
+	))
+	transitioned, err = suite.db.MarkStaleInteractionErrorIfWaiting(ctx, partialEntries.ID, partialEntries.GenerationID, observedUpdated, "must not overwrite resumed stream")
+	suite.Require().NoError(err)
+	suite.False(transitioned)
+	resumed, err := suite.db.GetInteraction(ctx, partialEntries.ID)
+	suite.Require().NoError(err)
+	suite.Equal(types.InteractionStateWaiting, resumed.State)
+	suite.Equal("resumed output", resumed.ResponseMessage)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ClearSessionInteractions() {
