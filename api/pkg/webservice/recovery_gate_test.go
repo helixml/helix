@@ -175,6 +175,25 @@ func (s *RecoveryGateSuite) TestUnconfirmedStrictTeardownDoesNotRedeploy() {
 	s.True(IsRecoveryDeferred(err))
 }
 
+func (s *RecoveryGateSuite) TestPersistsSandboxRunnerBeforeDestructiveRecovery() {
+	s.store.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_findai").Return(&types.ProjectWebServiceState{
+		ProjectID: "prj_findai", Enabled: true, ActiveSandboxID: "sbx_web",
+	}, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_findai").Return(&types.Project{ID: "prj_findai", UserID: "usr_1"}, nil)
+	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_web").Return(&types.Sandbox{
+		ID: "sbx_web", Runtime: types.SandboxRuntimeUbuntuDesktop, Persistent: true,
+		HostDeviceID: "host-pinned", Status: types.SandboxStatusStopped,
+	}, nil)
+	s.ctlr.hostReadyForReplacement = func(context.Context, *types.Sandbox) (bool, string) { return true, "" }
+	s.store.EXPECT().SetWebServiceHostDeviceID(gomock.Any(), "prj_findai", "host-pinned").
+		Return(errors.New("database unavailable"))
+
+	deploy, err := s.ctlr.RecoverWebService(s.ctx, "prj_findai")
+	s.Nil(deploy)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "record web service runner pin")
+}
+
 // Nothing to recover: the guard must not fire, and nothing else is touched.
 func (s *RecoveryGateSuite) TestNoActiveSandboxIsNotAnError() {
 	s.store.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_findai").

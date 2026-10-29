@@ -196,6 +196,7 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 		OrganizationID: orgID,
 		ProjectID:      req.ProjectID,
 		Owner:          owner,
+		HostDeviceID:   req.HostDeviceID,
 		Runtime:        resolvedRuntime,
 		Image:          resolvedImage,
 		Status:         types.SandboxStatusPending,
