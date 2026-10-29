@@ -45,7 +45,7 @@ func bulkTestEnv(t *testing.T) (*store.Store, *Registry, botCaller) {
 	if err := st.Nodes.Create(context.Background(), owner); err != nil {
 		t.Fatalf("create owner: %v", err)
 	}
-	return st, reg, botCaller{id: "b-owner", orgID: "org-test"}
+	return st, reg, botCaller{id: "b-owner", orgID: "org-test", admin: true}
 }
 
 func invoke(t *testing.T, reg *Registry, caller botCaller, name tool.Name, args map[string]any) (json.RawMessage, error) {

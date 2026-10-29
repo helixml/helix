@@ -86,3 +86,17 @@ export function useHasEnabledCodeAgentHarnesses(): { hasAny: boolean; loading: b
     loading: loadingOrg || isLoading || isFetching,
   }
 }
+
+// Outside an org route, or until the policy loads, every runtime is offered;
+// the server re-validates on save and at session start.
+export function useIsCodeAgentRuntimeEnabled(): (runtime?: string) => boolean {
+  const router = useRouter()
+  const orgName = router.params.org_id
+  const { data: org, isLoading: loadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
+  const { data: harnesses } = useOrgCodeAgentHarnesses(org?.id, { enabled: !loadingOrg })
+  return (runtime?: string) => {
+    if (!orgName || !harnesses) return true
+    const harness = findHarnessStatus(harnesses, runtime || 'zed_agent')
+    return harness ? !!harness.enabled : true
+  }
+}

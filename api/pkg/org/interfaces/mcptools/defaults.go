@@ -156,11 +156,25 @@ func MergeDefaultBotTools(existing []tool.Name) []tool.Name {
 	return nodes.MergeTools(existing, DefaultBotTools())
 }
 
-// CallerGrantor is the tool-grant authority of an MCP caller: the Bot it
-// acts as, whose own tools cap what it may grant (nodes.AuthorizeTools).
-// A caller that is not a Bot resolves to no Node and so to no authority.
+type organizationManager interface {
+	CanManageOrganization() bool
+}
+
+type toolGrantCeiling interface {
+	ToolGrantCeiling() []tool.Name
+}
+
+// CallerGrantor combines the authenticated user's organization authority
+// with the Bot or instance capability ceiling carried by the MCP caller.
 func CallerGrantor(c tool.Caller) nodes.Grantor {
-	return nodes.Grantor{Bot: orgchart.NodeID(c.ID())}
+	g := nodes.Grantor{Bot: orgchart.NodeID(c.ID())}
+	if manager, ok := c.(organizationManager); ok {
+		g.Admin = manager.CanManageOrganization()
+	}
+	if ceiling, ok := c.(toolGrantCeiling); ok {
+		g.ToolCeiling = ceiling.ToolGrantCeiling()
+	}
+	return g
 }
 
 // SpecTaskAgentTools is the catalogue offered to a spec task's coding agent —

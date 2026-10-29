@@ -417,13 +417,17 @@ func mcpRegistry(t *testing.T, st *store.Store, clock func() time.Time, newID fu
 // builds the equivalent adapter at the boundary.
 func ownerCaller(t *testing.T) tool.Caller {
 	t.Helper()
-	return mcpCaller{id: "b-owner", orgID: "org-test"}
+	return mcpCaller{id: "b-owner", orgID: "org-test", admin: true}
 }
 
-type mcpCaller struct{ id, orgID string }
+type mcpCaller struct {
+	id, orgID string
+	admin     bool
+}
 
-func (c mcpCaller) ID() string             { return c.id }
-func (c mcpCaller) OrganizationID() string { return c.orgID }
+func (c mcpCaller) ID() string                  { return c.id }
+func (c mcpCaller) OrganizationID() string      { return c.orgID }
+func (c mcpCaller) CanManageOrganization() bool { return c.admin }
 
 func sameNames(a, b []tool.Name) bool {
 	if len(a) != len(b) {
@@ -679,9 +683,9 @@ func TestToolGrantCeilingParity_RESTvsMCP(t *testing.T) {
 	reg := mcpRegistry(t, mcpStore, time.Now, func() string { return "fixed" })
 	createBot, _ := reg.Get(mcptools.CreateBotName)
 	attachTool, _ := reg.Get(mcptools.AttachToolName)
-	invoke := func(tl tool.Tool, caller string, args map[string]any) error {
+	invoke := func(tl tool.Tool, caller string, admin bool, args map[string]any) error {
 		raw, _ := json.Marshal(args)
-		_, err := tl.Invoke(ctx, tool.Invocation{Caller: mcpCaller{id: caller, orgID: "org-test"}, Args: raw})
+		_, err := tl.Invoke(ctx, tool.Invocation{Caller: mcpCaller{id: caller, orgID: "org-test", admin: admin}, Args: raw})
 		return err
 	}
 
@@ -690,7 +694,7 @@ func TestToolGrantCeilingParity_RESTvsMCP(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("REST member create status = %d, want 403; body=%s", rec.Code, rec.Body)
 	}
-	err := invoke(createBot, "b-lead", map[string]any{"id": "b-new", "content": "# New", "tools": privileged, "triggers": []string{}})
+	err := invoke(createBot, "b-lead", false, map[string]any{"id": "b-new", "content": "# New", "tools": privileged, "triggers": []string{}})
 	if !errors.Is(err, nodes.ErrToolGrantForbidden) {
 		t.Fatalf("MCP create_bot by b-lead err = %v, want ErrToolGrantForbidden", err)
 	}
@@ -707,7 +711,7 @@ func TestToolGrantCeilingParity_RESTvsMCP(t *testing.T) {
 		t.Fatalf("REST member update status = %d, want 403; body=%s", rec.Code, rec.Body)
 	}
 	for _, target := range []string{"b-worker", "b-lead"} {
-		err = invoke(attachTool, "b-lead", map[string]any{"botId": target, "tools": privileged})
+		err = invoke(attachTool, "b-lead", false, map[string]any{"botId": target, "tools": privileged})
 		if !errors.Is(err, nodes.ErrToolGrantForbidden) {
 			t.Fatalf("MCP attach_tool to %s err = %v, want ErrToolGrantForbidden", target, err)
 		}
@@ -723,10 +727,10 @@ func TestToolGrantCeilingParity_RESTvsMCP(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("REST owner create status = %d, want 201; body=%s", rec.Code, rec.Body)
 	}
-	if err := invoke(createBot, "b-cos", map[string]any{"id": "b-new", "content": "# New", "tools": privileged, "triggers": []string{}}); err != nil {
+	if err := invoke(createBot, "b-cos", true, map[string]any{"id": "b-new", "content": "# New", "tools": privileged, "triggers": []string{}}); err != nil {
 		t.Fatalf("MCP create_bot by b-cos: %v", err)
 	}
-	if err := invoke(attachTool, "b-lead", map[string]any{"botId": "b-worker", "tools": []string{string(mcptools.AttachToolName)}}); err != nil {
+	if err := invoke(attachTool, "b-cos", true, map[string]any{"botId": "b-worker", "tools": []string{string(mcptools.AttachToolName)}}); err != nil {
 		t.Fatalf("MCP attach_tool of a held tool: %v", err)
 	}
 	restBot, _ := restStore.Nodes.Get(ctx, "org-test", "b-new")

@@ -9,6 +9,8 @@ import useApps from '../../hooks/useApps'
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from '../../types'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import AgentHarness from './AgentHarness'
+import { codeAgentRuntimeMenuItems } from './codeAgentRuntimeMenuItems'
+import { useIsCodeAgentRuntimeEnabled } from '../../services/codeAgentHarnessesService'
 
 export type ClaudeCodeMode = 'subscription' | 'api_key'
 
@@ -149,6 +151,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
   const [claudeSubscriptionModel, setClaudeSubscriptionModel] = useState(DEFAULT_CLAUDE_SUBSCRIPTION_MODEL)
   const [codexSubscriptionModel, setCodexSubscriptionModel] = useState(DEFAULT_CODEX_SUBSCRIPTION_MODEL)
   const { hasAnthropicProvider, hasClaudeSubscription, hasCodexSubscription } = useCodingAgentProviderState(value, onChange, autoSelectRuntime)
+  const isRuntimeEnabled = useIsCodeAgentRuntimeEnabled()
   const isSubscriptionRuntime = (value.codeAgentRuntime === 'claude_code' || value.codeAgentRuntime === 'codex_cli') && value.claudeCodeMode === 'subscription'
   const showModelPicker = !isSubscriptionRuntime
   const isClaudeCodeSubscription = value.codeAgentRuntime === 'claude_code' && value.claudeCodeMode === 'subscription'
@@ -291,85 +294,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
             },
           }}
         >
-          <MenuItem value="zed_agent">
-            <Stack direction="row" spacing={1.25} alignItems="center">
-              <AgentHarness runtime="zed_agent" variant="short" size={18} />
-              <Box>
-              <Typography variant="body2">Zed Agent (Built-in)</Typography>
-              <Typography variant="caption" color="text.secondary">
-                Uses Zed&apos;s native agent panel with direct API integration
-              </Typography>
-              </Box>
-            </Stack>
-          </MenuItem>
-          <MenuItem value="qwen_code">
-            <Stack direction="row" spacing={1.25} alignItems="center">
-              <AgentHarness runtime="qwen_code" variant="short" size={18} />
-              <Box>
-              <Typography variant="body2">Qwen Code</Typography>
-              <Typography variant="caption" color="text.secondary">
-                Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
-              </Typography>
-              </Box>
-            </Stack>
-          </MenuItem>
-          {showClaudeCodeOption && (
-            <MenuItem value="claude_code">
-              <Stack direction="row" spacing={1.25} alignItems="center">
-                <AgentHarness runtime="claude_code" variant="short" size={18} />
-                <Box>
-                <Typography variant="body2">Claude Code</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Anthropic&apos;s coding agent — works with Claude subscriptions
-                </Typography>
-                </Box>
-              </Stack>
-            </MenuItem>
-          )}
-          <MenuItem value="codex_cli">
-            <Stack direction="row" spacing={1.25} alignItems="center">
-              <AgentHarness runtime="codex_cli" variant="short" size={18} />
-              <Box>
-              <Typography variant="body2">Codex</Typography>
-              <Typography variant="caption" color="text.secondary">
-                OpenAI&apos;s coding agent with ChatGPT subscription support
-              </Typography>
-              </Box>
-            </Stack>
-          </MenuItem>
-          <MenuItem value="goose_code">
-            <Stack direction="row" spacing={1.25} alignItems="center">
-              <AgentHarness runtime="goose_code" variant="short" size={18} />
-              <Box>
-              <Typography variant="body2">Goose</Typography>
-              <Typography variant="caption" color="text.secondary">
-                Open-source ACP agent from the Agentic AI Foundation (AAIF)
-              </Typography>
-              </Box>
-            </Stack>
-          </MenuItem>
-          <MenuItem value="opencode">
-            <Stack direction="row" spacing={1.25} alignItems="center">
-              <AgentHarness runtime="opencode" variant="short" size={18} />
-              <Box>
-              <Typography variant="body2">opencode</Typography>
-              <Typography variant="caption" color="text.secondary">
-                Open-source, model-agnostic ACP agent
-              </Typography>
-              </Box>
-            </Stack>
-          </MenuItem>
-          <MenuItem value="deepseek_harness">
-            <Stack direction="row" spacing={1.25} alignItems="center">
-              <AgentHarness runtime="deepseek_harness" variant="short" size={18} />
-              <Box>
-              <Typography variant="body2">DeepSeek Runtime</Typography>
-              <Typography variant="caption" color="text.secondary">
-                DeepSeek's plugin-based ACP agent
-              </Typography>
-              </Box>
-            </Stack>
-          </MenuItem>
+          {codeAgentRuntimeMenuItems({ isEnabled: isRuntimeEnabled, current: value.codeAgentRuntime, exclude: showClaudeCodeOption ? [] : ['claude_code'] })}
         </Select>
       </FormControl>
 

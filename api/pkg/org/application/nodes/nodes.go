@@ -56,12 +56,15 @@ var ErrToolGrantForbidden = errors.New("tool grant forbidden")
 // Grantor is the authority behind a change to a Node's tools. The zero
 // value may grant only the injected GrantableTools.
 type Grantor struct {
-	// Admin is an organization owner/administrator or the server itself
-	// (bootstrap seeding): no ceiling.
+	// Admin is an organization owner/administrator or the server itself.
+	// A Bot still cannot exceed its own ToolCeiling even when Admin is true.
 	Admin bool
 	// Bot is the acting Bot. Its own live tools are its ceiling, so a Bot
 	// can never grant a capability it does not hold.
 	Bot orgchart.NodeID
+	// ToolCeiling overrides the Bot lookup when the caller is a restricted
+	// Bot instance. nil means load the Bot's current tools.
+	ToolCeiling []tool.Name
 }
 
 // Nodes owns the node-mutation use cases.
@@ -608,12 +611,11 @@ func (s *Nodes) ValidateTools(names []tool.Name) error {
 // outside GrantableTools that the Node holds or would hold. Callers pass
 // the union of the before and after sets, so a Grantor can neither grant
 // a capability it lacks nor strip one from a Node more privileged than
-// itself. An Admin Grantor has no ceiling; a Bot Grantor's ceiling is its
-// own live tools; the zero Grantor may change only GrantableTools.
+// itself. Restricted tools also require an organization owner/admin. A human
+// Admin or trusted bootstrap caller has no ceiling; a Bot Grantor is capped by
+// its own live tools or explicit ToolCeiling; the zero Grantor may change only
+// GrantableTools.
 func (s *Nodes) AuthorizeTools(ctx context.Context, orgID string, g Grantor, names []tool.Name) error {
-	if g.Admin {
-		return nil
-	}
 	var restricted []tool.Name
 	for _, name := range names {
 		if _, ok := s.grantableTools[name]; !ok {
@@ -623,8 +625,14 @@ func (s *Nodes) AuthorizeTools(ctx context.Context, orgID string, g Grantor, nam
 	if len(restricted) == 0 {
 		return nil
 	}
-	var held []tool.Name
-	if g.Bot != "" {
+	if !g.Admin {
+		return fmt.Errorf("%w: only organization owners and administrators can change organization-management tools", ErrToolGrantForbidden)
+	}
+	if g.Bot == "" && g.ToolCeiling == nil {
+		return nil
+	}
+	held := g.ToolCeiling
+	if held == nil && g.Bot != "" {
 		bot, err := s.nodes.Get(ctx, orgID, g.Bot)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("load granting bot %q: %w", g.Bot, err)
@@ -633,7 +641,7 @@ func (s *Nodes) AuthorizeTools(ctx context.Context, orgID string, g Grantor, nam
 	}
 	for _, name := range restricted {
 		if !slices.Contains(held, name) {
-			return fmt.Errorf("%w: %q is outside the caller's own authority; only organization owners and administrators, or a bot that already holds it, can change it", ErrToolGrantForbidden, name)
+			return fmt.Errorf("%w: %q is outside the caller's own authority", ErrToolGrantForbidden, name)
 		}
 	}
 	return nil

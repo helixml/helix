@@ -45,7 +45,7 @@ func TestAuthorizeTools_BotGrantsOnlyToolsItHolds(t *testing.T) {
 	seed(t, st, "b-lead", []tool.Name{"chat", "create_bot", "attach_tool"})
 	seed(t, st, "b-worker", []tool.Name{"chat"})
 	svc := grantSvc(st)
-	lead := nodes.Grantor{Bot: "b-lead"}
+	lead := nodes.Grantor{Admin: true, Bot: "b-lead"}
 	ctx := context.Background()
 
 	// Within its own authority: allowed, on create and attach.
@@ -64,13 +64,23 @@ func TestAuthorizeTools_BotGrantsOnlyToolsItHolds(t *testing.T) {
 	require.ErrorIs(t, err, nodes.ErrToolGrantForbidden)
 }
 
+func TestAuthorizeTools_BotNeedsOwnerPrincipalForRestrictedTools(t *testing.T) {
+	st := memory.New()
+	seed(t, st, "b-lead", []tool.Name{"chat", "attach_tool", "delete_bot"})
+	seed(t, st, "b-worker", []tool.Name{"chat"})
+
+	_, err := grantSvc(st).AttachTools(context.Background(), org, "b-worker", nodes.Grantor{Bot: "b-lead"}, []tool.Name{"delete_bot"})
+	require.ErrorIs(t, err, nodes.ErrToolGrantForbidden)
+	require.NotContains(t, toolsOf(t, st, "b-worker"), tool.Name("delete_bot"))
+}
+
 func TestAuthorizeTools_BotCannotChangeAMorePrivilegedNode(t *testing.T) {
 	st := memory.New()
 	seed(t, st, "b-lead", []tool.Name{"chat", "detach_tool"})
 	seed(t, st, "b-cos", []tool.Name{"chat", "detach_tool", "delete_bot"})
 	svc := grantSvc(st)
 
-	_, err := svc.DetachTools(context.Background(), org, "b-cos", nodes.Grantor{Bot: "b-lead"}, []tool.Name{"detach_tool"})
+	_, err := svc.DetachTools(context.Background(), org, "b-cos", nodes.Grantor{Admin: true, Bot: "b-lead"}, []tool.Name{"detach_tool"})
 	require.ErrorIs(t, err, nodes.ErrToolGrantForbidden)
 	require.Contains(t, toolsOf(t, st, "b-cos"), tool.Name("detach_tool"))
 
@@ -84,9 +94,9 @@ func TestAuthorizeTools_UnknownGrantingBotHasNoAuthority(t *testing.T) {
 	seed(t, st, "b-worker", []tool.Name{"chat"})
 	svc := grantSvc(st)
 
-	_, err := svc.AttachTools(context.Background(), org, "b-worker", nodes.Grantor{Bot: "b-ghost"}, []tool.Name{"create_bot"})
+	_, err := svc.AttachTools(context.Background(), org, "b-worker", nodes.Grantor{Admin: true, Bot: "b-ghost"}, []tool.Name{"create_bot"})
 	require.ErrorIs(t, err, nodes.ErrToolGrantForbidden)
-	_, err = svc.AttachTools(context.Background(), org, "b-worker", nodes.Grantor{Bot: "b-ghost"}, []tool.Name{"chat"})
+	_, err = svc.AttachTools(context.Background(), org, "b-worker", nodes.Grantor{Admin: true, Bot: "b-ghost"}, []tool.Name{"chat"})
 	require.NoError(t, err, "grantable tools need no authority")
 }
 

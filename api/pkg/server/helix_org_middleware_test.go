@@ -275,8 +275,11 @@ func TestHelixOrgMCPBackendDoesNotRequireFeature(t *testing.T) {
 		if orgID := helixorgserver.OrgIDFromContext(r.Context()); orgID != "org_acme" {
 			t.Errorf("org ID context = %q, want org_acme", orgID)
 		}
-		if r.URL.Path != "/orgs/org_acme/workers/b-worker/mcp" {
-			t.Errorf("path = %q, want worker-bound MCP path", r.URL.Path)
+		if botID := helixorgserver.BotIDFromContext(r.Context()); botID != "b-worker" {
+			t.Errorf("bot ID context = %q, want session-bound b-worker", botID)
+		}
+		if userID := runtimehelix.UserIDFromContext(r.Context()); userID != "user-1" {
+			t.Errorf("user ID context = %q, want authenticated user-1", userID)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -284,7 +287,7 @@ func TestHelixOrgMCPBackendDoesNotRequireFeature(t *testing.T) {
 		ID: "ses-worker", Owner: "user-1", OrganizationID: "org_acme",
 		Metadata: types.SessionMetadata{OrgWorkerID: "b-worker"},
 	}}}
-	backend := NewHelixOrgMCPBackend(server, &helixOrgHandlers{api: downstream, scope: scope})
+	backend := NewHelixOrgMCPBackend(server, &helixOrgHandlers{botMCP: downstream, scope: scope})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/helix-org", nil)
 	req = mux.SetURLVars(req, map[string]string{"path": ""})
 	rec := httptest.NewRecorder()
@@ -316,7 +319,7 @@ func TestHelixOrgMCPBackendRejectsInvalidSessionScope(t *testing.T) {
 			called := false
 			scope := &helixOrgScope{bootstrapped: map[string]bool{"org_acme": true}}
 			server := &HelixAPIServer{Store: &helixOrgRouteTestStore{session: tt.session}}
-			backend := NewHelixOrgMCPBackend(server, &helixOrgHandlers{api: http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }), scope: scope})
+			backend := NewHelixOrgMCPBackend(server, &helixOrgHandlers{botMCP: http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }), scope: scope})
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/helix-org", nil)
 			req = mux.SetURLVars(req, map[string]string{"path": tt.path})
 			rec := httptest.NewRecorder()

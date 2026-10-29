@@ -47,7 +47,7 @@ func invokeCreateBot(t *testing.T, deps Config, caller orgchart.Node, args strin
 	t.Helper()
 	ctx := context.Background()
 	out, err := (&CreateBot{deps: deps.Build()}).Invoke(ctx, tool.Invocation{
-		Caller: botCaller{id: string(caller.ID), orgID: caller.OrganizationID},
+		Caller: botCaller{id: string(caller.ID), orgID: caller.OrganizationID, admin: true},
 		Args:   json.RawMessage(args),
 	})
 	if err != nil {
@@ -68,10 +68,14 @@ func invokeCreateBot(t *testing.T, deps Config, caller orgchart.Node, args strin
 
 // botCaller adapts a Bot identity to tool.Caller for direct-Invoke
 // unit tests (the MCP server builds the real adapter at the boundary).
-type botCaller struct{ id, orgID string }
+type botCaller struct {
+	id, orgID string
+	admin     bool
+}
 
-func (c botCaller) ID() string             { return c.id }
-func (c botCaller) OrganizationID() string { return c.orgID }
+func (c botCaller) ID() string                  { return c.id }
+func (c botCaller) OrganizationID() string      { return c.orgID }
+func (c botCaller) CanManageOrganization() bool { return c.admin }
 
 func TestCreateBotDescriptionRequiresConfirmedNameAndPurpose(t *testing.T) {
 	t.Parallel()

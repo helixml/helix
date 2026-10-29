@@ -58,12 +58,15 @@ The brief is a prompt contract; tool grants are not. Every change to a Bot's
 tools — REST create/update/instance profile, MCP `create_bot`,
 `attach_tool`, `detach_tool` — goes through `nodes.Nodes.AuthorizeTools`.
 Changing any tool outside the standard worker set (`DefaultBotTools`, injected
-as `GrantableTools`) requires authority over that tool, checked across the
-Bot's tools before and after the change:
+as `GrantableTools`) requires an authenticated organization owner or
+administrator and authority over that tool, checked across the Bot's tools
+before and after the change:
 
-- org owners/administrators (REST) and server bootstrap: no ceiling;
-- a Bot acting over MCP: only tools it already holds, so it cannot
-  escalate itself, a new hire, or strip a more privileged Bot;
+- org owners/administrators (REST) and server bootstrap: no Bot ceiling;
+- a Bot acting over MCP: only tools it already holds, so it cannot escalate
+  itself, a new hire, or strip a more privileged Bot;
+- a Bot instance acting over MCP: only tools in its effective instance profile
+  after intersecting with the live parent Bot tools;
 - any other caller: the standard worker set only.
 
 The Chief of Staff holds `OwnerBotTools`, so its one-call tooled-up hire
