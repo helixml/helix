@@ -584,6 +584,26 @@ SVCEOF"
 fi
 
 # =============================================================================
+# Step 6b: Let chrony step the clock whenever it is off
+# =============================================================================
+# The VM's vCPUs stop while the Mac sleeps, so after every lid close the guest
+# clock is behind by the sleep time. Ubuntu's chrony.conf has "makestep 1 3",
+# which only steps during the first three updates after boot; after that it
+# slews, which takes weeks for an hours-long gap. A VM seen 8h behind broke
+# apt ("Release file is not valid yet") and puts certificate and token expiry
+# checks at risk. Step whenever the offset exceeds a second.
+
+if ! step_done "configure_chrony"; then
+    log "Configuring chrony to step the clock after host sleep..."
+    run_ssh "sudo tee /etc/chrony/conf.d/helix-vm.conf > /dev/null << 'CHRONYEOF'
+# Helix for Mac: the VM pauses while the Mac sleeps. Step the clock whenever it
+# is more than 1s off, not only at boot (Ubuntu default: makestep 1 3).
+makestep 1 -1
+CHRONYEOF"
+    mark_step "configure_chrony"
+fi
+
+# =============================================================================
 # Step 7: Run install.sh (downloads pre-built ARM64 images)
 # =============================================================================
 
