@@ -1144,6 +1144,10 @@ func TestProImplementationLimitAtOrchestratorBoundaries(t *testing.T) {
 			projectStore.EXPECT().ListSpecTasks(ctx, gomock.Any()).Return(tasks, nil)
 			projectStore.EXPECT().GetWalletByOrg(ctx, "org").Return(&types.Wallet{PlanOverride: types.PlanOverridePro}, nil)
 			if count == 29 {
+				// Under the plan limit, promotion reaches the sandbox-capacity
+				// gate. No runner reports a confirmed cap, so it fails open and
+				// this test stays focused on the Pro implementation limit.
+				projectStore.EXPECT().ListSandboxInstances(ctx).Return(nil, nil)
 				projectStore.EXPECT().TransitionSpecTaskStatus(ctx, task.ID, []types.SpecTaskStatus{types.TaskStatusQueuedImplementation}, types.TaskStatusImplementation, nil).Return(true, nil)
 			}
 			require.NoError(t, orchestrator.handleQueuedImplementation(ctx, task))

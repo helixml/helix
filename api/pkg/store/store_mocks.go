@@ -6902,6 +6902,22 @@ func (mr *MockStoreMockRecorder) TransitionSpecTaskStatus(ctx, taskID, fromStatu
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TransitionSpecTaskStatus", reflect.TypeOf((*MockStore)(nil).TransitionSpecTaskStatus), ctx, taskID, fromStatuses, newStatus, extraFields)
 }
 
+// TransitionSpecTaskStatusWithinCapacity mocks base method.
+func (m *MockStore) TransitionSpecTaskStatusWithinCapacity(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, settleSince time.Time, budget int) (bool, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TransitionSpecTaskStatusWithinCapacity", ctx, taskID, fromStatuses, newStatus, settleSince, budget)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// TransitionSpecTaskStatusWithinCapacity indicates an expected call of TransitionSpecTaskStatusWithinCapacity.
+func (mr *MockStoreMockRecorder) TransitionSpecTaskStatusWithinCapacity(ctx, taskID, fromStatuses, newStatus, settleSince, budget any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TransitionSpecTaskStatusWithinCapacity", reflect.TypeOf((*MockStore)(nil).TransitionSpecTaskStatusWithinCapacity), ctx, taskID, fromStatuses, newStatus, settleSince, budget)
+}
+
 // UnifiedSearch mocks base method.
 func (m *MockStore) UnifiedSearch(ctx context.Context, userID string, req *types.UnifiedSearchRequest) (*types.UnifiedSearchResponse, error) {
 	m.ctrl.T.Helper()

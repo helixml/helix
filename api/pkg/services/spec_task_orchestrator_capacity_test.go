@@ -2,163 +2,228 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"go.uber.org/mock/gomock"
+	"gorm.io/datatypes"
 )
 
-// implTasks builds n spec tasks that are in the implementation status, i.e.
-// already holding a sandbox slot.
-func implTasks(n int) []*types.SpecTask {
-	tasks := make([]*types.SpecTask, n)
-	for i := range tasks {
-		tasks[i] = &types.SpecTask{Status: types.TaskStatusImplementation}
+// desktopTask is a queued spec task on the default (ubuntu-desktop) runtime,
+// so placement needs a render-capable host advertising the ubuntu image.
+func desktopTask() *types.SpecTask {
+	return &types.SpecTask{ID: "task-cap", ProjectID: "project-cap", Status: types.TaskStatusQueuedImplementation}
+}
+
+func headlessTask() *types.SpecTask {
+	t := desktopTask()
+	t.SandboxRuntime = types.SandboxRuntimeHeadlessUbuntu
+	return t
+}
+
+func versions(keys ...string) datatypes.JSON {
+	m := map[string]string{}
+	for _, k := range keys {
+		m[k] = "sha-" + k
 	}
-	return tasks
+	b, _ := json.Marshal(m)
+	return datatypes.JSON(b)
 }
 
-// onlineRunner is an online runner whose cap the runner itself confirmed
-// (MaxSandboxesFromRunner), i.e. an authoritative cap the gate must trust.
-func onlineRunner(max int) *types.SandboxInstance {
-	return &types.SandboxInstance{Status: "online", LastSeen: time.Now(), MaxSandboxes: max, MaxSandboxesFromRunner: true}
+// eligibleRunner is an online, render-capable runner advertising the ubuntu
+// image whose cap the runner itself confirmed (MaxSandboxesFromRunner).
+func eligibleRunner(max, active int) *types.SandboxInstance {
+	return &types.SandboxInstance{
+		Status: "online", LastSeen: time.Now(),
+		MaxSandboxes: max, ActiveSandboxes: active, MaxSandboxesFromRunner: true,
+		DesktopVersions: versions("ubuntu"),
+	}
 }
 
-// unconfirmedRunner is an online runner whose cap was NOT reported by the
-// runner — it is the API's HELIX_SANDBOX_MAX_DEV_CONTAINERS fallback, which may
-// not match what the runner actually enforces. The gate must not trust it.
+// unconfirmedRunner is eligible but its cap is the API's
+// HELIX_SANDBOX_MAX_DEV_CONTAINERS fallback, not the runner's real limit.
 func unconfirmedRunner(max int) *types.SandboxInstance {
-	return &types.SandboxInstance{Status: "online", LastSeen: time.Now(), MaxSandboxes: max, MaxSandboxesFromRunner: false}
+	r := eligibleRunner(max, 0)
+	r.MaxSandboxesFromRunner = false
+	return r
 }
 
-func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_UnlimitedRunnerNeverGates() {
+func (s *SpecTaskOrchestratorTestSuite) budget(task *types.SpecTask, runners ...*types.SandboxInstance) (int, bool) {
 	ctx := context.Background()
-	// A -1 runner is unlimited: we must not even count in-flight tasks.
-	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{
-		onlineRunner(10), onlineRunner(-1),
-	}, nil)
-
-	blocked, reason, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
-	s.NoError(err)
-	s.False(blocked)
-	s.Empty(reason)
+	s.store.EXPECT().ListSandboxInstances(ctx).Return(runners, nil)
+	budget, gated, err := s.orchestrator.sandboxCapacityBudget(ctx, task)
+	s.Require().NoError(err)
+	return budget, gated
 }
 
-func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_SlotFreePromotes() {
-	ctx := context.Background()
-	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{onlineRunner(10)}, nil)
-	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{Status: types.TaskStatusImplementation}).
-		Return(implTasks(9), nil)
-
-	blocked, _, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
-	s.NoError(err)
-	s.False(blocked)
+func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_ConfirmedUnlimitedDisablesGate() {
+	_, gated := s.budget(desktopTask(), eligibleRunner(10, 10), eligibleRunner(-1, 50))
+	s.False(gated)
 }
 
-func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_FullQueues() {
-	ctx := context.Background()
-	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{onlineRunner(10)}, nil)
-	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{Status: types.TaskStatusImplementation}).
-		Return(implTasks(10), nil)
-
-	blocked, reason, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
-	s.NoError(err)
-	s.True(blocked)
-	s.Contains(reason, "10 of 10")
+// Review finding 1: in-use comes from the runner's ActiveSandboxes, which
+// includes planning desktops and any other live session, not only tasks in the
+// implementation status.
+func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_InUseCountsEveryLiveSandbox() {
+	budget, gated := s.budget(desktopTask(), eligibleRunner(10, 7))
+	s.True(gated)
+	s.Equal(3, budget)
 }
 
-func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_SummedAcrossRunners() {
-	ctx := context.Background()
-	// Two finite runners: capacity 3 + 7 = 10; 10 in use -> full.
-	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{
-		onlineRunner(3), onlineRunner(7),
-	}, nil)
-	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{Status: types.TaskStatusImplementation}).
-		Return(implTasks(10), nil)
+func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_FullRunnerHasNoBudget() {
+	budget, gated := s.budget(desktopTask(), eligibleRunner(10, 10))
+	s.True(gated)
+	s.Equal(0, budget)
+}
 
-	blocked, _, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
-	s.NoError(err)
-	s.True(blocked)
+func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_SummedAcrossEligibleRunners() {
+	budget, gated := s.budget(desktopTask(), eligibleRunner(10, 8), eligibleRunner(5, 1))
+	s.True(gated)
+	s.Equal(6, budget)
+}
+
+// Review finding 2: only runners placement could actually select count.
+func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_IneligibleRunnersDoNotInflate() {
+	noImage := eligibleRunner(50, 0)
+	noImage.DesktopVersions = versions("sway")
+	noRender := eligibleRunner(50, 0)
+	noRender.GPUVendor = "none"
+
+	budget, gated := s.budget(desktopTask(), eligibleRunner(4, 3), noImage, noRender)
+	s.True(gated)
+	s.Equal(1, budget, "runners without the image or a render node must not add desktop capacity")
+}
+
+// A headless task has no display requirement, so a CPU-only host advertising
+// the ubuntu image is eligible for it.
+func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_HeadlessCountsCPUOnlyHosts() {
+	cpuOnly := eligibleRunner(5, 1)
+	cpuOnly.GPUVendor = "none"
+	budget, gated := s.budget(headlessTask(), cpuOnly)
+	s.True(gated)
+	s.Equal(4, budget)
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_OfflineAndStaleIgnored() {
-	ctx := context.Background()
-	// Offline and stale runners contribute no capacity; with no usable online
-	// runner we do not gate (fail open) rather than wedge the queue.
-	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{
-		{Status: "offline", LastSeen: time.Now(), MaxSandboxes: 10},
-		{Status: "online", LastSeen: time.Now().Add(-10 * time.Minute), MaxSandboxes: 10},
-	}, nil)
-
-	blocked, _, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
-	s.NoError(err)
-	s.False(blocked)
-}
-
-func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_StoreErrorFailsOpen() {
-	ctx := context.Background()
-	s.store.EXPECT().ListSandboxInstances(ctx).Return(nil, errors.New("db down"))
-
-	blocked, _, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
-	s.Error(err)
-	s.False(blocked) // caller treats an error as "do not gate"
+	offline := eligibleRunner(50, 0)
+	offline.Status = "offline"
+	stale := eligibleRunner(50, 0)
+	stale.LastSeen = time.Now().Add(-time.Hour)
+	budget, gated := s.budget(desktopTask(), eligibleRunner(2, 1), offline, stale)
+	s.True(gated)
+	s.Equal(1, budget)
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_UnconfirmedCapDoesNotInflate() {
-	ctx := context.Background()
-	// A confirmed runner caps the fleet at 2. An unconfirmed runner advertises
-	// an inflated fallback of 20 (e.g. HELIX_SANDBOX_MAX_DEV_CONTAINERS) while
-	// really enforcing far less. The gate must ignore the unconfirmed cap, so
-	// capacity is 2 (not 22) and 2 in-flight tasks fill it.
-	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{
-		onlineRunner(2), unconfirmedRunner(20),
-	}, nil)
-	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{Status: types.TaskStatusImplementation}).
-		Return(implTasks(2), nil)
-
-	blocked, reason, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
-	s.NoError(err)
-	s.True(blocked)
-	s.Contains(reason, "2 of 2")
+	budget, gated := s.budget(desktopTask(), eligibleRunner(2, 2), unconfirmedRunner(100))
+	s.True(gated)
+	s.Equal(0, budget)
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_UnconfirmedUnlimitedDoesNotDisableGate() {
-	ctx := context.Background()
-	// The auto-register default is MaxSandboxes=-1 with MaxSandboxesFromRunner
-	// =false. That unconfirmed -1 must NOT be read as "unlimited" and disable
-	// the gate; the confirmed runner's cap of 2 still governs.
-	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{
-		onlineRunner(2), unconfirmedRunner(-1),
-	}, nil)
-	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{Status: types.TaskStatusImplementation}).
-		Return(implTasks(2), nil)
-
-	blocked, reason, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
-	s.NoError(err)
-	s.True(blocked)
-	s.Contains(reason, "2 of 2")
+	budget, gated := s.budget(desktopTask(), eligibleRunner(2, 2), unconfirmedRunner(-1))
+	s.True(gated)
+	s.Equal(0, budget)
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_OnlyUnconfirmedRunnersFailOpen() {
-	ctx := context.Background()
-	// No runner has confirmed a cap (the live 20/null box). We cannot verify
-	// real capacity, so the gate fails open rather than trusting the inflated
-	// fallback or wedging the queue. (Correctness for this box needs the runner
-	// to report its real MAX_SANDBOXES.) No ListSpecTasks call is expected
-	// because the gate returns before counting in-flight tasks.
-	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{
-		unconfirmedRunner(20),
-	}, nil)
-
-	blocked, reason, err := s.orchestrator.sandboxCapacityQueueReason(ctx)
-	s.NoError(err)
-	s.False(blocked)
-	s.Empty(reason)
+	_, gated := s.budget(desktopTask(), unconfirmedRunner(10), unconfirmedRunner(-1))
+	s.False(gated)
 }
 
-// Guard against an accidental gomock import prune.
-var _ = gomock.Any
+func (s *SpecTaskOrchestratorTestSuite) TestSandboxCapacity_StoreErrorIsReturned() {
+	ctx := context.Background()
+	s.store.EXPECT().ListSandboxInstances(ctx).Return(nil, errors.New("db down"))
+	_, gated, err := s.orchestrator.sandboxCapacityBudget(ctx, desktopTask())
+	s.Error(err)
+	s.False(gated)
+}
 
-func TestSandboxCapacityHelperCompiles(t *testing.T) {}
+// expectPromotionPrelude sets up the store calls handleQueuedImplementation
+// makes before the sandbox-capacity gate.
+func (s *SpecTaskOrchestratorTestSuite) expectPromotionPrelude(ctx context.Context, task *types.SpecTask) {
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).DoAndReturn(func(context.Context, string) (*types.SpecTask, error) {
+		c := *task
+		return &c, nil
+	})
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(&types.Project{ID: task.ProjectID}, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: task.ProjectID, WithDependsOn: true}).
+		DoAndReturn(func(context.Context, *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+			c := *task
+			return []*types.SpecTask{&c}, nil
+		})
+	s.store.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{}, nil)
+}
+
+// Review finding 3: when gated, the promotion goes through the store's atomic,
+// cross-replica admission check with the measured free-slot budget.
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_GatedClaimIsAtomic() {
+	ctx := context.Background()
+	task := desktopTask()
+	workflow := &countingSpecTaskWorkflowService{}
+	orchestrator := &SpecTaskOrchestrator{store: s.store, specTaskService: workflow}
+
+	s.expectPromotionPrelude(ctx, task)
+	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{eligibleRunner(10, 8)}, nil)
+	s.store.EXPECT().TransitionSpecTaskStatusWithinCapacity(
+		ctx, task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusQueuedImplementation},
+		types.TaskStatusImplementation,
+		gomock.Any(), 2,
+	).Return(true, false, nil)
+
+	s.Require().NoError(orchestrator.handleQueuedImplementation(ctx, task))
+	orchestrator.wg.Wait()
+	s.Equal(int32(1), workflow.justDoItStarts.Load())
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_AtomicClaimRefusedStaysQueued() {
+	ctx := context.Background()
+	task := desktopTask()
+	workflow := &countingSpecTaskWorkflowService{}
+	orchestrator := &SpecTaskOrchestrator{store: s.store, specTaskService: workflow}
+
+	s.expectPromotionPrelude(ctx, task)
+	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{eligibleRunner(10, 9)}, nil)
+	// Another replica took the last slot first: the store refuses.
+	s.store.EXPECT().TransitionSpecTaskStatusWithinCapacity(
+		ctx, task.ID, gomock.Any(), types.TaskStatusImplementation, gomock.Any(), 1,
+	).Return(false, true, nil)
+
+	s.Require().NoError(orchestrator.handleQueuedImplementation(ctx, task))
+	orchestrator.wg.Wait()
+	s.Equal(int32(0), workflow.justDoItStarts.Load())
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_NoBudgetSkipsClaim() {
+	ctx := context.Background()
+	task := desktopTask()
+	workflow := &countingSpecTaskWorkflowService{}
+	orchestrator := &SpecTaskOrchestrator{store: s.store, specTaskService: workflow}
+
+	s.expectPromotionPrelude(ctx, task)
+	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{eligibleRunner(10, 10)}, nil)
+	// No TransitionSpecTaskStatus* expectation: gomock fails the test if one runs.
+
+	s.Require().NoError(orchestrator.handleQueuedImplementation(ctx, task))
+	s.Equal(int32(0), workflow.justDoItStarts.Load())
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_CapacityErrorFailsOpen() {
+	ctx := context.Background()
+	task := desktopTask()
+	workflow := &countingSpecTaskWorkflowService{}
+	orchestrator := &SpecTaskOrchestrator{store: s.store, specTaskService: workflow}
+
+	s.expectPromotionPrelude(ctx, task)
+	s.store.EXPECT().ListSandboxInstances(ctx).Return(nil, errors.New("db down"))
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx, task.ID, gomock.Any(), types.TaskStatusImplementation, nil,
+	).Return(true, nil)
+
+	s.Require().NoError(orchestrator.handleQueuedImplementation(ctx, task))
+	orchestrator.wg.Wait()
+	s.Equal(int32(1), workflow.justDoItStarts.Load())
+}

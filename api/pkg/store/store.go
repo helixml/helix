@@ -632,6 +632,7 @@ type Store interface {
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	UpdateSpecTaskFields(ctx context.Context, taskID string, updates map[string]any) error
 	TransitionSpecTaskStatus(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, extraFields map[string]any) (bool, error)
+	TransitionSpecTaskStatusWithinCapacity(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, settleSince time.Time, budget int) (claimed bool, capacityFull bool, err error)
 	// SetPlanningSessionIDIfEmpty atomically claims a spec task's planning_session_id
 	// slot. Returns true if this caller won the claim (row updated), false if another
 	// caller had already set planning_session_id to a non-empty value. The single SQL
