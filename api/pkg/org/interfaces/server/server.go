@@ -1,9 +1,8 @@
 // Package server exposes the HTTP surface: the per-Bot MCP endpoint
-// (/orgs/{org}/workers/{id}/mcp — every Bot is its own MCP server,
-// scoped to the tools in its Bot.Tools) and the inbound webhook
-// endpoint (/webhooks/{org}/{triggerID}). The URL still uses the
-// `/workers/` path segment for backward compatibility with the helix
-// MCP backend; the {id} is a Bot ID. Neither handler touches a store
+// (every Bot is its own MCP server, scoped to the tools in its Bot.Tools;
+// served by BotMCPHandler, and at /orgs/{org}/workers/{id}/mcp only by the
+// standalone StandaloneHandler) and the inbound webhook endpoint
+// (/webhooks/{org}/{triggerID}). The {id} is a Bot ID. Neither handler touches a store
 // repository: caller resolution and topic reads go through the queries
 // read facade, and inbound events go through the publishing service
 // (append → notify → dispatch). The store stays in the composition
@@ -106,18 +105,36 @@ type Route struct {
 	Handler http.Handler
 }
 
-// Handler returns an http.Handler with all built-in routes registered
-// (MCP per-bot, /webhooks/{triggerID}) plus any extras passed in by
-// the wiring layer. The request-logging middleware wraps the lot.
+// Handler returns the http.Handler an embedding host mounts behind its own
+// authenticated, org-scoped middleware: /webhooks/{triggerID} plus any extras
+// passed in by the wiring layer. The request-logging middleware wraps the lot.
+//
+// It deliberately does NOT register the per-bot MCP route. That route takes
+// the org from the URL, and an embedding host forwards caller-controlled path
+// suffixes into this mux (e.g. /api/v1/orgs/{A}/orgs/{B}/workers/{bot}/mcp
+// would otherwise reach org B's bot after only org A was authorised). Hosts
+// serve per-bot MCP through BotMCPHandler, binding the org and bot from their
+// own authenticated state.
 func (s *Server) Handler(extras ...Route) http.Handler {
+	return s.handler(false, extras)
+}
+
+// StandaloneHandler is Handler plus the per-bot MCP route
+// /orgs/{org}/workers/{id}/mcp, which trusts the {org} and {id} URL segments.
+// Only for a standalone helix-org server with no tenant authentication in
+// front of it (and tests); never mount it behind an embedding host.
+func (s *Server) StandaloneHandler(extras ...Route) http.Handler {
+	return s.handler(true, extras)
+}
+
+func (s *Server) handler(standaloneMCP bool, extras []Route) http.Handler {
 	mux := http.NewServeMux()
-	// Per-org MCP per Bot. The {org} segment is required: composite
-	// (id, org_id) PKs mean the bot handle repeats across tenants. The
-	// MCP handler reads orgID from OrgIDFromContext, so this route wraps
-	// the inner handler in a middleware that lifts {org} into the
-	// request context. The path keeps the `/workers/` segment for
-	// compatibility with the helix MCP backend rewrite; {id} is a Bot ID.
-	mux.Handle("/orgs/{org}/workers/{id}/mcp", withMCPOrgScope(s.mcpHandler()))
+	if standaloneMCP {
+		// Per-org MCP per Bot. The {org} segment is required: composite
+		// (id, org_id) PKs mean the bot handle repeats across tenants.
+		// {id} is a Bot ID.
+		mux.Handle("/orgs/{org}/workers/{id}/mcp", withMCPOrgScope(s.BotMCPHandler()))
+	}
 	mux.Handle("POST /webhooks/{org}/{triggerID}", s.webhookHandler())
 	// Embedded in helix the org is already resolved into the request
 	// context by the org-scope middleware and the mount prefix supplies
@@ -129,20 +146,25 @@ func (s *Server) Handler(extras ...Route) http.Handler {
 	return s.requestLogger(mux)
 }
 
-// withMCPOrgScope lifts the {org} URL segment into the context via
-// WithOrgID so the per-Bot MCP handler can scope its store lookups
-// to the right helix tenant. Used by the standalone helix-org server
-// only — the helix-embedded MCP backend (mcp_backend_helix_org.go in
-// the helix package) does its own resolution because it needs to
-// check org membership too.
+// withMCPOrgScope lifts the {org} and {id} URL segments into the context so
+// BotMCPHandler can scope its store lookups to the right tenant. Standalone
+// helix-org server only. If an org is already on the context the request came
+// through an embedding host that authorised that org; a URL segment must
+// never override it, so such requests are refused outright.
 func withMCPOrgScope(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if OrgIDFromContext(r.Context()) != "" {
+			http.NotFound(w, r)
+			return
+		}
 		orgID := r.PathValue("org")
 		if orgID == "" {
 			http.Error(w, "missing org", http.StatusBadRequest)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(WithOrgID(r.Context(), orgID)))
+		ctx := WithOrgID(r.Context(), orgID)
+		ctx = WithBotID(ctx, r.PathValue("id"))
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

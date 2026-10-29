@@ -87,7 +87,7 @@ func TestDemoOwnerCreatesCEO(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -170,7 +170,7 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -289,7 +289,7 @@ func TestSetBotContentPreflightsLinkedAgentUpdater(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -330,7 +330,7 @@ func TestTopicMembers(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -390,7 +390,7 @@ func TestAttachOtherWorkers(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -478,7 +478,7 @@ func TestDM(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -592,7 +592,7 @@ func TestReadsOverMCP(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -707,7 +707,7 @@ func TestBotLog(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -801,7 +801,7 @@ func TestBotLogFiltersByActivationID(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -962,7 +962,7 @@ func TestBotBaselineReadsOverMCP(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	session := connectMCP(t, srv.URL, "b-boss")
@@ -999,7 +999,7 @@ func TestCreateBotInjectsBaselineOverMCP(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ownerSession := connectMCP(t, srv.URL, "b-owner")

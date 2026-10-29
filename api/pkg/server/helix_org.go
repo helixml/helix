@@ -72,7 +72,11 @@ import (
 // mounted under /api/v1/orgs/{org}/. The React UI at
 // /orgs/:org_id/* consumes those endpoints.
 type helixOrgHandlers struct {
-	api     http.Handler
+	api http.Handler
+	// botMCP serves one Bot's MCP surface, with org, bot, and acting user
+	// bound on the request context by the authenticated gateway backend.
+	// It is not reachable through `api`.
+	botMCP  http.Handler
 	configs *configregistry.Registry
 	// mcpServer is the org MCP server behind `api`. Held directly so the
 	// spec-task MCP backend can serve a project-scoped caller through the
@@ -1551,6 +1555,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 
 	return &helixOrgHandlers{
 		api:                           orgServer.Handler(extras...),
+		botMCP:                        orgServer.BotMCPHandler(),
 		configs:                       configReg,
 		mcpServer:                     orgServer,
 		scope:                         scope,

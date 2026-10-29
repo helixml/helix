@@ -60,7 +60,7 @@ func TestProjectDiscoveryOverMCP(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, cfg.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
