@@ -60,6 +60,7 @@ func RegisterConfigSpecs(r *configregistry.Registry) {
 	r.Register(configregistry.Spec{
 		Key:         "helix.api_key",
 		Type:        configregistry.TypeString,
+		Secret:      true,
 		Description: "Fallback bearer token for the embedded helix-org client when no logged-in user is on the request. Auto-provisioned for the organization owner.",
 	})
 	// Transport-level secrets: every Stream whose transport is `postmark`
