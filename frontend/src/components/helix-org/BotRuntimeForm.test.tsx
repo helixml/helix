@@ -22,6 +22,10 @@ vi.mock('../agent/CodeAgentEffortSelect', () => ({
 }))
 vi.mock('../agent/AgentHarness', () => ({
   default: () => null,
+  getAgentHarnessLabel: (runtime: string) => runtime,
+}))
+vi.mock('../../services/codeAgentHarnessesService', () => ({
+  useIsCodeAgentRuntimeEnabled: () => () => true,
 }))
 
 describe('AgentConfigForm', () => {
