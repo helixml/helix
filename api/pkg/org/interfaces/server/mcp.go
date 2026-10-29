@@ -27,15 +27,18 @@ type botCaller struct{ id, orgID string }
 func (c botCaller) ID() string             { return c.id }
 func (c botCaller) OrganizationID() string { return c.orgID }
 
-// mcpHandler returns an http.Handler that speaks MCP over the Streamable
-// HTTP transport. It is mounted at /workers/{id}/mcp; the bot ID in
-// the URL identifies the caller, and the server exposes only the tools
-// listed in that bot's Tools.
+// BotMCPHandler returns an http.Handler that speaks MCP over the Streamable
+// HTTP transport for one Bot. The org and bot come only from the request
+// context (WithOrgID, WithBotID), never from the URL or headers: the caller —
+// the standalone route's withMCPOrgScope, or an embedding host's authenticated
+// gateway backend — is responsible for binding them. The acting user, if any,
+// is likewise read from the context (runtimehelix.WithUserID) set by that
+// caller. The server exposes only the tools listed in the Bot's Tools.
 //
 // Stateless mode is used: each request stands on its own. The server has
 // no need to push notifications to clients, so session state buys us
 // nothing here and adds an obligation to track session IDs.
-func (s *Server) mcpHandler() http.Handler {
+func (s *Server) BotMCPHandler() http.Handler {
 	inner := mcp.NewStreamableHTTPHandler(s.buildMCPServer, &mcp.StreamableHTTPOptions{
 		Stateless:                  true,
 		Logger:                     s.logger,
@@ -45,46 +48,33 @@ func (s *Server) mcpHandler() http.Handler {
 	// tools (and anything they call into via the in-proc Helix
 	// adapter) can use runtimehelix.BearerFromContext to discover
 	// the caller's identity. In the embedded SaaS this is the picking user's
-	// own api_key; tools like create_bot persist it onto the new
-	// Bot so subsequent activations run as the same user. In
-	// standalone helix-org the request carries no Authorization
-	// header and this is a no-op.
+	// own api_key, already authenticated by the gateway. In standalone
+	// helix-org the request carries no Authorization header and this is
+	// a no-op.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
 		if auth := r.Header.Get("Authorization"); auth != "" {
 			if token := strings.TrimPrefix(auth, "Bearer "); token != auth && token != "" {
-				ctx = runtimehelix.WithBearerToken(ctx, token)
+				r = r.WithContext(runtimehelix.WithBearerToken(r.Context(), token))
 			}
-		}
-		// Embedding hosts (e.g. the SaaS alpha) forward the calling
-		// user's stable identifier in this header so tools like
-		// create_bot can persist it onto a Bot's runtime state
-		// — letting the Spawner mint a fresh per-user api_key at
-		// activation time instead of stashing a token at rest.
-		if uid := strings.TrimSpace(r.Header.Get("X-Helix-Org-User-Id")); uid != "" {
-			ctx = runtimehelix.WithUserID(ctx, uid)
-		}
-		if ctx != r.Context() {
-			r = r.WithContext(ctx)
 		}
 		inner.ServeHTTP(w, r)
 	})
 }
 
-// buildMCPServer assembles a fresh *mcp.Server tailored to the bot in
-// the request URL. The advertised tools are derived live from the Bot's
-// Tools: editing a Bot's Tools changes its capability on the next MCP
+// buildMCPServer assembles a fresh *mcp.Server tailored to the bot bound
+// on the request context. The advertised tools are derived live from the
+// Bot's Tools: editing a Bot's Tools changes its capability on the next MCP
 // request. There is no separate role record — the Bot IS its own job
 // description, and Bot.Tools is the whole story.
 //
 // Returning nil causes the SDK to respond 400 Bad Request.
 func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
-	botID := orgchart.NodeID(r.PathValue("id"))
+	ctx := r.Context()
+	botID := orgchart.NodeID(BotIDFromContext(ctx))
 	if botID == "" {
 		return nil
 	}
 
-	ctx := r.Context()
 	orgID := OrgIDFromContext(ctx)
 	if orgID == "" {
 		s.logger.Info("mcp.missing_org_scope", "bot", botID)
