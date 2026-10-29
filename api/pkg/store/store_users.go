@@ -252,14 +252,8 @@ func (s *PostgresStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([
 
 	// Apply pagination
 	if query != nil && query.PerPage > 0 {
-		// Enforce maximum page size of 200
-		if query.PerPage > 200 {
-			query.PerPage = 200
-		}
-		db = db.Limit(query.PerPage)
-		if query.Page > 0 {
-			db = db.Offset((query.Page - 1) * query.PerPage)
-		}
+		perPage := cappedLimit(query.PerPage, listUsersMaxPerPage)
+		db = db.Limit(perPage).Offset(pageOffset(query.Page, perPage))
 	}
 
 	// Apply ordering
@@ -309,11 +303,8 @@ func (s *PostgresStore) SearchUsers(ctx context.Context, query *SearchUsersQuery
 	}
 
 	// Apply pagination
-	if query != nil && query.Limit > 0 {
-		db = db.Limit(query.Limit)
-		if query.Offset > 0 {
-			db = db.Offset(query.Offset)
-		}
+	if query.Limit > 0 {
+		db = limitOffset(db, query.Limit, query.Offset)
 	}
 
 	// Execute the query
