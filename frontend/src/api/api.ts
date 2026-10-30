@@ -18423,6 +18423,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         per_page?: number;
         /** Sort order: 'asc' (oldest first, default) or 'desc' (newest first) */
         order?: string;
+        /** Only waiting interactions with a pending question */
+        pending_question?: boolean;
       },
       params: RequestParams = {},
     ) =>

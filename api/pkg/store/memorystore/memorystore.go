@@ -577,7 +577,11 @@ func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInter
 		if query.GenerationID >= 0 && i.GenerationID != query.GenerationID {
 			continue
 		}
-		if query.State != "" && i.State != query.State {
+		if query.HasPendingQuestion &&
+			(i.State != types.InteractionStateWaiting || i.PendingQuestion == nil) {
+			continue
+		}
+		if !query.HasPendingQuestion && query.State != "" && i.State != query.State {
 			continue
 		}
 		cp := *i

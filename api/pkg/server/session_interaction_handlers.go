@@ -20,6 +20,7 @@ import (
 // @Param   page query int false "Page number (0-indexed)"
 // @Param   per_page query int false "Page size (default 100)"
 // @Param   order query string false "Sort order: 'asc' (oldest first, default) or 'desc' (newest first)"
+// @Param   pending_question query bool false "Only waiting interactions with a pending question"
 // @Success 200 {object} types.PaginatedInteractions
 // @Router /api/v1/sessions/{id}/interactions [get]
 // @Security BearerAuth
@@ -54,11 +55,12 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 	}
 
 	interactions, totalCount, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-		SessionID:    id,
-		GenerationID: session.GenerationID,
-		Page:         page,
-		PerPage:      perPage,
-		Order:        order,
+		SessionID:          id,
+		GenerationID:       session.GenerationID,
+		Page:               page,
+		PerPage:            perPage,
+		Order:              order,
+		HasPendingQuestion: req.URL.Query().Get("pending_question") == "true",
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get interactions for session %s, error: %s", id, err))

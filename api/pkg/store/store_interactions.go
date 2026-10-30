@@ -736,7 +736,10 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 		q = q.Where("feedback = ?", query.Feedback)
 	}
 
-	if query.State != "" {
+	if query.HasPendingQuestion {
+		q = q.Where("state = ?", types.InteractionStateWaiting).
+			Where("pending_question IS NOT NULL")
+	} else if query.State != "" {
 		q = q.Where("state = ?", query.State)
 	}
 
