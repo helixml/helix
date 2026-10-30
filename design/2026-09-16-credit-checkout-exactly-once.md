@@ -80,11 +80,16 @@ The session event is also needed for the normal overlap and dedupe path. If
 neither event arrives, nothing can credit. Check the endpoint's event
 subscription in the Stripe dashboard when investigating missed credits.
 
-The production deployment preflight checks the endpoint URL, enabled status,
-and required event subscriptions before changing the control-plane image. The
-implementation is in `scripts/deploy-prod.sh` and
-`scripts/check-stripe-webhook.py`. This catches dashboard drift at deploy time;
-it is not continuous monitoring.
+Credit checkout creation reconciles the configured Stripe webhook endpoint
+before creating a Checkout Session. `STRIPE_WEBHOOK_ENDPOINT_ID` identifies
+the existing endpoint associated with the configured signing secret. Helix
+requires that endpoint to be enabled, accepts `*`, and otherwise adds the two
+required events while preserving its other subscriptions. A missing,
+unavailable, disabled, or unrepairable endpoint blocks only the credit
+checkout; it does not affect application startup or subscription flows. The
+endpoint URL is left unchanged so local forwarding and webhook relays remain
+supported, but the endpoint must still deliver to the Helix webhook receiver.
+Helix does not create endpoints or rotate secrets automatically.
 
 ## Regression coverage
 
