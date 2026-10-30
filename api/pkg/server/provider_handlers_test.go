@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -1599,4 +1600,14 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_SharedBaseURLKeepsSeparate
 	s.Require().NoError(err)
 	s.Require().Len(resB.Models, 1)
 	s.Equal("model-b", resB.Models[0].ID)
+}
+
+func TestGlobalProviderEndpointUsesConfiguredAnthropicBaseURL(t *testing.T) {
+	cfg := &config.ServerConfig{}
+	cfg.Providers.Anthropic.BaseURL = "https://gateway.example.com/anthropic/v1"
+	server := &HelixAPIServer{Cfg: cfg}
+
+	endpoint := server.globalProviderEndpoint(types.ProviderAnthropic)
+
+	require.Equal(t, "https://gateway.example.com/anthropic/v1", endpoint.BaseURL)
 }

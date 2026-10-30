@@ -323,6 +323,8 @@ func (s *HelixAPIServer) globalProviderEndpoint(provider types.Provider) *types.
 		baseURL = s.Cfg.Providers.OpenAI.BaseURL
 	case types.ProviderTogetherAI:
 		baseURL = s.Cfg.Providers.TogetherAI.BaseURL
+	case types.ProviderAnthropic:
+		baseURL = s.Cfg.Providers.Anthropic.BaseURL
 	case types.ProviderVLLM:
 		baseURL = s.Cfg.Providers.VLLM.BaseURL
 	case types.ProviderHelix:
