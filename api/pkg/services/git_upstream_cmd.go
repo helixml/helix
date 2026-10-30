@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 
 	"code.gitea.io/gitea/modules/git/gitcmd"
@@ -91,7 +90,7 @@ func isHTTPURL(raw string) bool {
 
 // runUpstreamGit runs a git command that contacts an external remote. The
 // command (and every child it spawns) is killed when ctx is done or timeout
-// elapses; the call returns at most upstreamGitWaitDelay after that.
+// elapses; cancellation and the subsequent pipe wait are both bounded.
 func runUpstreamGit(ctx context.Context, dir string, timeout time.Duration, env []string, args ...string) (string, string, error) {
 	if timeout <= 0 {
 		timeout = upstreamGitDefaultTimeout
@@ -102,10 +101,7 @@ func runUpstreamGit(ctx context.Context, dir string, timeout time.Duration, env 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(append(os.Environ(), gitcmd.CommonGitCmdEnvs()...), env...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
+	configureUpstreamGitProcess(cmd)
 	cmd.WaitDelay = upstreamGitWaitDelay
 
 	var stdout, stderr bytes.Buffer

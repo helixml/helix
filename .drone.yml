@@ -132,6 +132,7 @@ steps:
       - apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
       - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
       - CGO_ENABLED=1 go build -tags ORT -ldflags "-s -w" -o ./helix-bin ./api
+      - CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags nokodit -o /tmp/helix-windows-check.exe .
     when:
       event:
         - push
