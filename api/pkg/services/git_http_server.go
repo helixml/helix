@@ -87,6 +87,16 @@ func (fw *flushingWriter) Write(p []byte) (n int, err error) {
 
 // GitHTTPServer provides HTTP access to git repositories using native git.
 // This replaces the go-git based implementation for better performance and reliability.
+// Bounded waits for the per-repo lock. A pull only needs the lock for its
+// optional upstream pre-sync, so it gives up quickly and serves local data.
+// Variables so tests can shorten them.
+var (
+	uploadPackLockWait    = 5 * time.Second
+	uploadPackSyncTimeout = 30 * time.Second
+	uploadPackSyncBackoff = 2 * time.Minute
+	receivePackLockWait   = 60 * time.Second
+)
+
 type GitHTTPServer struct {
 	store            store.Store
 	gitRepoService   *GitRepositoryService
@@ -501,13 +511,23 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 	// If this is an external repository, sync from upstream BEFORE serving the pull.
 	// Acquire repo lock to serialize with concurrent pushes and prevent race conditions.
 	// Wrap in func() to ensure defer works correctly for panic safety.
-	if repo != nil && repo.ExternalURL != "" {
+	// The pre-sync is best-effort: skip it and serve the local mirror when the
+	// lock is held (e.g. an upstream push is still running) or the upstream
+	// failed recently, and bound it so a stalled upstream can't stall pulls.
+	if repo != nil && repo.ExternalURL != "" && s.gitRepoService.UpstreamFailedWithin(repoID, uploadPackSyncBackoff) {
+		log.Info().Str("repo_id", repoID).Msg("Upstream failed recently - serving pull from local mirror without upstream sync")
+	} else if repo != nil && repo.ExternalURL != "" {
 		func() {
 			lock := s.gitRepoService.GetRepoLock(repoID)
-			lock.Lock()
+			if err := lock.LockTimeout(r.Context(), uploadPackLockWait); err != nil {
+				log.Warn().Err(err).Str("repo_id", repoID).Msg("Repository busy - serving pull from local mirror without upstream sync")
+				return
+			}
 			defer lock.Unlock()
 			log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before serving pull")
-			if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
+			syncCtx, cancel := context.WithTimeout(r.Context(), uploadPackSyncTimeout)
+			defer cancel()
+			if err := s.gitRepoService.SyncAllBranches(syncCtx, repoID, true); err != nil {
 				log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream before pull - serving cached data")
 			} else {
 				log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before pull")
@@ -617,7 +637,11 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	// could overwrite commits between receive-pack and upstream push.
 	// The lock MUST be held for the entire push flow: sync -> receive-pack -> upstream push.
 	lock := s.gitRepoService.GetRepoLock(repoID)
-	lock.Lock()
+	if err := lock.LockTimeout(r.Context(), receivePackLockWait); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("Repository busy - rejecting push")
+		http.Error(w, "Repository busy syncing with upstream, retry shortly", http.StatusServiceUnavailable)
+		return
+	}
 	defer lock.Unlock()
 
 	// If this is an external repository, sync from upstream BEFORE accepting the push.
@@ -764,9 +788,23 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 			}
 		}
 
+		// helix-specs is served from Helix, so its upstream publication must not
+		// keep the client (and every other git operation on the repo) waiting.
+		// The goroutine takes the repo lock once this handler releases it.
+		for branch, isForce := range pushedBranchesMap {
+			if isLocalAuthoritativeBranch(branch) {
+				s.wg.Add(1)
+				go s.publishLocalAuthoritativeBranch(repoID, branch, isForce, pushUserID)
+			}
+		}
+
 		upstreamPushFailed := false
 		var pushErr error
 		for branch, isForce := range pushedBranchesMap {
+			if isLocalAuthoritativeBranch(branch) {
+				continue
+			}
+
 			// Create per-branch timeout so later branches don't get starved
 			branchCtx, branchCancel := context.WithTimeout(context.Background(), 90*time.Second)
 
@@ -774,14 +812,6 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 			err := s.gitRepoService.PushBranchToRemote(branchCtx, repoID, branch, isForce, pushUserID)
 			branchCancel()
 
-			if err != nil && isLocalAuthoritativeBranch(branch) {
-				log.Warn().
-					Err(err).
-					Str("repo_id", repoID).
-					Str("branch", branch).
-					Msg("Upstream publication failed; retained local-authoritative branch")
-				continue
-			}
 			if err != nil {
 				log.Error().Err(err).Str("repo_id", repoID).Str("branch", branch).Bool("force", isForce).Msg("Failed to push branch to upstream - rolling back")
 				upstreamPushFailed = true
@@ -825,6 +855,32 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 			s.handlePostPushHook(context.Background(), repoID, repo.LocalPath, pushedBranches)
 		}()
 	}
+}
+
+// specsPublishTimeout bounds a background helix-specs publication, including
+// the wait for the repo lock held by the push that triggered it.
+const specsPublishTimeout = 10 * time.Minute
+
+// publishLocalAuthoritativeBranch pushes a local-authoritative branch upstream in
+// the background. Failures are logged and recorded on the repository; the commit
+// stays in Helix and is retried by startup recovery or the next push.
+func (s *GitHTTPServer) publishLocalAuthoritativeBranch(repoID, branch string, force bool, userID string) {
+	defer s.wg.Done()
+	ctx, cancel := context.WithTimeout(context.Background(), specsPublishTimeout)
+	defer cancel()
+
+	lock := s.gitRepoService.GetRepoLock(repoID)
+	if err := lock.LockContext(ctx); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Str("branch", branch).Msg("Upstream publication skipped; repository lock not acquired")
+		return
+	}
+	defer lock.Unlock()
+
+	if err := s.gitRepoService.PushBranchToRemote(ctx, repoID, branch, force, userID); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Str("branch", branch).Msg("Upstream publication failed; retained local-authoritative branch")
+		return
+	}
+	log.Info().Str("repo_id", repoID).Str("branch", branch).Msg("Published local-authoritative branch to upstream")
 }
 
 // isContextCanceledOrKilled checks if the error is due to context cancellation or process being killed

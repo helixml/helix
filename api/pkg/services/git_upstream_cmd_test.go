@@ -14,12 +14,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 // stallingListener accepts connections and never responds, like a proxy that
 // swallows a request body.
 func stallingListener(t *testing.T) string {
+	addr, _ := stallingListenerWithClose(t)
+	return addr
+}
+
+// stallingListenerWithClose also returns a func that closes the listener and
+// drops every accepted connection, releasing any stalled client.
+func stallingListenerWithClose(t *testing.T) (string, func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -36,15 +45,16 @@ func stallingListener(t *testing.T) string {
 			mu.Unlock()
 		}
 	}()
-	t.Cleanup(func() {
+	closeAll := func() {
 		_ = ln.Close()
 		mu.Lock()
 		defer mu.Unlock()
 		for _, c := range conns {
 			_ = c.Close()
 		}
-	})
-	return ln.Addr().String()
+	}
+	t.Cleanup(closeAll)
+	return ln.Addr().String(), closeAll
 }
 
 func gitProcessesMatching(t *testing.T, needle string) []string {
@@ -145,4 +155,32 @@ func TestScrubRemoteCredentials(t *testing.T) {
 	out, _, err := runUpstreamGit(ctx, dir, time.Minute, nil, "config", "--get", "remote.origin.url")
 	require.NoError(t, err)
 	require.Equal(t, "https://gitlab.example/g/r.git", strings.TrimSpace(out))
+}
+
+func TestTrackUpstreamSync_RecordsOutcome(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	svc := &GitRepositoryService{store: mockStore}
+
+	gomock.InOrder(
+		mockStore.EXPECT().MarkGitRepositorySyncStarted(gomock.Any(), "repo-1", gomock.Any()).Return(nil),
+		mockStore.EXPECT().MarkGitRepositorySyncFinished(gomock.Any(), "repo-1", gomock.Any(), "").Return(nil),
+	)
+	require.NoError(t, svc.trackUpstreamSync(context.Background(), "repo-1", func() error { return nil }))
+
+	// A failure is recorded even though the caller's context is already cancelled.
+	ctx, cancel := context.WithCancel(context.Background())
+	gomock.InOrder(
+		mockStore.EXPECT().MarkGitRepositorySyncStarted(gomock.Any(), "repo-1", gomock.Any()).Return(nil),
+		mockStore.EXPECT().MarkGitRepositorySyncFinished(gomock.Any(), "repo-1", gomock.Any(), "push failed: boom").
+			DoAndReturn(func(c context.Context, _ string, _ time.Time, _ string) error {
+				require.NoError(t, c.Err())
+				return nil
+			}),
+	)
+	err := svc.trackUpstreamSync(ctx, "repo-1", func() error {
+		cancel()
+		return fmt.Errorf("push failed: boom")
+	})
+	require.EqualError(t, err, "push failed: boom")
 }

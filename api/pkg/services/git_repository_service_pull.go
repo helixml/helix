@@ -472,13 +472,15 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 		Bool("force", force).
 		Msg("Syncing mirrored branches from external repository")
 
-	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
-		Remote:   remote.URL,
-		Env:      remote.env(),
-		RefSpecs: []string{refSpec, "^refs/heads/" + SpecsBranchName},
-		Force:    force,
-		Prune:    false,
-		Timeout:  5 * time.Minute,
+	err = s.trackUpstreamSync(ctx, gitRepo.ID, func() error {
+		return Fetch(ctx, gitRepo.LocalPath, FetchOptions{
+			Remote:   remote.URL,
+			Env:      remote.env(),
+			RefSpecs: []string{refSpec, "^refs/heads/" + SpecsBranchName},
+			Force:    force,
+			Prune:    false,
+			Timeout:  5 * time.Minute,
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("failed to fetch from remote: %w", err)

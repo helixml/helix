@@ -734,6 +734,8 @@ type Store interface {
 	GetGitRepository(ctx context.Context, id string) (*types.GitRepository, error)
 	GetGitRepositoryByExternalURL(ctx context.Context, orgID, externalURL string) (*types.GitRepository, error)
 	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
+	MarkGitRepositorySyncStarted(ctx context.Context, id string, startedAt time.Time) error
+	MarkGitRepositorySyncFinished(ctx context.Context, id string, finishedAt time.Time, syncErr string) error
 	DeleteGitRepository(ctx context.Context, id string) error
 	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
 	CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error)

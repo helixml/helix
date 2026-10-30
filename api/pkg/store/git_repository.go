@@ -100,7 +100,36 @@ func (s *PostgresStore) UpdateGitRepository(ctx context.Context, repo *types.Git
 	}
 
 	repo.UpdatedAt = time.Now()
-	return s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repo.ID).Save(repo).Error
+	// Sync state is written concurrently by background git operations; a
+	// whole-row save from a stale copy must not overwrite it.
+	return s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repo.ID).
+		Omit("last_sync_at", "last_sync_error", "sync_in_progress_since").Save(repo).Error
+}
+
+// MarkGitRepositorySyncStarted records that an upstream fetch or push began.
+func (s *PostgresStore) MarkGitRepositorySyncStarted(ctx context.Context, id string, startedAt time.Time) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+	return s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", id).
+		UpdateColumn("sync_in_progress_since", startedAt).Error
+}
+
+// MarkGitRepositorySyncFinished clears the in-progress marker and records the
+// outcome: success sets last_sync_at and clears last_sync_error.
+func (s *PostgresStore) MarkGitRepositorySyncFinished(ctx context.Context, id string, finishedAt time.Time, syncErr string) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+	updates := map[string]interface{}{
+		"sync_in_progress_since": nil,
+		"last_sync_error":        syncErr,
+	}
+	if syncErr == "" {
+		updates["last_sync_at"] = finishedAt
+	}
+	return s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", id).
+		UpdateColumns(updates).Error
 }
 
 // CountGitRepositoriesByKoditRepoID counts how many git repositories (excluding

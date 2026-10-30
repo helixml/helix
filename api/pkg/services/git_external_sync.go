@@ -67,7 +67,9 @@ func (s *GitRepositoryService) WithExternalRepoWrite(
 	// This prevents race conditions where a concurrent sync could overwrite
 	// commits between our write and push operations.
 	lock := s.GetRepoLock(repo.ID)
-	lock.Lock()
+	if err := lock.LockContext(ctx); err != nil {
+		return err
+	}
 	defer lock.Unlock()
 
 	// Local-authoritative branches must never be overwritten or blocked by the
@@ -199,7 +201,9 @@ func (s *GitRepositoryService) WithExternalRepoRead(
 	// This prevents race conditions where our sync could overwrite commits
 	// that are in the middle of being pushed by another operation.
 	lock := s.GetRepoLock(repo.ID)
-	lock.Lock()
+	if err := lock.LockContext(ctx); err != nil {
+		return err
+	}
 	defer lock.Unlock()
 
 	// Sync from upstream before reading (force=true to handle non-fast-forward branches)
@@ -234,7 +238,9 @@ func (s *GitRepositoryService) MustSyncBeforeRead(
 	// This prevents race conditions where our sync could overwrite commits
 	// that are in the middle of being pushed by another operation.
 	lock := s.GetRepoLock(repo.ID)
-	lock.Lock()
+	if err := lock.LockContext(ctx); err != nil {
+		return err
+	}
 	defer lock.Unlock()
 
 	// Sync from upstream before reading - fail if sync fails (force=true for non-fast-forward)

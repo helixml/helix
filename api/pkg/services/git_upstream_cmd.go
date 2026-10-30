@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"code.gitea.io/gitea/modules/git/gitcmd"
+	"github.com/rs/zerolog/log"
 )
 
 // Upstream git commands talk to external providers through git-remote-https and
@@ -147,4 +148,49 @@ func scrubRemoteCredentials(ctx context.Context, repoPath string) error {
 	}
 	u.User = nil
 	return SetRemoteURL(ctx, repoPath, "origin", u.String())
+}
+
+// trackUpstreamSync records sync health (in progress, last success, last error)
+// on the repository around an upstream fetch or push.
+func (s *GitRepositoryService) trackUpstreamSync(ctx context.Context, repoID string, fn func() error) error {
+	// Record even when the caller's context was cancelled by the operation's failure.
+	storeCtx := func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	}
+
+	sctx, cancel := storeCtx()
+	if err := s.store.MarkGitRepositorySyncStarted(sctx, repoID, time.Now()); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to record upstream sync start")
+	}
+	cancel()
+
+	err := fn()
+
+	syncErr := ""
+	s.upstreamFailedAtMu.Lock()
+	if err != nil {
+		syncErr = err.Error()
+		if s.upstreamFailedAt == nil {
+			s.upstreamFailedAt = make(map[string]time.Time)
+		}
+		s.upstreamFailedAt[repoID] = time.Now()
+	} else {
+		delete(s.upstreamFailedAt, repoID)
+	}
+	s.upstreamFailedAtMu.Unlock()
+	sctx, cancel = storeCtx()
+	defer cancel()
+	if storeErr := s.store.MarkGitRepositorySyncFinished(sctx, repoID, time.Now(), syncErr); storeErr != nil {
+		log.Warn().Err(storeErr).Str("repo_id", repoID).Msg("Failed to record upstream sync result")
+	}
+	return err
+}
+
+// UpstreamFailedWithin reports whether the last upstream fetch or push for the
+// repo failed less than d ago.
+func (s *GitRepositoryService) UpstreamFailedWithin(repoID string, d time.Duration) bool {
+	s.upstreamFailedAtMu.Lock()
+	defer s.upstreamFailedAtMu.Unlock()
+	failedAt, ok := s.upstreamFailedAt[repoID]
+	return ok && time.Since(failedAt) < d
 }

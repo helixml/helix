@@ -72,8 +72,13 @@ type GitRepositoryService struct {
 	// All compound operations (read+sync, write+push, receive-pack+push) must hold
 	// the lock for the entire duration to prevent concurrent syncs from overwriting
 	// commits between receive-pack and upstream push.
-	repoLocks map[string]*sync.Mutex
+	repoLocks map[string]*RepoLock
 	locksMu   sync.Mutex // protects repoLocks map
+
+	// upstreamFailedAt records the last failed upstream fetch/push per repo so
+	// best-effort pre-syncs can skip a known-bad upstream instead of stalling.
+	upstreamFailedAt   map[string]time.Time
+	upstreamFailedAtMu sync.Mutex
 
 	// prListCache absorbs duplicate ListPullRequests calls (orchestrator polls,
 	// concurrent handler hits) so we don't hammer GitHub and trip its 5000 req/hr
@@ -104,28 +109,29 @@ func NewGitRepositoryService(
 	}
 
 	return &GitRepositoryService{
-		store:           store,
-		filestoreBase:   filestoreBase,
-		gitRepoBase:     gitRepoBase,
-		serverBaseURL:   strings.TrimSuffix(serverBaseURL, "/"),
-		gitUserName:     gitUserName,
-		gitUserEmail:    gitUserEmail,
-		enableGitServer: true,
-		testMode:        false,
-		repoLocks:       make(map[string]*sync.Mutex),
-		prListCache:     newPRListCache(defaultPRListCacheTTL),
+		store:            store,
+		filestoreBase:    filestoreBase,
+		gitRepoBase:      gitRepoBase,
+		serverBaseURL:    strings.TrimSuffix(serverBaseURL, "/"),
+		gitUserName:      gitUserName,
+		gitUserEmail:     gitUserEmail,
+		enableGitServer:  true,
+		testMode:         false,
+		repoLocks:        make(map[string]*RepoLock),
+		upstreamFailedAt: make(map[string]time.Time),
+		prListCache:      newPRListCache(defaultPRListCacheTTL),
 	}
 }
 
 // GetRepoLock returns the mutex for a specific repository.
 // Used by GitHTTPServer to serialize push operations with other git operations.
-func (s *GitRepositoryService) GetRepoLock(repoID string) *sync.Mutex {
+func (s *GitRepositoryService) GetRepoLock(repoID string) *RepoLock {
 	s.locksMu.Lock()
 	defer s.locksMu.Unlock()
 
 	lock, ok := s.repoLocks[repoID]
 	if !ok {
-		lock = &sync.Mutex{}
+		lock = newRepoLock()
 		s.repoLocks[repoID] = lock
 	}
 	return lock

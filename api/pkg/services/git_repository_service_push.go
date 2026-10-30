@@ -87,7 +87,9 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 		Msg("[GitPush] Starting native git push to external repository")
 
 	pushStartTime := time.Now()
-	err = pushBranchNative(ctx, gitRepo.LocalPath, remote, branchName, force)
+	err = s.trackUpstreamSync(ctx, gitRepo.ID, func() error {
+		return pushBranchNative(ctx, gitRepo.LocalPath, remote, branchName, force)
+	})
 	pushDuration := time.Since(pushStartTime)
 
 	if err != nil {
