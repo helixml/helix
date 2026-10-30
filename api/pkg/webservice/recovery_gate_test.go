@@ -126,6 +126,31 @@ func (s *RecoveryGateSuite) TestRefusesToDeleteWhenRunnerStoppedAdvertisingImage
 	s.Contains(err.Error(), "advertises")
 }
 
+func (s *RecoveryGateSuite) TestLowDiskReadinessDoesNotDeleteOrRedeploy() {
+	s.store.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_findai").Return(&types.ProjectWebServiceState{
+		ProjectID: "prj_findai", Enabled: true, ActiveSandboxID: "sbx_web", HostDeviceID: "code-for-app",
+	}, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_findai").Return(&types.Project{ID: "prj_findai", UserID: "usr_1"}, nil)
+	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_web").Return(&types.Sandbox{
+		ID: "sbx_web", Runtime: types.SandboxRuntimeUbuntuDesktop, Persistent: true,
+		HostDeviceID: "code-for-app", Status: types.SandboxStatusStopped,
+	}, nil)
+	s.ctlr.hostReadyForReplacement = func(context.Context, *types.Sandbox) (bool, string) {
+		return false, "Hydra is not ready: disk space critically low"
+	}
+	s.ctlr.deleteSandboxForRecovery = func(context.Context, string) error {
+		s.FailNow("low-disk recovery deleted the existing sandbox")
+		return nil
+	}
+
+	deploy, err := s.ctlr.RecoverWebService(s.ctx, "prj_findai")
+
+	s.Nil(deploy)
+	s.Require().Error(err)
+	s.True(IsRecoveryDeferred(err))
+	s.Contains(err.Error(), "disk space critically low")
+}
+
 func (s *RecoveryGateSuite) TestMissingSandboxUsesPinnedHostBeforeRedeploy() {
 	s.store.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_findai").Return(&types.ProjectWebServiceState{
 		ProjectID: "prj_findai", Enabled: true, ActiveSandboxID: "sbx_missing", HostDeviceID: "host-pinned",
