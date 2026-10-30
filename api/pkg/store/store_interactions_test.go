@@ -377,6 +377,47 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListInteractionsFiltersSt
 	suite.Equal(waiting.ID, interactions[0].ID)
 }
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListInteractionsFiltersPendingQuestionsBeforeLimit() {
+	ctx := context.Background()
+	userID := "user-pending-question-filter-test"
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: userID, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	for i := 0; i < 6; i++ {
+		_, err = suite.db.CreateInteraction(ctx, &types.Interaction{
+			ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+			GenerationID: 1, State: types.InteractionStateComplete,
+		})
+		suite.Require().NoError(err)
+	}
+	_, err = suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+	pending, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+	_, changed, err := suite.db.SetInteractionPendingQuestion(ctx, pending.ID, 1, &types.PendingQuestion{
+		RequestID: "question-1", Questions: []types.UserQuestion{{ID: "choice", Question: "Choose one"}},
+	})
+	suite.Require().NoError(err)
+	suite.True(changed)
+
+	interactions, total, err := suite.db.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: session.ID, GenerationID: 1, PerPage: 1, HasPendingQuestion: true,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(interactions, 1)
+	suite.Equal(pending.ID, interactions[0].ID)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ListStuckWaitingInteractionsIncludesStoppedPartialTurns() {
 	ctx := context.Background()
 	now := time.Now()

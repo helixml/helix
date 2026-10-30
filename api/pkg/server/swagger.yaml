@@ -27036,6 +27036,10 @@ paths:
         in: query
         name: order
         type: string
+      - description: Only waiting interactions with a pending question
+        in: query
+        name: pending_question
+        type: boolean
       produces:
       - application/json
       responses:

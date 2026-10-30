@@ -692,6 +692,7 @@ export default function DesignReviewContent({
             patch: string;
             patch_offset: number;
             total_length: number;
+            message_id?: string;
             type?: string;
             tool_name?: string;
             tool_status?: string;
@@ -705,15 +706,21 @@ export default function DesignReviewContent({
           // Apply per-entry patches and capture type metadata
           for (const ep of entryPatches) {
             if (ep.index < streamEntries.length) {
-              streamEntries[ep.index].content = applyPatch(
-                streamEntries[ep.index].content,
+              const currentEntry = streamEntries[ep.index];
+              const sameMessage =
+                !ep.message_id || currentEntry.message_id === ep.message_id;
+              currentEntry.content = applyPatch(
+                currentEntry.content,
                 ep.patch_offset,
                 ep.patch,
                 ep.total_length,
               );
-              if (ep.type) streamEntries[ep.index].type = ep.type as 'text' | 'tool_call';
-              if (ep.tool_name) streamEntries[ep.index].tool_name = ep.tool_name;
-              if (ep.tool_status) streamEntries[ep.index].tool_status = ep.tool_status;
+              if (ep.message_id) currentEntry.message_id = ep.message_id;
+              if (ep.type) currentEntry.type = ep.type as 'text' | 'tool_call';
+              currentEntry.tool_name = ep.tool_name
+                || (sameMessage ? currentEntry.tool_name : undefined);
+              currentEntry.tool_status = ep.tool_status
+                || (sameMessage ? currentEntry.tool_status : undefined);
             }
           }
           // Join text entries for flat content fallback

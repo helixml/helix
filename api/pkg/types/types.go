@@ -258,16 +258,17 @@ func (i *Interaction) ToOpenAIAssistantMessage() (openai.ChatCompletionMessage, 
 }
 
 type ListInteractionsQuery struct {
-	AppID         string
-	SessionID     string
-	InteractionID string
-	UserID        string
-	GenerationID  int // Use -1 to get all generations for a session
-	Page          int
-	PerPage       int
-	Feedback      string
-	State         InteractionState
-	Order         string // Defaults to ID ASC
+	AppID              string
+	SessionID          string
+	InteractionID      string
+	UserID             string
+	GenerationID       int // Use -1 to get all generations for a session
+	Page               int
+	PerPage            int
+	Feedback           string
+	State              InteractionState
+	HasPendingQuestion bool
+	Order              string // Defaults to ID ASC
 }
 
 // GetMessageMultiContentPart - probably specifically for PromptContent

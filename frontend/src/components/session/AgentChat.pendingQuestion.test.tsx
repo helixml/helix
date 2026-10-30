@@ -1,7 +1,8 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TypesInteractionState, type TypesInteraction } from "../../api/api";
 import AgentChat from "./AgentChat";
 
 const pendingQuestion = {
@@ -15,6 +16,9 @@ const pendingQuestion = {
     },
   ],
 };
+const { pendingQuestionInteractions } = vi.hoisted(() => ({
+  pendingQuestionInteractions: { current: [] as TypesInteraction[] },
+}));
 
 vi.mock("../../contexts/streaming", () => ({
   useStreaming: () => ({ NewInference: vi.fn() }),
@@ -29,18 +33,23 @@ vi.mock("../../hooks/useSnackbar", () => ({
 }));
 
 vi.mock("../../services/sessionService", () => ({
-  useListInteractions: () => ({
+  useListInteractions: (
+    _sessionId: string,
+    _page: number,
+    _perPage: number,
+    _order: string,
+    options?: { pendingQuestionOnly?: boolean },
+  ) => ({
     data: {
-      data: {
-        totalCount: 2,
-        interactions: [
-          {
-            id: "interaction-1",
-            state: "waiting",
-            pending_question: pendingQuestion,
+      data: options?.pendingQuestionOnly
+        ? {
+            totalCount: pendingQuestionInteractions.current.length,
+            interactions: pendingQuestionInteractions.current,
+          }
+        : {
+            totalCount: 12,
+            interactions: [{ id: "interaction-new", state: "complete" }],
           },
-        ],
-      },
     },
     refetch: vi.fn(),
   }),
@@ -69,7 +78,9 @@ vi.mock("./EmbeddedSessionView", () => ({
 }));
 
 vi.mock("./PendingQuestionCard", () => ({
-  default: () => <div data-testid="pending-question" />,
+  default: ({ interactionId }: { interactionId: string }) => (
+    <div data-testid="pending-question" data-interaction-id={interactionId} />
+  ),
 }));
 
 vi.mock("./useSessionPromptQueue", () => ({
@@ -81,18 +92,15 @@ vi.mock("./useSessionPromptQueue", () => ({
 }));
 
 describe("AgentChat pending question placement", () => {
-  it("puts the pending question at the end of the scrolling thread", () => {
-    render(<AgentChat sessionId="session-1" />);
-
-    const question = screen.getByTestId("pending-question");
-    expect(screen.getByTestId("session-view")).toContainElement(question);
-    expect(screen.getByTestId("composer")).toHaveAttribute(
-      "data-has-attached-header",
-      "false",
-    );
+  beforeEach(() => {
+    pendingQuestionInteractions.current = [{
+      id: "interaction-old",
+      state: TypesInteractionState.InteractionStateWaiting,
+      pending_question: pendingQuestion,
+    }];
   });
 
-  it("puts action cards in the thread, before the pending question", () => {
+  it("puts a question older than the loaded transcript after newer replies and action cards", () => {
     render(
       <AgentChat
         sessionId="session-1"
@@ -102,8 +110,24 @@ describe("AgentChat pending question placement", () => {
 
     const card = screen.getByTestId("pr-proposal");
     expect(screen.getByTestId("session-view")).toContainElement(card);
-    expect(card.compareDocumentPosition(screen.getByTestId("pending-question"))).toBe(
+    const question = screen.getByTestId("pending-question");
+    expect(question).toHaveAttribute("data-interaction-id", "interaction-old");
+    expect(card.compareDocumentPosition(question)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    expect(screen.getByTestId("composer")).toHaveAttribute(
+      "data-has-attached-header",
+      "false",
+    );
+  });
+
+  it("removes a question when the pending-question query refreshes", () => {
+    const view = render(<AgentChat sessionId="session-1" />);
+    expect(screen.getByTestId("pending-question")).toBeInTheDocument();
+
+    pendingQuestionInteractions.current = [];
+    view.rerender(<AgentChat sessionId="session-1" />);
+
+    expect(screen.queryByTestId("pending-question")).not.toBeInTheDocument();
   });
 });

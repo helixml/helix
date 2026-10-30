@@ -18791,6 +18791,12 @@ const docTemplate = `{
                         "description": "Sort order: 'asc' (oldest first, default) or 'desc' (newest first)",
                         "name": "order",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only waiting interactions with a pending question",
+                        "name": "pending_question",
+                        "in": "query"
                     }
                 ],
                 "responses": {

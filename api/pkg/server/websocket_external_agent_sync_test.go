@@ -3888,6 +3888,32 @@ func (s *WebSocketSyncSuite) TestBuildFullStatePatchEvent_Empty() {
 	s.Nil(payload, "empty entries should return nil payload")
 }
 
+func (s *WebSocketSyncSuite) TestEntryPatchesFullyReplaceShiftedMessageIDs() {
+	recorder := &recordingPubSub{NoopPubSub: pubsub.NewNoop()}
+	s.server.pubsub = recorder
+	previous := []wsprotocol.ResponseEntry{
+		{MessageID: "4", Type: "tool_call", Content: "new answer", ToolName: "bash"},
+		{MessageID: "10", Type: "text", Content: "newest answer"},
+	}
+	current := []wsprotocol.ResponseEntry{
+		{MessageID: "2", Type: "text", Content: "old message"},
+		{MessageID: "4", Type: "tool_call", Content: "new answer", ToolName: "bash"},
+		{MessageID: "10", Type: "text", Content: "newest answer"},
+	}
+
+	s.Require().NoError(s.server.publishEntryPatchesToFrontend("ses-1", "owner-1", "int-1", previous, current))
+	s.Require().Len(recorder.payloads, 1)
+	var event types.WebsocketEvent
+	s.Require().NoError(json.Unmarshal(recorder.payloads[0], &event))
+	s.Require().Len(event.EntryPatches, 3)
+	for i, patch := range event.EntryPatches {
+		s.Equal(i, patch.Index)
+		s.Equal(0, patch.PatchOffset)
+		s.Equal(current[i].MessageID, patch.MessageID)
+		s.Equal(current[i].Content, patch.Patch)
+	}
+}
+
 func (s *WebSocketSyncSuite) TestBuildFullStatePatchEvent_FullState() {
 	entries := []wsprotocol.ResponseEntry{
 		{MessageID: "msg-1", Type: "text", Content: "Hello world"},

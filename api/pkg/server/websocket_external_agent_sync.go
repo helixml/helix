@@ -5159,7 +5159,7 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 	var entryPatches []types.EntryPatch
 	for i, entry := range currentEntries {
 		var prevContent string
-		if i < len(previousEntries) {
+		if i < len(previousEntries) && previousEntries[i].MessageID == entry.MessageID {
 			prevContent = previousEntries[i].Content
 		}
 		// Skip entries that haven't changed at all

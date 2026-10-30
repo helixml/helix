@@ -51,6 +51,32 @@ func TestInteractionQuestionLifecycle(t *testing.T) {
 	}
 }
 
+func TestListInteractionsFiltersPendingQuestions(t *testing.T) {
+	ctx := context.Background()
+	memory := New()
+	for _, interaction := range []*types.Interaction{
+		{ID: "interaction-complete", SessionID: "session-1", UserID: "user-1", GenerationID: 1, State: types.InteractionStateComplete},
+		{ID: "interaction-resolved", SessionID: "session-1", UserID: "user-1", GenerationID: 1, State: types.InteractionStateWaiting},
+		{ID: "interaction-question", SessionID: "session-1", UserID: "user-1", GenerationID: 1, State: types.InteractionStateWaiting},
+	} {
+		if _, err := memory.CreateInteraction(ctx, interaction); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, changed, err := memory.SetInteractionPendingQuestion(ctx, "interaction-question", 1, &types.PendingQuestion{
+		RequestID: "question-1", Questions: []types.UserQuestion{{ID: "choice", Question: "Choose one"}},
+	}); err != nil || !changed {
+		t.Fatalf("set pending question: changed=%v err=%v", changed, err)
+	}
+
+	interactions, _, err := memory.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: "session-1", GenerationID: 1, PerPage: 1, HasPendingQuestion: true,
+	})
+	if err != nil || len(interactions) != 1 || interactions[0].ID != "interaction-question" {
+		t.Fatalf("pending interactions = %#v, err = %v", interactions, err)
+	}
+}
+
 func TestSpecTaskThreadTracking(t *testing.T) {
 	ctx := context.Background()
 	store := New()
