@@ -130,6 +130,7 @@ var embedRules = []embedRule{
 // operator (a tenant watching and taking over its own agent) — never for a
 // public page — and remain confined to their one session like every rule above.
 var embedInteractiveRules = []embedRule{
+	{methods: []string{"GET", "PATCH"}, prefix: "/api/v1/spec-tasks/", suffix: "/interactive-embed-model", scope: scopeTask},
 	{methods: []string{"GET"}, prefix: "/api/v1/external-agents/", suffix: "/ws/input", scope: scopeSession},
 	{methods: []string{"GET", "POST"}, prefix: "/api/v1/external-agents/", suffix: "/clipboard", scope: scopeSession},
 	// Starting the desktop again once it has stopped (Helix restarted, or the

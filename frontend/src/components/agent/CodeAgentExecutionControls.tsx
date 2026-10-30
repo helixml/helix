@@ -56,6 +56,7 @@ export interface CodeAgentExecutionControlsProps {
   autoSelectDefault?: boolean
   /** Use the full row, keeping model selection left and reasoning effort right. */
   spreadAgentControls?: boolean
+  interactiveEmbedTaskId?: string
 }
 
 const compactButtonSx = {
@@ -89,6 +90,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   computeOnly = false,
   autoSelectDefault = false,
   spreadAgentControls = false,
+  interactiveEmbedTaskId,
 }) => {
   const isPhone = useIsPhone()
   const snackbar = useSnackbar()
@@ -146,12 +148,13 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
       value={value}
       disabled={controlsDisabled}
       autoSelectDefault={autoSelectDefault}
+      interactiveEmbedTaskId={interactiveEmbedTaskId}
       onChange={(next, source) => void save(next, source)}
     />
   )
   // Reasoning depth is a setting *of* a harness, so it has nothing to configure
   // until one is picked.
-  const reasoningControl = value?.model && !unconfigured ? (
+  const reasoningControl = !interactiveEmbedTaskId && value?.model && !unconfigured ? (
     <Tooltip title="Change reasoning and service tier">
       <Box component="span" sx={{ display: 'inline-flex' }}>
         <Button
