@@ -90,30 +90,24 @@ func Fetch(ctx context.Context, repoPath string, opts FetchOptions) error {
 	}
 
 	stderr, err := runGitFetchWithRetry(ctx, repoPath, func() (string, error) {
-		cmd := gitcmd.NewCommand("fetch")
+		args := []string{"fetch", "--no-progress"}
 		if opts.Force {
-			cmd.AddArguments("-f")
+			args = append(args, "-f")
 		}
 		if opts.Prune {
-			cmd.AddArguments("--prune")
+			args = append(args, "--prune")
 		}
 		if opts.Depth > 0 {
-			cmd.AddArguments("--depth").AddDynamicArguments(fmt.Sprintf("%d", opts.Depth))
+			args = append(args, "--depth", fmt.Sprintf("%d", opts.Depth))
 		}
-		cmd.AddDynamicArguments(opts.Remote)
+		args = append(args, "--", opts.Remote)
 		if len(opts.RefSpecs) > 0 {
-			for _, refspec := range opts.RefSpecs {
-				cmd.AddDynamicArguments(refspec)
-			}
+			args = append(args, opts.RefSpecs...)
 		} else if opts.Branch != "" {
-			cmd.AddDynamicArguments(opts.Branch)
+			args = append(args, opts.Branch)
 		}
 
-		_, stderr, err := cmd.RunStdString(ctx, &gitcmd.RunOpts{
-			Dir:     repoPath,
-			Env:     opts.Env,
-			Timeout: timeout,
-		})
+		_, stderr, err := runUpstreamGit(ctx, repoPath, timeout, opts.Env, args...)
 		return stderr, err
 	}, waitForGitFetchRetry)
 	if err != nil {

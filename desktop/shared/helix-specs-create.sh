@@ -125,11 +125,42 @@ create_helix_specs_branch() {
 
     echo "  Current branch: ${CURRENT_BRANCH:-detached}, will return to: $REPO_DEFAULT_BRANCH"
 
-    # Check if repo is empty (no commits on any branch)
+    # Check if repo is empty (no commits on any branch). A local clone without
+    # commits is not proof the upstream is empty: the clone may have been
+    # interrupted, or the Helix git server may be unreachable. Only an upstream
+    # that answers with no branches is treated as empty and seeded below.
     local REPO_IS_EMPTY=false
     if ! git -C "$REPO_PATH" rev-parse HEAD >/dev/null 2>&1; then
-        REPO_IS_EMPTY=true
-        echo "  Repository is empty (no commits yet)"
+        local REMOTE_HEADS
+        if ! REMOTE_HEADS=$(timeout 120 git -C "$REPO_PATH" ls-remote --heads origin 2>&1); then
+            echo "  ERROR: remote unreachable or timed out - cannot tell whether the repository is empty"
+            echo "  ${REMOTE_HEADS}"
+            echo "  Not seeding a default branch or creating helix-specs; retry once the remote responds."
+            HELIX_SPECS_BRANCH_EXISTS=false
+            return 1
+        fi
+        if [ -n "$REMOTE_HEADS" ]; then
+            echo "  Local clone has no commits but the remote has branches (incomplete clone) - fetching..."
+            if ! timeout 600 git -C "$REPO_PATH" fetch origin --prune 2>&1; then
+                echo "  ERROR: remote unreachable or timed out while repairing the incomplete clone"
+                HELIX_SPECS_BRANCH_EXISTS=false
+                return 1
+            fi
+            git -C "$REPO_PATH" remote set-head origin --auto >/dev/null 2>&1 || true
+            REPO_DEFAULT_BRANCH=$(get_default_branch "$REPO_PATH")
+            if git -C "$REPO_PATH" show-ref --verify --quiet "refs/remotes/origin/$REPO_DEFAULT_BRANCH"; then
+                git -C "$REPO_PATH" checkout -B "$REPO_DEFAULT_BRANCH" "origin/$REPO_DEFAULT_BRANCH" 2>&1 || true
+            fi
+            if git -C "$REPO_PATH" show-ref --verify refs/remotes/origin/helix-specs >/dev/null 2>&1; then
+                echo "helix-specs branch exists on remote"
+                HELIX_SPECS_BRANCH_EXISTS=true
+                return 0
+            fi
+            CURRENT_BRANCH=$(git -C "$REPO_PATH" branch --show-current 2>/dev/null)
+        else
+            REPO_IS_EMPTY=true
+            echo "  Repository is empty (no commits yet)"
+        fi
     fi
 
     # Determine the default-branch name we want the upstream to settle on.

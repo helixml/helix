@@ -84,6 +84,16 @@ type GitRepository struct {
 	// Clone progress tracking for async cloning
 	CloneError    string         `json:"clone_error,omitempty"`                                      // Error message if cloning failed
 	CloneProgress *CloneProgress `json:"clone_progress,omitempty" gorm:"type:jsonb;serializer:json"` // Live progress during cloning
+
+	// Upstream sync health (external repos). Written only via MarkGitRepositorySync{Started,Finished}.
+	GitRepositorySyncState
+}
+
+// GitRepositorySyncState reports the health of upstream fetches and pushes.
+type GitRepositorySyncState struct {
+	LastSyncAt          *time.Time `json:"last_sync_at,omitempty"`           // Last successful upstream fetch or push
+	LastSyncError       string     `json:"last_sync_error,omitempty"`        // Error from the most recent failed upstream operation; cleared on success
+	SyncInProgressSince *time.Time `json:"sync_in_progress_since,omitempty"` // Set while an upstream operation is running
 }
 
 type AzureDevOps struct {

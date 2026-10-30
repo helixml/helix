@@ -236,6 +236,20 @@ func (mr *MockStoreMockRecorder) ClearSessionStartingStatus(ctx, sessionID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSessionStartingStatus", reflect.TypeOf((*MockStore)(nil).ClearSessionStartingStatus), ctx, sessionID)
 }
 
+// ClearStaleGitRepositorySync mocks base method.
+func (m *MockStore) ClearStaleGitRepositorySync(ctx context.Context, id string, staleSince time.Time, syncErr string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearStaleGitRepositorySync", ctx, id, staleSince, syncErr)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearStaleGitRepositorySync indicates an expected call of ClearStaleGitRepositorySync.
+func (mr *MockStoreMockRecorder) ClearStaleGitRepositorySync(ctx, id, staleSince, syncErr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearStaleGitRepositorySync", reflect.TypeOf((*MockStore)(nil).ClearStaleGitRepositorySync), ctx, id, staleSince, syncErr)
+}
+
 // ClearStaleStartingSessions mocks base method.
 func (m *MockStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
 	m.ctrl.T.Helper()
@@ -6073,6 +6087,34 @@ func (m *MockStore) LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery
 func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookupKnowledge", reflect.TypeOf((*MockStore)(nil).LookupKnowledge), ctx, q)
+}
+
+// MarkGitRepositorySyncFinished mocks base method.
+func (m *MockStore) MarkGitRepositorySyncFinished(ctx context.Context, id string, finishedAt time.Time, syncErr string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkGitRepositorySyncFinished", ctx, id, finishedAt, syncErr)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkGitRepositorySyncFinished indicates an expected call of MarkGitRepositorySyncFinished.
+func (mr *MockStoreMockRecorder) MarkGitRepositorySyncFinished(ctx, id, finishedAt, syncErr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkGitRepositorySyncFinished", reflect.TypeOf((*MockStore)(nil).MarkGitRepositorySyncFinished), ctx, id, finishedAt, syncErr)
+}
+
+// MarkGitRepositorySyncStarted mocks base method.
+func (m *MockStore) MarkGitRepositorySyncStarted(ctx context.Context, id string, startedAt time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkGitRepositorySyncStarted", ctx, id, startedAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkGitRepositorySyncStarted indicates an expected call of MarkGitRepositorySyncStarted.
+func (mr *MockStoreMockRecorder) MarkGitRepositorySyncStarted(ctx, id, startedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkGitRepositorySyncStarted", reflect.TypeOf((*MockStore)(nil).MarkGitRepositorySyncStarted), ctx, id, startedAt)
 }
 
 // MarkInteractionCompleteIfWaiting mocks base method.

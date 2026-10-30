@@ -60,54 +60,29 @@ func (wc *WorkingCopy) PushToHelixBare(ctx context.Context, branch string) error
 	return nil
 }
 
-// PushToOrigin pushes changes to origin (external remote) with optional force
-// authURL should be the authenticated URL with credentials embedded
-func (wc *WorkingCopy) PushToOrigin(ctx context.Context, branch string, force bool, authURL string) error {
+// PushToOrigin pushes changes to origin (the external remote cloned by getExternalWorkingCopy)
+func (wc *WorkingCopy) PushToOrigin(ctx context.Context, branch string, force bool, remote upstreamRemote) error {
 	refSpec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch)
 	if force {
 		refSpec = "+" + refSpec
 	}
-
-	// If authURL is provided, temporarily update origin URL
-	if authURL != "" {
-		if err := SetRemoteURL(ctx, wc.TempDir, "origin", authURL); err != nil {
-			return fmt.Errorf("failed to set origin URL: %w", err)
-		}
-	}
-
-	err := giteagit.Push(ctx, wc.TempDir, giteagit.PushOptions{
-		Remote: "origin",
-		Branch: refSpec,
-		Force:  force,
-	})
+	_, stderr, err := runUpstreamGit(ctx, wc.TempDir, upstreamGitDefaultTimeout, remote.env(), "push", "--no-progress", "origin", refSpec)
 	if err != nil {
-		return fmt.Errorf("failed to push to origin: %w", err)
+		return upstreamGitError("push to origin", err, stderr)
 	}
 	return nil
 }
 
-// Pull fetches and merges changes from origin
-// authURL should be the authenticated URL with credentials embedded
-func (wc *WorkingCopy) Pull(ctx context.Context, authURL string) error {
-	// If authURL is provided, temporarily update origin URL
-	if authURL != "" {
-		if err := SetRemoteURL(ctx, wc.TempDir, "origin", authURL); err != nil {
-			return fmt.Errorf("failed to set origin URL: %w", err)
-		}
-	}
-
-	// Use native git fetch + merge via Fetch helper
-	// Note: git pull = git fetch + git merge
+// Pull fetches changes from origin (the external remote cloned by getExternalWorkingCopy)
+func (wc *WorkingCopy) Pull(ctx context.Context, remote upstreamRemote) error {
 	err := Fetch(ctx, wc.TempDir, FetchOptions{
 		Remote:  "origin",
+		Env:     remote.env(),
 		Timeout: 5 * time.Minute,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to fetch from origin: %w", err)
 	}
-
-	// For simplicity, we just fetch. If merge is needed, it can be done separately.
-	// In practice, this is used for syncing which typically just needs fetch.
 	return nil
 }
 
@@ -155,7 +130,7 @@ func (s *GitRepositoryService) getWorkingCopy(ctx context.Context, bareRepoPath 
 // The caller MUST call Cleanup() when done to remove the temporary directory.
 func (s *GitRepositoryService) getExternalWorkingCopy(
 	ctx context.Context,
-	externalURL string,
+	remote upstreamRemote,
 	bareRepoPath string,
 	branch string,
 ) (*WorkingCopy, error) {
@@ -164,13 +139,14 @@ func (s *GitRepositoryService) getExternalWorkingCopy(
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
-	// Clone from external URL using gitea's wrapper
-	err = giteagit.Clone(ctx, externalURL, tempDir, giteagit.CloneRepoOptions{
-		Branch: branch,
-	})
-	if err != nil {
+	args := []string{"clone", "--no-progress"}
+	if branch != "" {
+		args = append(args, "--branch", branch)
+	}
+	args = append(args, "--", remote.URL, tempDir)
+	if _, stderr, err := runUpstreamGit(ctx, "", upstreamCloneTimeout, remote.env(), args...); err != nil {
 		os.RemoveAll(tempDir)
-		return nil, fmt.Errorf("failed to clone external repo: %w", err)
+		return nil, upstreamGitError("clone external repo", err, stderr)
 	}
 
 	// Checkout branch if specified

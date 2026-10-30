@@ -3,10 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
-	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/rs/zerolog/log"
 )
@@ -37,7 +35,6 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 
 	log.Trace().
 		Str("repo_id", repoID).
-		Str("external_url", gitRepo.ExternalURL).
 		Str("external_type", string(gitRepo.ExternalType)).
 		Bool("is_external", gitRepo.IsExternal).
 		Str("oauth_connection_id", gitRepo.OAuthConnectionID).
@@ -77,22 +74,21 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 			Msg("[GitPush] WARNING: No auth configured for push!")
 	}
 
-	// Build authenticated URL for push
-	pushURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo, actingUserID)
+	remote := newUpstreamRemote(gitRepo.ExternalURL, username, password)
 
 	log.Info().
 		Str("repo_id", gitRepo.ID).
 		Str("branch", branchName).
-		Str("external_url", gitRepo.ExternalURL).
+		Str("external_url", remote.URL).
 		Str("auth_type", authType).
 		Bool("force", force).
 		Dur("elapsed", time.Since(startTime)).
 		Msg("[GitPush] Starting native git push to external repository")
 
-	// Use native git push directly from bare repo
-	// This avoids creating temp working copies and is more reliable
 	pushStartTime := time.Now()
-	err = pushBranchNative(ctx, gitRepo.LocalPath, pushURL, branchName, force)
+	err = s.trackUpstreamSync(ctx, gitRepo.ID, func() error {
+		return pushBranchNative(ctx, gitRepo.LocalPath, remote, branchName, force)
+	})
 	pushDuration := time.Since(pushStartTime)
 
 	if err != nil {
@@ -100,7 +96,7 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 			Err(err).
 			Str("repo_id", gitRepo.ID).
 			Str("branch", branchName).
-			Str("external_url", gitRepo.ExternalURL).
+			Str("external_url", remote.URL).
 			Str("auth_type", authType).
 			Dur("push_duration", pushDuration).
 			Dur("total_elapsed", time.Since(startTime)).
@@ -118,56 +114,20 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 	return nil
 }
 
-// pushBranchNative pushes a branch to a remote URL using native git
-func pushBranchNative(ctx context.Context, repoPath, remoteURL, branch string, force bool) error {
-	// Check if context is already cancelled before starting push
-	select {
-	case <-ctx.Done():
-		log.Warn().
-			Err(ctx.Err()).
-			Str("branch", branch).
-			Msg("[GitPush] Context cancelled before push started")
-		return fmt.Errorf("context cancelled before push: %w", ctx.Err())
-	default:
-	}
-
-	log.Trace().
-		Str("branch", branch).
-		Str("repo_path", repoPath).
-		Bool("force", force).
-		Msg("[GitPush] Calling native git push")
-
-	// Build refspec - use + prefix for force push
+// pushBranchNative pushes a branch from the bare repo to the upstream remote.
+func pushBranchNative(ctx context.Context, repoPath string, remote upstreamRemote, branch string, force bool) error {
 	refspec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch)
+	args := []string{"push", "--no-progress"}
 	if force {
 		refspec = "+" + refspec
+		args = append(args, "-f")
 	}
+	args = append(args, "--", remote.URL, refspec)
 
-	// Use gitea's Push function which handles native git push
-	err := giteagit.Push(ctx, repoPath, giteagit.PushOptions{
-		Remote:  remoteURL, // Push directly to URL with embedded credentials
-		Branch:  refspec,
-		Force:   force,
-		Timeout: 5 * time.Minute,
-	})
-
+	_, stderr, err := runUpstreamGit(ctx, repoPath, upstreamGitDefaultTimeout, remote.env(), args...)
 	if err != nil {
-		// Check for "already up to date" which isn't an error
-		errStr := err.Error()
-		if strings.Contains(errStr, "Everything up-to-date") ||
-			strings.Contains(errStr, "up to date") {
-			log.Trace().
-				Str("branch", branch).
-				Msg("[GitPush] Push completed - already up to date")
-			return nil
-		}
-		return err
+		return upstreamGitError("push", err, stderr)
 	}
-
-	log.Trace().
-		Str("branch", branch).
-		Msg("[GitPush] Push completed successfully")
-
 	return nil
 }
 
