@@ -25,6 +25,7 @@ import { TypesOwnerType } from '../../api/api';
 
 import { TypesProviderEndpoint } from '../../api/api';
 import useSnackbar from '../../hooks/useSnackbar';
+import { isEnvConfiguredEndpoint } from './types';
 interface AddProviderDialogProps {
   open: boolean;
   onClose: () => void;
@@ -37,6 +38,7 @@ interface AddProviderDialogProps {
     base_url: string;
     endpoint_name?: string;
     configurable_base_url?: boolean;
+    base_url_env?: string;
     optional_api_key?: boolean; // If provider doesn't need an API key
     is_custom?: boolean; // If true, the user picks the endpoint name
     setup_instructions: string;
@@ -93,10 +95,13 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   const { success: snackbarSuccess } = useSnackbar();
 
   const isEditing = !!existingProvider;
+  const isEnvConfigured = isEnvConfiguredEndpoint(existingProvider);
   const isPending = isCreating || isUpdating || isDeleting;
 
   useEffect(() => {
-    setBaseUrl(existingProvider?.base_url ?? provider.base_url)
+    // Blank means "use the provider default"; only show an override in the field.
+    const existingBaseUrl = existingProvider?.base_url ?? ''
+    setBaseUrl(existingBaseUrl === provider.base_url ? '' : existingBaseUrl)
     setCustomName(existingProvider?.name ?? '')
     setCustomNameError(null)
     setModelName(existingProvider?.models?.[0] ?? '')
@@ -155,8 +160,19 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
         return;
       }
 
-      if (!baseUrl.trim()) {
+      const baseUrlToUse = baseUrl.trim() || provider.base_url;
+      if (!baseUrlToUse) {
         setBaseUrlError('Base URL is required');
+        return;
+      }
+      try {
+        const parsed = new URL(baseUrlToUse);
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          setBaseUrlError('Base URL must use HTTP or HTTPS');
+          return;
+        }
+      } catch {
+        setBaseUrlError('Please enter a valid URL');
         return;
       }
 
@@ -190,7 +206,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
         await updateProviderEndpoint({
           id: existingProvider.id,
           body: {
-            base_url: baseUrl,
+            base_url: baseUrlToUse,
             api_key: apiKeyToUse,
             endpoint_type: orgId
               ? TypesProviderEndpointType.ProviderEndpointTypeOrg
@@ -204,7 +220,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
         // Create new provider
         await createProviderEndpoint({
           name: endpointName,
-          base_url: baseUrl,
+          base_url: baseUrlToUse,
           api_key: apiKey,
           endpoint_type: orgId
             ? TypesProviderEndpointType.ProviderEndpointTypeOrg
@@ -268,6 +284,12 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           </DescriptionTypography>
 
           <SectionCard>
+            {isEnvConfigured && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                This provider is configured through environment variables on the Helix server
+                {provider.base_url_env ? ` (base URL: ${provider.base_url_env})` : ''}. Change it there.
+              </Alert>
+            )}
             { provider.is_custom && !isEditing ? (
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <Typography variant="body2" sx={{ minWidth: 80, mr: 2, color: 'text.primary', fontWeight: 500 }}>
@@ -295,11 +317,12 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                 fullWidth
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://api.example.com/v1"
+                placeholder={provider.base_url || "https://api.example.com/v1"}
                 type="text"
                 autoComplete="base-url"
+                disabled={isEnvConfigured}
                 error={!!baseUrlError}
-                helperText={baseUrlError}
+                helperText={baseUrlError || (provider.base_url && !isEnvConfigured ? `Leave blank to use the default (${provider.base_url}), or enter a custom URL to override it.` : undefined)}
                 sx={{ flex: 1 }}
               />
             </Box>
@@ -329,6 +352,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                 fullWidth
                 value={getDisplayValue()}
                 onChange={(e) => setApiKey(e.target.value)}
+                disabled={isEnvConfigured}
                 type={showApiKey ? "text" : "password"}
                 autoComplete="new-password"
                 error={!!error}
@@ -390,7 +414,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
             Cancel
           </Button>
           <Box sx={{ flex: 1 }} />
-          {isEditing && (
+          {isEditing && !isEnvConfigured && (
             <Button
               onClick={() => setDisconnectConfirmationOpen(true)}
               size="small"
@@ -407,7 +431,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
             size="small"
             variant="outlined"
             color="secondary"
-            disabled={isPending || ((!apiKey.trim() && !provider.optional_api_key) && !isEditing)}
+            disabled={isPending || isEnvConfigured || ((!apiKey.trim() && !provider.optional_api_key) && !isEditing)}
           >
             {isEditing ? 'Update' : 'Connect'}
           </Button>
