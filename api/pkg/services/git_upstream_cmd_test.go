@@ -184,3 +184,36 @@ func TestTrackUpstreamSync_RecordsOutcome(t *testing.T) {
 	})
 	require.EqualError(t, err, "push failed: boom")
 }
+
+func TestNewUpstreamRemote_StripsEmbeddedCredentials(t *testing.T) {
+	r := newUpstreamRemote("https://oauth2:tok@gitlab.example/g/r.git", "", "")
+	require.Equal(t, "https://gitlab.example/g/r.git", r.URL)
+	require.Equal(t, "oauth2", r.Username)
+	require.Equal(t, "tok", r.Password)
+
+	// Explicit credentials win, but the embedded ones are still stripped.
+	r = newUpstreamRemote("https://oauth2:old@gitlab.example/g/r.git", "x-access-token", "new")
+	require.Equal(t, "https://gitlab.example/g/r.git", r.URL)
+	require.Equal(t, "x-access-token", r.Username)
+	require.Equal(t, "new", r.Password)
+
+	// A username without a password (e.g. Azure DevOps org@) is left alone.
+	r = newUpstreamRemote("https://org@dev.azure.com/org/p/_git/r", "", "pat")
+	require.Equal(t, "https://org@dev.azure.com/org/p/_git/r", r.URL)
+	require.Equal(t, "pat", r.Password)
+}
+
+func TestRunUpstreamGit_EmbeddedURLCredentialsNotInArgv(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	raw := strings.Replace(srv.URL, "://", "://oauth2:embedded-tok@", 1) + "/repo.git"
+	remote := newUpstreamRemote(raw, "", "")
+	require.NotContains(t, remote.URL, "embedded-tok")
+	_, _, _ = runUpstreamGit(context.Background(), t.TempDir(), 30*time.Second, remote.env(), "ls-remote", remote.URL)
+	require.Equal(t, "Basic "+base64.StdEncoding.EncodeToString([]byte("oauth2:embedded-tok")), gotAuth)
+}

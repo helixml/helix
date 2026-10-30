@@ -132,6 +132,21 @@ func (s *PostgresStore) MarkGitRepositorySyncFinished(ctx context.Context, id st
 		UpdateColumns(updates).Error
 }
 
+// ClearStaleGitRepositorySync clears an in-progress marker left by a process
+// that died mid-sync. It only matches the marker value the caller observed, so
+// a sync started since then keeps its marker.
+func (s *PostgresStore) ClearStaleGitRepositorySync(ctx context.Context, id string, staleSince time.Time, syncErr string) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+	return s.gdb.WithContext(ctx).Model(&types.GitRepository{}).
+		Where("id = ? AND sync_in_progress_since = ?", id, staleSince).
+		UpdateColumns(map[string]interface{}{
+			"sync_in_progress_since": nil,
+			"last_sync_error":        syncErr,
+		}).Error
+}
+
 // CountGitRepositoriesByKoditRepoID counts how many git repositories (excluding
 // excludeRepoID) reference the given kodit_repo_id in their JSONB metadata.
 func (s *PostgresStore) CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error) {

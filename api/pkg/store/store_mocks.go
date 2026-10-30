@@ -236,6 +236,20 @@ func (mr *MockStoreMockRecorder) ClearSessionStartingStatus(ctx, sessionID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSessionStartingStatus", reflect.TypeOf((*MockStore)(nil).ClearSessionStartingStatus), ctx, sessionID)
 }
 
+// ClearStaleGitRepositorySync mocks base method.
+func (m *MockStore) ClearStaleGitRepositorySync(ctx context.Context, id string, staleSince time.Time, syncErr string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearStaleGitRepositorySync", ctx, id, staleSince, syncErr)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearStaleGitRepositorySync indicates an expected call of ClearStaleGitRepositorySync.
+func (mr *MockStoreMockRecorder) ClearStaleGitRepositorySync(ctx, id, staleSince, syncErr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearStaleGitRepositorySync", reflect.TypeOf((*MockStore)(nil).ClearStaleGitRepositorySync), ctx, id, staleSince, syncErr)
+}
+
 // ClearStaleStartingSessions mocks base method.
 func (m *MockStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
 	m.ctrl.T.Helper()

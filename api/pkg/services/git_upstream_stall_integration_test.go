@@ -123,3 +123,15 @@ func (s *GitIntegrationSuite) TestPullSkipsPreSyncAfterRecentUpstreamFailure() {
 	s.cloneFromServer(filepath.Join(s.testDir, "clone-after-failure"))
 	s.Less(time.Since(start), 10*time.Second)
 }
+
+// A process that died mid-sync leaves sync_in_progress_since set; startup
+// recovery must clear exactly that stale marker.
+func (s *GitIntegrationSuite) TestRecoverClearsStaleSyncInProgress() {
+	stale := time.Now().Add(-time.Hour).Truncate(time.Microsecond)
+	s.testRepo.SyncInProgressSince = &stale
+
+	s.mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{s.testRepo}, nil)
+	s.mockStore.EXPECT().ClearStaleGitRepositorySync(gomock.Any(), s.testRepo.ID, stale, "upstream sync interrupted by API restart").Return(nil)
+
+	s.gitRepoService.recoverIncompletePushes(s.ctx)
+}

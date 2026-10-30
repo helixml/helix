@@ -35,7 +35,6 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 
 	log.Trace().
 		Str("repo_id", repoID).
-		Str("external_url", gitRepo.ExternalURL).
 		Str("external_type", string(gitRepo.ExternalType)).
 		Bool("is_external", gitRepo.IsExternal).
 		Str("oauth_connection_id", gitRepo.OAuthConnectionID).
@@ -75,12 +74,12 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 			Msg("[GitPush] WARNING: No auth configured for push!")
 	}
 
-	remote := upstreamRemote{URL: gitRepo.ExternalURL, Username: username, Password: password}
+	remote := newUpstreamRemote(gitRepo.ExternalURL, username, password)
 
 	log.Info().
 		Str("repo_id", gitRepo.ID).
 		Str("branch", branchName).
-		Str("external_url", gitRepo.ExternalURL).
+		Str("external_url", remote.URL).
 		Str("auth_type", authType).
 		Bool("force", force).
 		Dur("elapsed", time.Since(startTime)).
@@ -97,7 +96,7 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 			Err(err).
 			Str("repo_id", gitRepo.ID).
 			Str("branch", branchName).
-			Str("external_url", gitRepo.ExternalURL).
+			Str("external_url", remote.URL).
 			Str("auth_type", authType).
 			Dur("push_duration", pushDuration).
 			Dur("total_elapsed", time.Since(startTime)).

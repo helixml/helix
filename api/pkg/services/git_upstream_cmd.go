@@ -44,6 +44,25 @@ type upstreamRemote struct {
 	Password string
 }
 
+// newUpstreamRemote builds an upstreamRemote. Credentials embedded in rawURL
+// (https://user:token@host/...) are moved out of the URL so they never reach
+// argv; explicit credentials take precedence over embedded ones.
+func newUpstreamRemote(rawURL, username, password string) upstreamRemote {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.User == nil {
+		return upstreamRemote{URL: rawURL, Username: username, Password: password}
+	}
+	urlPassword, hasPassword := u.User.Password()
+	if !hasPassword {
+		return upstreamRemote{URL: rawURL, Username: username, Password: password}
+	}
+	if password == "" {
+		username, password = u.User.Username(), urlPassword
+	}
+	u.User = nil
+	return upstreamRemote{URL: u.String(), Username: username, Password: password}
+}
+
 func (r upstreamRemote) env() []string {
 	cfg := upstreamGitConfig
 	if r.Password != "" && isHTTPURL(r.URL) {

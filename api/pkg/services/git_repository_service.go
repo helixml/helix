@@ -252,6 +252,8 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 // middle repo but not pushed to upstream. This can happen if we crash between
 // receive-pack completing and the upstream push completing.
 func (s *GitRepositoryService) recoverIncompletePushes(ctx context.Context) {
+	startedAt := time.Now()
+
 	// List all repos from database
 	repos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{})
 	if err != nil {
@@ -264,6 +266,15 @@ func (s *GitRepositoryService) recoverIncompletePushes(ctx context.Context) {
 		// Only check external repos
 		if repo.ExternalURL == "" {
 			continue
+		}
+
+		// A process that died mid-sync never cleared its in-progress marker.
+		// Upstream git runs in-process, so any marker from before this
+		// process started is stale.
+		if repo.SyncInProgressSince != nil && repo.SyncInProgressSince.Before(startedAt) {
+			if err := s.store.ClearStaleGitRepositorySync(ctx, repo.ID, *repo.SyncInProgressSince, "upstream sync interrupted by API restart"); err != nil {
+				log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to clear stale sync-in-progress marker")
+			}
 		}
 
 		// Check if repo directory exists
@@ -2706,7 +2717,7 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 // upstreamRemoteForRepo returns the external URL and the credentials to send with it.
 func (s *GitRepositoryService) upstreamRemoteForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) upstreamRemote {
 	username, password := s.getCredentialsForRepo(ctx, gitRepo, userID...)
-	return upstreamRemote{URL: gitRepo.ExternalURL, Username: username, Password: password}
+	return newUpstreamRemote(gitRepo.ExternalURL, username, password)
 }
 
 // getCredentialsForRepo returns username and password/token for a repository
