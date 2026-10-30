@@ -84,6 +84,9 @@ DEPLOYED=""
 
 # --- 1. controlplane (london) ----------------------------------------------
 if [ "$DEPLOY_CONTROLPLANE" = "true" ]; then
+  STRIPE_WEBHOOK_CHECK=$(cat "$(dirname "$0")/check-stripe-webhook.py")
+  printf -v STRIPE_WEBHOOK_CHECK_Q '%q' "$STRIPE_WEBHOOK_CHECK"
+  printf -v STRIPE_WEBHOOK_URL_Q '%q' "https://$LONDON_HEALTH_HOST/api/v1/stripe/webhook"
   SNAP="${LONDON_DB_DATASET}@pre-${VERSION}-$(date +%Y%m%d-%H%M%S)"
   log "Deploying controlplane ${VERSION} to ${LONDON_SSH} (snapshot ${SNAP}) ..."
 
@@ -92,6 +95,7 @@ if [ "$DEPLOY_CONTROLPLANE" = "true" ]; then
   CP_DEPLOY=$(cat <<REMOTE
 set -e
 cd "$LONDON_STACK_DIR"
+sudo docker inspect helix-api-1 --format '{{json .Config.Env}}' | python3 -c $STRIPE_WEBHOOK_CHECK_Q $STRIPE_WEBHOOK_URL_Q
 OLD_VERSION=\$(grep -E '^HELIX_VERSION=' .env | head -1 | cut -d= -f2- | tr -d '"')
 echo "controlplane: \${OLD_VERSION:-<none>} -> $VERSION"
 # Crash-consistent DB snapshot for rollback (CHECKPOINT first to minimise WAL replay).

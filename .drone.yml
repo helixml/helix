@@ -106,7 +106,7 @@ steps:
   - name: shell-script-tests
     image: alpine:3.21
     commands:
-      - apk add --no-cache bash git procps
+      - apk add --no-cache bash git procps python3
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./desktop/shared/test-helix-specs-creation.sh
