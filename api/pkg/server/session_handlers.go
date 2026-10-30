@@ -421,6 +421,13 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
+	if apiServer.externalAgentExecutor != nil &&
+		(session.ModelName == "external_agent" || session.Metadata.AgentType == string(types.AgentTypeZedExternal)) {
+		if err := destroyDesktopUnlessHostGone(ctx, apiServer.externalAgentExecutor, session.ID, ""); err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+	}
+
 	// Revoke any preview-token vhost routes pointing at this session
 	// before the session row disappears; otherwise the share-* URLs
 	// would 502 with no path to clean them up.
