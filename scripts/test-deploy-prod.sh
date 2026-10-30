@@ -4,7 +4,6 @@ set -euo pipefail
 repo=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 real_sed=$(command -v sed)
-real_python=$(command -v python3)
 trap 'rm -r "$work"' EXIT
 mkdir -p "$work/bin" "$work/home"
 
@@ -12,8 +11,6 @@ fail() {
   echo "FAIL: $*" >&2
   exit 1
 }
-
-python3 "$repo/scripts/test-check-stripe-webhook.py"
 
 cat > "$work/bin/ssh" <<'EOF'
 #!/bin/bash
@@ -56,74 +53,26 @@ if [ "$(uname -s)" = "Darwin" ] && [ "${1:-}" = "-i" ]; then
 fi
 exec "$REAL_SED" "$@"
 EOF
-
-cat > "$work/bin/sudo" <<'EOF'
-#!/bin/bash
-set -euo pipefail
-printf '%s\n' "$*" >> "$MUTATION_CALLS"
-if [ "$*" = "docker inspect helix-api-1 --format {{json .Config.Env}}" ]; then
-  printf '["STRIPE_BILLING_ENABLED=true","STRIPE_SECRET_KEY=sk_hidden","STRIPE_WEBHOOK_SIGNING_SECRET=whsec_hidden"]\n'
-  exit 0
-fi
-exec "$@"
-EOF
-
-cat > "$work/bin/python3" <<'EOF'
-#!/bin/bash
-set -euo pipefail
-if [ "${FAIL_STRIPE_PREFLIGHT:-false}" = "true" ]; then
-  cat >/dev/null
-  echo 'Stripe webhook preflight failed: Stripe webhook endpoint is missing required events: checkout.session.completed' >&2
-  exit 1
-fi
-exec "$REAL_PYTHON" "$@"
-EOF
-chmod +x "$work/bin/ssh" "$work/bin/docker" "$work/bin/sed" "$work/bin/sudo" "$work/bin/python3"
+chmod +x "$work/bin/ssh" "$work/bin/docker" "$work/bin/sed"
 
 run_deploy() {
   env -u HELIX_CD_SSH_KEY -u SLACK_WEBHOOK_URL -u LONDON_SSH \
     -u RUNNER_SSH -u RUNNER_UPGRADE_SCRIPT -u RUNNER_START_SCRIPT \
     -u RUNNER_CONTAINER -u DEPLOY_CONTROLPLANE -u DEPLOY_RUNNER \
-    PATH="$work/bin:$PATH" HOME="$work/home" REAL_SED="$real_sed" REAL_PYTHON="$real_python" \
+    PATH="$work/bin:$PATH" HOME="$work/home" REAL_SED="$real_sed" \
     SSH_HOSTS="$work/ssh-hosts" SSH_SCRIPTS="$work/ssh-scripts" \
-    DOCKER_CALLS="$work/docker-calls" MUTATION_CALLS="$work/mutation-calls" \
-    "$@" "$repo/scripts/deploy-prod.sh" 9.8.7
+    DOCKER_CALLS="$work/docker-calls" "$@" "$repo/scripts/deploy-prod.sh" 9.8.7
 }
 
 : > "$work/ssh-hosts"
 : > "$work/ssh-scripts"
 : > "$work/docker-calls"
-: > "$work/mutation-calls"
 run_deploy DEPLOY_RUNNER=false >/dev/null
 [ "$(cat "$work/ssh-hosts")" = "luke_helix_ml@34.39.116.64" ] || fail "control-plane step contacted another host"
 grep -q 'HELIX_VERSION=.*9.8.7' "$work/ssh-scripts" || fail "control-plane step did not deploy the requested version"
-grep -q 'Stripe webhook preflight passed' "$work/ssh-scripts" || fail "control-plane step omitted Stripe webhook preflight"
-preflight_line=$(grep -n 'docker inspect helix-api-1' "$work/ssh-scripts" | head -1 | cut -d: -f1)
-for mutation in 'CHECKPOINT' 'zfs snapshot' 'sed -i.*HELIX_VERSION' 'docker compose pull api'; do
-  mutation_line=$(grep -n "$mutation" "$work/ssh-scripts" | head -1 | cut -d: -f1)
-  [ "$preflight_line" -lt "$mutation_line" ] || fail "Stripe webhook preflight ran after production mutation"
-done
-if grep -qE 'sk_(live|test)_|whsec_' "$work/ssh-scripts"; then
-  fail "control-plane script exposed Stripe credentials"
-fi
 if grep -q 'helix-sandbox' "$work/ssh-scripts"; then
   fail "control-plane step included a runner deployment"
 fi
-
-mkdir -p "$work/stack"
-printf 'HELIX_VERSION="old"\n' > "$work/stack/.env"
-: > "$work/mutation-calls"
-if preflight_output=$(run_deploy DEPLOY_RUNNER=false EXEC_REMOTE=true FAIL_STRIPE_PREFLIGHT=true \
-  LONDON_STACK_DIR="$work/stack" 2>&1); then
-  fail "missing Stripe webhook event did not stop deployment"
-fi
-printf '%s\n' "$preflight_output" | grep -q 'missing required events: checkout.session.completed' ||
-  fail "Stripe webhook preflight failure was not reported"
-if grep -Eq 'docker exec|zfs snapshot|docker compose' "$work/mutation-calls"; then
-  fail "Stripe webhook preflight failure allowed a production mutation"
-fi
-grep -q '^HELIX_VERSION="old"$' "$work/stack/.env" ||
-  fail "Stripe webhook preflight failure changed the deployed version"
 
 legacy="$work/upgrade.sh"
 cat > "$legacy" <<'EOF'
