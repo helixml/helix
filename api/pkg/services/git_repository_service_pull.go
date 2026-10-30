@@ -69,7 +69,7 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 	defer lock.Unlock()
 
 	// Build authenticated URL for fetch
-	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
 
 	// First, fetch the branch to a remote-tracking ref for comparison
 	// Use refs/remotes/origin/<branch> so we can compare before updating local
@@ -81,7 +81,8 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		Msg("Fetching base branch from upstream for sync check")
 
 	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
-		Remote:   fetchURL, // Use URL directly instead of remote name
+		Remote:   remote.URL,
+		Env:      remote.env(),
 		RefSpecs: []string{refSpec},
 		Force:    true, // Always update remote-tracking ref
 		Timeout:  5 * time.Minute,
@@ -396,7 +397,7 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 	defer lock.Unlock()
 
 	// Build authenticated URL for fetch
-	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
 
 	refSpec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", branchName, branchName)
 	if force {
@@ -411,7 +412,8 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 		Msg("Fetching changes from external repository")
 
 	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
-		Remote:   fetchURL,
+		Remote:   remote.URL,
+		Env:      remote.env(),
 		RefSpecs: []string{refSpec},
 		Force:    force,
 		Timeout:  5 * time.Minute,
@@ -454,7 +456,7 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 	}
 
 	// Build authenticated URL for fetch
-	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
 
 	// Fetch mirrored branches using a wildcard refspec. The negative refspec is
 	// essential: a force fetch must never replace the local-authoritative
@@ -471,7 +473,8 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 		Msg("Syncing mirrored branches from external repository")
 
 	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
-		Remote:   fetchURL,
+		Remote:   remote.URL,
+		Env:      remote.env(),
 		RefSpecs: []string{refSpec, "^refs/heads/" + SpecsBranchName},
 		Force:    force,
 		Prune:    false,

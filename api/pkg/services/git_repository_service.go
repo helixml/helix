@@ -265,6 +265,10 @@ func (s *GitRepositoryService) recoverIncompletePushes(ctx context.Context) {
 			continue
 		}
 
+		if err := scrubRemoteCredentials(ctx, repo.LocalPath); err != nil {
+			log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to remove credentials from stored remote URL")
+		}
+
 		// Refresh all remote-tracking refs once per repository. Fetching each
 		// branch separately turns a repository with hundreds of branches into
 		// hundreds of DNS/TLS round trips during every API restart, which can
@@ -338,9 +342,10 @@ func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath s
 }
 
 func (s *GitRepositoryService) fetchRemoteTrackingRefsForRecovery(ctx context.Context, repo *types.GitRepository) error {
-	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, repo)
+	remote := s.upstreamRemoteForRepo(ctx, repo)
 	return Fetch(ctx, repo.LocalPath, FetchOptions{
-		Remote:   fetchURL,
+		Remote:   remote.URL,
+		Env:      remote.env(),
 		Force:    true,
 		Prune:    true,
 		Timeout:  5 * time.Minute,
@@ -501,14 +506,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 			Str("oauth_connection_id", gitRepo.OAuthConnectionID).
 			Msg("Cloning external repository using native git...")
 
-		// Build authenticated URL for clone
-		cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
-
-		// Use native git clone via gitea/git module
-		err = giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
-			Bare:   true,
-			Mirror: true, // Clone ALL branches, tags, and refs
-		})
+		err = cloneUpstreamMirror(ctx, s.upstreamRemoteForRepo(ctx, gitRepo), repoPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to clone external repository: %w", err)
 		}
@@ -696,11 +694,7 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 				Str("repo_path", repoPath).
 				Msg("Starting async clone using native git")
 
-			cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
-			cloneErr := giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
-				Bare:   true,
-				Mirror: true,
-			})
+			cloneErr := cloneUpstreamMirror(ctx, s.upstreamRemoteForRepo(ctx, gitRepo), repoPath)
 			if cloneErr != nil {
 				return recordCloneError(fmt.Errorf("clone failed: %w", cloneErr))
 			}
@@ -854,12 +848,13 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 	}
 
 	// Build authenticated URL for fetch
-	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
 
 	// Fetch from remote to update remote-tracking ref
 	refSpec := fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branchName, branchName)
 	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
-		Remote:   fetchURL,
+		Remote:   remote.URL,
+		Env:      remote.env(),
 		RefSpecs: []string{refSpec},
 		Force:    true,
 		Timeout:  2 * time.Minute,
@@ -1478,11 +1473,7 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 
 	// For external repos, clone if not exists
 	if gitRepo.ExternalURL != "" && !repoExists {
-		cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
-		err := giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
-			Bare:   true,
-			Mirror: true, // Clone ALL branches, tags, and refs - not just the default branch
-		})
+		err := cloneUpstreamMirror(ctx, s.upstreamRemoteForRepo(ctx, gitRepo), repoPath)
 		if err != nil {
 			return fmt.Errorf("failed to clone git repository: %w", err)
 		}
@@ -2561,12 +2552,10 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 // mirror intentionally does not prune because it also contains Helix-only refs,
 // so listing its refs would keep branches that were deleted upstream.
 func (s *GitRepositoryService) listExternalBranches(ctx context.Context, repo *types.GitRepository) ([]string, error) {
-	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, repo)
-	stdout, _, err := gitcmd.NewCommand("ls-remote", "--heads").
-		AddDynamicArguments(fetchURL).
-		RunStdString(ctx, &gitcmd.RunOpts{Timeout: 5 * time.Minute})
+	remote := s.upstreamRemoteForRepo(ctx, repo)
+	stdout, stderr, err := runUpstreamGit(ctx, "", time.Minute, remote.env(), "ls-remote", "--heads", "--", remote.URL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list upstream branches: %w", err)
+		return nil, upstreamGitError("list upstream branches", err, stderr)
 	}
 
 	return parseLsRemoteBranches(stdout), nil
@@ -2611,10 +2600,9 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 	lock.Lock()
 	defer lock.Unlock()
 
-	// Build authenticated URL for external repo
-	authURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
 
-	wc, err := s.getExternalWorkingCopy(ctx, authURL, gitRepo.LocalPath, branchName)
+	wc, err := s.getExternalWorkingCopy(ctx, remote, gitRepo.LocalPath, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to create working copy: %w", err)
 	}
@@ -2626,7 +2614,7 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 			Str("branch", branchName).
 			Msg("Pulling changes from external repository")
 
-		err = wc.Pull(ctx, authURL)
+		err = wc.Pull(ctx, remote)
 		if err != nil {
 			return fmt.Errorf("failed to pull changes (possible merge conflict): %w", err)
 		}
@@ -2638,7 +2626,7 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 		Bool("force", force).
 		Msg("Pushing changes to external repository")
 
-	err = wc.PushToOrigin(ctx, branchName, force, authURL)
+	err = wc.PushToOrigin(ctx, branchName, force, remote)
 	if err != nil {
 		return fmt.Errorf("failed to push changes to external: %w", err)
 	}
@@ -2709,27 +2697,10 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 	return nil
 }
 
-// buildAuthenticatedCloneURLForRepo returns the external URL with embedded credentials for native git clone
-// This is used by gitea/git module which expects credentials in the URL
-func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) string {
-	if gitRepo.ExternalURL == "" {
-		return ""
-	}
-
-	// Get credentials based on repository type and OAuth connection
+// upstreamRemoteForRepo returns the external URL and the credentials to send with it.
+func (s *GitRepositoryService) upstreamRemoteForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) upstreamRemote {
 	username, password := s.getCredentialsForRepo(ctx, gitRepo, userID...)
-	if password == "" {
-		return gitRepo.ExternalURL
-	}
-
-	// Build authenticated URL
-	authURL, err := BuildAuthenticatedURL(gitRepo.ExternalURL, username, password)
-	if err != nil {
-		log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to build authenticated URL, using original")
-		return gitRepo.ExternalURL
-	}
-
-	return authURL
+	return upstreamRemote{URL: gitRepo.ExternalURL, Username: username, Password: password}
 }
 
 // getCredentialsForRepo returns username and password/token for a repository
