@@ -1206,12 +1206,27 @@ export interface ServerAddDomainRequest {
   hostname?: string;
 }
 
+export interface ServerAdminCreateServiceAccountRequest {
+  display_name?: string;
+  /**
+   * OrganizationName is the URL-safe name of the organization the account
+   * owns. It is the idempotency key: asking again for the same name returns
+   * the same account and organization.
+   */
+  organization_name?: string;
+}
+
 export interface ServerAdminOrganizationsResponse {
   organizations?: TypesOrgDetails[];
   page?: number;
   pageSize?: number;
   totalCount?: number;
   totalPages?: number;
+}
+
+export interface ServerAdminServiceAccount {
+  organization?: TypesOrganization;
+  user?: TypesUser;
 }
 
 export interface ServerAgentConfigAppliedResponse {
@@ -1401,6 +1416,7 @@ export interface ServerDevContainerWithClients {
   gpu_vendor?: string;
   /** Network info for RevDial/screenshot-server connections */
   ip_address?: string;
+  is_golden_build?: boolean;
   memory_mb?: number;
   organization_id?: string;
   organization_name?: string;
@@ -2436,14 +2452,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
+  KindEmail = "email",
+  KindWebhook = "webhook",
+  KindLocal = "local",
+  KindSlack = "slack",
+  KindCron = "cron",
   KindGitLab = "gitlab",
   KindGitHub = "github",
-  KindCron = "cron",
-  KindSlack = "slack",
-  KindWebhook = "webhook",
   KindHelixEvents = "helix_events",
-  KindLocal = "local",
-  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -3139,6 +3155,7 @@ export interface TypesAuditMetadata {
 export enum TypesAuthProvider {
   AuthProviderRegular = "regular",
   AuthProviderOIDC = "oidc",
+  AuthProviderService = "service",
 }
 
 export interface TypesAuthenticatedResponse {
@@ -4385,6 +4402,10 @@ export interface TypesGitRepository {
   /** Code intelligence fields */
   kodit_indexing?: boolean;
   last_activity?: string;
+  /** Last successful upstream fetch or push */
+  last_sync_at?: string;
+  /** Error from the most recent failed upstream operation; cleared on success */
+  last_sync_error?: string;
   /** Local filesystem path for Helix-hosted repos (empty for external) */
   local_path?: string;
   /** Stores Metadata as JSON */
@@ -4402,6 +4423,8 @@ export interface TypesGitRepository {
   password?: string;
   repo_type?: TypesGitRepositoryType;
   status?: TypesGitRepositoryStatus;
+  /** Set while an upstream operation is running */
+  sync_in_progress_since?: string;
   updated_at?: string;
   /** Authentication fields */
   username?: string;
@@ -6525,6 +6548,8 @@ export interface TypesSandboxHeartbeatRequest {
   desktop_versions?: Record<string, string>;
   /** Disk usage metrics for monitored mount points */
   disk_usage?: TypesDiskUsageMetric[];
+  /** GoldenCacheUnavailable: see SandboxInstance.GoldenCacheUnavailable. */
+  golden_cache_unavailable?: boolean;
   /** GPU configuration */
   gpu_vendor?: string;
   /**
@@ -6540,6 +6565,12 @@ export interface TypesSandboxHeartbeatRequest {
    * non-AWS environment — the admin UI then just shows the GPU model instead.
    */
   instance_type?: string;
+  /**
+   * MaxSandboxes is the runner's own cap on concurrent dev containers,
+   * from its MAX_SANDBOXES env var. -1 means unlimited. 0 (omitted) means
+   * the runner did not report one and the API's fallback applies.
+   */
+  max_sandboxes?: number;
   /** Privileged mode (host Docker access for development) */
   privileged_mode_enabled?: boolean;
   /** ProfileError carries the failure detail when ProfileStatus="failed". */
@@ -6573,11 +6604,13 @@ export interface TypesSandboxInstance {
    */
   active_profile_id?: string;
   /**
-   * Sandbox capacity. MaxSandboxes is set explicitly at auto-register
-   * and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
-   * (default -1, unlimited); the gorm default below only applies to rows inserted
-   * via paths that don't set the field. Kept aligned with the env-var
-   * default to avoid surprises.
+   * Sandbox capacity. MaxSandboxes is the hard per-Runner cap enforced
+   * by FindAvailableSandboxInstance. When the Runner reports MAX_SANDBOXES
+   * in its heartbeat, that value wins and MaxSandboxesFromRunner is set
+   * (so the boot-time backfill leaves it alone). Otherwise it is set at
+   * auto-register and Manager-provisioned paths from
+   * HELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1, unlimited); the gorm default below
+   * only applies to rows inserted via paths that don't set the field.
    */
   active_sandboxes?: number;
   /**
@@ -6594,6 +6627,12 @@ export interface TypesSandboxInstance {
    * Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
    */
   desktop_versions?: Record<string, string>;
+  /**
+   * GoldenCacheUnavailable is set when the sandbox has no container data root
+   * (/container-docker), so Hydra can't build or seed golden Docker caches. Negative so sandboxes
+   * whose heartbeat predates it keep building.
+   */
+  golden_cache_unavailable?: boolean;
   /** GPU configuration */
   gpu_vendor?: string;
   /**
@@ -6618,8 +6657,9 @@ export interface TypesSandboxInstance {
   ip_address?: string;
   /** Last heartbeat time */
   last_seen?: string;
-  /** Maximum allowed containers */
+  /** Maximum allowed containers; -1 means unlimited */
   max_sandboxes?: number;
+  max_sandboxes_from_runner?: boolean;
   privileged_mode?: boolean;
   /** ProfileError carries the failure detail when ProfileStatus="failed". */
   profile_error?: string;
@@ -7721,9 +7761,9 @@ export interface TypesSpecTask {
 export interface TypesSpecTaskArchiveRequest {
   archived?: boolean;
   /**
-   * StopAgent controls whether archiving stops the task's external agent and frees its sandbox.
-   * Omitted means yes. Archiving never kills an agent that is mid-turn unless the caller says so
-   * explicitly.
+   * StopAgent controls whether archiving stops the task's external agent and
+   * frees its sandbox. Omitted (nil) means yes. Archiving never kills an agent
+   * that is mid-turn unless the caller says so explicitly.
    */
   stop_agent?: boolean;
 }
@@ -9921,6 +9961,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Create a non-human user that owns a new organization, so an orchestrator serving many customers can give each one its own org, projects and credentials instead of running them all as one account. Works on OIDC deployments (the account has no IdP identity; it acts only through API keys minted with POST /admin/users/{id}/api-keys). Idempotent per organization_name.
+     *
+     * @tags users
+     * @name V1AdminServiceAccountsCreate
+     * @summary Create a service account and its organization (Admin only)
+     * @request POST:/api/v1/admin/service-accounts
+     * @secure
+     */
+    v1AdminServiceAccountsCreate: (request: ServerAdminCreateServiceAccountRequest, params: RequestParams = {}) =>
+      this.request<ServerAdminServiceAccount, any>({
+        path: `/api/v1/admin/service-accounts`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -19464,7 +19524,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Archive a spec task to hide it from the main view, or unarchive to restore it
+     * @description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksArchivePartialUpdate

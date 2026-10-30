@@ -947,6 +947,43 @@
                 }
             }
         },
+        "/api/v1/admin/service-accounts": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a non-human user that owns a new organization, so an orchestrator serving many customers can give each one its own org, projects and credentials instead of running them all as one account. Works on OIDC deployments (the account has no IdP identity; it acts only through API keys minted with POST /admin/users/{id}/api-keys). Idempotent per organization_name.",
+                "tags": [
+                    "users"
+                ],
+                "summary": "Create a service account and its organization (Admin only)",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.AdminCreateServiceAccountRequest"
+                            }
+                        }
+                    },
+                    "description": "Service account",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.AdminServiceAccount"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}": {
             "delete": {
                 "security": [
@@ -25441,7 +25478,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it",
+                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.",
                 "tags": [
                     "spec-driven-tasks"
                 ],
@@ -31463,6 +31500,18 @@
                     }
                 }
             },
+            "server.AdminCreateServiceAccountRequest": {
+                "type": "object",
+                "properties": {
+                    "display_name": {
+                        "type": "string"
+                    },
+                    "organization_name": {
+                        "description": "OrganizationName is the URL-safe name of the organization the account\nowns. It is the idempotency key: asking again for the same name returns\nthe same account and organization.",
+                        "type": "string"
+                    }
+                }
+            },
             "server.AdminOrganizationsResponse": {
                 "type": "object",
                 "properties": {
@@ -31483,6 +31532,17 @@
                     },
                     "totalPages": {
                         "type": "integer"
+                    }
+                }
+            },
+            "server.AdminServiceAccount": {
+                "type": "object",
+                "properties": {
+                    "organization": {
+                        "$ref": "#/components/schemas/types.Organization"
+                    },
+                    "user": {
+                        "$ref": "#/components/schemas/types.User"
                     }
                 }
             },
@@ -31889,6 +31949,9 @@
                     "ip_address": {
                         "description": "Network info for RevDial/screenshot-server connections",
                         "type": "string"
+                    },
+                    "is_golden_build": {
+                        "type": "boolean"
                     },
                     "memory_mb": {
                         "type": "integer"
@@ -34289,24 +34352,24 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
+                    "email",
+                    "webhook",
+                    "local",
+                    "slack",
+                    "cron",
                     "gitlab",
                     "github",
-                    "cron",
-                    "slack",
-                    "webhook",
-                    "helix_events",
-                    "local",
-                    "email"
+                    "helix_events"
                 ],
                 "x-enum-varnames": [
+                    "KindEmail",
+                    "KindWebhook",
+                    "KindLocal",
+                    "KindSlack",
+                    "KindCron",
                     "KindGitLab",
                     "KindGitHub",
-                    "KindCron",
-                    "KindSlack",
-                    "KindWebhook",
-                    "KindHelixEvents",
-                    "KindLocal",
-                    "KindEmail"
+                    "KindHelixEvents"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -35849,14 +35912,16 @@
                 "type": "string",
                 "enum": [
                     "regular",
-                    "oidc"
+                    "oidc",
+                    "service"
                 ],
                 "x-enum-comments": {
                     "AuthProviderRegular": "Embedded in Helix, no external dependencies"
                 },
                 "x-enum-varnames": [
                     "AuthProviderRegular",
-                    "AuthProviderOIDC"
+                    "AuthProviderOIDC",
+                    "AuthProviderService"
                 ]
             },
             "types.AuthenticatedResponse": {
@@ -38412,6 +38477,14 @@
                     "last_activity": {
                         "type": "string"
                     },
+                    "last_sync_at": {
+                        "description": "Last successful upstream fetch or push",
+                        "type": "string"
+                    },
+                    "last_sync_error": {
+                        "description": "Error from the most recent failed upstream operation; cleared on success",
+                        "type": "string"
+                    },
                     "local_path": {
                         "description": "Local filesystem path for Helix-hosted repos (empty for external)",
                         "type": "string"
@@ -38444,6 +38517,10 @@
                     },
                     "status": {
                         "$ref": "#/components/schemas/types.GitRepositoryStatus"
+                    },
+                    "sync_in_progress_since": {
+                        "description": "Set while an upstream operation is running",
+                        "type": "string"
                     },
                     "updated_at": {
                         "type": "string"
@@ -43145,6 +43222,10 @@
                             "$ref": "#/components/schemas/types.DiskUsageMetric"
                         }
                     },
+                    "golden_cache_unavailable": {
+                        "description": "GoldenCacheUnavailable: see SandboxInstance.GoldenCacheUnavailable.",
+                        "type": "boolean"
+                    },
                     "gpu_vendor": {
                         "description": "GPU configuration",
                         "type": "string"
@@ -43163,6 +43244,10 @@
                     "instance_type": {
                         "description": "InstanceType is the cloud instance type (e.g. \"inf2.8xlarge\", \"g5.xlarge\")\ndetected via the AWS IMDS. Empty on bare-metal hosts (e.g. prime) and any\nnon-AWS environment — the admin UI then just shows the GPU model instead.",
                         "type": "string"
+                    },
+                    "max_sandboxes": {
+                        "description": "MaxSandboxes is the runner's own cap on concurrent dev containers,\nfrom its MAX_SANDBOXES env var. -1 means unlimited. 0 (omitted) means\nthe runner did not report one and the API's fallback applies.",
+                        "type": "integer"
                     },
                     "privileged_mode_enabled": {
                         "description": "Privileged mode (host Docker access for development)",
@@ -43204,7 +43289,7 @@
                         "type": "string"
                     },
                     "active_sandboxes": {
-                        "description": "Sandbox capacity. MaxSandboxes is set explicitly at auto-register\nand Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS\n(default -1, unlimited); the gorm default below only applies to rows inserted\nvia paths that don't set the field. Kept aligned with the env-var\ndefault to avoid surprises.",
+                        "description": "Sandbox capacity. MaxSandboxes is the hard per-Runner cap enforced\nby FindAvailableSandboxInstance. When the Runner reports MAX_SANDBOXES\nin its heartbeat, that value wins and MaxSandboxesFromRunner is set\n(so the boot-time backfill leaves it alone). Otherwise it is set at\nauto-register and Manager-provisioned paths from\nHELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1, unlimited); the gorm default below\nonly applies to rows inserted via paths that don't set the field.",
                         "type": "integer"
                     },
                     "compute_state": {
@@ -43220,6 +43305,10 @@
                         "additionalProperties": {
                             "type": "string"
                         }
+                    },
+                    "golden_cache_unavailable": {
+                        "description": "GoldenCacheUnavailable is set when the sandbox has no container data root\n(/container-docker), so Hydra can't build or seed golden Docker caches. Negative so sandboxes\nwhose heartbeat predates it keep building.",
+                        "type": "boolean"
                     },
                     "gpu_vendor": {
                         "description": "GPU configuration",
@@ -43256,8 +43345,11 @@
                         "type": "string"
                     },
                     "max_sandboxes": {
-                        "description": "Maximum allowed containers",
+                        "description": "Maximum allowed containers; -1 means unlimited",
                         "type": "integer"
+                    },
+                    "max_sandboxes_from_runner": {
+                        "type": "boolean"
                     },
                     "privileged_mode": {
                         "type": "boolean"
@@ -45366,6 +45458,10 @@
                 "type": "object",
                 "properties": {
                     "archived": {
+                        "type": "boolean"
+                    },
+                    "stop_agent": {
+                        "description": "StopAgent controls whether archiving stops the task's external agent and\nfrees its sandbox. Omitted (nil) means yes. Archiving never kills an agent\nthat is mid-turn unless the caller says so explicitly.",
                         "type": "boolean"
                     }
                 }
