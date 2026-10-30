@@ -4676,6 +4676,26 @@ export enum TypesInteractionState {
   InteractionStateInterrupted = "interrupted",
 }
 
+export interface TypesInteractiveEmbedModel {
+  context_length?: number;
+  description?: string;
+  id?: string;
+  input_modalities?: string[];
+  name?: string;
+  reasoning_efforts?: TypesReasoningEffortProfile;
+}
+
+export interface TypesInteractiveEmbedModelResponse {
+  agent_thread_restarted?: boolean;
+  model?: string;
+  models?: TypesInteractiveEmbedModel[];
+  runtime?: TypesCodeAgentRuntime;
+}
+
+export interface TypesInteractiveEmbedModelUpdateRequest {
+  model?: string;
+}
+
 export interface TypesItem {
   b64_json?: string;
   embedding?: number[];
@@ -19702,6 +19722,48 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesSpecTaskExecutionConfigUpdateResponse, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/execution-config`,
+        method: "PATCH",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the current model and enabled models from the task's current provider. Available only to an interactive embed key bound to the task's active session.
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksInteractiveEmbedModelDetail
+     * @summary Get models available to an interactive task embed
+     * @request GET:/api/v1/spec-tasks/{taskId}/interactive-embed-model
+     * @secure
+     */
+    v1SpecTasksInteractiveEmbedModelDetail: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesInteractiveEmbedModelResponse, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/interactive-embed-model`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Changes only the model on the task's current code-agent configuration. Available only to an interactive embed key bound to the task's active session.
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksInteractiveEmbedModelPartialUpdate
+     * @summary Update the model for an interactive task embed
+     * @request PATCH:/api/v1/spec-tasks/{taskId}/interactive-embed-model
+     * @secure
+     */
+    v1SpecTasksInteractiveEmbedModelPartialUpdate: (
+      taskId: string,
+      request: TypesInteractiveEmbedModelUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesInteractiveEmbedModelResponse, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/interactive-embed-model`,
         method: "PATCH",
         body: request,
         secure: true,

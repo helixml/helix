@@ -7303,6 +7303,41 @@ definitions:
     - InteractionStateComplete
     - InteractionStateError
     - InteractionStateInterrupted
+  types.InteractiveEmbedModel:
+    properties:
+      context_length:
+        type: integer
+      description:
+        type: string
+      id:
+        type: string
+      input_modalities:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      reasoning_efforts:
+        $ref: '#/definitions/types.ReasoningEffortProfile'
+    type: object
+  types.InteractiveEmbedModelResponse:
+    properties:
+      agent_thread_restarted:
+        type: boolean
+      model:
+        type: string
+      models:
+        items:
+          $ref: '#/definitions/types.InteractiveEmbedModel'
+        type: array
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+    type: object
+  types.InteractiveEmbedModelUpdateRequest:
+    properties:
+      model:
+        type: string
+    type: object
   types.Item:
     properties:
       b64_json:
@@ -29030,6 +29065,78 @@ paths:
       security:
       - BearerAuth: []
       summary: Update task execution configuration
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/interactive-embed-model:
+    get:
+      description: Returns the current model and enabled models from the task's current
+        provider. Available only to an interactive embed key bound to the task's active
+        session.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.InteractiveEmbedModelResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get models available to an interactive task embed
+      tags:
+      - spec-driven-tasks
+    patch:
+      consumes:
+      - application/json
+      description: Changes only the model on the task's current code-agent configuration.
+        Available only to an interactive embed key bound to the task's active session.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Model selection
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.InteractiveEmbedModelUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.InteractiveEmbedModelResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update the model for an interactive task embed
       tags:
       - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/labels:

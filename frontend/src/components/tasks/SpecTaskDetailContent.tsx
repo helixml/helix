@@ -2901,6 +2901,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   leadingActions={(
                     <CodeAgentExecutionControls
                       value={currentExecutionConfig?.code_agent_config || task.code_agent_config}
+                      interactiveEmbedTaskId={hideControls ? task.id : undefined}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       sandboxRuntime={task.sandbox_runtime}
                       sandboxDisplay={task.sandbox_display}
@@ -3246,6 +3247,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   leadingActions={(
                     <CodeAgentExecutionControls
                       value={currentExecutionConfig?.code_agent_config || task.code_agent_config}
+                      interactiveEmbedTaskId={hideControls ? task.id : undefined}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       sandboxRuntime={task.sandbox_runtime}
                       sandboxDisplay={task.sandbox_display}

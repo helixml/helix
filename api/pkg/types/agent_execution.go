@@ -33,6 +33,26 @@ type CodeAgentExecutionConfig struct {
 	GooseRecipes       []AssistantGooseRecipe `json:"goose_recipes,omitempty"`
 }
 
+type InteractiveEmbedModel struct {
+	ID               string                  `json:"id"`
+	Name             string                  `json:"name,omitempty"`
+	Description      string                  `json:"description,omitempty"`
+	ContextLength    int                     `json:"context_length,omitempty"`
+	InputModalities  []string                `json:"input_modalities,omitempty"`
+	ReasoningEfforts *ReasoningEffortProfile `json:"reasoning_efforts,omitempty"`
+}
+
+type InteractiveEmbedModelUpdateRequest struct {
+	Model string `json:"model"`
+}
+
+type InteractiveEmbedModelResponse struct {
+	Model                string                  `json:"model"`
+	Runtime              CodeAgentRuntime        `json:"runtime"`
+	Models               []InteractiveEmbedModel `json:"models"`
+	AgentThreadRestarted bool                    `json:"agent_thread_restarted,omitempty"`
+}
+
 // AgentExecutionConfig describes a surface's current coding identity without
 // exposing the reusable Agent or its secrets. AgentAvailable is false when the
 // surface points at an Agent that has since been deleted.
