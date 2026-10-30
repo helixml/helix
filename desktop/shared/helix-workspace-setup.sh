@@ -131,6 +131,12 @@ echo "Helix Workspace Setup - $(date)"
 echo "========================================="
 echo ""
 
+# Abort git transfers to the Helix git server that stall instead of hanging
+# workspace setup forever. Generous: the server may legitimately wait on an
+# upstream sync before it starts responding.
+export GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT:-1000}"
+export GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME:-300}"
+
 # Source the git helper functions (provides get_default_branch, create_helix_specs_branch)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$SCRIPT_DIR/helix-specs-create.sh" ]; then
@@ -348,6 +354,12 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
             CLEAN_REMOTE_URL="${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/${REPO_ID}"
             git -C "$CLONE_DIR" remote set-url origin "$CLEAN_REMOTE_URL" 2>/dev/null || true
             echo "    ✅ Remote URL using credential helper"
+            # A clone interrupted by a stopped session leaves a .git without
+            # commits; fetch so later steps don't mistake it for an empty repo.
+            if ! git -C "$CLONE_DIR" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+                echo "    Existing clone has no commits (possibly interrupted) - fetching..."
+                git -C "$CLONE_DIR" fetch origin --prune 2>&1 || echo "    ⚠️ Fetch failed - remote unreachable or timed out"
+            fi
             continue
         fi
 

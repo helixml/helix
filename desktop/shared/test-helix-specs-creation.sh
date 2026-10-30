@@ -198,8 +198,9 @@ cd test-helix-specs-seedfail
 git init --bare remote.git 2>/dev/null
 git clone remote.git work 2>/dev/null
 cd work
-# Point origin at a non-existent remote so every push (including the seed) fails.
-git remote set-url origin /tmp/test-helix-specs-seedfail/nonexistent.git
+# Point origin's push URL at a non-existent remote so every push (including the
+# seed) fails, while ls-remote still sees the reachable (empty) upstream.
+git remote set-url --push origin /tmp/test-helix-specs-seedfail/nonexistent.git
 
 SEEDFAIL_PASSED=true
 if create_helix_specs_branch "$(pwd)"; then
@@ -235,6 +236,99 @@ else
 fi
 cd /tmp
 rm -rf test-helix-specs-seedfail
+
+# Test 10: Remote unreachable while the local clone has no commits.
+# Must report the remote as unreachable and must NOT seed a default branch.
+echo ""
+echo "--------------------------------------------"
+echo "TEST: Unreachable remote with commit-less clone"
+echo "--------------------------------------------"
+cd /tmp
+rm -rf test-helix-specs-unreachable
+mkdir test-helix-specs-unreachable
+cd test-helix-specs-unreachable
+git init --bare remote.git 2>/dev/null
+git clone remote.git work 2>/dev/null
+cd work
+git remote set-url origin /tmp/test-helix-specs-unreachable/nonexistent.git
+
+UNREACHABLE_PASSED=true
+UNREACHABLE_OUT=$(create_helix_specs_branch "$(pwd)" 2>&1) && {
+    echo "  Function returned success (expected failure)"
+    UNREACHABLE_PASSED=false
+}
+echo "$UNREACHABLE_OUT" | sed 's/^/    /'
+if echo "$UNREACHABLE_OUT" | grep -q "remote unreachable or timed out"; then
+    echo "  Reported remote as unreachable (correct)"
+else
+    echo "  Did not report remote as unreachable"
+    UNREACHABLE_PASSED=false
+fi
+if echo "$UNREACHABLE_OUT" | grep -q "Repository is empty\|seeding default branch"; then
+    echo "  Treated unreachable remote as empty (WRONG)"
+    UNREACHABLE_PASSED=false
+fi
+if git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+    echo "  A seed commit was created (WRONG)"
+    UNREACHABLE_PASSED=false
+fi
+if [ "$UNREACHABLE_PASSED" = true ]; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo "PASSED: Unreachable remote with commit-less clone"
+else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo "FAILED: Unreachable remote with commit-less clone"
+fi
+cd /tmp
+rm -rf test-helix-specs-unreachable
+
+# Test 11: Interrupted clone - local .git has no commits but the upstream does.
+# Must repair the clone and create helix-specs without seeding an extra commit.
+echo ""
+echo "--------------------------------------------"
+echo "TEST: Interrupted clone of a non-empty upstream"
+echo "--------------------------------------------"
+cd /tmp
+rm -rf test-helix-specs-partial
+mkdir test-helix-specs-partial
+cd test-helix-specs-partial
+git init --bare -b main remote.git 2>/dev/null
+git clone remote.git seed 2>/dev/null
+(cd seed && git checkout -b main 2>/dev/null && echo code > app.txt && git add app.txt && git commit -qm "Real code" && git push -q origin main)
+UPSTREAM_MAIN=$(git -C remote.git rev-parse refs/heads/main)
+mkdir work && cd work && git init -q && git remote add origin /tmp/test-helix-specs-partial/remote.git
+
+PARTIAL_PASSED=true
+PARTIAL_OUT=$(create_helix_specs_branch "$(pwd)" 2>&1) || {
+    echo "  Function returned failure (expected success)"
+    PARTIAL_PASSED=false
+}
+echo "$PARTIAL_OUT" | sed 's/^/    /'
+if echo "$PARTIAL_OUT" | grep -q "Repository is empty\|seeding default branch"; then
+    echo "  Treated incomplete clone as empty repo (WRONG)"
+    PARTIAL_PASSED=false
+fi
+if ! git -C ../remote.git show-ref --verify --quiet refs/heads/helix-specs; then
+    echo "  helix-specs not pushed to upstream"
+    PARTIAL_PASSED=false
+fi
+if [ "$(git -C ../remote.git rev-parse refs/heads/main)" != "$UPSTREAM_MAIN" ]; then
+    echo "  Upstream main was modified (WRONG)"
+    PARTIAL_PASSED=false
+fi
+if [ "$(git branch --show-current)" != "main" ]; then
+    echo "  Not returned to main (on: $(git branch --show-current))"
+    PARTIAL_PASSED=false
+fi
+if [ "$PARTIAL_PASSED" = true ]; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo "PASSED: Interrupted clone of a non-empty upstream"
+else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo "FAILED: Interrupted clone of a non-empty upstream"
+fi
+cd /tmp
+rm -rf test-helix-specs-partial
 
 echo ""
 echo "=============================================="
