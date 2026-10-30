@@ -797,6 +797,7 @@ type Stripe struct {
 	AppURL               string
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET" description:"The webhook signing secret for stripe."`
+	WebhookEndpointID    string `envconfig:"STRIPE_WEBHOOK_ENDPOINT_ID" description:"The Stripe webhook endpoint to reconcile before creating credit checkouts."`
 	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY" default:"helix-subscription" description:"The lookup key for the stripe price."`
 	PromoCreditPriceID   string `envconfig:"STRIPE_PROMO_CREDIT_PRICE_ID" description:"The Stripe price ID for the fixed $5 promotional credit top-up."`
 	OrgPriceLookupKey    string `envconfig:"STRIPE_ORG_PRICE_LOOKUP_KEY" default:"helix-org-subscription" description:"The lookup key for the stripe price."`
