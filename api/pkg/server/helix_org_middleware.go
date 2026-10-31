@@ -111,9 +111,11 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 			return nil, fmt.Errorf("provision helix-org service api key: %w", err)
 		}
 
+		botBootstrapFailed := false
 		if s.botRepair != nil {
 			if err := s.botRepair(ctx, orgID, serviceKey); err != nil {
-				return nil, fmt.Errorf("repair helix-org bots: %w", err)
+				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org Bot repair failed")
+				botBootstrapFailed = true
 			}
 		}
 
@@ -174,7 +176,6 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// page needed to fix a bad default agent config, and the public
 		// webhook handlers. The org stays un-bootstrapped so the next
 		// request retries.
-		botBootstrapFailed := false
 		if s.botBootstrap != nil {
 			if err := s.botBootstrap(ctx, orgID); err != nil {
 				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org Bot bootstrap failed")
