@@ -60,6 +60,22 @@ type helixOrgRouteTestStore struct {
 	role          types.OrganizationRole
 	membershipErr error
 	session       *types.Session
+	user          *types.User
+	app           *types.App
+}
+
+func (s *helixOrgRouteTestStore) GetUser(context.Context, *helixstore.GetUserQuery) (*types.User, error) {
+	if s.user == nil {
+		return nil, helixstore.ErrNotFound
+	}
+	return s.user, nil
+}
+
+func (s *helixOrgRouteTestStore) GetApp(_ context.Context, id string) (*types.App, error) {
+	if s.app == nil || id != s.app.ID {
+		return nil, helixstore.ErrNotFound
+	}
+	return s.app, nil
 }
 
 func (s *helixOrgRouteTestStore) GetSession(_ context.Context, id string) (*types.Session, error) {
@@ -194,18 +210,25 @@ func TestHelixOrgDefaultRuntimeMutationRequiresOwner(t *testing.T) {
 func TestWithHelixOrgIdentityThreadsOrganizationAuthorization(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name          string
-		role          types.OrganizationRole
-		platformAdmin bool
-		wantManage    bool
+		name           string
+		role           types.OrganizationRole
+		platformAdmin  bool
+		organizationID string
+		tokenType      types.TokenType
+		wantManage     bool
 	}{
 		{name: "member", role: types.OrganizationRoleMember, wantManage: false},
 		{name: "owner", role: types.OrganizationRoleOwner, wantManage: true},
 		{name: "platform admin", role: types.OrganizationRoleMember, platformAdmin: true, wantManage: true},
+		{name: "org-scoped key", role: types.OrganizationRoleMember, organizationID: "org_acme", tokenType: types.TokenTypeAPIKey, wantManage: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				user := runtimehelix.UserFromContext(r.Context())
+				if user == nil || user.ID != "user-1" || user.Admin != tt.platformAdmin || user.OrganizationID != tt.organizationID || user.TokenType != tt.tokenType {
+					t.Fatalf("runtime user = %+v, want id=user-1 admin=%v organization=%q token_type=%q", user, tt.platformAdmin, tt.organizationID, tt.tokenType)
+				}
 				auth, ok := helixorgserver.OrgAuthorizationFromContext(r.Context())
 				if !ok {
 					t.Fatal("organization authorization missing from context")
@@ -222,13 +245,67 @@ func TestWithHelixOrgIdentityThreadsOrganizationAuthorization(t *testing.T) {
 			handler := server.withHelixOrgIdentity(api)
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/orgs/acme/bots", nil)
 			req = mux.SetURLVars(req, map[string]string{"org": "acme"})
-			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1", Admin: tt.platformAdmin}))
+			req = req.WithContext(setRequestUser(req.Context(), types.User{
+				ID: "user-1", Admin: tt.platformAdmin, OrganizationID: tt.organizationID, TokenType: tt.tokenType,
+			}))
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 			if rec.Code != http.StatusNoContent {
 				t.Fatalf("status = %d, want 204", rec.Code)
 			}
 		})
+	}
+}
+
+func TestWithHelixOrgIdentityPreservesAuthenticatedAdminForInProcessCalls(t *testing.T) {
+	t.Parallel()
+	store := &helixOrgRouteTestStore{
+		membershipErr: helixstore.ErrNotFound,
+		user:          &types.User{ID: "admin-user"},
+		app: &types.App{
+			ID: "app-org", OrganizationID: "org_acme", Owner: "org-owner",
+			Config: types.AppConfig{Helix: types.AppHelixConfig{Name: "Chief of Staff"}},
+		},
+	}
+	server := &HelixAPIServer{Store: store}
+	client := NewInProcHelixClient(server)
+	var lookupErr error
+	handler := server.withHelixOrgIdentity(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, lookupErr = client.GetAppConfig(r.Context(), "app-org")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/orgs/acme/bots", nil)
+	req = mux.SetURLVars(req, map[string]string{"org": "acme"})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "admin-user", Admin: true}))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if lookupErr != nil {
+		t.Fatalf("in-process app lookup failed: %v", lookupErr)
+	}
+}
+
+func TestWithHelixOrgIdentityRejectsCrossOrgCredential(t *testing.T) {
+	t.Parallel()
+	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{role: types.OrganizationRoleOwner}}
+	handler := server.withHelixOrgIdentity(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/orgs/acme/bots", nil)
+	req = mux.SetURLVars(req, map[string]string{"org": "acme"})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{
+		ID: "user-1", Admin: false, OrganizationID: "org_other",
+	}))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
 	}
 }
 
