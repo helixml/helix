@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -74,6 +75,35 @@ func TestListInteractionsFiltersPendingQuestions(t *testing.T) {
 	})
 	if err != nil || len(interactions) != 1 || interactions[0].ID != "interaction-question" {
 		t.Fatalf("pending interactions = %#v, err = %v", interactions, err)
+	}
+}
+
+func TestListInteractionsOrdersByCreationTime(t *testing.T) {
+	ctx := context.Background()
+	memory := New()
+	old := &types.Interaction{
+		ID: "int_activation_ffff", SessionID: "session-1", UserID: "user-1",
+		Created: time.Now().Add(-time.Hour), State: types.InteractionStateError,
+	}
+	newer := &types.Interaction{
+		ID: "int_01newer", SessionID: "session-1", UserID: "user-1",
+		Created: time.Now(), State: types.InteractionStateComplete,
+	}
+	for _, interaction := range []*types.Interaction{old, newer} {
+		if _, err := memory.CreateInteraction(ctx, interaction); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ascending, _, err := memory.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: "session-1", GenerationID: -1})
+	if err != nil || len(ascending) != 2 || ascending[0].ID != old.ID || ascending[1].ID != newer.ID {
+		t.Fatalf("ascending interactions = %#v, err = %v", ascending, err)
+	}
+	descending, _, err := memory.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: "session-1", GenerationID: -1, PerPage: 1, Order: "created DESC, id DESC",
+	})
+	if err != nil || len(descending) != 1 || descending[0].ID != newer.ID {
+		t.Fatalf("descending interactions = %#v, err = %v", descending, err)
 	}
 }
 

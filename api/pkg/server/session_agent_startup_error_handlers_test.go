@@ -33,7 +33,7 @@ func TestReportAgentStartupErrorFailsLatestWaitingInteraction(t *testing.T) {
 			assert.Equal(t, session.ID, query.SessionID)
 			assert.Equal(t, session.GenerationID, query.GenerationID)
 			assert.Equal(t, 1, query.PerPage)
-			assert.Equal(t, "created DESC", query.Order)
+			assert.Equal(t, "created DESC, id DESC", query.Order)
 			return []*types.Interaction{interaction}, 1, nil
 		},
 	)

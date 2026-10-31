@@ -119,19 +119,16 @@ func (apiServer *HelixAPIServer) buildThreadReseedPreamble(ctx context.Context, 
 // and including it would have the agent read its own pending question as
 // something already asked and answered.
 //
-// Only the tail is fetched. Interaction ids are `int_<ulid>` (see
-// api/pkg/system/uuid.go), so id order is chronological and "id DESC" with a
-// limit reads the newest turns without dragging every prompt and response in
-// the session through the query — this runs on a turn that is already
-// recovering, and a long session's full history is a lot of text to pull for
-// six lines of summary. One extra row covers the replayed turn landing inside
-// the window; a turn with no text of its own simply yields fewer lines, which
-// is fine for a bounded summary.
+// Only the tail is fetched. Descending creation order with a limit reads the
+// newest turns without pulling every prompt and response from a long session.
+// One extra row covers the replayed turn landing inside the window; a turn with
+// no text of its own simply yields fewer lines, which is fine for a bounded
+// summary.
 func (apiServer *HelixAPIServer) recentTranscript(ctx context.Context, sessionID, currentInteractionID string) string {
 	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    sessionID,
 		GenerationID: -1,
-		Order:        "id DESC",
+		Order:        "created DESC, id DESC",
 		PerPage:      reseedMaxTurns + 1,
 	})
 	if err != nil {

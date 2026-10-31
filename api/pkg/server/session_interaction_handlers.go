@@ -39,9 +39,9 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 	}
 
 	// Support descending order (newest first) for pagination
-	order := "id ASC"
+	order := "created ASC, id ASC"
 	if req.URL.Query().Get("order") == "desc" {
-		order = "id DESC"
+		order = "created DESC, id DESC"
 	}
 
 	session, err := s.Store.GetSession(ctx, id)

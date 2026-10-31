@@ -490,7 +490,7 @@ func TestSpecTasks_ListAgentMessagesReturnsLatestChronologically(t *testing.T) {
 	if views[1].UserMessage != "second" || views[1].AgentMessage != "reply two" {
 		t.Errorf("second view = %+v", views[1])
 	}
-	if fs.lastInteractionQuery.SessionID != "ses_task" || fs.lastInteractionQuery.GenerationID != -1 || fs.lastInteractionQuery.Order != "id DESC" {
+	if fs.lastInteractionQuery.SessionID != "ses_task" || fs.lastInteractionQuery.GenerationID != -1 || fs.lastInteractionQuery.Order != "created DESC, id DESC" {
 		t.Errorf("query = %+v", fs.lastInteractionQuery)
 	}
 }

@@ -567,7 +567,7 @@ func (apiServer *HelixAPIServer) newestWaitingInteraction(ctx context.Context, s
 		GenerationID: session.GenerationID,
 		PerPage:      1,
 		State:        types.InteractionStateWaiting,
-		Order:        "id DESC",
+		Order:        "created DESC, id DESC",
 	})
 	if err != nil {
 		return nil

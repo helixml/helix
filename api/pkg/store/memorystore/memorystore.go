@@ -587,14 +587,19 @@ func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInter
 		cp := *i
 		result = append(result, &cp)
 	}
-	// Honor the requested order. The prompt-queue busy-check relies on
-	// Order="id DESC" + PerPage=1 returning the NEWEST interaction (ULID IDs sort
-	// chronologically); the default is ascending (creation order).
-	if strings.Contains(strings.ToLower(query.Order), "desc") {
-		sort.Slice(result, func(a, b int) bool { return result[a].ID > result[b].ID })
-	} else {
-		sort.Slice(result, func(a, b int) bool { return result[a].ID < result[b].ID })
-	}
+	desc := strings.Contains(strings.ToLower(query.Order), "desc")
+	sort.Slice(result, func(a, b int) bool {
+		if result[a].Created.Equal(result[b].Created) {
+			if desc {
+				return result[a].ID > result[b].ID
+			}
+			return result[a].ID < result[b].ID
+		}
+		if desc {
+			return result[a].Created.After(result[b].Created)
+		}
+		return result[a].Created.Before(result[b].Created)
+	})
 	// Apply PerPage limit
 	if query.PerPage > 0 && len(result) > query.PerPage {
 		result = result[:query.PerPage]
