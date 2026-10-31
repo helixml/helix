@@ -5211,7 +5211,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_UnrestorableAgentReplaysWithSee
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
 			s.Equal("ses_dsh", query.SessionID)
-			s.Equal("id DESC", query.Order)
+			s.Equal("created DESC, id DESC", query.Order)
 			s.Positive(query.PerPage)
 			s.LessOrEqual(query.PerPage, reseedMaxTurns+1)
 			return []*types.Interaction{

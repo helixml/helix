@@ -2888,7 +2888,7 @@ func (s *HelixAPIServer) threadIsWedged(ctx context.Context, session *types.Sess
 		SessionID:    session.ID,
 		GenerationID: session.GenerationID,
 		PerPage:      1,
-		Order:        "id DESC",
+		Order:        "created DESC, id DESC",
 	})
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", session.ID).
@@ -2917,7 +2917,7 @@ func (s *HelixAPIServer) lastTurnFailedToConnectAgent(ctx context.Context, sessi
 		SessionID:    session.ID,
 		GenerationID: session.GenerationID,
 		PerPage:      1,
-		Order:        "id DESC",
+		Order:        "created DESC, id DESC",
 	})
 	if err != nil || len(interactions) == 0 {
 		return false

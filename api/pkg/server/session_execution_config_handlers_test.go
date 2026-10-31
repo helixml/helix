@@ -22,10 +22,32 @@ import (
 
 type failCreateInteractionStore struct {
 	store.Store
+	resetCalled bool
 }
 
 func (s *failCreateInteractionStore) CreateInteraction(context.Context, *types.Interaction) (*types.Interaction, error) {
 	return nil, errors.New("write failed")
+}
+
+func (s *failCreateInteractionStore) ResetCrashedPromptsForSession(context.Context, string) (int, error) {
+	s.resetCalled = true
+	return 0, nil
+}
+
+type configRecoveryStore struct {
+	store.Store
+	resetCount int
+	resetErr   error
+	drained    chan struct{}
+}
+
+func (s *configRecoveryStore) ResetCrashedPromptsForSession(context.Context, string) (int, error) {
+	return s.resetCount, s.resetErr
+}
+
+func (s *configRecoveryStore) GetAnyPendingPrompt(context.Context, string) (*types.PromptHistoryEntry, error) {
+	close(s.drained)
+	return nil, nil
 }
 
 func seedCodingAgent(mem *memorystore.MemoryStore, id, provider, model string) {
@@ -161,6 +183,63 @@ func TestUpdateSessionExecutionConfigPersistsCompleteConfigAndKeepsAgent(t *test
 	assert.Equal(t, types.CodeAgentRuntimeOpenCode, updated.Metadata.CodeAgentRuntime)
 }
 
+func TestUpdateSessionExecutionConfigRetriesCrashedPrompts(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+	session := newOrgChatSession("user_a")
+	seedParentWithInteractions(t, mem, session, 1)
+	recovery := &configRecoveryStore{Store: mem, resetCount: 1, drained: make(chan struct{})}
+	srv.Store = recovery
+
+	config := &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeOpenCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "anthropic",
+		Model:          "claude-sonnet-4-7",
+	}
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	select {
+	case <-recovery.drained:
+	case <-time.After(time.Second):
+		t.Fatal("crashed prompt queue was not retried")
+	}
+}
+
+func TestUpdateSessionExecutionConfigCanRetryPromptResetWithoutAnotherSwitch(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+	session := newOrgChatSession("user_a")
+	seedParentWithInteractions(t, mem, session, 1)
+	recovery := &configRecoveryStore{Store: mem, resetErr: errors.New("database unavailable"), drained: make(chan struct{})}
+	srv.Store = recovery
+
+	config := &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeOpenCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "anthropic",
+		Model:          "claude-sonnet-4-7",
+	}
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
+	require.Equal(t, http.StatusInternalServerError, rr.Code, rr.Body.String())
+	require.Contains(t, rr.Body.String(), "failed to reset crashed prompts")
+
+	recovery.resetErr = nil
+	recovery.resetCount = 1
+	rr = callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	select {
+	case <-recovery.drained:
+	case <-time.After(time.Second):
+		t.Fatal("crashed prompt queue was not retried")
+	}
+}
+
 func TestUpdateSessionExecutionConfigRestoresWorkingSessionWhenSwitchFails(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
@@ -168,7 +247,8 @@ func TestUpdateSessionExecutionConfigRestoresWorkingSessionWhenSwitchFails(t *te
 	session := newOrgChatSession("user_a")
 	session.Metadata.ZedThreadID = "ctx_working_thread"
 	seedParentWithInteractions(t, mem, session, 1)
-	srv.Store = &failCreateInteractionStore{Store: mem}
+	failingStore := &failCreateInteractionStore{Store: mem}
+	srv.Store = failingStore
 
 	config := &types.CodeAgentExecutionConfig{
 		Runtime:        types.CodeAgentRuntimeOpenCode,
@@ -186,6 +266,7 @@ func TestUpdateSessionExecutionConfigRestoresWorkingSessionWhenSwitchFails(t *te
 	assert.Equal(t, types.CodeAgentRuntimeZedAgent, updated.Metadata.CodeAgentRuntime)
 	assert.Equal(t, types.CodeAgentRuntimeZedAgent.ZedAgentName(), updated.Metadata.ZedAgentName)
 	assert.Equal(t, "ctx_working_thread", updated.Metadata.ZedThreadID)
+	assert.False(t, failingStore.resetCalled, "a failed switch must leave crashed prompts parked")
 }
 
 // A SpecTask session reports its TASK's configuration, not the session row's:

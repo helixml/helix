@@ -10,6 +10,37 @@ import (
 	"gorm.io/datatypes"
 )
 
+func (suite *PostgresStoreTestSuite) TestListInteractionsOrdersByCreationTime() {
+	ctx := context.Background()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user-order-test", Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	old := &types.Interaction{
+		ID: "int_activation_ffff", SessionID: session.ID, UserID: session.Owner,
+		Created: time.Now().Add(-time.Hour), State: types.InteractionStateError,
+	}
+	newer := &types.Interaction{
+		ID: "int_01newer", SessionID: session.ID, UserID: session.Owner,
+		Created: time.Now(), State: types.InteractionStateComplete,
+	}
+	suite.Require().NoError(suite.db.CreateInteractions(ctx, old, newer))
+
+	ascending, _, err := suite.db.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: session.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(ascending, 2)
+	suite.Equal([]string{old.ID, newer.ID}, []string{ascending[0].ID, ascending[1].ID})
+
+	descending, _, err := suite.db.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: session.ID, PerPage: 1, Order: "created DESC, id DESC",
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(descending, 1)
+	suite.Equal(newer.ID, descending[0].ID)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_InteractionQuestionLifecycle() {
 	ctx := context.Background()
 	userID := "user-question-test"

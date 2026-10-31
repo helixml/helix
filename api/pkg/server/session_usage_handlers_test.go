@@ -15,17 +15,15 @@ func TestBuildSessionUsageGroupsCallsIntoTurnsByTime(t *testing.T) {
 		}
 		return v
 	}
-	// Bot sessions: calls carry no interaction id, and turn 1's `created` was
-	// rewritten to turn 2's time — only `scheduled` marks when it started.
 	interactions := []*types.Interaction{
-		{ID: "int_02", Created: at("11:23:29"), Scheduled: at("11:23:29"), Completed: at("11:24:52"), PromptMessage: "code 199143", State: types.InteractionStateComplete},
-		{ID: "int_01", Created: at("11:23:29"), Scheduled: at("11:20:39"), Completed: at("11:21:29"), PromptMessage: "Hi!", State: types.InteractionStateComplete},
+		{ID: "int_01newer", Created: at("11:23:29"), Scheduled: at("11:23:29"), Completed: at("11:24:52"), PromptMessage: "code 199143", State: types.InteractionStateComplete},
+		{ID: "int_activation_ffff", Created: at("11:23:29"), Scheduled: at("11:20:39"), Completed: at("11:21:29"), PromptMessage: "Hi!", State: types.InteractionStateComplete},
 	}
 	calls := []*types.LLMCall{
 		{Created: at("11:23:30"), DurationMs: 6400, TimeToFirstTokenMs: 3000, PromptTokens: 31638, CompletionTokens: 485, CacheReadTokens: 30000, Model: "glm-5.3-flash"},
 		{Created: at("11:20:42"), DurationMs: 3500, TimeToFirstTokenMs: 700, PromptTokens: 641, CompletionTokens: 458, Model: "glm-5.3-flash"},
 		{Created: at("11:21:05"), DurationMs: 5800, TimeToFirstTokenMs: 3700, PromptTokens: 29685, CompletionTokens: 292, CacheReadTokens: 28000, TotalCost: 0.01, Model: "glm-5.3-flash"},
-		{Created: at("11:23:59"), InteractionID: "int_02", DurationMs: 21400, TimeToFirstTokenMs: 3500, PromptTokens: 43263, CompletionTokens: 4198, CacheReadTokens: 40000, Model: "qwen3.8-flash-next"},
+		{Created: at("11:23:59"), InteractionID: "int_01newer", DurationMs: 21400, TimeToFirstTokenMs: 3500, PromptTokens: 43263, CompletionTokens: 4198, CacheReadTokens: 40000, Model: "qwen3.8-flash-next"},
 	}
 	u := buildSessionUsage("ses_1", calls, interactions)
 
@@ -41,7 +39,7 @@ func TestBuildSessionUsageGroupsCallsIntoTurnsByTime(t *testing.T) {
 	if len(u.Summary.Models) != 2 || u.Summary.Models[0] != "glm-5.3-flash" {
 		t.Fatalf("models: %v", u.Summary.Models)
 	}
-	if len(u.Turns) != 2 || u.Turns[0].InteractionID != "int_01" || u.Turns[0].Calls != 2 || u.Turns[1].Calls != 2 {
+	if len(u.Turns) != 2 || u.Turns[0].InteractionID != "int_activation_ffff" || u.Turns[0].Calls != 2 || u.Turns[1].Calls != 2 {
 		t.Fatalf("turns: %+v", u.Turns)
 	}
 	if !u.Turns[0].Started.Equal(at("11:20:39")) || u.Turns[0].CacheHitRatio == nil {
@@ -49,6 +47,18 @@ func TestBuildSessionUsageGroupsCallsIntoTurnsByTime(t *testing.T) {
 	}
 	if !u.Calls[0].Created.Equal(at("11:20:42")) {
 		t.Fatalf("calls not sorted by time: %v", u.Calls[0].Created)
+	}
+}
+
+func TestBuildSessionUsageOrdersEqualStartsByID(t *testing.T) {
+	started := time.Date(2026, 9, 25, 11, 20, 39, 0, time.UTC)
+	u := buildSessionUsage("ses_1", nil, []*types.Interaction{
+		{ID: "int_activation_ffff", Scheduled: started},
+		{ID: "int_01first", Scheduled: started},
+	})
+
+	if len(u.Turns) != 2 || u.Turns[0].InteractionID != "int_01first" || u.Turns[1].InteractionID != "int_activation_ffff" {
+		t.Fatalf("turns: %+v", u.Turns)
 	}
 }
 
