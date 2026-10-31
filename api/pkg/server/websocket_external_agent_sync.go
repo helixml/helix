@@ -1997,7 +1997,7 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 			GenerationID: helixSession.GenerationID,
 			PerPage:      1,
 			State:        types.InteractionStateWaiting,
-			Order:        "id DESC",
+			Order:        "created DESC, id DESC",
 		})
 		if listErr != nil {
 			log.Error().Err(listErr).Str("session_id", helixSessionID).
@@ -2031,7 +2031,7 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				SessionID:    helixSessionID,
 				GenerationID: helixSession.GenerationID,
 				PerPage:      1,
-				Order:        "id DESC",
+				Order:        "created DESC, id DESC",
 			})
 			if listErr != nil {
 				log.Error().Err(listErr).Str("session_id", helixSessionID).
@@ -3245,7 +3245,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			GenerationID: helixSession.GenerationID,
 			PerPage:      1,
 			State:        types.InteractionStateWaiting,
-			Order:        "id DESC",
+			Order:        "created DESC, id DESC",
 		})
 		if err != nil {
 			return fmt.Errorf("failed to list interactions for session %s: %w", helixSessionID, err)
@@ -3756,7 +3756,7 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 			SessionID:    sessionID,
 			GenerationID: session.GenerationID,
 			PerPage:      1,
-			Order:        "id DESC",
+			Order:        "created DESC, id DESC",
 		})
 		if err != nil {
 			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
@@ -3932,7 +3932,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 			SessionID:    sessionID,
 			GenerationID: session.GenerationID,
 			PerPage:      1,
-			Order:        "id DESC",
+			Order:        "created DESC, id DESC",
 		})
 		if recheckErr == nil && len(latestInteractions) > 0 && latestInteractions[0].State == types.InteractionStateWaiting {
 			// Before reporting "busy", check whether this Waiting interaction is

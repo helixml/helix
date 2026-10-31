@@ -80,7 +80,7 @@ func (s *HelixAPIServer) resolveExecutionConfig(
 			SessionID: snapshotSessionID,
 			Page:      0,
 			PerPage:   20,
-			Order:     "created DESC",
+			Order:     "created DESC, id DESC",
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to load interactions: %w", err)
@@ -421,9 +421,19 @@ func (s *HelixAPIServer) applySessionCodeAgentExecutionConfig(
 	); err != nil {
 		return false, false, system.NewHTTPError400(err.Error())
 	}
+	resetCrashedPrompts := func() *system.HTTPError {
+		resetCount, err := s.Store.ResetCrashedPromptsForSession(ctx, session.ID)
+		if err != nil {
+			return system.NewHTTPError500(fmt.Sprintf("failed to reset crashed prompts after saving code-agent config: %v", err))
+		}
+		if resetCount > 0 {
+			go s.processAnyPendingPrompt(context.Background(), session.ID)
+		}
+		return nil
+	}
 	if reflect.DeepEqual(session.Metadata.CodeAgentConfig, config) &&
 		session.Metadata.CodeAgentOverrides == nil {
-		return false, false, nil
+		return false, false, resetCrashedPrompts()
 	}
 
 	live := s.hasRunningAgentContainer(ctx, session.ID)
@@ -464,6 +474,9 @@ func (s *HelixAPIServer) applySessionCodeAgentExecutionConfig(
 	); switchErr != nil {
 		rollback()
 		return false, false, switchErr
+	}
+	if resetErr := resetCrashedPrompts(); resetErr != nil {
+		return true, live, resetErr
 	}
 	return true, live, nil
 }

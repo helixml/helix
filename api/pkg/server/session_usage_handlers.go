@@ -62,14 +62,12 @@ func (s *HelixAPIServer) getSessionUsage(_ http.ResponseWriter, req *http.Reques
 // buildSessionUsage aggregates a session's LLM calls overall and per turn.
 // Calls are matched to turns by interaction id when the call has one; bot and
 // external-agent calls usually don't, so those are matched by time: a turn runs
-// from `scheduled` (its `created` can be rewritten later) to `completed`.
+// from `scheduled` to `completed`.
 func buildSessionUsage(sessionID string, calls []*types.LLMCall, interactions []*types.Interaction) *types.SessionUsage {
 	sort.Slice(calls, func(a, b int) bool { return calls[a].Created.Before(calls[b].Created) })
-	sort.Slice(interactions, func(a, b int) bool { return interactions[a].ID < interactions[b].ID })
 
 	usage := &types.SessionUsage{SessionID: sessionID, Calls: make([]types.SessionUsageCall, 0, len(calls))}
 	turns := make([]types.SessionUsageTurn, len(interactions))
-	byID := make(map[string]int, len(interactions))
 	for i, in := range interactions {
 		started := in.Scheduled
 		if started.IsZero() {
@@ -82,7 +80,16 @@ func buildSessionUsage(sessionID string, calls []*types.LLMCall, interactions []
 			Completed:     in.Completed,
 			State:         string(in.State),
 		}
-		byID[in.ID] = i
+	}
+	sort.Slice(turns, func(a, b int) bool {
+		if turns[a].Started.Equal(turns[b].Started) {
+			return turns[a].InteractionID < turns[b].InteractionID
+		}
+		return turns[a].Started.Before(turns[b].Started)
+	})
+	byID := make(map[string]int, len(turns))
+	for i := range turns {
+		byID[turns[i].InteractionID] = i
 	}
 	turnFor := func(c *types.LLMCall) int {
 		if i, ok := byID[c.InteractionID]; ok {

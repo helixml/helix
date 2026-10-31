@@ -437,7 +437,7 @@ func (s *SpecTasks) ListAgentMessages(ctx context.Context, orgID string, workerI
 		SessionID:    task.PlanningSessionID,
 		GenerationID: -1,
 		PerPage:      limit,
-		Order:        "id DESC",
+		Order:        "created DESC, id DESC",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list spec task agent messages: %w", err)

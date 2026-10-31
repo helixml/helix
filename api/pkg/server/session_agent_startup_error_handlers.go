@@ -72,7 +72,7 @@ func (apiServer *HelixAPIServer) reportAgentStartupError(_ http.ResponseWriter, 
 		SessionID:    sessionID,
 		GenerationID: session.GenerationID,
 		PerPage:      1,
-		Order:        "created DESC",
+		Order:        "created DESC, id DESC",
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load latest interaction: %v", err))

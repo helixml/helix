@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -9,6 +10,120 @@ import (
 	"github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
 )
+
+func (suite *PostgresStoreTestSuite) TestListInteractionsOrdersByCreationTime() {
+	ctx := context.Background()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user-order-test", Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	old := &types.Interaction{
+		ID: "int_activation_ffff", SessionID: session.ID, UserID: session.Owner,
+		Created: time.Now().Add(-time.Hour), State: types.InteractionStateError,
+	}
+	newer := &types.Interaction{
+		ID: "int_01newer", SessionID: session.ID, UserID: session.Owner,
+		Created: time.Now(), State: types.InteractionStateComplete,
+	}
+	suite.Require().NoError(suite.db.CreateInteractions(ctx, old, newer))
+
+	ascending, _, err := suite.db.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: session.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(ascending, 2)
+	suite.Equal([]string{old.ID, newer.ID}, []string{ascending[0].ID, ascending[1].ID})
+
+	descending, _, err := suite.db.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: session.ID, PerPage: 1, Order: "created DESC, id DESC",
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(descending, 1)
+	suite.Equal(newer.ID, descending[0].ID)
+}
+
+func (suite *PostgresStoreTestSuite) TestRestoreInteractionCreatedFromScheduledMigration() {
+	ctx := context.Background()
+	base := time.Date(2026, 10, 30, 13, 0, 0, 0, time.UTC)
+	sessionID := system.GenerateSessionID()
+	otherSessionID := system.GenerateSessionID()
+	for _, id := range []string{sessionID, otherSessionID} {
+		_, err := suite.db.CreateSession(ctx, types.Session{
+			ID: id, Owner: "user-migration", Created: base, Updated: base,
+		})
+		suite.Require().NoError(err)
+	}
+	suite.T().Cleanup(func() {
+		suite.db.gdb.Exec("DELETE FROM interactions WHERE session_id IN ?", []string{sessionID, otherSessionID})
+		_, _ = suite.db.DeleteSession(ctx, sessionID)
+		_, _ = suite.db.DeleteSession(ctx, otherSessionID)
+	})
+	ids := []string{
+		"int_activation_" + system.GenerateUUID(),
+		"int_01waiting_" + system.GenerateUUID(),
+		"int_null_scheduled_" + system.GenerateUUID(),
+		"int_correct_created_" + system.GenerateUUID(),
+	}
+	interactions := []*types.Interaction{
+		{
+			ID: ids[0], SessionID: sessionID, UserID: "user-migration",
+			Created: base.Add(2 * time.Hour), Scheduled: base, State: types.InteractionStateError,
+		},
+		{
+			ID: ids[1], SessionID: sessionID, UserID: "user-migration",
+			Created: base.Add(time.Hour), Scheduled: base.Add(time.Hour), State: types.InteractionStateWaiting,
+		},
+		{
+			ID: ids[2], SessionID: otherSessionID, UserID: "user-migration",
+			Created: base.Add(3 * time.Hour), State: types.InteractionStateComplete,
+		},
+		{
+			ID: ids[3], SessionID: otherSessionID, UserID: "user-migration",
+			Created: base, Scheduled: base.Add(time.Hour), State: types.InteractionStateComplete,
+		},
+	}
+	suite.Require().NoError(suite.db.CreateInteractions(ctx, interactions...))
+	suite.Require().NoError(suite.db.gdb.Model(&types.Interaction{}).
+		Where("id = ?", ids[2]).UpdateColumn("scheduled", nil).Error)
+
+	migration, err := fs.ReadFile("migrations/0012_restore_interaction_created_from_scheduled.up.sql")
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.gdb.WithContext(ctx).Exec(string(migration)).Error)
+	suite.Require().NoError(suite.db.gdb.WithContext(ctx).Exec(string(migration)).Error)
+
+	ascending, _, err := suite.db.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: sessionID})
+	suite.Require().NoError(err)
+	suite.Require().Len(ascending, 2)
+	suite.Equal([]string{ids[0], ids[1]}, []string{ascending[0].ID, ascending[1].ID})
+	suite.True(base.Equal(ascending[0].Created))
+
+	latest, _, err := suite.db.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: sessionID, PerPage: 1, Order: "created DESC, id DESC",
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(latest, 1)
+	suite.Equal(ids[1], latest[0].ID)
+	suite.Equal(types.InteractionStateWaiting, latest[0].State)
+
+	for _, expected := range interactions[2:] {
+		got, err := suite.db.GetInteraction(ctx, expected.ID)
+		suite.Require().NoError(err)
+		suite.True(expected.Created.Equal(got.Created))
+	}
+}
+
+func (suite *PostgresStoreTestSuite) TestRestoreInteractionCreatedFromScheduledMigrationWithoutTable() {
+	migration, err := fs.ReadFile("migrations/0012_restore_interaction_created_from_scheduled.up.sql")
+	suite.Require().NoError(err)
+
+	schema := "migration_" + strings.ReplaceAll(system.GenerateUUID(), "-", "")
+	tx := suite.db.gdb.Begin()
+	suite.Require().NoError(tx.Error)
+	defer tx.Rollback()
+	suite.Require().NoError(tx.Exec("CREATE SCHEMA " + schema).Error)
+	suite.Require().NoError(tx.Exec("SET LOCAL search_path TO " + schema).Error)
+	suite.Require().NoError(tx.Exec(string(migration)).Error)
+}
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_InteractionQuestionLifecycle() {
 	ctx := context.Background()

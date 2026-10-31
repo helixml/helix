@@ -112,7 +112,7 @@ func (s *PostgresStore) CreateInteractions(ctx context.Context, interactions ...
 			interactions[idx].ID = system.GenerateInteractionID()
 		}
 
-		if idx == 0 {
+		if interaction.Created.IsZero() {
 			interactions[idx].Created = time.Now()
 		}
 	}
@@ -470,7 +470,7 @@ func (s *PostgresStore) GetInteractionByExternalAgentRequestID(ctx context.Conte
 	var interaction types.Interaction
 	err := s.gdb.WithContext(ctx).
 		Where("external_agent_request_id = ?", requestID).
-		Order("created DESC").
+		Order("created DESC, id DESC").
 		First(&interaction).Error
 	if err != nil {
 		return nil, err
@@ -729,7 +729,7 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 	}
 
 	if query.Order == "" {
-		query.Order = "id ASC"
+		query.Order = "created ASC, id ASC"
 	}
 
 	if query.Feedback != "" {
@@ -751,7 +751,7 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 	}
 
 	var interactions []*types.Interaction
-	// Oldest to newest
+	// Use the requested chronological order.
 	err = q.Order(query.Order).Offset(offset).Limit(query.PerPage).Find(&interactions).Error
 	if err != nil {
 		return nil, 0, err
