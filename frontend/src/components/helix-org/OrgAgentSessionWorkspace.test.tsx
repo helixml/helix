@@ -110,6 +110,51 @@ describe('OrgAgentSessionWorkspace', () => {
     )
   })
 
+  it('leaves insufficient-balance errors to the resolved session chat on desktop and mobile', () => {
+    for (const isBigScreen of [true, false]) {
+      mocks.isBigScreen = isBigScreen
+      localStorage.setItem('helix.orgAgentSession.view.acme', 'chat')
+      const view = render(
+        <OrgAgentSessionWorkspace
+          sessionId="session-error"
+          organizationId="acme"
+          bot={{
+            ...runningBot,
+            activation_error: 'agent startup failed: agent turn aborted: insufficient balance',
+          } as any}
+        >
+          <div>Friendly session error</div>
+        </OrgAgentSessionWorkspace>,
+      )
+
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(screen.getByText('Friendly session error')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', {
+        name: isBigScreen ? 'Collapse chat panel' : 'Desktop view',
+      }))
+      expect(screen.getByRole('alert')).toHaveTextContent('insufficient balance')
+      view.unmount()
+    }
+  })
+
+  it('keeps an insufficient-balance activation error before a session exists', () => {
+    render(
+      <OrgAgentSessionWorkspace
+        sessionId=""
+        organizationId="acme"
+        bot={{
+          ...runningBot,
+          activation_error: 'agent startup failed: agent turn aborted: insufficient balance',
+        } as any}
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('insufficient balance')
+  })
+
   it('collapses and restores both sides of the desktop split', () => {
     render(
       <OrgAgentSessionWorkspace sessionId="session-panels" organizationId="acme">

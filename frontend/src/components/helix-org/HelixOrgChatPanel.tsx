@@ -412,7 +412,8 @@ const HelixOrgChatPanel: FC = () => {
           overflow: 'hidden',
         }}
       >
-        {botDetail?.bot?.activation_error && (
+        {botDetail?.bot?.activation_error
+          && (!chatSessionId || view !== 'chat' || !/insufficient balance/i.test(botDetail.bot.activation_error)) && (
           <Alert severity="error" role="alert" sx={{ flexShrink: 0 }}>
             {botDetail.bot.activation_error}
           </Alert>

@@ -397,7 +397,10 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     />
   ) : null
 
-  const activationError = bot?.activation_error ? (
+  const activationError = bot?.activation_error
+    && (!sessionId
+      || !/insufficient balance/i.test(bot.activation_error)
+      || (isBigScreen ? chatCollapsed : view !== 'chat')) ? (
     <Alert severity="error" role="alert" sx={{ flexShrink: 0 }}>
       {bot.activation_error}
     </Alert>
