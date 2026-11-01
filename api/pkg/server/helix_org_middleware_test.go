@@ -551,6 +551,47 @@ func TestEnsureBootstrapRetriesAfterServiceKeyFailure(t *testing.T) {
 	}
 }
 
+func TestWithHelixOrgScopeStaysUsableAfterBotRepairFailure(t *testing.T) {
+	t.Parallel()
+	orgStore := orgmemory.New()
+	configs := configregistry.New(orgStore.Configs)
+	configs.Register(configregistry.Spec{Key: "helix.api_key", Type: configregistry.TypeString})
+	scope := newHelixOrgScope(configs, orgStore, &bootstrapHelixStore{}, nil, nil, nil)
+	repairAttempts := 0
+	bootstrapAttempts := 0
+	scope.botRepair = func(context.Context, string, string) error {
+		repairAttempts++
+		return errors.New("get app config: not found")
+	}
+	scope.botBootstrap = func(context.Context, string) error {
+		bootstrapAttempts++
+		return nil
+	}
+	handled := 0
+	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{role: types.OrganizationRoleOwner}}
+	handler := server.withHelixOrgScope(scope, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handled++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	for range 2 {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/orgs/acme/bots", nil)
+		req = mux.SetURLVars(req, map[string]string{"org": "acme"})
+		req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1"}))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+		}
+	}
+	if repairAttempts != 2 || bootstrapAttempts != 2 || handled != 2 {
+		t.Fatalf("attempts = repair %d, bootstrap %d, handled %d; want 2 each", repairAttempts, bootstrapAttempts, handled)
+	}
+	if scope.bootstrapped["org_acme"] {
+		t.Fatal("failed Bot repair must remain retryable")
+	}
+}
+
 func TestEnsureBootstrapStaysUsableAfterBotBootstrapFailure(t *testing.T) {
 	t.Parallel()
 	orgStore := orgmemory.New()
