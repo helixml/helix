@@ -5091,6 +5091,12 @@ export interface TypesMoveRepositoryPreviewItem {
   new_name?: string;
 }
 
+export interface TypesNativeDisplay {
+  height?: number;
+  width?: number;
+  zoom_level?: number;
+}
+
 export interface TypesOAuthConnection {
   /** OAuth token fields */
   access_token?: string;
@@ -6540,9 +6546,9 @@ export interface TypesSandboxCacheState {
 }
 
 export interface TypesSandboxDisplay {
-  /** "1080p" (default), "4k", or "5k" */
+  /** "1080p", "4k", "5k" or "native"; empty => DefaultSandboxResolution() */
   resolution?: string;
-  /** GNOME zoom percentage; 0 => 100 for 1080p, 200 for 4k/5k */
+  /** GNOME zoom percentage; 0 => the preset's default */
   zoom_level?: number;
 }
 
@@ -6847,6 +6853,12 @@ export interface TypesServerConfigForFrontend {
   max_concurrent_desktops?: number;
   /** Minimum wallet balance required for inference */
   minimum_inference_balance?: number;
+  /**
+   * NativeDisplay is the host's own display (Helix for Mac), offered as the
+   * "native" sandbox resolution and used when a desktop has none set. Nil
+   * where the host reported no display; the UI then defaults to 1080p.
+   */
+  native_display?: TypesNativeDisplay;
   onboarding_helix_model?: string;
   onboarding_helix_model_effort?: string;
   /**

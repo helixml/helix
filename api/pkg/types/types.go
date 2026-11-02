@@ -718,6 +718,10 @@ func (c *ExternalAgentConfig) Validate() error {
 // GetEffectiveResolution returns the display dimensions based on Resolution preset
 // Falls back to DisplayWidth/DisplayHeight if set, otherwise uses defaults
 func (c *ExternalAgentConfig) GetEffectiveResolution() (width, height int) {
+	if c.Resolution == "" && c.DisplayWidth == 0 && c.DisplayHeight == 0 {
+		w, h, _ := SandboxResolutionSize(DefaultSandboxResolution())
+		return w, h
+	}
 	if w, h, ok := SandboxResolutionSize(c.Resolution); ok {
 		return w, h
 	}
@@ -743,6 +747,9 @@ func (c *ExternalAgentConfig) GetEffectiveDesktopType() string {
 func (c *ExternalAgentConfig) GetEffectiveZoomLevel() int {
 	if c.ZoomLevel > 0 {
 		return c.ZoomLevel
+	}
+	if c.Resolution == "" && c.DisplayWidth == 0 && c.DisplayHeight == 0 {
+		return SandboxResolutionDefaultZoom(DefaultSandboxResolution())
 	}
 	return SandboxResolutionDefaultZoom(c.Resolution)
 }
@@ -1279,6 +1286,10 @@ type ServerConfigForFrontend struct {
 	// the default gets a task selector that marks the wrong rung "Default" while
 	// containers come up at the configured size.
 	DefaultSpecTaskSandbox SandboxResourceOverrides `json:"default_spec_task_sandbox"`
+	// NativeDisplay is the host's own display (Helix for Mac), offered as the
+	// "native" sandbox resolution and used when a desktop has none set. Nil
+	// where the host reported no display; the UI then defaults to 1080p.
+	NativeDisplay *NativeDisplay `json:"native_display,omitempty"`
 	// DefaultChatSystemPrompt is the system prompt the platform applies to
 	// direct model chats when the user has not customised one. Surfaced to
 	// the frontend so the chat-settings page can prefill the textbox.
@@ -2243,7 +2254,7 @@ func (z *DesktopAgent) GetEffectiveResolution() (width, height, refreshRate int)
 	} else if z.DisplayWidth > 0 && z.DisplayHeight > 0 {
 		width, height = z.DisplayWidth, z.DisplayHeight
 	} else {
-		width, height = 1920, 1080
+		width, height, _ = SandboxResolutionSize(DefaultSandboxResolution())
 	}
 
 	// Get refresh rate (default to 60Hz)

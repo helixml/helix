@@ -102,6 +102,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
 		Edition:                                apiServer.Cfg.Edition,
 		DefaultSpecTaskSandbox:                 *types.DefaultSpecTaskSandboxResources(),
+		NativeDisplay:                          types.GetNativeDisplay(),
 		DefaultChatSystemPrompt:                types.DefaultChatSystemPrompt,
 		DevSubdomain:                           apiServer.Cfg.WebServer.DevSubdomain,
 		PreviewURLHTTPS:                        apiServer.Cfg.WebServer.PreviewURLHTTPS,

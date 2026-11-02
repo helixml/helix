@@ -223,6 +223,13 @@ type Sandboxes struct {
 	// operator with a bigger or smaller box can move them without a rebuild.
 	DefaultSpecTaskVCPUs    int `envconfig:"HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS" default:"12"`
 	DefaultSpecTaskMemoryMB int `envconfig:"HELIX_SPEC_TASK_SANDBOX_DEFAULT_MEMORY_MB" default:"24576"`
+
+	// NativeDisplay* describe the host's own screen. Helix for Mac sets them from
+	// the Mac's main display so desktops default to its width and zoom (16:9);
+	// unset elsewhere, which keeps the 1080p default.
+	NativeDisplayWidth  int `envconfig:"HELIX_NATIVE_DISPLAY_WIDTH"`
+	NativeDisplayHeight int `envconfig:"HELIX_NATIVE_DISPLAY_HEIGHT"`
+	NativeDisplayZoom   int `envconfig:"HELIX_NATIVE_DISPLAY_ZOOM"`
 }
 
 func DesktopRootlessForProject(global bool, projectIDs []string, projectID string) bool {
@@ -524,6 +531,14 @@ func LoadServerConfig() (ServerConfig, error) {
 	}); err != nil {
 		return ServerConfig{}, fmt.Errorf(
 			"HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS/_MEMORY_MB: %w", err)
+	}
+	// Same reasoning: read wherever a desktop's size is resolved.
+	if err := types.SetNativeDisplay(types.NativeDisplay{
+		Width:     cfg.Sandboxes.NativeDisplayWidth,
+		Height:    cfg.Sandboxes.NativeDisplayHeight,
+		ZoomLevel: cfg.Sandboxes.NativeDisplayZoom,
+	}); err != nil {
+		return ServerConfig{}, fmt.Errorf("HELIX_NATIVE_DISPLAY_WIDTH/_HEIGHT/_ZOOM: %w", err)
 	}
 	return cfg, nil
 }

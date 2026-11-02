@@ -71,6 +71,7 @@ import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oaut
 import { readResponseError } from "../../utils/responseError";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import { deriveDisplaySettings, sandboxResolutionLabel } from "../../services/externalAgentDisplay";
+import { useNativeDisplay } from "../../hooks/useNativeDisplay";
 import { useStreaming } from "../../contexts/streaming";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import {
@@ -524,10 +525,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     );
   }, [updateExecutionConfig, snackbar]);
 
+  const nativeDisplay = useNativeDisplay();
   const displayResolution = task?.sandbox_display?.resolution;
   const displaySettings = useMemo(
-    () => deriveDisplaySettings({ resolution: displayResolution }),
-    [displayResolution],
+    () => deriveDisplaySettings({ resolution: displayResolution }, nativeDisplay),
+    [displayResolution, nativeDisplay],
   );
 
   // Check the task-owned execution config for Claude subscription credentials.
@@ -1145,11 +1147,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
     try {
       await saveSandboxDisplay(sandboxDisplay);
-      snackbar.success(`Display set to ${sandboxResolutionLabel(sandboxDisplay)}; applies when the desktop starts`);
+      snackbar.success(`Display set to ${sandboxResolutionLabel(sandboxDisplay, nativeDisplay)}; applies when the desktop starts`);
     } catch (err: any) {
       snackbar.error(err?.message || "Failed to update display");
     }
-  }, [isDesktopRunning, saveSandboxDisplay, snackbar]);
+  }, [isDesktopRunning, saveSandboxDisplay, snackbar, nativeDisplay]);
   const applyPendingSandboxDisplay = useCallback(async (restartNow: boolean) => {
     if (!pendingSandboxDisplay) return;
     const sandboxDisplay = pendingSandboxDisplay;
@@ -1163,9 +1165,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (restartNow) {
       await handleRestartSession();
     } else {
-      snackbar.success(`Display set to ${sandboxResolutionLabel(sandboxDisplay)}; applies on the next desktop restart`);
+      snackbar.success(`Display set to ${sandboxResolutionLabel(sandboxDisplay, nativeDisplay)}; applies on the next desktop restart`);
     }
-  }, [pendingSandboxDisplay, saveSandboxDisplay, handleRestartSession, snackbar]);
+  }, [pendingSandboxDisplay, saveSandboxDisplay, handleRestartSession, snackbar, nativeDisplay]);
 
   // Handle session stop
   const handleStopSession = useCallback(async () => {
@@ -3438,7 +3440,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         onClose={() => setPendingSandboxDisplay(null)}
       >
         <DialogTitle>
-          Restart the desktop to switch to {sandboxResolutionLabel(pendingSandboxDisplay || undefined)}?
+          Restart the desktop to switch to {sandboxResolutionLabel(pendingSandboxDisplay || undefined, nativeDisplay)}?
         </DialogTitle>
         <DialogContent>
           <DialogContentText>
