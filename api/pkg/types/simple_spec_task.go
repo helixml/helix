@@ -90,6 +90,10 @@ type StartPlanningOptions struct {
 	KeyboardLayout string `json:"keyboard_layout,omitempty"`
 	// Timezone is the IANA timezone (e.g., "America/New_York", "Europe/Paris")
 	Timezone string `json:"timezone,omitempty"`
+	// Languages is the user's browser language preference list (navigator.languages),
+	// comma-separated BCP 47 tags (e.g., "en-GB,en"). The desktop's browser sends these
+	// as Accept-Language so websites don't pick the language of the runner's location.
+	Languages string `json:"languages,omitempty"`
 }
 
 // Compile-time fallback for the spec task sandbox size. Config overrides it at

@@ -22265,6 +22265,12 @@ const docTemplate = `{
                         "description": "IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection",
                         "name": "timezone",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated browser languages (e.g., 'en-GB,en') - sets the desktop browser's Accept-Language",
+                        "name": "languages",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -42178,6 +42184,10 @@ const docTemplate = `{
             "properties": {
                 "keyboard_layout": {
                     "description": "KeyboardLayout is the XKB keyboard layout code (e.g., \"us\", \"fr\", \"de\")\nUsed to configure the desktop container's keyboard layout from browser detection",
+                    "type": "string"
+                },
+                "languages": {
+                    "description": "Languages is the user's browser language preference list (navigator.languages),\ncomma-separated BCP 47 tags (e.g., \"en-GB,en\"). The desktop's browser sends these\nas Accept-Language so websites don't pick the language of the runner's location.",
                     "type": "string"
                 },
                 "timezone": {

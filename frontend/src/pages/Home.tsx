@@ -278,8 +278,8 @@ const Home: FC = () => {
       }
 
       try {
-        const { keyboardLayout, timezone } = getBrowserLocale()
-        await startTask.mutateAsync({ taskId, keyboard: keyboardLayout, timezone })
+        const { keyboardLayout, timezone, languages } = getBrowserLocale()
+        await startTask.mutateAsync({ taskId, keyboard: keyboardLayout, timezone, languages })
       } catch (error) {
         snackbar.error(errorMessage(error, 'Task created, but it could not be started'))
         account.orgNavigate('chat-task', { id: selectedProjectId, taskId })

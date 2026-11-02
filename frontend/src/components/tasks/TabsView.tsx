@@ -839,10 +839,11 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
 
     setIsActioning(true);
     try {
-      const { keyboardLayout, timezone } = getBrowserLocale();
+      const { keyboardLayout, timezone, languages } = getBrowserLocale();
       const queryParams = new URLSearchParams();
       if (keyboardLayout) queryParams.set("keyboard", keyboardLayout);
       if (timezone) queryParams.set("timezone", timezone);
+      if (languages) queryParams.set("languages", languages);
       const queryString = queryParams.toString();
       const url = `/api/v1/spec-tasks/${activeTask.id}/start-planning${queryString ? `?${queryString}` : ""}`;
 

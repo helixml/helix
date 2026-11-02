@@ -1253,6 +1253,14 @@ func buildEnvWithLocale(userAPIKey string, opts types.StartPlanningOptions) []st
 		log.Debug().Str("timezone", opts.Timezone).Msg("Adding timezone to container env")
 	}
 
+	// Add browser languages so the desktop browser sends the user's Accept-Language
+	// instead of whatever websites infer from the runner's IP address.
+	// Sanitized again here because PlanningOptions is persisted on the task.
+	if languages := types.SanitizeBrowserLanguages(opts.Languages); languages != "" {
+		env = append(env, fmt.Sprintf("HELIX_BROWSER_LANGUAGES=%s", languages))
+		log.Debug().Str("languages", languages).Msg("Adding browser languages to container env")
+	}
+
 	return env
 }
 

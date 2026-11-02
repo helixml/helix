@@ -8363,6 +8363,12 @@ export interface TypesStartPlanningOptions {
    * Used to configure the desktop container's keyboard layout from browser detection
    */
   keyboard_layout?: string;
+  /**
+   * Languages is the user's browser language preference list (navigator.languages),
+   * comma-separated BCP 47 tags (e.g., "en-GB,en"). The desktop's browser sends these
+   * as Accept-Language so websites don't pick the language of the runner's location.
+   */
+  languages?: string;
   /** Timezone is the IANA timezone (e.g., "America/New_York", "Europe/Paris") */
   timezone?: string;
 }
@@ -19883,6 +19889,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         keyboard?: string;
         /** IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection */
         timezone?: string;
+        /** Comma-separated browser languages (e.g., 'en-GB,en') - sets the desktop browser's Accept-Language */
+        languages?: string;
       },
       params: RequestParams = {},
     ) =>

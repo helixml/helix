@@ -1165,6 +1165,7 @@ func parseIntQuery(value string, defaultValue int) int {
 // @Param taskId path string true "SpecTask ID"
 // @Param keyboard query string false "XKB keyboard layout code (e.g., 'us', 'fr', 'de') - for testing browser locale detection"
 // @Param timezone query string false "IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection"
+// @Param languages query string false "Comma-separated browser languages (e.g., 'en-GB,en') - sets the desktop browser's Accept-Language"
 // @Success 200 {object} types.SpecTask
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
@@ -1194,6 +1195,7 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	opts := types.StartPlanningOptions{
 		KeyboardLayout: r.URL.Query().Get("keyboard"),
 		Timezone:       r.URL.Query().Get("timezone"),
+		Languages:      types.SanitizeBrowserLanguages(r.URL.Query().Get("languages")),
 	}
 
 	// Get the task

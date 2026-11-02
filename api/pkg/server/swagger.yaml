@@ -13167,6 +13167,12 @@ definitions:
           KeyboardLayout is the XKB keyboard layout code (e.g., "us", "fr", "de")
           Used to configure the desktop container's keyboard layout from browser detection
         type: string
+      languages:
+        description: |-
+          Languages is the user's browser language preference list (navigator.languages),
+          comma-separated BCP 47 tags (e.g., "en-GB,en"). The desktop's browser sends these
+          as Accept-Language so websites don't pick the language of the runner's location.
+        type: string
       timezone:
         description: Timezone is the IANA timezone (e.g., "America/New_York", "Europe/Paris")
         type: string
@@ -29356,6 +29362,11 @@ paths:
           detection
         in: query
         name: timezone
+        type: string
+      - description: Comma-separated browser languages (e.g., 'en-GB,en') - sets the
+          desktop browser's Accept-Language
+        in: query
+        name: languages
         type: string
       produces:
       - application/json
