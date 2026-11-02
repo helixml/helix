@@ -71,9 +71,10 @@ type SessionReplay interface {
 type ResilientProxy struct {
 	// Configuration
 	sessionID   string
-	dialFunc    DialFunc      // Function to dial server (via connman)
-	upgradeFunc UpgradeFunc   // Function to upgrade connection to WebSocket
-	replay      SessionReplay // Optional per-connection state to re-send after reconnect
+	dialFunc    DialFunc       // Function to dial server (via connman)
+	upgradeFunc UpgradeFunc    // Function to upgrade connection to WebSocket
+	replay      SessionReplay  // Optional per-connection state to re-send after reconnect
+	activity    ClientObserver // Optional observer of client bytes (e.g. InputActivity)
 	bufferSize  int
 
 	// Connections
@@ -115,8 +116,17 @@ type ResilientProxyConfig struct {
 	UpgradeFunc UpgradeFunc
 	// Replay re-sends per-connection state the client established on the original
 	// socket (the desktop stream's init frame). Nil disables replay.
-	Replay     SessionReplay
+	Replay SessionReplay
+	// Activity sees every byte the client sends (e.g. InputActivity). Nil
+	// disables it.
+	Activity   ClientObserver
 	BufferSize int // Size of each direction's buffer (default 512KB)
+}
+
+// ClientObserver is handed the client's bytes, in order, before they are
+// forwarded.
+type ClientObserver interface {
+	Observe(b []byte)
 }
 
 // NewResilientProxy creates a new resilient proxy
@@ -133,6 +143,7 @@ func NewResilientProxy(cfg ResilientProxyConfig) *ResilientProxy {
 		dialFunc:      cfg.DialFunc,
 		upgradeFunc:   cfg.UpgradeFunc,
 		replay:        cfg.Replay,
+		activity:      cfg.Activity,
 		bufferSize:    bufSize,
 		inputBuffer:   make([]byte, bufSize),
 		outputBuffer:  make([]byte, bufSize),
@@ -265,6 +276,9 @@ func (p *ResilientProxy) copyClientToServer(ctx context.Context) error {
 		// regardless of which path the data takes.
 		if p.replay != nil {
 			p.replay.Observe(buf[:n])
+		}
+		if p.activity != nil {
+			p.activity.Observe(buf[:n])
 		}
 
 		// If reconnecting, buffer the data and wait
