@@ -219,24 +219,80 @@ func SpecTaskSandboxPresetList() string {
 	return strings.Join(rungs, ", ")
 }
 
-// Sandbox display resolution presets. Empty resolves to 1080p.
+// Sandbox display resolution presets. Empty resolves to native where the host
+// reported its display (Helix for Mac), 1080p otherwise.
 const (
-	SandboxResolution1080p = "1080p"
-	SandboxResolution4K    = "4k"
-	SandboxResolution5K    = "5k"
+	SandboxResolution1080p  = "1080p"
+	SandboxResolution4K     = "4k"
+	SandboxResolution5K     = "5k"
+	SandboxResolutionNative = "native"
 )
 
 // SandboxDisplay is the virtual desktop resolution for a SpecTask's sandbox.
-// Nil or empty resolves to 1080p at 100% zoom. The size is fixed when the
-// desktop container starts, so changes apply on the next start.
+// Nil or empty resolves to DefaultSandboxResolution(). The size is fixed when
+// the desktop container starts, so changes apply on the next start.
 type SandboxDisplay struct {
-	Resolution string `json:"resolution,omitempty"` // "1080p" (default), "4k", or "5k"
-	ZoomLevel  int    `json:"zoom_level,omitempty"` // GNOME zoom percentage; 0 => 100 for 1080p, 200 for 4k/5k
+	Resolution string `json:"resolution,omitempty"` // "1080p", "4k", "5k" or "native"; empty => DefaultSandboxResolution()
+	ZoomLevel  int    `json:"zoom_level,omitempty"` // GNOME zoom percentage; 0 => the preset's default
+}
+
+// NativeDisplay is the "native" resolution preset: a 16:9 desktop as wide, in
+// pixels, as the host's own screen, at the screen's scale. Helix for Mac
+// measures the Mac's main display and passes it to the API
+// (HELIX_NATIVE_DISPLAY_*), so desktops look like the laptop they run on.
+type NativeDisplay struct {
+	Width     int `json:"width"`
+	Height    int `json:"height"`
+	ZoomLevel int `json:"zoom_level"`
+}
+
+// nativeDisplay holds the host's display, or nil where none was reported.
+// Set once at startup by config.LoadServerConfig.
+var nativeDisplay atomic.Pointer[NativeDisplay]
+
+// SetNativeDisplay installs the host's display for the "native" preset and as
+// the default resolution. A zero width clears it.
+func SetNativeDisplay(d NativeDisplay) error {
+	if d.Width == 0 && d.Height == 0 {
+		nativeDisplay.Store(nil)
+		return nil
+	}
+	if d.Width < 640 || d.Height < 360 || d.Width > 5120 || d.Height > 2880 {
+		return fmt.Errorf("native display %dx%d is outside 640x360..5120x2880", d.Width, d.Height)
+	}
+	if d.ZoomLevel < 100 || d.ZoomLevel > 300 {
+		return fmt.Errorf("native display zoom_level %d must be between 100 and 300", d.ZoomLevel)
+	}
+	nativeDisplay.Store(&d)
+	return nil
+}
+
+// GetNativeDisplay returns the host's display, or nil if none was reported.
+func GetNativeDisplay() *NativeDisplay {
+	if d := nativeDisplay.Load(); d != nil {
+		native := *d
+		return &native
+	}
+	return nil
+}
+
+// DefaultSandboxResolution is the preset a desktop gets when none is chosen:
+// native where the host reported its display, 1080p otherwise.
+func DefaultSandboxResolution() string {
+	if nativeDisplay.Load() != nil {
+		return SandboxResolutionNative
+	}
+	return SandboxResolution1080p
 }
 
 // SandboxResolutionSize returns the pixel size of a resolution preset.
 func SandboxResolutionSize(resolution string) (width, height int, ok bool) {
 	switch resolution {
+	case SandboxResolutionNative:
+		if d := nativeDisplay.Load(); d != nil {
+			return d.Width, d.Height, true
+		}
+		return 0, 0, false
 	case SandboxResolution5K:
 		return 5120, 2880, true
 	case SandboxResolution4K:
@@ -253,6 +309,10 @@ func SandboxResolutionDefaultZoom(resolution string) int {
 	switch resolution {
 	case SandboxResolution5K, SandboxResolution4K:
 		return 200
+	case SandboxResolutionNative:
+		if d := nativeDisplay.Load(); d != nil {
+			return d.ZoomLevel
+		}
 	}
 	return 100
 }
@@ -263,7 +323,10 @@ func (d *SandboxDisplay) Validate() error {
 	}
 	if d.Resolution != "" {
 		if _, _, ok := SandboxResolutionSize(d.Resolution); !ok {
-			return fmt.Errorf("invalid sandbox display resolution %q: must be 1080p, 4k or 5k", d.Resolution)
+			if d.Resolution == SandboxResolutionNative {
+				return fmt.Errorf("sandbox display resolution %q is only available where the host reports its display (Helix for Mac)", d.Resolution)
+			}
+			return fmt.Errorf("invalid sandbox display resolution %q: must be 1080p, 4k, 5k or native", d.Resolution)
 		}
 	}
 	if d.ZoomLevel != 0 && (d.ZoomLevel < 100 || d.ZoomLevel > 300) {
@@ -272,10 +335,14 @@ func (d *SandboxDisplay) Validate() error {
 	return nil
 }
 
-// EffectiveResolution returns the preset name, never empty.
+// EffectiveResolution returns the preset name, never empty. A "native"
+// setting falls back to the default if the host no longer reports a display.
 func (d *SandboxDisplay) EffectiveResolution() string {
 	if d == nil || d.Resolution == "" {
-		return SandboxResolution1080p
+		return DefaultSandboxResolution()
+	}
+	if _, _, ok := SandboxResolutionSize(d.Resolution); !ok {
+		return DefaultSandboxResolution()
 	}
 	return d.Resolution
 }

@@ -35361,6 +35361,20 @@ const docTemplate = `{
                 }
             }
         },
+        "types.NativeDisplay": {
+            "type": "object",
+            "properties": {
+                "height": {
+                    "type": "integer"
+                },
+                "width": {
+                    "type": "integer"
+                },
+                "zoom_level": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.OAuthConnection": {
             "type": "object",
             "properties": {
@@ -38596,11 +38610,11 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "resolution": {
-                    "description": "\"1080p\" (default), \"4k\", or \"5k\"",
+                    "description": "\"1080p\", \"4k\", \"5k\" or \"native\"; empty =\u003e DefaultSandboxResolution()",
                     "type": "string"
                 },
                 "zoom_level": {
-                    "description": "GNOME zoom percentage; 0 =\u003e 100 for 1080p, 200 for 4k/5k",
+                    "description": "GNOME zoom percentage; 0 =\u003e the preset's default",
                     "type": "integer"
                 }
             }
@@ -39064,6 +39078,14 @@ const docTemplate = `{
                 "minimum_inference_balance": {
                     "description": "Minimum wallet balance required for inference",
                     "type": "number"
+                },
+                "native_display": {
+                    "description": "NativeDisplay is the host's own display (Helix for Mac), offered as the\n\"native\" sandbox resolution and used when a desktop has none set. Nil\nwhere the host reported no display; the UI then defaults to 1080p.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.NativeDisplay"
+                        }
+                    ]
                 },
                 "onboarding_helix_model": {
                     "type": "string"
