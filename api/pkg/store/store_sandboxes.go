@@ -170,6 +170,74 @@ func (s *PostgresStore) SetSandboxBillingLastChargedAt(ctx context.Context, id s
 	}).Error
 }
 
+// SandboxCharge bills one window of a running sandbox's usage.
+type SandboxCharge struct {
+	SandboxID string
+	// From is the billing cursor (billing_last_charged_at) the caller read,
+	// nil when it was unset. The charge applies only while it is still current.
+	From     *time.Time
+	To       time.Time
+	WalletID string
+	// Amount is the price of the window in credits, positive.
+	Amount float64
+	Meta   types.TransactionMetadata
+}
+
+// ErrBillingWindowClaimed means another biller advanced the sandbox's billing
+// cursor after it was read, so the window has already been charged.
+var ErrBillingWindowClaimed = errors.New("sandbox billing window already charged")
+
+// ChargeSandbox advances a sandbox's billing cursor from charge.From to
+// charge.To and debits the wallet in one transaction. Two billers that read the
+// same cursor — API replicas, or a stop racing the per-minute reaper — cannot
+// both charge it: the second gets ErrBillingWindowClaimed and changes nothing.
+// When the wallet holds less than Amount it is drained to zero, the cursor still
+// advances, and insufficient is true.
+func (s *PostgresStore) ChargeSandbox(ctx context.Context, charge SandboxCharge) (insufficient bool, err error) {
+	if charge.SandboxID == "" || charge.WalletID == "" {
+		return false, fmt.Errorf("sandbox_id and wallet_id are required")
+	}
+	if charge.Amount <= 0 {
+		return false, fmt.Errorf("charge amount must be positive, got %f", charge.Amount)
+	}
+	err = s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		claim := tx.Model(&types.Sandbox{}).Where("id = ?", charge.SandboxID)
+		if charge.From == nil {
+			claim = claim.Where("billing_last_charged_at IS NULL")
+		} else {
+			claim = claim.Where("billing_last_charged_at = ?", *charge.From)
+		}
+		res := claim.Updates(map[string]interface{}{
+			"billing_last_charged_at": charge.To,
+			"updated_at":              time.Now(),
+		})
+		if res.Error != nil {
+			return fmt.Errorf("advance billing cursor: %w", res.Error)
+		}
+		if res.RowsAffected == 0 {
+			return ErrBillingWindowClaimed
+		}
+
+		wallet, err := lockWallet(tx, charge.WalletID)
+		if err != nil {
+			return fmt.Errorf("lock wallet: %w", err)
+		}
+		debit := charge.Amount
+		if wallet.Balance < debit {
+			insufficient = true
+			debit = max(wallet.Balance, 0)
+		}
+		if debit == 0 {
+			return nil
+		}
+		return applyWalletDelta(tx, wallet.ID, wallet.Balance, -debit, charge.Meta)
+	})
+	if err != nil {
+		return false, err
+	}
+	return insufficient, nil
+}
+
 // SetRunningSandboxesBillingLastChargedAt starts billing windows for every
 // currently running sandbox. Used when billing is enabled at runtime so old
 // free usage is not charged retroactively.

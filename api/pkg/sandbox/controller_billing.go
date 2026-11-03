@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/hydra"
@@ -78,48 +77,37 @@ func (c *Controller) billSandbox(ctx context.Context, settings *types.SystemSett
 		return nil
 	}
 
-	amount := pricePerSecond * chargeSeconds * float64(sandboxBillableCores(sb))
 	wallet, err := c.store.GetWalletByOrg(ctx, sb.OrganizationID)
 	if err != nil {
 		return fmt.Errorf("get org wallet: %w", err)
 	}
-	if wallet.Balance < amount {
-		if wallet.Balance > 0 {
-			if _, err := c.store.UpdateWalletBalance(ctx, wallet.ID, -wallet.Balance, types.TransactionMetadata{
-				SandboxID:          sb.ID,
-				SandboxRuntime:     sb.Runtime,
-				SandboxPricingType: pricingType,
-				TransactionType:    types.TransactionTypeUsage,
-			}); err != nil {
-				return fmt.Errorf("drain remaining sandbox credits: %w", err)
-			}
-		}
-		if !stopOnInsufficient {
-			return nil
-		}
-		if err := c.Delete(ctx, sb.ID); err != nil {
-			return fmt.Errorf("stop sandbox after insufficient credits: %w", err)
-		}
+	insufficient, err := c.store.ChargeSandbox(ctx, store.SandboxCharge{
+		SandboxID: sb.ID,
+		From:      sb.BillingLastChargedAt,
+		To:        from.Add(time.Duration(chargeSeconds * float64(time.Second))),
+		WalletID:  wallet.ID,
+		Amount:    pricePerSecond * chargeSeconds * float64(sandboxBillableCores(sb)),
+		Meta: types.TransactionMetadata{
+			SandboxID:          sb.ID,
+			SandboxRuntime:     sb.Runtime,
+			SandboxPricingType: pricingType,
+			TransactionType:    types.TransactionTypeUsage,
+		},
+	})
+	if errors.Is(err, store.ErrBillingWindowClaimed) {
+		// Another replica, or a stop racing this tick, already billed it.
 		return nil
 	}
-
-	if _, err := c.store.UpdateWalletBalance(ctx, wallet.ID, -amount, types.TransactionMetadata{
-		SandboxID:          sb.ID,
-		SandboxRuntime:     sb.Runtime,
-		SandboxPricingType: pricingType,
-		TransactionType:    types.TransactionTypeUsage,
-	}); err != nil {
-		if strings.Contains(err.Error(), types.ErrorInsufficientBalance) {
-			if deleteErr := c.Delete(ctx, sb.ID); deleteErr != nil {
-				return fmt.Errorf("stop sandbox after insufficient credits: %w", deleteErr)
-			}
-			return nil
-		}
-		return fmt.Errorf("update wallet balance: %w", err)
+	if err != nil {
+		return fmt.Errorf("charge sandbox usage: %w", err)
 	}
-
-	chargedAt := from.Add(time.Duration(chargeSeconds * float64(time.Second)))
-	return c.store.SetSandboxBillingLastChargedAt(ctx, sb.ID, chargedAt)
+	if !insufficient || !stopOnInsufficient {
+		return nil
+	}
+	if err := c.Delete(ctx, sb.ID); err != nil {
+		return fmt.Errorf("stop sandbox after insufficient credits: %w", err)
+	}
+	return nil
 }
 
 func (c *Controller) ensureSandboxCredits(ctx context.Context, orgID string, spec *RuntimeSpec, settings *types.SystemSettings, vcpus int) error {

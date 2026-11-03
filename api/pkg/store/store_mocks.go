@@ -118,6 +118,21 @@ func (mr *MockStoreMockRecorder) BulkDismissAttentionEvents(ctx, userID, organiz
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BulkDismissAttentionEvents", reflect.TypeOf((*MockStore)(nil).BulkDismissAttentionEvents), ctx, userID, organizationID)
 }
 
+// ChargeSandbox mocks base method.
+func (m *MockStore) ChargeSandbox(ctx context.Context, charge SandboxCharge) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ChargeSandbox", ctx, charge)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ChargeSandbox indicates an expected call of ChargeSandbox.
+func (mr *MockStoreMockRecorder) ChargeSandbox(ctx, charge any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChargeSandbox", reflect.TypeOf((*MockStore)(nil).ChargeSandbox), ctx, charge)
+}
+
 // ClaimPromptForSending mocks base method.
 func (m *MockStore) ClaimPromptForSending(ctx context.Context, promptID string) (bool, error) {
 	m.ctrl.T.Helper()

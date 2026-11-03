@@ -185,14 +185,11 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 	var wallet types.Wallet
 	balanceUpdated := false
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ?", walletID).
-			First(&wallet).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrNotFound
-			}
+		locked, err := lockWallet(tx, walletID)
+		if err != nil {
 			return err
 		}
+		wallet = *locked
 
 		if meta.TransactionType == types.TransactionTypeTopUp {
 			alreadyProcessed, err := topUpAlreadyProcessed(tx, meta)
@@ -210,41 +207,10 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 				currentBalance, -amount)
 		}
 
-		// Update balance atomically using SQL arithmetic
-		result := tx.Model(&types.Wallet{}).Where("id = ?", walletID).Updates(map[string]interface{}{
-			"balance":    gorm.Expr("balance + ?", amount),
-			"updated_at": time.Now(),
-		})
-
-		if result.Error != nil {
-			return result.Error
-		}
-
-		if result.RowsAffected == 0 {
-			return ErrNotFound
-		}
-		balanceUpdated = true
-
-		transaction := &types.Transaction{
-			ID:                 system.GenerateTransactionID(),
-			CreatedAt:          time.Now(),
-			UpdatedAt:          time.Now(),
-			WalletID:           walletID,
-			Amount:             amount,
-			BalanceBefore:      currentBalance,
-			BalanceAfter:       currentBalance + amount,
-			Type:               meta.TransactionType,
-			InteractionID:      meta.InteractionID,
-			LLMCallID:          meta.LLMCallID,
-			SandboxID:          meta.SandboxID,
-			SandboxRuntime:     meta.SandboxRuntime,
-			SandboxPricingType: meta.SandboxPricingType,
-			TopUpID:            meta.TopUpID,
-		}
-
-		if err := tx.Create(transaction).Error; err != nil {
+		if err := applyWalletDelta(tx, walletID, currentBalance, amount, meta); err != nil {
 			return err
 		}
+		balanceUpdated = true
 
 		// If this is a top-up, create a top-up record (for tracking purposes)
 		if meta.TransactionType == types.TransactionTypeTopUp {
@@ -279,6 +245,51 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 	}
 
 	return &wallet, nil
+}
+
+// lockWallet reads a wallet and holds its row lock until tx ends.
+func lockWallet(tx *gorm.DB, walletID string) (*types.Wallet, error) {
+	var wallet types.Wallet
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id = ?", walletID).
+		First(&wallet).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &wallet, nil
+}
+
+// applyWalletDelta adds amount to a wallet locked by lockWallet and records the
+// ledger transaction. balanceBefore is the balance read under that lock.
+func applyWalletDelta(tx *gorm.DB, walletID string, balanceBefore, amount float64, meta types.TransactionMetadata) error {
+	result := tx.Model(&types.Wallet{}).Where("id = ?", walletID).Updates(map[string]interface{}{
+		"balance":    gorm.Expr("balance + ?", amount),
+		"updated_at": time.Now(),
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return tx.Create(&types.Transaction{
+		ID:                 system.GenerateTransactionID(),
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
+		WalletID:           walletID,
+		Amount:             amount,
+		BalanceBefore:      balanceBefore,
+		BalanceAfter:       balanceBefore + amount,
+		Type:               meta.TransactionType,
+		InteractionID:      meta.InteractionID,
+		LLMCallID:          meta.LLMCallID,
+		SandboxID:          meta.SandboxID,
+		SandboxRuntime:     meta.SandboxRuntime,
+		SandboxPricingType: meta.SandboxPricingType,
+		TopUpID:            meta.TopUpID,
+	}).Error
 }
 
 func topUpAlreadyProcessed(tx *gorm.DB, meta types.TransactionMetadata) (bool, error) {

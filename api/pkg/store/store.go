@@ -917,6 +917,7 @@ type Store interface {
 	UpdateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
 	SetSandboxStatus(ctx context.Context, id string, status types.SandboxStatus, message string) error
 	SetSandboxBillingLastChargedAt(ctx context.Context, id string, chargedAt time.Time) error
+	ChargeSandbox(ctx context.Context, charge SandboxCharge) (insufficient bool, err error)
 	SetRunningSandboxesBillingLastChargedAt(ctx context.Context, chargedAt time.Time) error
 	SetSandboxContainer(ctx context.Context, id string, hostDeviceID, containerID string) error
 	SetSandboxResources(ctx context.Context, id string, vcpus, memoryMB int) error

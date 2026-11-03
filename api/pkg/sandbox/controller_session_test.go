@@ -245,14 +245,13 @@ func (s *ControllerSessionSuite) TestResizeSessionSettlesChargesAtOldCoreCountFi
 		OrgID:   "org_1",
 		Balance: 10000,
 	}, nil)
-	s.store.EXPECT().UpdateWalletBalance(gomock.Any(), "wallet_1", gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, walletID string, amount float64, _ types.TransactionMetadata) (*types.Wallet, error) {
-			// 30 elapsed seconds at 1 credit/s/core and ONE core: ~-30, not -240.
-			s.Require().InDelta(-30.0, amount, 1.0)
-			return &types.Wallet{ID: walletID, Balance: 9970}, nil
+	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c store.SandboxCharge) (bool, error) {
+			// 30 elapsed seconds at 1 credit/s/core and ONE core: ~30, not 240.
+			s.Require().InDelta(30.0, c.Amount, 1.0)
+			return false, nil
 		},
 	)
-	s.store.EXPECT().SetSandboxBillingLastChargedAt(gomock.Any(), "sbx_1", gomock.Any()).Return(nil)
 	s.store.EXPECT().SetSandboxResources(gomock.Any(), "sbx_1", 8, 16384).Return(nil)
 
 	s.Require().NoError(s.controller.ResizeSession(s.ctx, "ses_1", 8, 16384))

@@ -69,20 +69,17 @@ func (s *ControllerBillingSuite) TestReapBillingChargesElapsedMinutesAfterRestar
 		OrgID:   "org_1",
 		Balance: 1000,
 	}, nil)
-	s.store.EXPECT().UpdateWalletBalance(gomock.Any(), "wallet_1", gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error) {
-			s.Require().InDelta(-840.0, amount, 0.0001)
-			s.Require().Equal(types.TransactionTypeUsage, meta.TransactionType)
-			s.Require().Equal("sbx_restart", meta.SandboxID)
-			s.Require().Equal(types.SandboxRuntimeHeadlessUbuntu, meta.SandboxRuntime)
-			s.Require().Equal("headless", meta.SandboxPricingType)
-			return &types.Wallet{ID: walletID, Balance: 790}, nil
-		},
-	)
-	s.store.EXPECT().SetSandboxBillingLastChargedAt(gomock.Any(), "sbx_restart", gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, chargedAt time.Time) error {
-			s.Require().WithinDuration(lastChargedAt.Add(7*time.Minute), chargedAt, time.Millisecond)
-			return nil
+	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c store.SandboxCharge) (bool, error) {
+			s.Require().Equal("wallet_1", c.WalletID)
+			s.Require().InDelta(840.0, c.Amount, 0.0001)
+			s.Require().Equal(&lastChargedAt, c.From)
+			s.Require().WithinDuration(lastChargedAt.Add(7*time.Minute), c.To, time.Millisecond)
+			s.Require().Equal(types.TransactionTypeUsage, c.Meta.TransactionType)
+			s.Require().Equal("sbx_restart", c.Meta.SandboxID)
+			s.Require().Equal(types.SandboxRuntimeHeadlessUbuntu, c.Meta.SandboxRuntime)
+			s.Require().Equal("headless", c.Meta.SandboxPricingType)
+			return false, nil
 		},
 	)
 
@@ -111,17 +108,15 @@ func (s *ControllerBillingSuite) TestDeleteBillsRemainingSecondsSinceLastMinute(
 		OrgID:   "org_1",
 		Balance: 100,
 	}, nil)
-	s.store.EXPECT().UpdateWalletBalance(gomock.Any(), "wallet_1", gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error) {
-			s.Require().InDelta(-9.0, amount, 0.5)
-			s.Require().Equal(types.TransactionTypeUsage, meta.TransactionType)
-			s.Require().Equal("sbx_delete", meta.SandboxID)
-			s.Require().Equal(types.SandboxRuntimeUbuntuDesktop, meta.SandboxRuntime)
-			s.Require().Equal("desktop", meta.SandboxPricingType)
-			return &types.Wallet{ID: walletID, Balance: 91}, nil
+	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c store.SandboxCharge) (bool, error) {
+			s.Require().InDelta(9.0, c.Amount, 0.5)
+			s.Require().Equal("sbx_delete", c.Meta.SandboxID)
+			s.Require().Equal(types.SandboxRuntimeUbuntuDesktop, c.Meta.SandboxRuntime)
+			s.Require().Equal("desktop", c.Meta.SandboxPricingType)
+			return false, nil
 		},
 	)
-	s.store.EXPECT().SetSandboxBillingLastChargedAt(gomock.Any(), "sbx_delete", gomock.Any()).Return(nil)
 	s.store.EXPECT().SetSandboxStatus(gomock.Any(), "sbx_delete", types.SandboxStatusStopping, "").Return(nil)
 	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
 	s.store.EXPECT().DeleteSandbox(gomock.Any(), "sbx_delete").Return(nil)
@@ -151,13 +146,21 @@ func (s *ControllerBillingSuite) TestReapBillingStopsSandboxAndDrainsRemainingCr
 		OrgID:   "org_1",
 		Balance: 5,
 	}, nil)
-	s.store.EXPECT().UpdateWalletBalance(gomock.Any(), "wallet_1", -5.0, gomock.Any()).DoAndReturn(
-		func(_ context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error) {
-			s.Require().Equal("sbx_insufficient", meta.SandboxID)
-			return &types.Wallet{ID: walletID, Balance: 0}, nil
+	// The org can pay for 5 of the 6 credits due: the store drains it and
+	// reports the shortfall, so the sandbox is stopped.
+	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c store.SandboxCharge) (bool, error) {
+			s.Require().InDelta(6.0, c.Amount, 0.0001)
+			s.Require().Equal("sbx_insufficient", c.Meta.SandboxID)
+			return true, nil
 		},
 	)
-	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_insufficient").Return(sb, nil)
+	// Delete reloads the row, now billed up to the full minute, and settles
+	// the remaining seconds against the drained wallet.
+	billedTo := lastChargedAt.Add(time.Minute)
+	reloaded := *sb
+	reloaded.BillingLastChargedAt = &billedTo
+	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_insufficient").Return(&reloaded, nil)
 	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
 		SandboxBillingEnabled:                true,
 		SandboxHeadlessPriceCreditsPerSecond: 0.1,
@@ -167,6 +170,12 @@ func (s *ControllerBillingSuite) TestReapBillingStopsSandboxAndDrainsRemainingCr
 		OrgID:   "org_1",
 		Balance: 0,
 	}, nil)
+	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c store.SandboxCharge) (bool, error) {
+			s.Require().Equal(&billedTo, c.From)
+			return true, nil
+		},
+	)
 	s.store.EXPECT().SetSandboxStatus(gomock.Any(), "sbx_insufficient", types.SandboxStatusStopping, "").Return(nil)
 	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
 	s.store.EXPECT().DeleteSandbox(gomock.Any(), "sbx_insufficient").Return(nil)
