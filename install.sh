@@ -2542,6 +2542,7 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
     # Run the docker container with vendor-specific GPU configuration
     eval docker run \$GPU_FLAGS \$ENV_FLAGS \\
         --shm-size=10g --restart=always -d \\
+        --log-opt max-size=100m --log-opt max-file=5 \\
         --name \$CONTAINER_NAME --ipc=host --ulimit memlock=-1 \\
         --ulimit stack=67108864 \\
         --network="helix_default" \\
@@ -2821,6 +2822,7 @@ fi
 docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS $VIRTIO_FLAGS \
     --privileged \
     --restart=always -d \
+    --log-opt max-size=100m --log-opt max-file=5 \
     --name helix-sandbox \
     --network="helix_default" \
     -e HELIX_API_URL="$HELIX_API_URL" \

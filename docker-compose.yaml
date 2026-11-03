@@ -1,8 +1,18 @@
 # Production docker-compose.yaml for HelixML
 # See https://helix.ml/docs
 
+# Bounded json-file logs for every service. Docker's default json-file driver
+# never rotates, and a busy sandbox (which forwards every desktop's output)
+# grows its log by gigabytes a day until the disk fills.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "5"
+
 services:
   api:
+    logging: *default-logging
     image: ghcr.io/helixml/controlplane:${HELIX_VERSION:-latest}
     # If you want to run the API on a different port, set the
     # API_PORT environment variable and also updated env variables
@@ -64,6 +74,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
   postgres:
+    logging: *default-logging
     image: postgres:12.13-alpine
     restart: always
     # ports:
@@ -83,6 +94,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
   searxng:
+    logging: *default-logging
     image: searxng/searxng:2025.7.24-84c3a83
     # ports:
     #   - 8112:8080
@@ -95,6 +107,7 @@ services:
       - UWSGI_WORKERS=4
       - UWSGI_THREADS=4
   chrome:
+    logging: *default-logging
     image: ghcr.io/go-rod/rod:v0.115.0
     restart: always
     volumes:
@@ -103,6 +116,7 @@ services:
     #   - 7317:7317
 
   vectorchord-kodit:
+    logging: *default-logging
     image: tensorchord/vchord-suite:pg17-20250601
     command: >
       postgres

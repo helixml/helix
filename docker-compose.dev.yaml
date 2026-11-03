@@ -1,5 +1,15 @@
+# Bounded json-file logs for every service. Docker's default json-file driver
+# never rotates, and a busy sandbox (which forwards every desktop's output)
+# grows its log by gigabytes a day until the disk fills.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "5"
+
 services:
   api:
+    logging: *default-logging
     build:
       context: .
       dockerfile: Dockerfile
@@ -123,6 +133,7 @@ services:
       # at http://outer-api:8080 for LLM inference routing.
       - "outer-api:${OUTER_API_IP:-127.0.0.1}"
   postgres:
+    logging: *default-logging
     image: postgres:12.13-alpine
     restart: always
     ports:
@@ -148,6 +159,7 @@ services:
   # This dramatically speeds up iterative development when only a few layers change.
   # The sandbox's dockerd is configured to trust host.docker.internal:5000
   registry:
+    logging: *default-logging
     image: registry:2
     restart: unless-stopped
     ports:
@@ -160,6 +172,7 @@ services:
 
   # Example/test MCP server
   postgres-mcp:
+    logging: *default-logging
     image: crystaldba/postgres-mcp:latest
     restart: always
     command: ["--access-mode=unrestricted", "--transport=sse"]
@@ -170,6 +183,7 @@ services:
 
   # Kodit PostgreSQL database with VectorChord (kodit library connects to this directly)
   vectorchord-kodit:
+    logging: *default-logging
     image: tensorchord/vchord-suite:pg17-20250601
     restart: always
     command: >
@@ -190,12 +204,14 @@ services:
     # ports:
     #   - 5434:5432
   webhook_relay_stripe:
+    logging: *default-logging
     image: webhookrelay/webhookrelayd
     environment:
       - KEY=${WEBHOOK_RELAY_KEY:-}
       - SECRET=${WEBHOOK_RELAY_SECRET:-}
       - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
   searxng:
+    logging: *default-logging
     image: searxng/searxng:latest
     # ports:
     #   - 8112:8080
@@ -208,6 +224,7 @@ services:
       - UWSGI_WORKERS=4
       - UWSGI_THREADS=4
   chrome:
+    logging: *default-logging
     image: ghcr.io/go-rod/rod:v0.115.0
     restart: always
     volumes:
@@ -221,6 +238,7 @@ services:
   # Or use pre-built: SANDBOX_IMAGE=ghcr.io/helixml/helix-sandbox:latest ./stack up
   # NOTE: For Helix-in-Helix development, set HYDRA_PRIVILEGED_MODE_ENABLED=true
   sandbox-nvidia:
+    logging: *default-logging
     profiles: [code-nvidia] # NVIDIA GPU sandbox
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
@@ -325,6 +343,7 @@ services:
   # Desktop containers stream video directly via WebSocket (no Wolf/Moonlight)
   # Uses device pass-through instead of nvidia runtime
   sandbox-amd-intel:
+    logging: *default-logging
     profiles: [code-amd-intel]
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
@@ -423,6 +442,7 @@ services:
   # Note: This is a separate service because it needs different device mounts
   # and no nvidia runtime - you can't just set GPU_VENDOR=none on regular sandbox
   sandbox-software:
+    logging: *default-logging
     profiles: [code-software]
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
@@ -521,6 +541,7 @@ services:
   # Use: docker compose --profile code-macos up sandbox-macos
   # For macOS hosts running UTM VMs with virtio-gpu
   sandbox-macos:
+    logging: *default-logging
     profiles: [code-macos]
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
@@ -625,6 +646,7 @@ services:
       start_period: 10s
 
   demos:
+    logging: *default-logging
     profiles: ["demos"]
     build:
       context: .
@@ -643,6 +665,7 @@ services:
       - ./demos:/app/demos
 
   frontend:
+    logging: *default-logging
     # ports:
     #   - 8081:${FRONTEND_INTERNAL_PORT:-8081}
     build:
