@@ -8,13 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/require"
 )
 
-// newUnixDockerInspectServer serves ContainerInspect for the given container
-// states ("running" or "exited") and 404s every other container.
-func newUnixDockerInspectServer(t *testing.T, states map[string]string) string {
+// serveFakeDocker serves handler on a fresh unix socket and returns its path.
+func serveFakeDocker(t *testing.T, handler http.HandlerFunc) string {
 	t.Helper()
 	socketFile, err := os.CreateTemp("/tmp", "helix-hydra-gc-*.sock")
 	require.NoError(t, err)
@@ -31,26 +32,23 @@ func newUnixDockerInspectServer(t *testing.T, states map[string]string) string {
 			_, _ = w.Write([]byte("OK"))
 			return
 		}
-		// GET /v<version>/containers/<id>/json
-		parts := strings.Split(r.URL.Path, "/")
-		id := parts[len(parts)-2]
-		state, ok := states[id]
-		if r.Method != http.MethodGet || parts[len(parts)-1] != "json" || !ok {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"message":"No such container: ` + id + `"}`))
-			return
-		}
 		w.Header().Set("Content-Type", "application/json")
-		running := "false"
-		if state == "running" {
-			running = "true"
-		}
-		_, _ = w.Write([]byte(`{"Id":"` + id + `","Name":"/` + id + `","State":{"Status":"` + state + `","Running":` + running + `}}`))
+		handler(w, r)
 	})}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { _ = server.Close() })
 	return socketPath
+}
+
+func dockerNotFound(w http.ResponseWriter, id string) {
+	w.WriteHeader(http.StatusNotFound)
+	_, _ = w.Write([]byte(`{"message":"No such container: ` + id + `"}`))
+}
+
+// containerID returns the id in /v<version>/containers/<id>[/json].
+func containerID(path string) string {
+	parts := strings.Split(strings.TrimSuffix(path, "/json"), "/")
+	return parts[len(parts)-1]
 }
 
 // A desktop stopped without a destroy — the disk-pressure emergency brake —
@@ -59,23 +57,90 @@ func newUnixDockerInspectServer(t *testing.T, states map[string]string) string {
 // days after their sessions ended). Only a container Docker confirms running,
 // or one Docker cannot be asked about, may keep its session live.
 func TestRunningTrackedSessions(t *testing.T) {
-	socket := newUnixDockerInspectServer(t, map[string]string{
-		"cid_running": "running",
-		"cid_stopped": "exited",
+	states := map[string]string{"cid_running": "true", "cid_stopped": "false"}
+	socket := serveFakeDocker(t, func(w http.ResponseWriter, r *http.Request) {
+		id := containerID(r.URL.Path)
+		running, ok := states[id]
+		if !ok {
+			dockerNotFound(w, id)
+			return
+		}
+		_, _ = w.Write([]byte(`{"Id":"` + id + `","State":{"Running":` + running + `}}`))
 	})
 	unreachable := filepath.Join(t.TempDir(), "no-docker.sock")
+	removed := &DevContainer{SessionID: "ses_removed", ContainerID: "cid_removed", DockerSocket: socket}
 	dm := &DevContainerManager{containers: map[string]*DevContainer{
 		"ses_running":     {SessionID: "ses_running", ContainerID: "cid_running", DockerSocket: socket},
 		"ses_stopped":     {SessionID: "ses_stopped", ContainerID: "cid_stopped", DockerSocket: socket},
-		"ses_removed":     {SessionID: "ses_removed", ContainerID: "cid_removed", DockerSocket: socket},
+		"ses_removed":     removed,
 		"ses_unreachable": {SessionID: "ses_unreachable", ContainerID: "cid_any", DockerSocket: unreachable},
 	}}
 
-	live := dm.runningTrackedSessions(context.Background())
+	running, gone := dm.runningTrackedSessions(context.Background())
 
-	require.ElementsMatch(t, []string{"ses_running", "ses_unreachable"}, live)
+	require.ElementsMatch(t, []string{"ses_running", "ses_unreachable"}, running)
+	require.Equal(t, []*DevContainer{removed}, gone)
+	// Listing is read-only, so a dry-run reconcile leaves the map alone.
+	require.Len(t, dm.containers, 4)
+
+	dm.forgetContainers(gone)
 	// A removed container is forgotten so hydra stops listing it; a stopped
 	// one stays tracked so a warm restart can still find it.
 	require.NotContains(t, dm.containers, "ses_removed")
 	require.Contains(t, dm.containers, "ses_stopped")
+}
+
+// The reaper inspects a container, then removes it. If the session restarts
+// the container in between, a forced removal would destroy a desktop someone
+// is using. Removal must let Docker refuse a container that is running again.
+func TestReapOrphanContainersNeverRemovesARestartedContainer(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		restartedMeanwhile bool
+		wantReaped         []string
+	}{
+		{name: "still stopped", restartedMeanwhile: false, wantReaped: []string{"ubuntu-external-01dead"}},
+		{name: "restarted between inspect and remove", restartedMeanwhile: true, wantReaped: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var removeForced bool
+			socket := serveFakeDocker(t, func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/containers/json"):
+					_, _ = w.Write([]byte(`[{"Id":"cid_dead","Names":["/ubuntu-external-01dead"],"State":"exited","Labels":{"helix.session_id":"ses_01dead"}}]`))
+				case r.Method == http.MethodGet:
+					_, _ = w.Write([]byte(`{"Id":"cid_dead","Name":"/ubuntu-external-01dead","State":{"Running":false,"FinishedAt":"2026-01-01T00:00:00Z"}}`))
+				case r.Method == http.MethodDelete:
+					removeForced = r.URL.Query().Get("force") == "1"
+					if tc.restartedMeanwhile && !removeForced {
+						w.WriteHeader(http.StatusConflict)
+						_, _ = w.Write([]byte(`{"message":"cannot remove container: container is running"}`))
+						return
+					}
+					w.WriteHeader(http.StatusNoContent)
+				default:
+					dockerNotFound(w, containerID(r.URL.Path))
+				}
+			})
+			dockerClient, err := client.NewClientWithOpts(client.WithHost("unix://"+socket), client.WithAPIVersionNegotiation())
+			require.NoError(t, err)
+			defer dockerClient.Close()
+
+			reaped := reapOrphanContainers(context.Background(), dockerClient, map[string]bool{}, time.Now(), false)
+
+			require.False(t, removeForced, "orphan removal must not be forced")
+			require.Equal(t, tc.wantReaped, reaped)
+		})
+	}
+}
+
+// A zero or negative interval reaches time.NewTicker in the disk-pressure
+// monitor goroutine, which panics and takes hydra down.
+func TestEnvDurationRejectsNonPositive(t *testing.T) {
+	for _, v := range []string{"0", "0s", "-5s"} {
+		t.Setenv("HELIX_TEST_DURATION", v)
+		require.Equal(t, 30*time.Second, envDuration("HELIX_TEST_DURATION", 30*time.Second), v)
+	}
+	t.Setenv("HELIX_TEST_DURATION", "45s")
+	require.Equal(t, 45*time.Second, envDuration("HELIX_TEST_DURATION", 30*time.Second))
 }

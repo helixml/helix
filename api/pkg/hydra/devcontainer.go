@@ -2549,8 +2549,12 @@ func (dm *DevContainerManager) ReconcileGC(ctx context.Context, req GCReconcileR
 
 	// Union in sessions whose tracked container is still running
 	// (belt-and-braces against a stale database live-set).
-	for _, sessionID := range dm.runningTrackedSessions(ctx) {
+	running, gone := dm.runningTrackedSessions(ctx)
+	for _, sessionID := range running {
 		liveSessions[sessionID] = true
+	}
+	if !req.DryRun {
+		dm.forgetContainers(gone)
 	}
 
 	grace := time.Duration(req.GracePeriodSeconds) * time.Second

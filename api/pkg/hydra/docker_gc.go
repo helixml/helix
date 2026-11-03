@@ -62,7 +62,10 @@ func reapOrphanContainers(ctx context.Context, dockerClient *client.Client, live
 		}
 		name := strings.TrimPrefix(info.Name, "/")
 		if !dryRun {
-			if err := dockerClient.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true}); err != nil && !client.IsErrNotFound(err) {
+			// Not forced: if the session restarted the container since the
+			// inspect above, Docker refuses to remove a running container,
+			// which closes the window between the check and the removal.
+			if err := dockerClient.ContainerRemove(ctx, c.ID, container.RemoveOptions{}); err != nil && !client.IsErrNotFound(err) {
 				log.Warn().Err(err).Str("container", name).Msg("Docker GC: failed to remove orphan container")
 				continue
 			}
@@ -116,9 +119,9 @@ func reapOrphanVolumes(ctx context.Context, dockerClient *client.Client, liveSes
 // without a destroy (the disk-pressure emergency brake) stayed tracked and so
 // pinned its container, zvol and workspace forever.
 //
-// An entry whose container no longer exists is forgotten, so hydra stops
-// reporting it to the control plane once the reaper has removed it.
-func (dm *DevContainerManager) runningTrackedSessions(ctx context.Context) []string {
+// It also returns the tracked entries whose container no longer exists, for
+// the caller to forget.
+func (dm *DevContainerManager) runningTrackedSessions(ctx context.Context) (running []string, gone []*DevContainer) {
 	dm.mu.RLock()
 	tracked := make([]*DevContainer, 0, len(dm.containers))
 	for _, dc := range dm.containers {
@@ -126,16 +129,11 @@ func (dm *DevContainerManager) runningTrackedSessions(ctx context.Context) []str
 	}
 	dm.mu.RUnlock()
 
-	var running []string
 	for _, dc := range tracked {
 		isRunning, err := dm.trackedContainerRunning(ctx, dc)
 		switch {
 		case client.IsErrNotFound(err):
-			dm.mu.Lock()
-			if dm.containers[dc.SessionID] == dc {
-				delete(dm.containers, dc.SessionID)
-			}
-			dm.mu.Unlock()
+			gone = append(gone, dc)
 		case err != nil:
 			log.Warn().Err(err).Str("session_id", dc.SessionID).Msg("Docker GC: cannot inspect tracked container; treating its session as live")
 			running = append(running, dc.SessionID)
@@ -143,8 +141,25 @@ func (dm *DevContainerManager) runningTrackedSessions(ctx context.Context) []str
 			running = append(running, dc.SessionID)
 		}
 	}
-	return running
+	return running, gone
 }
+
+// forgetContainers drops tracked entries whose container no longer exists, so
+// hydra stops reporting them to the control plane. An entry replaced by a
+// concurrent start is kept.
+func (dm *DevContainerManager) forgetContainers(gone []*DevContainer) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+	for _, dc := range gone {
+		if dm.containers[dc.SessionID] == dc {
+			delete(dm.containers, dc.SessionID)
+		}
+	}
+}
+
+// trackedInspectTimeout bounds one inspect, so a wedged dockerd cannot consume
+// the whole reconcile deadline on the first tracked container.
+const trackedInspectTimeout = 10 * time.Second
 
 func (dm *DevContainerManager) trackedContainerRunning(ctx context.Context, dc *DevContainer) (bool, error) {
 	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
@@ -152,7 +167,9 @@ func (dm *DevContainerManager) trackedContainerRunning(ctx context.Context, dc *
 		return false, err
 	}
 	defer dockerClient.Close()
-	info, err := dockerClient.ContainerInspect(ctx, dc.ContainerID)
+	inspectCtx, cancel := context.WithTimeout(ctx, trackedInspectTimeout)
+	defer cancel()
+	info, err := dockerClient.ContainerInspect(inspectCtx, dc.ContainerID)
 	if err != nil {
 		return false, err
 	}

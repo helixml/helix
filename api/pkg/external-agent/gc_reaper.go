@@ -140,7 +140,7 @@ func liveSpecTaskIDsForReaper(ctx context.Context, st store.Store, cutoff time.T
 		//
 		// Without this the reaper was blind to the flag: a task whose PR merged
 		// went terminal, dropped out of the live set, and had its workspace
-		// os.RemoveAll'd once HELIX_ORPHAN_REAPER_GRACE_PERIOD (6h) elapsed —
+		// os.RemoveAll'd once HELIX_ORPHAN_REAPER_GRACE_PERIOD (then 6h) elapsed —
 		// while the container was still running and the user was still working
 		// in it. The observed failure was the agent's shell breaking (its cwd had
 		// been deleted underneath it), and, because .claude-state lives in that

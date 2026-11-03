@@ -159,7 +159,9 @@ func envDuration(key string, def time.Duration) time.Duration {
 		return def
 	}
 	d, err := time.ParseDuration(v)
-	if err != nil {
+	// A non-positive interval would panic time.NewTicker in the monitor
+	// goroutine and take hydra down with it.
+	if err != nil || d <= 0 {
 		log.Warn().Str("key", key).Str("value", v).Dur("default", def).
 			Msg("disk-pressure: invalid duration env, using default")
 		return def
