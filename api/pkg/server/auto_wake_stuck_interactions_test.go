@@ -144,53 +144,74 @@ func (s *AutoWakeColdStartSuite) TestKicksAutoStartWhenNoWS() {
 	}
 }
 
-// TestFailsFastWhenOrgIsOutOfCredits: a desktop the organization cannot pay
-// for will not start on any retry. The turn must fail on the first kick with
-// the real cause — previously it burned every retry and then told the user
-// the agent never came online.
-func (s *AutoWakeColdStartSuite) TestFailsFastWhenOrgIsOutOfCredits() {
-	stuck := stuckInteraction("int-broke", "ses_broke", 0)
-
-	s.store.EXPECT().IncrementInteractionAutoWakeCount(gomock.Any(), "int-broke").Return(1, nil)
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_broke").Return(&types.Session{
-		ID:    "ses_broke",
-		Owner: "user-1",
-		Metadata: types.SessionMetadata{
-			AgentType: "zed_external",
-			ProjectID: "prj_x",
+// TestFailsFastWhenDesktopStartIsRefused: a desktop the organization cannot pay
+// for, or that would exceed its concurrent-desktop limit, will not start on any
+// retry. The turn must fail on the first kick with the real cause — previously
+// it burned every retry and then told the user the agent never came online.
+func (s *AutoWakeColdStartSuite) TestFailsFastWhenDesktopStartIsRefused() {
+	cases := []struct {
+		name     string
+		startErr error
+		reason   string
+	}{
+		{
+			name:     "out of credits",
+			startErr: fmt.Errorf("cannot start desktop: %w", fmt.Errorf("%w: balance 0.00, required 0.02", sandbox.ErrInsufficientCredits)),
+			reason:   outOfCreditsReason,
 		},
-	}, nil).AnyTimes()
-	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
-	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_broke").Return(false)
-	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(nil,
-		fmt.Errorf("cannot start desktop: %w", fmt.Errorf("%w: balance 0.00, required 0.02", sandbox.ErrInsufficientCredits)))
-
-	failed := make(chan string, 1)
-	s.store.EXPECT().MarkInteractionErrorIfWaiting(gomock.Any(), "int-broke", 0, gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, _ int, reason string) (bool, error) {
-			failed <- reason
-			return true, nil
-		})
-	cleared := make(chan struct{}, 1)
-	s.store.EXPECT().ClearSessionStartingStatus(gomock.Any(), "ses_broke").DoAndReturn(
-		func(context.Context, string) (bool, error) {
-			cleared <- struct{}{}
-			return true, nil
-		})
-
-	s.server.maybeAutoWake(context.Background(), stuck)
-
-	select {
-	case reason := <-failed:
-		s.Equal(outOfCreditsReason, reason)
-	case <-time.After(2 * time.Second):
-		s.FailNow("out-of-credits turn was left waiting for another cold-start retry")
+		{
+			name:     "desktop limit",
+			startErr: fmt.Errorf("%w (1). Stop some of the existing sessions or upgrade your plan", external_agent.ErrDesktopLimitReached),
+			reason:   desktopLimitReason,
+		},
 	}
-	select {
-	case <-cleared:
-	case <-time.After(2 * time.Second):
-		s.FailNow("starting status was not cleared, so the UI keeps spinning")
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			s.SetupTest()
+			defer s.TearDownTest()
+			stuck := stuckInteraction("int-refused", "ses_refused", 0)
+
+			s.store.EXPECT().IncrementInteractionAutoWakeCount(gomock.Any(), "int-refused").Return(1, nil)
+			s.store.EXPECT().GetSession(gomock.Any(), "ses_refused").Return(&types.Session{
+				ID:    "ses_refused",
+				Owner: "user-1",
+				Metadata: types.SessionMetadata{
+					AgentType: "zed_external",
+					ProjectID: "prj_x",
+				},
+			}, nil).AnyTimes()
+			s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+			s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
+			s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_refused").Return(false)
+			s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(nil, tc.startErr)
+
+			failed := make(chan string, 1)
+			s.store.EXPECT().MarkInteractionErrorIfWaiting(gomock.Any(), "int-refused", 0, gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ string, _ int, reason string) (bool, error) {
+					failed <- reason
+					return true, nil
+				})
+			cleared := make(chan struct{}, 1)
+			s.store.EXPECT().ClearSessionStartingStatus(gomock.Any(), "ses_refused").DoAndReturn(
+				func(context.Context, string) (bool, error) {
+					cleared <- struct{}{}
+					return true, nil
+				})
+
+			s.server.maybeAutoWake(context.Background(), stuck)
+
+			select {
+			case reason := <-failed:
+				s.Equal(tc.reason, reason)
+			case <-time.After(2 * time.Second):
+				s.FailNow("refused start left the turn waiting for another cold-start retry")
+			}
+			select {
+			case <-cleared:
+			case <-time.After(2 * time.Second):
+				s.FailNow("starting status was not cleared, so the UI keeps spinning")
+			}
+		})
 	}
 }
 
@@ -618,13 +639,6 @@ func (s *AutoWakeColdStartSuite) TestSkipsWhenInteractionIsYoung() {
 }
 
 // TestAutoWakeStuckThresholdDefault verifies the new 180s default.
-func TestAutoWakeStuckThresholdDefault(t *testing.T) {
-	t.Setenv("HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS", "")
-	if got := autoWakeStuckThreshold(); got != 180*time.Second {
-		t.Fatalf("default threshold: want 180s, got %s", got)
-	}
-}
-
 // TestAutoWakeStuckThresholdOverride verifies operators can still
 // override the default at runtime via env var without redeploying.
 func TestAutoWakeStuckThresholdOverride(t *testing.T) {

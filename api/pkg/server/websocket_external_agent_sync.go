@@ -2487,7 +2487,7 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 		// resume path will deliver it when the agent reconnects via WebSocket. Wrap the sentinel so
 		// callers (e.g. sendQueuedPromptToSession) can recognise this as an expected
 		// transient state via errors.Is and avoid surfacing it as a queue failure.
-		go apiServer.autoStartDevContainerForSession(sessionID)
+		go apiServer.autoStartDevContainerForSession(context.Background(), sessionID)
 		return fmt.Errorf("session %s: %w", sessionID, ErrNoExternalAgentWS)
 	}
 
@@ -4148,8 +4148,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 //
 // Sessions with none of the above are logged and skipped (we cannot invent project
 // config). Non-zed_external sessions are also skipped (they have no desktop to wake).
-func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID string) error {
-	ctx := context.Background()
+func (apiServer *HelixAPIServer) autoStartDevContainerForSession(ctx context.Context, sessionID string) error {
 	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("autoStartDevContainerForSession: failed to get session")

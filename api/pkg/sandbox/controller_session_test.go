@@ -107,7 +107,7 @@ func (s *ControllerSessionSuite) TestBeginSessionRejectsStartWhenOrgCannotAfford
 
 	_, err := s.controller.BeginSession(s.ctx, s.beginRequest())
 	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "insufficient credits")
+	s.Require().ErrorIs(err, ErrInsufficientCredits)
 }
 
 func (s *ControllerSessionSuite) TestBeginSessionRejectsStartWhenDesktopLimitReached() {

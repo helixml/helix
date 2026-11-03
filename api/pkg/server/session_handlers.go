@@ -2014,7 +2014,7 @@ func (s *HelixAPIServer) waitForExternalAgentReady(ctx context.Context, sessionI
 		log.Info().
 			Str("session_id", sessionID).
 			Msg("External agent is disconnected; starting desktop before readiness wait")
-		go s.autoStartDevContainerForSession(sessionID)
+		go s.autoStartDevContainerForSession(context.Background(), sessionID)
 	}
 
 	log.Info().
@@ -3600,7 +3600,7 @@ func (s *HelixAPIServer) ensureSessionAgent(_ http.ResponseWriter, r *http.Reque
 
 	// Same canonical path waitForExternalAgentReady uses. Detached, because the
 	// caller is polling rather than waiting on this request.
-	go s.autoStartDevContainerForSession(sessionID)
+	go s.autoStartDevContainerForSession(context.Background(), sessionID)
 
 	return &EnsureAgentResponse{Starting: true}, nil
 }

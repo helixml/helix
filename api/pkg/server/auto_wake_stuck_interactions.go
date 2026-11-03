@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"time"
 
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/store"
@@ -160,6 +161,14 @@ const (
 	// outOfCreditsReason is the user-facing error when the desktop cannot
 	// start because the organization's wallet cannot pay for it.
 	outOfCreditsReason = "The desktop couldn't start because your organization is out of credits, so this message wasn't delivered. Add credits, then send it again."
+
+	// desktopLimitReason is the user-facing error when the desktop cannot
+	// start because the organization is at its concurrent-desktop limit.
+	desktopLimitReason = "The desktop couldn't start because your organization is at its concurrent-desktop limit, so this message wasn't delivered. Stop another desktop session or raise the limit, then send it again."
+
+	// coldStartKickTimeout bounds one cold-start kick, matching the restart
+	// path, so a wedged start cannot hold its goroutine indefinitely.
+	coldStartKickTimeout = 5 * time.Minute
 )
 
 // autoWakeStuckThreshold returns the configured stuck threshold.
@@ -443,49 +452,15 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 // per-session lock (which short-circuits with "Dev container already
 // running") and burns retry budget for nothing.
 func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *types.Interaction) {
-	// Load the session once for the two checks below: the
-	// StartDesktop-in-progress gate, and (on cap-exhaustion) the
-	// SandboxID lookup used to read the workspace-setup failure
-	// sentinel. Failing to load is non-fatal — fall through so a
-	// transient store error doesn't permanently disable cold-start.
+	// The session drives every gate below. Failing to load it is non-fatal —
+	// fall through so a transient store error doesn't permanently disable
+	// cold-start.
 	session, err := apiServer.Store.GetSession(ctx, stuck.SessionID)
 	if err != nil {
 		log.Warn().Err(err).
 			Str("interaction_id", stuck.ID).
 			Msg("[AUTO_WAKE] Failed to load session for cold-start status check; proceeding with kick")
 		session = nil
-	}
-
-	// A desktop-quota block is NOT a transient cold-start — retrying can't help,
-	// and the generic "agent never connected" banner hides the real reason. If
-	// the session's org is at its concurrent-desktop limit (and quotas are
-	// enforced), surface the actual limit to the user immediately and stop.
-	// Mirrors hydra_executor.checkLimits (gated on EnforceQuotas).
-	if session != nil && apiServer.quotaManager != nil {
-		if settings, sErr := apiServer.Store.GetSystemSettings(ctx); sErr == nil && settings.EnforceQuotas {
-			if resp, qErr := apiServer.quotaManager.LimitReached(ctx, &types.QuotaLimitReachedRequest{
-				UserID:         session.Owner,
-				OrganizationID: session.OrganizationID,
-				Resource:       types.ResourceDesktop,
-			}); qErr == nil && resp != nil && resp.LimitReached {
-				reason := fmt.Sprintf("Desktop limit reached (%d). Stop a running desktop session, or raise your organization's concurrent-desktop limit, then retry.", resp.Limit)
-				transitioned, uErr := apiServer.Store.MarkInteractionErrorIfWaiting(ctx, stuck.ID, stuck.GenerationID, reason)
-				if uErr != nil {
-					log.Warn().Err(uErr).Str("interaction_id", stuck.ID).Msg("[AUTO_WAKE] Failed to mark interaction errored for desktop limit")
-					return
-				}
-				if !transitioned {
-					log.Debug().Str("interaction_id", stuck.ID).Msg("[AUTO_WAKE] Interaction already transitioned before desktop-limit error")
-					return
-				}
-				if _, clearErr := apiServer.Store.ClearSessionStartingStatus(ctx, stuck.SessionID); clearErr != nil {
-					log.Warn().Err(clearErr).Str("session_id", stuck.SessionID).Msg("[AUTO_WAKE] Failed to clear starting status after surfacing desktop limit")
-				}
-				log.Warn().Str("interaction_id", stuck.ID).Str("session_id", stuck.SessionID).Int("limit", resp.Limit).
-					Msg("[AUTO_WAKE] Desktop limit reached — surfaced to user, not retrying cold-start")
-				return
-			}
-		}
 	}
 
 	// A restart launched by this worker or crash recovery may not have updated
@@ -536,8 +511,7 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		// If it did, the real cause is in there (e.g. a clone 403) and
 		// the user deserves to see that instead of an infrastructure
 		// timeout. Reuses the session loaded at the top of this
-		// function — no extra store roundtrip (and no extra mock
-		// expectation in the cap-exhausted unit tests).
+		// function.
 		if session != nil {
 			if sentinel := apiServer.readSetupFailureSentinel(ctx, stuck.SessionID, session.SandboxID); sentinel != nil {
 				// Truncate aggressively: the Interaction.Error column
@@ -622,14 +596,32 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		Msg("🔌 [AUTO_WAKE] No WS for stuck interaction — kicking dev container auto-start (helixml/helix#2397)")
 
 	go func() {
-		err := apiServer.autoStartDevContainerForSession(stuck.SessionID)
-		// No retry can start a desktop the organization cannot pay for, so
-		// end the turn now with the real cause rather than burning the retry
-		// budget and blaming the agent for never connecting.
-		if errors.Is(err, sandbox.ErrInsufficientCredits) {
-			apiServer.failStuckInteraction(context.Background(), stuck, outOfCreditsReason)
+		kickCtx, cancel := context.WithTimeout(context.Background(), coldStartKickTimeout)
+		defer cancel()
+		err := apiServer.autoStartDevContainerForSession(kickCtx, stuck.SessionID)
+		// A refusal no retry can overturn ends the turn now with the real
+		// cause, instead of burning the retry budget and then blaming the
+		// agent for never connecting.
+		if reason, refused := startRefusalReason(err); refused && apiServer.failStuckInteraction(kickCtx, stuck, reason) {
+			log.Warn().Err(err).
+				Str("interaction_id", stuck.ID).
+				Str("session_id", stuck.SessionID).
+				Msg("[AUTO_WAKE] Desktop start refused — failed stuck interaction without retrying")
 		}
 	}()
+}
+
+// startRefusalReason maps a desktop-start error that retrying cannot fix to the
+// message shown on the failed turn.
+func startRefusalReason(err error) (string, bool) {
+	switch {
+	case errors.Is(err, sandbox.ErrInsufficientCredits):
+		return outOfCreditsReason, true
+	case errors.Is(err, external_agent.ErrDesktopLimitReached):
+		return desktopLimitReason, true
+	default:
+		return "", false
+	}
 }
 
 // failStuckInteraction ends a waiting turn the agent can no longer complete,

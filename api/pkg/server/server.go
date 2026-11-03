@@ -772,7 +772,7 @@ func (s *HelixAPIServer) requestDesktopWake(sessionID string) {
 	}
 	go func() {
 		defer s.desktopWakeInflight.Delete(sessionID)
-		_ = s.autoStartDevContainerForSession(sessionID) // logged inside
+		_ = s.autoStartDevContainerForSession(context.Background(), sessionID) // logged inside
 	}()
 }
 

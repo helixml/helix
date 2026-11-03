@@ -197,7 +197,7 @@ func (s *ControllerBillingSuite) TestCreateRejectsSandboxWhenBillingEnabledAndCr
 		MemoryMB: 8192,
 	})
 	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "insufficient credits")
+	s.Require().ErrorIs(err, ErrInsufficientCredits)
 }
 
 func (s *ControllerBillingSuite) TestCreateRejectsInvalidSandboxResources() {
