@@ -359,7 +359,10 @@ func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath s
 }
 
 func (s *GitRepositoryService) fetchRemoteTrackingRefsForRecovery(ctx context.Context, repo *types.GitRepository) error {
-	remote := s.upstreamRemoteForRepo(ctx, repo)
+	remote, err := s.upstreamRemoteForRepo(ctx, repo)
+	if err != nil {
+		return err
+	}
 	return Fetch(ctx, repo.LocalPath, FetchOptions{
 		Remote:   remote.URL,
 		Env:      remote.env(),
@@ -523,7 +526,11 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 			Str("oauth_connection_id", gitRepo.OAuthConnectionID).
 			Msg("Cloning external repository using native git...")
 
-		err = cloneUpstreamMirror(ctx, s.upstreamRemoteForRepo(ctx, gitRepo), repoPath)
+		remote, remoteErr := s.upstreamRemoteForRepo(ctx, gitRepo)
+		if remoteErr != nil {
+			return nil, remoteErr
+		}
+		err = cloneUpstreamMirror(ctx, remote, repoPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to clone external repository: %w", err)
 		}
@@ -711,7 +718,11 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 				Str("repo_path", repoPath).
 				Msg("Starting async clone using native git")
 
-			cloneErr := cloneUpstreamMirror(ctx, s.upstreamRemoteForRepo(ctx, gitRepo), repoPath)
+			remote, remoteErr := s.upstreamRemoteForRepo(ctx, gitRepo)
+			if remoteErr != nil {
+				return recordCloneError(remoteErr)
+			}
+			cloneErr := cloneUpstreamMirror(ctx, remote, repoPath)
 			if cloneErr != nil {
 				return recordCloneError(fmt.Errorf("clone failed: %w", cloneErr))
 			}
@@ -865,7 +876,10 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 	}
 
 	// Build authenticated URL for fetch
-	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
+	remote, err := s.upstreamRemoteForRepo(ctx, gitRepo)
+	if err != nil {
+		return nil, err
+	}
 
 	// Fetch from remote to update remote-tracking ref
 	refSpec := fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branchName, branchName)
@@ -1490,7 +1504,11 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 
 	// For external repos, clone if not exists
 	if gitRepo.ExternalURL != "" && !repoExists {
-		err := cloneUpstreamMirror(ctx, s.upstreamRemoteForRepo(ctx, gitRepo), repoPath)
+		remote, err := s.upstreamRemoteForRepo(ctx, gitRepo)
+		if err != nil {
+			return err
+		}
+		err = cloneUpstreamMirror(ctx, remote, repoPath)
 		if err != nil {
 			return fmt.Errorf("failed to clone git repository: %w", err)
 		}
@@ -2569,7 +2587,10 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 // mirror intentionally does not prune because it also contains Helix-only refs,
 // so listing its refs would keep branches that were deleted upstream.
 func (s *GitRepositoryService) listExternalBranches(ctx context.Context, repo *types.GitRepository) ([]string, error) {
-	remote := s.upstreamRemoteForRepo(ctx, repo)
+	remote, err := s.upstreamRemoteForRepo(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
 	stdout, stderr, err := runUpstreamGit(ctx, "", time.Minute, remote.env(), "ls-remote", "--heads", "--", remote.URL)
 	if err != nil {
 		return nil, upstreamGitError("list upstream branches", err, stderr)
@@ -2617,7 +2638,10 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 	lock.Lock()
 	defer lock.Unlock()
 
-	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
+	remote, err := s.upstreamRemoteForRepo(ctx, gitRepo)
+	if err != nil {
+		return err
+	}
 
 	wc, err := s.getExternalWorkingCopy(ctx, remote, gitRepo.LocalPath, branchName)
 	if err != nil {
@@ -2715,9 +2739,18 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 }
 
 // upstreamRemoteForRepo returns the external URL and the credentials to send with it.
-func (s *GitRepositoryService) upstreamRemoteForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) upstreamRemote {
+func (s *GitRepositoryService) upstreamRemoteForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) (upstreamRemote, error) {
 	username, password := s.getCredentialsForRepo(ctx, gitRepo, userID...)
-	return newUpstreamRemote(gitRepo.ExternalURL, username, password)
+	remote := newUpstreamRemote(gitRepo.ExternalURL, username, password)
+	credentialConfigured := gitRepo.OAuthConnectionID != "" || gitRepo.GitProviderConnectionID != "" || gitRepo.Username != "" || gitRepo.Password != ""
+	if credentialConfigured && remote.Password == "" {
+		provider := string(gitRepo.ExternalType)
+		if gitRepo.ExternalType == types.ExternalRepositoryTypeGitHub {
+			provider = "GitHub"
+		}
+		return upstreamRemote{}, fmt.Errorf("%s connection for repository '%s' is unavailable; reconnect it and retry", provider, gitRepo.Name)
+	}
+	return remote, nil
 }
 
 // getCredentialsForRepo returns username and password/token for a repository
@@ -2808,10 +2841,21 @@ func oauthGitUsername(t types.ExternalRepositoryType) string {
 // OAuthConnectionID after the repo owner disconnects/reconnects a provider (the
 // reconnect creates a new connection row and soft-deletes the pinned one).
 func (s *GitRepositoryService) newestLiveOAuthToken(ctx context.Context, userID string, externalType types.ExternalRepositoryType) string {
-	wantType := OAuthProviderTypeForRepo(externalType)
-	conns, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: userID})
-	if err != nil {
+	conn := NewestLiveOAuthConnection(ctx, s.store, userID, externalType)
+	if conn == nil {
 		return ""
+	}
+	return conn.AccessToken
+}
+
+// NewestLiveOAuthConnection returns the newest usable connection owned by userID
+// for the repository provider. It keeps task sync and connection status aligned
+// when a reconnect replaces a repository's pinned connection row.
+func NewestLiveOAuthConnection(ctx context.Context, st store.Store, userID string, externalType types.ExternalRepositoryType) *types.OAuthConnection {
+	wantType := OAuthProviderTypeForRepo(externalType)
+	conns, err := st.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: userID})
+	if err != nil {
+		return nil
 	}
 	var newest *types.OAuthConnection
 	for _, conn := range conns {
@@ -2823,9 +2867,9 @@ func (s *GitRepositoryService) newestLiveOAuthToken(ctx context.Context, userID 
 		}
 	}
 	if newest == nil {
-		return ""
+		return nil
 	}
-	return newest.AccessToken
+	return newest
 }
 
 func GetPullRequestURL(repo *types.GitRepository, pullRequestID string) string {

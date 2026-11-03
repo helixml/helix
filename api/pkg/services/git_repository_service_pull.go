@@ -69,7 +69,10 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 	defer lock.Unlock()
 
 	// Build authenticated URL for fetch
-	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
+	remote, err := s.upstreamRemoteForRepo(ctx, gitRepo)
+	if err != nil {
+		return err
+	}
 
 	// First, fetch the branch to a remote-tracking ref for comparison
 	// Use refs/remotes/origin/<branch> so we can compare before updating local
@@ -397,7 +400,10 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 	defer lock.Unlock()
 
 	// Build authenticated URL for fetch
-	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
+	remote, err := s.upstreamRemoteForRepo(ctx, gitRepo)
+	if err != nil {
+		return err
+	}
 
 	refSpec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", branchName, branchName)
 	if force {
@@ -456,7 +462,10 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 	}
 
 	// Build authenticated URL for fetch
-	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
+	remote, err := s.upstreamRemoteForRepo(ctx, gitRepo)
+	if err != nil {
+		return err
+	}
 
 	// Fetch mirrored branches using a wildcard refspec. The negative refspec is
 	// essential: a force fetch must never replace the local-authoritative

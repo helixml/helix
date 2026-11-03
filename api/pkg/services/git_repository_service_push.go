@@ -59,22 +59,28 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 	}
 
 	// Get credentials for the external URL using the acting user's OAuth.
-	username, password := s.getCredentialsForRepo(ctx, gitRepo, actingUserID)
+	var remote upstreamRemote
+	if actingUserID != "" {
+		remote, err = s.upstreamRemoteForRepo(ctx, gitRepo, actingUserID)
+	} else {
+		remote, err = s.upstreamRemoteForRepo(ctx, gitRepo)
+	}
+	if err != nil {
+		return err
+	}
 	authType := "none"
-	if password != "" {
-		authType = fmt.Sprintf("basic:%s", username)
+	if remote.Password != "" {
+		authType = fmt.Sprintf("basic:%s", remote.Username)
 		log.Trace().
 			Str("repo_id", repoID).
 			Str("auth_type", authType).
-			Int("token_length", len(password)).
+			Int("token_length", len(remote.Password)).
 			Msg("[GitPush] Auth configured")
 	} else {
 		log.Warn().
 			Str("repo_id", repoID).
 			Msg("[GitPush] WARNING: No auth configured for push!")
 	}
-
-	remote := newUpstreamRemote(gitRepo.ExternalURL, username, password)
 
 	log.Info().
 		Str("repo_id", gitRepo.ID).

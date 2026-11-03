@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/crypto"
@@ -54,6 +55,106 @@ func (s *prTestStore) GetOAuthConnection(_ context.Context, id string) (*types.O
 
 func newPRTestService(s *prTestStore) *GitRepositoryService {
 	return &GitRepositoryService{store: s}
+}
+
+func TestUpstreamRemoteForRepo_RejectsUnavailableOAuthConnection(t *testing.T) {
+	for _, connection := range []*types.OAuthConnection{
+		nil,
+		{ID: "github-connection"},
+	} {
+		repo := &types.GitRepository{
+			Name:              "private-repo",
+			ExternalURL:       "https://github.com/acme/private-repo.git",
+			ExternalType:      types.ExternalRepositoryTypeGitHub,
+			OAuthConnectionID: "github-connection",
+		}
+		_, err := newPRTestService(&prTestStore{oauthConnection: connection}).upstreamRemoteForRepo(t.Context(), repo)
+		if err == nil {
+			t.Fatal("expected unavailable connection error")
+		}
+		if got, want := err.Error(), "GitHub connection for repository 'private-repo' is unavailable; reconnect it and retry"; got != want {
+			t.Fatalf("error = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestUpstreamRemoteForRepo_UsesOAuthConnection(t *testing.T) {
+	repo := &types.GitRepository{
+		Name:              "private-repo",
+		ExternalURL:       "https://github.com/acme/private-repo.git",
+		ExternalType:      types.ExternalRepositoryTypeGitHub,
+		OAuthConnectionID: "github-connection",
+	}
+	remote, err := newPRTestService(&prTestStore{oauthConnection: &types.OAuthConnection{
+		ID:          "github-connection",
+		AccessToken: "github-token",
+	}}).upstreamRemoteForRepo(t.Context(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remote.Username != "x-access-token" || remote.Password != "github-token" {
+		t.Fatal("OAuth credentials were not resolved")
+	}
+	if !strings.Contains(fmt.Sprint(remote.env()), "http.extraHeader") {
+		t.Fatal("fetch environment has no authorization header")
+	}
+}
+
+func TestUpstreamRemoteForRepo_AllowsUnconfiguredAnonymousRemote(t *testing.T) {
+	repo := &types.GitRepository{
+		Name:         "public-repo",
+		ExternalURL:  "https://github.com/acme/public-repo.git",
+		ExternalType: types.ExternalRepositoryTypeGitHub,
+	}
+	remote, err := newPRTestService(&prTestStore{}).upstreamRemoteForRepo(t.Context(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remote.Password != "" {
+		t.Fatal("expected anonymous remote")
+	}
+}
+
+func TestUpstreamRemoteForRepo_RejectsUnavailableSavedPAT(t *testing.T) {
+	repo := &types.GitRepository{
+		Name:                    "private-repo",
+		ExternalURL:             "https://github.com/acme/private-repo.git",
+		ExternalType:            types.ExternalRepositoryTypeGitHub,
+		GitProviderConnectionID: "github-pat",
+	}
+	_, err := newPRTestService(&prTestStore{}).upstreamRemoteForRepo(t.Context(), repo)
+	if err == nil {
+		t.Fatal("expected unavailable connection error")
+	}
+}
+
+func TestUpstreamRemoteForRepo_RejectsPartialUsernamePassword(t *testing.T) {
+	for _, repo := range []*types.GitRepository{
+		{Name: "private-repo", ExternalURL: "https://github.com/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeGitHub, Username: "user"},
+		{Name: "private-repo", ExternalURL: "https://github.com/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeGitHub, Password: "password"},
+	} {
+		_, err := newPRTestService(&prTestStore{}).upstreamRemoteForRepo(t.Context(), repo)
+		if err == nil {
+			t.Fatal("expected unavailable connection error")
+		}
+	}
+}
+
+func TestUpstreamRemoteForRepo_UsesPATFallback(t *testing.T) {
+	repo := &types.GitRepository{
+		Name:              "private-repo",
+		ExternalURL:       "https://github.com/acme/private-repo.git",
+		ExternalType:      types.ExternalRepositoryTypeGitHub,
+		OAuthConnectionID: "missing-oauth",
+		GitHub:            &types.GitHub{PersonalAccessToken: "pat"},
+	}
+	remote, err := newPRTestService(&prTestStore{}).upstreamRemoteForRepo(t.Context(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remote.Password != "pat" {
+		t.Fatal("PAT fallback was not resolved")
+	}
 }
 
 func TestGetGitHubClient_UserOAuthTakesPrecedence(t *testing.T) {
