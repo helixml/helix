@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -154,4 +155,61 @@ func TestEnvFloatRejectsNonPercentages(t *testing.T) {
 	}
 	t.Setenv("HELIX_TEST_PCT", "2.5")
 	require.Equal(t, 2.5, envFloat("HELIX_TEST_PCT", 5.0))
+}
+
+// The reaper destroys desktops, so the rules that keep one are pinned at the
+// Docker API: a live session's, a sandbox-API (sbx_) one, a running one, and
+// one that stopped within the grace period must all survive. Only a dead
+// session's container past grace — here one that never started, so its age
+// comes from creation — is removed.
+func TestReapOrphanContainersKeepsEverythingButDeadPastGrace(t *testing.T) {
+	now := time.Now()
+	old := now.Add(-60 * 24 * time.Hour)
+	recent := now.Add(-time.Hour)
+	type fake struct {
+		session, state string
+		finished       time.Time
+		created        time.Time
+	}
+	containers := map[string]fake{
+		"cid_live":       {session: "ses_01live", state: "exited", finished: old, created: old},
+		"cid_sbx":        {session: "sbx_01api", state: "exited", finished: old, created: old},
+		"cid_running":    {session: "ses_01run", state: "running", finished: old, created: old},
+		"cid_recent":     {session: "ses_01recent", state: "exited", finished: recent, created: old},
+		"cid_neverstart": {session: "ses_01never", state: "created", created: old},
+	}
+	var removed []string
+	socket := serveFakeDocker(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/containers/json"):
+			list := make([]string, 0, len(containers))
+			for id, c := range containers {
+				list = append(list, `{"Id":"`+id+`","Names":["/`+id+`"],"State":"`+c.state+`","Created":`+
+					strconv.FormatInt(c.created.Unix(), 10)+`,"Labels":{"helix.session_id":"`+c.session+`"}}`)
+			}
+			_, _ = w.Write([]byte("[" + strings.Join(list, ",") + "]"))
+		case r.Method == http.MethodGet:
+			id := containerID(r.URL.Path)
+			c := containers[id]
+			finished := "0001-01-01T00:00:00Z"
+			if !c.finished.IsZero() {
+				finished = c.finished.UTC().Format(time.RFC3339Nano)
+			}
+			_, _ = w.Write([]byte(`{"Id":"` + id + `","Name":"/` + id + `","State":{"Running":` +
+				strconv.FormatBool(c.state == "running") + `,"FinishedAt":"` + finished + `"}}`))
+		case r.Method == http.MethodDelete:
+			removed = append(removed, containerID(r.URL.Path))
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			dockerNotFound(w, containerID(r.URL.Path))
+		}
+	})
+	dockerClient, err := client.NewClientWithOpts(client.WithHost("unix://"+socket), client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer dockerClient.Close()
+
+	reaped := reapOrphanContainers(context.Background(), dockerClient, map[string]bool{"ses_01live": true}, now.Add(-30*24*time.Hour), false)
+
+	require.Equal(t, []string{"cid_neverstart"}, reaped)
+	require.Equal(t, []string{"cid_neverstart"}, removed)
 }

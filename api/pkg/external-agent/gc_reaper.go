@@ -63,7 +63,7 @@ func reapOrphanResources(ctx context.Context, executor Executor, st store.Store,
 		return
 	}
 
-	liveSpecTaskIDs, err := liveSpecTaskIDsForReaper(ctx, st, cutoff)
+	liveSpecTaskIDs, err := liveSpecTaskIDsForReaper(ctx, st, cutoff, liveSessionIDs)
 	if err != nil {
 		log.Error().Err(err).Msg("orphan reaper: failed to list live spec-task ids")
 		return
@@ -120,11 +120,17 @@ func reapOrphanResources(ctx context.Context, executor Executor, st store.Store,
 }
 
 // liveSpecTaskIDsForReaper returns the IDs of spec-tasks that should be treated
-// as live: those the user has pinned with Keep Alive, those in a non-terminal
-// status, OR those updated at/after cutoff. Archived tasks are included in the
+// as live: those the user has pinned with Keep Alive, those whose planning
+// session is live, those in a non-terminal status, OR those updated at/after
+// cutoff. Archived tasks are included in the
 // scan but are live only if recently updated, so a long-archived task's
 // workspace eventually reaps.
-func liveSpecTaskIDsForReaper(ctx context.Context, st store.Store, cutoff time.Time) ([]string, error) {
+func liveSpecTaskIDsForReaper(ctx context.Context, st store.Store, cutoff time.Time, liveSessionIDs []string) ([]string, error) {
+	liveSessions := make(map[string]bool, len(liveSessionIDs))
+	for _, id := range liveSessionIDs {
+		liveSessions[id] = true
+	}
+
 	// Tasks of a deleted project are dead whatever their status or Keep Alive.
 	tasks, err := st.ListSpecTasks(ctx, &types.SpecTaskFilters{IncludeArchived: true, ExcludeDeletedProjects: true})
 	if err != nil {
@@ -154,6 +160,14 @@ func liveSpecTaskIDsForReaper(ctx context.Context, st store.Store, cutoff time.T
 		// forgotten toggle is a disk-usage problem to surface in the UI, not a
 		// reason to delete someone's working directory behind their back.
 		if t.KeepAlive {
+			live = true
+		}
+
+		// A task's workspace is the cwd of its desktop. A finished or archived
+		// task whose desktop is still in use must keep it however long ago the
+		// task itself last changed — its directory mtime does not move when
+		// files deep inside it do.
+		if liveSessions[t.PlanningSessionID] {
 			live = true
 		}
 
