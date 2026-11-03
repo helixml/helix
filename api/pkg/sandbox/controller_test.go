@@ -101,7 +101,7 @@ func (s *ControllerSuite) TestUpdateAppliesNameTagsAndExtendsExpiry() {
 		CreatedAt:      createdAt,
 	}
 	s.store.EXPECT().GetSandbox(s.ctx, "sbx_update").Return(sb, nil)
-	s.store.EXPECT().UpdateSandbox(s.ctx, gomock.Any()).DoAndReturn(
+	s.store.EXPECT().UpdateSandboxDetails(s.ctx, gomock.Any()).DoAndReturn(
 		func(_ context.Context, in *types.Sandbox) (*types.Sandbox, error) {
 			return in, nil
 		},
