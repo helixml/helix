@@ -934,6 +934,9 @@ const sessionLastActiveFile = ".last-active"
 // Called on container stop, and by ReconcileGC for live sessions.
 func TouchSessionLastActive(sessionDir string) {
 	marker := filepath.Join(sessionDir, sessionLastActiveFile)
-	_ = os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0644)
+	if err := os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0644); err != nil {
+		// The marker is the reaper's grace clock; a stale one shortens grace.
+		log.Warn().Err(err).Str("dir", sessionDir).Msg("Failed to refresh session last-active marker")
+	}
 }
 

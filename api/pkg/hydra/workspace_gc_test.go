@@ -3,6 +3,7 @@ package hydra
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,4 +164,24 @@ func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_SkipsPrefixOnlyNames() 
 	assert.Empty(s.T(), reaped)
 	assert.DirExists(s.T(), sesBare)
 	assert.DirExists(s.T(), sptBare)
+}
+
+// A workspace's mtime ignores edits deeper inside, so a session that ran past
+// the grace period without touching the top level used to be deleted the
+// moment it left the live set. Seen live, its grace restarts.
+func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_GraceRunsFromLastSeenLive() {
+	dir := s.mkdirOld("sessions/ses_longrun", 8*time.Hour)
+
+	_, _ = ReconcileOrphanWorkspaces(map[string]bool{"ses_longrun": true}, map[string]bool{}, time.Hour, false)
+	reaped, skipped := ReconcileOrphanWorkspaces(map[string]bool{}, map[string]bool{}, time.Hour, false)
+
+	assert.Empty(s.T(), reaped)
+	assert.DirExists(s.T(), dir)
+	var reason string
+	for _, sk := range skipped {
+		if strings.HasSuffix(sk.Name, "ses_longrun") {
+			reason = sk.Reason
+		}
+	}
+	assert.Equal(s.T(), "grace", reason)
 }

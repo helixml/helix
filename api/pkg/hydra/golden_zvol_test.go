@@ -43,6 +43,9 @@ type mockZFS struct {
 	creationByDataset map[string]int64
 	// props holds ZFS user properties set via `zfs set`, per dataset.
 	props map[string]map[string]string
+	// remountAfterUmount simulates a session restart remounting a path
+	// right after it was unmounted.
+	remountAfterUmount map[string]bool
 	// origins tracks the snapshot each clone was created from.
 	origins map[string]string
 	// deviceDelay makes /dev/zvol/<dataset> missing for this many stats after
@@ -89,6 +92,7 @@ func newMockZFS() *mockZFS {
 		snapshotsByDataset: make(map[string][]string),
 		failCommands:       make(map[string]error),
 		creationByDataset:  make(map[string]int64),
+		remountAfterUmount: make(map[string]bool),
 		props:              make(map[string]map[string]string),
 		origins:            make(map[string]string),
 		deviceDelay:        make(map[string]int),
@@ -447,7 +451,9 @@ func (m *mockZFS) handleSideEffects(name string, args ...string) {
 		}
 	case "umount":
 		target := args[len(args)-1]
-		delete(m.mountedPaths, target)
+		if !m.remountAfterUmount[target] {
+			delete(m.mountedPaths, target)
+		}
 	}
 }
 
@@ -466,9 +472,10 @@ func contains(slice []string, item string) bool {
 
 type GoldenZvolSuite struct {
 	suite.Suite
-	mock    *mockZFS
-	cleanup func()
-	tmpDir  string
+	mock               *mockZFS
+	cleanup            func()
+	tmpDir             string
+	oldSessionsBaseDir string
 }
 
 func TestGoldenZvolSuite(t *testing.T) {
@@ -591,9 +598,14 @@ func (s *GoldenZvolSuite) SetupTest() {
 	// Set up the ZFS parent dataset (simulates what ZFSAvailable() would set)
 	resetZFSState()
 	zfsParentDataset = "testpool/helix-zvols"
+
+	// Reapers read last-active markers; never let them see the host's.
+	s.oldSessionsBaseDir = sessionsBaseDir
+	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
 }
 
 func (s *GoldenZvolSuite) TearDownTest() {
+	sessionsBaseDir = s.oldSessionsBaseDir
 	s.cleanup()
 	os.RemoveAll(s.tmpDir)
 	goldenBaseDirOverride = ""
@@ -2199,4 +2211,42 @@ func (s *GoldenZvolSuite) TestReconcileOrphanZvols_GraceRunsFromLastActivity() {
 	require.Len(s.T(), skipped, 1)
 	assert.Equal(s.T(), "grace", skipped[0].Reason)
 	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_longrun"])
+}
+
+// The reaper unmounts, then destroys. A session restarting in between
+// remounts the zvol; the reaper must leave it (the destroy fails busy) and
+// never unmount again, least of all lazily under a running desktop.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_NeverUnmountsARemountedZvol() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	zvol := "prod/helix-zvols/ses-ses_resumed"
+	mountPath := sessionZvolMountPathForKind("ses_resumed", dockerGoldenCache)
+	s.mock.addDataset(zvol)
+	s.mock.setCreationAge(zvol, 8*time.Hour)
+	s.mock.setMounted(mountPath)
+	s.mock.remountAfterUmount[mountPath] = true
+	s.mock.failOn("zfs destroy -r "+zvol, fmt.Errorf("cannot destroy '%s': dataset is busy", zvol))
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Contains(s.T(), skipped[0].Reason, "busy")
+	assert.Len(s.T(), s.mock.commandsMatching("umount"), 1)
+	assert.True(s.T(), s.mock.datasets[zvol])
+}
+
+// An unreadable creation time keeps the zvol, under its own reason so a leak
+// it causes can be attributed.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_KeepsAZvolOfUnknownAge() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	s.mock.addDataset("prod/helix-zvols/ses-ses_noage")
+	s.mock.failOn("zfs get -Hp -o value creation", fmt.Errorf("pool I/O error"))
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Equal(s.T(), "age unknown", skipped[0].Reason)
 }

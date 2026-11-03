@@ -57,6 +57,13 @@ func reconcileIDDirs(base, label, requiredPrefix string, liveSet map[string]bool
 
 		// id == directory name (full ses_… / spt_… string).
 		if liveSet[name] {
+			// A dir's mtime only moves when a direct child changes, not when
+			// files deeper inside are edited. Stamp it while live so grace
+			// runs from when it was last seen live.
+			now := time.Now()
+			if err := os.Chtimes(filepath.Join(base, name), now, now); err != nil {
+				log.Warn().Err(err).Str("dir", filepath.Join(base, name)).Msg("ReconcileOrphanWorkspaces: failed to refresh live workspace mtime")
+			}
 			skipped = append(skipped, GCSkip{Name: filepath.Join(label, name), Reason: "live"})
 			continue
 		}

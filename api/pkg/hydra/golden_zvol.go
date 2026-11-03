@@ -341,7 +341,10 @@ func parseSessionZvolName(name string) (string, goldenCacheKind, bool) {
 // on the external filesystem so GC knows it's in use.
 func touchExternalMarker(sessionID string, kind goldenCacheKind) {
 	externalDir := filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))
-	_ = os.MkdirAll(externalDir, 0755)
+	if err := os.MkdirAll(externalDir, 0755); err != nil {
+		log.Warn().Err(err).Str("dir", externalDir).Msg("Failed to create session last-active marker dir; its reap grace will run from an older time")
+		return
+	}
 	TouchSessionLastActive(externalDir)
 }
 
@@ -656,19 +659,24 @@ func cleanupSessionZvolForKind(sessionID string, kind goldenCacheKind) error {
 		}
 	}
 
-	// Destroy the clone (recursive: takes any descendant snapshots with it)
+	return destroySessionZvolForKind(sessionID, kind)
+}
+
+// destroySessionZvolForKind destroys an unmounted session clone and its mount
+// point. It never unmounts: a clone remounted since the caller unmounted it
+// fails with "dataset is busy" and is kept.
+func destroySessionZvolForKind(sessionID string, kind goldenCacheKind) error {
+	cloneName := sessionZvolNameForKind(sessionID, kind)
+	// Recursive: takes any descendant snapshots with it.
 	if err := runCmd("zfs", "destroy", "-r", cloneName); err != nil {
 		return fmt.Errorf("failed to destroy clone %s: %w", cloneName, err)
 	}
-
-	// Remove mount point directory
-	_ = os.Remove(mountPath)
+	_ = os.Remove(sessionZvolMountPathForKind(sessionID, kind))
 
 	log.Info().
 		Str("clone", cloneName).
 		Str("session_id", sessionID).
 		Msg("Cleaned up session ZFS clone")
-
 	return nil
 }
 
@@ -1118,10 +1126,9 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 		}
 
 		if liveSet[sessionID] {
-			// Live per the DB — keep, and refresh its last-active marker.
-			externalDir := filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))
-			_ = os.MkdirAll(externalDir, 0755)
-			TouchSessionLastActive(externalDir)
+			// Live per the DB — keep, and refresh its last-active marker, the
+			// clock grace runs from once it stops being live.
+			touchExternalMarker(sessionID, kind)
 			skipped = append(skipped, GCSkip{Name: name, Reason: "live"})
 			continue
 		}
@@ -1129,9 +1136,13 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 		// Not live. A zvol is created at session start, so its creation age
 		// alone has passed grace by the time a long session leaves the live
 		// set. Measure from when it was last seen live or stopped instead
-		// (the external marker), falling back to creation. age == 0 means
-		// neither could be read — be conservative and keep it.
+		// (the external marker), falling back to creation. An unreadable
+		// creation time keeps it.
 		age := zvolCreationAge(name)
+		if age == 0 {
+			skipped = append(skipped, GCSkip{Name: name, Reason: "age unknown"})
+			continue
+		}
 		if markerAge := fileCopyDirAge(filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))); markerAge > 0 && markerAge < age {
 			age = markerAge
 		}
@@ -1171,12 +1182,16 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 			}
 		}
 
-		if err := cleanupSessionZvolForKind(sessionID, kind); err != nil {
+		if err := destroySessionZvolForKind(sessionID, kind); err != nil {
 			msg := err.Error()
-			// "has dependent clones" / "dataset is busy" → a golden clone-root
-			// or a manually-cloned descendant depends on this zvol. NEVER force.
-			if strings.Contains(msg, "dependent clones") || strings.Contains(msg, "busy") {
+			// A golden clone-root or a manually-cloned descendant depends on
+			// it, or something remounted it since the unmount. NEVER force.
+			if strings.Contains(msg, "dependent clones") {
 				skipped = append(skipped, GCSkip{Name: name, Reason: "dependent: " + msg})
+				continue
+			}
+			if strings.Contains(msg, "busy") {
+				skipped = append(skipped, GCSkip{Name: name, Reason: "busy: " + msg})
 				continue
 			}
 			log.Warn().Err(err).Str("zvol", name).Msg("ReconcileOrphanZvols: failed to destroy zvol")
