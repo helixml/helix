@@ -2487,7 +2487,7 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 		// resume path will deliver it when the agent reconnects via WebSocket. Wrap the sentinel so
 		// callers (e.g. sendQueuedPromptToSession) can recognise this as an expected
 		// transient state via errors.Is and avoid surfacing it as a queue failure.
-		go apiServer.autoStartDevContainerForSession(sessionID)
+		go apiServer.autoStartDevContainerForSession(context.Background(), sessionID)
 		return fmt.Errorf("session %s: %w", sessionID, ErrNoExternalAgentWS)
 	}
 
@@ -4136,9 +4136,10 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 }
 
 // autoStartDevContainerForSession boots the dev container for any zed_external
-// session that has no live WebSocket connection. Fire-and-forget — the caller's
-// message is already persisted and will be picked up by the reconnect resume path
-// when the agent reconnects.
+// session that has no live WebSocket connection. Callers usually run it
+// detached — the caller's message is already persisted and will be picked up by
+// the reconnect resume path when the agent reconnects. Failures are logged here;
+// the error is returned for callers that act on its cause.
 //
 // Handles three session shapes via startDevContainerForSession:
 //   - spec-task sessions  (session.Metadata.SpecTaskID set)
@@ -4147,23 +4148,22 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 //
 // Sessions with none of the above are logged and skipped (we cannot invent project
 // config). Non-zed_external sessions are also skipped (they have no desktop to wake).
-func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID string) {
-	ctx := context.Background()
+func (apiServer *HelixAPIServer) autoStartDevContainerForSession(ctx context.Context, sessionID string) error {
 	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("autoStartDevContainerForSession: failed to get session")
-		return
+		return fmt.Errorf("get session %s: %w", sessionID, err)
 	}
 	if session == nil {
 		log.Warn().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: session is nil")
-		return
+		return fmt.Errorf("session %s not found", sessionID)
 	}
 	if session.Metadata.AgentType != "zed_external" {
 		log.Debug().
 			Str("session_id", sessionID).
 			Str("agent_type", session.Metadata.AgentType).
 			Msg("autoStartDevContainerForSession: not a zed_external session, skipping")
-		return
+		return nil
 	}
 
 	log.Info().
@@ -4177,7 +4177,9 @@ func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID strin
 			Str("session_id", sessionID).
 			Str("spec_task_id", session.Metadata.SpecTaskID).
 			Msg("Failed to auto-start dev container")
+		return startErr
 	}
+	return nil
 }
 
 // truncateString truncates a string to maxLen characters

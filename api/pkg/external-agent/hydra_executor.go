@@ -276,7 +276,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		return nil, fmt.Errorf("failed to check limits: %w", err)
 	}
 	if limitReached != nil && limitReached.LimitReached {
-		return nil, fmt.Errorf("desktop limit reached (%d). Stop some of the existing sessions or upgrade your plan", limitReached.Limit)
+		return nil, fmt.Errorf("%w (%d). Stop some of the existing sessions or upgrade your plan", ErrDesktopLimitReached, limitReached.Limit)
 	}
 
 	// Open the sandbox row that bills and quota-checks this desktop. This
@@ -2450,6 +2450,10 @@ func (h *HydraExecutor) ReconcileSandboxResources(ctx context.Context, sandboxID
 
 	return hydraClient.ReconcileGC(ctx, req)
 }
+
+// ErrDesktopLimitReached means the organization is at its concurrent-desktop
+// quota. The frontend matches on this text as an error prefix.
+var ErrDesktopLimitReached = errors.New("desktop limit reached")
 
 // checkLimits checks desktop limits for the user/org
 func (h *HydraExecutor) checkLimits(ctx context.Context, agent *types.DesktopAgent) (*types.QuotaLimitReachedResponse, error) {
