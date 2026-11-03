@@ -408,18 +408,6 @@ func isGoldenCopyCompleteForKind(volumeName string, kind goldenCacheKind) bool {
 	return err == nil
 }
 
-// CleanupGoldenSession removes the session's Docker data directory.
-func CleanupGoldenSession(volumeName string) error {
-	base := sessionOverlayDir(volumeName)
-
-	if err := os.RemoveAll(base); err != nil {
-		return fmt.Errorf("failed to remove session dir %s: %w", base, err)
-	}
-
-	log.Info().Str("path", base).Msg("Cleaned up golden session dir")
-	return nil
-}
-
 // PromoteSessionToGolden takes a completed golden build session's Docker data
 // and promotes it to be the project's golden snapshot.
 //
@@ -504,19 +492,6 @@ func promoteSessionToGoldenForKind(projectID, volumeName, sessionID string, kind
 		Str("cache_kind", string(kind)).
 		Msg("Promoted session container data to golden cache")
 
-	return nil
-}
-
-// CleanupSessionDockerDir removes the per-session Docker data directory.
-// Works for both golden-seeded and plain sessions that use CONTAINER_DOCKER_PATH.
-func CleanupSessionDockerDir(volumeName string) error {
-	base := sessionOverlayDir(volumeName)
-
-	if err := os.RemoveAll(base); err != nil {
-		return fmt.Errorf("failed to remove session dir %s: %w", base, err)
-	}
-
-	log.Info().Str("path", base).Msg("Cleaned up session Docker data dir")
 	return nil
 }
 
@@ -956,107 +931,12 @@ const sessionLastActiveFile = ".last-active"
 // unreliable because it only updates when direct entries change, not when
 // files deep inside subdirectories are modified by Docker.
 //
-// Called on container stop and periodically by GC for running containers.
+// Called on container stop, and by ReconcileGC for live sessions.
 func TouchSessionLastActive(sessionDir string) {
 	marker := filepath.Join(sessionDir, sessionLastActiveFile)
-	_ = os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0644)
+	if err := os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0644); err != nil {
+		// The marker is the reaper's grace clock; a stale one shortens grace.
+		log.Warn().Err(err).Str("dir", sessionDir).Msg("Failed to refresh session last-active marker")
+	}
 }
 
-// sessionLastActiveAge returns how long ago a session was last active, based on
-// the .last-active marker file. Returns 0 if the marker doesn't exist (session
-// predates this change, or was never cleanly stopped).
-func sessionLastActiveAge(sessionDir string) time.Duration {
-	marker := filepath.Join(sessionDir, sessionLastActiveFile)
-	data, err := os.ReadFile(marker)
-	if err != nil {
-		return 0
-	}
-	t, err := time.Parse(time.RFC3339, string(data))
-	if err != nil {
-		return 0
-	}
-	return time.Since(t)
-}
-
-// GCOrphanedSessionDirs removes session Docker data directories that haven't
-// been active in over a week. Session dirs are kept around so that session
-// restarts can reuse the existing Docker data instead of re-copying the
-// golden cache (~28s for 30 GB).
-//
-// It also touches the .last-active marker for all currently running sessions
-// so that if Hydra crashes, the marker is at most 10 minutes stale.
-//
-// activeSessions is the set of session IDs that currently have running containers.
-func GCOrphanedSessionDirs(activeSessions map[string]bool) (int, int64, error) {
-	const maxAge = 7 * 24 * time.Hour
-
-	entries, err := os.ReadDir(sessionsBaseDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return 0, 0, nil
-		}
-		return 0, 0, fmt.Errorf("failed to read sessions dir: %w", err)
-	}
-
-	var cleaned int
-	var freedBytes int64
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		name := entry.Name()
-		sessionID, ok := sessionIDFromContainerDataDir(name)
-		if !ok {
-			continue
-		}
-		dir := filepath.Join(sessionsBaseDir, name)
-
-		if activeSessions[sessionID] {
-			// Container still running — refresh the marker so that if
-			// Hydra crashes, GC won't consider this dir stale.
-			TouchSessionLastActive(dir)
-			continue
-		}
-
-		// Only clean up dirs that haven't been active in over a week. Use the
-		// newer of the dir mtime and the .last-active marker (fileCopyDirAge):
-		// a marker-less dir (pre-marker, or a crashed/unclean stop) falls back
-		// to the dir mtime rather than being skipped forever — the bug that
-		// leaked old file-copy docker-data dirs indefinitely.
-		age := fileCopyDirAge(dir)
-		if age < maxAge {
-			continue
-		}
-
-		// Get size before removal (for logging)
-		var size int64
-		if out, err := exec.Command("du", "-sb", dir).Output(); err == nil {
-			fmt.Sscanf(string(out), "%d", &size)
-		}
-
-		if err := os.RemoveAll(dir); err != nil {
-			log.Warn().Err(err).Str("path", dir).Msg("Failed to remove orphaned session dir")
-			continue
-		}
-
-		cleaned++
-		freedBytes += size
-		log.Info().
-			Str("session_id", sessionID).
-			Str("path", dir).
-			Int64("size_bytes", size).
-			Dur("age", age).
-			Msg("Removed stale session Docker data")
-	}
-
-	if cleaned > 0 {
-		log.Info().
-			Int("removed", cleaned).
-			Int64("freed_bytes", freedBytes).
-			Msg("GC_SESSION_CLEANUP")
-	}
-
-	return cleaned, freedBytes, nil
-}
