@@ -2,6 +2,7 @@ package hydra
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -105,4 +106,58 @@ func reapOrphanVolumes(ctx context.Context, dockerClient *client.Client, liveSes
 		reaped = append(reaped, v.Name)
 	}
 	return reaped
+}
+
+// runningTrackedSessions returns the tracked sessions whose container Docker
+// reports running, plus any it cannot inspect: an unreachable daemon must not
+// make a live desktop's storage look orphaned. A tracked container that has
+// stopped is not live — the database live-set and the grace period decide its
+// fate, exactly as for an untracked one. Without this, a desktop stopped
+// without a destroy (the disk-pressure emergency brake) stayed tracked and so
+// pinned its container, zvol and workspace forever.
+//
+// An entry whose container no longer exists is forgotten, so hydra stops
+// reporting it to the control plane once the reaper has removed it.
+func (dm *DevContainerManager) runningTrackedSessions(ctx context.Context) []string {
+	dm.mu.RLock()
+	tracked := make([]*DevContainer, 0, len(dm.containers))
+	for _, dc := range dm.containers {
+		tracked = append(tracked, dc)
+	}
+	dm.mu.RUnlock()
+
+	var running []string
+	for _, dc := range tracked {
+		isRunning, err := dm.trackedContainerRunning(ctx, dc)
+		switch {
+		case client.IsErrNotFound(err):
+			dm.mu.Lock()
+			if dm.containers[dc.SessionID] == dc {
+				delete(dm.containers, dc.SessionID)
+			}
+			dm.mu.Unlock()
+		case err != nil:
+			log.Warn().Err(err).Str("session_id", dc.SessionID).Msg("Docker GC: cannot inspect tracked container; treating its session as live")
+			running = append(running, dc.SessionID)
+		case isRunning:
+			running = append(running, dc.SessionID)
+		}
+	}
+	return running
+}
+
+func (dm *DevContainerManager) trackedContainerRunning(ctx context.Context, dc *DevContainer) (bool, error) {
+	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
+	if err != nil {
+		return false, err
+	}
+	defer dockerClient.Close()
+	info, err := dockerClient.ContainerInspect(ctx, dc.ContainerID)
+	if err != nil {
+		return false, err
+	}
+	if info.State == nil {
+		return false, fmt.Errorf("container %s has no state", dc.ContainerID)
+	}
+	return info.State.Running, nil
 }
