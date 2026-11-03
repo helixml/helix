@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1105,4 +1108,27 @@ func TestWriteSettingsPreservesInode(t *testing.T) {
 		assert.NoError(t, json.Unmarshal(data, &got))
 		assert.Equal(t, theme, got["theme"], "written theme should be readable")
 	}
+}
+
+// A config error only a user can fix (an agent with no model selected) was
+// logged on every 30s poll for the life of the desktop: 1,762 identical lines
+// from one desktop in 72 hours.
+func TestLogPollResultLogsOnlyChanges(t *testing.T) {
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	defer log.SetOutput(os.Stderr)
+
+	missingModel := errors.New("failed to fetch config: status 422: agent is missing a provider or model selection")
+	unreachable := errors.New("dial tcp: connection refused")
+	last := ""
+	for _, err := range []error{missingModel, missingModel, missingModel, unreachable, nil, nil, missingModel} {
+		last = logPollResult(last, err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	require.Len(t, lines, 4, out.String())
+	require.Contains(t, lines[0], "missing a provider or model selection")
+	require.Contains(t, lines[1], "connection refused")
+	require.Contains(t, lines[2], "Poll recovered")
+	require.Contains(t, lines[3], "missing a provider or model selection")
 }

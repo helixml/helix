@@ -2365,11 +2365,29 @@ func (d *SettingsDaemon) pollHelixChanges() {
 	ticker := time.NewTicker(PollInterval)
 	defer ticker.Stop()
 
+	lastErr := ""
 	for range ticker.C {
-		if err := d.checkHelixUpdates(); err != nil {
-			log.Printf("Poll error: %v", err)
-		}
+		lastErr = logPollResult(lastErr, d.checkHelixUpdates())
 	}
+}
+
+// logPollResult logs a poll error only when it differs from the previous one,
+// and logs once when polling recovers. A persistent error — e.g. an agent with
+// no model selected, which only a user can fix — otherwise repeats on every
+// tick for the life of the desktop. Returns the error text to compare against
+// on the next tick.
+func logPollResult(lastErr string, err error) string {
+	if err == nil {
+		if lastErr != "" {
+			log.Printf("Poll recovered (was: %s)", lastErr)
+		}
+		return ""
+	}
+	if msg := err.Error(); msg != lastErr {
+		log.Printf("Poll error: %v (repeats are not logged until it changes)", err)
+		return msg
+	}
+	return lastErr
 }
 
 func (d *SettingsDaemon) checkHelixUpdates() error {
