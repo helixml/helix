@@ -3,6 +3,7 @@ package hydra
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -145,9 +146,12 @@ func envFloat(key string, def float64) float64 {
 		return def
 	}
 	f, err := strconv.ParseFloat(v, 64)
-	if err != nil {
+	// Every float here is a free-space percentage. NaN compares false against
+	// everything, which would silently disable admission refusal and the
+	// emergency brake.
+	if err != nil || math.IsNaN(f) || f < 0 || f > 100 {
 		log.Warn().Str("key", key).Str("value", v).Float64("default", def).
-			Msg("disk-pressure: invalid float env, using default")
+			Msg("disk-pressure: invalid percentage env, using default")
 		return def
 	}
 	return f

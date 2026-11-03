@@ -144,3 +144,14 @@ func TestEnvDurationRejectsNonPositive(t *testing.T) {
 	t.Setenv("HELIX_TEST_DURATION", "45s")
 	require.Equal(t, 45*time.Second, envDuration("HELIX_TEST_DURATION", 30*time.Second))
 }
+
+// Every float env is a free-space percentage. NaN compares false against any
+// threshold, silently disabling admission refusal and the emergency brake.
+func TestEnvFloatRejectsNonPercentages(t *testing.T) {
+	for _, v := range []string{"NaN", "Inf", "-1", "101"} {
+		t.Setenv("HELIX_TEST_PCT", v)
+		require.Equal(t, 5.0, envFloat("HELIX_TEST_PCT", 5.0), v)
+	}
+	t.Setenv("HELIX_TEST_PCT", "2.5")
+	require.Equal(t, 2.5, envFloat("HELIX_TEST_PCT", 5.0))
+}
