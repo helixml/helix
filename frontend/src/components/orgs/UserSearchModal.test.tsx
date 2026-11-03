@@ -59,6 +59,18 @@ describe('UserSearchModal — invite-by-email CTA states', () => {
     mockSearchUsers.mockResolvedValue({ users: [] })
   })
 
+  it('always scopes the user search to the current organization', async () => {
+    mockV1OrgsUsersLookup.mockResolvedValue({
+      data: { email: 'someone@example.com', exists: true, is_member: false, is_invited: false },
+    })
+    renderModal()
+    typeEmail('someone')
+
+    await waitFor(() => {
+      expect(mockSearchUsers).toHaveBeenCalledWith({ query: 'someone', organizationId: 'org_test' })
+    })
+  })
+
   it('shows "Create invitation" (enabled) when the email has no Helix account', async () => {
     mockV1OrgsUsersLookup.mockResolvedValue({
       data: { email: 'new@example.com', exists: false, is_member: false, is_invited: false },
