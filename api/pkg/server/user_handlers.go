@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -31,16 +32,93 @@ func (apiServer *HelixAPIServer) getUserDetails(rw http.ResponseWriter, r *http.
 		return
 	}
 
+	requester := getRequestUser(r)
+	if requester == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Tenant scoping (TST-01-145): a caller may only read user records that
+	// are their own, or of users sharing an organization with them. Platform
+	// admins may read any user. Out-of-scope IDs get the same 404 as unknown
+	// IDs so the endpoint can't be used to enumerate users across tenants.
+	allowed, err := apiServer.canViewUserDetails(r.Context(), requester, userID)
+	if err != nil {
+		log.Error().Err(err).Str("target_user_id", userID).Msg("failed to authorize user details read")
+		http.Error(rw, "error authorizing request", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		http.Error(rw, "user not found", http.StatusNotFound)
+		return
+	}
+
 	user, err := apiServer.Store.GetUser(r.Context(), &store.GetUserQuery{ID: userID})
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "user not found", http.StatusNotFound)
+			return
+		}
 		http.Error(rw, fmt.Sprintf("error getting user '%s': %v", userID, err), http.StatusInternalServerError)
 		return
 	}
 
 	user.Token = ""
 	user.TokenType = ""
+	user.PasswordHash = nil
 
 	writeResponse(rw, user, http.StatusOK)
+}
+
+// canViewUserDetails reports whether requester may read targetUserID's user
+// record: themselves, a platform admin, or a member of an organization the
+// target also belongs to. For org-scoped API keys only that organization
+// counts as shared.
+func (apiServer *HelixAPIServer) canViewUserDetails(ctx context.Context, requester *types.User, targetUserID string) (bool, error) {
+	if requester.ID == targetUserID || requester.Admin {
+		return true, nil
+	}
+	if requester.ID == "" {
+		return false, nil
+	}
+
+	targetMemberships, err := apiServer.Store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{UserID: targetUserID})
+	if err != nil {
+		return false, err
+	}
+	if len(targetMemberships) == 0 {
+		return false, nil
+	}
+	targetOrgs := make(map[string]struct{}, len(targetMemberships))
+	for _, m := range targetMemberships {
+		targetOrgs[m.OrganizationID] = struct{}{}
+	}
+
+	if requester.OrganizationID != "" {
+		if _, ok := targetOrgs[requester.OrganizationID]; !ok {
+			return false, nil
+		}
+		// Confirm the requester is (still) a member of the key's org.
+		requesterMemberships, err := apiServer.Store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
+			UserID:         requester.ID,
+			OrganizationID: requester.OrganizationID,
+		})
+		if err != nil {
+			return false, err
+		}
+		return len(requesterMemberships) > 0, nil
+	}
+
+	requesterMemberships, err := apiServer.Store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{UserID: requester.ID})
+	if err != nil {
+		return false, err
+	}
+	for _, m := range requesterMemberships {
+		if _, ok := targetOrgs[m.OrganizationID]; ok {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // searchUsers godoc
