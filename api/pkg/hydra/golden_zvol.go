@@ -834,7 +834,7 @@ func ReconcilePendingGoldenPromotions() int {
 	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		projectID, kind, ok := parseGoldenZvolName(name)
 		if !ok {
-			continue // session clones that never reached the rename are reaped by GC
+			continue // a marked session clone is kept by the reaper; nothing completes it yet
 		}
 		lock := getGoldenLockForKind(projectID, kind)
 		lock.Lock()
@@ -1079,12 +1079,6 @@ func zvolCreationAge(zvolName string) time.Duration {
 	return time.Since(time.Unix(created, 0))
 }
 
-// isSessionID reports whether id names a session, the only kind of id in the
-// live set the session-data reapers are given.
-func isSessionID(id string) bool {
-	return strings.HasPrefix(id, "ses_") && len(id) > len("ses_")
-}
-
 // ReconcileOrphanZvols reaps session zvols (prefix "<parent>/ses-") that are NOT
 // in the DB-derived liveSet, have aged past the grace period, and can be safely
 // destroyed.
@@ -1094,8 +1088,9 @@ func isSessionID(id string) bool {
 //     (the prefix guard filters them out).
 //   - Only session (ses_) zvols are reaped: sandbox-API desktops (sbx_) share
 //     the naming scheme but are never in the session live set.
-//   - A zvol that is still mounted, or carries a pending golden promotion, is
-//     kept whatever the live set says.
+//   - A zvol carrying a pending golden promotion is kept whatever the live set
+//     says, and a mounted one is reaped only if a plain (never lazy) unmount
+//     succeeds.
 //   - Destroys go through CleanupSessionZvol, which uses `zfs destroy -r`
 //     (lowercase). A clone-root or busy zvol fails with "has dependent clones"
 //     / "dataset is busy"; we record it as skipped and move on. We NEVER force
@@ -1108,7 +1103,7 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 
 	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
 	if err != nil {
-		log.Warn().Err(err).Str("dataset", zfsParentDataset).Msg("ReconcileOrphanZvols: failed to list zvols")
+		log.Error().Err(err).Str("dataset", zfsParentDataset).Msg("ReconcileOrphanZvols: failed to list zvols; nothing reaped")
 		return nil, []GCSkip{{Name: zfsParentDataset, Reason: "list error: " + err.Error()}}
 	}
 
@@ -1117,7 +1112,7 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 		if !ok {
 			continue // never touch golden- or anything else
 		}
-		if !isSessionID(sessionID) {
+		if !isResourceID(sessionID, "ses_") {
 			skipped = append(skipped, GCSkip{Name: name, Reason: "not a session"})
 			continue
 		}
@@ -1131,21 +1126,20 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 			continue
 		}
 
-		// Not live. Apply the grace period using zvol creation time. age == 0
-		// means we couldn't read the creation property — be conservative and
-		// skip (treat as within grace).
+		// Not live. A zvol is created at session start, so its creation age
+		// alone has passed grace by the time a long session leaves the live
+		// set. Measure from when it was last seen live or stopped instead
+		// (the external marker), falling back to creation. age == 0 means
+		// neither could be read — be conservative and keep it.
 		age := zvolCreationAge(name)
+		if markerAge := fileCopyDirAge(filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))); markerAge > 0 && markerAge < age {
+			age = markerAge
+		}
 		if age < grace {
 			skipped = append(skipped, GCSkip{Name: name, Reason: "grace"})
 			continue
 		}
 
-		// Still mounted means something on this host is using it, whatever
-		// the database says; the destroy path would lazy-unmount it.
-		if isMounted(sessionZvolMountPathForKind(sessionID, kind)) {
-			skipped = append(skipped, GCSkip{Name: name, Reason: "mounted"})
-			continue
-		}
 		// A promotion interrupted after `zfs promote` leaves the newest golden
 		// build on this session clone; destroying it loses that build.
 		if _, _, pending, err := pendingGoldenPromotion(name); err != nil || pending {
@@ -1156,10 +1150,25 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 			skipped = append(skipped, GCSkip{Name: name, Reason: reason})
 			continue
 		}
+		if !zfsDatasetExists(name) {
+			skipped = append(skipped, GCSkip{Name: name, Reason: "gone"}) // destroyed concurrently
+			continue
+		}
 
 		if dryRun {
 			reaped = append(reaped, name)
 			continue
+		}
+
+		// A stopped desktop leaves its zvol mounted for a warm restart, so a
+		// mount alone does not mean it is in use. A plain unmount succeeds
+		// when idle and fails with EBUSY when something holds it; never fall
+		// through to the lazy unmount the explicit destroy path uses.
+		if mountPath := sessionZvolMountPathForKind(sessionID, kind); isMounted(mountPath) {
+			if err := runCmd("umount", mountPath); err != nil {
+				skipped = append(skipped, GCSkip{Name: name, Reason: "busy: " + err.Error()})
+				continue
+			}
 		}
 
 		if err := cleanupSessionZvolForKind(sessionID, kind); err != nil {
@@ -1193,7 +1202,7 @@ func ReconcileOrphanFileCopyDirs(liveSet map[string]bool, grace time.Duration, d
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		log.Warn().Err(err).Str("dir", sessionsBaseDir).Msg("ReconcileOrphanFileCopyDirs: failed to read sessions dir")
+		log.Error().Err(err).Str("dir", sessionsBaseDir).Msg("ReconcileOrphanFileCopyDirs: failed to read sessions dir; nothing reaped")
 		return nil, []GCSkip{{Name: sessionsBaseDir, Reason: "list error: " + err.Error()}}
 	}
 
@@ -1206,7 +1215,7 @@ func ReconcileOrphanFileCopyDirs(liveSet map[string]bool, grace time.Duration, d
 			continue
 		}
 		dir := filepath.Join(sessionsBaseDir, entry.Name())
-		if !isSessionID(sessionID) {
+		if !isResourceID(sessionID, "ses_") {
 			skipped = append(skipped, GCSkip{Name: dir, Reason: "not a session"})
 			continue
 		}

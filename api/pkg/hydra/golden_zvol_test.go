@@ -2028,22 +2028,62 @@ func (s *GoldenZvolSuite) TestReconcileOrphanZvols_NeverReapsSandboxAPIZvols() {
 	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-sbx_api"])
 }
 
-// A mounted zvol is in use on this host whatever the database says. The
-// destroy path lazy-unmounts, which would pull storage out from under it.
-func (s *GoldenZvolSuite) TestReconcileOrphanZvols_KeepsAMountedZvol() {
+// A stopped desktop keeps its zvol mounted for a warm restart, so the reaper
+// must unmount an idle one and reap it — skipping every mounted zvol leaked
+// dead sessions' disks until the sandbox restarted. A mount something still
+// holds fails the plain unmount and is kept; the lazy unmount the explicit
+// destroy path falls back to must never run here.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_MountedZvols() {
 	zfsParentDataset = "prod/helix-zvols"
 	zfsAvailableFlag = true
-	s.mock.addDataset("prod/helix-zvols/ses-ses_mounted")
-	s.mock.setCreationAge("prod/helix-zvols/ses-ses_mounted", 8*time.Hour)
-	s.mock.setMounted(sessionZvolMountPathForKind("ses_mounted", dockerGoldenCache))
+	for _, kind := range goldenCacheKinds {
+		for _, busy := range []bool{false, true} {
+			s.Run(fmt.Sprintf("%s busy=%v", kind, busy), func() {
+				s.SetupTest()
+				defer s.TearDownTest()
+				zfsParentDataset = "prod/helix-zvols"
+				zfsAvailableFlag = true
+				zvol := sessionZvolNameForKind("ses_stopped", kind)
+				mountPath := sessionZvolMountPathForKind("ses_stopped", kind)
+				s.mock.addDataset(zvol)
+				s.mock.setCreationAge(zvol, 8*time.Hour)
+				s.mock.setMounted(mountPath)
+				if busy {
+					s.mock.failOn("umount "+mountPath, fmt.Errorf("target is busy"))
+				}
+
+				reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+				assert.False(s.T(), s.mock.hasCommand("umount -l"))
+				if busy {
+					assert.Empty(s.T(), reaped)
+					require.Len(s.T(), skipped, 1)
+					assert.Contains(s.T(), skipped[0].Reason, "busy")
+					assert.True(s.T(), s.mock.datasets[zvol])
+					return
+				}
+				assert.Equal(s.T(), []string{zvol}, reaped)
+				assert.False(s.T(), s.mock.datasets[zvol])
+			})
+		}
+	}
+}
+
+// A mark that cannot be read must keep the zvol, exactly like a readable one:
+// simplifying the guard to `if pending` would reap it.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_KeepsAZvolWithUnreadablePromotionState() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	s.mock.addDataset("prod/helix-zvols/ses-ses_unknown")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_unknown", 8*time.Hour)
+	s.mock.failOn("zfs get -H -s local -o value "+goldenPendingPromotionProp, fmt.Errorf("pool I/O error"))
 
 	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
 
 	assert.Empty(s.T(), reaped)
 	require.Len(s.T(), skipped, 1)
-	assert.Equal(s.T(), "mounted", skipped[0].Reason)
-	assert.False(s.T(), s.mock.hasCommand("umount"))
-	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_mounted"])
+	assert.Contains(s.T(), skipped[0].Reason, "promotion state unknown")
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_unknown"])
 }
 
 // A promotion interrupted between `zfs promote` and `zfs rename` leaves the
@@ -2136,4 +2176,27 @@ func TestReconcileOrphanFileCopyDirs(t *testing.T) {
 			assert.DirExists(t, dir)
 		})
 	}
+}
+
+// A zvol's creation age has always passed grace once a long session leaves
+// the live set, so creation alone gave a dropped session no grace at all.
+// The last-active marker restarts the clock, as it does for file-copy dirs.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_GraceRunsFromLastActivity() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	oldSessionsBaseDir := sessionsBaseDir
+	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
+	defer func() { sessionsBaseDir = oldSessionsBaseDir }()
+	s.mock.addDataset("prod/helix-zvols/ses-ses_longrun")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_longrun", 60*24*time.Hour)
+	marker := filepath.Join(sessionsBaseDir, "docker-data-ses_longrun")
+	require.NoError(s.T(), os.MkdirAll(marker, 0755))
+	TouchSessionLastActive(marker)
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Equal(s.T(), "grace", skipped[0].Reason)
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_longrun"])
 }

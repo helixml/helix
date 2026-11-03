@@ -151,3 +151,16 @@ func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_NoBaseDir() {
 	assert.Empty(s.T(), reaped)
 	assert.Empty(s.T(), skipped)
 }
+
+// A directory named only by its prefix carries no id; it must never be
+// treated as an orphaned resource and recursively removed.
+func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_SkipsPrefixOnlyNames() {
+	sesBare := s.mkdirOld("sessions/ses_", 8*time.Hour)
+	sptBare := s.mkdirOld("spec-tasks/spt_", 8*time.Hour)
+
+	reaped, _ := ReconcileOrphanWorkspaces(map[string]bool{}, map[string]bool{}, time.Hour, false)
+
+	assert.Empty(s.T(), reaped)
+	assert.DirExists(s.T(), sesBare)
+	assert.DirExists(s.T(), sptBare)
+}

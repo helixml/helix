@@ -3,7 +3,6 @@ package hydra
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -37,8 +36,8 @@ func reconcileIDDirs(base, label, requiredPrefix string, liveSet map[string]bool
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		log.Warn().Err(err).Str("dir", base).Msg("ReconcileOrphanWorkspaces: failed to read subdir")
-		return nil, []GCSkip{{Name: label, Reason: "list error: " + err.Error()}}
+		log.Error().Err(err).Str("dir", base).Msg("ReconcileOrphanWorkspaces: failed to read subdir; nothing reaped")
+		return nil, []GCSkip{{Name: base, Reason: "list error: " + err.Error()}}
 	}
 
 	cutoff := time.Now().Add(-grace)
@@ -51,9 +50,7 @@ func reconcileIDDirs(base, label, requiredPrefix string, liveSet map[string]bool
 
 		// Guard against path traversal — name must be a single, well-formed
 		// element carrying the expected prefix.
-		if !strings.HasPrefix(name, requiredPrefix) ||
-			strings.ContainsAny(name, "/\\") ||
-			name == "." || name == ".." {
+		if !isResourceID(name, requiredPrefix) {
 			skipped = append(skipped, GCSkip{Name: filepath.Join(label, name), Reason: "name not eligible"})
 			continue
 		}
