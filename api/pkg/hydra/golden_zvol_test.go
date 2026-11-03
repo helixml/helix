@@ -1296,88 +1296,31 @@ func (s *GoldenZvolSuite) TestSeedZvol_GoldenDirNotFound() {
 	assert.Contains(s.T(), err.Error(), "not found")
 }
 
-// -----------------------------------------------------------------------
-// GCOrphanedZvols
-// -----------------------------------------------------------------------
-
-func (s *GoldenZvolSuite) TestGCOrphanedZvols_CleansOrphans() {
-	zfsParentDataset = "prod/helix-zvols"
+// The 10-minute housekeeping used to destroy the zvol and docker data of any
+// session hydra wasn't tracking once its marker was 7 days old — or at once if
+// the marker was missing. Hydra forgets every stopped desktop on restart, so a
+// Keep Alive session paused for a week lost its data, ignoring the database
+// and the 30-day grace ReconcileGC applies. Session data is now only reaped by
+// ReconcileGC.
+func (s *GoldenZvolSuite) TestMaintainGoldenCachesNeverReapsSessionData() {
+	s.T().Setenv("CONTAINER_DOCKER_PATH", s.tmpDir)
 	zfsAvailableFlag = true
-
-	// Override sessionsBaseDir to use temp dir for external markers
 	oldSessionsBaseDir := sessionsBaseDir
 	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
 	defer func() { sessionsBaseDir = oldSessionsBaseDir }()
 
-	// Active session
-	s.mock.addDataset("prod/helix-zvols/ses-ses_active")
-	// Orphaned session with stale external marker (>7 days old)
-	s.mock.addDataset("prod/helix-zvols/ses-ses_orphan")
-	orphanMarkerDir := filepath.Join(sessionsBaseDir, "docker-data-ses_orphan")
-	require.NoError(s.T(), os.MkdirAll(orphanMarkerDir, 0755))
-	staleTime := time.Now().Add(-8 * 24 * time.Hour).Format(time.RFC3339)
-	require.NoError(s.T(), os.WriteFile(filepath.Join(orphanMarkerDir, ".last-active"), []byte(staleTime), 0644))
-	// Golden (should not be touched)
-	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
+	s.mock.addDataset(zfsParentDataset + "/ses-ses_paused")
+	s.mock.addDataset(zfsParentDataset + "/ses-ses_no_marker")
+	pausedDir := filepath.Join(sessionsBaseDir, "docker-data-ses_paused")
+	require.NoError(s.T(), os.MkdirAll(pausedDir, 0755))
+	weekOld := time.Now().Add(-8 * 24 * time.Hour)
+	require.NoError(s.T(), os.WriteFile(filepath.Join(pausedDir, ".last-active"), []byte(weekOld.Format(time.RFC3339)), 0644))
+	require.NoError(s.T(), os.Chtimes(pausedDir, weekOld, weekOld))
 
-	active := map[string]bool{"ses_active": true}
+	maintainGoldenCaches()
 
-	cleaned, err := GCOrphanedZvols(active)
-	require.NoError(s.T(), err)
-	assert.Equal(s.T(), 1, cleaned)
-
-	// Orphan should be destroyed (recursive — see CleanupSessionZvol doc-comment)
-	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_orphan"))
-	// Active should NOT be destroyed
-	assert.False(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_active"))
-	// Golden should NOT be destroyed
-	assert.False(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/golden-prj_abc"))
-}
-
-func (s *GoldenZvolSuite) TestGCOrphanedZvols_KeepsRecentInactive() {
-	zfsParentDataset = "prod/helix-zvols"
-	zfsAvailableFlag = true
-
-	s.mock.addDataset("prod/helix-zvols/ses-ses_recent")
-	// Use temp dir as mount point and write recent .last-active marker
-	mountPath := filepath.Join(s.tmpDir, "ses_recent")
-	require.NoError(s.T(), os.MkdirAll(mountPath, 0755))
-	s.mock.setMounted(mountPath)
-	require.NoError(s.T(), os.WriteFile(
-		filepath.Join(mountPath, ".last-active"),
-		[]byte("2026-03-16T12:00:00Z"), // recent
-		0644,
-	))
-
-	// Override sessionZvolMountPath to use our temp dir
-	// The GC function calls sessionZvolMountPath which uses the const zvolMountBase.
-	// Since we can't override it, the mount path won't match. Instead, test
-	// that the GC correctly skips active sessions (simpler, still validates logic).
-	active := map[string]bool{"ses_recent": true}
-
-	cleaned, err := GCOrphanedZvols(active)
-	require.NoError(s.T(), err)
-	assert.Equal(s.T(), 0, cleaned, "should keep active zvol")
-}
-
-func (s *GoldenZvolSuite) TestGCOrphanedZvols_CleansNoMarker() {
-	zfsParentDataset = "prod/helix-zvols"
-	zfsAvailableFlag = true
-
-	// Override sessionsBaseDir to use temp dir (no markers will exist)
-	oldSessionsBaseDir := sessionsBaseDir
-	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
-	defer func() { sessionsBaseDir = oldSessionsBaseDir }()
-
-	// Session with no marker and no running container — should be GC'd
-	s.mock.addDataset("prod/helix-zvols/ses-ses_no_marker")
-
-	active := map[string]bool{} // nothing running
-
-	cleaned, err := GCOrphanedZvols(active)
-	require.NoError(s.T(), err)
-	assert.Equal(s.T(), 1, cleaned)
-	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_no_marker"))
+	assert.Empty(s.T(), s.mock.commandsMatching("zfs destroy"))
+	assert.DirExists(s.T(), pausedDir)
 }
 
 // -----------------------------------------------------------------------

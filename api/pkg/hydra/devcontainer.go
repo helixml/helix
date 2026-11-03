@@ -124,16 +124,14 @@ func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer)
 		logBuffer:          logBuffer,
 	}
 
-	// GC orphaned session dirs on startup and periodically
+	// Golden-cache housekeeping on startup and every 10 minutes. Session data
+	// is reaped only by ReconcileGC, against the API's database live set.
 	go func() {
-		// Run immediately on startup (no active sessions yet, cleans all orphans)
-		dm.GCOrphanedSessions()
-
-		// Then run every 10 minutes
+		maintainGoldenCaches()
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			dm.GCOrphanedSessions()
+			maintainGoldenCaches()
 		}
 	}()
 
@@ -2370,8 +2368,8 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	// For normal sessions, we intentionally do NOT clean up the session Docker
 	// data directory here. This allows session restarts to reuse the existing
 	// Docker data instead of re-copying 30+ GB of golden cache (~28s).
-	// The periodic GCOrphanedSessions() (every 10 min) handles cleanup of
-	// session dirs that no longer have a running container.
+	// ReconcileGC reaps it once the session is gone from the database and
+	// past the grace period.
 	if ContainerDataRootAvailable() {
 		if dc.IsGoldenBuild && dc.ProjectID != "" {
 			log.Info().
@@ -2469,33 +2467,15 @@ func (dm *DevContainerManager) autoCommitHelixSpecs(ctx context.Context, dockerC
 	}
 }
 
-// GCOrphanedSessions removes session Docker data directories that don't have
-// running containers, and cleans up stale golden cache state.
-// Should be called periodically and on startup.
-func (dm *DevContainerManager) GCOrphanedSessions() {
+// maintainGoldenCaches finishes interrupted golden promotions and removes
+// golden-cache state nothing uses any more. It never touches session data.
+func maintainGoldenCaches() {
 	if !ContainerDataRootAvailable() {
-		return // Not using per-session docker dirs
+		return
 	}
 
-	dm.mu.RLock()
-	active := make(map[string]bool, len(dm.containers))
-	for sessionID := range dm.containers {
-		active[sessionID] = true
-	}
-	dm.mu.RUnlock()
-
-	removed, freed, err := GCOrphanedSessionDirs(active)
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to GC orphaned session dirs")
-	}
-	if removed > 0 {
-		log.Info().Int("removed", removed).Int64("freed_bytes", freed).Msg("Session GC completed")
-	}
-
-	// Also clean up stale golden cache state:
-	// - .old directories from failed promotions
-	// - Stale .building lock files from crashed golden builds
-	// - Golden caches not accessed in 30 days
+	// .old directories from failed promotions, stale .building locks from
+	// crashed golden builds, and golden caches not accessed in 30 days.
 	goldenCleaned, goldenFreed, err := GCStaleGoldenDirs(30 * 24 * time.Hour)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to GC stale golden dirs")
@@ -2504,28 +2484,15 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 		log.Info().Int("removed", goldenCleaned).Int64("freed_bytes", goldenFreed).Msg("Golden GC completed")
 	}
 
-	// GC orphaned ZFS zvols (sessions that no longer have running containers)
-	// and clean up old file-based golden dirs that have been migrated to zvols
-	if ZFSAvailable() {
-		// Before GC: an interrupted promotion's golden must be finished, not reaped.
-		if n := ReconcilePendingGoldenPromotions(); n > 0 {
-			log.Info().Int("completed", n).Msg("Completed pending golden promotions")
-		}
-
-		zvolsCleaned, err := GCOrphanedZvols(active)
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to GC orphaned zvols")
-		}
-		if zvolsCleaned > 0 {
-			log.Info().Int("removed", zvolsCleaned).Msg("Orphaned zvol GC completed")
-		}
-
-		GCMigratedGoldenDirs()
-
-		snapsCleaned := GCStaleSnapshots()
-		if snapsCleaned > 0 {
-			log.Info().Int("removed", snapsCleaned).Msg("Stale snapshot GC completed")
-		}
+	if !ZFSAvailable() {
+		return
+	}
+	if n := ReconcilePendingGoldenPromotions(); n > 0 {
+		log.Info().Int("completed", n).Msg("Completed pending golden promotions")
+	}
+	GCMigratedGoldenDirs()
+	if snapsCleaned := GCStaleSnapshots(); snapsCleaned > 0 {
+		log.Info().Int("removed", snapsCleaned).Msg("Stale snapshot GC completed")
 	}
 }
 
