@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
@@ -139,6 +141,56 @@ func (s *AutoWakeColdStartSuite) TestKicksAutoStartWhenNoWS() {
 		// Good — the no-WS branch fired StartDesktop via autoStart.
 	case <-time.After(2 * time.Second):
 		s.FailNow("StartDesktop was not invoked — cold-start kick did not fire")
+	}
+}
+
+// TestFailsFastWhenOrgIsOutOfCredits: a desktop the organization cannot pay
+// for will not start on any retry. The turn must fail on the first kick with
+// the real cause — previously it burned every retry and then told the user
+// the agent never came online.
+func (s *AutoWakeColdStartSuite) TestFailsFastWhenOrgIsOutOfCredits() {
+	stuck := stuckInteraction("int-broke", "ses_broke", 0)
+
+	s.store.EXPECT().IncrementInteractionAutoWakeCount(gomock.Any(), "int-broke").Return(1, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_broke").Return(&types.Session{
+		ID:    "ses_broke",
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+			ProjectID: "prj_x",
+		},
+	}, nil).AnyTimes()
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_broke").Return(false)
+	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(nil,
+		fmt.Errorf("cannot start desktop: %w", fmt.Errorf("%w: balance 0.00, required 0.02", sandbox.ErrInsufficientCredits)))
+
+	failed := make(chan string, 1)
+	s.store.EXPECT().MarkInteractionErrorIfWaiting(gomock.Any(), "int-broke", 0, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, reason string) (bool, error) {
+			failed <- reason
+			return true, nil
+		})
+	cleared := make(chan struct{}, 1)
+	s.store.EXPECT().ClearSessionStartingStatus(gomock.Any(), "ses_broke").DoAndReturn(
+		func(context.Context, string) (bool, error) {
+			cleared <- struct{}{}
+			return true, nil
+		})
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	select {
+	case reason := <-failed:
+		s.Equal(outOfCreditsReason, reason)
+	case <-time.After(2 * time.Second):
+		s.FailNow("out-of-credits turn was left waiting for another cold-start retry")
+	}
+	select {
+	case <-cleared:
+	case <-time.After(2 * time.Second):
+		s.FailNow("starting status was not cleared, so the UI keeps spinning")
 	}
 }
 

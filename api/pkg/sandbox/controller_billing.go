@@ -126,6 +126,11 @@ func (c *Controller) ensureSandboxCredits(ctx context.Context, orgID string, spe
 	return c.ensureCreditsForType(ctx, orgID, sandboxPricingTypeForSpec(spec), settings, vcpus)
 }
 
+// ErrInsufficientCredits means the organization's wallet cannot pay for a
+// minute of the requested sandbox. Retrying cannot succeed until it is topped
+// up.
+var ErrInsufficientCredits = errors.New("insufficient credits to start sandbox")
+
 // ensureCreditsForType requires the org to hold at least one minute of runway
 // at the requested size before we start (or grow) a container.
 func (c *Controller) ensureCreditsForType(ctx context.Context, orgID, pricingType string, settings *types.SystemSettings, vcpus int) error {
@@ -145,7 +150,7 @@ func (c *Controller) ensureCreditsForType(ctx context.Context, orgID, pricingTyp
 		return fmt.Errorf("get org wallet: %w", err)
 	}
 	if wallet.Balance < required {
-		return fmt.Errorf("insufficient credits to start sandbox: balance %.2f, required %.2f", wallet.Balance, required)
+		return fmt.Errorf("%w: balance %.2f, required %.2f", ErrInsufficientCredits, wallet.Balance, required)
 	}
 	return nil
 }

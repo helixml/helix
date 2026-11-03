@@ -11,12 +11,14 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/hydra"
+	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -154,6 +156,10 @@ const (
 	// agentNeverConnectedReason is the user-facing error shown when cold-start
 	// retries are exhausted without the agent opening its WebSocket.
 	agentNeverConnectedReason = "The AI agent didn't come online in time, so this message wasn't delivered. Try sending it again, or restart the desktop if this keeps happening."
+
+	// outOfCreditsReason is the user-facing error when the desktop cannot
+	// start because the organization's wallet cannot pay for it.
+	outOfCreditsReason = "The desktop couldn't start because your organization is out of credits, so this message wasn't delivered. Add credits, then send it again."
 )
 
 // autoWakeStuckThreshold returns the configured stuck threshold.
@@ -550,39 +556,13 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 					Msg("[AUTO_WAKE] Found workspace setup failure sentinel")
 			}
 		}
-		transitioned, err := apiServer.Store.MarkInteractionErrorIfWaiting(ctx, stuck.ID, stuck.GenerationID, reason)
-		if err != nil {
-			log.Warn().Err(err).
+		if apiServer.failStuckInteraction(ctx, stuck, reason) {
+			log.Warn().
 				Str("interaction_id", stuck.ID).
-				Msg("[AUTO_WAKE] Failed to mark cold-start-exhausted interaction as error")
-			return
-		}
-		if !transitioned {
-			log.Debug().Str("interaction_id", stuck.ID).Msg("[AUTO_WAKE] Interaction already transitioned before cold-start exhaustion")
-			return
-		}
-		apiServer.autoWakeWSAbsentSince.Delete(stuck.ID)
-		// Revert any sync-time "starting" mark left behind by
-		// syncPromptHistory's markCanonicalSessionStartingForSync. Without
-		// this, the spec-task detail page sits on a perpetual
-		// "Starting Desktop..." spinner instead of reverting to
-		// "Desktop Paused". Targeted JSONB merge gated on
-		// status='starting' so we don't clobber a status that hydra has
-		// since updated. See spec design/tasks/002047_yet-again-sending-a/.
-		if cleared, clearErr := apiServer.Store.ClearSessionStartingStatus(ctx, stuck.SessionID); clearErr != nil {
-			log.Warn().Err(clearErr).
 				Str("session_id", stuck.SessionID).
-				Msg("[AUTO_WAKE] Failed to clear sync-time starting status on cold-start exhaustion")
-		} else if cleared {
-			log.Info().
-				Str("session_id", stuck.SessionID).
-				Msg("[AUTO_WAKE] Cleared sync-time starting status after cold-start exhaustion — spinner will return to paused")
+				Int("retries_attempted", stuck.AutoWakeCount).
+				Msg("⚠️ [AUTO_WAKE] Exhausted cold-start retries — marked stuck interaction as error")
 		}
-		log.Warn().
-			Str("interaction_id", stuck.ID).
-			Str("session_id", stuck.SessionID).
-			Int("retries_attempted", stuck.AutoWakeCount).
-			Msg("⚠️ [AUTO_WAKE] Exhausted cold-start retries — marked stuck interaction as error")
 		return
 	}
 
@@ -641,7 +621,49 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		Time("stuck_created_at", stuck.Created).
 		Msg("🔌 [AUTO_WAKE] No WS for stuck interaction — kicking dev container auto-start (helixml/helix#2397)")
 
-	go apiServer.autoStartDevContainerForSession(stuck.SessionID)
+	go func() {
+		err := apiServer.autoStartDevContainerForSession(stuck.SessionID)
+		// No retry can start a desktop the organization cannot pay for, so
+		// end the turn now with the real cause rather than burning the retry
+		// budget and blaming the agent for never connecting.
+		if errors.Is(err, sandbox.ErrInsufficientCredits) {
+			apiServer.failStuckInteraction(context.Background(), stuck, outOfCreditsReason)
+		}
+	}()
+}
+
+// failStuckInteraction ends a waiting turn the agent can no longer complete,
+// showing reason to the user. Reports whether this call made the transition.
+func (apiServer *HelixAPIServer) failStuckInteraction(ctx context.Context, stuck *types.Interaction, reason string) bool {
+	transitioned, err := apiServer.Store.MarkInteractionErrorIfWaiting(ctx, stuck.ID, stuck.GenerationID, reason)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("interaction_id", stuck.ID).
+			Msg("[AUTO_WAKE] Failed to mark stuck interaction as error")
+		return false
+	}
+	if !transitioned {
+		log.Debug().Str("interaction_id", stuck.ID).Msg("[AUTO_WAKE] Interaction already transitioned before it could be failed")
+		return false
+	}
+	apiServer.autoWakeWSAbsentSince.Delete(stuck.ID)
+	// Revert any sync-time "starting" mark left behind by
+	// syncPromptHistory's markCanonicalSessionStartingForSync. Without
+	// this, the spec-task detail page sits on a perpetual
+	// "Starting Desktop..." spinner instead of reverting to
+	// "Desktop Paused". Targeted JSONB merge gated on
+	// status='starting' so we don't clobber a status that hydra has
+	// since updated. See spec design/tasks/002047_yet-again-sending-a/.
+	if cleared, clearErr := apiServer.Store.ClearSessionStartingStatus(ctx, stuck.SessionID); clearErr != nil {
+		log.Warn().Err(clearErr).
+			Str("session_id", stuck.SessionID).
+			Msg("[AUTO_WAKE] Failed to clear sync-time starting status after failing stuck interaction")
+	} else if cleared {
+		log.Info().
+			Str("session_id", stuck.SessionID).
+			Msg("[AUTO_WAKE] Cleared sync-time starting status after failing stuck interaction — spinner will return to paused")
+	}
+	return true
 }
 
 func (apiServer *HelixAPIServer) restartAgentForStuckSession(session *types.Session) {
