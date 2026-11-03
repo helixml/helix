@@ -182,6 +182,50 @@ func (s *ControllerSessionSuite) TestBeginSessionReusesRowOnRestartWithoutCounti
 	s.Require().Equal("sbx_existing", sb.ID)
 }
 
+// A row still running when its session restarts (the stop never reached the
+// API) carries unbilled usage. The reopen clears the cursor, so it must
+// settle that usage first or it is never charged.
+func (s *ControllerSessionSuite) TestBeginSessionSettlesARowStillRunningBeforeReopening() {
+	chargedAt := time.Now().Add(-90 * time.Second)
+	startedAt := chargedAt.Add(-time.Hour)
+	existing := &types.Sandbox{
+		ID:                   "sbx_running",
+		OrganizationID:       "org_1",
+		SessionID:            "ses_1",
+		Runtime:              types.SandboxRuntimeUbuntuDesktop,
+		Status:               types.SandboxStatusRunning,
+		VCPUs:                1,
+		StartedAt:            &startedAt,
+		BillingLastChargedAt: &chargedAt,
+	}
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		SandboxBillingEnabled:               true,
+		SandboxDesktopPriceCreditsPerSecond: 1,
+		MaxConcurrentDesktopSandboxes:       5,
+	}, nil).AnyTimes()
+	s.store.EXPECT().GetWalletByOrg(gomock.Any(), "org_1").Return(&types.Wallet{ID: "wallet_1", OrgID: "org_1", Balance: 10000}, nil).AnyTimes()
+	s.store.EXPECT().GetSandboxBySession(gomock.Any(), "ses_1").Return(existing, nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	gomock.InOrder(
+		s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, c store.SandboxCharge) (bool, error) {
+				s.Require().Equal(&chargedAt, c.From)
+				s.Require().InDelta(90.0, c.Amount, 2.0) // the unbilled 90s at 1 core
+				return false, nil
+			},
+		),
+		s.store.EXPECT().UpdateSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, sb *types.Sandbox) (*types.Sandbox, error) {
+				s.Require().Nil(sb.BillingLastChargedAt)
+				return sb, nil
+			},
+		),
+	)
+
+	_, err := s.controller.BeginSession(s.ctx, s.beginRequest())
+	s.Require().NoError(err)
+}
+
 func (s *ControllerSessionSuite) TestMarkSessionRunningOpensBillingWindow() {
 	s.store.EXPECT().GetSandboxBySession(gomock.Any(), "ses_1").Return(&types.Sandbox{
 		ID:        "sbx_1",

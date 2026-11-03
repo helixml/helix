@@ -217,6 +217,9 @@ func (s *PostgresStore) ChargeSandbox(ctx context.Context, charge SandboxCharge)
 	if charge.Amount < 0 || math.IsNaN(charge.Amount) || math.IsInf(charge.Amount, 0) {
 		return false, fmt.Errorf("charge amount must be a finite, non-negative number, got %f", charge.Amount)
 	}
+	if charge.To.IsZero() {
+		return false, fmt.Errorf("charge window end is required")
+	}
 	if charge.From != nil && !charge.To.After(*charge.From) {
 		return false, fmt.Errorf("charge window must end after %s, got %s", charge.From, charge.To)
 	}

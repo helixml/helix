@@ -223,13 +223,22 @@ func TestChargeSandboxNeverChargesAStoppedSandbox(t *testing.T) {
 	require.InDelta(t, 100.0, after.Balance, 1e-9)
 }
 
-func TestChargeSandboxRejectsANonFiniteAmount(t *testing.T) {
+func TestChargeSandboxRejectsAnInvalidCharge(t *testing.T) {
 	db := GetTestDB()
-	sb, _ := newBilledSandbox(t, db, 100)
-	for _, amount := range []float64{math.NaN(), math.Inf(1)} {
+	sb, wallet := newBilledSandbox(t, db, 100)
+	for _, amount := range []float64{-1, math.NaN(), math.Inf(1), math.Inf(-1)} {
 		_, err := db.ChargeSandbox(context.Background(), usageCharge(sb, amount))
 		require.Error(t, err, amount)
 	}
+	after, err := db.GetWallet(context.Background(), wallet.ID)
+	require.NoError(t, err)
+	require.InDelta(t, 100.0, after.Balance, 1e-9)
+
+	// An unset window end would set the cursor to year 1 and bill ~292 years.
+	noEnd := usageCharge(sb, 10)
+	noEnd.To = time.Time{}
+	_, err = db.ChargeSandbox(context.Background(), noEnd)
+	require.Error(t, err)
 }
 
 // A PATCH (rename, tags, TTL) reads the row, then writes it back. If a charge

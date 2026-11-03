@@ -88,6 +88,12 @@ func (c *Controller) BeginSession(ctx context.Context, req *types.BeginSandboxSe
 	}
 
 	if existing != nil {
+		// A row still marked running (the stop never reached us, e.g. an API
+		// restart) has unbilled usage; settle it before the reopen clears the
+		// cursor, or that usage is never charged.
+		if err := c.billSandboxFinal(ctx, existing, time.Now()); err != nil {
+			return nil, fmt.Errorf("settle session sandbox before reopen: %w", err)
+		}
 		// Reuse the row so a paused-then-resumed task keeps one identity (and
 		// one charge history) across restarts.
 		existing.VCPUs = vcpus
