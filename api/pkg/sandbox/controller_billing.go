@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/hydra"
@@ -25,11 +24,12 @@ func (c *Controller) billSandboxFinal(ctx context.Context, sb *types.Sandbox, no
 	if !settings.SandboxBillingEnabled {
 		return nil
 	}
-	return c.billSandbox(ctx, settings, sb, now, true, false)
+	return c.settleSandbox(ctx, settings, sb, now)
 }
 
-// ReapBilling charges running sandboxes for complete elapsed minutes. If the
-// org wallet cannot cover the next minute, the sandbox is stopped immediately.
+// ReapBilling charges running sandboxes for complete elapsed minutes. A
+// sandbox whose org could not pay for the elapsed window has its wallet
+// drained to zero and is deleted.
 func (c *Controller) ReapBilling(ctx context.Context) error {
 	settings, err := c.store.GetSystemSettings(ctx)
 	if err != nil {
@@ -48,78 +48,92 @@ func (c *Controller) ReapBilling(ctx context.Context) error {
 
 	now := time.Now()
 	for _, sb := range running {
-		if err := c.billSandbox(ctx, settings, sb, now, false, true); err != nil {
-			log.Warn().Err(err).Str("sandbox_id", sb.ID).Msg("sandbox billing failed")
+		insufficient, err := c.chargeWindow(ctx, settings, sb, now, false)
+		if errors.Is(err, store.ErrBillingWindowClaimed) {
+			continue // another replica, or a stop, billed it first
+		}
+		if err != nil {
+			log.Warn().Err(err).Str("sandbox_id", sb.ID).Str("org_id", sb.OrganizationID).Msg("sandbox billing failed")
+			continue
+		}
+		if !insufficient {
+			continue
+		}
+		if err := c.Delete(ctx, sb.ID); err != nil {
+			log.Warn().Err(err).Str("sandbox_id", sb.ID).Str("org_id", sb.OrganizationID).Msg("failed to stop sandbox after insufficient credits")
 		}
 	}
 	return nil
 }
 
-func (c *Controller) billSandbox(ctx context.Context, settings *types.SystemSettings, sb *types.Sandbox, now time.Time, includePartialMinute bool, stopOnInsufficient bool) error {
-	pricePerSecond, pricingType := sandboxPrice(settings, sb.Runtime)
-	if pricePerSecond <= 0 {
-		return c.store.SetSandboxBillingLastChargedAt(ctx, sb.ID, now)
-	}
+// settleMaxAttempts bounds settleSandbox's retries. Each retry follows a
+// concurrent biller that has just moved the cursor forward, so a second
+// attempt almost always succeeds.
+const settleMaxAttempts = 3
 
+// settleSandbox bills a running sandbox up to now, including the partial
+// minute, before it stops or changes size. If a concurrent biller moves the
+// cursor first, it reloads the row and bills the remainder, so neither the
+// tail of the window nor the old core count is lost.
+func (c *Controller) settleSandbox(ctx context.Context, settings *types.SystemSettings, sb *types.Sandbox, now time.Time) error {
+	for range settleMaxAttempts {
+		_, err := c.chargeWindow(ctx, settings, sb, now, true)
+		if !errors.Is(err, store.ErrBillingWindowClaimed) {
+			return err
+		}
+		if sb, err = c.store.GetSandbox(ctx, sb.ID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil // deleted by the biller that won; it settled the window
+			}
+			return fmt.Errorf("reload sandbox after concurrent charge: %w", err)
+		}
+		if sb.Status != types.SandboxStatusRunning {
+			return nil
+		}
+	}
+	return fmt.Errorf("settle sandbox %s: billing cursor kept moving after %d attempts", sb.ID, settleMaxAttempts)
+}
+
+// chargeWindow charges sb from its billing cursor up to now: whole elapsed
+// minutes, or every elapsed second when partialMinute is set. A free runtime
+// still advances the cursor, so enabling a price later never bills the past.
+// Returns store.ErrBillingWindowClaimed if another biller moved the cursor.
+func (c *Controller) chargeWindow(ctx context.Context, settings *types.SystemSettings, sb *types.Sandbox, now time.Time, partialMinute bool) (insufficient bool, err error) {
+	pricePerSecond, pricingType := sandboxPrice(settings, sb.Runtime)
+	charge := store.SandboxCharge{
+		SandboxID:   sb.ID,
+		OrgID:       sb.OrganizationID,
+		From:        sb.BillingLastChargedAt,
+		To:          now,
+		Runtime:     sb.Runtime,
+		PricingType: pricingType,
+	}
+	// charge.From stays the raw cursor: it is the compare-and-set key, and a
+	// legacy row with no cursor is claimed by matching NULL. from is only
+	// where pricing starts.
 	from := sb.BillingLastChargedAt
 	if from == nil {
 		from = sb.StartedAt
 	}
-	if from == nil {
-		return c.store.SetSandboxBillingLastChargedAt(ctx, sb.ID, now)
+	if from != nil && !now.After(*from) {
+		return false, nil
 	}
-
-	elapsedSeconds := now.Sub(*from).Seconds()
-	chargeSeconds := math.Floor(elapsedSeconds/60) * 60
-	if includePartialMinute {
-		chargeSeconds = elapsedSeconds
-	}
-	if chargeSeconds <= 0 {
-		return nil
-	}
-
-	amount := pricePerSecond * chargeSeconds * float64(sandboxBillableCores(sb))
-	wallet, err := c.store.GetWalletByOrg(ctx, sb.OrganizationID)
-	if err != nil {
-		return fmt.Errorf("get org wallet: %w", err)
-	}
-	if wallet.Balance < amount {
-		if wallet.Balance > 0 {
-			if _, err := c.store.UpdateWalletBalance(ctx, wallet.ID, -wallet.Balance, types.TransactionMetadata{
-				SandboxID:          sb.ID,
-				SandboxRuntime:     sb.Runtime,
-				SandboxPricingType: pricingType,
-				TransactionType:    types.TransactionTypeUsage,
-			}); err != nil {
-				return fmt.Errorf("drain remaining sandbox credits: %w", err)
-			}
+	if pricePerSecond > 0 && from != nil {
+		chargeSeconds := now.Sub(*from).Seconds()
+		if !partialMinute {
+			chargeSeconds = math.Floor(chargeSeconds/60) * 60
 		}
-		if !stopOnInsufficient {
-			return nil
+		if chargeSeconds <= 0 {
+			return false, nil
 		}
-		if err := c.Delete(ctx, sb.ID); err != nil {
-			return fmt.Errorf("stop sandbox after insufficient credits: %w", err)
-		}
-		return nil
+		charge.To = from.Add(time.Duration(chargeSeconds * float64(time.Second)))
+		charge.Amount = pricePerSecond * chargeSeconds * float64(sandboxBillableCores(sb))
 	}
-
-	if _, err := c.store.UpdateWalletBalance(ctx, wallet.ID, -amount, types.TransactionMetadata{
-		SandboxID:          sb.ID,
-		SandboxRuntime:     sb.Runtime,
-		SandboxPricingType: pricingType,
-		TransactionType:    types.TransactionTypeUsage,
-	}); err != nil {
-		if strings.Contains(err.Error(), types.ErrorInsufficientBalance) {
-			if deleteErr := c.Delete(ctx, sb.ID); deleteErr != nil {
-				return fmt.Errorf("stop sandbox after insufficient credits: %w", deleteErr)
-			}
-			return nil
-		}
-		return fmt.Errorf("update wallet balance: %w", err)
+	insufficient, err = c.store.ChargeSandbox(ctx, charge)
+	if err != nil && !errors.Is(err, store.ErrBillingWindowClaimed) {
+		return false, fmt.Errorf("charge sandbox usage: %w", err)
 	}
-
-	chargedAt := from.Add(time.Duration(chargeSeconds * float64(time.Second)))
-	return c.store.SetSandboxBillingLastChargedAt(ctx, sb.ID, chargedAt)
+	return insufficient, err
 }
 
 func (c *Controller) ensureSandboxCredits(ctx context.Context, orgID string, spec *RuntimeSpec, settings *types.SystemSettings, vcpus int) error {
