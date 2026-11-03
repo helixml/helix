@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -201,6 +202,87 @@ func TestChargeSandboxNeverChargesADeletedSandbox(t *testing.T) {
 
 	require.ErrorIs(t, err, ErrBillingWindowClaimed)
 	after, err := db.GetWallet(ctx, wallet.ID)
+	require.NoError(t, err)
+	require.InDelta(t, 100.0, after.Balance, 1e-9)
+}
+
+// A stop settles its own final charge before marking the row stopped. A
+// reaper that listed the sandbox while it was running must not charge it
+// once it has stopped.
+func TestChargeSandboxNeverChargesAStoppedSandbox(t *testing.T) {
+	db := GetTestDB()
+	ctx := context.Background()
+	sb, wallet := newBilledSandbox(t, db, 100)
+	require.NoError(t, db.SetSandboxStatus(ctx, sb.ID, types.SandboxStatusStopped, ""))
+
+	_, err := db.ChargeSandbox(ctx, usageCharge(sb, 10))
+
+	require.ErrorIs(t, err, ErrBillingWindowClaimed)
+	after, err := db.GetWallet(ctx, wallet.ID)
+	require.NoError(t, err)
+	require.InDelta(t, 100.0, after.Balance, 1e-9)
+}
+
+func TestChargeSandboxRejectsANonFiniteAmount(t *testing.T) {
+	db := GetTestDB()
+	sb, _ := newBilledSandbox(t, db, 100)
+	for _, amount := range []float64{math.NaN(), math.Inf(1)} {
+		_, err := db.ChargeSandbox(context.Background(), usageCharge(sb, amount))
+		require.Error(t, err, amount)
+	}
+}
+
+// A PATCH (rename, tags, TTL) reads the row, then writes it back. If a charge
+// lands in between, writing the whole row put the old cursor back and the
+// next tick billed the same minutes again.
+func TestUpdateSandboxDetailsNeverRewindsTheBillingCursor(t *testing.T) {
+	db := GetTestDB()
+	ctx := context.Background()
+	sb, _ := newBilledSandbox(t, db, 100)
+	stale := *sb
+	charge := usageCharge(sb, 10)
+	_, err := db.ChargeSandbox(ctx, charge)
+	require.NoError(t, err)
+
+	stale.Name = "renamed"
+	_, err = db.UpdateSandboxDetails(ctx, &stale)
+
+	require.NoError(t, err)
+	after, err := db.GetSandbox(ctx, sb.ID)
+	require.NoError(t, err)
+	require.Equal(t, "renamed", after.Name)
+	require.WithinDuration(t, charge.To, *after.BillingLastChargedAt, time.Microsecond)
+}
+
+// A duplicate start writes running again. Only the transition to running may
+// open the billing window; a repeat must not skip unbilled usage.
+func TestSetSandboxStatusRunningTwiceKeepsTheBillingCursor(t *testing.T) {
+	db := GetTestDB()
+	ctx := context.Background()
+	sb, _ := newBilledSandbox(t, db, 100)
+
+	require.NoError(t, db.SetSandboxStatus(ctx, sb.ID, types.SandboxStatusRunning, ""))
+
+	after, err := db.GetSandbox(ctx, sb.ID)
+	require.NoError(t, err)
+	require.WithinDuration(t, *sb.BillingLastChargedAt, *after.BillingLastChargedAt, time.Microsecond)
+	require.WithinDuration(t, *sb.StartedAt, *after.StartedAt, time.Microsecond)
+}
+
+// The claimed row and the debited wallet must belong to the same org, or a
+// caller passing the wrong org id would bill one org for another's sandbox.
+func TestChargeSandboxRejectsAnotherOrgsSandbox(t *testing.T) {
+	db := GetTestDB()
+	ctx := context.Background()
+	sb, _ := newBilledSandbox(t, db, 100)
+	_, otherWallet := newBilledSandbox(t, db, 100)
+	charge := usageCharge(sb, 10)
+	charge.OrgID = otherWallet.OrgID
+
+	_, err := db.ChargeSandbox(ctx, charge)
+
+	require.ErrorIs(t, err, ErrBillingWindowClaimed)
+	after, err := db.GetWallet(ctx, otherWallet.ID)
 	require.NoError(t, err)
 	require.InDelta(t, 100.0, after.Balance, 1e-9)
 }

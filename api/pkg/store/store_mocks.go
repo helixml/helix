@@ -7546,6 +7546,21 @@ func (mr *MockStoreMockRecorder) UpdateSandbox(ctx, sandbox any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandbox", reflect.TypeOf((*MockStore)(nil).UpdateSandbox), ctx, sandbox)
 }
 
+// UpdateSandboxDetails mocks base method.
+func (m *MockStore) UpdateSandboxDetails(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSandboxDetails", ctx, sandbox)
+	ret0, _ := ret[0].(*types.Sandbox)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateSandboxDetails indicates an expected call of UpdateSandboxDetails.
+func (mr *MockStoreMockRecorder) UpdateSandboxDetails(ctx, sandbox any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandboxDetails", reflect.TypeOf((*MockStore)(nil).UpdateSandboxDetails), ctx, sandbox)
+}
+
 // UpdateSandboxHeartbeat mocks base method.
 func (m *MockStore) UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest, defaultMaxSandboxes int) error {
 	m.ctrl.T.Helper()

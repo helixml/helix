@@ -29,7 +29,7 @@ func (c *Controller) billSandboxFinal(ctx context.Context, sb *types.Sandbox, no
 
 // ReapBilling charges running sandboxes for complete elapsed minutes. A
 // sandbox whose org could not pay for the elapsed window has its wallet
-// drained to zero and is stopped.
+// drained to zero and is deleted.
 func (c *Controller) ReapBilling(ctx context.Context) error {
 	settings, err := c.store.GetSystemSettings(ctx)
 	if err != nil {
@@ -82,6 +82,9 @@ func (c *Controller) settleSandbox(ctx context.Context, settings *types.SystemSe
 			return err
 		}
 		if sb, err = c.store.GetSandbox(ctx, sb.ID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil // deleted by the biller that won; it settled the window
+			}
 			return fmt.Errorf("reload sandbox after concurrent charge: %w", err)
 		}
 		if sb.Status != types.SandboxStatusRunning {
@@ -105,6 +108,9 @@ func (c *Controller) chargeWindow(ctx context.Context, settings *types.SystemSet
 		Runtime:     sb.Runtime,
 		PricingType: pricingType,
 	}
+	// charge.From stays the raw cursor: it is the compare-and-set key, and a
+	// legacy row with no cursor is claimed by matching NULL. from is only
+	// where pricing starts.
 	from := sb.BillingLastChargedAt
 	if from == nil {
 		from = sb.StartedAt

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -128,6 +129,27 @@ func (s *PostgresStore) UpdateSandbox(ctx context.Context, sandbox *types.Sandbo
 	return s.GetSandbox(ctx, sandbox.ID)
 }
 
+// UpdateSandboxDetails writes the user-editable fields of a sandbox (name,
+// tags, timeout and expiry) and nothing else, so a PATCH that overlaps a
+// billing charge or a delete cannot write back a stale cursor or status.
+func (s *PostgresStore) UpdateSandboxDetails(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error) {
+	if sandbox.ID == "" {
+		return nil, fmt.Errorf("id not specified")
+	}
+	sandbox.UpdatedAt = time.Now()
+	res := s.gdb.WithContext(ctx).Model(&types.Sandbox{}).
+		Where("id = ? AND deleted_at IS NULL", sandbox.ID).
+		Select("name", "tags", "timeout_seconds", "expires_at", "updated_at").
+		Updates(sandbox)
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, ErrNotFound
+	}
+	return s.GetSandbox(ctx, sandbox.ID)
+}
+
 // SetSandboxStatus does a targeted UPDATE of the status fields, optionally
 // recording a status message and started/stopped timestamps.
 func (s *PostgresStore) SetSandboxStatus(ctx context.Context, id string, status types.SandboxStatus, message string) error {
@@ -141,9 +163,12 @@ func (s *PostgresStore) SetSandboxStatus(ctx context.Context, id string, status 
 	}
 	switch status {
 	case types.SandboxStatusRunning:
+		// Open the billing window only on the transition to running. A repeat
+		// running write (a duplicate start) must not move the cursor past
+		// usage that has not been billed yet.
 		now := time.Now()
-		updates["started_at"] = &now
-		updates["billing_last_charged_at"] = &now
+		updates["started_at"] = gorm.Expr("CASE WHEN status = ? THEN started_at ELSE ? END", types.SandboxStatusRunning, now)
+		updates["billing_last_charged_at"] = gorm.Expr("CASE WHEN status = ? THEN billing_last_charged_at ELSE ? END", types.SandboxStatusRunning, now)
 	case types.SandboxStatusStopped, types.SandboxStatusFailed:
 		now := time.Now()
 		updates["stopped_at"] = &now
@@ -180,7 +205,8 @@ var ErrBillingWindowClaimed = errors.New("sandbox billing window already charged
 // ChargeSandbox advances a sandbox's billing cursor from charge.From to
 // charge.To and debits the org's wallet in one transaction. Two billers that
 // read the same cursor — API replicas, or a stop racing the per-minute reaper —
-// cannot both charge it: the second gets ErrBillingWindowClaimed and changes
+// cannot both charge it, and a sandbox that is no longer running is never
+// charged: the second gets ErrBillingWindowClaimed and changes
 // nothing. When the wallet holds less than Amount it is drained to zero, the
 // cursor still advances, and insufficient is true. If the debit fails, the
 // cursor does not move.
@@ -188,14 +214,14 @@ func (s *PostgresStore) ChargeSandbox(ctx context.Context, charge SandboxCharge)
 	if charge.SandboxID == "" || charge.OrgID == "" {
 		return false, fmt.Errorf("sandbox_id and org_id are required")
 	}
-	if charge.Amount < 0 {
-		return false, fmt.Errorf("charge amount must not be negative, got %f", charge.Amount)
+	if charge.Amount < 0 || math.IsNaN(charge.Amount) || math.IsInf(charge.Amount, 0) {
+		return false, fmt.Errorf("charge amount must be a finite, non-negative number, got %f", charge.Amount)
 	}
 	if charge.From != nil && !charge.To.After(*charge.From) {
 		return false, fmt.Errorf("charge window must end after %s, got %s", charge.From, charge.To)
 	}
 	err = s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		claim := tx.Model(&types.Sandbox{}).Where("id = ? AND deleted_at IS NULL", charge.SandboxID)
+		claim := tx.Model(&types.Sandbox{}).Where("id = ? AND organization_id = ? AND deleted_at IS NULL AND status = ?", charge.SandboxID, charge.OrgID, types.SandboxStatusRunning)
 		if charge.From == nil {
 			claim = claim.Where("billing_last_charged_at IS NULL")
 		} else {

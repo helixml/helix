@@ -391,7 +391,7 @@ func (c *Controller) Update(ctx context.Context, id string, req *types.UpdateSan
 		}
 		sandbox.Tags = b
 	}
-	return c.store.UpdateSandbox(ctx, sandbox)
+	return c.store.UpdateSandboxDetails(ctx, sandbox)
 }
 
 // HydraClient returns a RevDial client targeting the host that owns the given

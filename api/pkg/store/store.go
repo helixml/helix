@@ -915,6 +915,7 @@ type Store interface {
 	GetOrgCodeAgentHarness(ctx context.Context, orgID string, runtime types.CodeAgentRuntime) (*types.OrgCodeAgentHarness, error)
 	UpsertOrgCodeAgentHarnesses(ctx context.Context, orgID string, actingUserID string, updates []types.OrgCodeAgentHarnessUpdate) ([]*types.OrgCodeAgentHarness, error)
 	UpdateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
+	UpdateSandboxDetails(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
 	SetSandboxStatus(ctx context.Context, id string, status types.SandboxStatus, message string) error
 	ChargeSandbox(ctx context.Context, charge SandboxCharge) (insufficient bool, err error)
 	SetRunningSandboxesBillingLastChargedAt(ctx context.Context, chargedAt time.Time) error

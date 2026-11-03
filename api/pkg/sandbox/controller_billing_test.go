@@ -89,6 +89,28 @@ func (s *ControllerBillingSuite) TestReapBillingChargesElapsedMinutesAfterRestar
 	s.Require().NoError(s.controller.ReapBilling(s.ctx))
 }
 
+// A legacy row has started_at but no cursor. Its first charge bills from
+// started_at and claims the unset cursor; treating a nil cursor as a free
+// window would leave such rows unbilled for good.
+func (s *ControllerBillingSuite) TestReapBillingBillsALegacyRowFromItsStart() {
+	sb := runningSandbox("sbx_legacy", types.SandboxRuntimeHeadlessUbuntu, 1, 0)
+	startedAt := time.Now().Add(-10*time.Minute - 5*time.Second)
+	sb.StartedAt = &startedAt
+	sb.BillingLastChargedAt = nil
+	s.expectBillingEnabled(0.1, 0)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return([]*types.Sandbox{sb}, nil)
+	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c store.SandboxCharge) (bool, error) {
+			s.Require().Nil(c.From)
+			s.Require().InDelta(60.0, c.Amount, 1e-6) // 10 whole minutes at 0.1/s
+			s.Require().WithinDuration(startedAt.Add(10*time.Minute), c.To, time.Millisecond)
+			return false, nil
+		},
+	)
+
+	s.Require().NoError(s.controller.ReapBilling(s.ctx))
+}
+
 // A window another replica already billed is not this replica's business:
 // it must not be retried or treated as a failure that stops the sandbox.
 func (s *ControllerBillingSuite) TestReapBillingSkipsAWindowAnotherReplicaBilled() {
@@ -117,9 +139,9 @@ func (s *ControllerBillingSuite) TestDeleteBillsRemainingSecondsSinceLastMinute(
 	s.expectBillingEnabled(0, 0.2)
 	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, c store.SandboxCharge) (bool, error) {
-			// Every second since the last charge, at 0.2 credits/s.
-			s.Require().InDelta(0.2*c.To.Sub(*sb.BillingLastChargedAt).Seconds(), c.Amount, 1e-6)
-			s.Require().GreaterOrEqual(c.Amount, 9.0)
+			// The 45 seconds since the last charge, at 0.2 credits/s.
+			s.Require().GreaterOrEqual(c.Amount, 0.2*45)
+			s.Require().LessOrEqual(c.Amount, 0.2*50)
 			s.Require().Equal("desktop", c.PricingType)
 			return false, nil
 		},
