@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -50,6 +51,24 @@ func (s *AutoWakeColdStartSuite) SetupTest() {
 
 func (s *AutoWakeColdStartSuite) TearDownTest() {
 	s.ctrl.Finish()
+}
+
+// Subtests get fresh mocks, exactly like top-level tests.
+func (s *AutoWakeColdStartSuite) SetupSubTest()    { s.SetupTest() }
+func (s *AutoWakeColdStartSuite) TearDownSubTest() { s.TearDownTest() }
+
+// TestKeepsWaitingWhenSessionCannotBeLoaded: without the session no grace gate
+// can be evaluated. A store blip during a normal cold boot must not burn the
+// retry budget (two blips used to fail a healthy boot's turn) or start a
+// second desktop.
+func (s *AutoWakeColdStartSuite) TestKeepsWaitingWhenSessionCannotBeLoaded() {
+	stuck := stuckInteraction("int-blip", "ses_blip", 0)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_blip").Return(nil, errors.New("connection reset"))
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_blip").Return(false).AnyTimes()
+
+	// IncrementInteractionAutoWakeCount, StartDesktop and
+	// MarkInteractionErrorIfWaiting must NOT be called.
+	s.server.maybeAutoWake(context.Background(), stuck)
 }
 
 // stuckInteraction returns an interaction old enough to pass the threshold gate.
@@ -167,8 +186,6 @@ func (s *AutoWakeColdStartSuite) TestFailsFastWhenDesktopStartIsRefused() {
 	}
 	for _, tc := range cases {
 		s.Run(tc.name, func() {
-			s.SetupTest()
-			defer s.TearDownTest()
 			stuck := stuckInteraction("int-refused", "ses_refused", 0)
 
 			s.store.EXPECT().IncrementInteractionAutoWakeCount(gomock.Any(), "int-refused").Return(1, nil)
@@ -638,7 +655,6 @@ func (s *AutoWakeColdStartSuite) TestSkipsWhenInteractionIsYoung() {
 	s.server.maybeAutoWake(context.Background(), stuck)
 }
 
-// TestAutoWakeStuckThresholdDefault verifies the new 180s default.
 // TestAutoWakeStuckThresholdOverride verifies operators can still
 // override the default at runtime via env var without redeploying.
 func TestAutoWakeStuckThresholdOverride(t *testing.T) {

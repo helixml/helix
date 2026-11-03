@@ -166,8 +166,8 @@ const (
 	// start because the organization is at its concurrent-desktop limit.
 	desktopLimitReason = "The desktop couldn't start because your organization is at its concurrent-desktop limit, so this message wasn't delivered. Stop another desktop session or raise the limit, then send it again."
 
-	// coldStartKickTimeout bounds one cold-start kick, matching the restart
-	// path, so a wedged start cannot hold its goroutine indefinitely.
+	// coldStartKickTimeout bounds one cold-start kick's outbound calls,
+	// matching the restart path.
 	coldStartKickTimeout = 5 * time.Minute
 )
 
@@ -452,15 +452,16 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 // per-session lock (which short-circuits with "Dev container already
 // running") and burns retry budget for nothing.
 func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *types.Interaction) {
-	// The session drives every gate below. Failing to load it is non-fatal —
-	// fall through so a transient store error doesn't permanently disable
-	// cold-start.
+	// The session drives every gate below.
 	session, err := apiServer.Store.GetSession(ctx, stuck.SessionID)
 	if err != nil {
+		// Fail closed: without the session no grace gate can be evaluated, and
+		// kicking anyway burns retry budget on a desktop that may be booting.
+		// The next scan retries.
 		log.Warn().Err(err).
 			Str("interaction_id", stuck.ID).
-			Msg("[AUTO_WAKE] Failed to load session for cold-start status check; proceeding with kick")
-		session = nil
+			Msg("[AUTO_WAKE] Failed to load session for cold-start status check; retrying next scan")
+		return
 	}
 
 	// A restart launched by this worker or crash recovery may not have updated
@@ -602,7 +603,14 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		// A refusal no retry can overturn ends the turn now with the real
 		// cause, instead of burning the retry budget and then blaming the
 		// agent for never connecting.
-		if reason, refused := startRefusalReason(err); refused && apiServer.failStuckInteraction(kickCtx, stuck, reason) {
+		reason, refused := startRefusalReason(err)
+		if !refused {
+			return
+		}
+		// Fresh context: the refusal may arrive just as the kick's expires.
+		failCtx, cancelFail := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelFail()
+		if apiServer.failStuckInteraction(failCtx, stuck, reason) {
 			log.Warn().Err(err).
 				Str("interaction_id", stuck.ID).
 				Str("session_id", stuck.SessionID).

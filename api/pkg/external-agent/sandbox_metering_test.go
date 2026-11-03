@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/hydra"
+	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
@@ -359,4 +360,30 @@ func TestDesktopBillingResourcesUsesStandardPresetWhenUncapped(t *testing.T) {
 	vcpus, memoryMB = desktopBillingResources(&types.DesktopAgent{VCPUs: 8, MemoryMB: 16384})
 	require.Equal(t, 8, vcpus)
 	require.Equal(t, 16384, memoryMB)
+}
+
+// refusingMeter refuses every desktop start; the other methods are unused.
+type refusingMeter struct {
+	SandboxMeter
+	err error
+}
+
+func (m refusingMeter) BeginSession(context.Context, *types.BeginSandboxSessionRequest) (*types.Sandbox, error) {
+	return nil, m.err
+}
+
+// Auto-wake fails a turn at once only when it can recognise the refusal with
+// errors.Is. A %v anywhere between the credit check and StartDesktop's caller
+// would silently bring back the retry-then-"agent never came online" path.
+func TestBeginSandboxMeteringKeepsCreditRefusalIdentity(t *testing.T) {
+	executor := newTestExecutor(nil)
+	executor.sandboxMeter = refusingMeter{err: fmt.Errorf("%w: balance 0.00, required 0.02", sandbox.ErrInsufficientCredits)}
+
+	_, err := executor.beginSandboxMetering(context.Background(), &types.DesktopAgent{
+		SessionID:      "ses_1",
+		OrganizationID: "org_1",
+		OrgWorkerID:    "bot",
+	})
+
+	require.ErrorIs(t, err, sandbox.ErrInsufficientCredits)
 }
