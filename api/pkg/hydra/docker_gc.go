@@ -44,7 +44,9 @@ func reapOrphanContainers(ctx context.Context, dockerClient *client.Client, live
 		if !isResourceID(sessionID, "ses_") || liveSessions[sessionID] || c.State == "running" {
 			continue
 		}
-		info, err := dockerClient.ContainerInspect(ctx, c.ID)
+		inspectCtx, cancel := context.WithTimeout(ctx, trackedInspectTimeout)
+		info, err := dockerClient.ContainerInspect(inspectCtx, c.ID)
+		cancel()
 		if err != nil {
 			log.Warn().Err(err).Str("container_id", c.ID).Msg("Docker GC: failed to inspect container")
 			continue
@@ -157,8 +159,8 @@ func (dm *DevContainerManager) forgetContainers(gone []*DevContainer) {
 	}
 }
 
-// trackedInspectTimeout bounds one inspect, so a wedged dockerd cannot consume
-// the whole reconcile deadline on the first tracked container.
+// trackedInspectTimeout bounds one container inspect, so a wedged dockerd
+// cannot consume the whole reconcile deadline on its first container.
 const trackedInspectTimeout = 10 * time.Second
 
 func (dm *DevContainerManager) trackedContainerRunning(ctx context.Context, dc *DevContainer) (bool, error) {
