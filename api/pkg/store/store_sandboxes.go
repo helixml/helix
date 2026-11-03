@@ -158,29 +158,19 @@ func (s *PostgresStore) SetSandboxStatus(ctx context.Context, id string, status 
 	return nil
 }
 
-// SetSandboxBillingLastChargedAt records the end of the most recent billed
-// interval for a running sandbox.
-func (s *PostgresStore) SetSandboxBillingLastChargedAt(ctx context.Context, id string, chargedAt time.Time) error {
-	if id == "" {
-		return fmt.Errorf("id not specified")
-	}
-	return s.gdb.WithContext(ctx).Model(&types.Sandbox{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"billing_last_charged_at": &chargedAt,
-		"updated_at":              time.Now(),
-	}).Error
-}
-
-// SandboxCharge bills one window of a running sandbox's usage.
+// SandboxCharge bills one window of a running sandbox's usage to its org.
 type SandboxCharge struct {
 	SandboxID string
+	OrgID     string
 	// From is the billing cursor (billing_last_charged_at) the caller read,
 	// nil when it was unset. The charge applies only while it is still current.
-	From     *time.Time
-	To       time.Time
-	WalletID string
-	// Amount is the price of the window in credits, positive.
-	Amount float64
-	Meta   types.TransactionMetadata
+	From *time.Time
+	To   time.Time
+	// Amount is the price of the window in credits. Zero advances the cursor
+	// without touching the wallet (free runtimes, or opening the first window).
+	Amount      float64
+	Runtime     types.SandboxRuntime
+	PricingType string
 }
 
 // ErrBillingWindowClaimed means another biller advanced the sandbox's billing
@@ -188,20 +178,24 @@ type SandboxCharge struct {
 var ErrBillingWindowClaimed = errors.New("sandbox billing window already charged")
 
 // ChargeSandbox advances a sandbox's billing cursor from charge.From to
-// charge.To and debits the wallet in one transaction. Two billers that read the
-// same cursor — API replicas, or a stop racing the per-minute reaper — cannot
-// both charge it: the second gets ErrBillingWindowClaimed and changes nothing.
-// When the wallet holds less than Amount it is drained to zero, the cursor still
-// advances, and insufficient is true.
+// charge.To and debits the org's wallet in one transaction. Two billers that
+// read the same cursor — API replicas, or a stop racing the per-minute reaper —
+// cannot both charge it: the second gets ErrBillingWindowClaimed and changes
+// nothing. When the wallet holds less than Amount it is drained to zero, the
+// cursor still advances, and insufficient is true. If the debit fails, the
+// cursor does not move.
 func (s *PostgresStore) ChargeSandbox(ctx context.Context, charge SandboxCharge) (insufficient bool, err error) {
-	if charge.SandboxID == "" || charge.WalletID == "" {
-		return false, fmt.Errorf("sandbox_id and wallet_id are required")
+	if charge.SandboxID == "" || charge.OrgID == "" {
+		return false, fmt.Errorf("sandbox_id and org_id are required")
 	}
-	if charge.Amount <= 0 {
-		return false, fmt.Errorf("charge amount must be positive, got %f", charge.Amount)
+	if charge.Amount < 0 {
+		return false, fmt.Errorf("charge amount must not be negative, got %f", charge.Amount)
+	}
+	if charge.From != nil && !charge.To.After(*charge.From) {
+		return false, fmt.Errorf("charge window must end after %s, got %s", charge.From, charge.To)
 	}
 	err = s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		claim := tx.Model(&types.Sandbox{}).Where("id = ?", charge.SandboxID)
+		claim := tx.Model(&types.Sandbox{}).Where("id = ? AND deleted_at IS NULL", charge.SandboxID)
 		if charge.From == nil {
 			claim = claim.Where("billing_last_charged_at IS NULL")
 		} else {
@@ -217,10 +211,13 @@ func (s *PostgresStore) ChargeSandbox(ctx context.Context, charge SandboxCharge)
 		if res.RowsAffected == 0 {
 			return ErrBillingWindowClaimed
 		}
+		if charge.Amount == 0 {
+			return nil
+		}
 
-		wallet, err := lockWallet(tx, charge.WalletID)
+		wallet, err := lockWallet(tx, "org_id = ?", charge.OrgID)
 		if err != nil {
-			return fmt.Errorf("lock wallet: %w", err)
+			return fmt.Errorf("lock wallet of org %s: %w", charge.OrgID, err)
 		}
 		debit := charge.Amount
 		if wallet.Balance < debit {
@@ -230,7 +227,12 @@ func (s *PostgresStore) ChargeSandbox(ctx context.Context, charge SandboxCharge)
 		if debit == 0 {
 			return nil
 		}
-		return applyWalletDelta(tx, wallet.ID, wallet.Balance, -debit, charge.Meta)
+		return applyWalletDelta(tx, wallet.ID, wallet.Balance, -debit, types.TransactionMetadata{
+			SandboxID:          charge.SandboxID,
+			SandboxRuntime:     charge.Runtime,
+			SandboxPricingType: charge.PricingType,
+			TransactionType:    types.TransactionTypeUsage,
+		})
 	})
 	if err != nil {
 		return false, err

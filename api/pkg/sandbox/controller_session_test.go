@@ -240,11 +240,6 @@ func (s *ControllerSessionSuite) TestResizeSessionSettlesChargesAtOldCoreCountFi
 		SandboxBillingEnabled:               true,
 		SandboxDesktopPriceCreditsPerSecond: 1,
 	}, nil)
-	s.store.EXPECT().GetWalletByOrg(gomock.Any(), "org_1").Return(&types.Wallet{
-		ID:      "wallet_1",
-		OrgID:   "org_1",
-		Balance: 10000,
-	}, nil)
 	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, c store.SandboxCharge) (bool, error) {
 			// 30 elapsed seconds at 1 credit/s/core and ONE core: ~30, not 240.

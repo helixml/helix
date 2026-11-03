@@ -41,146 +41,133 @@ func (s *ControllerBillingSuite) TearDownTest() {
 	s.ctrl.Finish()
 }
 
-func (s *ControllerBillingSuite) TestReapBillingChargesElapsedMinutesAfterRestart() {
-	lastChargedAt := time.Now().Add(-7*time.Minute - 10*time.Second)
-	startedAt := lastChargedAt.Add(-time.Minute)
-	sb := &types.Sandbox{
-		ID:                   "sbx_restart",
+func runningSandbox(id string, runtime types.SandboxRuntime, vcpus int, billedAgo time.Duration) *types.Sandbox {
+	billedAt := time.Now().Add(-billedAgo)
+	startedAt := billedAt.Add(-time.Minute)
+	return &types.Sandbox{
+		ID:                   id,
 		OrganizationID:       "org_1",
-		Runtime:              types.SandboxRuntimeHeadlessUbuntu,
+		Runtime:              runtime,
 		Status:               types.SandboxStatusRunning,
-		VCPUs:                4,
+		VCPUs:                vcpus,
 		StartedAt:            &startedAt,
-		BillingLastChargedAt: &lastChargedAt,
+		BillingLastChargedAt: &billedAt,
 	}
+}
 
+func (s *ControllerBillingSuite) expectBillingEnabled(headless, desktop float64) {
 	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
 		SandboxBillingEnabled:                true,
-		SandboxHeadlessPriceCreditsPerSecond: 0.5,
-	}, nil)
-	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, q *store.ListSandboxesQuery) ([]*types.Sandbox, error) {
-			s.Require().Equal(types.SandboxStatusRunning, q.Status)
-			return []*types.Sandbox{sb}, nil
-		},
-	)
-	s.store.EXPECT().GetWalletByOrg(gomock.Any(), "org_1").Return(&types.Wallet{
-		ID:      "wallet_1",
-		OrgID:   "org_1",
-		Balance: 1000,
-	}, nil)
+		SandboxHeadlessPriceCreditsPerSecond: headless,
+		SandboxDesktopPriceCreditsPerSecond:  desktop,
+	}, nil).AnyTimes()
+}
+
+// expectTeardown lets Delete run its teardown without pinning its internals.
+func (s *ControllerBillingSuite) expectTeardown(sb *types.Sandbox) {
+	s.store.EXPECT().GetSandbox(gomock.Any(), sb.ID).Return(sb, nil).AnyTimes()
+	s.store.EXPECT().SetSandboxStatus(gomock.Any(), sb.ID, gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+}
+
+func (s *ControllerBillingSuite) TestReapBillingChargesElapsedMinutesAfterRestart() {
+	sb := runningSandbox("sbx_restart", types.SandboxRuntimeHeadlessUbuntu, 4, 7*time.Minute+10*time.Second)
+	s.expectBillingEnabled(0.5, 0)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), &store.ListSandboxesQuery{Status: types.SandboxStatusRunning}).Return([]*types.Sandbox{sb}, nil)
 	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, c store.SandboxCharge) (bool, error) {
-			s.Require().Equal("wallet_1", c.WalletID)
+			// 7 whole minutes at 0.5 credits/s on 4 cores; the 10s remainder waits.
 			s.Require().InDelta(840.0, c.Amount, 0.0001)
-			s.Require().Equal(&lastChargedAt, c.From)
-			s.Require().WithinDuration(lastChargedAt.Add(7*time.Minute), c.To, time.Millisecond)
-			s.Require().Equal(types.TransactionTypeUsage, c.Meta.TransactionType)
-			s.Require().Equal("sbx_restart", c.Meta.SandboxID)
-			s.Require().Equal(types.SandboxRuntimeHeadlessUbuntu, c.Meta.SandboxRuntime)
-			s.Require().Equal("headless", c.Meta.SandboxPricingType)
+			s.Require().Equal(sb.BillingLastChargedAt, c.From)
+			s.Require().WithinDuration(sb.BillingLastChargedAt.Add(7*time.Minute), c.To, time.Millisecond)
+			s.Require().Equal("org_1", c.OrgID)
+			s.Require().Equal("headless", c.PricingType)
 			return false, nil
 		},
 	)
+
+	s.Require().NoError(s.controller.ReapBilling(s.ctx))
+}
+
+// A window another replica already billed is not this replica's business:
+// it must not be retried or treated as a failure that stops the sandbox.
+func (s *ControllerBillingSuite) TestReapBillingSkipsAWindowAnotherReplicaBilled() {
+	sb := runningSandbox("sbx_claimed", types.SandboxRuntimeHeadlessUbuntu, 1, 2*time.Minute)
+	s.expectBillingEnabled(0.1, 0)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return([]*types.Sandbox{sb}, nil)
+	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).Return(false, store.ErrBillingWindowClaimed)
+	s.store.EXPECT().DeleteSandbox(gomock.Any(), gomock.Any()).Times(0)
+
+	s.Require().NoError(s.controller.ReapBilling(s.ctx))
+}
+
+func (s *ControllerBillingSuite) TestReapBillingStopsASandboxItsOrgCannotPayFor() {
+	sb := runningSandbox("sbx_insufficient", types.SandboxRuntimeHeadlessUbuntu, 1, time.Minute+5*time.Second)
+	s.expectBillingEnabled(0.1, 0)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return([]*types.Sandbox{sb}, nil)
+	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).Return(true, nil).MinTimes(1)
+	s.expectTeardown(sb)
+	s.store.EXPECT().DeleteSandbox(gomock.Any(), "sbx_insufficient").Return(nil)
 
 	s.Require().NoError(s.controller.ReapBilling(s.ctx))
 }
 
 func (s *ControllerBillingSuite) TestDeleteBillsRemainingSecondsSinceLastMinute() {
-	lastChargedAt := time.Now().Add(-45 * time.Second)
-	startedAt := lastChargedAt.Add(-time.Minute)
-	sb := &types.Sandbox{
-		ID:                   "sbx_delete",
-		OrganizationID:       "org_1",
-		Runtime:              types.SandboxRuntimeUbuntuDesktop,
-		Status:               types.SandboxStatusRunning,
-		StartedAt:            &startedAt,
-		BillingLastChargedAt: &lastChargedAt,
-	}
-
-	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_delete").Return(sb, nil)
-	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
-		SandboxBillingEnabled:               true,
-		SandboxDesktopPriceCreditsPerSecond: 0.2,
-	}, nil)
-	s.store.EXPECT().GetWalletByOrg(gomock.Any(), "org_1").Return(&types.Wallet{
-		ID:      "wallet_1",
-		OrgID:   "org_1",
-		Balance: 100,
-	}, nil)
+	sb := runningSandbox("sbx_delete", types.SandboxRuntimeUbuntuDesktop, 0, 45*time.Second)
+	s.expectBillingEnabled(0, 0.2)
 	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, c store.SandboxCharge) (bool, error) {
-			s.Require().InDelta(9.0, c.Amount, 0.5)
-			s.Require().Equal("sbx_delete", c.Meta.SandboxID)
-			s.Require().Equal(types.SandboxRuntimeUbuntuDesktop, c.Meta.SandboxRuntime)
-			s.Require().Equal("desktop", c.Meta.SandboxPricingType)
+			// Every second since the last charge, at 0.2 credits/s.
+			s.Require().InDelta(0.2*c.To.Sub(*sb.BillingLastChargedAt).Seconds(), c.Amount, 1e-6)
+			s.Require().GreaterOrEqual(c.Amount, 9.0)
+			s.Require().Equal("desktop", c.PricingType)
 			return false, nil
 		},
 	)
-	s.store.EXPECT().SetSandboxStatus(gomock.Any(), "sbx_delete", types.SandboxStatusStopping, "").Return(nil)
-	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.expectTeardown(sb)
 	s.store.EXPECT().DeleteSandbox(gomock.Any(), "sbx_delete").Return(nil)
 
 	s.Require().NoError(s.controller.Delete(s.ctx, "sbx_delete"))
 }
 
-func (s *ControllerBillingSuite) TestReapBillingStopsSandboxAndDrainsRemainingCredits() {
-	lastChargedAt := time.Now().Add(-time.Minute - 5*time.Second)
-	startedAt := lastChargedAt.Add(-time.Minute)
-	sb := &types.Sandbox{
-		ID:                   "sbx_insufficient",
-		OrganizationID:       "org_1",
-		Runtime:              types.SandboxRuntimeHeadlessUbuntu,
-		Status:               types.SandboxStatusRunning,
-		StartedAt:            &startedAt,
-		BillingLastChargedAt: &lastChargedAt,
-	}
+// Delete is the TTL reaper's only teardown path. A final charge that fails —
+// an org with no wallet, a DB blip — must not leave the container running and
+// its disk leaking forever.
+func (s *ControllerBillingSuite) TestDeleteTearsDownWhenTheFinalChargeFails() {
+	sb := runningSandbox("sbx_nowallet", types.SandboxRuntimeHeadlessUbuntu, 1, 30*time.Second)
+	s.expectBillingEnabled(0.1, 0)
+	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).Return(false, store.ErrNotFound)
+	s.expectTeardown(sb)
+	s.store.EXPECT().DeleteSandbox(gomock.Any(), "sbx_nowallet").Return(nil)
 
-	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
-		SandboxBillingEnabled:                true,
-		SandboxHeadlessPriceCreditsPerSecond: 0.1,
-	}, nil)
-	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return([]*types.Sandbox{sb}, nil)
-	s.store.EXPECT().GetWalletByOrg(gomock.Any(), "org_1").Return(&types.Wallet{
-		ID:      "wallet_1",
-		OrgID:   "org_1",
-		Balance: 5,
-	}, nil)
-	// The org can pay for 5 of the 6 credits due: the store drains it and
-	// reports the shortfall, so the sandbox is stopped.
-	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, c store.SandboxCharge) (bool, error) {
-			s.Require().InDelta(6.0, c.Amount, 0.0001)
-			s.Require().Equal("sbx_insufficient", c.Meta.SandboxID)
-			return true, nil
-		},
-	)
-	// Delete reloads the row, now billed up to the full minute, and settles
-	// the remaining seconds against the drained wallet.
-	billedTo := lastChargedAt.Add(time.Minute)
-	reloaded := *sb
-	reloaded.BillingLastChargedAt = &billedTo
-	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_insufficient").Return(&reloaded, nil)
-	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
-		SandboxBillingEnabled:                true,
-		SandboxHeadlessPriceCreditsPerSecond: 0.1,
-	}, nil)
-	s.store.EXPECT().GetWalletByOrg(gomock.Any(), "org_1").Return(&types.Wallet{
-		ID:      "wallet_1",
-		OrgID:   "org_1",
-		Balance: 0,
-	}, nil)
-	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, c store.SandboxCharge) (bool, error) {
-			s.Require().Equal(&billedTo, c.From)
-			return true, nil
-		},
-	)
-	s.store.EXPECT().SetSandboxStatus(gomock.Any(), "sbx_insufficient", types.SandboxStatusStopping, "").Return(nil)
-	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
-	s.store.EXPECT().DeleteSandbox(gomock.Any(), "sbx_insufficient").Return(nil)
+	s.Require().NoError(s.controller.Delete(s.ctx, "sbx_nowallet"))
+}
 
-	s.Require().NoError(s.controller.ReapBilling(s.ctx))
+// The reaper can bill the whole minutes while a stop is settling. The stop
+// must then bill the remaining seconds from the moved cursor, not drop them.
+func (s *ControllerBillingSuite) TestDeleteBillsTheRemainderAfterARacingReaperCharge() {
+	sb := runningSandbox("sbx_race", types.SandboxRuntimeHeadlessUbuntu, 1, 90*time.Second)
+	reaperBilledTo := sb.BillingLastChargedAt.Add(time.Minute)
+	afterReaper := *sb
+	afterReaper.BillingLastChargedAt = &reaperBilledTo
+	s.expectBillingEnabled(1, 0)
+	gomock.InOrder(
+		s.store.EXPECT().GetSandbox(gomock.Any(), sb.ID).Return(sb, nil),
+		s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).Return(false, store.ErrBillingWindowClaimed),
+		s.store.EXPECT().GetSandbox(gomock.Any(), sb.ID).Return(&afterReaper, nil),
+		s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, c store.SandboxCharge) (bool, error) {
+				s.Require().Equal(&reaperBilledTo, c.From)
+				s.Require().InDelta(30.0, c.Amount, 1.0)
+				return false, nil
+			},
+		),
+	)
+	s.store.EXPECT().SetSandboxStatus(gomock.Any(), sb.ID, gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+	s.store.EXPECT().DeleteSandbox(gomock.Any(), sb.ID).Return(nil)
+
+	s.Require().NoError(s.controller.Delete(s.ctx, sb.ID))
 }
 
 func (s *ControllerBillingSuite) TestCreateRejectsSandboxWhenBillingEnabledAndCreditsAreBelowOneMinute() {

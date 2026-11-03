@@ -17,6 +17,13 @@ func newBilledSandbox(t *testing.T, db *PostgresStore, balance float64) (*types.
 	orgID := system.GenerateID()
 	wallet, err := db.CreateWallet(ctx, &types.Wallet{OrgID: orgID, Balance: balance})
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.DeleteWallet(context.Background(), wallet.ID) })
+	return newRunningSandbox(t, db, orgID), wallet
+}
+
+func newRunningSandbox(t *testing.T, db *PostgresStore, orgID string) *types.Sandbox {
+	t.Helper()
+	ctx := context.Background()
 	sb, err := db.CreateSandbox(ctx, &types.Sandbox{
 		ID:             "sbx_" + system.GenerateID(),
 		OrganizationID: orgID,
@@ -27,24 +34,18 @@ func newBilledSandbox(t *testing.T, db *PostgresStore, balance float64) (*types.
 	require.NoError(t, db.SetSandboxStatus(ctx, sb.ID, types.SandboxStatusRunning, ""))
 	sb, err = db.GetSandbox(ctx, sb.ID)
 	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = db.DeleteSandbox(context.Background(), sb.ID)
-		_ = db.DeleteWallet(context.Background(), wallet.ID)
-	})
-	return sb, wallet
+	t.Cleanup(func() { _ = db.DeleteSandbox(context.Background(), sb.ID) })
+	return sb
 }
 
-func usageCharge(sb *types.Sandbox, walletID string, amount float64) SandboxCharge {
+func usageCharge(sb *types.Sandbox, amount float64) SandboxCharge {
 	return SandboxCharge{
 		SandboxID: sb.ID,
+		OrgID:     sb.OrganizationID,
 		From:      sb.BillingLastChargedAt,
 		To:        sb.BillingLastChargedAt.Add(time.Minute),
-		WalletID:  walletID,
 		Amount:    amount,
-		Meta: types.TransactionMetadata{
-			SandboxID:       sb.ID,
-			TransactionType: types.TransactionTypeUsage,
-		},
+		Runtime:   sb.Runtime,
 	}
 }
 
@@ -55,7 +56,7 @@ func TestChargeSandboxChargesAWindowOnceUnderConcurrentBillers(t *testing.T) {
 	db := GetTestDB()
 	ctx := context.Background()
 	sb, wallet := newBilledSandbox(t, db, 100)
-	charge := usageCharge(sb, wallet.ID, 10)
+	charge := usageCharge(sb, 10)
 
 	const billers = 8
 	var wg sync.WaitGroup
@@ -94,7 +95,7 @@ func TestChargeSandboxRejectsAStaleCursorWithoutDebiting(t *testing.T) {
 	db := GetTestDB()
 	ctx := context.Background()
 	sb, wallet := newBilledSandbox(t, db, 100)
-	first := usageCharge(sb, wallet.ID, 10)
+	first := usageCharge(sb, 10)
 	_, err := db.ChargeSandbox(ctx, first)
 	require.NoError(t, err)
 
@@ -112,7 +113,7 @@ func TestChargeSandboxDrainsAShortWalletAndClosesTheWindow(t *testing.T) {
 	db := GetTestDB()
 	ctx := context.Background()
 	sb, wallet := newBilledSandbox(t, db, 4)
-	charge := usageCharge(sb, wallet.ID, 10)
+	charge := usageCharge(sb, 10)
 
 	insufficient, err := db.ChargeSandbox(ctx, charge)
 
@@ -126,7 +127,7 @@ func TestChargeSandboxDrainsAShortWalletAndClosesTheWindow(t *testing.T) {
 	require.WithinDuration(t, charge.To, *billed.BillingLastChargedAt, time.Microsecond)
 
 	// An empty wallet still closes the next window, without a zero-value ledger row.
-	next := usageCharge(billed, wallet.ID, 10)
+	next := usageCharge(billed, 10)
 	insufficient, err = db.ChargeSandbox(ctx, next)
 	require.NoError(t, err)
 	require.True(t, insufficient)
@@ -134,4 +135,72 @@ func TestChargeSandboxDrainsAShortWalletAndClosesTheWindow(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, txns, 1)
 	require.InDelta(t, -4.0, txns[0].Amount, 1e-9)
+}
+
+// A legacy row has started_at but no cursor. Its first charge must claim the
+// NULL cursor; a `= NULL` regression would make every such charge look
+// already-claimed, and the sandbox would run unbilled with no error.
+func TestChargeSandboxClaimsAnUnsetCursor(t *testing.T) {
+	db := GetTestDB()
+	ctx := context.Background()
+	sb, wallet := newBilledSandbox(t, db, 100)
+	require.NoError(t, db.gdb.Model(&types.Sandbox{}).Where("id = ?", sb.ID).Update("billing_last_charged_at", nil).Error)
+	charge := usageCharge(sb, 10)
+	charge.From = nil
+
+	_, err := db.ChargeSandbox(ctx, charge)
+
+	require.NoError(t, err)
+	after, err := db.GetWallet(ctx, wallet.ID)
+	require.NoError(t, err)
+	require.InDelta(t, 90.0, after.Balance, 1e-9)
+}
+
+// If the debit fails, the cursor must not move: otherwise the window is
+// closed without being paid and is never billed.
+func TestChargeSandboxLeavesTheCursorWhenTheDebitFails(t *testing.T) {
+	db := GetTestDB()
+	ctx := context.Background()
+	sb := newRunningSandbox(t, db, system.GenerateID()) // org has no wallet
+	charge := usageCharge(sb, 10)
+
+	_, err := db.ChargeSandbox(ctx, charge)
+
+	require.ErrorIs(t, err, ErrNotFound)
+	unchanged, err := db.GetSandbox(ctx, sb.ID)
+	require.NoError(t, err)
+	require.WithinDuration(t, *sb.BillingLastChargedAt, *unchanged.BillingLastChargedAt, time.Microsecond)
+}
+
+// A free window advances the cursor without needing a wallet, so pricing a
+// runtime later never bills the time it was free.
+func TestChargeSandboxAdvancesAFreeWindowWithoutAWallet(t *testing.T) {
+	db := GetTestDB()
+	ctx := context.Background()
+	sb := newRunningSandbox(t, db, system.GenerateID())
+	charge := usageCharge(sb, 0)
+
+	insufficient, err := db.ChargeSandbox(ctx, charge)
+
+	require.NoError(t, err)
+	require.False(t, insufficient)
+	billed, err := db.GetSandbox(ctx, sb.ID)
+	require.NoError(t, err)
+	require.WithinDuration(t, charge.To, *billed.BillingLastChargedAt, time.Microsecond)
+}
+
+// A soft-deleted sandbox is gone; a biller still holding its row must not
+// charge for a container that no longer exists.
+func TestChargeSandboxNeverChargesADeletedSandbox(t *testing.T) {
+	db := GetTestDB()
+	ctx := context.Background()
+	sb, wallet := newBilledSandbox(t, db, 100)
+	require.NoError(t, db.DeleteSandbox(ctx, sb.ID))
+
+	_, err := db.ChargeSandbox(ctx, usageCharge(sb, 10))
+
+	require.ErrorIs(t, err, ErrBillingWindowClaimed)
+	after, err := db.GetWallet(ctx, wallet.ID)
+	require.NoError(t, err)
+	require.InDelta(t, 100.0, after.Balance, 1e-9)
 }

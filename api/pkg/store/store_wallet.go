@@ -185,7 +185,7 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 	var wallet types.Wallet
 	balanceUpdated := false
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		locked, err := lockWallet(tx, walletID)
+		locked, err := lockWallet(tx, "id = ?", walletID)
 		if err != nil {
 			return err
 		}
@@ -247,11 +247,11 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 	return &wallet, nil
 }
 
-// lockWallet reads a wallet and holds its row lock until tx ends.
-func lockWallet(tx *gorm.DB, walletID string) (*types.Wallet, error) {
+// lockWallet reads the wallet matching where and holds its row lock until tx ends.
+func lockWallet(tx *gorm.DB, where string, arg any) (*types.Wallet, error) {
 	var wallet types.Wallet
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("id = ?", walletID).
+		Where(where, arg).
 		First(&wallet).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound

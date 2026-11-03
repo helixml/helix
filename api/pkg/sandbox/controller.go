@@ -271,7 +271,11 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 	}
 
 	if err := c.billSandboxFinal(ctx, sandbox, time.Now()); err != nil {
-		return err
+		// Same policy as closeSession: a failed final charge must not block
+		// teardown, or the TTL reaper could never remove the container and
+		// its disk would leak until the host fills.
+		log.Warn().Err(err).Str("sandbox_id", id).Str("org_id", sandbox.OrganizationID).
+			Msg("final charge for sandbox failed; deleting anyway")
 	}
 
 	_ = c.store.SetSandboxStatus(ctx, id, types.SandboxStatusStopping, "")

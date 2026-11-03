@@ -224,7 +224,7 @@ func (c *Controller) ResizeSession(ctx context.Context, sessionID string, vcpus,
 		return fmt.Errorf("get system settings: %w", err)
 	}
 	if settings.SandboxBillingEnabled && sb.Status == types.SandboxStatusRunning {
-		if err := c.billSandbox(ctx, settings, sb, time.Now(), true, false); err != nil {
+		if err := c.settleSandbox(ctx, settings, sb, time.Now()); err != nil {
 			return fmt.Errorf("settle charges at previous size before resize: %w", err)
 		}
 	}
