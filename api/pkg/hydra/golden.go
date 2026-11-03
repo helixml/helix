@@ -408,18 +408,6 @@ func isGoldenCopyCompleteForKind(volumeName string, kind goldenCacheKind) bool {
 	return err == nil
 }
 
-// CleanupGoldenSession removes the session's Docker data directory.
-func CleanupGoldenSession(volumeName string) error {
-	base := sessionOverlayDir(volumeName)
-
-	if err := os.RemoveAll(base); err != nil {
-		return fmt.Errorf("failed to remove session dir %s: %w", base, err)
-	}
-
-	log.Info().Str("path", base).Msg("Cleaned up golden session dir")
-	return nil
-}
-
 // PromoteSessionToGolden takes a completed golden build session's Docker data
 // and promotes it to be the project's golden snapshot.
 //
@@ -504,19 +492,6 @@ func promoteSessionToGoldenForKind(projectID, volumeName, sessionID string, kind
 		Str("cache_kind", string(kind)).
 		Msg("Promoted session container data to golden cache")
 
-	return nil
-}
-
-// CleanupSessionDockerDir removes the per-session Docker data directory.
-// Works for both golden-seeded and plain sessions that use CONTAINER_DOCKER_PATH.
-func CleanupSessionDockerDir(volumeName string) error {
-	base := sessionOverlayDir(volumeName)
-
-	if err := os.RemoveAll(base); err != nil {
-		return fmt.Errorf("failed to remove session dir %s: %w", base, err)
-	}
-
-	log.Info().Str("path", base).Msg("Cleaned up session Docker data dir")
 	return nil
 }
 

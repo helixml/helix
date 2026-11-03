@@ -1079,6 +1079,12 @@ func zvolCreationAge(zvolName string) time.Duration {
 	return time.Since(time.Unix(created, 0))
 }
 
+// isSessionID reports whether id names a session, the only kind of id in the
+// live set the session-data reapers are given.
+func isSessionID(id string) bool {
+	return strings.HasPrefix(id, "ses_") && len(id) > len("ses_")
+}
+
 // ReconcileOrphanZvols reaps session zvols (prefix "<parent>/ses-") that are NOT
 // in the DB-derived liveSet, have aged past the grace period, and can be safely
 // destroyed.
@@ -1086,6 +1092,10 @@ func zvolCreationAge(zvolName string) time.Duration {
 // Safety contract (do not weaken):
 //   - Only ses- zvols are ever enumerated; golden-* zvols are never touched
 //     (the prefix guard filters them out).
+//   - Only session (ses_) zvols are reaped: sandbox-API desktops (sbx_) share
+//     the naming scheme but are never in the session live set.
+//   - A zvol that is still mounted, or carries a pending golden promotion, is
+//     kept whatever the live set says.
 //   - Destroys go through CleanupSessionZvol, which uses `zfs destroy -r`
 //     (lowercase). A clone-root or busy zvol fails with "has dependent clones"
 //     / "dataset is busy"; we record it as skipped and move on. We NEVER force
@@ -1098,14 +1108,18 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 
 	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
 	if err != nil {
-		log.Warn().Err(err).Msg("ReconcileOrphanZvols: failed to list zvols")
-		return nil, nil
+		log.Warn().Err(err).Str("dataset", zfsParentDataset).Msg("ReconcileOrphanZvols: failed to list zvols")
+		return nil, []GCSkip{{Name: zfsParentDataset, Reason: "list error: " + err.Error()}}
 	}
 
 	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		sessionID, kind, ok := parseSessionZvolName(name)
 		if !ok {
 			continue // never touch golden- or anything else
+		}
+		if !isSessionID(sessionID) {
+			skipped = append(skipped, GCSkip{Name: name, Reason: "not a session"})
+			continue
 		}
 
 		if liveSet[sessionID] {
@@ -1123,6 +1137,23 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 		age := zvolCreationAge(name)
 		if age < grace {
 			skipped = append(skipped, GCSkip{Name: name, Reason: "grace"})
+			continue
+		}
+
+		// Still mounted means something on this host is using it, whatever
+		// the database says; the destroy path would lazy-unmount it.
+		if isMounted(sessionZvolMountPathForKind(sessionID, kind)) {
+			skipped = append(skipped, GCSkip{Name: name, Reason: "mounted"})
+			continue
+		}
+		// A promotion interrupted after `zfs promote` leaves the newest golden
+		// build on this session clone; destroying it loses that build.
+		if _, _, pending, err := pendingGoldenPromotion(name); err != nil || pending {
+			reason := "pending golden promotion"
+			if err != nil {
+				reason = "promotion state unknown: " + err.Error()
+			}
+			skipped = append(skipped, GCSkip{Name: name, Reason: reason})
 			continue
 		}
 
@@ -1159,10 +1190,11 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 func ReconcileOrphanFileCopyDirs(liveSet map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip) {
 	entries, err := os.ReadDir(sessionsBaseDir)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Warn().Err(err).Msg("ReconcileOrphanFileCopyDirs: failed to read sessions dir")
+		if os.IsNotExist(err) {
+			return nil, nil
 		}
-		return nil, nil
+		log.Warn().Err(err).Str("dir", sessionsBaseDir).Msg("ReconcileOrphanFileCopyDirs: failed to read sessions dir")
+		return nil, []GCSkip{{Name: sessionsBaseDir, Reason: "list error: " + err.Error()}}
 	}
 
 	for _, entry := range entries {
@@ -1174,10 +1206,14 @@ func ReconcileOrphanFileCopyDirs(liveSet map[string]bool, grace time.Duration, d
 			continue
 		}
 		dir := filepath.Join(sessionsBaseDir, entry.Name())
+		if !isSessionID(sessionID) {
+			skipped = append(skipped, GCSkip{Name: dir, Reason: "not a session"})
+			continue
+		}
 
 		if liveSet[sessionID] {
-			// Live per the DB — keep, and refresh the marker so the legacy
-			// 7-day GC also keeps treating it as fresh.
+			// Live per the DB — keep, and refresh the marker so the grace
+			// period (fileCopyDirAge) starts when the session stops being live.
 			TouchSessionLastActive(dir)
 			skipped = append(skipped, GCSkip{Name: dir, Reason: "live"})
 			continue

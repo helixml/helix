@@ -34,10 +34,11 @@ func reconcileWorkspaceSubdir(subdir, requiredPrefix string, liveSet map[string]
 func reconcileIDDirs(base, label, requiredPrefix string, liveSet map[string]bool, grace time.Duration, dryRun bool, remove func(dir string) error) (reaped []string, skipped []GCSkip) {
 	entries, err := os.ReadDir(base)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Warn().Err(err).Str("dir", base).Msg("ReconcileOrphanWorkspaces: failed to read subdir")
+		if os.IsNotExist(err) {
+			return nil, nil
 		}
-		return nil, nil
+		log.Warn().Err(err).Str("dir", base).Msg("ReconcileOrphanWorkspaces: failed to read subdir")
+		return nil, []GCSkip{{Name: label, Reason: "list error: " + err.Error()}}
 	}
 
 	cutoff := time.Now().Add(-grace)

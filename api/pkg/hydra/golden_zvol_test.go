@@ -1319,7 +1319,8 @@ func (s *GoldenZvolSuite) TestMaintainGoldenCachesNeverReapsSessionData() {
 
 	maintainGoldenCaches()
 
-	assert.Empty(s.T(), s.mock.commandsMatching("zfs destroy"))
+	assert.True(s.T(), s.mock.datasets[zfsParentDataset+"/ses-ses_paused"])
+	assert.True(s.T(), s.mock.datasets[zfsParentDataset+"/ses-ses_no_marker"])
 	assert.DirExists(s.T(), pausedDir)
 }
 
@@ -1808,17 +1809,6 @@ func (s *GoldenZvolSuite) TestGetGoldenSize_FallsBackToFileCopy() {
 }
 
 // -----------------------------------------------------------------------
-// monitorGoldenBuild result file paths
-// -----------------------------------------------------------------------
-
-func (s *GoldenZvolSuite) TestMonitorGoldenBuild_ZvolResultPath() {
-	// Verify the zvol result path is correct
-	sessionID := "ses_abc123"
-	expected := filepath.Join(zvolMountBase, sessionID, ".golden-build-result")
-	assert.Equal(s.T(), "/container-docker/zvol-mounts/ses_abc123/.golden-build-result", expected)
-}
-
-// -----------------------------------------------------------------------
 // Cleanup uses correct path per storage type
 // -----------------------------------------------------------------------
 
@@ -2019,4 +2009,131 @@ func (s *GoldenZvolSuite) TestReconcileOrphanZvols_DryRunIssuesNoDestroy() {
 	// Dry run: NO destroy issued, dataset still present.
 	assert.False(s.T(), s.mock.hasCommand("zfs destroy"))
 	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_orphan"])
+}
+
+// Sandbox-API desktops (sbx_) use the session naming scheme for their zvols
+// but are never in the session live set, so the session reaper would destroy
+// a sandbox still alive in its own lifecycle once it passed grace.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_NeverReapsSandboxAPIZvols() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	s.mock.addDataset("prod/helix-zvols/ses-sbx_api")
+	s.mock.setCreationAge("prod/helix-zvols/ses-sbx_api", 8*time.Hour)
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Equal(s.T(), "not a session", skipped[0].Reason)
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-sbx_api"])
+}
+
+// A mounted zvol is in use on this host whatever the database says. The
+// destroy path lazy-unmounts, which would pull storage out from under it.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_KeepsAMountedZvol() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	s.mock.addDataset("prod/helix-zvols/ses-ses_mounted")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_mounted", 8*time.Hour)
+	s.mock.setMounted(sessionZvolMountPathForKind("ses_mounted", dockerGoldenCache))
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Equal(s.T(), "mounted", skipped[0].Reason)
+	assert.False(s.T(), s.mock.hasCommand("umount"))
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_mounted"])
+}
+
+// A promotion interrupted between `zfs promote` and `zfs rename` leaves the
+// newest golden build on the session clone, marked pending. Reaping it would
+// lose that build.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_KeepsAPendingPromotion() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	s.mock.addDataset("prod/helix-zvols/ses-ses_build")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_build", 8*time.Hour)
+	s.mock.props["prod/helix-zvols/ses-ses_build"] = map[string]string{goldenPendingPromotionProp: "3,ses_build"}
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Equal(s.T(), "pending golden promotion", skipped[0].Reason)
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_build"])
+}
+
+// A failed listing must show in the report: an empty result reads as "host
+// is clean" while disk leaks.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_ReportsAListingFailure() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	s.mock.failOn("zfs list -H -o name -t volume", fmt.Errorf("pool suspended"))
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Contains(s.T(), skipped[0].Reason, "list error")
+}
+
+// ReconcileOrphanFileCopyDirs is the only reaper of inner docker data on hosts
+// without ZFS. Each case names the regression it catches.
+func TestReconcileOrphanFileCopyDirs(t *testing.T) {
+	old := time.Now().Add(-48 * time.Hour)
+	for _, tc := range []struct {
+		name       string
+		dir        string
+		live       bool
+		freshMark  bool
+		oldMtime   bool
+		dryRun     bool
+		wantReaped bool
+		wantReason string
+	}{
+		// A marker-only age would leak marker-less (crashed) dirs forever.
+		{name: "dead, no marker, old", dir: "docker-data-ses_a", oldMtime: true, wantReaped: true},
+		// An mtime-only age would reap a session that stopped a minute ago.
+		{name: "dead, fresh marker", dir: "docker-data-ses_b", oldMtime: true, freshMark: true, wantReason: "grace"},
+		{name: "live", dir: "docker-data-ses_c", live: true, oldMtime: true, wantReason: "live"},
+		// The rootless prefix must not be parsed as docker-data-.
+		{name: "rootless, dead, old", dir: "rootless-docker-data-ses_d", oldMtime: true, wantReaped: true},
+		// Sandbox-API data is not the session reaper's to remove.
+		{name: "sandbox api", dir: "docker-data-sbx_e", oldMtime: true, wantReason: "not a session"},
+		{name: "empty id", dir: "docker-data-", oldMtime: true, wantReason: "not a session"},
+		{name: "dry run", dir: "docker-data-ses_f", oldMtime: true, dryRun: true, wantReaped: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := t.TempDir()
+			oldBase := sessionsBaseDir
+			sessionsBaseDir = base
+			t.Cleanup(func() { sessionsBaseDir = oldBase })
+			dir := filepath.Join(base, tc.dir)
+			require.NoError(t, os.MkdirAll(dir, 0755))
+			if tc.freshMark {
+				TouchSessionLastActive(dir)
+			}
+			if tc.oldMtime {
+				require.NoError(t, os.Chtimes(dir, old, old))
+			}
+			id, _ := sessionIDFromContainerDataDir(tc.dir)
+
+			reaped, skipped := ReconcileOrphanFileCopyDirs(map[string]bool{id: tc.live}, time.Hour, tc.dryRun)
+
+			if tc.wantReaped {
+				assert.Equal(t, []string{dir}, reaped)
+				if tc.dryRun {
+					assert.DirExists(t, dir)
+				} else {
+					assert.NoDirExists(t, dir)
+				}
+				return
+			}
+			assert.Empty(t, reaped)
+			require.Len(t, skipped, 1)
+			assert.Equal(t, tc.wantReason, skipped[0].Reason)
+			assert.DirExists(t, dir)
+		})
+	}
 }
