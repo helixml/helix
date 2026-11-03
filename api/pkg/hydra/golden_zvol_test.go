@@ -2250,3 +2250,22 @@ func (s *GoldenZvolSuite) TestReconcileOrphanZvols_KeepsAZvolOfUnknownAge() {
 	require.Len(s.T(), skipped, 1)
 	assert.Equal(s.T(), "age unknown", skipped[0].Reason)
 }
+
+// A dry run previews reaping; it must not unmount a stopped desktop's zvol,
+// which would cost it the warm restart.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_DryRunNeverUnmounts() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	zvol := "prod/helix-zvols/ses-ses_preview"
+	mountPath := sessionZvolMountPathForKind("ses_preview", dockerGoldenCache)
+	s.mock.addDataset(zvol)
+	s.mock.setCreationAge(zvol, 8*time.Hour)
+	s.mock.setMounted(mountPath)
+
+	reaped, _ := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, true)
+
+	assert.Equal(s.T(), []string{zvol}, reaped)
+	assert.Empty(s.T(), s.mock.commandsMatching("umount"))
+	assert.True(s.T(), isMounted(mountPath))
+	assert.True(s.T(), s.mock.datasets[zvol])
+}

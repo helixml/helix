@@ -1151,6 +1151,10 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 			continue
 		}
 
+		if !zfsDatasetExists(name) {
+			skipped = append(skipped, GCSkip{Name: name, Reason: "gone"}) // destroyed concurrently
+			continue
+		}
 		// A promotion interrupted after `zfs promote` leaves the newest golden
 		// build on this session clone; destroying it loses that build.
 		if _, _, pending, err := pendingGoldenPromotion(name); err != nil || pending {
@@ -1159,10 +1163,6 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 				reason = "promotion state unknown: " + err.Error()
 			}
 			skipped = append(skipped, GCSkip{Name: name, Reason: reason})
-			continue
-		}
-		if !zfsDatasetExists(name) {
-			skipped = append(skipped, GCSkip{Name: name, Reason: "gone"}) // destroyed concurrently
 			continue
 		}
 
