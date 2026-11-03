@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -19,8 +20,8 @@ import (
 // admin key could read users belonging only to another tenant.
 
 const (
-	tenantAOrg   = "org-testorg"
-	tenantBOrg   = "org-testorg2"
+	tenantAOrg   = "org_testorg"
+	tenantBOrg   = "org_testorg2"
 	tenantAAdmin = "user-testorg-admin"
 	tenantBAdmin = "user-testorg2-admin"
 	tenantAUser  = "user-testorg-synthetic"
@@ -53,6 +54,42 @@ func newUserDetailsTestServer(t *testing.T) *HelixAPIServer {
 				}
 			}
 			return out, nil
+		}).AnyTimes()
+
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ interface{}, q *store.GetOrganizationMembershipQuery) (*types.OrganizationMembership, error) {
+			for _, m := range all[q.UserID] {
+				if m.OrganizationID == q.OrganizationID {
+					return m, nil
+				}
+			}
+			return nil, store.ErrNotFound
+		}).AnyTimes()
+
+	mockStore.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ interface{}, q *store.GetOrganizationQuery) (*types.Organization, error) {
+			id := q.ID
+			if id == "" {
+				id = "org_" + q.Name
+			}
+			if id != tenantAOrg && id != tenantBOrg {
+				return nil, store.ErrNotFound
+			}
+			return &types.Organization{ID: id, Name: strings.TrimPrefix(id, "org_")}, nil
+		}).AnyTimes()
+
+	mockStore.EXPECT().SearchUsers(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ interface{}, q *store.SearchUsersQuery) ([]*types.User, int64, error) {
+			var out []*types.User
+			for userID, ms := range all {
+				for _, m := range ms {
+					if q.OrganizationID == "" || m.OrganizationID == q.OrganizationID {
+						out = append(out, &types.User{ID: userID, Email: userID + "@example.test", Token: "secret-token", TokenType: types.TokenTypeAPIKey})
+						break
+					}
+				}
+			}
+			return out, int64(len(out)), nil
 		}).AnyTimes()
 
 	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
@@ -106,6 +143,8 @@ func TestGetUserDetails_CrossTenant_TST01_145(t *testing.T) {
 		{"org-scoped key for shared org is allowed", &types.User{ID: tenantAAdmin, OrganizationID: tenantAOrg}, tenantAUser, http.StatusOK},
 		{"user reads self", &types.User{ID: tenantBUser}, tenantBUser, http.StatusOK},
 		{"platform admin reads any user", &types.User{ID: "platform-admin", Admin: true}, tenantAUser, http.StatusOK},
+		// Org-scoped keys never escape their org, even for platform admins.
+		{"admin's org-scoped key cannot read other org user", &types.User{ID: "platform-admin", Admin: true, OrganizationID: tenantBOrg}, tenantAUser, http.StatusNotFound},
 	}
 
 	for _, tt := range tests {
@@ -125,6 +164,62 @@ func TestGetUserDetails_CrossTenant_TST01_145(t *testing.T) {
 			assert.Equal(t, tt.target, got["id"])
 			assert.Empty(t, got["token"])
 			assert.Empty(t, got["token_type"])
+		})
+	}
+}
+
+func callSearchUsers(t *testing.T, srv *HelixAPIServer, caller *types.User, orgID string) *httptest.ResponseRecorder {
+	t.Helper()
+	url := "/api/v1/users/search?query=example.test"
+	if orgID != "" {
+		url += "&organization_id=" + orgID
+	}
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	req = req.WithContext(setTestRequestUser(req.Context(), caller))
+	rr := httptest.NewRecorder()
+	srv.searchUsers(rr, req)
+	return rr
+}
+
+// The same disclosure via /users/search: without organization_id the search
+// previously matched every user on the platform.
+func TestSearchUsers_CrossTenant_TST01_145(t *testing.T) {
+	tests := []struct {
+		name       string
+		caller     *types.User
+		orgID      string
+		wantStatus int
+		wantUsers  []string
+	}{
+		{"non-admin without org is rejected", &types.User{ID: tenantBAdmin}, "", http.StatusBadRequest, nil},
+		{"non-admin searching other tenant org is rejected", &types.User{ID: tenantBAdmin}, tenantAOrg, http.StatusForbidden, nil},
+		{"org-scoped key searching other org is rejected", &types.User{ID: tenantBAdmin, OrganizationID: tenantBOrg}, tenantAOrg, http.StatusForbidden, nil},
+		{"admin's org-scoped key without org is rejected", &types.User{ID: "platform-admin", Admin: true, OrganizationID: tenantBOrg}, "", http.StatusBadRequest, nil},
+		{"unknown org is 404", &types.User{ID: tenantBAdmin}, "org_unknown", http.StatusNotFound, nil},
+		{"member searches own org by id", &types.User{ID: tenantBAdmin}, tenantBOrg, http.StatusOK, []string{tenantBAdmin, tenantBUser}},
+		{"member searches own org by name", &types.User{ID: tenantAAdmin}, "testorg", http.StatusOK, []string{tenantAAdmin, tenantAUser}},
+		{"platform admin searches all users", &types.User{ID: "platform-admin", Admin: true}, "", http.StatusOK, []string{tenantAAdmin, tenantAUser, tenantBAdmin, tenantBUser}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := newUserDetailsTestServer(t)
+			rr := callSearchUsers(t, srv, tt.caller, tt.orgID)
+			require.Equal(t, tt.wantStatus, rr.Code, rr.Body.String())
+			if tt.wantStatus != http.StatusOK {
+				assert.NotContains(t, rr.Body.String(), "@example.test")
+				return
+			}
+
+			var got types.UserSearchResponse
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+			var ids []string
+			for _, u := range got.Users {
+				ids = append(ids, u.ID)
+				assert.Empty(t, u.Token)
+				assert.Empty(t, u.TokenType)
+			}
+			assert.ElementsMatch(t, tt.wantUsers, ids)
 		})
 	}
 }

@@ -171,7 +171,6 @@ const TeamPeople: FC = () => {
         onAddMember={addTeamMember}
         title="Add Team Member"
         messagePrefix="Only showing users in organization."
-        organizationMembersOnly={true}
         existingMembers={existingMembers || []}
       />
     </Page>

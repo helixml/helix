@@ -72,22 +72,22 @@ func (apiServer *HelixAPIServer) getUserDetails(rw http.ResponseWriter, r *http.
 
 // canViewUserDetails reports whether requester may read targetUserID's user
 // record: themselves, a platform admin, or a member of an organization the
-// target also belongs to. For org-scoped API keys only that organization
-// counts as shared.
+// target also belongs to. Org-scoped credentials only see users in their own
+// organization, regardless of the owning user's other privileges.
 func (apiServer *HelixAPIServer) canViewUserDetails(ctx context.Context, requester *types.User, targetUserID string) (bool, error) {
-	if requester.ID == targetUserID || requester.Admin {
-		return true, nil
-	}
 	if requester.ID == "" {
 		return false, nil
+	}
+	if requester.ID == targetUserID {
+		return true, nil
+	}
+	if requester.OrganizationID == "" && requester.Admin {
+		return true, nil
 	}
 
 	targetMemberships, err := apiServer.Store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{UserID: targetUserID})
 	if err != nil {
 		return false, err
-	}
-	if len(targetMemberships) == 0 {
-		return false, nil
 	}
 	targetOrgs := make(map[string]struct{}, len(targetMemberships))
 	for _, m := range targetMemberships {
@@ -98,15 +98,10 @@ func (apiServer *HelixAPIServer) canViewUserDetails(ctx context.Context, request
 		if _, ok := targetOrgs[requester.OrganizationID]; !ok {
 			return false, nil
 		}
-		// Confirm the requester is (still) a member of the key's org.
-		requesterMemberships, err := apiServer.Store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
-			UserID:         requester.ID,
-			OrganizationID: requester.OrganizationID,
-		})
-		if err != nil {
-			return false, err
+		if _, err := apiServer.authorizeOrgMember(ctx, requester, requester.OrganizationID); err != nil {
+			return false, nil
 		}
-		return len(requesterMemberships) > 0, nil
+		return true, nil
 	}
 
 	requesterMemberships, err := apiServer.Store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{UserID: requester.ID})
@@ -144,13 +139,31 @@ func (apiServer *HelixAPIServer) searchUsers(rw http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if query.OrganizationID != "" {
-		_, err := apiServer.authorizeOrgMember(r.Context(), getRequestUser(r), query.OrganizationID)
+	requester := getRequestUser(r)
+	if requester == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Tenant scoping (TST-01-145): only platform admins may search across
+	// all users. Everyone else must search within an organization they
+	// belong to; org-scoped keys only within their own organization.
+	if query.OrganizationID == "" {
+		if !requester.Admin || requester.OrganizationID != "" {
+			http.Error(rw, "organization_id is required", http.StatusBadRequest)
+			return
+		}
+	} else {
+		orgID, err := apiServer.resolveOrgID(r.Context(), query.OrganizationID)
 		if err != nil {
+			http.Error(rw, "organization not found", http.StatusNotFound)
+			return
+		}
+		query.OrganizationID = orgID
+		if _, err := apiServer.authorizeOrgMember(r.Context(), requester, orgID); err != nil {
 			http.Error(rw, fmt.Sprintf("error authorizing organization member: %v", err), http.StatusForbidden)
 			return
 		}
-		// OK
 	}
 
 	// If query is less than 2 characters, return an error
@@ -186,6 +199,11 @@ func (apiServer *HelixAPIServer) searchUsers(rw http.ResponseWriter, r *http.Req
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("error searching users: %v", err), http.StatusInternalServerError)
 		return
+	}
+	for _, u := range users {
+		u.Token = ""
+		u.TokenType = ""
+		u.PasswordHash = nil
 	}
 
 	writeResponse(rw, &types.UserSearchResponse{

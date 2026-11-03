@@ -36,7 +36,6 @@ interface UserSearchModalProps {
   onAddMember: (userId: string) => void
   title?: string
   messagePrefix?: string
-  organizationMembersOnly?: boolean
   existingMembers?: TypesUser[]
 }
 
@@ -47,7 +46,6 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
   onAddMember, 
   title = "Add Organization Member",
   messagePrefix,
-  organizationMembersOnly = false,
   existingMembers = []
 }) => {
   // State for the search query
@@ -95,7 +93,10 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
   // Perform search when debounced query changes
   useEffect(() => {
     const performSearch = async () => {
-      if (!debouncedSearchQuery || debouncedSearchQuery.length < 2) {
+      // Search is always scoped to the current organization; people outside
+      // it are added by typing their full email (see the lookup below).
+      const searchOrgId = account.organizationTools.organization?.id
+      if (!searchOrgId || !debouncedSearchQuery || debouncedSearchQuery.length < 2) {
         setSearchResults([])
         return
       }
@@ -105,7 +106,7 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
         // Search by both email and name
         const response = await searchUsers({
           query: debouncedSearchQuery,
-          organizationId: organizationMembersOnly ? account.organizationTools.organization?.id : undefined
+          organizationId: searchOrgId
         })
 
         // If users is an empty array, thing to return
@@ -136,7 +137,7 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
     }
 
     performSearch()
-  }, [debouncedSearchQuery])
+  }, [debouncedSearchQuery, account.organizationTools.organization?.id])
 
   // Org-scoped lookup when the user has typed a complete email. Skip if
   // the email already appears in the search results — we know they exist
