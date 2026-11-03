@@ -2,6 +2,7 @@ package hydra
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -43,7 +44,9 @@ func reapOrphanContainers(ctx context.Context, dockerClient *client.Client, live
 		if !isResourceID(sessionID, "ses_") || liveSessions[sessionID] || c.State == "running" {
 			continue
 		}
-		info, err := dockerClient.ContainerInspect(ctx, c.ID)
+		inspectCtx, cancel := context.WithTimeout(ctx, trackedInspectTimeout)
+		info, err := dockerClient.ContainerInspect(inspectCtx, c.ID)
+		cancel()
 		if err != nil {
 			log.Warn().Err(err).Str("container_id", c.ID).Msg("Docker GC: failed to inspect container")
 			continue
@@ -61,7 +64,10 @@ func reapOrphanContainers(ctx context.Context, dockerClient *client.Client, live
 		}
 		name := strings.TrimPrefix(info.Name, "/")
 		if !dryRun {
-			if err := dockerClient.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true}); err != nil && !client.IsErrNotFound(err) {
+			// Not forced: if the session restarted the container since the
+			// inspect above, Docker refuses to remove a running container,
+			// which closes the window between the check and the removal.
+			if err := dockerClient.ContainerRemove(ctx, c.ID, container.RemoveOptions{}); err != nil && !client.IsErrNotFound(err) {
 				log.Warn().Err(err).Str("container", name).Msg("Docker GC: failed to remove orphan container")
 				continue
 			}
@@ -105,4 +111,72 @@ func reapOrphanVolumes(ctx context.Context, dockerClient *client.Client, liveSes
 		reaped = append(reaped, v.Name)
 	}
 	return reaped
+}
+
+// runningTrackedSessions returns the tracked sessions whose container Docker
+// reports running, plus any it cannot inspect: an unreachable daemon must not
+// make a live desktop's storage look orphaned. A tracked container that has
+// stopped is not live — the database live-set and the grace period decide its
+// fate, exactly as for an untracked one. Without this, a desktop stopped
+// without a destroy (the disk-pressure emergency brake) stayed tracked and so
+// pinned its container, zvol and workspace forever.
+//
+// It also returns the tracked entries whose container no longer exists, for
+// the caller to forget.
+func (dm *DevContainerManager) runningTrackedSessions(ctx context.Context) (running []string, gone []*DevContainer) {
+	dm.mu.RLock()
+	tracked := make([]*DevContainer, 0, len(dm.containers))
+	for _, dc := range dm.containers {
+		tracked = append(tracked, dc)
+	}
+	dm.mu.RUnlock()
+
+	for _, dc := range tracked {
+		isRunning, err := dm.trackedContainerRunning(ctx, dc)
+		switch {
+		case client.IsErrNotFound(err):
+			gone = append(gone, dc)
+		case err != nil:
+			log.Warn().Err(err).Str("session_id", dc.SessionID).Msg("Docker GC: cannot inspect tracked container; treating its session as live")
+			running = append(running, dc.SessionID)
+		case isRunning:
+			running = append(running, dc.SessionID)
+		}
+	}
+	return running, gone
+}
+
+// forgetContainers drops tracked entries whose container no longer exists, so
+// hydra stops reporting them to the control plane. An entry replaced by a
+// concurrent start is kept.
+func (dm *DevContainerManager) forgetContainers(gone []*DevContainer) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+	for _, dc := range gone {
+		if dm.containers[dc.SessionID] == dc {
+			delete(dm.containers, dc.SessionID)
+		}
+	}
+}
+
+// trackedInspectTimeout bounds one container inspect, so a wedged dockerd
+// cannot consume the whole reconcile deadline on its first container.
+const trackedInspectTimeout = 10 * time.Second
+
+func (dm *DevContainerManager) trackedContainerRunning(ctx context.Context, dc *DevContainer) (bool, error) {
+	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
+	if err != nil {
+		return false, err
+	}
+	defer dockerClient.Close()
+	inspectCtx, cancel := context.WithTimeout(ctx, trackedInspectTimeout)
+	defer cancel()
+	info, err := dockerClient.ContainerInspect(inspectCtx, dc.ContainerID)
+	if err != nil {
+		return false, err
+	}
+	if info.State == nil {
+		return false, fmt.Errorf("container %s has no state", dc.ContainerID)
+	}
+	return info.State.Running, nil
 }

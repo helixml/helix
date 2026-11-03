@@ -3,6 +3,7 @@ package hydra
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -145,9 +146,12 @@ func envFloat(key string, def float64) float64 {
 		return def
 	}
 	f, err := strconv.ParseFloat(v, 64)
-	if err != nil {
+	// Every float here is a free-space percentage. NaN compares false against
+	// everything, which would silently disable admission refusal and the
+	// emergency brake.
+	if err != nil || math.IsNaN(f) || f < 0 || f > 100 {
 		log.Warn().Str("key", key).Str("value", v).Float64("default", def).
-			Msg("disk-pressure: invalid float env, using default")
+			Msg("disk-pressure: invalid percentage env, using default")
 		return def
 	}
 	return f
@@ -159,7 +163,9 @@ func envDuration(key string, def time.Duration) time.Duration {
 		return def
 	}
 	d, err := time.ParseDuration(v)
-	if err != nil {
+	// A non-positive interval would panic time.NewTicker in the monitor
+	// goroutine and take hydra down with it.
+	if err != nil || d <= 0 {
 		log.Warn().Str("key", key).Str("value", v).Dur("default", def).
 			Msg("disk-pressure: invalid duration env, using default")
 		return def
@@ -301,8 +307,6 @@ func measureDisk() (measurement, error) {
 		m.freePct = pct
 		m.hasPct = true
 		m.triggerPath = triggerPath
-	} else if pctENOENT {
-		m.pathENOENT = true
 	}
 	free, byteTrigger, bytesENOENT, freeErr := statfsFreeBytesMulti(paths)
 	if freeErr == nil {
@@ -311,23 +315,14 @@ func measureDisk() (measurement, error) {
 		if m.triggerPath == "" {
 			m.triggerPath = byteTrigger
 		}
-	} else if bytesENOENT {
-		m.pathENOENT = true
 	}
+	// A missing path is a misconfiguration even when the other paths measure
+	// fine: the mount it names would otherwise fill unwatched.
+	m.pathENOENT = pctENOENT || bytesENOENT
 	if m.hasPct || m.hasBytes {
 		return m, nil
 	}
 	return m, fmt.Errorf("statfs probe failed for paths %v: %w", paths, pctErr)
-}
-
-// poolFreePercent returns the percentage of the ZFS pool that is free.
-//
-// Thin wrapper around poolFreePercentZFS that exists for the test suite which
-// pokes at the ZFS path directly (forcing zfsAvailableFlag and mocking
-// execCmdOutput). The production admission/monitor paths go through
-// measureDisk() instead so they pick up the statfs fallback.
-func poolFreePercent() (float64, error) {
-	return poolFreePercentZFS()
 }
 
 // poolFreePercentZFS is the ZFS-only implementation, computed from
@@ -440,14 +435,14 @@ func checkDiskPressureForStart() error {
 	}
 
 	m, err := measureDisk()
+	if m.pathENOENT {
+		log.Error().Err(err).
+			Str("backend", m.backend).
+			Strs("paths", diskPressurePaths()).
+			Msg("disk-pressure: refusing to start dev container, a configured data path does not exist (set HELIX_DISK_PRESSURE_PATHS or create the directory)")
+		return newDiskCapacityError(fmt.Sprintf("refusing to start dev container: one of the disk-pressure paths %v does not exist; set HELIX_DISK_PRESSURE_PATHS to the correct mounts and retry", diskPressurePaths()))
+	}
 	if err != nil {
-		if m.pathENOENT {
-			log.Error().Err(err).
-				Str("backend", m.backend).
-				Strs("paths", diskPressurePaths()).
-				Msg("disk-pressure: refusing to start dev container, a configured data path does not exist (set HELIX_DISK_PRESSURE_PATHS or create the directory)")
-			return newDiskCapacityError(fmt.Sprintf("refusing to start dev container: one of the disk-pressure paths %v does not exist; set HELIX_DISK_PRESSURE_PATHS to the correct mounts and retry", diskPressurePaths()))
-		}
 		// Unknown measurement, both backends unavailable. Fail open, allow
 		// the start, but log loudly so operators notice.
 		log.Warn().Err(err).Str("backend", m.backend).
@@ -522,7 +517,7 @@ func (dm *DevContainerManager) runDiskPressureMonitor() {
 
 		warningActive = updateDiskPressureWarning(m, cfg, warningActive)
 
-		if m.freePct <= cfg.stopFreePct {
+		if shouldEmergencyStop(m, cfg.stopFreePct) {
 			log.Error().
 				Str("backend", m.backend).
 				Str("pool", poolName()).
@@ -533,6 +528,13 @@ func (dm *DevContainerManager) runDiskPressureMonitor() {
 			dm.emergencyStopAllDevContainers(m.freePct)
 		}
 	}
+}
+
+// shouldEmergencyStop is the monitor's per-tick decision: stop only on a
+// measured free percentage at or below the stop threshold. No percentage
+// (a failed or partial measurement) never stops anything (fail-open).
+func shouldEmergencyStop(m measurement, stopPct float64) bool {
+	return m.hasPct && m.freePct <= stopPct
 }
 
 // updateDiskPressureWarning emits only on threshold transitions. Hydra's logs
