@@ -124,6 +124,17 @@ REMOTE
   fi
   log "controlplane on ${VERSION}"
   DEPLOYED="control plane"
+
+  # TST-01-050: Go pprof must never be reachable anonymously through the public edge.
+  for path in '/debug/pprof/' '/debug/pprof/goroutine?debug=1'; do
+    body=$(curl -s --max-time 15 -w '\n%{http_code}' "https://${LONDON_HEALTH_HOST}${path}" || true)
+    code=${body##*$'\n'}
+    if [ "$code" = "200" ] || grep -qE 'Types of profiles available|^goroutine profile:' <<<"$body"; then
+      fail "${path} is publicly reachable on ${LONDON_HEALTH_HOST} (HTTP ${code}) - TST-01-050 regression"
+    fi
+    [ "$code" = "000" ] && warn "could not verify ${path} on ${LONDON_HEALTH_HOST} (request failed)"
+    log "edge check ${path}: HTTP ${code}"
+  done
 else
   log "DEPLOY_CONTROLPLANE=false - skipping control plane"
 fi
