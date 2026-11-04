@@ -2577,17 +2577,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Pull requests open only from agent proposals the user approves; the ones
   // still awaiting a decision (or a retry) sit above the composer.
   const { data: prProposals } = useSpecTaskPRProposals(task?.id);
-  const actionablePRProposals = (prProposals ?? []).filter((p) =>
-    ACTIONABLE_PR_PROPOSAL_STATUSES.has(p.status ?? ""),
-  );
+  const actionablePRProposals = hideControls
+    ? []
+    : (prProposals ?? []).filter((p) =>
+        ACTIONABLE_PR_PROPOSAL_STATUSES.has(p.status ?? ""),
+      );
   // A proposal waiting on the user is only visible in the chat panel, so open
   // it (or switch to the Chat tab) once per new proposal. Once per proposal,
   // so a user who collapses the panel again is not fought on every poll.
   // The agent's request to finish the task is revealed the same way.
   const revealedProposalIdsRef = useRef<Set<string>>(new Set());
-  const pendingCompletionKey = completionRequestKey(task);
+  const pendingCompletionKey = completionRequestKey(task, hideControls);
   const proposalsToRevealKey = [
-    ...proposalsToReveal(prProposals ?? [], revealedProposalIdsRef.current),
+    ...proposalsToReveal(prProposals ?? [], revealedProposalIdsRef.current, hideControls),
     ...(pendingCompletionKey && !revealedProposalIdsRef.current.has(pendingCompletionKey)
       ? [pendingCompletionKey]
       : []),

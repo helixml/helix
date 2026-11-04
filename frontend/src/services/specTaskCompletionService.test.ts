@@ -46,4 +46,13 @@ describe("completionRequestKey", () => {
     ).toBe("");
     expect(completionRequestKey(undefined)).toBe("");
   });
+
+  it("is empty when task controls are hidden", () => {
+    expect(
+      completionRequestKey(
+        { status: TypesSpecTaskStatus.TaskStatusPullRequest, completion_requested_at: "2026-10-07T10:00:00Z" },
+        true,
+      ),
+    ).toBe("");
+  });
 });
