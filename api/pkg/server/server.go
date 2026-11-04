@@ -128,6 +128,7 @@ type HelixAPIServer struct {
 	// by that App as needing a sandbox restart. nil when helix-org is off.
 	orgAgentConfigChanged       func(ctx context.Context, appID string)
 	Stripe                      *stripe.Stripe
+	orgLookupCache              map[string]*types.Organization
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller
 	Janitor                     *janitor.Janitor

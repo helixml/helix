@@ -213,6 +213,10 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 // and respond with 404 instead of 500. Without this, a stale /org/<slug>/...
 // URL surfaces to the user as a generic 500 that looks like the server is broken.
 func (s *HelixAPIServer) lookupOrg(ctx context.Context, orgStr string) (*types.Organization, error) {
+	if org, ok := s.orgLookupCache[orgStr]; ok {
+		return org, nil
+	}
+
 	query := &store.GetOrganizationQuery{}
 
 	if strings.HasPrefix(orgStr, "org_") {
@@ -231,6 +235,11 @@ func (s *HelixAPIServer) lookupOrg(ctx context.Context, orgStr string) (*types.O
 		}
 		return nil, fmt.Errorf("failed to get organization: %w", err)
 	}
+
+	if s.orgLookupCache == nil {
+		s.orgLookupCache = make(map[string]*types.Organization)
+	}
+	s.orgLookupCache[orgStr] = org
 
 	return org, nil
 }
