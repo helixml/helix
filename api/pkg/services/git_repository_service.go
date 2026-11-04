@@ -2818,6 +2818,9 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 			return gitRepo.Username, gitRepo.Password
 		}
 	case types.ExternalRepositoryTypeBitbucket:
+		if gitRepo.Bitbucket != nil && gitRepo.Bitbucket.Username != "" && gitRepo.Bitbucket.AppPassword != "" {
+			return gitRepo.Bitbucket.Username, gitRepo.Bitbucket.AppPassword
+		}
 		if gitRepo.Username != "" && gitRepo.Password != "" {
 			return gitRepo.Username, gitRepo.Password
 		}

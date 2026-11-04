@@ -157,6 +157,26 @@ func TestUpstreamRemoteForRepo_UsesPATFallback(t *testing.T) {
 	}
 }
 
+func TestUpstreamRemoteForRepo_UsesBitbucketSavedConnection(t *testing.T) {
+	repo := &types.GitRepository{
+		Name:                    "private-repo",
+		ExternalURL:             "https://bitbucket.org/acme/private-repo.git",
+		ExternalType:            types.ExternalRepositoryTypeBitbucket,
+		GitProviderConnectionID: "bitbucket-connection",
+		Bitbucket: &types.Bitbucket{
+			Username:    "bitbucket-user",
+			AppPassword: "app-password",
+		},
+	}
+	remote, err := newPRTestService(&prTestStore{}).upstreamRemoteForRepo(t.Context(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remote.Username != "bitbucket-user" || remote.Password != "app-password" {
+		t.Fatal("Bitbucket saved connection credentials were not resolved")
+	}
+}
+
 func TestGetGitHubClient_UserOAuthTakesPrecedence(t *testing.T) {
 	fs := &prTestStore{
 		oauthConnections: []*types.OAuthConnection{
