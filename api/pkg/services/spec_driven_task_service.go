@@ -254,6 +254,9 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	if branchMode == types.BranchModeExisting && strings.TrimSpace(req.WorkingBranch) == "" {
 		return nil, fmt.Errorf("working branch is required for existing branch mode")
 	}
+	if err := req.ValidateBranchFields(); err != nil {
+		return nil, err
+	}
 
 	// An explicit name wins; otherwise derive one from the prompt.
 	taskName := strings.TrimSpace(req.Name)

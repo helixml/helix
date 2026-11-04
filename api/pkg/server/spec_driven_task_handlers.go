@@ -203,6 +203,10 @@ func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.Response
 		http.Error(w, "app_id and code_agent_overrides are no longer supported; provide code_agent_config", http.StatusBadRequest)
 		return
 	}
+	if err := req.ValidateBranchFields(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
 		http.Error(w, "sandbox size must be one of "+types.SpecTaskSandboxPresetList(), http.StatusBadRequest)
 		return
