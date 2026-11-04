@@ -152,6 +152,15 @@ func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.T
 			return system.NewHTTPError400("MCP config is required for MCP tools")
 		}
 
+		if tool.Config.MCP.Transport == "stdio" {
+			// Stdio MCPs run as a subprocess inside the dev container, not on
+			// the API server — the command can't be spawned or probed here.
+			if tool.Config.MCP.Command == "" {
+				return system.NewHTTPError400("Command is required for stdio MCP tools")
+			}
+			return nil
+		}
+
 		if tool.Config.MCP.URL == "" {
 			return system.NewHTTPError400("URL is required for MCP tools")
 		}
