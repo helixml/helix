@@ -2742,7 +2742,8 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 func (s *GitRepositoryService) upstreamRemoteForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) (upstreamRemote, error) {
 	username, password := s.getCredentialsForRepo(ctx, gitRepo, userID...)
 	remote := newUpstreamRemote(gitRepo.ExternalURL, username, password)
-	credentialConfigured := gitRepo.OAuthConnectionID != "" || gitRepo.GitProviderConnectionID != "" || gitRepo.Username != "" || gitRepo.Password != ""
+	_, _, staticConfigured := RepositoryStaticCredentials(gitRepo)
+	credentialConfigured := gitRepo.OAuthConnectionID != "" || staticConfigured
 	if credentialConfigured && remote.Password == "" {
 		provider := string(gitRepo.ExternalType)
 		if gitRepo.ExternalType == types.ExternalRepositoryTypeGitHub {
@@ -2794,39 +2795,45 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 		}
 	}
 
-	// Fall back to provider-specific PAT or username/password
-	switch gitRepo.ExternalType {
-	case types.ExternalRepositoryTypeADO:
-		if gitRepo.AzureDevOps != nil && gitRepo.AzureDevOps.PersonalAccessToken != "" {
-			return "PAT", gitRepo.AzureDevOps.PersonalAccessToken
-		}
-		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return gitRepo.Username, gitRepo.Password
-		}
-	case types.ExternalRepositoryTypeGitHub:
-		if gitRepo.GitHub != nil && gitRepo.GitHub.PersonalAccessToken != "" {
-			return "x-access-token", gitRepo.GitHub.PersonalAccessToken
-		}
-		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return gitRepo.Username, gitRepo.Password
-		}
-	case types.ExternalRepositoryTypeGitLab:
-		if gitRepo.GitLab != nil && gitRepo.GitLab.PersonalAccessToken != "" {
-			return "oauth2", gitRepo.GitLab.PersonalAccessToken
-		}
-		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return gitRepo.Username, gitRepo.Password
-		}
-	case types.ExternalRepositoryTypeBitbucket:
-		if gitRepo.Bitbucket != nil && gitRepo.Bitbucket.Username != "" && gitRepo.Bitbucket.AppPassword != "" {
-			return gitRepo.Bitbucket.Username, gitRepo.Bitbucket.AppPassword
-		}
-		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return gitRepo.Username, gitRepo.Password
-		}
+	// Fall back to provider-specific PAT or username/password.
+	username, password, _ = RepositoryStaticCredentials(gitRepo)
+	if username != "" && password != "" {
+		return username, password
 	}
 
 	return "", ""
+}
+
+// RepositoryStaticCredentials returns stored repository credentials and whether
+// any static credential configuration is present, including incomplete pairs.
+func RepositoryStaticCredentials(repo *types.GitRepository) (username, password string, configured bool) {
+	configured = repo.GitProviderConnectionID != ""
+	switch repo.ExternalType {
+	case types.ExternalRepositoryTypeGitHub:
+		if repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "" {
+			return "x-access-token", repo.GitHub.PersonalAccessToken, true
+		}
+	case types.ExternalRepositoryTypeGitLab:
+		if repo.GitLab != nil && repo.GitLab.PersonalAccessToken != "" {
+			return "oauth2", repo.GitLab.PersonalAccessToken, true
+		}
+	case types.ExternalRepositoryTypeADO:
+		if repo.AzureDevOps != nil && repo.AzureDevOps.PersonalAccessToken != "" {
+			return "PAT", repo.AzureDevOps.PersonalAccessToken, true
+		}
+	case types.ExternalRepositoryTypeBitbucket:
+		if repo.Bitbucket != nil {
+			configured = configured || repo.Bitbucket.Username != "" || repo.Bitbucket.AppPassword != ""
+			if repo.Bitbucket.Username != "" && repo.Bitbucket.AppPassword != "" {
+				return repo.Bitbucket.Username, repo.Bitbucket.AppPassword, true
+			}
+		}
+	}
+	configured = configured || repo.Username != "" || repo.Password != ""
+	if repo.Username != "" && repo.Password != "" {
+		return repo.Username, repo.Password, true
+	}
+	return "", "", configured
 }
 
 // oauthGitUsername returns the basic-auth username git expects when an OAuth

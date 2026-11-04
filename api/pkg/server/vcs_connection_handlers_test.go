@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
@@ -152,7 +153,7 @@ func TestProjectVCSConnectionsPreservesPinnedAndUnpinnedRepositories(t *testing.
 	}, got[1].Repos)
 }
 
-func TestRepositoryStaticCredentialState(t *testing.T) {
+func TestRepositoryStaticCredentials(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		repo       *types.GitRepository
@@ -162,9 +163,12 @@ func TestRepositoryStaticCredentialState(t *testing.T) {
 		{name: "public", repo: &types.GitRepository{ExternalType: types.ExternalRepositoryTypeGitHub}},
 		{name: "PAT", repo: &types.GitRepository{ExternalType: types.ExternalRepositoryTypeGitHub, GitHub: &types.GitHub{PersonalAccessToken: "pat"}}, configured: true, usable: true},
 		{name: "missing saved PAT", repo: &types.GitRepository{ExternalType: types.ExternalRepositoryTypeGitHub, GitProviderConnectionID: "connection"}, configured: true},
+		{name: "Bitbucket saved connection", repo: &types.GitRepository{ExternalType: types.ExternalRepositoryTypeBitbucket, GitProviderConnectionID: "connection", Bitbucket: &types.Bitbucket{Username: "user", AppPassword: "password"}}, configured: true, usable: true},
+		{name: "partial Bitbucket credentials", repo: &types.GitRepository{ExternalType: types.ExternalRepositoryTypeBitbucket, Bitbucket: &types.Bitbucket{Username: "user"}}, configured: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			configured, usable := repositoryStaticCredentialState(test.repo)
+			username, password, configured := services.RepositoryStaticCredentials(test.repo)
+			usable := username != "" && password != ""
 			require.Equal(t, test.configured, configured)
 			require.Equal(t, test.usable, usable)
 		})

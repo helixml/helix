@@ -77,7 +77,8 @@ func (s *HelixAPIServer) getProjectVCSConnections(_ http.ResponseWriter, r *http
 		for _, repo := range reposByProvider[providerType] {
 			ownerRepo := services.RepoOwnerName(repo)
 			if repo.OAuthConnectionID == "" {
-				configured, usable := repositoryStaticCredentialState(repo)
+				username, password, configured := services.RepositoryStaticCredentials(repo)
+				usable := username != "" && password != ""
 				hasConfiguredCredential = hasConfiguredCredential || configured
 				if configured && !usable {
 					allAccessible = false
@@ -101,7 +102,8 @@ func (s *HelixAPIServer) getProjectVCSConnections(_ http.ResponseWriter, r *http
 				}
 			}
 			if conn == nil || conn.AccessToken == "" {
-				_, staticUsable := repositoryStaticCredentialState(repo)
+				username, password, _ := services.RepositoryStaticCredentials(repo)
+				staticUsable := username != "" && password != ""
 				if staticUsable {
 					info.Repos = append(info.Repos, types.VCSRepoAccess{
 						Repo:      ownerRepo,
@@ -148,26 +150,6 @@ func (s *HelixAPIServer) getProjectVCSConnections(_ http.ResponseWriter, r *http
 	}
 
 	return result, nil
-}
-
-func repositoryStaticCredentialState(repo *types.GitRepository) (configured, usable bool) {
-	if repo.Username != "" || repo.Password != "" {
-		return true, repo.Username != "" && repo.Password != ""
-	}
-	if repo.GitProviderConnectionID != "" {
-		configured = true
-	}
-	switch repo.ExternalType {
-	case types.ExternalRepositoryTypeGitHub:
-		usable = repo.GitHub != nil && repo.GitHub.PersonalAccessToken != ""
-	case types.ExternalRepositoryTypeGitLab:
-		usable = repo.GitLab != nil && repo.GitLab.PersonalAccessToken != ""
-	case types.ExternalRepositoryTypeADO:
-		usable = repo.AzureDevOps != nil && repo.AzureDevOps.PersonalAccessToken != ""
-	case types.ExternalRepositoryTypeBitbucket:
-		usable = repo.Bitbucket != nil && repo.Bitbucket.Username != "" && repo.Bitbucket.AppPassword != ""
-	}
-	return configured || usable, usable
 }
 
 // verifyVCSRepoAccess probes the provider to check the connection can reach

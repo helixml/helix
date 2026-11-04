@@ -128,10 +128,11 @@ func TestUpstreamRemoteForRepo_RejectsUnavailableSavedPAT(t *testing.T) {
 	}
 }
 
-func TestUpstreamRemoteForRepo_RejectsPartialUsernamePassword(t *testing.T) {
+func TestUpstreamRemoteForRepo_RejectsPartialStaticCredentials(t *testing.T) {
 	for _, repo := range []*types.GitRepository{
 		{Name: "private-repo", ExternalURL: "https://github.com/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeGitHub, Username: "user"},
 		{Name: "private-repo", ExternalURL: "https://github.com/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeGitHub, Password: "password"},
+		{Name: "private-repo", ExternalURL: "https://bitbucket.org/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeBitbucket, Bitbucket: &types.Bitbucket{Username: "user"}},
 	} {
 		_, err := newPRTestService(&prTestStore{}).upstreamRemoteForRepo(t.Context(), repo)
 		if err == nil {
