@@ -42,6 +42,12 @@ describe('Snackbar', () => {
     expect(cards[1]).toHaveAttribute('data-stack-index', '1')
   })
 
+  it('renders on <body>, outside the fixed #root shell, so dialogs cannot cover it', () => {
+    renderSnackbar()
+
+    expect(screen.getByLabelText('Notifications').parentElement).toBe(document.body)
+  })
+
   it('expands the stack for inspection on hover', () => {
     renderSnackbar()
 
