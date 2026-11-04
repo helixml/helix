@@ -38,6 +38,8 @@ func (suite *MultiClientManagerTestSuite) SetupTest() {
 
 	suite.cfg = &config.ServerConfig{
 		Providers: config.Providers{
+			// Tests point user endpoints at httptest servers on loopback.
+			AllowPrivateNetworks: true,
 			VLLM: config.VLLM{
 				BaseURL: "http://vllm:8000",
 				APIKey:  "vllm-key",

@@ -48,6 +48,9 @@ func (s *ProviderHandlersSuite) SetupTest() {
 
 	cfg := &config.ServerConfig{}
 	cfg.RAG.EmbeddingsProvider = string(types.ProviderOpenAI)
+	// These tests model self-hosted providers on localhost; the default
+	// (blocked) policy is covered in provider_endpoint_ssrf_test.go.
+	cfg.Providers.AllowPrivateNetworks = true
 
 	s.store = store.NewMockStore(ctrl)
 	s.openAiClient = openai.NewMockClient(ctrl)

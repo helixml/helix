@@ -15,6 +15,7 @@ import (
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/toolcall"
@@ -167,6 +168,13 @@ func (s *HelixAPIServer) openAIResponsesProxyHandler(w http.ResponseWriter, r *h
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
+	if endpoint.OutboundPolicy(s.Cfg.Providers.AllowPrivateNetworks) != nil {
+		transport = s.openAIResponsesGuardedTransport
+		if transport == nil {
+			http.Error(w, "OpenAI Responses proxy is not configured", http.StatusInternalServerError)
+			return
+		}
+	}
 	started := time.Now()
 	response, err := transport.RoundTrip(upstreamRequest)
 	if err != nil {
@@ -190,6 +198,17 @@ func (s *HelixAPIServer) openAIResponsesProxyHandler(w http.ResponseWriter, r *h
 		result.Error = http.StatusText(response.StatusCode)
 	}
 	s.recordOpenAIResponsesCall(context.WithoutCancel(r.Context()), user, selection, endpoint, body, request.Stream, started, result)
+}
+
+// newOpenAIResponsesGuardedTransport restricts the destinations a
+// tenant-controlled endpoint's BaseURL may reach (TST-01-270).
+func newOpenAIResponsesGuardedTransport(tlsSkipVerify bool, policy netguard.Policy) http.RoundTripper {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if tlsSkipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // explicit enterprise setting
+	}
+	policy.GuardTransport(transport)
+	return transport
 }
 
 func newOpenAIResponsesTransport(tlsSkipVerify bool) http.RoundTripper {
