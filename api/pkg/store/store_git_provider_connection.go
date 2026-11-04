@@ -30,6 +30,20 @@ func (s *PostgresStore) CreateGitProviderConnection(ctx context.Context, connect
 	return nil
 }
 
+func (s *PostgresStore) UpdateGitProviderConnection(ctx context.Context, connection *types.GitProviderConnection) error {
+	result := s.gdb.WithContext(ctx).Model(connection).
+		Where("id = ? AND user_id = ?", connection.ID, connection.UserID).
+		Select("Token", "Username", "Email", "AvatarURL", "LastTestedAt", "UpdatedAt").
+		Updates(connection)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update git provider connection: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // GetGitProviderConnection gets a PAT-based git provider connection by ID
 func (s *PostgresStore) GetGitProviderConnection(ctx context.Context, id string) (*types.GitProviderConnection, error) {
 	var connection types.GitProviderConnection

@@ -39,6 +39,7 @@ import {
   Key,
   Trash2,
   RefreshCw,
+  Settings,
   ChevronRight,
 } from "lucide-react";
 import { SiGitlab, SiBitbucket } from "react-icons/si";
@@ -54,6 +55,7 @@ import {
 import {
   useGitProviderConnections,
   useCreateGitProviderConnection,
+  useUpdateGitProviderConnection,
   useDeleteGitProviderConnection,
 } from "../../services/gitProviderConnectionService";
 import {
@@ -214,6 +216,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   );
   const [saveConnection, setSaveConnection] = useState(true); // Save PAT for future use
   const [patToDisconnect, setPatToDisconnect] = useState<string | null>(null);
+  const [patToReplace, setPatToReplace] = useState<string | null>(null);
 
   // PAT submit validation state (shown inline on PAT entry form)
   const [patSubmitError, setPatSubmitError] = useState<string | null>(null);
@@ -231,6 +234,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   const { data: patConnections, isLoading: patConnectionsLoading } =
     useGitProviderConnections();
   const createPatConnection = useCreateGitProviderConnection();
+  const updatePatConnection = useUpdateGitProviderConnection();
   const deletePatConnection = useDeleteGitProviderConnection();
 
   const connectionsLoading =
@@ -273,6 +277,8 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setPatSubmitError(null);
       setPatSubmitLoading(false);
       setSaveConnection(true);
+      setPatToDisconnect(null);
+      setPatToReplace(null);
     }
   }, [open]);
 
@@ -543,6 +549,21 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     };
 
     try {
+      if (patToReplace) {
+        const connectionId = patToReplace;
+        await updatePatConnection.mutateAsync({ id: connectionId, request: { token: pat } });
+        setPat("");
+        setPatToReplace(null);
+        setPatCredentials(null);
+        setSelectedRepo(null);
+        setSelectedPatConnectionId(connectionId);
+        setSelectedConnectionId(null);
+        setViewMode("browse-pat-repos");
+        snackbar.success("Saved token replaced");
+        await fetchReposForSavedConnection(connectionId);
+        return;
+      }
+
       // Validate token by attempting to fetch repos BEFORE switching views
       setPatCredentials(creds);
       const fetchError = await fetchReposWithPat(selectedProvider, creds);
@@ -583,6 +604,10 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           );
         }
       }
+    } catch (err: any) {
+      const data = err?.response?.data;
+      const message = (typeof data === "string" && data) || data?.message || err?.message || "Failed to replace token";
+      setPatSubmitError(typeof message === "string" ? message : JSON.stringify(message));
     } finally {
       setPatSubmitLoading(false);
     }
@@ -645,6 +670,9 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     } else if (viewMode === "pat-entry") {
       // Coming from PAT entry - go back to choose-method
       setViewMode("choose-method");
+      setPatToReplace(null);
+      setPatCredentials(null);
+      setPatSubmitError(null);
       setPat("");
       setOrgUrl("");
       setGitlabBaseUrl("");
@@ -803,7 +831,24 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                 return (
                   <React.Fragment key={provider.id}>
                     {index > 0 && <Divider />}
-                    <ListItem disablePadding>
+                    <ListItem
+                      disablePadding
+                      secondaryAction={patConnection?.id && (
+                        <Tooltip title="Manage saved connection">
+                          <IconButton
+                            aria-label={`Manage ${provider.name} connection`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedProvider(provider.id);
+                              setViewMode("choose-method");
+                            }}
+                            sx={{ width: 30, height: 30, color: "text.secondary", "&:hover": { color: "text.primary" } }}
+                          >
+                            <Settings size={18} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    >
                       <ListItemButton
                         onClick={() => handleProviderClick(provider.id)}
                         sx={{ minHeight: 56, px: 1.5, py: 1 }}
@@ -823,7 +868,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                                 : `Connect ${provider.name} with an access token`
                           }
                         />
-                        <ChevronRight size={16} />
+                        {!patConnection?.id && <ChevronRight size={16} />}
                       </ListItemButton>
                     </ListItem>
                   </React.Fragment>
@@ -1025,7 +1070,24 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
             </ListItem>
 
             {/* PAT option */}
-            <ListItem disablePadding>
+            <ListItem
+              disablePadding
+              secondaryAction={patConnection?.id && (
+                <Tooltip title="Remove saved token">
+                  <IconButton
+                    aria-label="Remove saved token"
+                    color="error"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPatToDisconnect(patConnection.id || null);
+                    }}
+                    sx={{ width: 30, height: 30 }}
+                  >
+                    <Trash2 size={18} />
+                  </IconButton>
+                </Tooltip>
+              )}
+            >
               <ListItemButton
                 onClick={handleChoosePat}
                 sx={{
@@ -1046,32 +1108,31 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                   }
                 />
                 {patConnection && (
-                  <>
-                    <Chip
-                      icon={<CheckCircle size={14} />}
-                      label="Saved"
-                      size="small"
-                      color="success"
-                      variant="outlined"
-                    />
-                    <Tooltip title="Remove saved token">
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPatToDisconnect(patConnection.id || null);
-                        }}
-                        sx={{ ml: 0.5 }}
-                      >
-                        <Trash2 size={16} />
-                      </IconButton>
-                    </Tooltip>
-                  </>
+                  <Chip
+                    icon={<CheckCircle size={14} />}
+                    label="Saved"
+                    size="small"
+                    color="success"
+                    variant="outlined"
+                  />
                 )}
               </ListItemButton>
             </ListItem>
           </List>
+
+          {patConnection?.id && (
+            <Button
+              onClick={() => {
+                setPatToReplace(patConnection.id || null);
+                setPat("");
+                setPatSubmitError(null);
+                setViewMode("pat-entry");
+              }}
+              sx={{ mt: 1 }}
+            >
+              Replace saved token
+            </Button>
+          )}
 
           {/* Disconnect PAT confirmation dialog */}
           <Dialog
@@ -1081,7 +1142,8 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
             <DialogTitle>Disconnect Token</DialogTitle>
             <DialogContent>
               <DialogContentText>
-                Remove this saved token? You can re-enter it later.
+                Remove this saved token from Helix? This does not revoke it at {currentProvider?.name}
+                or remove credentials already copied to linked repositories.
               </DialogContentText>
             </DialogContent>
             <DialogActions>
@@ -1096,6 +1158,13 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                     await deletePatConnection.mutateAsync(patToDisconnect);
                     snackbar.success("Token disconnected");
                     setPatToDisconnect(null);
+                    setSelectedPatConnectionId(null);
+                    setPatToReplace(null);
+                    setPatCredentials(null);
+                    setPat("");
+                    setSelectedRepo(null);
+                    setPatRepos([]);
+                    setPatReposError(null);
                   } catch (err) {
                     snackbar.error("Failed to disconnect token");
                   }
@@ -1166,7 +1235,9 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         <DialogContent>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
             <Typography variant="body2" color="text.secondary">
-              Enter your personal access token to browse and link repositories.
+              {patToReplace
+                ? "Enter a new token for this saved connection. The current token is never shown. Linked repositories retain their own credentials."
+                : "Enter your personal access token to browse and link repositories."}
             </Typography>
 
             {patSubmitError && (
@@ -1180,7 +1251,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               </Alert>
             )}
 
-            {selectedProvider === "azure-devops" && (
+            {!patToReplace && selectedProvider === "azure-devops" && (
               <TextField
                 label="Organization URL"
                 fullWidth
@@ -1191,7 +1262,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               />
             )}
 
-            {selectedProvider === "github" && (
+            {!patToReplace && selectedProvider === "github" && (
               <TextField
                 label="GitHub Enterprise URL (optional)"
                 fullWidth
@@ -1202,7 +1273,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               />
             )}
 
-            {selectedProvider === "gitlab" && (
+            {!patToReplace && selectedProvider === "gitlab" && (
               <TextField
                 label="GitLab Base URL (optional)"
                 fullWidth
@@ -1213,7 +1284,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               />
             )}
 
-            {selectedProvider === "bitbucket" && (
+            {!patToReplace && selectedProvider === "bitbucket" && (
               <>
                 <TextField
                   label="Username"
@@ -1235,13 +1306,10 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
             )}
 
             <TextField
-              label={
-                selectedProvider === "bitbucket"
-                  ? "App Password"
-                  : "Personal Access Token"
-              }
+              label={`${patToReplace ? "New " : ""}${selectedProvider === "bitbucket" ? "App Password" : "Personal Access Token"}`}
               fullWidth
               type="password"
+              autoComplete="new-password"
               value={pat}
               onChange={(e) => {
                 setPat(e.target.value);
@@ -1258,21 +1326,23 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               }
             />
 
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={saveConnection}
-                  onChange={(e) => setSaveConnection(e.target.checked)}
-                  color="primary"
-                  size="small"
-                />
-              }
-              label={
-                <Typography variant="body2">
-                  Save connection for future use (encrypted)
-                </Typography>
-              }
-            />
+            {!patToReplace && (
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={saveConnection}
+                    onChange={(e) => setSaveConnection(e.target.checked)}
+                    color="primary"
+                    size="small"
+                  />
+                }
+                label={
+                  <Typography variant="body2">
+                    Save connection for future use (encrypted)
+                  </Typography>
+                }
+              />
+            )}
           </Box>
         </DialogContent>
         <DialogActions>
@@ -1289,11 +1359,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
             disabled={
               patSubmitLoading ||
               !pat.trim() ||
-              (selectedProvider === "azure-devops" && !orgUrl.trim()) ||
-              (selectedProvider === "bitbucket" && !bitbucketUsername.trim())
+              (!patToReplace && selectedProvider === "azure-devops" && !orgUrl.trim()) ||
+              (!patToReplace && selectedProvider === "bitbucket" && !bitbucketUsername.trim())
             }
           >
-            {patSubmitLoading ? "Validating..." : "Browse Repositories"}
+            {patSubmitLoading ? "Validating..." : patToReplace ? "Replace token" : "Browse Repositories"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1552,6 +1622,9 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         <Button onClick={handleBack} sx={{ mr: "auto" }}>
           Back
         </Button>
+        {selectedPatConnectionId && !patCredentials && (
+          <Button onClick={() => setViewMode("choose-method")}>Manage connection</Button>
+        )}
         <Button onClick={onClose}>Cancel</Button>
         <Tooltip
           title={
