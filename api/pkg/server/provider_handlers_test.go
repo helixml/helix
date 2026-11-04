@@ -508,6 +508,7 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_ValidatesCanonicalNam
 				s.store.EXPECT().CreateProviderEndpoint(gomock.Any(), gomock.Any()).Return(nil, errors.New("create reached"))
 			}
 
+			tt.endpoint.BaseURL = "https://api.anthropic.com/v1"
 			body, err := json.Marshal(tt.endpoint)
 			s.Require().NoError(err)
 			req := httptest.NewRequest(http.MethodPost, "/v1/provider-endpoints", bytes.NewReader(body)).WithContext(s.authCtx)
@@ -585,6 +586,7 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_ValidatesRenameAndTyp
 					})
 			}
 
+			tt.update.BaseURL = "https://api.anthropic.com/v1"
 			body, err := json.Marshal(tt.update)
 			s.Require().NoError(err)
 			req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+tt.existing.ID, bytes.NewReader(body))
@@ -1706,4 +1708,118 @@ func (s *ProviderHandlersSuite) TestCreateAndUpdateProviderEndpoint_RejectInvali
 		s.server.updateProviderEndpoint(rr, req)
 		s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
 	})
+}
+
+// TST-01-200: create accepted {} and name-only bodies, stored arbitrary
+// base_url values without shape validation, and echoed Go type names back in
+// decode errors. Each PoC must now be a 400 that never reaches the store.
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_RejectsDegenerateAndMalformedBodies() {
+	s.server.authMiddleware = &authMiddleware{store: s.store, cfg: authMiddlewareConfig{adminUserIDs: []string{"user_id"}}}
+
+	cases := []struct {
+		name    string
+		body    string
+		wantMsg string
+	}{
+		{"empty object", `{}`, "name is required"},
+		{"name only", `{"name":"LOGIC-PE1"}`, "base_url is required"},
+		{"whitespace name", `{"name":"   ","base_url":"https://api.openai.com/v1"}`, "name is required"},
+		{"control char name", "{\"name\":\"a\\u0000b\",\"base_url\":\"https://api.openai.com/v1\"}", "control characters"},
+		{"overlong name", `{"name":"` + strings.Repeat("a", maxProviderEndpointNameLength+1) + `","base_url":"https://api.openai.com/v1"}`, "name exceeds"},
+		{"relative url", `{"name":"x","base_url":"/v1"}`, "http or https"},
+		{"no scheme", `{"name":"x","base_url":"api.openai.com/v1"}`, "http or https"},
+		{"file scheme", `{"name":"x","base_url":"file:///etc/passwd"}`, "http or https"},
+		{"gopher scheme", `{"name":"x","base_url":"gopher://127.0.0.1:6379/_"}`, "http or https"},
+		{"opaque", `{"name":"x","base_url":"http:example.com"}`, "must include a host"},
+		{"no host", `{"name":"x","base_url":"https:///v1"}`, "must include a host"},
+		{"userinfo", `{"name":"x","base_url":"https://user:pass@example.com/v1","api_key":"k"}`, "must not embed credentials"},
+		{"fragment", `{"name":"x","base_url":"https://example.com/v1#frag"}`, "fragment"},
+		{"unparseable", `{"name":"x","base_url":"https://exa mple.com/v1"}`, "valid absolute"},
+		{"overlong url", `{"name":"x","base_url":"https://example.com/` + strings.Repeat("a", maxProviderEndpointBaseURLLength) + `"}`, "base_url exceeds"},
+		{"models wrong type", `{"name":"x","base_url":"https://example.com/v1","models":"not-an-array"}`, `field "models" has the wrong type`},
+		{"not json", `not json`, "must be a valid JSON object"},
+		{"empty body", ``, "must be a valid JSON object"},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
+			// No ListProviderEndpoints/CreateProviderEndpoint expectations:
+			// gomock fails the test if validation lets the request through.
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/provider-endpoints", strings.NewReader(tc.body)).WithContext(s.authCtx)
+			rr := httptest.NewRecorder()
+			s.server.createProviderEndpoint(rr, req)
+
+			s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+			s.Contains(rr.Body.String(), tc.wantMsg)
+			for _, leak := range []string{"Go struct", "pq.StringArray", "ProviderEndpoint.", "json: "} {
+				s.NotContains(rr.Body.String(), leak)
+			}
+		})
+	}
+}
+
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_AcceptsValidShapes() {
+	s.server.authMiddleware = &authMiddleware{store: s.store, cfg: authMiddlewareConfig{adminUserIDs: []string{"user_id"}}}
+
+	cases := []struct {
+		name     string
+		endpoint types.ProviderEndpoint
+		wantURL  string
+	}{
+		{"https", types.ProviderEndpoint{Name: "openai", BaseURL: "https://api.openai.com/v1"}, "https://api.openai.com/v1"},
+		{"http with port, trimmed", types.ProviderEndpoint{Name: " my-ollama ", BaseURL: "  http://localhost:11434/v1 "}, "http://localhost:11434/v1"},
+		{"query string", types.ProviderEndpoint{Name: "azure", BaseURL: "https://x.openai.azure.com/openai?api-version=2024-06-01"}, "https://x.openai.azure.com/openai?api-version=2024-06-01"},
+		{"vertex without base_url", types.ProviderEndpoint{Name: "vertex", VertexProjectID: "proj-1", VertexRegion: "us-east5"}, ""},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
+			s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return(nil, nil)
+			s.store.EXPECT().CreateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+					s.Equal(tc.wantURL, ep.BaseURL)
+					s.Equal(strings.TrimSpace(tc.endpoint.Name), ep.Name)
+					return nil, errors.New("create reached")
+				})
+
+			body, err := json.Marshal(tc.endpoint)
+			s.Require().NoError(err)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/provider-endpoints", bytes.NewReader(body)).WithContext(s.authCtx)
+			rr := httptest.NewRecorder()
+			s.server.createProviderEndpoint(rr, req)
+			s.Contains(rr.Body.String(), "create reached")
+		})
+	}
+}
+
+// Update applies the same shape rules to the resulting endpoint, so a create
+// guard cannot be bypassed by creating a valid endpoint and then blanking it.
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_RejectsMalformedShape() {
+	cases := []struct {
+		name    string
+		body    string
+		wantMsg string
+	}{
+		{"blank base_url", `{"name":"my-endpoint","base_url":""}`, "base_url is required"},
+		{"omitted base_url", `{"name":"my-endpoint"}`, "base_url is required"},
+		{"bad scheme", `{"name":"my-endpoint","base_url":"ftp://example.com"}`, "http or https"},
+		{"models wrong type", `{"name":"my-endpoint","base_url":"https://example.com","models":"x"}`, `field "models" has the wrong type`},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			existing := &types.ProviderEndpoint{ID: "pe_1", Name: "my-endpoint", BaseURL: "https://example.com/v1",
+				Owner: "user_id", OwnerType: types.OwnerTypeUser, EndpointType: types.ProviderEndpointTypeUser}
+			s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
+			s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: existing.ID}).Return(existing, nil)
+
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/provider-endpoints/pe_1", strings.NewReader(tc.body)).WithContext(s.authCtx)
+			req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+			rr := httptest.NewRecorder()
+			s.server.updateProviderEndpoint(rr, req)
+
+			s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+			s.Contains(rr.Body.String(), tc.wantMsg)
+			s.NotContains(rr.Body.String(), "Go struct")
+		})
+	}
 }

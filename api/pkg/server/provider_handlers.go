@@ -733,7 +733,7 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 	var endpoint types.ProviderEndpoint
 	if err := json.NewDecoder(r.Body).Decode(&endpoint); err != nil {
 		log.Err(err).Msg("error decoding request body")
-		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -788,6 +788,12 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 
 	endpoint.Name = strings.TrimSpace(endpoint.Name)
+	endpoint.BaseURL = strings.TrimSpace(endpoint.BaseURL)
+	endpoint.VertexProjectID = strings.TrimSpace(endpoint.VertexProjectID)
+	if err := validateProviderEndpointShape(&endpoint); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
 	models, err := normalizeProviderModels(endpoint.Models)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
@@ -916,7 +922,7 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	var updatedEndpoint types.UpdateProviderEndpoint
 	if err := json.NewDecoder(r.Body).Decode(&updatedEndpoint); err != nil {
 		log.Err(err).Msg("error decoding request body")
-		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -1037,6 +1043,11 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 	if updatedEndpoint.VertexCredentialsFile != nil {
 		existingEndpoint.VertexCredentialsFile = strings.TrimSpace(*updatedEndpoint.VertexCredentialsFile)
+	}
+
+	if err := validateProviderEndpointShape(existingEndpoint); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	// Update the endpoint
@@ -1176,7 +1187,7 @@ func (s *HelixAPIServer) updateProviderEndpointModels(rw http.ResponseWriter, r 
 
 	var req types.UpdateProviderEndpointModels
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
