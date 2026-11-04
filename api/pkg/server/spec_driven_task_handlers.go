@@ -195,6 +195,10 @@ func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.Response
 		http.Error(w, "prompt is required", http.StatusBadRequest)
 		return
 	}
+	if err := types.ValidateSpecTaskTypeAndPriority(req.Type, req.Priority); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if req.AppID != "" || req.CodeAgentOverrides != nil {
 		http.Error(w, "app_id and code_agent_overrides are no longer supported; provide code_agent_config", http.StatusBadRequest)
 		return
@@ -1355,6 +1359,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if err := json.NewDecoder(r.Body).Decode(&updateReq); err != nil {
 		log.Error().Err(err).Msg("Failed to decode SpecTask update request")
 		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := types.ValidateSpecTaskTypeAndPriority("", updateReq.Priority); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

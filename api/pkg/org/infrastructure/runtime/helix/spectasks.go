@@ -187,11 +187,14 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 
 	taskType := in.Type
 	if taskType == "" {
-		taskType = "feature"
+		taskType = types.SpecTaskTypeFeature
 	}
 	priority := types.SpecTaskPriority(in.Priority)
 	if priority == "" {
 		priority = types.SpecTaskPriorityMedium
+	}
+	if err := types.ValidateSpecTaskTypeAndPriority(taskType, priority); err != nil {
+		return runtime.SpecTaskView{}, err
 	}
 	var dependsOn []types.SpecTask
 	for _, id := range in.DependsOn {
@@ -332,20 +335,16 @@ func (s *SpecTasks) Update(ctx context.Context, orgID string, workerID orgchart.
 		task.Description = strings.TrimSpace(*in.Description)
 	}
 	if in.Type != nil {
-		switch *in.Type {
-		case "feature", "bug", "refactor":
-			task.Type = *in.Type
-		default:
-			return runtime.SpecTaskView{}, fmt.Errorf("invalid type %q: must be feature, bug, or refactor", *in.Type)
+		if !types.ValidSpecTaskType(*in.Type) {
+			return runtime.SpecTaskView{}, errors.New("invalid type: must be feature, bug, or refactor")
 		}
+		task.Type = *in.Type
 	}
 	if in.Priority != nil {
-		switch types.SpecTaskPriority(*in.Priority) {
-		case types.SpecTaskPriorityLow, types.SpecTaskPriorityMedium, types.SpecTaskPriorityHigh, types.SpecTaskPriorityCritical:
-			task.Priority = types.SpecTaskPriority(*in.Priority)
-		default:
-			return runtime.SpecTaskView{}, fmt.Errorf("invalid priority %q: must be low, medium, high, or critical", *in.Priority)
+		if !types.SpecTaskPriority(*in.Priority).Valid() {
+			return runtime.SpecTaskView{}, errors.New("invalid priority: must be low, medium, high, or critical")
 		}
+		task.Priority = types.SpecTaskPriority(*in.Priority)
 	}
 	if in.SkipPlanning != nil {
 		task.JustDoItMode = *in.SkipPlanning
