@@ -109,7 +109,7 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 	// Wrap with thinking-type retry: Vertex AI's global LB fronts inconsistent
 	// backends — some accept thinking.type=adaptive, others require =enabled.
 	// On a 400 that matches either schema-mismatch error, swap the type and retry.
-	p.anthropicReverseProxy.Transport = &thinkingRetryTransport{base: baseTransport}
+	p.anthropicReverseProxy.Transport = &thinkingRetryTransport{base: newEndpointGuardTransport(baseTransport, cfg.Providers.AllowPrivateNetworks)}
 
 	p.anthropicReverseProxy.ModifyResponse = p.anthropicAPIProxyModifyResponse
 	p.anthropicReverseProxy.Director = p.anthropicAPIProxyDirector

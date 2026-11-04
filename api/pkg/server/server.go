@@ -35,6 +35,7 @@ import (
 	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/outbound"
@@ -231,6 +232,9 @@ type HelixAPIServer struct {
 	openAIResponsesLogStores     []openailogger.LogStore
 	openAIResponsesBillingLogger openailogger.LogStore
 	openAIResponsesTransport     http.RoundTripper
+	// openAIResponsesGuardedTransport is used instead of
+	// openAIResponsesTransport for tenant-controlled (user/org) endpoints.
+	openAIResponsesGuardedTransport http.RoundTripper
 }
 
 func NewServer(
@@ -463,6 +467,8 @@ func NewServer(
 		openAIResponsesLogStores:     responsesLogStores,
 		openAIResponsesBillingLogger: responsesBillingLogger,
 		openAIResponsesTransport:     newOpenAIResponsesTransport(cfg.Tools.TLSSkipVerify),
+		openAIResponsesGuardedTransport: newOpenAIResponsesGuardedTransport(cfg.Tools.TLSSkipVerify,
+			netguard.Policy{AllowPrivate: cfg.Providers.AllowPrivateNetworks}),
 	}
 
 	// Sandboxes API controller — orchestrates user-created sandboxes via hydra.

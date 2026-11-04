@@ -11,8 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -176,18 +175,27 @@ func managementBaseURL(providerBaseURL string) string {
 	return u
 }
 
-func (s *HelixAPIServer) listLocalModels(rw http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	endpointID := vars["id"]
+// providerEndpointHTTPClient returns a client for requests to a stored
+// endpoint's BaseURL, restricted by the endpoint's outbound policy so a user
+// or org endpoint cannot reach internal addresses (TST-01-270).
+func (s *HelixAPIServer) providerEndpointHTTPClient(endpoint *types.ProviderEndpoint, timeout time.Duration) *http.Client {
+	if policy := endpoint.OutboundPolicy(s.Cfg.Providers.AllowPrivateNetworks); policy != nil {
+		return policy.NewClient(timeout)
+	}
+	return &http.Client{Timeout: timeout}
+}
 
-	endpoint, err := s.Store.GetProviderEndpoint(r.Context(), &store.GetProviderEndpointsQuery{ID: endpointID})
-	if err != nil {
-		http.Error(rw, "Provider endpoint not found", http.StatusNotFound)
+func (s *HelixAPIServer) listLocalModels(rw http.ResponseWriter, r *http.Request) {
+	// These calls are proxied to the endpoint's server and the response is
+	// returned verbatim, so they need the same authorization as editing it.
+	endpoint, ok := s.loadEditableProviderEndpoint(rw, r)
+	if !ok {
 		return
 	}
 
 	mgmtURL := managementBaseURL(endpoint.BaseURL) + "/api/v1/models"
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := s.providerEndpointHTTPClient(endpoint, 5*time.Second)
+	defer client.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, mgmtURL, nil)
 	if err != nil {
 		http.Error(rw, "Failed to create request", http.StatusInternalServerError)
@@ -209,17 +217,16 @@ func (s *HelixAPIServer) listLocalModels(rw http.ResponseWriter, r *http.Request
 }
 
 func (s *HelixAPIServer) loadLocalModel(rw http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	endpointID := vars["id"]
-
-	endpoint, err := s.Store.GetProviderEndpoint(r.Context(), &store.GetProviderEndpointsQuery{ID: endpointID})
-	if err != nil {
-		http.Error(rw, "Provider endpoint not found", http.StatusNotFound)
+	// These calls are proxied to the endpoint's server and the response is
+	// returned verbatim, so they need the same authorization as editing it.
+	endpoint, ok := s.loadEditableProviderEndpoint(rw, r)
+	if !ok {
 		return
 	}
 
 	mgmtURL := managementBaseURL(endpoint.BaseURL) + "/api/v1/models/load"
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := s.providerEndpointHTTPClient(endpoint, 120*time.Second)
+	defer client.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, mgmtURL, r.Body)
 	if err != nil {
 		http.Error(rw, "Failed to create request", http.StatusInternalServerError)
@@ -241,12 +248,10 @@ func (s *HelixAPIServer) loadLocalModel(rw http.ResponseWriter, r *http.Request)
 }
 
 func (s *HelixAPIServer) unloadLocalModel(rw http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	endpointID := vars["id"]
-
-	endpoint, err := s.Store.GetProviderEndpoint(r.Context(), &store.GetProviderEndpointsQuery{ID: endpointID})
-	if err != nil {
-		http.Error(rw, "Provider endpoint not found", http.StatusNotFound)
+	// These calls are proxied to the endpoint's server and the response is
+	// returned verbatim, so they need the same authorization as editing it.
+	endpoint, ok := s.loadEditableProviderEndpoint(rw, r)
+	if !ok {
 		return
 	}
 
@@ -260,7 +265,8 @@ func (s *HelixAPIServer) unloadLocalModel(rw http.ResponseWriter, r *http.Reques
 
 	lmsBody, _ := json.Marshal(map[string]string{"instance_id": reqBody.Model})
 	mgmtURL := managementBaseURL(endpoint.BaseURL) + "/api/v1/models/unload"
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := s.providerEndpointHTTPClient(endpoint, 30*time.Second)
+	defer client.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, mgmtURL, bytes.NewReader(lmsBody))
 	if err != nil {
 		http.Error(rw, "Failed to create request", http.StatusInternalServerError)
