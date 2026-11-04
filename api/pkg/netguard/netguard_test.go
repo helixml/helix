@@ -178,3 +178,17 @@ func TestGuardTransportProxy(t *testing.T) {
 		t.Fatalf("proxy saw %v, want only [8.8.8.8]", proxied)
 	}
 }
+
+func TestErrorClasses(t *testing.T) {
+	ctx := context.Background()
+	err := Policy{}.ValidateURL(ctx, "http://localhost:8080/")
+	if !errors.Is(err, ErrBlockedDestination) || !errors.Is(err, ErrPrivateNetwork) {
+		t.Fatalf("localhost: %v should be blocked and private", err)
+	}
+	for _, raw := range []string{"http://169.254.169.254/", "file:///etc/passwd"} {
+		err := Policy{}.ValidateURL(ctx, raw)
+		if !errors.Is(err, ErrBlockedDestination) || errors.Is(err, ErrPrivateNetwork) {
+			t.Fatalf("%s: %v should be blocked but not private", raw, err)
+		}
+	}
+}

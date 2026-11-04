@@ -859,7 +859,7 @@ func (s *HelixAPIServer) validateProviderEndpointBaseURL(ctx context.Context, en
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, netguard.ErrBlockedDestination) && policy != nil && !policy.AllowPrivate {
+	if errors.Is(err, netguard.ErrPrivateNetwork) {
 		return fmt.Errorf("invalid base_url: %w (self-hosted deployments can allow private-network providers with PROVIDER_ENDPOINTS_ALLOW_PRIVATE_NETWORKS=true)", err)
 	}
 	return fmt.Errorf("invalid base_url: %w", err)

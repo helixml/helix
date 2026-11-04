@@ -26,6 +26,10 @@ const (
 // an address the policy forbids.
 var ErrBlockedDestination = errors.New("destination not allowed")
 
+// ErrPrivateNetwork additionally marks a rejection that Policy.AllowPrivate
+// would have permitted (loopback, RFC1918, unique-local, CGNAT).
+var ErrPrivateNetwork = errors.New("private-network destination")
+
 // Policy decides which destinations an outbound request may reach.
 type Policy struct {
 	// AllowPrivate permits loopback, RFC1918, IPv6 unique-local and CGNAT
@@ -93,21 +97,49 @@ func inAny(ip net.IP, nets []*net.IPNet) bool {
 // CheckIP returns an error wrapping ErrBlockedDestination if ip may not be
 // dialled under this policy.
 func (p Policy) CheckIP(ip net.IP) error {
+	if err := p.classify(ip); err != nil {
+		return fmt.Errorf("%w %s", err, ip)
+	}
+	return nil
+}
+
+// blockedError is a rejection that matches ErrBlockedDestination and, for
+// private-network rejections, ErrPrivateNetwork.
+type blockedError struct {
+	class   string
+	private bool
+}
+
+func (e *blockedError) Error() string { return ErrBlockedDestination.Error() + ": " + e.class }
+
+func (e *blockedError) Is(target error) bool {
+	return target == ErrBlockedDestination || (e.private && target == ErrPrivateNetwork)
+}
+
+var (
+	errReserved = &blockedError{class: "reserved or link-local address"}
+	errPrivate  = &blockedError{class: "loopback or private-network address", private: true}
+)
+
+// classify returns errReserved, errPrivate or nil. The errors deliberately
+// carry no address, so callers resolving a hostname can report the class
+// without revealing what an internal name resolves to.
+func (p Policy) classify(ip net.IP) error {
 	if ip == nil {
-		return fmt.Errorf("%w: invalid IP address", ErrBlockedDestination)
+		return errReserved
 	}
 	if v4 := ip.To4(); v4 != nil {
 		ip = v4
 	} else if inAny(ip, nat64) {
-		if err := p.CheckIP(net.IP(ip[12:16])); err != nil {
+		if err := p.classify(net.IP(ip[12:16])); err != nil {
 			return err
 		}
 	}
 	if inAny(ip, alwaysBlocked) {
-		return fmt.Errorf("%w: %s is a reserved or link-local address", ErrBlockedDestination, ip)
+		return errReserved
 	}
 	if !p.AllowPrivate && inAny(ip, privateRanges) {
-		return fmt.Errorf("%w: %s is a loopback or private-network address", ErrBlockedDestination, ip)
+		return errPrivate
 	}
 	return nil
 }
@@ -120,7 +152,7 @@ func ValidateHTTPURL(raw string) (*url.URL, error) {
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, fmt.Errorf("%w: URL scheme %q is not allowed (only http and https)", ErrBlockedDestination, u.Scheme)
+		return nil, fmt.Errorf("%w: URL scheme %q (only http and https are allowed)", ErrBlockedDestination, u.Scheme)
 	}
 	if u.Hostname() == "" {
 		return nil, fmt.Errorf("invalid URL: missing host")
@@ -154,7 +186,7 @@ func (p Policy) resolve(ctx context.Context, host string) ([]net.IP, error) {
 		return []net.IP{ip}, nil
 	}
 	if !p.AllowPrivate && isLocalhostName(host) {
-		return nil, fmt.Errorf("%w: %s is a loopback host", ErrBlockedDestination, host)
+		return nil, fmt.Errorf("%w (host %s)", errPrivate, host)
 	}
 	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
@@ -165,8 +197,8 @@ func (p Policy) resolve(ctx context.Context, host string) ([]net.IP, error) {
 	}
 	ips := make([]net.IP, 0, len(addrs))
 	for _, a := range addrs {
-		if err := p.CheckIP(a.IP); err != nil {
-			return nil, fmt.Errorf("host %s: %w", host, err)
+		if err := p.classify(a.IP); err != nil {
+			return nil, fmt.Errorf("%w (host %s)", err, host)
 		}
 		ips = append(ips, a.IP)
 	}
