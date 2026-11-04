@@ -1025,10 +1025,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
     setIsStartingPlanning(true);
     try {
-      const { keyboardLayout, timezone, isOverridden } = getBrowserLocale();
+      const { keyboardLayout, timezone, languages, isOverridden } = getBrowserLocale();
       const queryParams = new URLSearchParams();
       if (keyboardLayout) queryParams.set("keyboard", keyboardLayout);
       if (timezone) queryParams.set("timezone", timezone);
+      if (languages) queryParams.set("languages", languages);
       const queryString = queryParams.toString();
       const url = `/api/v1/spec-tasks/${task.id}/start-planning${queryString ? `?${queryString}` : ""}`;
 

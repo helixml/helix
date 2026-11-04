@@ -759,6 +759,11 @@ ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
 ADD desktop/shared/helix-buildkit-cache-stats.py /usr/local/bin/helix-buildkit-cache-stats
 RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh /usr/local/bin/helix-buildkit-cache-stats
 
+# Send the user's browser languages (HELIX_BROWSER_LANGUAGES) as Chrome's
+# Accept-Language, so sites don't localize to the runner's location.
+ADD desktop/shared/18-browser-languages.sh /etc/cont-init.d/18-browser-languages.sh
+RUN chmod 755 /etc/cont-init.d/18-browser-languages.sh
+
 # Workspace README
 RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md

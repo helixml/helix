@@ -176,14 +176,16 @@ export function useStartSpecTaskPlanning() {
       taskId,
       keyboard,
       timezone,
+      languages,
     }: {
       taskId: string;
       keyboard?: string;
       timezone?: string;
+      languages?: string;
     }) => {
       const response = await api
         .getApiClient()
-        .v1SpecTasksStartPlanningCreate(taskId, { keyboard, timezone });
+        .v1SpecTasksStartPlanningCreate(taskId, { keyboard, timezone, languages });
       return response.data;
     },
     onSuccess: (_, { taskId }) => {
