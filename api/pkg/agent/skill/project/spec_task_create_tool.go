@@ -188,6 +188,9 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 	if p, ok := args["priority"].(string); ok && p != "" {
 		priority = types.SpecTaskPriority(p)
 	}
+	if err := types.ValidateSpecTaskTypeAndPriority(taskType, priority); err != nil {
+		return "", err
+	}
 
 	originalPrompt := ""
 	if op, ok := args["original_prompt"].(string); ok {
