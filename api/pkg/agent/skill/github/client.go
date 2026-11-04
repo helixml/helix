@@ -35,7 +35,7 @@ func NewClientWithPATAndBaseURL(token, baseURL string) *Client {
 
 // NewClientWithPATBaseURLAndHTTPClient is NewClientWithPATAndBaseURL with the
 // underlying transport taken from httpClient (nil = http.DefaultClient). Use
-// it with an outbound.Policy client when baseURL is caller-supplied.
+// it with a netguard client when baseURL is caller-supplied.
 func NewClientWithPATBaseURLAndHTTPClient(token, baseURL string, httpClient *http.Client) *Client {
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(

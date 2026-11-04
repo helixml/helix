@@ -127,7 +127,7 @@ func NewClientWithPAT(baseURL, token string) (*Client, error) {
 }
 
 // NewClientWithPATAndHTTPClient is NewClientWithPAT using httpClient for all
-// requests (nil = library default). Use it with an outbound.Policy client
+// requests (nil = library default). Use it with a netguard client
 // when baseURL is caller-supplied.
 func NewClientWithPATAndHTTPClient(baseURL, token string, httpClient *http.Client) (*Client, error) {
 	var opts []gitlab.ClientOptionFunc

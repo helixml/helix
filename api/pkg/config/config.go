@@ -38,7 +38,7 @@ type ServerConfig struct {
 	Sandboxes          Sandboxes
 	Compute            Compute
 	Webhooks           Webhooks
-	Outbound           Outbound
+	GitProviders       GitProviders
 	ConnectPortal      ConnectPortalConfig
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
@@ -166,11 +166,14 @@ type Webhooks struct {
 	MaxAttempts           int           `envconfig:"WEBHOOK_MAX_ATTEMPTS" default:"8" description:"Maximum delivery attempts before a webhook delivery is marked failed."`
 }
 
-// Outbound controls server-side requests to caller-supplied URLs (e.g.
-// self-hosted GitHub Enterprise / GitLab base URLs). Loopback, private,
-// link-local and metadata addresses are blocked unless listed here.
-type Outbound struct {
-	AllowedPrivateCIDRs []string `envconfig:"HELIX_OUTBOUND_ALLOWED_PRIVATE_CIDRS" description:"Comma-separated CIDRs that server-side fetches of user-supplied URLs may reach despite being private/loopback/link-local (e.g. 10.20.0.0/16 for an on-prem GitLab)."`
+// GitProviders controls server-side requests to caller-supplied git host
+// URLs (GitHub Enterprise / GitLab base_url, Azure DevOps organization_url).
+type GitProviders struct {
+	// AllowPrivateNetworks lets those URLs target loopback, RFC1918,
+	// unique-local and CGNAT addresses (an on-prem GitLab or GHE). Link-local
+	// and cloud metadata addresses stay blocked. Same netguard policy as
+	// PROVIDER_ENDPOINTS_ALLOW_PRIVATE_NETWORKS.
+	AllowPrivateNetworks bool `envconfig:"GIT_PROVIDERS_ALLOW_PRIVATE_NETWORKS" default:"false"`
 }
 
 // Sandboxes configures the user-facing Sandboxes API.

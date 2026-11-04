@@ -54,10 +54,10 @@ func TestBrowseRemoteRejectsInternalDestinations_TST01272(t *testing.T) {
 	}
 }
 
-// Operators can opt specific internal ranges back in (on-prem GitLab); the
+// Operators can opt private networks back in (on-prem GitLab); the
 // same request then reaches the listener. This also proves the test above
 // would detect a regression.
-func TestBrowseRemoteAllowsConfiguredPrivateCIDR_TST01272(t *testing.T) {
+func TestBrowseRemoteAllowsPrivateNetworksWhenEnabled_TST01272(t *testing.T) {
 	var hits atomic.Int32
 	listener := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
@@ -66,7 +66,7 @@ func TestBrowseRemoteAllowsConfiguredPrivateCIDR_TST01272(t *testing.T) {
 	defer listener.Close()
 
 	cfg := &config.ServerConfig{}
-	cfg.Outbound.AllowedPrivateCIDRs = []string{"127.0.0.0/8"}
+	cfg.GitProviders.AllowPrivateNetworks = true
 	srv := &HelixAPIServer{Cfg: cfg}
 
 	rec := postBrowseRemote(t, srv, types.BrowseRemoteRepositoriesRequest{

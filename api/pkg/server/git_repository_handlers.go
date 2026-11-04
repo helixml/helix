@@ -1845,13 +1845,8 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 		return
 	}
 
-	policy, err := s.outboundPolicy()
-	if err != nil {
-		log.Error().Err(err).Msg("Invalid outbound policy configuration")
-		http.Error(w, "Failed to list repositories. Please try again.", http.StatusInternalServerError)
-		return
-	}
-	httpClient := policy.NewHTTPClient(outboundRequestTimeout)
+	policy := s.gitProviderURLPolicy()
+	httpClient := gitProviderHTTPClient(policy, request.BaseURL)
 
 	var repos []types.RepositoryInfo
 
