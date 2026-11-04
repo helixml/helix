@@ -15,6 +15,8 @@ func TestValidateGitBranchName(t *testing.T) {
 		"release/2.11.x",
 		"Fix_Login",
 		"users/a.b/c",
+		"feature/HEAD",
+		"HEADS",
 	}
 	for _, name := range valid {
 		require.NoError(t, ValidateGitBranchName(name), name)
@@ -47,6 +49,7 @@ func TestValidateGitBranchName(t *testing.T) {
 		`a\b`,
 		"a@{1}",
 		"@",
+		"HEAD",
 		"a\x7f",
 		strings.Repeat("a", MaxGitBranchNameLength+1),
 	}

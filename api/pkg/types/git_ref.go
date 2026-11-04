@@ -22,7 +22,7 @@ func ValidateGitBranchName(name string) error {
 	if strings.HasPrefix(name, "-") {
 		return fmt.Errorf("branch name %q must not start with '-'", name)
 	}
-	if name == "@" {
+	if name == "@" || name == "HEAD" {
 		return fmt.Errorf("branch name %q is reserved", name)
 	}
 	for _, r := range name {
