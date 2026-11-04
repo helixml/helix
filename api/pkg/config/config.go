@@ -38,6 +38,7 @@ type ServerConfig struct {
 	Sandboxes          Sandboxes
 	Compute            Compute
 	Webhooks           Webhooks
+	Outbound           Outbound
 	ConnectPortal      ConnectPortalConfig
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
@@ -163,6 +164,13 @@ type Webhooks struct {
 	DeliveryTimeout       time.Duration `envconfig:"WEBHOOK_DELIVERY_TIMEOUT" default:"20s" description:"Timeout for one outbound webhook attempt."`
 	WorkerInterval        time.Duration `envconfig:"WEBHOOK_WORKER_INTERVAL" default:"2s" description:"How often the webhook outbox is scanned."`
 	MaxAttempts           int           `envconfig:"WEBHOOK_MAX_ATTEMPTS" default:"8" description:"Maximum delivery attempts before a webhook delivery is marked failed."`
+}
+
+// Outbound controls server-side requests to caller-supplied URLs (e.g.
+// self-hosted GitHub Enterprise / GitLab base URLs). Loopback, private,
+// link-local and metadata addresses are blocked unless listed here.
+type Outbound struct {
+	AllowedPrivateCIDRs []string `envconfig:"HELIX_OUTBOUND_ALLOWED_PRIVATE_CIDRS" description:"Comma-separated CIDRs that server-side fetches of user-supplied URLs may reach despite being private/loopback/link-local (e.g. 10.20.0.0/16 for an on-prem GitLab)."`
 }
 
 // Sandboxes configures the user-facing Sandboxes API.

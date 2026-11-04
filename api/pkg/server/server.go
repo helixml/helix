@@ -37,6 +37,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
+	"github.com/helixml/helix/api/pkg/outbound"
 	"github.com/helixml/helix/api/pkg/openai"
 	openailogger "github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -254,6 +255,9 @@ func NewServer(
 ) (*HelixAPIServer, error) {
 	if cfg.ConnectPortal.SecretIntakeEnabled && os.Getenv("HELIX_ENCRYPTION_KEY") == "" {
 		return nil, fmt.Errorf("HELIX_ENCRYPTION_KEY is required when secret intake is enabled")
+	}
+	if _, err := outbound.NewPolicy(cfg.Outbound.AllowedPrivateCIDRs); err != nil {
+		return nil, err
 	}
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")

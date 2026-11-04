@@ -30,10 +30,20 @@ func NewClientWithPAT(token string) *Client {
 // with an optional base URL for GitHub Enterprise instances.
 // If baseURL is empty, uses github.com.
 func NewClientWithPATAndBaseURL(token, baseURL string) *Client {
+	return NewClientWithPATBaseURLAndHTTPClient(token, baseURL, nil)
+}
+
+// NewClientWithPATBaseURLAndHTTPClient is NewClientWithPATAndBaseURL with the
+// underlying transport taken from httpClient (nil = http.DefaultClient). Use
+// it with an outbound.Policy client when baseURL is caller-supplied.
+func NewClientWithPATBaseURLAndHTTPClient(token, baseURL string, httpClient *http.Client) *Client {
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(
 		&oauth2.Token{AccessToken: token},
 	)
+	if httpClient != nil {
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
+	}
 	tc := oauth2.NewClient(ctx, ts)
 	client := github.NewClient(tc)
 

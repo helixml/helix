@@ -1845,11 +1845,22 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 		return
 	}
 
+	policy, err := s.outboundPolicy()
+	if err != nil {
+		log.Error().Err(err).Msg("Invalid outbound policy configuration")
+		http.Error(w, "Failed to list repositories. Please try again.", http.StatusInternalServerError)
+		return
+	}
+	httpClient := policy.NewHTTPClient(outboundRequestTimeout)
+
 	var repos []types.RepositoryInfo
 
 	switch request.ProviderType {
 	case types.ExternalRepositoryTypeGitHub:
-		ghClient := github.NewClientWithPATAndBaseURL(request.Token, request.BaseURL)
+		if request.BaseURL != "" && rejectDisallowedOutboundURL(ctx, w, policy, "base_url", request.BaseURL) {
+			return
+		}
+		ghClient := github.NewClientWithPATBaseURLAndHTTPClient(request.Token, request.BaseURL, httpClient)
 
 		// Validate token scopes before listing repos. Classic PATs with no scopes
 		// or missing 'repo' can still list public repos, but Helix needs write access.
@@ -1921,7 +1932,10 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 		}
 
 	case types.ExternalRepositoryTypeGitLab:
-		glClient, err := gitlab.NewClientWithPAT(request.BaseURL, request.Token)
+		if request.BaseURL != "" && rejectDisallowedOutboundURL(ctx, w, policy, "base_url", request.BaseURL) {
+			return
+		}
+		glClient, err := gitlab.NewClientWithPATAndHTTPClient(request.BaseURL, request.Token, httpClient)
 		if err != nil {
 			if isAuthenticationError(err) {
 				http.Error(w, "Invalid GitLab token. Please check your token and try again.", http.StatusBadRequest)
@@ -1959,6 +1973,11 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 	case types.ExternalRepositoryTypeADO:
 		if request.OrganizationURL == "" {
 			http.Error(w, "Organization URL is required for Azure DevOps", http.StatusBadRequest)
+			return
+		}
+		// The ADO SDK builds its own http.Client, so this is a pre-flight
+		// check only (no dial-time enforcement).
+		if rejectDisallowedOutboundURL(ctx, w, policy, "organization_url", request.OrganizationURL) {
 			return
 		}
 
