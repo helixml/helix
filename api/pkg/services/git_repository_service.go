@@ -1,6 +1,7 @@
 package services
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -2774,15 +2775,17 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 		if gitRepo.GitHub != nil && gitRepo.GitHub.PersonalAccessToken != "" {
 			return "x-access-token", gitRepo.GitHub.PersonalAccessToken
 		}
-		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return gitRepo.Username, gitRepo.Password
+		if gitRepo.Password != "" {
+			// A PAT linked from the project dialogs arrives as a password with
+			// no username; GitHub ignores the username for token auth.
+			return cmp.Or(gitRepo.Username, "x-access-token"), gitRepo.Password
 		}
 	case types.ExternalRepositoryTypeGitLab:
 		if gitRepo.GitLab != nil && gitRepo.GitLab.PersonalAccessToken != "" {
 			return "oauth2", gitRepo.GitLab.PersonalAccessToken
 		}
-		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return gitRepo.Username, gitRepo.Password
+		if gitRepo.Password != "" {
+			return cmp.Or(gitRepo.Username, "oauth2"), gitRepo.Password
 		}
 	case types.ExternalRepositoryTypeBitbucket:
 		if gitRepo.Username != "" && gitRepo.Password != "" {
