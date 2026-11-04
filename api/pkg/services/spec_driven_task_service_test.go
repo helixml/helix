@@ -331,6 +331,28 @@ func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsBlankExistingBranch(t 
 	require.Nil(t, task)
 }
 
+// TST-01-193: non-HTTP callers (cron triggers, org runtime) reach the service
+// directly, so it must reject invalid branch refs before persisting anything.
+func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsInvalidBranchRefs(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(mockStore, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService())
+
+	task, err := service.CreateTaskFromPrompt(context.Background(), &types.CreateTaskRequest{
+		Prompt:       "x",
+		BranchMode:   types.BranchModeNew,
+		BaseBranch:   "../../main",
+		BranchPrefix: "../../../evil",
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeZedAgent, CredentialType: types.CodeAgentCredentialTypeAPIKey,
+			ProviderRef: "openai", Model: "gpt-5.6-sol",
+		},
+	})
+
+	require.ErrorContains(t, err, "invalid base_branch")
+	require.Nil(t, task)
+}
+
 func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

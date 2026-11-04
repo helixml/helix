@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -337,33 +338,8 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate GitHub token: %w", err)
 		}
-		if !scopeHeaderPresent {
-			// Fine-grained PATs don't return X-OAuth-Scopes so we can't validate
-			// their permissions. Reject them and ask for a classic token.
-			return nil, newGitProviderUserError("Fine-grained GitHub tokens are not supported. Helix requires a classic token with the 'repo' scope. Please create one at https://github.com/settings/tokens")
-		}
-		if len(scopes) == 0 {
-			return nil, newGitProviderUserError("GitHub token has no scopes. Helix requires the 'repo' scope for full repository access. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens")
-		}
-		hasRepo := false
-		hasWorkflow := false
-		for _, s := range scopes {
-			if s == "repo" {
-				hasRepo = true
-			}
-			if s == "workflow" {
-				hasWorkflow = true
-			}
-		}
-		var missingScopes []string
-		if !hasRepo {
-			missingScopes = append(missingScopes, "repo")
-		}
-		if !hasWorkflow {
-			missingScopes = append(missingScopes, "workflow")
-		}
-		if len(missingScopes) > 0 {
-			return nil, newGitProviderUserError("GitHub token is missing required scopes: %s. Your token has scopes: %s. Please create a new classic token with the required scopes at https://github.com/settings/tokens", strings.Join(missingScopes, ", "), strings.Join(scopes, ", "))
+		if err := githubPATScopeError(scopes, scopeHeaderPresent); err != nil {
+			return nil, err
 		}
 		return &types.OAuthUserInfo{
 			ID:        fmt.Sprintf("%d", user.GetID()),
@@ -539,4 +515,33 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 	}
 
 	return repos, nil
+}
+
+// githubPATRequiredScopes are the classic-token scopes Helix needs: "repo" to
+// clone and push, "workflow" to push changes under .github/workflows.
+var githubPATRequiredScopes = []string{"repo", "workflow"}
+
+// githubPATScopeError reports why a GitHub PAT can't be used, or nil if it has
+// every required scope. Browsing repos with a token and saving it as a
+// connection both check it, so a token is rejected on entry rather than when
+// it is saved.
+func githubPATScopeError(scopes []string, scopeHeaderPresent bool) error {
+	if !scopeHeaderPresent {
+		// Fine-grained PATs don't return X-OAuth-Scopes so we can't validate
+		// their permissions. Reject them and ask for a classic token.
+		return newGitProviderUserError("Fine-grained GitHub tokens are not supported. Helix requires a classic token with the 'repo' and 'workflow' scopes. Please create one at https://github.com/settings/tokens")
+	}
+	if len(scopes) == 0 {
+		return newGitProviderUserError("GitHub token has no scopes. Helix requires the 'repo' and 'workflow' scopes. Please create a new classic token with them at https://github.com/settings/tokens")
+	}
+	var missing []string
+	for _, required := range githubPATRequiredScopes {
+		if !slices.Contains(scopes, required) {
+			missing = append(missing, required)
+		}
+	}
+	if len(missing) > 0 {
+		return newGitProviderUserError("GitHub token is missing required scopes: %s. Your token has scopes: %s. Please create a new classic token with the 'repo' and 'workflow' scopes at https://github.com/settings/tokens", strings.Join(missing, ", "), strings.Join(scopes, ", "))
+	}
+	return nil
 }

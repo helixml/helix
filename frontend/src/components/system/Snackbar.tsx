@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
 import Paper from '@mui/material/Paper'
+import Portal from '@mui/material/Portal'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { alpha, useTheme } from '@mui/material/styles'
@@ -164,46 +165,50 @@ const Snackbar: React.FC = () => {
 
   if (snackbars.length === 0) return null
 
+  // Portalled to <body> like MUI dialogs: #root is position: fixed, so its own
+  // stacking context would keep any z-index here beneath an open dialog.
   return (
-    <Box
-      ref={stackRef}
-      aria-label="Notifications"
-      data-expanded={expanded}
-      onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => setExpanded(false)}
-      onFocusCapture={() => setExpanded(true)}
-      onBlurCapture={(event) => {
-        if (!stackRef.current?.contains(event.relatedTarget as Node | null)) {
-          setExpanded(false)
-        }
-      }}
-      sx={{
-        position: 'fixed',
-        zIndex: 100010,
-        bottom: {
-          xs: 'calc(12px + env(safe-area-inset-bottom))',
-          sm: '24px',
-        },
-        left: { xs: 12, sm: 24 },
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'flex-start',
-        maxHeight: 'calc(100dvh - 48px)',
-        overflowY: expanded ? 'auto' : 'visible',
-        pr: expanded ? 0.5 : 0,
-      }}
-    >
-      {snackbars.map((notification, index) => (
-        <NotificationCard
-          key={notification.id}
-          expanded={expanded}
-          notification={notification}
-          onDismiss={dismissSnackbar}
-          stackDepth={snackbars.length - 1 - index}
-          stackIndex={index}
-        />
-      ))}
-    </Box>
+    <Portal>
+      <Box
+        ref={stackRef}
+        aria-label="Notifications"
+        data-expanded={expanded}
+        onMouseEnter={() => setExpanded(true)}
+        onMouseLeave={() => setExpanded(false)}
+        onFocusCapture={() => setExpanded(true)}
+        onBlurCapture={(event) => {
+          if (!stackRef.current?.contains(event.relatedTarget as Node | null)) {
+            setExpanded(false)
+          }
+        }}
+        sx={{
+          position: 'fixed',
+          zIndex: 100010,
+          bottom: {
+            xs: 'calc(12px + env(safe-area-inset-bottom))',
+            sm: '24px',
+          },
+          left: { xs: 12, sm: 24 },
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          maxHeight: 'calc(100dvh - 48px)',
+          overflowY: expanded ? 'auto' : 'visible',
+          pr: expanded ? 0.5 : 0,
+        }}
+      >
+        {snackbars.map((notification, index) => (
+          <NotificationCard
+            key={notification.id}
+            expanded={expanded}
+            notification={notification}
+            onDismiss={dismissSnackbar}
+            stackDepth={snackbars.length - 1 - index}
+            stackIndex={index}
+          />
+        ))}
+      </Box>
+    </Portal>
   )
 }
 

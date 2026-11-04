@@ -147,3 +147,9 @@ func TestGitProviderClientErrorMessage(t *testing.T) {
 		&net.OpError{Op: "dial", Net: "tcp", Err: fmt.Errorf("connect: connection refused")})
 	require.Equal(t, fallback, gitProviderClientErrorMessage(transportErr, fallback))
 }
+
+func TestGitHubPATScopeErrorIsUserFacing(t *testing.T) {
+	err := githubPATScopeError([]string{"repo"}, true)
+	require.Error(t, err)
+	require.Equal(t, err.Error(), gitProviderClientErrorMessage(err, "generic"))
+}
