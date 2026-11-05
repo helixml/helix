@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/services"
-	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/vcs"
@@ -15,7 +14,7 @@ import (
 
 // getProjectVCSConnections godoc
 // @Summary Get project VCS connection status
-// @Description One entry per distinct VCS provider present among the project's external repos, with the acting user, the account pushes are attributed to, and per-repo verified access. Backs the project board connection lozenge.
+// @Description One entry per distinct VCS provider present among the project's external repos, with the acting user, the configured repository account, and per-repo verified access. Backs the project board connection lozenge.
 // @Tags Projects
 // @ID getProjectVCSConnections
 // @Accept json
@@ -59,11 +58,6 @@ func (s *HelixAPIServer) getProjectVCSConnections(_ http.ResponseWriter, r *http
 		reposByProvider[repo.ExternalType] = append(reposByProvider[repo.ExternalType], repo)
 	}
 
-	conns, err := s.Store.ListOAuthConnections(r.Context(), &store.ListOAuthConnectionsQuery{UserID: user.ID})
-	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
-	}
-
 	acting := types.VCSActingUser{ID: user.ID, Name: userDisplayName(user)}
 
 	result := []types.VCSConnectionInfo{}
@@ -75,23 +69,65 @@ func (s *HelixAPIServer) getProjectVCSConnections(_ http.ResponseWriter, r *http
 			MissingScopes: []string{},
 		}
 
-		conn := findConnectionForProvider(conns, providerType)
-		if conn == nil {
-			info.State = types.VCSConnectionDisconnected
-			result = append(result, info)
-			continue
-		}
-
-		info.PushingAs = &types.VCSPushingAs{
-			Username:     vcs.IdentityHandle(conn),
-			ConnectionID: conn.ID,
-		}
-		info.MissingScopes = getMissingScopes(conn.Scopes, vcs.RequiredScopes(providerType))
-
-		// State axis: verified unless a repo probe definitively reports no access.
+		// State axis: use the credential pinned to each repository, because that is
+		// what background task syncs use. Repositories without a pinned OAuth
+		// connection may legitimately use a PAT or anonymous public access.
 		allAccessible := true
+		hasConfiguredCredential := false
 		for _, repo := range reposByProvider[providerType] {
 			ownerRepo := services.RepoOwnerName(repo)
+			if repo.OAuthConnectionID == "" {
+				username, password, configured := services.RepositoryStaticCredentials(repo)
+				usable := username != "" && password != ""
+				hasConfiguredCredential = hasConfiguredCredential || configured
+				if configured && !usable {
+					allAccessible = false
+				}
+				info.Repos = append(info.Repos, types.VCSRepoAccess{
+					Repo:      ownerRepo,
+					HasAccess: !configured || usable,
+					Verified:  configured && !usable,
+				})
+				continue
+			}
+
+			hasConfiguredCredential = true
+			conn, err := s.Store.GetOAuthConnection(r.Context(), repo.OAuthConnectionID)
+			if err != nil {
+				conn = nil
+			}
+			if conn == nil || conn.AccessToken == "" {
+				if repo.OwnerID != "" {
+					conn = services.NewestLiveOAuthConnection(r.Context(), s.Store, repo.OwnerID, repo.ExternalType)
+				}
+			}
+			if conn == nil || conn.AccessToken == "" {
+				username, password, _ := services.RepositoryStaticCredentials(repo)
+				staticUsable := username != "" && password != ""
+				if staticUsable {
+					info.Repos = append(info.Repos, types.VCSRepoAccess{
+						Repo:      ownerRepo,
+						HasAccess: true,
+						Verified:  false,
+					})
+					continue
+				}
+				allAccessible = false
+				info.Repos = append(info.Repos, types.VCSRepoAccess{
+					Repo:      ownerRepo,
+					HasAccess: false,
+					Verified:  true,
+				})
+				continue
+			}
+
+			if info.PushingAs == nil {
+				info.PushingAs = &types.VCSPushingAs{
+					Username:     vcs.IdentityHandle(conn),
+					ConnectionID: conn.ID,
+				}
+				info.MissingScopes = getMissingScopes(conn.Scopes, vcs.RequiredScopes(providerType))
+			}
 			hasAccess, verified := s.verifyVCSRepoAccess(r.Context(), conn, providerType, ownerRepo)
 			if verified && !hasAccess {
 				allAccessible = false
@@ -103,7 +139,9 @@ func (s *HelixAPIServer) getProjectVCSConnections(_ http.ResponseWriter, r *http
 			})
 		}
 
-		if allAccessible {
+		if !hasConfiguredCredential {
+			info.State = types.VCSConnectionDisconnected
+		} else if allAccessible {
 			info.State = types.VCSConnectionVerified
 		} else {
 			info.State = types.VCSConnectionNeedsAttention
@@ -141,18 +179,6 @@ func (s *HelixAPIServer) verifyVCSRepoAccess(ctx context.Context, conn *types.OA
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode >= 200 && resp.StatusCode < 300, true
-}
-
-// findConnectionForProvider returns the acting user's connection for a repo
-// provider type, mirroring the acting-user-first credential resolution.
-func findConnectionForProvider(conns []*types.OAuthConnection, externalType types.ExternalRepositoryType) *types.OAuthConnection {
-	want := services.OAuthProviderTypeForRepo(externalType)
-	for _, conn := range conns {
-		if conn.Provider.Type == want && conn.AccessToken != "" {
-			return conn
-		}
-	}
-	return nil
 }
 
 func userDisplayName(u *types.User) string {

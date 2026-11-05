@@ -79,6 +79,30 @@ func TestPushBranchToRemote_GitLabUserWithoutOAuthFallsBackToPAT(t *testing.T) {
 	}
 }
 
+func TestPushBranchToRemote_RejectsUnavailableConfiguredCredentialsBeforePush(t *testing.T) {
+	mockStore := store.NewMockStore(gomock.NewController(t))
+	service := NewGitRepositoryService(mockStore, t.TempDir(), "http://localhost:8080", "test", "test@example.com")
+	repo := &types.GitRepository{
+		ID:                "github-repo",
+		Name:              "private-repo",
+		LocalPath:         t.TempDir(),
+		IsExternal:        true,
+		ExternalURL:       "https://github.com/acme/private-repo.git",
+		ExternalType:      types.ExternalRepositoryTypeGitHub,
+		OAuthConnectionID: "missing-connection",
+	}
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), repo.ID).Return(repo, nil)
+	mockStore.EXPECT().GetOAuthConnection(gomock.Any(), repo.OAuthConnectionID).Return(nil, store.ErrNotFound)
+
+	err := service.PushBranchToRemote(t.Context(), repo.ID, "feature", false)
+	if err == nil {
+		t.Fatal("expected unavailable connection error")
+	}
+	if got, want := err.Error(), "GitHub connection for repository 'private-repo' is unavailable; reconnect it and retry"; got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+}
+
 func (suite *GitRepositoryPushSuiteADO) SetupTest() {
 	suite.store = store.NewMockStore(gomock.NewController(suite.T()))
 	suite.adoToken = os.Getenv("CI_ADO_TOKEN")
