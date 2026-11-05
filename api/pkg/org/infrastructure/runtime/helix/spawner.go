@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/transcript"
@@ -28,10 +29,38 @@ import (
 // ProjectID of its own — every AI Worker gets its own Helix project,
 // applied at hire time and persisted in the NodeRuntimeState
 // sidecar under the "helix" backend.
-// DefaultMaxInflight bounds concurrent activations when a SpawnerConfig
-// doesn't set MaxInflight. The host also uses it to size the shared
-// semaphore it injects via SpawnerConfig.Sem.
-const DefaultMaxInflight = 8
+// DefaultMaxInflight bounds concurrent activations within one organization.
+const DefaultMaxInflight = 32
+
+var ErrActivationCapacity = errors.New("organization activation capacity reached")
+
+// InflightLimiter applies independent activation limits per organization.
+type InflightLimiter struct {
+	mu     sync.Mutex
+	active map[string]int
+}
+
+func NewInflightLimiter() *InflightLimiter {
+	return &InflightLimiter{active: make(map[string]int)}
+}
+
+func (l *InflightLimiter) TryAcquire(orgID string, limit int) (int, func(), bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	active := l.active[orgID]
+	if active >= limit {
+		return active, nil, false
+	}
+	l.active[orgID] = active + 1
+	return active + 1, func() {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		l.active[orgID]--
+		if l.active[orgID] == 0 {
+			delete(l.active, orgID)
+		}
+	}, true
+}
 
 type SpawnerConfig struct {
 	Client         SpawnerClient
@@ -104,14 +133,9 @@ type SpawnerConfig struct {
 	// session API.
 	ActivationRunawayGuard time.Duration
 	MaxInflight            int
-	// Sem, when non-nil, is the inflight semaphore the Spawner acquires
-	// a slot from instead of minting its own from MaxInflight. The host
-	// builds one fresh SpawnerConfig per activation (so OrgID /
-	// OrgID stays scoped to the activating org — never frozen to
-	// whichever org activated first), and shares a single Sem across all
-	// of them to keep one process-wide inflight cap. Nil falls back to a
-	// per-config semaphore of size MaxInflight.
-	Sem         chan struct{}
+	// Limiter is shared by per-activation configs while keeping counts
+	// isolated by organization. Nil creates a limiter local to this Spawner.
+	Limiter     *InflightLimiter
 	PollInitial time.Duration // default 250ms
 	PollMax     time.Duration // default 30s
 	Logger      *slog.Logger
@@ -150,12 +174,9 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 	if cfg.MaxInflight <= 0 {
 		cfg.MaxInflight = DefaultMaxInflight
 	}
-	// Prefer a host-supplied shared semaphore so multiple per-org
-	// SpawnerConfigs enforce one global inflight cap; otherwise mint one
-	// sized to this config's MaxInflight.
-	sem := cfg.Sem
-	if sem == nil {
-		sem = make(chan struct{}, cfg.MaxInflight)
+	limiter := cfg.Limiter
+	if limiter == nil {
+		limiter = NewInflightLimiter()
 	}
 	return func(ctx context.Context, orgID string, workerID orgchart.NodeID, triggers []activation.Trigger) (retErr error) {
 		if len(triggers) == 0 {
@@ -167,16 +188,6 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		if cfg.Store == nil {
 			return errors.New("helix spawner: store is nil")
 		}
-		// Acquire global slot. The dispatcher serialises per-Worker, so
-		// blocking here only delays one Worker behind the rest of the
-		// org under burst load.
-		select {
-		case sem <- struct{}{}:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		defer func() { <-sem }()
-
 		// Record the audit row for this activation. Failures here are
 		// best-effort during the B5 transition — the transcript topic
 		// (next block) is still the primary record until callers depend
@@ -211,6 +222,20 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			recordTranscript(ctx, cfg, orgID, workerID, topicID, body)
 		}
 		publish(fmt.Sprintf("=== activation: %s ===", briefing.DescribeTriggers(triggers)))
+
+		active, release, ok := limiter.TryAcquire(orgID, cfg.MaxInflight)
+		if !ok {
+			err := fmt.Errorf("%w: %d bot activations are already running for this organization (limit %d); wait for one to finish or stop another bot, then try again", ErrActivationCapacity, active, cfg.MaxInflight)
+			if cfg.Logger != nil {
+				cfg.Logger.Warn("helix spawner: organization activation capacity reached", "org_id", orgID, "worker_id", workerID, "active", active, "limit", cfg.MaxInflight)
+			}
+			publish(activation.OutcomeFromError(err).Marker())
+			if triggers[0].Kind == activation.TriggerManual || triggers[0].Kind == activation.TriggerHire {
+				return activation.NonRetryable(err)
+			}
+			return err
+		}
+		defer release()
 
 		// Two deadlines, two phases. Startup work (project apply, MCP
 		// re-attach, secret injection, session creation, transcript WS
@@ -311,10 +336,14 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		if triggers[0].Kind == activation.TriggerHire {
 			interactionTrigger = types.InteractionTriggerOrgHire
 		}
-		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, instructions, prompt, interactionTrigger, bot.PreserveContext, launch, publish)
+		delivery, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, instructions, prompt, interactionTrigger, triggers[0].DeliveryID, bot.PreserveContext, launch, publish)
 		if err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
+		}
+		if delivery.Completed {
+			publish(activation.OutcomeFromError(nil).Marker())
+			return nil
 		}
 
 		// Poll phase. Long-running but healthy sessions are normal — a
@@ -326,7 +355,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// ActivationRunawayGuard is the resource-safety backstop only.
 		pollCtx, pollCancel := context.WithTimeout(parentCtx, cfg.ActivationRunawayGuard)
 		defer pollCancel()
-		err = cfg.pollUntilDone(pollCtx, sessionID, priorInteractionID, publish)
+		err = cfg.pollUntilDone(pollCtx, delivery, publish)
 		publish(activation.OutcomeFromError(err).Marker())
 		return err
 	}
@@ -428,19 +457,19 @@ func sanitizeLogValue(value string) string {
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions, prompt, interactionTrigger string, preserveContext bool, launch SessionLaunchConfig, _ func(string)) (string, string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions, prompt, interactionTrigger, deliveryID string, preserveContext bool, launch SessionLaunchConfig, _ func(string)) (DeliveryResult, error) {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
-		return "", "", err
+		return DeliveryResult{}, err
 	}
 	if state.ProjectID == "" {
-		return "", "", fmt.Errorf("worker %s has no helix project — ensureProject must run first", workerID)
+		return DeliveryResult{}, fmt.Errorf("worker %s has no helix project - ensureProject must run first", workerID)
 	}
 	priorInteractionID := ""
 	if state.SessionID != "" {
 		out, err := c.Client.GetOutput(ctx, state.SessionID)
 		if err != nil && !errors.Is(err, ErrSessionNotFound) {
-			return "", "", fmt.Errorf("read session output before activation: %w", err)
+			return DeliveryResult{}, fmt.Errorf("read session output before activation: %w", err)
 		}
 		priorInteractionID = out.InteractionID
 	}
@@ -466,15 +495,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 	// own context-limit/compaction handling. Failing to read the Bot must
 	// not silently fall back to wiping a preserve-context Bot, so the
 	// error propagates.
-	if state.SessionID != "" && !preserveContext {
-		if err := c.Client.ClearSession(ctx, state.SessionID); err != nil {
-			return "", "", fmt.Errorf("clear session %s before re-activation: %w", state.SessionID, err)
-		}
-		if c.Logger != nil {
-			c.Logger.Info("spawner: cleared session before re-activation",
-				"worker", workerID, "session", state.SessionID)
-		}
-	} else if state.SessionID != "" && preserveContext {
+	if state.SessionID != "" && preserveContext {
 		if c.Logger != nil {
 			c.Logger.Info("spawner: preserving session context across re-activation",
 				"worker", workerID, "session", state.SessionID)
@@ -496,7 +517,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 	// new session is discoverable from Helix's per-project UI. Without
 	// one shared primitive the two paths drift apart and develop
 	// independent stale-session bugs.
-	sid, fresh, err := EnsureAndSend(ctx, c.Client, SendPromptParams{
+	delivery, fresh, err := EnsureAndSend(ctx, c.Client, SendPromptParams{
 		SessionID:   state.SessionID,
 		SessionName: sessionName,
 		ProjectID:   state.ProjectID,
@@ -513,30 +534,41 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 		WorkerID:           string(workerID),
 		Instructions:       instructions,
 		InteractionTrigger: interactionTrigger,
+		DeliveryID:         deliveryID,
+		ResetSession:       state.SessionID != "" && !preserveContext,
 		Launch:             launch,
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("ensure session: %w", err)
+		return DeliveryResult{}, fmt.Errorf("ensure session: %w", err)
 	}
 	if fresh {
 		if c.Logger != nil && state.SessionID != "" {
 			c.Logger.Info("spawner: persisted session unusable, opened fresh",
-				"worker", workerID, "stale_sid", state.SessionID, "new_sid", sid)
+				"worker", workerID, "stale_sid", state.SessionID, "new_sid", delivery.SessionID)
 		}
-		if err := SaveSession(ctx, c.Store, orgID, workerID, sid); err != nil {
-			return "", "", fmt.Errorf("persist session id: %w", err)
+		if err := SaveSession(ctx, c.Store, orgID, workerID, delivery.SessionID); err != nil {
+			return DeliveryResult{}, fmt.Errorf("persist session id: %w", err)
 		}
 	}
-	return sid, priorInteractionID, nil
+	if delivery.InteractionID == "" && delivery.PromptID == "" {
+		delivery.PreviousInteractionID = priorInteractionID
+	}
+	return delivery, nil
 }
 
-// pollUntilDone polls GetOutput with exponential backoff until a
+// pollUntilDone polls the dispatched delivery with exponential backoff until a
 // terminal status is reported or ctx fires.
-func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID, priorInteractionID string, publish func(string)) error {
+func (c SpawnerConfig) pollUntilDone(ctx context.Context, delivery DeliveryResult, publish func(string)) error {
 	delay := c.PollInitial
 	observedCurrentInteraction := false
 	for {
-		out, err := c.Client.GetOutput(ctx, sessionID)
+		var out types.SessionOutputResponse
+		var err error
+		if delivery.PromptID != "" || delivery.InteractionID != "" {
+			out, err = c.Client.GetDeliveryOutput(ctx, delivery)
+		} else {
+			out, err = c.Client.GetOutput(ctx, delivery.SessionID)
+		}
 		if err != nil {
 			// Restart deletes the old session before enqueueing a replacement
 			// activation. The old activation must release its per-bot queue
@@ -547,11 +579,11 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID, priorIntera
 			// Don't fail the activation on a transient poll error; just
 			// back off and retry until the timeout fires.
 			if c.Logger != nil {
-				c.Logger.Warn("helix poll", "session", sessionID, "err", err)
+				c.Logger.Warn("helix poll", "session", delivery.SessionID, "err", err)
 			}
 		} else if observedCurrentInteraction && out.InteractionID == "" {
 			return nil
-		} else if out.InteractionID != "" && out.InteractionID != priorInteractionID {
+		} else if out.InteractionID != "" && (delivery.PromptID != "" || delivery.InteractionID != "" || out.InteractionID != delivery.PreviousInteractionID) {
 			observedCurrentInteraction = true
 			if IsTerminalOutput(out) {
 				if out.Status == "error" {

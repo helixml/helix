@@ -105,6 +105,7 @@ type fakeSpecTaskWorkflow struct {
 	startCalls          []string
 	stopCalls           []string
 	restartCalls        []string
+	completeCalls       []string
 }
 
 func (f *fakeSpecTaskWorkflow) ApproveSpecs(_ context.Context, task *types.SpecTask) error {
@@ -139,6 +140,10 @@ func (f *fakeSpecTaskWorkflow) StartAgent(_ context.Context, task *types.SpecTas
 }
 func (f *fakeSpecTaskWorkflow) StopAgent(_ context.Context, task *types.SpecTask) error {
 	f.stopCalls = append(f.stopCalls, task.ID)
+	return nil
+}
+func (f *fakeSpecTaskWorkflow) CompleteTask(_ context.Context, task *types.SpecTask) error {
+	f.completeCalls = append(f.completeCalls, task.ID)
 	return nil
 }
 func (f *fakeSpecTaskWorkflow) RestartAgent(_ context.Context, task *types.SpecTask, userID string) (int, bool, error) {
@@ -403,6 +408,31 @@ func TestSpecTasks_StopAgentDelegates(t *testing.T) {
 	}
 }
 
+func TestSpecTasks_CompleteDelegates(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.NodeID("w-alice")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+
+	fs := newFakeSpecTaskStore()
+	fs.tasks["task_1"] = &types.SpecTask{ID: "task_1", ProjectID: "prj_mine", Status: types.TaskStatusPullRequest}
+	fs.tasks["task_other"] = &types.SpecTask{ID: "task_other", ProjectID: "prj_other", Status: types.TaskStatusPullRequest}
+	wf := &fakeSpecTaskWorkflow{}
+	st, err := NewSpecTasks(&wrap.Store, fs, wf)
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	if _, err := st.Complete(context.Background(), "org-test", wid, "", "task_1"); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if _, err := st.Complete(context.Background(), "org-test", wid, "", "task_other"); err == nil {
+		t.Error("completing another project's task succeeded")
+	}
+	if len(wf.completeCalls) != 1 || wf.completeCalls[0] != "task_1" {
+		t.Errorf("complete calls = %v", wf.completeCalls)
+	}
+}
+
 func TestSpecTasks_SendAgentMessageDelegates(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
@@ -460,7 +490,7 @@ func TestSpecTasks_ListAgentMessagesReturnsLatestChronologically(t *testing.T) {
 	if views[1].UserMessage != "second" || views[1].AgentMessage != "reply two" {
 		t.Errorf("second view = %+v", views[1])
 	}
-	if fs.lastInteractionQuery.SessionID != "ses_task" || fs.lastInteractionQuery.GenerationID != -1 || fs.lastInteractionQuery.Order != "id DESC" {
+	if fs.lastInteractionQuery.SessionID != "ses_task" || fs.lastInteractionQuery.GenerationID != -1 || fs.lastInteractionQuery.Order != "created DESC, id DESC" {
 		t.Errorf("query = %+v", fs.lastInteractionQuery)
 	}
 }

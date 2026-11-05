@@ -305,7 +305,7 @@ func (b botInstances) Delete(ctx context.Context, orgID string, botID orgchart.N
 func (b botInstances) deleteSession(ctx context.Context, session *types.Session) error {
 	// Destroy also removes a crashed instance's exited container and revokes
 	// its key.
-	if err := b.server.externalAgentExecutor.DestroyDesktop(ctx, session.ID, ""); err != nil {
+	if err := destroyDesktopUnlessHostGone(ctx, b.server.externalAgentExecutor, session.ID, ""); err != nil {
 		return fmt.Errorf("destroy instance sandbox: %w", err)
 	}
 	if _, err := b.server.Store.DeleteSession(ctx, session.ID); err != nil {
@@ -326,7 +326,7 @@ func (b botInstances) DeleteAll(ctx context.Context, orgID string, botID orgchar
 		return err
 	}
 	for _, session := range sessions {
-		if err := b.server.externalAgentExecutor.DestroyDesktop(ctx, session.ID, ""); err != nil {
+		if err := destroyDesktopUnlessHostGone(ctx, b.server.externalAgentExecutor, session.ID, ""); err != nil {
 			return fmt.Errorf("destroy instance sandbox %s: %w", session.ID, err)
 		}
 		if _, err := b.server.Store.DeleteSession(ctx, session.ID); err != nil {

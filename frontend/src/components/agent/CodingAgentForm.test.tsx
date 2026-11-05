@@ -8,6 +8,10 @@ vi.mock('../../hooks/useApps', () => ({
   default: () => ({ createAgent: vi.fn() }),
 }))
 
+vi.mock('../../services/codeAgentHarnessesService', () => ({
+  useIsCodeAgentRuntimeEnabled: () => (runtime?: string) => runtime !== 'zed_agent',
+}))
+
 vi.mock('./useCodingAgentProviderState', () => ({
   useCodingAgentProviderState: () => ({
     hasAnthropicProvider: false,
@@ -46,5 +50,28 @@ describe('CodingAgentForm', () => {
       provider_ref: undefined,
       model: 'claude-fable-5',
     })
+  })
+
+  it('hides runtimes the organization disabled', () => {
+    render(
+      <CodingAgentForm
+        value={{
+          codeAgentRuntime: 'claude_code',
+          claudeCodeMode: 'subscription',
+          selectedProvider: '',
+          selectedModel: '',
+          agentName: 'Claude Code',
+        }}
+        onChange={vi.fn()}
+        recommendedModels={[]}
+        showAgentName={false}
+        showModelSelection={false}
+        showCreateButton={false}
+      />,
+    )
+
+    fireEvent.mouseDown(screen.getAllByRole('combobox')[0])
+    expect(screen.getByRole('option', { name: /Codex/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /Zed Agent/ })).not.toBeInTheDocument()
   })
 })

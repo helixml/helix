@@ -62,6 +62,11 @@ type Spec struct {
 	// transport.postmark redacts only the "token" field.
 	Secrets []string
 
+	// Secret marks the whole value as secret (any type). GetRedacted
+	// returns "..." in place of the value. Use for scalar credentials
+	// such as API keys, where Secrets (object paths) cannot apply.
+	Secret bool
+
 	// Description is a one-line summary shown by `config list` so
 	// operators can discover what's settable.
 	Description string
@@ -204,11 +209,10 @@ func (r *Registry) GetRaw(ctx context.Context, orgID, key string) (string, error
 	return "", ErrNotConfigured
 }
 
-// GetRedacted returns the value with secret JSON paths replaced by
-// "..." — for `config get` and `config list` output. For object
-// values where Secrets is set, returns valid JSON with the redacted
-// fields. For non-object values or empty Secrets, returns the raw
-// value.
+// GetRedacted returns the value with secrets replaced by "..." — for
+// `config get` and `config list` output. Secret specs return the JSON
+// string "..."; object values with Secrets return valid JSON with the
+// redacted fields; everything else returns the raw value.
 func (r *Registry) GetRedacted(ctx context.Context, orgID, key string) (string, error) {
 	raw, err := r.GetRaw(ctx, orgID, key)
 	if err != nil {
@@ -311,10 +315,14 @@ func validateValue(spec Spec, raw string) error {
 	return nil
 }
 
-// redact replaces JSON paths listed in spec.Secrets with "..." in the
-// value's JSON representation. Only object values support secret
-// fields; for other types or empty Secrets, raw is returned unchanged.
+// redact replaces the whole value when spec.Secret is set, otherwise
+// the JSON paths listed in spec.Secrets, with "...". Only object
+// values support secret fields; for other types or empty Secrets, raw
+// is returned unchanged.
 func redact(spec Spec, raw string) (string, error) {
+	if spec.Secret {
+		return `"..."`, nil
+	}
 	if len(spec.Secrets) == 0 || spec.Type != TypeObject {
 		return raw, nil
 	}

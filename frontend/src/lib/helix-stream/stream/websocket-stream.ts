@@ -525,6 +525,9 @@ export class WebSocketStream {
   }
 
   private onClose(event: CloseEvent) {
+    // desktop-bridge releases a closed connection's held keys itself
+    this.input.forgetHeldKeys()
+
     // Enhanced close logging for debugging reconnect loops
     const connectionDuration = this.lastOpenTime > 0 ? Date.now() - this.lastOpenTime : -1
     console.log("[WebSocketStream] Disconnected:", {
@@ -755,6 +758,9 @@ export class WebSocketStream {
       case WsMessageType.SelfId:
         this.handleSelfId(data)
         break
+      case WsMessageType.ClipboardChanged:
+        this.dispatchInfoEvent({ type: "clipboardChanged" })
+        break
       default:
         // Only warn on unknown types (rare, not a hot path)
         console.warn("[WebSocketStream] Unknown message type:", msgType, "hex=0x" + msgType.toString(16))
@@ -923,6 +929,10 @@ export class WebSocketStream {
     const thisGeneration = ++this.decoderGeneration
     console.log(`[WebSocketStream] Creating decoder generation ${thisGeneration}`)
 
+    // Hold frames that arrive before configure() below; see pendingVideoFrames.
+    this.decoderInitGeneration = thisGeneration
+    this.pendingVideoFrames = []
+
     // Store config for potential recovery
     this.lastVideoCodec = codec
     this.lastVideoWidth = width
@@ -962,6 +972,8 @@ export class WebSocketStream {
         if (!fallbackSupport.supported) {
           console.error("[WebSocketStream] Video codec not supported (hardware or software):", codecString)
           this.dispatchInfoEvent({ type: "error", message: `Video codec ${codecString} not supported` })
+          this.decoderInitGeneration = 0
+          this.pendingVideoFrames = []
           return
         }
         useHardwareAcceleration = "no-preference"
@@ -1059,6 +1071,33 @@ export class WebSocketStream {
         optimizeForLatency: true,
       })
       console.log("[WebSocketStream] Video decoder configured (fallback mode)")
+    }
+
+    this.flushFramesBufferedDuringDecoderInit(thisGeneration)
+  }
+
+  private bufferFrameDuringDecoderInit(data: Uint8Array) {
+    if (data.length < 15) return
+    const isKeyframe = (data[2] & 0x01) !== 0
+    if (isKeyframe) {
+      // A keyframe makes everything before it unnecessary.
+      this.pendingVideoFrames = [data]
+    } else if (this.pendingVideoFrames.length > 0 && this.pendingVideoFrames.length < this.MAX_PENDING_VIDEO_FRAMES) {
+      this.pendingVideoFrames.push(data)
+    }
+    // Delta frames with no keyframe held are undecodable; drop them.
+  }
+
+  private flushFramesBufferedDuringDecoderInit(generation: number) {
+    // A newer initVideoDecoder call owns the buffer now.
+    if (this.decoderInitGeneration !== generation) return
+    this.decoderInitGeneration = 0
+    const pending = this.pendingVideoFrames
+    this.pendingVideoFrames = []
+    if (pending.length === 0 || this.videoDecoder?.state !== "configured") return
+    console.log(`[WebSocketStream] Feeding ${pending.length} frame(s) that arrived while the decoder was configuring`)
+    for (const frame of pending) {
+      this.handleVideoFrame(frame)
     }
   }
 
@@ -1214,6 +1253,16 @@ export class WebSocketStream {
   // Track if we've received the first keyframe (needed for decoder to work)
   private receivedFirstKeyframe = false
 
+  // Video frames that arrived while initVideoDecoder was still awaiting
+  // isConfigSupported. On connect the server replays the current GOP (keyframe
+  // first) immediately after StreamInit, so those frames land before the decoder
+  // is configured; dropping them throws away the only keyframe and leaves the
+  // viewer on "Waiting for video" until the next one, which on an idle desktop is
+  // tens of seconds away. Held from the latest keyframe and fed in once configured.
+  private decoderInitGeneration = 0
+  private pendingVideoFrames: Uint8Array[] = []
+  private readonly MAX_PENDING_VIDEO_FRAMES = 240
+
   // Render watchdog. "videoStarted" fires from the DECODE path, so once decoding
   // begins nothing else watches whether pixels actually reach the canvas.
   private lastFramePaintedAt = 0
@@ -1233,7 +1282,10 @@ export class WebSocketStream {
 
   private handleVideoFrame(data: Uint8Array) {
     if (!this.videoDecoder || this.videoDecoder.state !== "configured") {
-      // Queue frames or drop them if decoder isn't ready
+      // Hold frames while the decoder is configuring; drop them otherwise
+      if (this.decoderInitGeneration !== 0) {
+        this.bufferFrameDuringDecoderInit(data)
+      }
       return
     }
 
@@ -2371,6 +2423,8 @@ export class WebSocketStream {
   private resetStreamState() {
     // Reset video state
     this.receivedFirstKeyframe = false
+    this.decoderInitGeneration = 0
+    this.pendingVideoFrames = []
     this.lastFramePaintedAt = 0
     this.renderStalled = false
     // A reconnect must not inherit the previous connection's render target state:
@@ -2593,6 +2647,9 @@ export class WebSocketStream {
   close() {
     // Log with stack trace to help debug unexpected close() calls
     console.log("[WebSocketStream] Closing", new Error("close() called from:").stack)
+
+    // Release this viewer's held keys while the socket can still carry them
+    this.input.releaseAllKeys()
 
     // Mark as explicitly closed to prevent reconnection and rendering
     this.closed = true

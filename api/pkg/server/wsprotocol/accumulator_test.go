@@ -313,7 +313,7 @@ func TestEntriesTypeInference(t *testing.T) {
 }
 
 func TestEntriesPreserveOrderAfterFlush(t *testing.T) {
-	// Entries must maintain insertion order even when earlier entries
+	// Entries must maintain transcript order even when earlier entries
 	// are updated out of order during the Stopped flush.
 	a := &MessageAccumulator{}
 	a.AddMessageWithType("1", "truncated tex", "text")
@@ -328,7 +328,7 @@ func TestEntriesPreserveOrderAfterFlush(t *testing.T) {
 	entries := a.Entries()
 	require.Len(t, entries, 4)
 
-	// Order must be 1, 2, 3, 4 — insertion order, not update order
+	// Order must be 1, 2, 3, 4 - transcript order, not update order
 	assert.Equal(t, "1", entries[0].MessageID)
 	assert.Equal(t, "truncated text is now complete", entries[0].Content)
 	assert.Equal(t, "text", entries[0].Type)
@@ -339,6 +339,45 @@ func TestEntriesPreserveOrderAfterFlush(t *testing.T) {
 
 	assert.Equal(t, "3", entries[2].MessageID, "entry 3 should still be at index 2")
 	assert.Equal(t, "4", entries[3].MessageID, "entry 4 should still be at index 3")
+}
+
+func TestEntriesOrderDelayedNumericMessageIDs(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessage("4", "new answer")
+	a.AddMessage("10", "newest answer")
+	a.AddMessage("2", "old message delivered late")
+
+	entries := a.Entries()
+	require.Len(t, entries, 3)
+	assert.Equal(t, []string{"2", "4", "10"}, []string{
+		entries[0].MessageID,
+		entries[1].MessageID,
+		entries[2].MessageID,
+	})
+
+	a.Rebuild()
+	assert.Equal(t, "old message delivered late\n\nnew answer\n\nnewest answer", a.Content)
+}
+
+func TestEntriesKeepNonNumericMessageIDOrder(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessage("4", "first numeric")
+	a.AddMessageWithType("plan", `{"steps":[]}`, "plan")
+	a.AddMessage("subagent:child:3", "subagent update")
+	a.AddMessage("10", "last numeric")
+	a.AddMessage("2", "delayed numeric")
+	a.AddMessage("7", "middle numeric")
+
+	entries := a.Entries()
+	require.Len(t, entries, 6)
+	assert.Equal(t, []string{"2", "4", "plan", "subagent:child:3", "7", "10"}, []string{
+		entries[0].MessageID,
+		entries[1].MessageID,
+		entries[2].MessageID,
+		entries[3].MessageID,
+		entries[4].MessageID,
+		entries[5].MessageID,
+	})
 }
 
 func TestEntriesEmptyContentOmitted(t *testing.T) {
@@ -407,6 +446,22 @@ func TestResumeFromPersistedState(t *testing.T) {
 	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
+}
+
+func TestRestoreAccumulatorOrdersPersistedNumericMessageIDs(t *testing.T) {
+	entries := []byte(`[{"type":"text","content":"newest","message_id":"10"},{"type":"plan","content":"{\"steps\":[]}","message_id":"plan"},{"type":"text","content":"newer","message_id":"4"},{"type":"text","content":"old","message_id":"2"}]`)
+	a := RestoreAccumulator("newest\n\nnewer\n\nold", "2", len("newest\n\nnewer")+4, entries)
+
+	restored := a.Entries()
+	require.Len(t, restored, 4)
+	assert.Equal(t, []string{"2", "4", "10", "plan"}, []string{
+		restored[0].MessageID,
+		restored[1].MessageID,
+		restored[2].MessageID,
+		restored[3].MessageID,
+	})
+	assert.Equal(t, "old\n\nnewer\n\nnewest", a.Content)
+	assert.Equal(t, 0, a.Offset)
 }
 
 func TestResumePreservesSubagentMetadata(t *testing.T) {
@@ -614,4 +669,53 @@ func TestSetPriorMessageIDsOnlyDropsEmptyContent(t *testing.T) {
 	entries := a.Entries()
 	require.Len(t, entries, 1)
 	assert.Equal(t, "real", entries[0].Content)
+}
+
+// A stale out-of-order snapshot of a text entry (strict prefix of the content
+// already held) must be ignored. This is the "text truncated before a
+// long-running tool call" bug: Zed's throttle could re-send an older
+// mid-sentence snapshot after the NewEntry full re-send, and last-write-wins
+// kept the truncated text until the end-of-turn flush.
+func TestStaleTextPrefixUpdateIgnored(t *testing.T) {
+	a := &MessageAccumulator{}
+	full := "The board still serves its job after the deploy."
+	a.AddMessageWithType("0", full, "text")
+	a.AddMessageWithType("1", "Run command", "tool_call")
+
+	// Stale throttled snapshot arrives after the full content.
+	a.AddMessageWithType("0", "The board", "text")
+
+	entries := a.Entries()
+	require.Len(t, entries, 2)
+	assert.Equal(t, full, entries[0].Content)
+
+	// A genuine replacement (not a prefix) is still accepted.
+	a.AddMessageWithType("0", "Rewritten paragraph.", "text")
+	assert.Equal(t, "Rewritten paragraph.", a.Entries()[0].Content)
+
+	// Growth is still accepted.
+	a.AddMessageWithType("0", "Rewritten paragraph. More.", "text")
+	assert.Equal(t, "Rewritten paragraph. More.", a.Entries()[0].Content)
+}
+
+// The stale-prefix guard must not interfere with tool_call entries, whose
+// content/status is legitimately rewritten (and can shrink).
+func TestToolCallContentMayShrink(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessageWithToolInfo("1", "Running: long command output preview", "tool_call", "terminal", "In Progress")
+	a.AddMessageWithToolInfo("1", "Ran command", "tool_call", "terminal", "Completed")
+
+	entries := a.Entries()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "Ran command", entries[0].Content)
+	assert.Equal(t, "Completed", entries[0].ToolStatus)
+}
+
+// The guard applies when the update omits the entry type (common for plain
+// AddMessage streaming updates) by falling back to the stored type.
+func TestStalePrefixIgnoredWithImplicitType(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessageWithType("0", "Hello world", "text")
+	a.AddMessage("0", "Hello")
+	assert.Equal(t, "Hello world", a.Entries()[0].Content)
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/connman"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
@@ -419,12 +420,113 @@ func (s *SessionAuthzSuite) TestDeleteSession_OwnerNoOrg() {
 		ID:    "ses_123",
 		Owner: s.userID,
 	}
+	s.server.externalAgentExecutor = external_agent.NewMockExecutor(s.ctrl)
 
 	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
 	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.deleteSession(httptest.NewRecorder(), req)
+
+	s.Nil(httpErr)
+	s.Require().NotNil(result)
+	s.Equal(session.ID, result.ID)
+}
+
+func (s *SessionAuthzSuite) TestDeleteSession_ExternalAgentDestroysDesktop() {
+	tests := []struct {
+		name    string
+		session *types.Session
+	}{
+		{
+			name: "model name",
+			session: &types.Session{
+				ID:        "ses_external_model",
+				Owner:     s.userID,
+				ModelName: "external_agent",
+			},
+		},
+		{
+			name: "agent type",
+			session: &types.Session{
+				ID:    "ses_external_metadata",
+				Owner: s.userID,
+				Metadata: types.SessionMetadata{
+					AgentType: string(types.AgentTypeZedExternal),
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			executor := external_agent.NewMockExecutor(s.ctrl)
+			s.server.externalAgentExecutor = executor
+
+			s.store.EXPECT().GetSession(gomock.Any(), test.session.ID).Return(test.session, nil)
+			gomock.InOrder(
+				executor.EXPECT().DestroyDesktop(gomock.Any(), test.session.ID, "").Return(nil),
+				s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, test.session.ID).Return(nil),
+				s.store.EXPECT().DeleteSession(gomock.Any(), test.session.ID).Return(test.session, nil),
+			)
+
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/sessions/"+test.session.ID, http.NoBody)
+			req = req.WithContext(s.authCtx)
+			req = mux.SetURLVars(req, map[string]string{"id": test.session.ID})
+
+			result, httpErr := s.server.deleteSession(httptest.NewRecorder(), req)
+
+			s.Nil(httpErr)
+			s.Require().NotNil(result)
+			s.Equal(test.session.ID, result.ID)
+		})
+	}
+}
+
+func (s *SessionAuthzSuite) TestDeleteSession_DesktopDestroyFailureDoesNotDeleteSession() {
+	session := &types.Session{
+		ID:        "ses_external",
+		Owner:     s.userID,
+		ModelName: "external_agent",
+	}
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	executor.EXPECT().DestroyDesktop(gomock.Any(), session.ID, "").Return(errors.New("hydra failed"))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/sessions/"+session.ID, http.NoBody)
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.deleteSession(httptest.NewRecorder(), req)
+
+	s.Nil(result)
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusInternalServerError, httpErr.StatusCode)
+}
+
+func (s *SessionAuthzSuite) TestDeleteSession_DisconnectedDesktopIsLeftToReaper() {
+	session := &types.Session{
+		ID:        "ses_external",
+		Owner:     s.userID,
+		ModelName: "external_agent",
+	}
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	gomock.InOrder(
+		executor.EXPECT().DestroyDesktop(gomock.Any(), session.ID, "").Return(fmt.Errorf("dial hydra: %w", connman.ErrNoConnection)),
+		s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil),
+		s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil),
+	)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/sessions/"+session.ID, http.NoBody)
 	req = req.WithContext(s.authCtx)
 	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
 
@@ -504,7 +606,10 @@ func (s *SessionAuthzSuite) TestDeleteSession_OrgMemberNotAuthorizedToProject() 
 		Owner:          "other_user",
 		OrganizationID: s.orgID,
 		ProjectID:      "proj_123",
+		ModelName:      "external_agent",
 	}
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
 
 	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
 	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{

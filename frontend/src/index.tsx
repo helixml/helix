@@ -8,6 +8,7 @@ import { isMobileOrTablet } from './utils/isMobileOrTablet'
 import { logErrorToSession, getRecentErrors, clearErrorLog } from './utils/errorSessionLog'
 import { copyTextToClipboard } from './utils/clipboard'
 import { isOpaqueScriptError, isResizeObserverLoopError } from './utils/mobileErrorNoise'
+import { installPlainTextPasteFix } from './utils/plainTextPaste'
 
 const win = (window as any)
 win.setUserFunctions = []
@@ -191,6 +192,8 @@ if (window.parent !== window) {
     }
   }, { passive: true })
 }
+
+installPlainTextPasteFix()
 
 const container = document.getElementById('root');
 if (container) {

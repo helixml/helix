@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -31,6 +32,12 @@ type ControllerSuite struct {
 
 func TestControllerSuite(t *testing.T) {
 	suite.Run(t, new(ControllerSuite))
+}
+
+func TestCreateSandboxRequestDoesNotAcceptHostPinFromJSON(t *testing.T) {
+	var req types.CreateSandboxRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"host_device_id":"attacker-controlled"}`), &req))
+	require.Empty(t, req.HostDeviceID)
 }
 
 func (s *ControllerSuite) SetupTest() {
@@ -94,7 +101,7 @@ func (s *ControllerSuite) TestUpdateAppliesNameTagsAndExtendsExpiry() {
 		CreatedAt:      createdAt,
 	}
 	s.store.EXPECT().GetSandbox(s.ctx, "sbx_update").Return(sb, nil)
-	s.store.EXPECT().UpdateSandbox(s.ctx, gomock.Any()).DoAndReturn(
+	s.store.EXPECT().UpdateSandboxDetails(s.ctx, gomock.Any()).DoAndReturn(
 		func(_ context.Context, in *types.Sandbox) (*types.Sandbox, error) {
 			return in, nil
 		},
@@ -299,6 +306,81 @@ func TestRuntimeRegistryNamesIncludesAllRegistered(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %v, want %v", got, want)
 		}
+	}
+}
+
+func TestRuntimeRegistryDesktopRootlessFlagFlipsBuiltinDesktop(t *testing.T) {
+	// Default: desktop is privileged, as today.
+	def, err := NewRuntimeRegistry(config.Sandboxes{
+		Runtimes:       "headless-ubuntu=ubuntu:22.04",
+		DefaultRuntime: "headless-ubuntu",
+	})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	spec, err := def.Resolve(&types.CreateSandboxRequest{Runtime: types.SandboxRuntimeUbuntuDesktop})
+	if err != nil {
+		t.Fatalf("resolve desktop: %v", err)
+	}
+	if !spec.Privileged || spec.DesktopRootless {
+		t.Fatalf("default desktop should be privileged and not rootless, got privileged=%v rootless=%v", spec.Privileged, spec.DesktopRootless)
+	}
+
+	// Flag on: desktop runs unprivileged via rootless Docker.
+	hardened, err := NewRuntimeRegistry(config.Sandboxes{
+		Runtimes:        "headless-ubuntu=ubuntu:22.04",
+		DefaultRuntime:  "headless-ubuntu",
+		DesktopRootless: true,
+	})
+	if err != nil {
+		t.Fatalf("setup hardened: %v", err)
+	}
+	spec, err = hardened.Resolve(&types.CreateSandboxRequest{Runtime: types.SandboxRuntimeUbuntuDesktop})
+	if err != nil {
+		t.Fatalf("resolve hardened desktop: %v", err)
+	}
+	if spec.Privileged || !spec.DesktopRootless {
+		t.Fatalf("hardened desktop should be rootless and not privileged, got privileged=%v rootless=%v", spec.Privileged, spec.DesktopRootless)
+	}
+
+	// The package-level builtin must be untouched by either registry so the
+	// two do not leak into each other (shared-pointer regression guard).
+	if !builtinDesktop.Privileged || builtinDesktop.DesktopRootless {
+		t.Fatalf("builtinDesktop global was mutated: privileged=%v rootless=%v", builtinDesktop.Privileged, builtinDesktop.DesktopRootless)
+	}
+}
+
+func TestRuntimeRegistryDesktopRootlessProjectAllowlist(t *testing.T) {
+	r, err := NewRuntimeRegistry(config.Sandboxes{
+		Runtimes:                  "headless-ubuntu=ubuntu:22.04",
+		DefaultRuntime:            "headless-ubuntu",
+		DesktopRootless:           true,
+		DesktopRootlessProjectIDs: []string{"prj_target", " prj_second "},
+	})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	spec, err := r.Resolve(&types.CreateSandboxRequest{Runtime: types.SandboxRuntimeUbuntuDesktop})
+	if err != nil {
+		t.Fatalf("resolve desktop: %v", err)
+	}
+
+	target := r.forProject(spec, "prj_target")
+	if target.Privileged || !target.DesktopRootless {
+		t.Fatalf("target project should be rootless, got privileged=%v rootless=%v", target.Privileged, target.DesktopRootless)
+	}
+	second := r.forProject(spec, "prj_second")
+	if second.Privileged || !second.DesktopRootless {
+		t.Fatalf("second project should be rootless, got privileged=%v rootless=%v", second.Privileged, second.DesktopRootless)
+	}
+	for _, projectID := range []string{"", "prj_other"} {
+		other := r.forProject(spec, projectID)
+		if !other.Privileged || other.DesktopRootless {
+			t.Fatalf("project %q should remain privileged, got privileged=%v rootless=%v", projectID, other.Privileged, other.DesktopRootless)
+		}
+	}
+	if !spec.Privileged || spec.DesktopRootless {
+		t.Fatalf("registry spec was mutated: privileged=%v rootless=%v", spec.Privileged, spec.DesktopRootless)
 	}
 }
 

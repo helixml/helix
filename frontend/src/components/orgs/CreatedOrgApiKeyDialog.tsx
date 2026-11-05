@@ -30,7 +30,7 @@ helix organization list`
       <DialogTitle>API key created</DialogTitle>
       <DialogContent>
         <Alert severity="success" sx={{ mb: 2 }}>
-          Your organization API key is ready. Treat it like a password and store it securely.
+          Your organization API key is ready. Copy it now: it will not be shown again. Treat it like a password and store it securely.
         </Alert>
 
         <Box sx={{ mb: 3 }}>

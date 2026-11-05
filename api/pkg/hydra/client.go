@@ -66,6 +66,12 @@ func (c *RevDialClient) DeviceID() string {
 	return c.deviceID
 }
 
+// Ready verifies that RevDial is connected and Hydra can reach Docker.
+func (c *RevDialClient) Ready(ctx context.Context) error {
+	_, err := c.doRequest(ctx, http.MethodGet, "/ready", nil)
+	return err
+}
+
 // Health checks if Hydra is healthy
 func (c *Client) Health(ctx context.Context) (*HealthResponse, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/health", nil)

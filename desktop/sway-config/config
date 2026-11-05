@@ -11,14 +11,13 @@ output * bg /usr/share/backgrounds/helix-logo.png fill
 # Note: Display scaling is configured dynamically in startup-app.sh based on HELIX_ZOOM_LEVEL
 # Default: output HEADLESS-1 scale 1 (100%), can be 2.0 for 200% zoom, etc.
 
-# Keyboard configuration: US, UK, French layouts with Caps Lock as Ctrl
+# Keyboard configuration: US, UK, French layouts
 # Use the flag buttons in waybar to switch layouts (Alt+Shift toggle disabled - causes issues with Moonlight)
 # CRITICAL: Disable Sway's key repeat - it conflicts with Moonlight's key handling
 # and causes stuck keys when the repeat thread races with key release events.
 # The browser/client side should handle key repeat if needed.
 input type:keyboard {
     xkb_layout "us,gb,fr"
-    xkb_options "caps:ctrl_nocaps"
     repeat_delay 0
     repeat_rate 0
 }

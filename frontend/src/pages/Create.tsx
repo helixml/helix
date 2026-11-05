@@ -27,7 +27,7 @@ const Create: FC = () => {
 
   useEffect(() => {
     if (!appID) {
-      account.orgNavigate('chat')
+      account.orgNavigate('projects')
       return
     }
     if (!orgId) return // Wait for org to load
@@ -38,7 +38,7 @@ const Create: FC = () => {
 
   useEffect(() => {
     if (apps.app?.id === appID && !isChatSelectableAgent(apps.app)) {
-      account.orgNavigate('chat')
+      account.orgNavigate('projects')
     }
   }, [appID, apps.app?.id, apps.app?.agent_kind])
 

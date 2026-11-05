@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -215,4 +216,43 @@ func TestDispatchProjectWebServiceNoDeploymentServesHoldingPage(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, response.Code)
 	require.NotContains(t, response.Body.String(), "no active deployment")
 	require.Contains(t, response.Header().Get("Content-Type"), "text/html")
+}
+
+func TestPendingCustomDomainVerificationOverPort80(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+	apiServer := &HelixAPIServer{Store: mockStore}
+
+	router := mux.NewRouter()
+	router.HandleFunc("/.well-known/helix-domain-verify/{token}", apiServer.domainVerificationResponse).Methods(http.MethodGet)
+	cfg := parseVHostConfig("meta.helix.ml", "https://meta.helix.ml")
+	port80 := httpToHTTPSRedirect(NewVHostMiddleware(cfg, apiServer, router))
+
+	// The verifier's request must reach the token echo even though the
+	// route is unverified; the store is never consulted for it.
+	response := httptest.NewRecorder()
+	port80.ServeHTTP(response, httptest.NewRequest(http.MethodGet,
+		"http://expressionstreet.com/.well-known/helix-domain-verify/tok123", nil))
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, "tok123", response.Body.String())
+
+	// Any other plain-HTTP request is redirected to HTTPS.
+	response = httptest.NewRecorder()
+	port80.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://expressionstreet.com/about?x=1", nil))
+	require.Equal(t, http.StatusPermanentRedirect, response.Code)
+	require.Equal(t, "https://expressionstreet.com/about?x=1", response.Header().Get("Location"))
+
+	// Over HTTPS the unverified route still refuses to serve the app.
+	mockStore.EXPECT().GetVHostRouteByHostname(gomock.Any(), "expressionstreet.com").Return(&types.VHostRoute{
+		Hostname:          "expressionstreet.com",
+		TargetKind:        types.VHostTargetProjectWebService,
+		TargetID:          "prj_web",
+		VerificationToken: "tok123",
+	}, nil)
+	response = httptest.NewRecorder()
+	NewVHostMiddleware(cfg, apiServer, router).ServeHTTP(response,
+		httptest.NewRequest(http.MethodGet, "https://expressionstreet.com/", nil))
+	require.Equal(t, http.StatusServiceUnavailable, response.Code)
+	require.Contains(t, response.Body.String(), "domain not yet verified")
 }

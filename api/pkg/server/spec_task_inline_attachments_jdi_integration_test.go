@@ -61,6 +61,8 @@ func TestFromPromptInlineAttachmentReachesJDIWorkspaceAndInteraction(t *testing.
 	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&user, nil).AnyTimes()
 	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{repository}, nil).AnyTimes()
 	mockStore.EXPECT().UpdateGitRepository(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockStore.EXPECT().MarkGitRepositorySyncStarted(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockStore.EXPECT().MarkGitRepositorySyncFinished(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	mockStore.EXPECT().IncrementGlobalTaskNumber(gomock.Any()).Return(3265, nil)
 
 	var createdTask *types.SpecTask

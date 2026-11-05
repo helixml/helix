@@ -130,6 +130,9 @@ type OrganizationInvitation struct {
 	// that consuming the invitation at register time can also materialise
 	// the access grant — the invitee then shows up in the project access
 	// list immediately, exactly as if they had been added directly.
+	// Despite the name, AppID is a generic resource ID: the shared access
+	// dialog passes an app, project (prj_…) or repository ID. Pending
+	// invitations are unique per (organization, email, app_id).
 	AppID      string         `json:"app_id,omitempty" gorm:"index"`
 	GrantRoles pq.StringArray `json:"grant_roles,omitempty" gorm:"type:text[];default:'{}'"`
 }
@@ -223,6 +226,10 @@ type AuthProvider string
 const (
 	AuthProviderRegular AuthProvider = "regular" // Embedded in Helix, no external dependencies
 	AuthProviderOIDC    AuthProvider = "oidc"
+	// AuthProviderService is a non-human account an admin creates for an
+	// orchestrator (POST /admin/service-accounts). It has no password and no
+	// IdP identity, so it can only act through the API keys minted for it.
+	AuthProviderService AuthProvider = "service"
 	// TODO: oauth github, google, etc
 )
 
@@ -242,6 +249,8 @@ type User struct {
 	// it authenticated with one. Carried so the auth middleware can apply the
 	// per-type restrictions (app keys: chat paths only; embed keys: one spec task).
 	APIKeyType APIKeyType `json:"api_key_type" gorm:"-"`
+	// EmbedInteractive: an embed key that may drive its bound session's desktop.
+	EmbedInteractive bool `json:"embed_interactive,omitempty" gorm:"-"`
 	// if the token is associated with an app
 	AppID          string `json:"app_id"`
 	ProjectID      string `json:"project_id" gorm:"-"`      // When running in Helix Code sandbox

@@ -17,6 +17,7 @@ package main
 
 import (
 	"flag"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -43,22 +44,23 @@ func main() {
 		handler.aliasTo = dns.CanonicalName(to)
 	}
 
-	server := &dns.Server{
-		Addr:    *listenAddr,
-		Net:     "udp",
-		Handler: handler,
+	log.Info().
+		Str("listen", *listenAddr).
+		Str("upstream", *upstream).
+		Msg("Starting DNS proxy")
+
+	// Serve TCP as well as UDP: a client that gets a truncated (TC) UDP reply
+	// retries over TCP, and with no TCP listener that retry fails outright.
+	var servers []*dns.Server
+	for _, network := range []string{"udp", "tcp"} {
+		server := &dns.Server{Addr: *listenAddr, Net: network, Handler: handler}
+		servers = append(servers, server)
+		go func() {
+			if err := server.ListenAndServe(); err != nil {
+				log.Fatal().Err(err).Str("net", network).Msg("DNS server failed")
+			}
+		}()
 	}
-
-	go func() {
-		log.Info().
-			Str("listen", *listenAddr).
-			Str("upstream", *upstream).
-			Msg("Starting DNS proxy")
-
-		if err := server.ListenAndServe(); err != nil {
-			log.Fatal().Err(err).Msg("DNS server failed")
-		}
-	}()
 
 	// Wait for shutdown signal
 	sig := make(chan os.Signal, 1)
@@ -66,7 +68,9 @@ func main() {
 	<-sig
 
 	log.Info().Msg("Shutting down DNS proxy")
-	server.Shutdown()
+	for _, server := range servers {
+		server.Shutdown()
+	}
 }
 
 type forwarder struct {
@@ -83,6 +87,8 @@ type forwarder struct {
 func (f *forwarder) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	c := new(dns.Client)
 	c.Timeout = 5 * time.Second
+	// Accept upstream replies of any size; fitResponse sizes them for the client.
+	c.UDPSize = dns.MaxMsgSize
 
 	// Rewrite an aliased question (e.g. outer-api -> api) before forwarding, and
 	// remember the original name so we can present the answer under the alias.
@@ -98,6 +104,12 @@ func (f *forwarder) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if exchange == nil {
 		exchange = func(query *dns.Msg, upstream string) (*dns.Msg, error) {
 			resp, _, err := c.Exchange(query, upstream)
+			if err == nil && resp.Truncated {
+				// Upstream couldn't fit the answer in UDP; fetch it in full.
+				tcp := *c
+				tcp.Net = "tcp"
+				resp, _, err = tcp.Exchange(query, upstream)
+			}
 			return resp, err
 		}
 	}
@@ -139,7 +151,39 @@ func (f *forwarder) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			Msg("DNS query forwarded")
 	}
 
+	_, isTCP := w.RemoteAddr().(*net.TCPAddr)
+	fitResponse(r, resp, isTCP)
 	w.WriteMsg(resp)
+}
+
+// fitResponse trims resp to what the client can receive: 64KiB over TCP,
+// otherwise the client's EDNS0 buffer size, or 512 bytes without EDNS0.
+// Relaying an oversized UDP reply makes strict clients (Docker's embedded
+// resolver among them) reject it with "buffer size too small" and SERVFAIL
+// the lookup, which happens when the host's resolver pads replies with
+// authority/additional records. Those records are optional, so they are shed
+// first; only if the answers alone still don't fit is the reply truncated
+// with TC set, telling the client to retry over TCP.
+func fitResponse(req, resp *dns.Msg, isTCP bool) {
+	size := dns.MinMsgSize
+	if isTCP {
+		size = dns.MaxMsgSize
+	} else if opt := req.IsEdns0(); opt != nil && int(opt.UDPSize()) > size {
+		size = int(opt.UDPSize())
+	}
+	resp.Compress = true
+	if resp.Len() <= size {
+		return
+	}
+	// miekg's Truncate sets TC if it drops any record at all, so drop the
+	// optional sections ourselves (keeping the OPT record) before calling it.
+	opt := resp.IsEdns0()
+	resp.Ns = nil
+	resp.Extra = nil
+	if opt != nil {
+		resp.Extra = []dns.RR{opt}
+	}
+	resp.Truncate(size)
 }
 
 func exchangeWithAPIAddressRetry(query *dns.Msg, upstream string, exchange func(*dns.Msg, string) (*dns.Msg, error), retries int, retryWait time.Duration) (*dns.Msg, error) {

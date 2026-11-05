@@ -71,11 +71,15 @@ func (n *Nats) ConsumeDurable(ctx context.Context, streamName, consumerName, sub
 				}
 				return
 			}
-			numDelivered := uint64(1)
-			if metadata, err := msg.Metadata(); err == nil {
-				numDelivered = metadata.NumDelivered
+			metadata, err := msg.Metadata()
+			if err != nil || metadata == nil || metadata.Sequence.Stream == 0 {
+				log.Error().Err(err).Str("consumer", consumerName).Msg("durable consumer message metadata unavailable")
+				if nakErr := msg.NakWithDelay(time.Second); nakErr != nil {
+					log.Error().Err(nakErr).Str("consumer", consumerName).Msg("durable consumer metadata retry failed")
+				}
+				continue
 			}
-			if err := handler(&Message{Data: msg.Data(), Header: msg.Headers(), NumDelivered: numDelivered, msg: msg}); err != nil {
+			if err := handler(&Message{Data: msg.Data(), Header: msg.Headers(), NumDelivered: metadata.NumDelivered, Sequence: metadata.Sequence.Stream, msg: msg}); err != nil {
 				log.Error().Err(err).Str("consumer", consumerName).Msg("durable consumer handler failed")
 			}
 		}

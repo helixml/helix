@@ -244,6 +244,19 @@ func (s *PostgresStore) DismissAttentionEventsForTask(ctx context.Context, specT
 	return result.RowsAffected, nil
 }
 
+// DismissAttentionEventByKey dismisses the undismissed event with the given
+// idempotency key, e.g. a PR proposal's approval request once it is decided.
+func (s *PostgresStore) DismissAttentionEventByKey(ctx context.Context, idempotencyKey string) error {
+	if idempotencyKey == "" {
+		return fmt.Errorf("idempotency key is required")
+	}
+	now := time.Now()
+	return s.gdb.WithContext(ctx).
+		Model(&types.AttentionEvent{}).
+		Where("idempotency_key = ? AND dismissed_at IS NULL", idempotencyKey).
+		Update("dismissed_at", &now).Error
+}
+
 // CleanupExpiredAttentionEvents deletes dismissed events older than the given duration.
 func (s *PostgresStore) CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-olderThan)

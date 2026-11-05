@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -387,6 +388,16 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 		orgID = user.OrganizationID
 	}
 
+	// Without an org or project scope the list is confined to the caller's
+	// own repositories; only admins may list across tenants.
+	if orgID == "" && projectID == "" && !isAdmin(user) {
+		if ownerID != "" && ownerID != user.ID {
+			writeErrResponse(w, errors.New("cannot list another user's repositories"), http.StatusForbidden)
+			return
+		}
+		ownerID = user.ID
+	}
+
 	var orgMembership *types.OrganizationMembership
 	if orgID != "" {
 		var err error
@@ -434,20 +445,26 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 		repositories = filtered
 	}
 
-	// For org-scoped queries, filter repositories by authorization
-	// Org owners see all, others only see repos they have access to
-	if orgID != "" && orgMembership != nil && orgMembership.Role != types.OrganizationRoleOwner {
-		var authorizedRepos []*types.GitRepository
-		for _, repo := range repositories {
-			if err := s.authorizeUserToRepository(ctx, user, repo, types.ActionGet); err != nil {
-				continue
-			}
-			authorizedRepos = append(authorizedRepos, repo)
-		}
-		repositories = authorizedRepos
+	// Org owners see every repository in their org. Owner-scoped lists are
+	// filtered too, so repositories in orgs the caller has left drop out.
+	isOrgOwner := orgMembership != nil && orgMembership.Role == types.OrganizationRoleOwner
+	if !isAdmin(user) && !isOrgOwner && (orgID != "" || projectID == "") {
+		repositories = s.filterReadableRepositories(ctx, user, repositories)
 	}
 
 	writeResponseWithETag(w, r, redactGitRepositories(repositories))
+}
+
+// filterReadableRepositories returns the repositories the user may read.
+func (s *HelixAPIServer) filterReadableRepositories(ctx context.Context, user *types.User, repositories []*types.GitRepository) []*types.GitRepository {
+	readable := make([]*types.GitRepository, 0, len(repositories))
+	for _, repo := range repositories {
+		if err := s.authorizeUserToRepository(ctx, user, repo, types.ActionGet); err != nil {
+			continue
+		}
+		readable = append(readable, repo)
+	}
+	return readable
 }
 
 // createSampleRepository creates a sample/demo repository
@@ -1836,7 +1853,7 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 		ghClient := github.NewClientWithPATAndBaseURL(request.Token, request.BaseURL)
 
 		// Validate token scopes before listing repos. Classic PATs with no scopes
-		// or missing 'repo' can still list public repos, but Helix needs write access.
+		// or missing scopes can still list public repos, but Helix needs write access.
 		_, scopes, scopeHeaderPresent, err := ghClient.GetAuthenticatedUserWithScopes(ctx)
 		if err != nil {
 			if isAuthenticationError(err) {
@@ -1847,36 +1864,12 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 			http.Error(w, "Failed to validate GitHub token. Please try again.", http.StatusInternalServerError)
 			return
 		}
-		if !scopeHeaderPresent {
-			// Fine-grained PATs don't return X-OAuth-Scopes so we can't validate
-			// their permissions. Reject them and ask for a classic token.
-			http.Error(w, "Fine-grained GitHub tokens are not supported. Helix requires a classic token with the 'repo' scope. Please create one at https://github.com/settings/tokens", http.StatusBadRequest)
-			return
-		}
-		if len(scopes) == 0 {
-			http.Error(w, "GitHub token has no scopes. Helix requires the 'repo' scope for full repository access. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens", http.StatusBadRequest)
-			return
-		}
-		hasRepo := false
-		for _, s := range scopes {
-			if s == "repo" {
-				hasRepo = true
-				break
-			}
-		}
-		if !hasRepo {
-			http.Error(w, fmt.Sprintf("GitHub token is missing required scope 'repo'. Your token has scopes: %s. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens", strings.Join(scopes, ", ")), http.StatusBadRequest)
+		if err := githubPATScopeError(scopes, scopeHeaderPresent); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		hasReadOrg := false
-		for _, s := range scopes {
-			if s == "read:org" {
-				hasReadOrg = true
-				break
-			}
-		}
-		if !hasReadOrg {
+		if !slices.Contains(scopes, "read:org") {
 			log.Warn().Strs("scopes", scopes).Msg("GitHub PAT missing 'read:org' scope — organization repo listing may be incomplete")
 		}
 

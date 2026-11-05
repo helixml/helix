@@ -2,6 +2,7 @@ package mcptools
 
 import (
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
@@ -142,6 +143,10 @@ func DefaultBotTools() []tool.Name {
 		GetAssetName,
 	}
 	standard = append(standard, SpecTaskAgentTools...)
+	// Bots may open PRs for and complete the tasks they manage; spec-task
+	// agents may not (see SpecTaskBlockedTools), so these sit outside
+	// SpecTaskAgentTools.
+	standard = append(standard, CreateSpecTaskPRsName, CompleteSpecTaskName)
 	return MergeBaseReadTools(standard)
 }
 
@@ -151,22 +156,25 @@ func MergeDefaultBotTools(existing []tool.Name) []tool.Name {
 	return nodes.MergeTools(existing, DefaultBotTools())
 }
 
-// HasNonDefaultBotTool reports whether tools requests any capability outside
-// the standard worker surface. Granting such a capability is an organization
-// administration action even when the caller does not request the complete
-// OwnerBotTools set.
-func HasNonDefaultBotTool(tools []tool.Name) bool {
-	defaultTools := DefaultBotTools()
-	defaults := make(map[tool.Name]struct{}, len(defaultTools))
-	for _, name := range defaultTools {
-		defaults[name] = struct{}{}
+type organizationManager interface {
+	CanManageOrganization() bool
+}
+
+type toolGrantCeiling interface {
+	ToolGrantCeiling() []tool.Name
+}
+
+// CallerGrantor combines the authenticated user's organization authority
+// with the Bot or instance capability ceiling carried by the MCP caller.
+func CallerGrantor(c tool.Caller) nodes.Grantor {
+	g := nodes.Grantor{Bot: orgchart.NodeID(c.ID())}
+	if manager, ok := c.(organizationManager); ok {
+		g.Admin = manager.CanManageOrganization()
 	}
-	for _, name := range tools {
-		if _, ok := defaults[name]; !ok {
-			return true
-		}
+	if ceiling, ok := c.(toolGrantCeiling); ok {
+		g.ToolCeiling = ceiling.ToolGrantCeiling()
 	}
-	return false
+	return g
 }
 
 // SpecTaskAgentTools is the catalogue offered to a spec task's coding agent —
@@ -191,7 +199,6 @@ var SpecTaskAgentTools = []tool.Name{
 	ReviewSpecTaskSpecName,
 	ApproveSpecTaskSpecName,
 	RequestSpecTaskChangesName,
-	CreateSpecTaskPRsName,
 }
 
 // IsSpecTaskAgentTool reports whether name is in SpecTaskAgentTools.
@@ -218,6 +225,12 @@ var SpecTaskBlockedTools = []tool.Name{
 	LinkAssetName, UnlinkAssetName,
 	CreateSandboxName, UpdateSandboxName, DeleteSandboxName,
 	SandboxSSHAccessName,
+	// A spec task's PRs open only from proposals its user approved
+	// (propose_pull_request); this tool would open them without approval.
+	CreateSpecTaskPRsName,
+	// A task finishes when its user confirms the agent's mark_task_complete
+	// request; this tool would finish it without asking.
+	CompleteSpecTaskName,
 }
 
 func IsSpecTaskBlockedTool(name tool.Name) bool {

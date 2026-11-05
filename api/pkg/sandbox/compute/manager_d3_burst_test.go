@@ -37,6 +37,7 @@ func TestD3DoesNotDoubleProvisionWhileFirstStillBooting(t *testing.T) {
 		ReconcileInterval:       10 * time.Millisecond,
 		HealthCheckTimeout:      100 * time.Millisecond,
 		IdleTimeout:             time.Hour, // disable D4 noise
+		SpecTemplate:            Spec{MaxSandboxes: 2},
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)

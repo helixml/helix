@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import OrgApiKeys from './OrgApiKeys'
 
@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   delete: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
-  apiKeys: [] as Array<{ key: string; name: string }>,
+  apiKeys: [] as Array<{ id: string; key_prefix?: string; name: string; owner?: string }>,
 }))
 
 vi.mock('../hooks/useAccount', () => ({
@@ -42,8 +42,6 @@ vi.mock('../components/widgets/ApiCodeExamples', () => ({
   default: () => null,
 }))
 
-const originalSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
-
 describe('OrgApiKeys', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -52,14 +50,6 @@ describe('OrgApiKeys', () => {
       name: 'CI',
     })
     mocks.apiKeys = []
-  })
-
-  afterEach(() => {
-    if (originalSecureContext) {
-      Object.defineProperty(window, 'isSecureContext', originalSecureContext)
-    } else {
-      Reflect.deleteProperty(window, 'isSecureContext')
-    }
   })
 
   it('shows the created key and accurate CLI authentication instructions', async () => {
@@ -78,21 +68,18 @@ describe('OrgApiKeys', () => {
     expect(screen.getByText(/there is no separate login command/i)).toBeInTheDocument()
   })
 
-  it('copies an organization key on an insecure HTTP origin', async () => {
-    const execCommand = vi.fn().mockReturnValue(true)
-    Object.defineProperty(window, 'isSecureContext', {
-      configurable: true,
-      value: false,
-    })
-    Object.defineProperty(document, 'execCommand', {
-      configurable: true,
-      value: execCommand,
-    })
-    mocks.apiKeys = [{ key: 'hl-organization-key', name: 'CI' }]
+  it('lists keys by prefix only and deletes by id', async () => {
+    mocks.apiKeys = [{ id: 'key_abc', key_prefix: 'hl-AbCd', name: 'CI', owner: 'user_2' }]
+    mocks.delete.mockResolvedValue(undefined)
 
     render(<OrgApiKeys />)
-    fireEvent.click(screen.getByRole('button', { name: 'Copy API key' }))
+    expect(screen.getByText('hl-AbCd...')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Copy API key' })).not.toBeInTheDocument()
 
-    await waitFor(() => expect(execCommand).toHaveBeenCalledWith('copy'))
+    fireEvent.click(screen.getByTestId('MoreVertIcon').closest('button')!)
+    fireEvent.click(screen.getByText('Delete'))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(mocks.delete).toHaveBeenCalledWith('key_abc'))
   })
 })

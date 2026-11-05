@@ -180,9 +180,43 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 		return
 	}
 
+	if err := apiServer.approveWaitlistedOrgMember(r.Context(), newMember, user, orgID); err != nil {
+		log.Err(err).Str("user_id", newMember.ID).Msg("error approving waitlisted user added to organization")
+		http.Error(rw, "Could not approve waitlisted user; member was not added: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	writeResponse(rw, &types.AddOrganizationMemberResponse{
 		Membership: membership,
 	}, http.StatusCreated)
+}
+
+// approveWaitlistedOrgMember is called after an org owner has added an existing
+// user to their org (directly, or implicitly by granting project/repository
+// access). That is a vouch, exactly like an invitation consumed at sign-up: a
+// waitlisted user is taken off the waitlist and skips the onboarding wizard
+// (they now have an org). No-op for users who aren't waitlisted. Callers must
+// only invoke it once this request has created the membership, so a failed add
+// approves no one. If approval fails, that membership is removed again so the
+// owner's retry takes the same path instead of finding an existing (and still
+// waitlisted) member.
+func (apiServer *HelixAPIServer) approveWaitlistedOrgMember(ctx context.Context, member *types.User, owner *types.User, orgID string) error {
+	if !member.Waitlisted {
+		return nil
+	}
+	if !member.OnboardingCompleted {
+		member.OnboardingCompleted = true
+		member.OnboardingCompletedAt = time.Now()
+	}
+	_, err := apiServer.approveWaitlistedUser(ctx, member, owner, "org_invitation:"+orgID)
+	if err == nil {
+		return nil
+	}
+	if delErr := apiServer.Store.DeleteOrganizationMembership(ctx, orgID, member.ID); delErr != nil {
+		log.Error().Err(delErr).Str("org_id", orgID).Str("user_id", member.ID).
+			Msg("failed to roll back organization membership after waitlist approval failed")
+	}
+	return err
 }
 
 // createOrganizationInvitation persists the invitation row and sends an
@@ -329,6 +363,7 @@ func (apiServer *HelixAPIServer) publicInvitationInfo(rw http.ResponseWriter, r 
 // @Tags    organizations
 // @Success 200 {object} types.OrgUserLookupResponse
 // @Param email query string true "Email to look up"
+// @Param app_id query string false "Only report a pending invitation for this app/project (project access dialogs). Omit to report any pending invitation in the org."
 // @Router /api/v1/organizations/{id}/users/lookup [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) lookupOrgUser(rw http.ResponseWriter, r *http.Request) {
@@ -384,17 +419,22 @@ func (apiServer *HelixAPIServer) lookupOrgUser(rw http.ResponseWriter, r *http.R
 	// exists — an admin may have invited someone who then created a Helix
 	// account elsewhere, in which case both Exists and IsInvited can be
 	// true and we want the UI to know about the dangling invitation.
-	pending, err := apiServer.Store.GetOrganizationInvitation(r.Context(), &store.GetOrganizationInvitationQuery{
+	// Invitations are per (org, email, app), so a project dialog passes its
+	// app_id: an invitation to a different project doesn't block inviting the
+	// same person here too.
+	pending, err := apiServer.Store.ListOrganizationInvitations(r.Context(), &store.ListOrganizationInvitationsQuery{
 		OrganizationID: orgID,
 		Email:          emailLower,
+		AppID:          r.URL.Query().Get("app_id"),
 	})
-	if err == nil && pending != nil {
-		resp.IsInvited = true
-		resp.InvitationID = pending.ID
-	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+	if err != nil {
 		log.Err(err).Msg("error checking pending invitation during lookup")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if len(pending) > 0 {
+		resp.IsInvited = true
+		resp.InvitationID = pending[0].ID
 	}
 
 	writeResponse(rw, resp, http.StatusOK)

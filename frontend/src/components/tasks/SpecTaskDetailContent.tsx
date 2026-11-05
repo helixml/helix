@@ -41,6 +41,7 @@ import LinkIcon from "@mui/icons-material/Link";
 import AccountTree from "@mui/icons-material/AccountTree";
 import {
   TypesCodeAgentOverrides,
+  TypesSandboxDisplay,
   TypesSandboxResourceOverrides,
   TypesSandboxRuntime,
   TypesSpecTaskStatus,
@@ -67,8 +68,10 @@ import useRouter from "../../hooks/useRouter";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
+import { readResponseError } from "../../utils/responseError";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
-import { deriveDisplaySettings } from "../../services/externalAgentDisplay";
+import { deriveDisplaySettings, sandboxResolutionLabel } from "../../services/externalAgentDisplay";
+import { useNativeDisplay } from "../../hooks/useNativeDisplay";
 import { useStreaming } from "../../contexts/streaming";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import {
@@ -138,6 +141,7 @@ import {
   PanelRight,
   Wand2,
   Share,
+  Flag,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -166,6 +170,20 @@ import {
   saveSpecTaskTerminalDrawerState,
 } from "./specTaskTerminalDrawerState";
 import { useDesignReviews } from "../../services/designReviewService";
+import {
+  ACTIONABLE_PR_PROPOSAL_STATUSES,
+  projectHasPullRequests,
+  proposalsToReveal,
+  useSpecTaskPRProposals,
+} from "../../services/specTaskPRProposalService";
+import PRProposalCard from "./PRProposalCard";
+import CompletionRequestCard from "./CompletionRequestCard";
+import MarkDoneDialog from "./MarkDoneDialog";
+import {
+  canMarkDone,
+  completionRequestKey,
+  openPullRequestCount,
+} from "../../services/specTaskCompletionService";
 import {
   isSpecTaskPlanningWorkspace,
   shouldLoadSpecTaskDesignReviews,
@@ -222,8 +240,6 @@ interface SpecTaskDetailContentProps {
   initialView?: TaskView;
   /** Keep standalone task content inset while allowing sibling drawers to span the workspace. */
   padContent?: boolean;
-  /** Whether tasks awaiting spec review should open the review automatically. */
-  autoOpenReview?: boolean;
   /** Replace route close with reversible content-panel collapse. */
   allowContentCollapse?: boolean;
   /** Poll GitHub while this task is visible. Disabled for read-only embeds. */
@@ -238,18 +254,36 @@ interface SpecTaskDetailContentProps {
    * visible instances mirror the same URL param.
    */
   syncViewWithUrl?: boolean;
+  /**
+   * Hide everything that operates the TASK (accept, start/stop/restart the
+   * desktop, the actions menu, the terminal). For embeds whose viewer may chat
+   * and watch or drive the desktop but not manage the task — an embed key
+   * cannot, so those controls would only fail.
+   */
+  hideControls?: boolean;
 }
+
+// What hideControls switches off on the view toolbar.
+const embedControlOverrides = {
+  showStart: false,
+  showStop: false,
+  showRestart: false,
+  showKeepAlive: false,
+  showUpload: false,
+  renderMenuItems: undefined,
+  onToggleTerminal: undefined,
+};
 
 const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
   initialView,
   padContent = false,
-  autoOpenReview = true,
   allowContentCollapse = false,
   enableForegroundPRRefresh = true,
   onClose,
   onTaskArchived,
   syncViewWithUrl = true,
+  hideControls = false,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
@@ -390,6 +424,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [assigneeAnchorEl, setAssigneeAnchorEl] = useState<HTMLElement | null>(null);
   const orgMembers = account.organizationTools.organization?.memberships || [];
   const assignedUser = resolveOrganizationUser(task?.assignee_id, orgMembers, account.user);
+  const autoApprover = resolveOrganizationUser(
+    task?.auto_approve_pull_requests_by,
+    orgMembers,
+    account.user,
+  );
 
   // Start planning state - prevents double-click
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
@@ -486,7 +525,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     );
   }, [updateExecutionConfig, snackbar]);
 
-  const displaySettings = useMemo(() => deriveDisplaySettings(undefined), []);
+  const nativeDisplay = useNativeDisplay();
+  const displayResolution = task?.sandbox_display?.resolution;
+  const displaySettings = useMemo(
+    () => deriveDisplaySettings({ resolution: displayResolution }, nativeDisplay),
+    [displayResolution, nativeDisplay],
+  );
 
   // Check the task-owned execution config for Claude subscription credentials.
 
@@ -615,6 +659,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // (auto-open tracking is handled by sessionStorage so it persists across page refreshes)
 
+  const [markDoneOpen, setMarkDoneOpen] = useState(false);
   // Clone dialog state
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [selectedCloneGroupId, setSelectedCloneGroupId] = useState<
@@ -980,10 +1025,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
     setIsStartingPlanning(true);
     try {
-      const { keyboardLayout, timezone, isOverridden } = getBrowserLocale();
+      const { keyboardLayout, timezone, languages, isOverridden } = getBrowserLocale();
       const queryParams = new URLSearchParams();
       if (keyboardLayout) queryParams.set("keyboard", keyboardLayout);
       if (timezone) queryParams.set("timezone", timezone);
+      if (languages) queryParams.set("languages", languages);
       const queryString = queryParams.toString();
       const url = `/api/v1/spec-tasks/${task.id}/start-planning${queryString ? `?${queryString}` : ""}`;
 
@@ -997,7 +1043,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         credentials: "include",
       });
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await readResponseError(response);
         // Open the matching provider connection flow on OAuth enforcement.
         if (
           response.status === 422 &&
@@ -1033,7 +1079,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         throw new Error(
           errorData.message ||
             errorData.error ||
-            `Failed to start planning: ${response.statusText}`,
+            `Failed to start planning: ${response.statusText || `HTTP ${response.status}`}`,
         );
       }
 
@@ -1088,6 +1134,41 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       setIsRestarting(false);
     }
   }, [activeSessionId, isRestarting, api, snackbar, queryClient]);
+
+  // The desktop size is fixed when the container starts, so changing it on a
+  // running desktop asks before restarting rather than silently doing nothing.
+  const [pendingSandboxDisplay, setPendingSandboxDisplay] = useState<TypesSandboxDisplay | null>(null);
+  const saveSandboxDisplay = useCallback(async (sandboxDisplay: TypesSandboxDisplay) => {
+    await updateExecutionConfig.mutateAsync({ sandbox_display: sandboxDisplay });
+  }, [updateExecutionConfig]);
+  const handleSandboxDisplayChange = useCallback(async (sandboxDisplay: TypesSandboxDisplay) => {
+    if (isDesktopRunning) {
+      setPendingSandboxDisplay(sandboxDisplay);
+      return;
+    }
+    try {
+      await saveSandboxDisplay(sandboxDisplay);
+      snackbar.success(`Display set to ${sandboxResolutionLabel(sandboxDisplay, nativeDisplay)}; applies when the desktop starts`);
+    } catch (err: any) {
+      snackbar.error(err?.message || "Failed to update display");
+    }
+  }, [isDesktopRunning, saveSandboxDisplay, snackbar, nativeDisplay]);
+  const applyPendingSandboxDisplay = useCallback(async (restartNow: boolean) => {
+    if (!pendingSandboxDisplay) return;
+    const sandboxDisplay = pendingSandboxDisplay;
+    setPendingSandboxDisplay(null);
+    try {
+      await saveSandboxDisplay(sandboxDisplay);
+    } catch (err: any) {
+      snackbar.error(err?.message || "Failed to update display");
+      return;
+    }
+    if (restartNow) {
+      await handleRestartSession();
+    } else {
+      snackbar.success(`Display set to ${sandboxResolutionLabel(sandboxDisplay, nativeDisplay)}; applies on the next desktop restart`);
+    }
+  }, [pendingSandboxDisplay, saveSandboxDisplay, handleRestartSession, snackbar, nativeDisplay]);
 
   // Handle session stop
   const handleStopSession = useCallback(async () => {
@@ -1292,14 +1373,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   };
 
-  // Auto-open spec review when enabled and the task is ready for review.
-  // The Chat task route disables this so selecting a task preserves the Chat context.
+  // Auto-open spec review when the task is ready for review.
   // The sessionStorage marker limits auto-open to once per SPA session/task.
   // The spec_approved_at guard prevents bouncing the user back to the review page in the
   // brief window between approval and the cached task.status transitioning away from spec_review.
   useEffect(() => {
     if (
-      autoOpenReview &&
       task?.id &&
       !getAutoOpenedSpecTasks().has(task.id) &&
       !task?.spec_approved_at &&
@@ -1316,7 +1395,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       }
     }
   }, [
-    autoOpenReview,
     syncViewWithUrl,
     task?.id,
     task?.status,
@@ -1467,7 +1545,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     variant: "inline" | "stacked",
     density: ToolbarDensity = "comfortable",
   ) => {
-    if (!task) return null;
+    if (!task || hideControls) return null;
 
     return (
       <SpecTaskActionButtons
@@ -1485,6 +1563,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           planning_session_id: task.planning_session_id,
           metadata: task.metadata as { error?: string },
           last_push_at: task.last_push_at,
+          merged_at: task.merged_at,
+          completed_at: task.completed_at,
           rebase_requested_at: task.rebase_requested_at,
           sandbox_state: task.sandbox_state,
         }}
@@ -1496,9 +1576,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             repository.external_type ||
             repository.external_url,
         )}
-        externalRepoType={projectRepositories.find(
-          (repository) => repository.external_type,
-        )?.external_type}
         isStartingPlanning={isStartingPlanning}
         onUnarchive={performUnarchive}
         isUnarchiving={isUnarchiving}
@@ -2011,6 +2088,49 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         />
       </Box>
 
+      {/* Pull request auto-approval (external repositories only) */}
+      {projectHasPullRequests(projectRepositories) && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            Pull requests
+          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="body2">Auto-approve pull requests</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {task?.auto_approve_pull_requests
+                  ? `The agent's proposals open without asking, using ${
+                      autoApprover?.full_name || autoApprover?.email || "the approver"
+                    }'s credentials, and the task is marked done as soon as the agent says it is finished.`
+                  : "You're asked to approve each pull request the agent proposes, and to confirm when it says the task is finished."}
+              </Typography>
+            </Box>
+            <Switch
+              checked={!!task?.auto_approve_pull_requests}
+              disabled={updateSpecTask.isPending || !isTaskDetailsEditable}
+              inputProps={{ "aria-label": "Auto-approve pull requests" }}
+              onChange={async (e) => {
+                if (!task?.id) return;
+                const enabled = e.target.checked;
+                try {
+                  await updateSpecTask.mutateAsync({
+                    taskId: task.id,
+                    updates: { auto_approve_pull_requests: enabled },
+                  });
+                  snackbar.success(
+                    enabled
+                      ? "Pull requests will be approved without asking"
+                      : "You'll be asked to approve each pull request",
+                  );
+                } catch {
+                  snackbar.error("Failed to update pull request approval");
+                }
+              }}
+            />
+          </Box>
+        </Box>
+      )}
+
       {/* Phase agent selection */}
       <Box sx={{ mb: 2 }}>
         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
@@ -2020,10 +2140,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           value={task?.planning_code_agent_config || task?.code_agent_config}
           sandboxResourceOverrides={task?.sandbox_resource_overrides}
           sandboxRuntime={task?.sandbox_runtime}
+          sandboxDisplay={task?.sandbox_display}
           onChange={(config) =>
             updatePhaseAgentConfig("planning", config)
           }
           onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+          onSandboxDisplayChange={handleSandboxDisplayChange}
           disabled={updateExecutionConfig.isPending || !!task?.archived}
           grouped
         />
@@ -2452,6 +2574,55 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     </Box>
   );
 
+  // Pull requests open only from agent proposals the user approves; the ones
+  // still awaiting a decision (or a retry) sit above the composer.
+  const { data: prProposals } = useSpecTaskPRProposals(task?.id);
+  const actionablePRProposals = hideControls
+    ? []
+    : (prProposals ?? []).filter((p) =>
+        ACTIONABLE_PR_PROPOSAL_STATUSES.has(p.status ?? ""),
+      );
+  // A proposal waiting on the user is only visible in the chat panel, so open
+  // it (or switch to the Chat tab) once per new proposal. Once per proposal,
+  // so a user who collapses the panel again is not fought on every poll.
+  // The agent's request to finish the task is revealed the same way.
+  const revealedProposalIdsRef = useRef<Set<string>>(new Set());
+  const pendingCompletionKey = completionRequestKey(task, hideControls);
+  const proposalsToRevealKey = [
+    ...proposalsToReveal(prProposals ?? [], revealedProposalIdsRef.current, hideControls),
+    ...(pendingCompletionKey && !revealedProposalIdsRef.current.has(pendingCompletionKey)
+      ? [pendingCompletionKey]
+      : []),
+  ].join(",");
+  useEffect(() => {
+    if (!proposalsToRevealKey) return;
+    proposalsToRevealKey
+      .split(",")
+      .forEach((id) => revealedProposalIdsRef.current.add(id));
+    if (isBigScreen) {
+      setChatCollapsed(false); // restores the split: chat sits on the left
+    } else {
+      handleViewChange("chat");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposalsToRevealKey]);
+
+  const prProposalHeader =
+    task?.id && (actionablePRProposals.length > 0 || pendingCompletionKey) ? (
+      <>
+        {actionablePRProposals.map((proposal) => (
+          <PRProposalCard key={proposal.id} specTaskId={task.id!} proposal={proposal} />
+        ))}
+        {pendingCompletionKey && (
+          <CompletionRequestCard
+            specTaskId={task.id}
+            summary={task.completion_request_summary ?? ""}
+            openPullRequests={openPullRequestCount(task)}
+          />
+        )}
+      </>
+    ) : undefined;
+
   // Project, repo and branch are reference, not controls, and on a phone they
   // cost a whole row directly under the composer — where the space is worth
   // more to the message being written. They stay one tap away in Details.
@@ -2494,6 +2665,22 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             <Wand2 size={18} />
           </ListItemIcon>
           <ListItemText>Clone Task</ListItemText>
+        </MenuItem>,
+      );
+    }
+    if (task && canMarkDone(task)) {
+      items.push(
+        <MenuItem
+          key="mark-done"
+          onClick={() => {
+            closeMenu();
+            setMarkDoneOpen(true);
+          }}
+        >
+          <ListItemIcon>
+            <Flag size={18} />
+          </ListItemIcon>
+          <ListItemText>Mark done</ListItemText>
         </MenuItem>,
       );
     }
@@ -2719,15 +2906,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   leadingActions={(
                     <CodeAgentExecutionControls
                       value={currentExecutionConfig?.code_agent_config || task.code_agent_config}
+                      interactiveEmbedTaskId={hideControls ? task.id : undefined}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       sandboxRuntime={task.sandbox_runtime}
+                      sandboxDisplay={task.sandbox_display}
                       onChange={(config) => handleAgentModelChange("", {}, config)}
                       onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+                      onSandboxDisplayChange={handleSandboxDisplayChange}
                       disabled={updateExecutionConfig.isPending}
                       compact
                     />
                   )}
                   footerContent={taskChatMetadata}
+                  actionCards={prProposalHeader}
                   placeholder={
                     sessionData?.config?.paused
                       ? "This session is paused — open the forked child to keep chatting"
@@ -2815,6 +3006,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     allowContentCollapse ? collapseContentPanel : undefined
                   }
                   onClosePanel={allowContentCollapse ? undefined : onClose}
+                  {...(hideControls ? embedControlOverrides : {})}
                 />
 
                 {/* In split-view layout, "chat" falls through to desktop since chat
@@ -2981,6 +3173,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 onClosePanel={
                   allowContentCollapse && isBigScreen ? undefined : onClose
                 }
+                {...(hideControls ? embedControlOverrides : {})}
               />
             )}
 
@@ -3059,15 +3252,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   leadingActions={(
                     <CodeAgentExecutionControls
                       value={currentExecutionConfig?.code_agent_config || task.code_agent_config}
+                      interactiveEmbedTaskId={hideControls ? task.id : undefined}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       sandboxRuntime={task.sandbox_runtime}
+                      sandboxDisplay={task.sandbox_display}
                       onChange={(config) => handleAgentModelChange("", {}, config)}
                       onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+                      onSandboxDisplayChange={handleSandboxDisplayChange}
                       disabled={updateExecutionConfig.isPending}
                       compact
                     />
                   )}
                   footerContent={taskChatMetadata}
+                  actionCards={prProposalHeader}
                   placeholder={
                     sessionData?.config?.paused
                       ? "This session is paused — open the forked child to keep chatting"
@@ -3240,6 +3437,37 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         />
       )}
 
+      {/* Display change on a running desktop */}
+      <Dialog
+        open={!!pendingSandboxDisplay}
+        onClose={() => setPendingSandboxDisplay(null)}
+      >
+        <DialogTitle>
+          Restart the desktop to switch to {sandboxResolutionLabel(pendingSandboxDisplay || undefined, nativeDisplay)}?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            The desktop resolution is set when the desktop starts. Restarting
+            stops the current agent container and starts a fresh one; any
+            unsaved files in the sandbox may be lost. Choose Later to apply it
+            on the next restart instead.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPendingSandboxDisplay(null)}>Cancel</Button>
+          <Button onClick={() => void applyPendingSandboxDisplay(false)}>Later</Button>
+          <Button
+            onClick={() => void applyPendingSandboxDisplay(true)}
+            color="warning"
+            variant="contained"
+            disabled={isRestarting}
+            startIcon={<RestartAltIcon />}
+          >
+            Restart now
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Restart Session Confirmation */}
       <Dialog
         open={restartConfirmOpen}
@@ -3292,6 +3520,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
+
+      <MarkDoneDialog
+        open={markDoneOpen}
+        onClose={() => setMarkDoneOpen(false)}
+        taskId={task.id || ""}
+        openPullRequests={openPullRequestCount(task)}
+      />
 
       {/* Clone Task Dialog */}
       <CloneTaskDialog

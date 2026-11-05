@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // defaultMaxPromptQueueRetries bounds how many times the queue will auto-retry a
@@ -163,6 +164,17 @@ func (s *PostgresStore) CreatePromptHistoryEntry(ctx context.Context, entry *typ
 		return fmt.Errorf("prompt history entry SessionID is required")
 	}
 	return s.gdb.WithContext(ctx).Create(entry).Error
+}
+
+func (s *PostgresStore) CreatePromptHistoryEntryIfAbsent(ctx context.Context, entry *types.PromptHistoryEntry) (bool, error) {
+	if entry.ID == "" {
+		return false, fmt.Errorf("prompt history entry ID is required")
+	}
+	if entry.SessionID == "" {
+		return false, fmt.Errorf("prompt history entry SessionID is required")
+	}
+	result := s.gdb.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(entry)
+	return result.RowsAffected == 1, result.Error
 }
 
 // GetPromptHistoryEntry returns a single prompt history entry by ID

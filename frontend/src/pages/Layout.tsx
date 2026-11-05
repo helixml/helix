@@ -19,7 +19,7 @@ import { useDetectLocalProviders, useListProviders } from "../services/providers
 import Sidebar from "../components/system/Sidebar";
 import ProjectChatSidebar from "../components/session/ProjectChatSidebar";
 import FilesSidebar from "../components/files/FilesSidebar";
-import AdminPanelSidebar from "../components/admin/AdminPanelSidebar";
+import AdminPanelLayout from "../components/admin/AdminPanelLayout";
 import OrgSidebar from "../components/orgs/OrgSidebar";
 import AppSidebar from "../components/app/AppSidebar";
 import ProjectSettingsSidebar from "../components/project/ProjectSettingsSidebar";
@@ -152,24 +152,14 @@ const SettingsDialogs: FC = () => {
         onClose={closeDialog}
         title="Admin Panel"
       >
-        <Box sx={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-          <Box sx={{
-            width: 240,
-            flexShrink: 0,
-            borderRight: '1px solid rgba(255, 255, 255, 0.1)',
-            overflowY: 'auto',
-          }}>
-            <AdminPanelSidebar activeTab={adminTab} onTabChange={handleAdminTabChange} />
-          </Box>
-          <Box sx={{ flex: 1, overflow: 'auto' }}>
-            <Dashboard
-              tab={adminTab}
-              initialSessionFilter={dialogOptions.sessionFilter}
-              providerId={adminProviderId}
-              onProviderChange={handleAdminProviderChange}
-            />
-          </Box>
-        </Box>
+        <AdminPanelLayout activeTab={adminTab} onTabChange={handleAdminTabChange}>
+          <Dashboard
+            tab={adminTab}
+            initialSessionFilter={dialogOptions.sessionFilter}
+            providerId={adminProviderId}
+            onProviderChange={handleAdminProviderChange}
+          />
+        </AdminPanelLayout>
       </FullScreenDialog>
       <FullScreenDialog
         open={activeDialog === 'connected-services'}
@@ -521,7 +511,7 @@ const Layout: FC<{
   const isProjectsIndex =
     router.name === "org_projects" &&
     (!router.params.tab || router.params.tab === "projects");
-  const isConversationRoute = ["org_chat", "org_chat-task", "org_session", "org_bot_session", "org_new"].includes(
+  const isConversationRoute = ["org_project-new", "org_chat-task", "org_session", "org_bot_session", "org_new"].includes(
     router.name,
   );
   const routedAgent = router.params.app_id

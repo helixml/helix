@@ -70,6 +70,8 @@ If `FRONTEND_URL=/www` in `.env`, frontend is served from `./frontend/dist:/www:
 **NEVER `rm -rf frontend/dist`** — breaks the bind mount. Use `rm -rf frontend/dist/*` instead.
 
 ### UTM Virtual Machines
+
+**Helix for Mac follows UTM — not upstream QEMU.** QEMU comes from `utmapp/qemu` `utm-edition` *merged* (never rebased) into helixml/qemu-utm; the sysroot, bundled frameworks and `virgl_render_server` come from the UTM release pinned in `for-mac/qemu-helix/UTM_VERSION`; launch env mirrors UTM's `QEMUHelper.m`. All must be from one UTM release. Exceptions: MoltenVK and `virgl_render_server` are rebuilt from UTM's pinned commits with our fixes (`for-mac/qemu-helix/build-moltenvk.sh`, `build-render-server.sh`, `patches/`) — without them Zed and GPU-accelerated Chromium (Zink over Venus) can't render. Upgrade procedure: `for-mac/qemu-helix/README-QEMU-BUILD.md` ("Following UTM").
 See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 
 - Control VMs: `utmctl list|start|stop|status <UUID>` (in `/Applications/UTM.app/Contents/MacOS/`)
@@ -111,6 +113,12 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 | Agent skills (helixml/skills) | None — refreshed from `main` at every container start. `SKILLS_COMMIT` in `sandbox-versions.txt` only pins the offline seed: bump + `./stack build-ubuntu` | Start NEW session after |
 
 Full rebuild order: `build-zed` → `build-ubuntu` → `build-sandbox` (if needed) → start new session.
+
+`build-sandbox` only rebuilds and recreates the sandbox (killing every desktop on it) when the
+artifacts it ships changed: `scripts/sandbox-fingerprint.sh` hashes Dockerfile.sandbox plus every
+file its final stage COPYs (Go binaries built by the real builder stage, scripts), and the image
+carries it as the `helix.sandbox.fingerprint` label. `SANDBOX_FORCE_RECREATE=1` overrides;
+`./stack sandbox-unchanged` reports the decision. `scripts/deploy-meta.sh` uses the same check.
 
 **Experimental desktop pulls.** The sandbox startup script
 (`sandbox/04-start-dockerd.sh`) only pulls the *production* desktop image
@@ -405,9 +413,9 @@ The inner Helix starts with **no users**. **You will almost always need to regis
 3. Check DB to confirm: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT email FROM users LIMIT 5;"`
 
 ### Go Local Tests (CGo fix)
-`go test ./pkg/server/...` requires CGo for tree-sitter. Fix:
+`go test ./pkg/server/...` requires CGo for tree-sitter. The desktop image ships `build-essential`; on older images install it first:
 ```bash
-sudo apt-get update && sudo apt-get install -y gcc libc6-dev
+command -v gcc || (sudo apt-get update && sudo apt-get install -y gcc libc6-dev)
 CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 ```
 
@@ -523,12 +531,15 @@ gh release create <tag> --target main --generate-notes   # e.g. 2.11.32
   `gh api -X POST repos/helixml/helix/releases/generate-notes -f tag_name=<tag> -f target_commitish=main --jq .body > /tmp/n.md && gh release edit <tag> --notes-file /tmp/n.md`.
 
 **Cutting the tag self-deploys to prod.** The tag triggers the Drone tag build, whose
-`deploy-prod` pipeline (`scripts/deploy-prod.sh`) SSHes to prod and rolls the new version:
-the **london controlplane** (`helix-cloud-london`: ZFS-snapshots the DB, bumps `HELIX_VERSION`
-in `/data/helix-app/helix/.env`, `docker compose pull/up api`, health-checks, auto-rolls-back
-on failure) and the **code.helix.ml runner** (bumps `SANDBOX_TAG`). See
-`design/2026-06-25-prod-version-bump-runbook.md`. Watch the build with `gh pr checks` / the
-Drone MCP tools and confirm `deploy-prod` goes green.
+`deploy-prod` pipeline (`scripts/deploy-prod.sh`) shows three deploy steps. The **prod
+control plane** (`helix-cloud-london`) runs first: it ZFS-snapshots the DB, bumps
+`HELIX_VERSION` in `/data/helix-app/helix/.env`, pulls and restarts the API, health-checks it,
+and auto-rolls back on failure. After that succeeds, the **prod runner code.helix.ml** and
+**prod runner dev.code.helix.ml** steps pull the released sandbox image and run their
+respective launchers; the legacy runner updates `SANDBOX_TAG`, while the dev runner updates
+the image tag in `/opt/HelixML/prod-app-runner/run.sh`. The CD key must be authorized on all
+three hosts. See `design/2026-06-25-prod-version-bump-runbook.md`. Watch the build with
+`gh pr checks` / the Drone MCP tools and confirm all three deploy steps go green.
 
 ## CI (Drone)
 **ALWAYS check CI yourself after pushing a PR.** Don't make the user discover the failure and tell you. As soon as a push is up, use `gh pr checks <num>` (or the Drone MCP tools / fallback below) to confirm green or surface failures. If failing, drill into the logs, fix, push the fix, and re-check — all without being asked.

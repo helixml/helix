@@ -1374,6 +1374,7 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 
 	agent := &types.DesktopAgent{
 		SessionID:   session.ID,
+		SandboxID:   session.SandboxID,
 		UserID:      session.Owner,
 		Input:       "Resume session",
 		ProjectPath: "workspace",
@@ -1381,6 +1382,9 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 
 	// Resolve project context. Priority: spec task → session.Metadata.ProjectID → session.ProjectID.
 	specTaskID := session.Metadata.SpecTaskID
+	if err := s.reopenDoneTaskForAgentStart(ctx, specTaskID); err != nil {
+		return err
+	}
 	if specTaskID != "" {
 		specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 		if err != nil {
@@ -1392,6 +1396,7 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 			agent.SpecTaskID = specTask.ID
 			agent.ProjectID = specTask.ProjectID
 			agent.OrganizationID = specTask.OrganizationID
+			agent.ApplySandboxDisplay(specTask.SandboxDisplay)
 		}
 	}
 	if agent.ProjectID == "" && session.Metadata.ProjectID != "" {
@@ -1416,8 +1421,8 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 		return fmt.Errorf("attach project context: %w", err)
 	}
 
-	// Get display settings from app config.
-	if session.ParentApp != "" {
+	// Get display settings from app config. Spec tasks own their display.
+	if agent.SpecTaskID == "" && session.ParentApp != "" {
 		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
 		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
 			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()

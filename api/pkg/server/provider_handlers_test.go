@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -1599,4 +1601,109 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_SharedBaseURLKeepsSeparate
 	s.Require().NoError(err)
 	s.Require().Len(resB.Models, 1)
 	s.Equal("model-b", resB.Models[0].ID)
+}
+
+func TestGlobalProviderEndpointUsesConfiguredAnthropicBaseURL(t *testing.T) {
+	cfg := &config.ServerConfig{}
+	cfg.Providers.Anthropic.BaseURL = "https://gateway.example.com/anthropic/v1"
+	server := &HelixAPIServer{Cfg: cfg}
+
+	endpoint := server.globalProviderEndpoint(types.ProviderAnthropic)
+
+	require.Equal(t, "https://gateway.example.com/anthropic/v1", endpoint.BaseURL)
+}
+
+func (s *ProviderHandlersSuite) putEndpointModels(endpoint *types.ProviderEndpoint, models []string) *httptest.ResponseRecorder {
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: endpoint.ID}).Return(endpoint, nil)
+
+	body, err := json.Marshal(types.UpdateProviderEndpointModels{Models: models})
+	s.Require().NoError(err)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/provider-endpoints/"+endpoint.ID+"/models", bytes.NewReader(body)).WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpoint.ID})
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpointModels(rr, req)
+	return rr
+}
+
+// TST-01-201: the models PUT accepted traversal-shaped and free-text model
+// names. Each must now be rejected with 400 and nothing persisted.
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpointModels_RejectsInvalidModelIDs() {
+	pocs := [][]string{
+		{"gpt-4o-mini", "../../etc/passwd", "model with spaces"},
+		{"", "", "dup", "dup", "gpt-4o-mini", "../../etc/passwd", "model with spaces"},
+		{"../../etc/passwd"},
+		{"model with spaces"},
+		{"/etc/passwd"},
+		{"models/../secret"},
+		{"a//b"},
+		{"trailing/"},
+		{`..\..\windows`},
+		{"gpt-4o?x=1"},
+		{"gpt-4o#frag"},
+		{"tab\there"},
+		{strings.Repeat("a", maxProviderModelIDLength+1)},
+	}
+	for _, models := range pocs {
+		s.Run(strings.Join(models, ","), func() {
+			endpoint := &types.ProviderEndpoint{ID: "pe_1", Name: "openai", Owner: "user_id", OwnerType: types.OwnerTypeUser,
+				EndpointType: types.ProviderEndpointTypeUser, Models: []string{"gpt-4o"}}
+			// No UpdateProviderEndpoint expectation: gomock fails the test if it is called.
+			rr := s.putEndpointModels(endpoint, models)
+			s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+			s.Equal([]string{"gpt-4o"}, []string(endpoint.Models), "rejected request must not mutate the endpoint")
+		})
+	}
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpointModels_AcceptsRealModelIDs() {
+	endpoint := &types.ProviderEndpoint{ID: "pe_1", Name: "openai", Owner: "user_id", OwnerType: types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser}
+	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) { return ep, nil })
+
+	rr := s.putEndpointModels(endpoint, []string{
+		"", " gpt-4o-mini ", "gpt-4o-mini", "llama3:8b", "meta-llama/Llama-3.1-8B-Instruct",
+		"claude-3-5-sonnet@20240620", "us.anthropic.claude-3-5-sonnet-20241022-v2:0", "accounts/fireworks/models/qwen2p5-72b", "~anthropic/claude-opus-latest",
+	})
+	s.Require().Equal(http.StatusOK, rr.Code, rr.Body.String())
+
+	var resp types.ProviderEndpoint
+	s.Require().NoError(json.Unmarshal(rr.Body.Bytes(), &resp))
+	s.Equal([]string{
+		"gpt-4o-mini", "llama3:8b", "meta-llama/Llama-3.1-8B-Instruct",
+		"claude-3-5-sonnet@20240620", "us.anthropic.claude-3-5-sonnet-20241022-v2:0", "accounts/fireworks/models/qwen2p5-72b", "~anthropic/claude-opus-latest",
+	}, []string(resp.Models))
+}
+
+// The general create/update endpoints also write Models, so they must apply
+// the same validation or TST-01-201 is just moved to a different route.
+func (s *ProviderHandlersSuite) TestCreateAndUpdateProviderEndpoint_RejectInvalidModelIDs() {
+	s.server.authMiddleware = &authMiddleware{store: s.store, cfg: authMiddlewareConfig{adminUserIDs: []string{"user_id"}}}
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+
+	s.Run("create", func() {
+		s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil).AnyTimes()
+		body, err := json.Marshal(types.ProviderEndpoint{Name: "my-ollama", BaseURL: "http://localhost:11434",
+			Models: []string{"llama3", "../../etc/passwd"}})
+		s.Require().NoError(err)
+		req := httptest.NewRequest(http.MethodPost, "/v1/provider-endpoints", bytes.NewReader(body)).WithContext(s.authCtx)
+		rr := httptest.NewRecorder()
+		s.server.createProviderEndpoint(rr, req)
+		s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+	})
+
+	s.Run("update", func() {
+		existing := &types.ProviderEndpoint{ID: "pe_1", Name: "my-ollama", Owner: "user_id", OwnerType: types.OwnerTypeUser,
+			EndpointType: types.ProviderEndpointTypeUser}
+		s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: existing.ID}).Return(existing, nil)
+		body, err := json.Marshal(types.UpdateProviderEndpoint{Name: "my-ollama", EndpointType: types.ProviderEndpointTypeUser,
+			Models: []string{"model with spaces"}})
+		s.Require().NoError(err)
+		req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+existing.ID, bytes.NewReader(body)).WithContext(s.authCtx)
+		req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+		rr := httptest.NewRecorder()
+		s.server.updateProviderEndpoint(rr, req)
+		s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+	})
 }

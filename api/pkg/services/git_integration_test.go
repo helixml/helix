@@ -96,6 +96,8 @@ func (s *GitIntegrationSuite) SetupTest() {
 		UpdateGitRepository(gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
+	s.mockStore.EXPECT().MarkGitRepositorySyncStarted(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	s.mockStore.EXPECT().MarkGitRepositorySyncFinished(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	// Mock API key validation for git HTTP auth
 	testUser := &types.User{

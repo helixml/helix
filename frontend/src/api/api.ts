@@ -94,6 +94,11 @@ export interface ApiBotChatDTO {
 }
 
 export interface ApiBotDTO {
+  /**
+   * ActivationError is the latest completed activation failure. It clears
+   * when a newer activation starts or succeeds.
+   */
+  activation_error?: string;
   agent_model?: string;
   agent_runtime?: string;
   /**
@@ -1201,12 +1206,27 @@ export interface ServerAddDomainRequest {
   hostname?: string;
 }
 
+export interface ServerAdminCreateServiceAccountRequest {
+  display_name?: string;
+  /**
+   * OrganizationName is the URL-safe name of the organization the account
+   * owns. It is the idempotency key: asking again for the same name returns
+   * the same account and organization.
+   */
+  organization_name?: string;
+}
+
 export interface ServerAdminOrganizationsResponse {
   organizations?: TypesOrgDetails[];
   page?: number;
   pageSize?: number;
   totalCount?: number;
   totalPages?: number;
+}
+
+export interface ServerAdminServiceAccount {
+  organization?: TypesOrganization;
+  user?: TypesUser;
 }
 
 export interface ServerAgentConfigAppliedResponse {
@@ -1396,6 +1416,7 @@ export interface ServerDevContainerWithClients {
   gpu_vendor?: string;
   /** Network info for RevDial/screenshot-server connections */
   ip_address?: string;
+  is_golden_build?: boolean;
   memory_mb?: number;
   organization_id?: string;
   organization_name?: string;
@@ -2286,6 +2307,24 @@ export interface ServerOpenaiModelsResponse {
   object?: string;
 }
 
+export interface ServerOrgAPIKeyResponse {
+  app_id?: string;
+  created?: string;
+  /**
+   * ID is a stable, non-secret handle for the key, derived from a hash of
+   * the secret. Use it to delete a key you did not create.
+   */
+  id?: string;
+  key_prefix?: string;
+  name?: string;
+  organization_id?: string;
+  owner?: string;
+  owner_email?: string;
+  owner_type?: TypesOwnerType;
+  project_id?: string;
+  type?: TypesAPIKeyType;
+}
+
 export interface ServerRunnerProfileAssignRequest {
   profile_id?: string;
 }
@@ -2413,13 +2452,13 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindCron = "cron",
   KindEmail = "email",
-  KindLocal = "local",
-  KindGitLab = "gitlab",
   KindWebhook = "webhook",
-  KindGitHub = "github",
+  KindLocal = "local",
   KindSlack = "slack",
+  KindCron = "cron",
+  KindGitLab = "gitlab",
+  KindGitHub = "github",
   KindHelixEvents = "helix_events",
 }
 
@@ -2634,6 +2673,12 @@ export interface TypesAggregatedUsageMetric {
 export interface TypesApiKey {
   app_id?: SqlNullString;
   created?: string;
+  /**
+   * EmbedInteractive lets an embed key also DRIVE its one session's desktop
+   * (keyboard, mouse, clipboard). Off for public embeds; set for an operator
+   * that embeds a tenant's own agent for that tenant. Ignored on other types.
+   */
+  embed_interactive?: boolean;
   key?: string;
   name?: string;
   /** Used for isolation and metrics tracking */
@@ -3031,6 +3076,8 @@ export enum TypesAttentionEventType {
   AttentionEventSpecFailed = "spec_failed",
   AttentionEventImplementationFailed = "implementation_failed",
   AttentionEventPRReady = "pr_ready",
+  AttentionEventPRProposal = "pr_proposal",
+  AttentionEventCompletionRequest = "completion_request",
   AttentionEventOrgMessage = "org_message",
   AttentionEventCIPassed = "ci_passed",
   AttentionEventCIFailed = "ci_failed",
@@ -3108,6 +3155,7 @@ export interface TypesAuditMetadata {
 export enum TypesAuthProvider {
   AuthProviderRegular = "regular",
   AuthProviderOIDC = "oidc",
+  AuthProviderService = "service",
 }
 
 export interface TypesAuthenticatedResponse {
@@ -3623,12 +3671,24 @@ export interface TypesCommentQueueStatusResponse {
   queued_comment_ids?: string[];
 }
 
+export interface TypesCompletionDecisionRequest {
+  comment?: string;
+  /** "approve" or "reject" */
+  decision?: string;
+}
+
 export interface TypesContainerDiskUsage {
   container_id?: string;
   container_name?: string;
   /** Writable layer size */
   rw_size_bytes?: number;
   size_bytes?: number;
+}
+
+export interface TypesContainerOOMKills {
+  container_id?: string;
+  count?: number;
+  session_id?: string;
 }
 
 export interface TypesContextMenuAction {
@@ -3809,6 +3869,11 @@ export interface TypesCreateTaskRequest {
   assignee_id?: string;
   /** Attachments are validated and stored before the task is exposed to dispatchers. */
   attachments?: TypesSpecTaskInlineAttachment[];
+  /**
+   * Optional: approve the agent's pull request proposals without asking.
+   * Unset takes the project's auto_approve_pull_requests default.
+   */
+  auto_approve_pull_requests?: boolean;
   /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
   auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
@@ -3847,6 +3912,7 @@ export interface TypesCreateTaskRequest {
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   prompt?: string;
+  sandbox_display?: TypesSandboxDisplay;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   sandbox_runtime?: TypesSandboxRuntime;
   type?: string;
@@ -4336,6 +4402,10 @@ export interface TypesGitRepository {
   /** Code intelligence fields */
   kodit_indexing?: boolean;
   last_activity?: string;
+  /** Last successful upstream fetch or push */
+  last_sync_at?: string;
+  /** Error from the most recent failed upstream operation; cleared on success */
+  last_sync_error?: string;
   /** Local filesystem path for Helix-hosted repos (empty for external) */
   local_path?: string;
   /** Stores Metadata as JSON */
@@ -4353,6 +4423,8 @@ export interface TypesGitRepository {
   password?: string;
   repo_type?: TypesGitRepositoryType;
   status?: TypesGitRepositoryStatus;
+  /** Set while an upstream operation is running */
+  sync_in_progress_since?: string;
   updated_at?: string;
   /** Authentication fields */
   username?: string;
@@ -4372,6 +4444,11 @@ export interface TypesGitRepositoryCreateRequest {
   git_provider_connection_id?: string;
   github?: TypesGitHub;
   gitlab?: TypesGitLab;
+  /**
+   * InitialExecutableFiles lists paths in InitialFiles committed as executable
+   * (mode 100755), e.g. scripts a template expects to run as ./script.
+   */
+  initial_executable_files?: string[];
   initial_files?: Record<string, string>;
   /** True for GitHub/GitLab/ADO, false for Helix-hosted */
   is_external?: boolean;
@@ -4597,6 +4674,26 @@ export enum TypesInteractionState {
   InteractionStateComplete = "complete",
   InteractionStateError = "error",
   InteractionStateInterrupted = "interrupted",
+}
+
+export interface TypesInteractiveEmbedModel {
+  context_length?: number;
+  description?: string;
+  id?: string;
+  input_modalities?: string[];
+  name?: string;
+  reasoning_efforts?: TypesReasoningEffortProfile;
+}
+
+export interface TypesInteractiveEmbedModelResponse {
+  agent_thread_restarted?: boolean;
+  model?: string;
+  models?: TypesInteractiveEmbedModel[];
+  runtime?: TypesCodeAgentRuntime;
+}
+
+export interface TypesInteractiveEmbedModelUpdateRequest {
+  model?: string;
 }
 
 export interface TypesItem {
@@ -4994,6 +5091,12 @@ export interface TypesMoveRepositoryPreviewItem {
   new_name?: string;
 }
 
+export interface TypesNativeDisplay {
+  height?: number;
+  width?: number;
+  zoom_level?: number;
+}
+
 export interface TypesOAuthConnection {
   /** OAuth token fields */
   access_token?: string;
@@ -5308,6 +5411,9 @@ export interface TypesOrganizationInvitation {
    * that consuming the invitation at register time can also materialise
    * the access grant — the invitee then shows up in the project access
    * list immediately, exactly as if they had been added directly.
+   * Despite the name, AppID is a generic resource ID: the shared access
+   * dialog passes an app, project (prj_…) or repository ID. Pending
+   * invitations are unique per (organization, email, app_id).
    */
   app_id?: string;
   created_at?: string;
@@ -5349,6 +5455,21 @@ export enum TypesOwnerType {
   OwnerTypeSystem = "system",
   OwnerTypeSocket = "socket",
   OwnerTypeOrg = "org",
+}
+
+export interface TypesPRProposalDecisionRequest {
+  /**
+   * AutoApproveFuture, with an approval, approves this task's later
+   * proposals without asking, as the deciding user.
+   */
+  auto_approve_future?: boolean;
+  base_branch?: string;
+  body?: string;
+  comment?: string;
+  /** "approve" or "reject" */
+  decision?: string;
+  head_branch?: string;
+  title?: string;
 }
 
 export interface TypesPaginatedInteractions {
@@ -5459,6 +5580,12 @@ export interface TypesProject {
   archive_stale_tasks_days?: number;
   /** Archive tasks idle for ArchiveStaleTasksDays */
   archive_stale_tasks_enabled?: boolean;
+  /**
+   * AutoApprovePullRequests is the default for new spec tasks: their agents'
+   * pull request proposals are approved without asking. Each task keeps its
+   * own setting, so changing this does not affect existing tasks.
+   */
+  auto_approve_pull_requests?: boolean;
   /** Archive automation, reconciled by the spec task orchestrator */
   auto_archive_completed_tasks?: boolean;
   /** Automation settings */
@@ -5505,6 +5632,7 @@ export interface TypesProject {
   /** Incremented on each update */
   guidelines_version?: number;
   id?: string;
+  implementation_limit?: number;
   kodit_enabled?: boolean;
   /** LastActivityAt is the latest active task or chat activity for sidebar ordering. */
   last_activity_at?: string;
@@ -5733,6 +5861,8 @@ export interface TypesProjectUpdateRequest {
   archive_stale_tasks_days?: number;
   /** Archive tasks idle for ArchiveStaleTasksDays */
   archive_stale_tasks_enabled?: boolean;
+  /** Default for new spec tasks: auto-approve agent PR proposals */
+  auto_approve_pull_requests?: boolean;
   /** Archive tasks immediately when they enter Done */
   auto_archive_completed_tasks?: boolean;
   auto_start_backlog_tasks?: boolean;
@@ -6137,11 +6267,18 @@ export interface TypesRepoPR {
   ci_status?: string;
   ci_updated_at?: string;
   ci_url?: string;
+  /**
+   * HeadBranch is the branch the PR was opened from. ProposalID links PRs
+   * opened from an approved SpecTaskPRProposal; their title and body come from
+   * the approved proposal rather than the helix-specs pull_request*.md files.
+   */
+  head_branch?: string;
   pr_id?: string;
   pr_number?: number;
   /** "open", "closed", "merged" */
   pr_state?: string;
   pr_url?: string;
+  proposal_id?: string;
   repository_id?: string;
   repository_name?: string;
 }
@@ -6408,6 +6545,13 @@ export interface TypesSandboxCacheState {
   updated?: string;
 }
 
+export interface TypesSandboxDisplay {
+  /** "1080p", "4k", "5k" or "native"; empty => DefaultSandboxResolution() */
+  resolution?: string;
+  /** GNOME zoom percentage; 0 => the preset's default */
+  zoom_level?: number;
+}
+
 export interface TypesSandboxFileUploadResponse {
   /** Original filename */
   filename?: string;
@@ -6418,6 +6562,8 @@ export interface TypesSandboxFileUploadResponse {
 }
 
 export interface TypesSandboxHeartbeatRequest {
+  /** Cumulative cgroup OOM kills for Helix containers on this runner. */
+  container_oom_kills?: TypesContainerOOMKills[];
   /** Container disk usage (per-container storage) */
   container_usage?: TypesContainerDiskUsage[];
   /**
@@ -6428,6 +6574,8 @@ export interface TypesSandboxHeartbeatRequest {
   desktop_versions?: Record<string, string>;
   /** Disk usage metrics for monitored mount points */
   disk_usage?: TypesDiskUsageMetric[];
+  /** GoldenCacheUnavailable: see SandboxInstance.GoldenCacheUnavailable. */
+  golden_cache_unavailable?: boolean;
   /** GPU configuration */
   gpu_vendor?: string;
   /**
@@ -6443,6 +6591,12 @@ export interface TypesSandboxHeartbeatRequest {
    * non-AWS environment — the admin UI then just shows the GPU model instead.
    */
   instance_type?: string;
+  /**
+   * MaxSandboxes is the runner's own cap on concurrent dev containers,
+   * from its MAX_SANDBOXES env var. -1 means unlimited. 0 (omitted) means
+   * the runner did not report one and the API's fallback applies.
+   */
+  max_sandboxes?: number;
   /** Privileged mode (host Docker access for development) */
   privileged_mode_enabled?: boolean;
   /** ProfileError carries the failure detail when ProfileStatus="failed". */
@@ -6476,11 +6630,13 @@ export interface TypesSandboxInstance {
    */
   active_profile_id?: string;
   /**
-   * Sandbox capacity. MaxSandboxes is set explicitly at auto-register
-   * and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
-   * (default 20); the gorm default below only applies to rows inserted
-   * via paths that don't set the field. Kept aligned with the env-var
-   * default to avoid surprises.
+   * Sandbox capacity. MaxSandboxes is the hard per-Runner cap enforced
+   * by FindAvailableSandboxInstance. When the Runner reports MAX_SANDBOXES
+   * in its heartbeat, that value wins and MaxSandboxesFromRunner is set
+   * (so the boot-time backfill leaves it alone). Otherwise it is set at
+   * auto-register and Manager-provisioned paths from
+   * HELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1, unlimited); the gorm default below
+   * only applies to rows inserted via paths that don't set the field.
    */
   active_sandboxes?: number;
   /**
@@ -6497,6 +6653,12 @@ export interface TypesSandboxInstance {
    * Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
    */
   desktop_versions?: Record<string, string>;
+  /**
+   * GoldenCacheUnavailable is set when the sandbox has no container data root
+   * (/container-docker), so Hydra can't build or seed golden Docker caches. Negative so sandboxes
+   * whose heartbeat predates it keep building.
+   */
+  golden_cache_unavailable?: boolean;
   /** GPU configuration */
   gpu_vendor?: string;
   /**
@@ -6521,8 +6683,9 @@ export interface TypesSandboxInstance {
   ip_address?: string;
   /** Last heartbeat time */
   last_seen?: string;
-  /** Maximum allowed containers */
+  /** Maximum allowed containers; -1 means unlimited */
   max_sandboxes?: number;
+  max_sandboxes_from_runner?: boolean;
   privileged_mode?: boolean;
   /** ProfileError carries the failure detail when ProfileStatus="failed". */
   profile_error?: string;
@@ -6690,6 +6853,12 @@ export interface TypesServerConfigForFrontend {
   max_concurrent_desktops?: number;
   /** Minimum wallet balance required for inference */
   minimum_inference_balance?: number;
+  /**
+   * NativeDisplay is the host's own display (Helix for Mac), offered as the
+   * "native" sandbox resolution and used when a desktop has none set. Nil
+   * where the host reported no display; the UI then defaults to 1080p.
+   */
+  native_display?: TypesNativeDisplay;
   onboarding_helix_model?: string;
   onboarding_helix_model_effort?: string;
   /**
@@ -7421,6 +7590,13 @@ export interface TypesSpecTask {
   archived?: boolean;
   /** Team member assigned to work on this task */
   assignee_id?: string;
+  /**
+   * AutoApprovePullRequests approves the agent's PR proposals without asking.
+   * They are approved as AutoApprovePullRequestsBy, whose provider
+   * credentials push and open the PR; it is the user who turned this on.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -7440,6 +7616,12 @@ export interface TypesSpecTask {
   /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
+  completion_request_summary?: string;
+  /**
+   * CompletionRequestedAt is set while the agent's request to mark the task
+   * done (mark_task_complete) awaits the user's decision.
+   */
+  completion_requested_at?: string;
   created_at?: string;
   /** Metadata */
   created_by?: string;
@@ -7562,6 +7744,8 @@ export interface TypesSpecTask {
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** SandboxDisplay is the desktop resolution; nil means 1080p. */
+  sandbox_display?: TypesSandboxDisplay;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   sandbox_runtime?: TypesSandboxRuntime;
   /** "absent", "running", "starting" — derived from session config in listTasks */
@@ -7608,6 +7792,12 @@ export interface TypesSpecTask {
 
 export interface TypesSpecTaskArchiveRequest {
   archived?: boolean;
+  /**
+   * StopAgent controls whether archiving stops the task's external agent and
+   * frees its sandbox. Omitted (nil) means yes. Archiving never kills an agent
+   * that is mid-turn unless the caller says so explicitly.
+   */
+  stop_agent?: boolean;
 }
 
 export interface TypesSpecTaskAttachment {
@@ -7762,11 +7952,17 @@ export interface TypesSpecTaskDesignReviewSubmitRequest {
 export interface TypesSpecTaskExecutionConfigUpdateRequest {
   code_agent_config?: TypesCodeAgentExecutionConfig;
   phase?: "planning" | "implementation";
+  sandbox_display?: TypesSandboxDisplay;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
 }
 
 export interface TypesSpecTaskExecutionConfigUpdateResponse {
   agent_thread_restarted?: boolean;
+  /**
+   * SandboxDisplayRequiresRestart is set when the display changed while the
+   * desktop is running; it takes effect only after the desktop restarts.
+   */
+  sandbox_display_requires_restart?: boolean;
   sandbox_resources_applied?: boolean;
   task?: TypesSpecTask;
 }
@@ -7777,6 +7973,39 @@ export interface TypesSpecTaskInlineAttachment {
   content_base64: string;
   /** Filename visible in the task workspace. */
   name: string;
+}
+
+export interface TypesSpecTaskPRProposal {
+  auto_approved?: boolean;
+  base_branch?: string;
+  body?: string;
+  created_at?: string;
+  decided_at?: string;
+  decided_by?: string;
+  decision_comment?: string;
+  error?: string;
+  head_branch?: string;
+  id?: string;
+  pr_id?: string;
+  pr_number?: number;
+  pr_url?: string;
+  project_id?: string;
+  proposed_by_session?: string;
+  reason?: string;
+  repository_id?: string;
+  repository_name?: string;
+  spec_task_id?: string;
+  status?: TypesSpecTaskPRProposalStatus;
+  title?: string;
+  updated_at?: string;
+}
+
+export enum TypesSpecTaskPRProposalStatus {
+  PRProposalStatusPending = "pending",
+  PRProposalStatusApproved = "approved",
+  PRProposalStatusOpened = "opened",
+  PRProposalStatusRejected = "rejected",
+  PRProposalStatusFailed = "failed",
 }
 
 export enum TypesSpecTaskPhase {
@@ -7815,6 +8044,8 @@ export interface TypesSpecTaskUpdateRequest {
   agent_tools?: string[];
   /** Pointer to allow clearing (set to empty string to unassign) */
   assignee_id?: string;
+  /** Approve the agent's PR proposals without asking, as the updating user */
+  auto_approve_pull_requests?: boolean;
   /** IDs of tasks this task depends on */
   depends_on?: string[];
   description?: string;
@@ -7843,6 +8074,13 @@ export interface TypesSpecTaskWithProject {
   archived?: boolean;
   /** Team member assigned to work on this task */
   assignee_id?: string;
+  /**
+   * AutoApprovePullRequests approves the agent's PR proposals without asking.
+   * They are approved as AutoApprovePullRequestsBy, whose provider
+   * credentials push and open the PR; it is the user who turned this on.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -7862,6 +8100,12 @@ export interface TypesSpecTaskWithProject {
   /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
+  completion_request_summary?: string;
+  /**
+   * CompletionRequestedAt is set while the agent's request to mark the task
+   * done (mark_task_complete) awaits the user's decision.
+   */
+  completion_requested_at?: string;
   created_at?: string;
   /** Metadata */
   created_by?: string;
@@ -7985,6 +8229,8 @@ export interface TypesSpecTaskWithProject {
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** SandboxDisplay is the desktop resolution; nil means 1080p. */
+  sandbox_display?: TypesSandboxDisplay;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   sandbox_runtime?: TypesSandboxRuntime;
   /** "absent", "running", "starting" — derived from session config in listTasks */
@@ -8117,6 +8363,12 @@ export interface TypesStartPlanningOptions {
    * Used to configure the desktop container's keyboard layout from browser detection
    */
   keyboard_layout?: string;
+  /**
+   * Languages is the user's browser language preference list (navigator.languages),
+   * comma-separated BCP 47 tags (e.g., "en-GB,en"). The desktop's browser sends these
+   * as Accept-Language so websites don't pick the language of the runner's location.
+   */
+  languages?: string;
   /** Timezone is the IANA timezone (e.g., "America/New_York", "Europe/Paris") */
   timezone?: string;
 }
@@ -8726,6 +8978,8 @@ export interface TypesUser {
   deactivated?: boolean;
   deleted_at?: GormDeletedAt;
   email?: string;
+  /** EmbedInteractive: an embed key that may drive its bound session's desktop. */
+  embed_interactive?: boolean;
   full_name?: string;
   git_commit_email?: string;
   /**
@@ -9180,11 +9434,13 @@ export interface TypesWorkspacesResponse {
 export interface TypesZFSTree {
   available?: boolean;
   golden?: TypesZFSTreeNode;
+  goldens?: TypesZFSTreeNode[];
   orphans?: TypesZFSTreeNode[];
   pool_root?: string;
 }
 
 export interface TypesZFSTreeNode {
+  cache_kind?: string;
   children?: TypesZFSTreeNode[];
   mounted?: boolean;
   name?: string;
@@ -9743,6 +9999,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Create a non-human user that owns a new organization, so an orchestrator serving many customers can give each one its own org, projects and credentials instead of running them all as one account. Works on OIDC deployments (the account has no IdP identity; it acts only through API keys minted with POST /admin/users/{id}/api-keys). Idempotent per organization_name.
+     *
+     * @tags users
+     * @name V1AdminServiceAccountsCreate
+     * @summary Create a service account and its organization (Admin only)
+     * @request POST:/api/v1/admin/service-accounts
+     * @secure
+     */
+    v1AdminServiceAccountsCreate: (request: ServerAdminCreateServiceAccountRequest, params: RequestParams = {}) =>
+      this.request<ServerAdminServiceAccount, any>({
+        path: `/api/v1/admin/service-accounts`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -10623,7 +10899,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get API keys
+     * @description Get the caller's own API keys. With no filter, returns (creating it if needed) the caller's personal key. A caller authenticated with a scoped (org, project, session or app) API key cannot use the unfiltered form, and sees only the prefix of keys broader than the one it presents.
      *
      * @tags api-keys
      * @name V1ApiKeysList
@@ -13636,7 +13912,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List API keys for an organization. Owners see all keys, members see only their own.
+     * @description List API keys for an organization. Owners see all keys, members see only their own. Key secrets are never returned; each key has a non-secret id and key_prefix.
      *
      * @tags organizations
      * @name V1OrganizationsApiKeysDetail
@@ -13645,7 +13921,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1OrganizationsApiKeysDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesApiKey[], any>({
+      this.request<ServerOrgAPIKeyResponse[], any>({
         path: `/api/v1/organizations/${id}/api_keys`,
         method: "GET",
         secure: true,
@@ -14005,6 +14281,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query: {
         /** Email to look up */
         email: string;
+        /** Only report a pending invitation for this app/project (project access dialogs). Omit to report any pending invitation in the org. */
+        app_id?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -17462,6 +17740,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Desktop types (e.g. ubuntu, sway) offered by registered sandboxes
+     *
+     * @tags sandbox
+     * @name V1SandboxDesktopTypesList
+     * @summary List available sandbox desktop types
+     * @request GET:/api/v1/sandbox-desktop-types
+     * @secure
+     */
+    v1SandboxDesktopTypesList: (params: RequestParams = {}) =>
+      this.request<string[], any>({
+        path: `/api/v1/sandbox-desktop-types`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List the sandbox runtimes available on this server
      *
      * @tags Sandboxes
@@ -18225,6 +18521,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         per_page?: number;
         /** Sort order: 'asc' (oldest first, default) or 'desc' (newest first) */
         order?: string;
+        /** Only waiting interactions with a pending question */
+        pending_question?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -18655,6 +18953,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Serve an agent-published HTML visualization page for inline rendering
+     *
+     * @tags sessions
+     * @name V1SessionsVisualizationDetail
+     * @summary Get a session visualization
+     * @request GET:/api/v1/sessions/{id}/visualization
+     * @secure
+     */
+    v1SessionsVisualizationDetail: (
+      id: string,
+      query: {
+        /** Visualization ID */
+        viz_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/sessions/${id}/visualization`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Used by the fork-confirm modal so we can show "N files will be committed & pushed" or just proceed silently when the workspace is clean. Aborts gracefully on unreachable containers — the frontend treats that as "unknown".
      *
      * @tags sessions
@@ -18904,6 +19227,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Approving moves the task to done (which stops its desktop), whether or not the agent asked to finish with mark_task_complete. Rejecting clears the agent's pending request and sends the comment to it as feedback.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksCompletionDecideCreate
+     * @summary Mark a spec task done, or send the agent's completion request back
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/completion/decide
+     * @secure
+     */
+    v1SpecTasksCompletionDecideCreate: (
+      specTaskId: string,
+      request: TypesCompletionDecisionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTask, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/completion/decide`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all design reviews for a spec task
      *
      * @tags spec-tasks
@@ -19084,6 +19431,49 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Every pull request a spec task opens starts as an agent proposal awaiting user approval.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksPrProposalsDetail
+     * @summary List a spec task's pull request proposals
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/pr-proposals
+     * @secure
+     */
+    v1SpecTasksPrProposalsDetail: (specTaskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskPRProposal[], any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/pr-proposals`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approving grants the agent push rights to the proposal's head branch and opens the pull request as soon as the branch has commits beyond the base. Edited fields override the agent's proposal. Rejecting withdraws push rights.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksPrProposalsDecideCreate
+     * @summary Approve or reject a pull request proposal
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide
+     * @secure
+     */
+    v1SpecTasksPrProposalsDecideCreate: (
+      specTaskId: string,
+      proposalId: string,
+      request: TypesPRProposalDecisionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskPRProposal, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/pr-proposals/${proposalId}/decide`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Stop the running agent session for a spec task
      *
      * @tags spec-tasks
@@ -19174,7 +19564,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Archive a spec task to hide it from the main view, or unarchive to restore it
+     * @description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksArchivePartialUpdate
@@ -19335,7 +19725,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Replaces a task's planning or implementation code-agent configuration, or its sandbox resource preset. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.
+     * @description Replaces a task's planning or implementation code-agent configuration, its sandbox resource preset, or its sandbox display. Display changes take effect when the desktop next starts; sandbox_display_requires_restart reports a running desktop. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksExecutionConfigPartialUpdate
@@ -19350,6 +19740,48 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesSpecTaskExecutionConfigUpdateResponse, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/execution-config`,
+        method: "PATCH",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the current model and enabled models from the task's current provider. Available only to an interactive embed key bound to the task's active session.
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksInteractiveEmbedModelDetail
+     * @summary Get models available to an interactive task embed
+     * @request GET:/api/v1/spec-tasks/{taskId}/interactive-embed-model
+     * @secure
+     */
+    v1SpecTasksInteractiveEmbedModelDetail: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesInteractiveEmbedModelResponse, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/interactive-embed-model`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Changes only the model on the task's current code-agent configuration. Available only to an interactive embed key bound to the task's active session.
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksInteractiveEmbedModelPartialUpdate
+     * @summary Update the model for an interactive task embed
+     * @request PATCH:/api/v1/spec-tasks/{taskId}/interactive-embed-model
+     * @secure
+     */
+    v1SpecTasksInteractiveEmbedModelPartialUpdate: (
+      taskId: string,
+      request: TypesInteractiveEmbedModelUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesInteractiveEmbedModelResponse, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/interactive-embed-model`,
         method: "PATCH",
         body: request,
         secure: true,
@@ -19457,6 +19889,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         keyboard?: string;
         /** IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection */
         timezone?: string;
+        /** Comma-separated browser languages (e.g., 'en-GB,en') - sets the desktop browser's Accept-Language */
+        languages?: string;
       },
       params: RequestParams = {},
     ) =>

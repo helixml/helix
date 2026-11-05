@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -44,7 +45,7 @@ func newTestServer(t *testing.T) (*httptest.Server, orgchart.NodeID) {
 		t.Fatalf("register ping: %v", err)
 	}
 
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -93,7 +94,7 @@ func newTestServerToolDerived(t *testing.T) (*httptest.Server, orgchart.NodeID) 
 		t.Fatalf("register ping: %v", err)
 	}
 
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -141,7 +142,7 @@ func TestMCPToolCallIsAudited(t *testing.T) {
 		recorder,
 		func(context.Context, string, string) (string, error) { return "project-1", nil },
 	)
-	httpServer := httptest.NewServer(orgServer.Handler())
+	httpServer := httptest.NewServer(orgServer.StandaloneHandler())
 	t.Cleanup(httpServer.Close)
 
 	bot, err := orgchart.NewNode("b-audited", "# Audited", []tool.Name{mcptools.PingName}, time.Now().UTC(), "org-test")
@@ -280,7 +281,7 @@ func newTestServerWithPrompts(t *testing.T, includeCreateBot bool) (*httptest.Se
 		t.Fatalf("register role prompt: %v", err)
 	}
 
-	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).WithPrompts(promptReg).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).WithPrompts(promptReg).StandaloneHandler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -373,5 +374,76 @@ func TestMCPGetPromptReturnsSeedMessages(t *testing.T) {
 		if !strings.Contains(text.Text, want) {
 			t.Errorf("MCP role prompt missing creation safeguard %q", want)
 		}
+	}
+}
+
+// TestEmbeddedHandlerDoesNotServeBotMCP locks down the difference between the
+// embedded and standalone surfaces: Handler (mounted behind helix's org-scope
+// middleware) must not expose the URL-scoped per-bot MCP route, because a
+// path segment there would override the org the host authorised.
+func TestEmbeddedHandlerDoesNotServeBotMCP(t *testing.T) {
+	s := orggorm.GetOrgTestDB(t)
+	reg := mcptools.NewRegistry()
+	require.NoError(t, reg.Register(mcptools.Ping{}))
+	h := server.NewFromStore(s, reg, nil, nil, nil).Handler()
+	bot, err := orgchart.NewNode("b-ceo", "# CEO", []tool.Name{mcptools.PingName}, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, s.Nodes.Create(context.Background(), bot))
+
+	req := httptest.NewRequest(http.MethodPost, "/orgs/org-test/workers/b-ceo/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req = req.WithContext(server.WithOrgID(req.Context(), "org-other"))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestStandaloneMCPRouteRefusesPreScopedOrg: if the standalone handler is
+// ever mounted behind a host that already authorised an org, the URL {org}
+// must not override it — the route refuses rather than re-scoping.
+func TestStandaloneMCPRouteRefusesPreScopedOrg(t *testing.T) {
+	s := orggorm.GetOrgTestDB(t)
+	reg := mcptools.NewRegistry()
+	require.NoError(t, reg.Register(mcptools.Ping{}))
+	h := server.NewFromStore(s, reg, nil, nil, nil).StandaloneHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/orgs/org-test/workers/b-ceo/mcp", strings.NewReader(`{}`))
+	req = req.WithContext(server.WithOrgID(req.Context(), "org-authorised"))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestStandaloneMCPIgnoresUserIDHeader: the acting user is never taken from
+// a client-supplied X-Helix-Org-User-Id header.
+func TestStandaloneMCPIgnoresUserIDHeader(t *testing.T) {
+	st := orggorm.GetOrgTestDB(t)
+	reg := mcptools.NewRegistry()
+	require.NoError(t, reg.Register(mcptools.Ping{}))
+	recorder := &auditRecorder{entries: make(chan orgaudit.Entry, 1)}
+	orgServer := server.NewFromStore(st, reg, nil, nil, nil).WithAudit(
+		recorder,
+		func(context.Context, string, string) (string, error) { return "project-1", nil },
+	)
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("X-Helix-Org-User-Id", "user-spoofed")
+		orgServer.StandaloneHandler().ServeHTTP(w, r)
+	}))
+	t.Cleanup(httpServer.Close)
+	bot, err := orgchart.NewNode("b-audited", "# Audited", []tool.Name{mcptools.PingName}, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, st.Nodes.Create(context.Background(), bot))
+
+	session := connectMCP(t, httpServer.URL, bot.ID)
+	_, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: mcptools.PingName, Arguments: map[string]string{"message": "hello"},
+	})
+	require.NoError(t, err)
+	select {
+	case entry := <-recorder.entries:
+		require.Empty(t, entry.UserID)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for MCP audit entry")
 	}
 }

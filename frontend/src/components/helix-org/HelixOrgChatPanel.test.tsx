@@ -16,12 +16,17 @@ const mocks = vi.hoisted(() => ({
   },
   setCurrentSessionId: vi.fn(),
   bots: [] as Array<Record<string, unknown>>,
+  detailBots: {} as Record<string, Record<string, unknown>>,
+  activate: vi.fn(),
+  snackbarSuccess: vi.fn(),
+  snackbarError: vi.fn(),
+  sessionResult: undefined as string | null | undefined,
 }))
 
 vi.mock('../../hooks/useRouter', () => ({ default: () => mocks.router }))
 vi.mock('../../hooks/useApi', () => ({ default: () => ({ getApiClient: vi.fn() }) }))
 vi.mock('../../hooks/useSnackbar', () => ({
-  default: () => ({ success: vi.fn(), error: vi.fn() }),
+  default: () => ({ success: mocks.snackbarSuccess, error: mocks.snackbarError }),
 }))
 vi.mock('../../hooks/useLightTheme', () => ({
   default: () => ({ isLight: true }),
@@ -31,14 +36,19 @@ vi.mock('../../contexts/streaming', () => ({
 }))
 vi.mock('../../services/helixOrgService', () => ({
   useListHelixOrgBots: () => ({ data: mocks.bots }),
-  useHelixOrgBot: (botId?: string) => ({ data: botId ? { project_id: `project-${botId}` } : undefined, refetch: vi.fn() }),
-  useActivateBot: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useHelixOrgBot: (botId?: string) => ({
+    data: botId ? { project_id: `project-${botId}`, bot: mocks.detailBots[botId] } : undefined,
+    refetch: vi.fn(),
+  }),
+  useActivateBot: () => ({ mutateAsync: mocks.activate, isPending: false }),
   useStopBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRestartBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useApplyBotConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 vi.mock('../../services/workerChatSession', () => ({
-  fetchExistingWorkerSession: (projectId: string) => Promise.resolve(`session-${projectId}`),
+  fetchExistingWorkerSession: (projectId: string) => Promise.resolve(
+    mocks.sessionResult === undefined ? `session-${projectId}` : mocks.sessionResult,
+  ),
 }))
 vi.mock('../session/AgentChat', () => ({
   default: ({ placeholder }: { placeholder: string }) => <div>{placeholder}</div>,
@@ -67,6 +77,12 @@ describe('HelixOrgChatPanel query selection', () => {
     mocks.router.params = { org_id: 'acme' }
     mocks.setCurrentSessionId.mockReset()
     mocks.bots = DEFAULT_BOTS.map((b) => ({ ...b }))
+    mocks.detailBots = {}
+    mocks.activate.mockReset()
+    mocks.activate.mockResolvedValue({})
+    mocks.snackbarSuccess.mockReset()
+    mocks.snackbarError.mockReset()
+    mocks.sessionResult = undefined
   })
 
   it('prioritizes bot_id and switches back to chat when the query changes', async () => {
@@ -96,6 +112,49 @@ describe('HelixOrgChatPanel query selection', () => {
     renderPanel({ bot: { id: 'b-one', status: 'running', restart_required: false } })
     await screen.findByText('Message b-one…')
     expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()
+  })
+
+  it('shows a capacity error returned by bot detail polling', async () => {
+    const view = renderPanel({ bot: { id: 'b-one', status: 'stopped' } })
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    mocks.detailBots['b-one'] = {
+      id: 'b-one',
+      activation_error: '32 bot activations are already running for this organization; stop another bot and try again.',
+    }
+    view.rerender(<HelixOrgChatPanel />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '32 bot activations are already running for this organization; stop another bot and try again.',
+    )
+  })
+
+  it('leaves insufficient-balance errors to the resolved session chat', async () => {
+    mocks.detailBots['b-one'] = {
+      id: 'b-one',
+      activation_error: 'agent startup failed: agent turn aborted: insufficient balance',
+    }
+    renderPanel({ bot: { id: 'b-one', status: 'running' } })
+
+    expect(await screen.findByText('Message b-one…')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Desktop' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('insufficient balance')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tasks' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('insufficient balance')
+  })
+
+  it('keeps an insufficient-balance activation error before a session exists', async () => {
+    mocks.sessionResult = null
+    mocks.detailBots['b-one'] = {
+      id: 'b-one',
+      activation_error: 'agent startup failed: agent turn aborted: insufficient balance',
+    }
+    renderPanel({ bot: { id: 'b-one', status: 'stopped' } })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('insufficient balance')
   })
 
   it('keeps the restart banner visible after switching away from the chat tab', async () => {

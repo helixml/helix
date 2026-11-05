@@ -355,7 +355,7 @@ const WorkspaceEditableFile: FC<WorkspaceEditableFileProps> = ({
               onGutterUtilityClick: setSelectedLines,
               onLineSelectionChange: setSelectedLines,
               onLineSelectionEnd: beginComment,
-              overflow: "scroll",
+              overflow: "wrap",
               theme: PIERRE_THEMES,
               themeType: lightTheme.isLight ? "light" : "dark",
               tokenizeMaxLineLength: 1_000,

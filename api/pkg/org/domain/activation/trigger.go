@@ -52,7 +52,8 @@ const (
 //   - TriggerEvent: Kind, EventID, EventSource, Source, Message,
 //     CreatedAt all populated by the dispatcher at fan-out time.
 type Trigger struct {
-	Kind TriggerKind
+	Kind       TriggerKind
+	DeliveryID string `json:"-"`
 
 	// ActivationID, when non-empty, is the pre-allocated audit-row ID
 	// the caller wants the Spawner to use for this activation. Hire

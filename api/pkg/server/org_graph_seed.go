@@ -47,7 +47,7 @@ func (s *orgGraphSeeder) SeedChiefOfStaff(ctx context.Context, orgID string) err
 	if err == nil {
 		// Already seeded — backfill any new OwnerBotTools entries.
 		if s.bots != nil {
-			if _, attErr := s.bots.AttachTools(ctx, orgID, chiefOfStaffBotID, mcptools.OwnerBotTools()); attErr != nil {
+			if _, attErr := s.bots.AttachTools(ctx, orgID, chiefOfStaffBotID, nodes.Grantor{Admin: true}, mcptools.OwnerBotTools()); attErr != nil {
 				log.Warn().Err(attErr).Str("org_id", orgID).Msg("chief-of-staff tool backfill failed")
 			}
 		}
@@ -65,6 +65,7 @@ func (s *orgGraphSeeder) SeedChiefOfStaff(ctx context.Context, orgID string) err
 		Name:            "Chief of Staff",
 		Content:         chiefOfStaffContent,
 		Tools:           mcptools.OwnerBotTools(),
+		Grantor:         nodes.Grantor{Admin: true},
 		PreserveContext: true,
 		DeferActivation: true,
 	}); err != nil {

@@ -178,6 +178,10 @@ export function SetVMConfig(arg1) {
   return window['go']['main']['App']['SetVMConfig'](arg1);
 }
 
+export function SetWindowTheme(arg1) {
+  return window['go']['main']['App']['SetWindowTheme'](arg1);
+}
+
 export function StartCombinedUpdate() {
   return window['go']['main']['App']['StartCombinedUpdate']();
 }

@@ -60,6 +60,22 @@ type helixOrgRouteTestStore struct {
 	role          types.OrganizationRole
 	membershipErr error
 	session       *types.Session
+	user          *types.User
+	app           *types.App
+}
+
+func (s *helixOrgRouteTestStore) GetUser(context.Context, *helixstore.GetUserQuery) (*types.User, error) {
+	if s.user == nil {
+		return nil, helixstore.ErrNotFound
+	}
+	return s.user, nil
+}
+
+func (s *helixOrgRouteTestStore) GetApp(_ context.Context, id string) (*types.App, error) {
+	if s.app == nil || id != s.app.ID {
+		return nil, helixstore.ErrNotFound
+	}
+	return s.app, nil
 }
 
 func (s *helixOrgRouteTestStore) GetSession(_ context.Context, id string) (*types.Session, error) {
@@ -194,18 +210,25 @@ func TestHelixOrgDefaultRuntimeMutationRequiresOwner(t *testing.T) {
 func TestWithHelixOrgIdentityThreadsOrganizationAuthorization(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name          string
-		role          types.OrganizationRole
-		platformAdmin bool
-		wantManage    bool
+		name           string
+		role           types.OrganizationRole
+		platformAdmin  bool
+		organizationID string
+		tokenType      types.TokenType
+		wantManage     bool
 	}{
 		{name: "member", role: types.OrganizationRoleMember, wantManage: false},
 		{name: "owner", role: types.OrganizationRoleOwner, wantManage: true},
 		{name: "platform admin", role: types.OrganizationRoleMember, platformAdmin: true, wantManage: true},
+		{name: "org-scoped key", role: types.OrganizationRoleMember, organizationID: "org_acme", tokenType: types.TokenTypeAPIKey, wantManage: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				user := runtimehelix.UserFromContext(r.Context())
+				if user == nil || user.ID != "user-1" || user.Admin != tt.platformAdmin || user.OrganizationID != tt.organizationID || user.TokenType != tt.tokenType {
+					t.Fatalf("runtime user = %+v, want id=user-1 admin=%v organization=%q token_type=%q", user, tt.platformAdmin, tt.organizationID, tt.tokenType)
+				}
 				auth, ok := helixorgserver.OrgAuthorizationFromContext(r.Context())
 				if !ok {
 					t.Fatal("organization authorization missing from context")
@@ -222,13 +245,67 @@ func TestWithHelixOrgIdentityThreadsOrganizationAuthorization(t *testing.T) {
 			handler := server.withHelixOrgIdentity(api)
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/orgs/acme/bots", nil)
 			req = mux.SetURLVars(req, map[string]string{"org": "acme"})
-			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1", Admin: tt.platformAdmin}))
+			req = req.WithContext(setRequestUser(req.Context(), types.User{
+				ID: "user-1", Admin: tt.platformAdmin, OrganizationID: tt.organizationID, TokenType: tt.tokenType,
+			}))
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 			if rec.Code != http.StatusNoContent {
 				t.Fatalf("status = %d, want 204", rec.Code)
 			}
 		})
+	}
+}
+
+func TestWithHelixOrgIdentityPreservesAuthenticatedAdminForInProcessCalls(t *testing.T) {
+	t.Parallel()
+	store := &helixOrgRouteTestStore{
+		membershipErr: helixstore.ErrNotFound,
+		user:          &types.User{ID: "admin-user"},
+		app: &types.App{
+			ID: "app-org", OrganizationID: "org_acme", Owner: "org-owner",
+			Config: types.AppConfig{Helix: types.AppHelixConfig{Name: "Chief of Staff"}},
+		},
+	}
+	server := &HelixAPIServer{Store: store}
+	client := NewInProcHelixClient(server)
+	var lookupErr error
+	handler := server.withHelixOrgIdentity(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, lookupErr = client.GetAppConfig(r.Context(), "app-org")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/orgs/acme/bots", nil)
+	req = mux.SetURLVars(req, map[string]string{"org": "acme"})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "admin-user", Admin: true}))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if lookupErr != nil {
+		t.Fatalf("in-process app lookup failed: %v", lookupErr)
+	}
+}
+
+func TestWithHelixOrgIdentityRejectsCrossOrgCredential(t *testing.T) {
+	t.Parallel()
+	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{role: types.OrganizationRoleOwner}}
+	handler := server.withHelixOrgIdentity(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/orgs/acme/bots", nil)
+	req = mux.SetURLVars(req, map[string]string{"org": "acme"})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{
+		ID: "user-1", Admin: false, OrganizationID: "org_other",
+	}))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
 	}
 }
 
@@ -275,8 +352,11 @@ func TestHelixOrgMCPBackendDoesNotRequireFeature(t *testing.T) {
 		if orgID := helixorgserver.OrgIDFromContext(r.Context()); orgID != "org_acme" {
 			t.Errorf("org ID context = %q, want org_acme", orgID)
 		}
-		if r.URL.Path != "/orgs/org_acme/workers/b-worker/mcp" {
-			t.Errorf("path = %q, want worker-bound MCP path", r.URL.Path)
+		if botID := helixorgserver.BotIDFromContext(r.Context()); botID != "b-worker" {
+			t.Errorf("bot ID context = %q, want session-bound b-worker", botID)
+		}
+		if userID := runtimehelix.UserIDFromContext(r.Context()); userID != "user-1" {
+			t.Errorf("user ID context = %q, want authenticated user-1", userID)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -284,7 +364,7 @@ func TestHelixOrgMCPBackendDoesNotRequireFeature(t *testing.T) {
 		ID: "ses-worker", Owner: "user-1", OrganizationID: "org_acme",
 		Metadata: types.SessionMetadata{OrgWorkerID: "b-worker"},
 	}}}
-	backend := NewHelixOrgMCPBackend(server, &helixOrgHandlers{api: downstream, scope: scope})
+	backend := NewHelixOrgMCPBackend(server, &helixOrgHandlers{botMCP: downstream, scope: scope})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/helix-org", nil)
 	req = mux.SetURLVars(req, map[string]string{"path": ""})
 	rec := httptest.NewRecorder()
@@ -316,7 +396,7 @@ func TestHelixOrgMCPBackendRejectsInvalidSessionScope(t *testing.T) {
 			called := false
 			scope := &helixOrgScope{bootstrapped: map[string]bool{"org_acme": true}}
 			server := &HelixAPIServer{Store: &helixOrgRouteTestStore{session: tt.session}}
-			backend := NewHelixOrgMCPBackend(server, &helixOrgHandlers{api: http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }), scope: scope})
+			backend := NewHelixOrgMCPBackend(server, &helixOrgHandlers{botMCP: http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }), scope: scope})
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/helix-org", nil)
 			req = mux.SetURLVars(req, map[string]string{"path": tt.path})
 			rec := httptest.NewRecorder()
@@ -545,6 +625,47 @@ func TestEnsureBootstrapRetriesAfterServiceKeyFailure(t *testing.T) {
 	}
 	if scope.bootstrapped["org-retry"] {
 		t.Fatal("failed bootstrap must remain retryable")
+	}
+}
+
+func TestWithHelixOrgScopeStaysUsableAfterBotRepairFailure(t *testing.T) {
+	t.Parallel()
+	orgStore := orgmemory.New()
+	configs := configregistry.New(orgStore.Configs)
+	configs.Register(configregistry.Spec{Key: "helix.api_key", Type: configregistry.TypeString})
+	scope := newHelixOrgScope(configs, orgStore, &bootstrapHelixStore{}, nil, nil, nil)
+	repairAttempts := 0
+	bootstrapAttempts := 0
+	scope.botRepair = func(context.Context, string, string) error {
+		repairAttempts++
+		return errors.New("get app config: not found")
+	}
+	scope.botBootstrap = func(context.Context, string) error {
+		bootstrapAttempts++
+		return nil
+	}
+	handled := 0
+	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{role: types.OrganizationRoleOwner}}
+	handler := server.withHelixOrgScope(scope, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handled++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	for range 2 {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/orgs/acme/bots", nil)
+		req = mux.SetURLVars(req, map[string]string{"org": "acme"})
+		req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1"}))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+		}
+	}
+	if repairAttempts != 2 || bootstrapAttempts != 2 || handled != 2 {
+		t.Fatalf("attempts = repair %d, bootstrap %d, handled %d; want 2 each", repairAttempts, bootstrapAttempts, handled)
+	}
+	if scope.bootstrapped["org_acme"] {
+		t.Fatal("failed Bot repair must remain retryable")
 	}
 }
 

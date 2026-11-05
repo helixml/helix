@@ -100,6 +100,7 @@ import useSnackbar from "../../hooks/useSnackbar";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
+import { readResponseError } from "../../utils/responseError";
 import BacklogTableView from "./BacklogTableView";
 import VCSConnectionLozenges from "./VCSConnectionLozenges";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
@@ -258,7 +259,6 @@ interface SpecTaskKanbanBoardProps {
   };
   focusTaskId?: string; // Task ID to focus "Start Planning" button on (for newly created tasks)
   hasExternalRepo?: boolean; // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
-  externalRepoType?: string; // The external repo type (e.g. "github", "ado")
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
@@ -280,7 +280,6 @@ const DroppableColumn: React.FC<{
   focusTaskId?: string;
   archivingTaskId?: string | null;
   hasExternalRepo?: boolean;
-  externalRepoType?: string;
   showMetrics?: boolean;
   theme: any;
   onHeaderClick?: () => void;
@@ -309,7 +308,6 @@ const DroppableColumn: React.FC<{
   focusTaskId,
   archivingTaskId,
   hasExternalRepo,
-  externalRepoType,
   showMetrics,
   theme,
   onHeaderClick,
@@ -355,7 +353,6 @@ const DroppableColumn: React.FC<{
         focusStartPlanning={task.id === focusTaskId}
         isArchiving={task.id === archivingTaskId}
         hasExternalRepo={hasExternalRepo}
-        externalRepoType={externalRepoType}
         showMetrics={showMetrics}
         progressData={batchProgressData?.[task.id]}
         usageData={batchUsageData?.[task.id]}
@@ -581,7 +578,7 @@ const DroppableColumn: React.FC<{
               onArchiveAllMerged &&
               column.tasks.length > 0 && (
                 <Tooltip
-                  title={`Archive all ${column.tasks.length} merged task${column.tasks.length === 1 ? "" : "s"}`}
+                  title={`Archive all ${column.tasks.length} done task${column.tasks.length === 1 ? "" : "s"}`}
                   arrow
                 >
                   <Box
@@ -676,7 +673,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   wipLimits = { planning: 3, review: 2, implementation: 5 },
   focusTaskId,
   hasExternalRepo = false,
-  externalRepoType,
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
@@ -1057,7 +1053,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         title: "Pull Request",
         color: "#8b5cf6",
         backgroundColor: "rgba(139, 92, 246, 0.08)",
-        description: "Awaiting merge in external repo",
+        description: "Has one or more pull requests — open, merged or closed",
         tasks: sortWithAttentionFirst(filteredTasks.filter(
           (t) =>
             (t as any).phase === "pull_request" || t.status === "pull_request",
@@ -1068,10 +1064,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     if (showMergedProp) {
       baseColumns.push({
         id: "completed",
-        title: "Merged",
+        title: "Done",
         color: "#6b7280",
         backgroundColor: "transparent",
-        description: "Merged to main",
+        description: "Finished — marked done",
         tasks: filteredTasks.filter(
           (t) => (t as any).phase === "completed" || t.status === "done",
         ),
@@ -1435,10 +1431,11 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     try {
       // Call the start-planning endpoint which actually starts spec generation
       // Include keyboard layout from browser locale detection (or ?keyboard= override)
-      const { keyboardLayout, timezone, isOverridden } = getBrowserLocale();
+      const { keyboardLayout, timezone, languages, isOverridden } = getBrowserLocale();
       const queryParams = new URLSearchParams();
       if (keyboardLayout) queryParams.set("keyboard", keyboardLayout);
       if (timezone) queryParams.set("timezone", timezone);
+      if (languages) queryParams.set("languages", languages);
       const queryString = queryParams.toString();
       const url = `/api/v1/spec-tasks/${task.id}/start-planning${queryString ? `?${queryString}` : ""}`;
 
@@ -1459,7 +1456,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         credentials: "include",
       });
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await readResponseError(response);
         // Open the matching provider connection flow on OAuth enforcement.
         if (
           response.status === 422 &&
@@ -1495,7 +1492,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         throw new Error(
           errorData.message ||
             errorData.error ||
-            `Failed to start planning: ${response.statusText}`,
+            `Failed to start planning: ${response.statusText || `HTTP ${response.status}`}`,
         );
       }
 
@@ -1988,7 +1985,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 focusTaskId={focusTaskId}
                 archivingTaskId={archivingTaskId}
                 hasExternalRepo={hasExternalRepo}
-                externalRepoType={externalRepoType}
                 showMetrics={showMetrics}
                 highlightedTaskIds={highlightedDependencyTaskIds}
                 onDependencyHoverStart={setHighlightedDependencyTaskIds}
@@ -2034,7 +2030,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               focusTaskId={focusTaskId}
               archivingTaskId={archivingTaskId}
               hasExternalRepo={hasExternalRepo}
-              externalRepoType={externalRepoType}
               showMetrics={showMetrics}
               highlightedTaskIds={highlightedDependencyTaskIds}
               onDependencyHoverStart={setHighlightedDependencyTaskIds}

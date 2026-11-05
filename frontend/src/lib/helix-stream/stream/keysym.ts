@@ -273,8 +273,8 @@ function isShiftedLevelChar(key: string): boolean {
  * layout can never produce this combination, so this check is inert on desktop.
  *
  * CapsLock is excluded: it legitimately produces uppercase letters with
- * shiftKey=false, and the remote desktop already tracks the CapsLock state we
- * forwarded to it, so those must stay on the keycode path.
+ * shiftKey=false. Those stay on the keycode path, where the event's caps-lock
+ * bit makes desktop-bridge lock caps on the remote before the key is pressed.
  */
 export function hasShiftLevelMismatch(event: KeyboardEvent): boolean {
   if (!isShiftedLevelChar(event.key)) return false

@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
 )
 
 // ErrNoExternalAgentWS is returned by sendCommandToExternalAgent when no
@@ -71,6 +72,18 @@ func isAgentCrashError(errMsg string) bool {
 		}
 	}
 	return false
+}
+
+// agentConnectFailureMarker is how Zed words a thread_load_error raised before
+// the agent process ever connected, e.g. when installing the agent's npm
+// package fails because the registry is unreachable. See thread_service.rs.
+const agentConnectFailureMarker = "agent connect failed"
+
+// isAgentConnectError reports whether errMsg is a failure to start or connect
+// the agent, as opposed to a failure inside a loaded session. No session was
+// loaded, so the thread cannot be its cause.
+func isAgentConnectError(errMsg string) bool {
+	return strings.Contains(errMsg, agentConnectFailureMarker)
 }
 
 func isMissingCodexRolloutError(errMsg string) bool {
@@ -1890,6 +1903,19 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				break
 			}
 		}
+		if targetInteraction == nil && len(interactions) >= 1000 {
+			mapped, lookupErr := apiServer.Controller.Options.Store.GetInteraction(ctx, expectedInteractionID)
+			if lookupErr != nil && !errors.Is(lookupErr, store.ErrNotFound) && !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				log.Error().Err(lookupErr).
+					Str("session_id", helixSessionID).
+					Str("interaction_id", expectedInteractionID).
+					Msg("Failed to load mapped interaction for streaming context")
+				return nil
+			}
+			if mapped != nil && mapped.SessionID == helixSessionID && mapped.GenerationID == helixSession.GenerationID {
+				targetInteraction = mapped
+			}
+		}
 	}
 	// Durable correlation: the in-memory request map does not survive an API
 	// restart, so an agent that keeps working across one addresses its turn by a
@@ -1914,11 +1940,30 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	//
 	// `complete` is never revived: that turn legitimately finished.
 	if targetInteraction == nil && requestID != "" {
-		for i := len(interactions) - 1; i >= 0; i-- {
-			if interactions[i].ExternalAgentRequestID != requestID {
-				continue
+		var candidate *types.Interaction
+		if len(interactions) < 1000 {
+			for i := len(interactions) - 1; i >= 0; i-- {
+				if interactions[i].ExternalAgentRequestID != requestID {
+					continue
+				}
+				candidate = interactions[i]
+				break
 			}
-			candidate := interactions[i]
+		}
+		if candidate == nil && len(interactions) >= 1000 {
+			durable, lookupErr := apiServer.Controller.Options.Store.GetInteractionByExternalAgentRequestID(ctx, requestID)
+			if lookupErr != nil && !errors.Is(lookupErr, store.ErrNotFound) && !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				log.Error().Err(lookupErr).
+					Str("session_id", helixSessionID).
+					Str("request_id", requestID).
+					Msg("Failed to load durable interaction for streaming context")
+				return nil
+			}
+			if durable != nil && durable.SessionID == helixSessionID && durable.GenerationID == helixSession.GenerationID {
+				candidate = durable
+			}
+		}
+		if candidate != nil {
 			if candidate.State == types.InteractionStateError &&
 				candidate.Completed.IsZero() &&
 				!isAgentCrashError(candidate.Error) {
@@ -1935,22 +1980,38 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 					log.Error().Err(err).
 						Str("interaction_id", candidate.ID).
 						Msg("Failed to revive errored interaction for live turn")
-					break
+					return nil
 				}
 			}
 			if candidate.State == types.InteractionStateWaiting {
 				targetInteraction = candidate
 			}
-			break
 		}
 	}
 	// Fallback: find most recent waiting interaction (for backward compat / old Zed without request_id)
-	if targetInteraction == nil {
+	if targetInteraction == nil && len(interactions) < 1000 {
 		for i := len(interactions) - 1; i >= 0; i-- {
 			if interactions[i].State == types.InteractionStateWaiting {
 				targetInteraction = interactions[i]
 				break
 			}
+		}
+	}
+	if targetInteraction == nil && len(interactions) >= 1000 {
+		waiting, _, listErr := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    helixSessionID,
+			GenerationID: helixSession.GenerationID,
+			PerPage:      1,
+			State:        types.InteractionStateWaiting,
+			Order:        "created DESC, id DESC",
+		})
+		if listErr != nil {
+			log.Error().Err(listErr).Str("session_id", helixSessionID).
+				Msg("Failed to find waiting interaction for streaming context")
+			return nil
+		}
+		if len(waiting) > 0 {
+			targetInteraction = waiting[0]
 		}
 	}
 	// After an API restart, the most recent interaction may have been marked as
@@ -1966,9 +2027,28 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	// handleMessageCompleted's request_id-mapping resolver — see
 	// architecture-simplifications.md §1; broadening this scan does not fix that and
 	// risks misrouting, so it stays conservative.
-	if targetInteraction == nil && len(interactions) > 0 {
-		last := interactions[len(interactions)-1]
-		if last.State == types.InteractionStateError && last.Error == "Interrupted" {
+	if targetInteraction == nil {
+		var last *types.Interaction
+		if len(interactions) > 0 {
+			last = interactions[len(interactions)-1]
+		}
+		if len(interactions) >= 1000 {
+			latest, _, listErr := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+				SessionID:    helixSessionID,
+				GenerationID: helixSession.GenerationID,
+				PerPage:      1,
+				Order:        "created DESC, id DESC",
+			})
+			if listErr != nil {
+				log.Error().Err(listErr).Str("session_id", helixSessionID).
+					Msg("Failed to find latest interaction for streaming context recovery")
+				return nil
+			}
+			if len(latest) > 0 {
+				last = latest[0]
+			}
+		}
+		if last != nil && last.State == types.InteractionStateError && last.Error == "Interrupted" {
 			last.State = types.InteractionStateWaiting
 			last.Error = ""
 			last.Completed = time.Time{}
@@ -2413,7 +2493,7 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 		// resume path will deliver it when the agent reconnects via WebSocket. Wrap the sentinel so
 		// callers (e.g. sendQueuedPromptToSession) can recognise this as an expected
 		// transient state via errors.Is and avoid surfacing it as a queue failure.
-		go apiServer.autoStartDevContainerForSession(sessionID)
+		go apiServer.autoStartDevContainerForSession(context.Background(), sessionID)
 		return fmt.Errorf("session %s: %w", sessionID, ErrNoExternalAgentWS)
 	}
 
@@ -3284,21 +3364,20 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
 			SessionID:    helixSessionID,
 			GenerationID: helixSession.GenerationID,
-			PerPage:      1000,
+			PerPage:      1,
+			State:        types.InteractionStateWaiting,
+			Order:        "created DESC, id DESC",
 		})
 		if err != nil {
 			return fmt.Errorf("failed to list interactions for session %s: %w", helixSessionID, err)
 		}
 
-		for i := len(interactions) - 1; i >= 0; i-- {
-			if interactions[i].State == types.InteractionStateWaiting {
-				targetInteractionID = interactions[i].ID
-				log.Info().
-					Str("helix_session_id", helixSessionID).
-					Str("interaction_id", interactions[i].ID).
-					Msg("✅ [HELIX] Fallback: found waiting interaction via DB scan (no request_id mapping)")
-				break
-			}
+		if len(interactions) > 0 {
+			targetInteractionID = interactions[0].ID
+			log.Info().
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", interactions[0].ID).
+				Msg("✅ [HELIX] Fallback: found waiting interaction via DB scan (no request_id mapping)")
 		}
 	}
 
@@ -3798,7 +3877,7 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 			SessionID:    sessionID,
 			GenerationID: session.GenerationID,
 			PerPage:      1,
-			Order:        "id DESC",
+			Order:        "created DESC, id DESC",
 		})
 		if err != nil {
 			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
@@ -3974,7 +4053,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 			SessionID:    sessionID,
 			GenerationID: session.GenerationID,
 			PerPage:      1,
-			Order:        "id DESC",
+			Order:        "created DESC, id DESC",
 		})
 		if recheckErr == nil && len(latestInteractions) > 0 && latestInteractions[0].State == types.InteractionStateWaiting {
 			// Before reporting "busy", check whether this Waiting interaction is
@@ -4178,9 +4257,10 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 }
 
 // autoStartDevContainerForSession boots the dev container for any zed_external
-// session that has no live WebSocket connection. Fire-and-forget — the caller's
-// message is already persisted and will be picked up by the reconnect resume path
-// when the agent reconnects.
+// session that has no live WebSocket connection. Callers usually run it
+// detached — the caller's message is already persisted and will be picked up by
+// the reconnect resume path when the agent reconnects. Failures are logged here;
+// the error is returned for callers that act on its cause.
 //
 // Handles three session shapes via startDevContainerForSession:
 //   - spec-task sessions  (session.Metadata.SpecTaskID set)
@@ -4189,23 +4269,22 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 //
 // Sessions with none of the above are logged and skipped (we cannot invent project
 // config). Non-zed_external sessions are also skipped (they have no desktop to wake).
-func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID string) {
-	ctx := context.Background()
+func (apiServer *HelixAPIServer) autoStartDevContainerForSession(ctx context.Context, sessionID string) error {
 	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("autoStartDevContainerForSession: failed to get session")
-		return
+		return fmt.Errorf("get session %s: %w", sessionID, err)
 	}
 	if session == nil {
 		log.Warn().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: session is nil")
-		return
+		return fmt.Errorf("session %s not found", sessionID)
 	}
 	if session.Metadata.AgentType != "zed_external" {
 		log.Debug().
 			Str("session_id", sessionID).
 			Str("agent_type", session.Metadata.AgentType).
 			Msg("autoStartDevContainerForSession: not a zed_external session, skipping")
-		return
+		return nil
 	}
 
 	log.Info().
@@ -4219,7 +4298,9 @@ func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID strin
 			Str("session_id", sessionID).
 			Str("spec_task_id", session.Metadata.SpecTaskID).
 			Msg("Failed to auto-start dev container")
+		return startErr
 	}
+	return nil
 }
 
 // truncateString truncates a string to maxLen characters
@@ -5201,7 +5282,7 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 	var entryPatches []types.EntryPatch
 	for i, entry := range currentEntries {
 		var prevContent string
-		if i < len(previousEntries) {
+		if i < len(previousEntries) && previousEntries[i].MessageID == entry.MessageID {
 			prevContent = previousEntries[i].Content
 		}
 		// Skip entries that haven't changed at all

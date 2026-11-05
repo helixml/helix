@@ -41,6 +41,11 @@ func (w specTaskWorkflow) SendAgentMessage(ctx context.Context, task *types.Spec
 	return w.apiServer.enqueueAgentMessage(ctx, task.PlanningSessionID, message, interrupt, userID, task.ID)
 }
 
+func (w specTaskWorkflow) CompleteTask(ctx context.Context, task *types.SpecTask) error {
+	_, err := w.apiServer.prProposals.CompleteTask(ctx, task.ID)
+	return err
+}
+
 func (w specTaskWorkflow) StartAgent(ctx context.Context, task *types.SpecTask, userID string) error {
 	user, session, err := w.loadActorAndSession(ctx, task, userID)
 	if err != nil {

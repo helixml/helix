@@ -22,9 +22,11 @@ type ListOrganizationInvitationsQuery struct {
 }
 
 // ErrInvitationAlreadyExists is returned by CreateOrganizationInvitation
-// when a pending invitation already exists for (organization_id, email).
-// Callers can recover the existing row via GetOrganizationInvitation and
-// treat the create call as a no-op (typical for "resend invite" UX).
+// when a pending invitation already exists for (organization_id, email, app_id).
+// The existing row is returned alongside the error, so callers can treat the
+// create as a no-op (typical for "resend invite" UX). Don't re-fetch it via
+// GetOrganizationInvitation: one email can have several pending invitations
+// (one per app/project), so an (org, email) lookup may return a different row.
 var ErrInvitationAlreadyExists = errors.New("invitation already exists")
 
 type GetOrganizationInvitationQuery struct {
@@ -35,8 +37,10 @@ type GetOrganizationInvitationQuery struct {
 
 // CreateOrganizationInvitation persists a pending invitation. Email is
 // normalised to lowercase so case-insensitive lookups at registration time
-// always hit. We enforce uniqueness (org_id, email) at the application layer
-// because empty placeholder rows can otherwise accumulate.
+// always hit. We enforce uniqueness (org_id, email, app_id) at the application
+// layer because empty placeholder rows can otherwise accumulate. Keying on
+// app_id lets someone who isn't in Helix yet be invited to several projects in
+// the same org; ConsumePendingInvitations accepts all of them at sign-up.
 func (s *Store) CreateOrganizationInvitation(ctx context.Context, inv *types.OrganizationInvitation) (*types.OrganizationInvitation, error) {
 	if inv.OrganizationID == "" {
 		return nil, fmt.Errorf("organization_id not specified")
@@ -61,14 +65,14 @@ func (s *Store) CreateOrganizationInvitation(ctx context.Context, inv *types.Org
 	// is "ok, just resend the email"). We don't silently overwrite — that
 	// would mask a role-change attempt that the caller should perform
 	// explicitly.
-	existing, err := s.GetOrganizationInvitation(ctx, &GetOrganizationInvitationQuery{
-		OrganizationID: inv.OrganizationID,
-		Email:          inv.Email,
-	})
-	if err == nil && existing != nil {
-		return existing, ErrInvitationAlreadyExists
+	var existing types.OrganizationInvitation
+	err := s.gdb.WithContext(ctx).
+		Where("organization_id = ? AND email = ? AND COALESCE(app_id, '') = ?", inv.OrganizationID, inv.Email, inv.AppID).
+		First(&existing).Error
+	if err == nil {
+		return &existing, ErrInvitationAlreadyExists
 	}
-	if err != nil && !errors.Is(err, ErrNotFound) {
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
 
@@ -158,7 +162,10 @@ func (s *Store) ConsumePendingInvitations(ctx context.Context, user *types.User)
 	var created []*types.OrganizationMembership
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var invitations []*types.OrganizationInvitation
-		if err := tx.Where("email = ?", email).Find(&invitations).Error; err != nil {
+		// Oldest first: when several invitations target the same org (say an
+		// org-wide one and a project one), the earliest decides the membership
+		// role, deterministically.
+		if err := tx.Where("email = ?", email).Order("created_at ASC").Find(&invitations).Error; err != nil {
 			return fmt.Errorf("list invitations: %w", err)
 		}
 		now := time.Now()

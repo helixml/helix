@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -110,9 +111,11 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 			return nil, fmt.Errorf("provision helix-org service api key: %w", err)
 		}
 
+		botBootstrapFailed := false
 		if s.botRepair != nil {
 			if err := s.botRepair(ctx, orgID, serviceKey); err != nil {
-				return nil, fmt.Errorf("repair helix-org bots: %w", err)
+				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org Bot repair failed")
+				botBootstrapFailed = true
 			}
 		}
 
@@ -173,7 +176,6 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// page needed to fix a bad default agent config, and the public
 		// webhook handlers. The org stays un-bootstrapped so the next
 		// request retries.
-		botBootstrapFailed := false
 		if s.botBootstrap != nil {
 			if err := s.botBootstrap(ctx, orgID); err != nil {
 				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org Bot bootstrap failed")
@@ -287,12 +289,14 @@ func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 		ctx = helixorgserver.WithOrgHandle(ctx, mux.Vars(r)["org"])
 		ctx = helixorgserver.WithOrgAuthorization(ctx, membership.Role, isAdmin(user))
 		// Bridge the authenticated caller into the runtime-helix context
-		// so lifecycle.Create persists them as the Bot's hiring user
+		// so in-process calls retain authorization and lifecycle.Create persists
+		// them as the Bot's hiring user
 		// (SaveHiringUser reads runtimehelix.UserIDFromContext). Without
 		// this every Bot's session falls back to the org-service identity
 		// (organization owner), which cross-attributes another user's key into
 		// the tenant org's API-keys list.
 		ctx = runtimehelix.WithUserID(ctx, user.ID)
+		ctx = runtimehelix.WithUser(ctx, user)
 		// Strip the /orgs/{org}/helix-org prefix so the downstream
 		// helix-org handler sees the same flat path it served from
 		// /api/v1/org/* before — keeps the org-graph server unaware
@@ -330,6 +334,10 @@ func isHelixOrgPrivilegedMutation(r *http.Request) bool {
 // sees the same flat paths it serves from the standalone server's
 // own mux (/chart, /workers, /roles, …). The {org} segment is
 // captured by gorilla mux and stitched back into the prefix here.
+//
+// A forwarded path that is itself org-scoped (/orgs/...) is refused: the
+// outer middleware authorised exactly one org, and no inner route may
+// re-scope the request to another one from the URL.
 func stripOrgScopedPrefix(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		orgSeg := mux.Vars(r)["org"]
@@ -343,8 +351,20 @@ func stripOrgScopedPrefix(next http.Handler) http.Handler {
 		if stripped.URL.Path == "" {
 			stripped.URL.Path = "/"
 		}
+		if !strings.HasPrefix(stripped.URL.Path, "/") || isNestedOrgPath(stripped.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
 		stripped.URL.RawPath = ""
 		stripped.RequestURI = stripped.URL.RequestURI()
 		next.ServeHTTP(w, stripped)
 	})
+}
+
+// isNestedOrgPath reports whether a path forwarded past the org-scope prefix
+// still addresses an org, after cleaning so "//orgs" or "/./orgs" can't
+// slip past.
+func isNestedOrgPath(p string) bool {
+	cleaned := path.Clean(p)
+	return cleaned == "/orgs" || strings.HasPrefix(cleaned, "/orgs/")
 }

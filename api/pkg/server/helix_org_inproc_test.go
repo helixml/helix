@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,10 +14,12 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
@@ -28,6 +31,7 @@ import (
 	"github.com/helixml/helix/api/pkg/server/helixorg"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -201,6 +205,48 @@ func TestInProcClient_DeleteLinkedAgentPreservesRowsWhenDesktopDestroyFails(t *t
 	require.EqualValues(t, 1, botCount)
 }
 
+// A bot whose desktop ran on a sandbox host that is gone is still deleted.
+func TestInProcClient_DeleteLinkedAgentDeletesRowsWhenHostGone(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&types.Project{}, &types.App{}, &types.Knowledge{}, &types.KnowledgeVersion{}, &types.Session{}))
+	for _, statement := range []string{
+		`CREATE TABLE org_bot_runtime_state (org_id TEXT, bot_id TEXT)`,
+		`CREATE TABLE org_bots (org_id TEXT, id TEXT, agent_app_id TEXT)`,
+	} {
+		require.NoError(t, db.Exec(statement).Error)
+	}
+	app := &types.App{ID: "app-agent"}
+	require.NoError(t, db.Create(app).Error)
+	// The bot's session lives outside any deleted project, so only its own
+	// soft delete makes it dead to the orphan reaper.
+	require.NoError(t, db.Create(&types.Session{ID: "ses_old_pod", OrganizationID: "org-test", ProjectID: "prj_live", Metadata: types.SessionMetadata{AgentType: "zed_external", ExternalAgentStatus: "running"}}).Error)
+	require.NoError(t, db.Exec(
+		`INSERT INTO org_bots (org_id, id, agent_app_id) VALUES (?, ?, ?)`,
+		"org-test", "b-agent", app.ID,
+	).Error)
+
+	executor := external_agent.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_old_pod", "").
+		Return(fmt.Errorf("failed to dial Hydra via RevDial: %w", connman.ErrNoConnection))
+	store := &gormBackedInProcStore{Store: memorystore.New(), db: db}
+	client := NewInProcHelixClient(&HelixAPIServer{Store: store, externalAgentExecutor: executor})
+
+	require.NoError(t, client.DeleteLinkedAgent(context.Background(), "org-test", "b-agent", app.ID, "ses_old_pod"))
+
+	var appCount, botCount int64
+	require.NoError(t, db.Model(&types.App{}).Where("id = ?", app.ID).Count(&appCount).Error)
+	require.NoError(t, db.Table("org_bots").Where("org_id = ? AND id = ?", "org-test", "b-agent").Count(&botCount).Error)
+	require.Zero(t, appCount)
+	require.Zero(t, botCount)
+	var session types.Session
+	require.NoError(t, db.Unscoped().First(&session, "id = ?", "ses_old_pod").Error)
+	require.True(t, session.DeletedAt.Valid)
+}
+
 // Deleting a bot's project must destroy every desktop the project ever ran,
 // including soft-deleted sessions and task sessions that lack the project id,
 // delete a spec task's workspace only for tasks the project owns, and leave
@@ -232,10 +278,41 @@ func TestInProcClient_DestroyProjectRuntimeDestroysEveryProjectDesktop(t *testin
 	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_bot", "").Return(nil)
 	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_task_no_project", "spt_owned").Return(nil)
 	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_foreign_task", "").Return(nil)
-	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_deleted", "").Return(errors.New("hydra unreachable"))
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_deleted", "").Return(nil)
 
-	client := NewInProcHelixClient(&HelixAPIServer{Store: &gormBackedInProcStore{db: db}, externalAgentExecutor: executor})
-	require.ErrorContains(t, client.destroyProjectRuntime(context.Background(), &types.Project{ID: "prj_bot", OrganizationID: "org-test"}), "destroy project desktop ses_deleted")
+	client := NewInProcHelixClient(&HelixAPIServer{Store: &gormBackedInProcStore{Store: memorystore.New(), db: db}, externalAgentExecutor: executor})
+	require.NoError(t, client.destroyProjectRuntime(context.Background(), &types.Project{ID: "prj_bot", OrganizationID: "org-test"}))
+}
+
+// A desktop on a sandbox host that is no longer connected (e.g. a replaced
+// sandbox pod) must not block the project delete; the orphan reaper owns it.
+// A connected host that fails the destroy still fails it, so it can be retried.
+func TestInProcClient_DestroyProjectRuntimeSkipsDisconnectedHosts(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&types.Session{}, &types.SpecTask{}))
+	desktop := types.SessionMetadata{AgentType: "zed_external"}
+	for _, session := range []*types.Session{
+		{ID: "ses_old_pod", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop, DeletedAt: gorm.DeletedAt{Time: time.Now(), Valid: true}},
+		{ID: "ses_current", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop},
+	} {
+		require.NoError(t, db.Create(session).Error)
+	}
+	project := &types.Project{ID: "prj_bot", OrganizationID: "org-test"}
+	gone := fmt.Errorf("teardown dev container ses_old_pod: failed to dial Hydra via RevDial: %w", connman.ErrNoConnection)
+
+	executor := external_agent.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_old_pod", "").Return(gone)
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_current", "").Return(nil)
+	client := NewInProcHelixClient(&HelixAPIServer{Store: &gormBackedInProcStore{Store: memorystore.New(), db: db}, externalAgentExecutor: executor})
+	require.NoError(t, client.destroyProjectRuntime(context.Background(), project))
+
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_old_pod", "").Return(gone)
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_current", "").Return(errors.New("hydra API error (status 500)"))
+	require.ErrorContains(t, client.destroyProjectRuntime(context.Background(), project), "destroy project desktop ses_current")
 }
 
 // The org runtime — not the shared apply handler — is what classifies a bot's
@@ -610,6 +687,178 @@ func TestInProcSpawnerClient_GetOutput_ReturnsStoreData(t *testing.T) {
 	require.Equal(t, "ses_test_1", out.SessionID)
 	// Status comes from the last interaction's State (set above).
 	require.Equal(t, string(types.InteractionStateComplete), out.Status)
+}
+
+func TestInProcSpawnerClient_DurableDeliveryReusesQueuedPrompt(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_delivery", Owner: user.ID})
+	require.NoError(t, err)
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID:        "int_busy",
+		SessionID: session.ID,
+		State:     types.InteractionStateWaiting,
+	})
+	require.NoError(t, err)
+
+	first, err := client.SendMessage(ctx, session.ID, "same activation", "stream/41", false)
+	require.NoError(t, err)
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID:        "int_after_first_delivery",
+		SessionID: session.ID,
+		State:     types.InteractionStateWaiting,
+	})
+	require.NoError(t, err)
+	second, err := client.SendMessage(ctx, session.ID, "same activation", "stream/41", true)
+	require.NoError(t, err)
+	require.Equal(t, first.PromptID, second.PromptID)
+	_, err = store.GetInteraction(ctx, "int_after_first_delivery")
+	require.NoError(t, err, "redelivery must not clear the current thread")
+
+	entries, err := store.ListPromptHistoryBySession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, "same activation", entries[0].Content)
+
+	third, err := client.SendMessage(ctx, session.ID, "same activation", "stream/42", false)
+	require.NoError(t, err)
+	require.NotEqual(t, first.PromptID, third.PromptID)
+	entries, err = store.ListPromptHistoryBySession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+}
+
+func TestInProcSpawnerClient_DurableDeliveryReusesInitialInteraction(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/51"
+	session, err := store.CreateSession(ctx, types.Session{
+		ID:    "ses_initial_delivery",
+		Owner: user.ID,
+		Metadata: types.SessionMetadata{
+			Paused: true,
+		},
+	})
+	require.NoError(t, err)
+	interactionID := activationDeliveryID(system.InteractionPrefix, deliveryID)
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID:            interactionID,
+		SessionID:     session.ID,
+		PromptMessage: "initial activation",
+		State:         types.InteractionStateComplete,
+	})
+	require.NoError(t, err)
+
+	result, err := client.SendMessage(ctx, session.ID, "initial activation", deliveryID, true)
+	require.NoError(t, err)
+	require.Equal(t, interactionID, result.InteractionID)
+	require.True(t, result.Completed)
+	require.Empty(t, result.PromptID)
+
+	interactions, _, err := store.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: session.ID, GenerationID: -1})
+	require.NoError(t, err)
+	require.Len(t, interactions, 1)
+	entries, err := store.ListPromptHistoryBySession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+}
+
+func TestInProcSpawnerClient_CompletedQueuedDeliveryReplaysWhilePaused(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/61"
+	session, err := store.CreateSession(ctx, types.Session{
+		ID:        "ses_paused_delivery",
+		Owner:     user.ID,
+		ParentApp: "app_removed_after_completion",
+		Metadata: types.SessionMetadata{
+			Paused:    true,
+			AgentType: string(types.AgentTypeZedExternal),
+		},
+	})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "completed activation", Status: "sent",
+	}))
+	interactionID := "int_completed_queued_delivery"
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID: interactionID, SessionID: session.ID, PromptID: promptID, State: types.InteractionStateComplete,
+	})
+	require.NoError(t, err)
+
+	result, err := client.SendMessage(ctx, session.ID, "completed activation", deliveryID, true)
+	require.NoError(t, err)
+	require.True(t, result.Completed)
+	require.Equal(t, promptID, result.PromptID)
+	require.Equal(t, interactionID, result.InteractionID)
+	_, err = store.GetInteraction(ctx, interactionID)
+	require.NoError(t, err, "completed replay must not clear the current thread")
+}
+
+func TestInProcSpawnerClient_FailedInitialDeliveryUsesStableRetryPrompt(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/71"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_failed_initial", Owner: user.ID})
+	require.NoError(t, err)
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID:            activationDeliveryID(system.InteractionPrefix, deliveryID),
+		SessionID:     session.ID,
+		PromptMessage: "retry activation",
+		State:         types.InteractionStateError,
+	})
+	require.NoError(t, err)
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_other_busy", SessionID: session.ID, State: types.InteractionStateWaiting,
+	})
+	require.NoError(t, err)
+
+	first, err := client.SendMessage(ctx, session.ID, "retry activation", deliveryID, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, first.PromptID)
+	second, err := client.SendMessage(ctx, session.ID, "retry activation", deliveryID, false)
+	require.NoError(t, err)
+	require.Equal(t, first.PromptID, second.PromptID)
+	entries, err := store.ListPromptHistoryBySession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+}
+
+func TestInProcSpawnerClient_DeletedDeliveryDoesNotRetry(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/81"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_deleted_delivery", Owner: user.ID})
+	require.NoError(t, err)
+	deletedAt := time.Now()
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "deleted activation", Status: "pending", DeletedAt: &deletedAt,
+	}))
+
+	_, err = client.SendMessage(ctx, session.ID, "deleted activation", deliveryID, false)
+	require.ErrorIs(t, err, activation.ErrNonRetryable)
+	entry, getErr := store.GetPromptHistoryEntry(ctx, promptID)
+	require.NoError(t, getErr)
+	require.NotNil(t, entry)
+	require.NotNil(t, entry.DeletedAt)
+}
+
+func TestInProcSpawnerClient_FailedQueuedDeliveryNudgesRetry(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/91"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_failed_delivery", Owner: user.ID})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "retry queued activation", Status: "failed",
+	}))
+
+	_, err = client.SendMessage(ctx, session.ID, "retry queued activation", deliveryID, false)
+	require.ErrorContains(t, err, "pending retry")
+	require.Eventually(t, func() bool {
+		interaction, getErr := store.GetLatestInteractionByPromptID(ctx, promptID)
+		return getErr == nil && interaction != nil
+	}, time.Second, 10*time.Millisecond)
+	entries, err := store.ListPromptHistoryBySession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
 }
 
 // TestInProcProjectService_GetAppConfig_RoundTrips seeds an app row and

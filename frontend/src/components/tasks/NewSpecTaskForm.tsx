@@ -36,6 +36,7 @@ import {
   TypesCreateTaskRequest,
   TypesSpecTaskPriority,
   TypesBranchMode,
+  TypesSandboxDisplay,
   TypesSandboxResourceOverrides,
   TypesSandboxRuntime,
   TypesSpecTask,
@@ -45,6 +46,7 @@ import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
 import useSnackbar from "../../hooks/useSnackbar";
 import { useGetProject, useGetProjectRepositories } from "../../services";
+import { projectHasPullRequests } from "../../services/specTaskPRProposalService";
 import { useSpecTasks, useProjectLabels, useAddLabel } from "../../services/specTaskService";
 import {
   SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
@@ -108,6 +110,14 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     projectId,
     !!projectId,
   );
+  // PR auto-approval only applies when the project has an external repo; it
+  // starts from the project's default and resets if the project changes.
+  const showAutoApprovePRs = projectHasPullRequests(projectRepositories);
+  const projectAutoApprovesPRs = !!project?.auto_approve_pull_requests;
+  const [autoApprovePRs, setAutoApprovePRs] = useState(projectAutoApprovesPRs);
+  useEffect(() => {
+    setAutoApprovePRs(projectAutoApprovesPRs);
+  }, [projectId, projectAutoApprovesPRs]);
   const { data: projectTasks = [] } = useSpecTasks({
     projectId,
     withDependsOn: true,
@@ -154,6 +164,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     useState<TypesCodeAgentExecutionConfig>();
   const [sandboxResourceOverrides, setSandboxResourceOverrides] =
     useState<TypesSandboxResourceOverrides | undefined>();
+  // One-off per task (e.g. 4K for a demo recording); not remembered for the next task.
+  const [sandboxDisplay, setSandboxDisplay] = useState<TypesSandboxDisplay | undefined>();
   const [sandboxRuntime, setSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
     preferredSpecTaskSandboxRuntime(projectId),
   );
@@ -442,6 +454,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setPlanningCodeAgentConfig(
       project?.planning_code_agent_config || project?.code_agent_config,
     );
+    setSandboxDisplay(undefined);
     setSandboxResourceOverrides(
       preferredSpecTaskSandboxResources(
         projectId,
@@ -513,6 +526,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         assignee_id: assigneeId || undefined,
         just_do_it_mode: justDoItMode,
         auto_start: autoStart,
+        ...(showAutoApprovePRs
+          ? { auto_approve_pull_requests: autoApprovePRs }
+          : {}),
         depends_on: selectedDependencyTasks
           .map((task) => task.id || "")
           .filter((taskId) => !!taskId),
@@ -539,6 +555,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             : undefined,
         sandbox_resource_overrides: sandboxResourceOverrides,
         sandbox_runtime: sandboxRuntime,
+        sandbox_display: sandboxDisplay,
       };
 
       const response = await api
@@ -1223,6 +1240,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   sandboxRuntime={sandboxRuntime}
                   onSandboxResourceOverridesChange={handleSandboxResourceOverridesChange}
                   onSandboxRuntimeChange={handleSandboxRuntimeChange}
+                  sandboxDisplay={sandboxDisplay}
+                  onSandboxDisplayChange={setSandboxDisplay}
                   autoSelectDefault
                 />
                 {implementationAgentIsGoose && (
@@ -1282,6 +1301,31 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               />
             </Tooltip>
           </FormControl>
+
+          {showAutoApprovePRs && (
+            <FormControl fullWidth>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={autoApprovePRs}
+                    onChange={(e) => setAutoApprovePRs(e.target.checked)}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      Auto-approve PRs
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Open this task&apos;s pull requests, and mark it done when
+                      the agent says it is finished, without asking you first.
+                      You can change it later in the task&apos;s details.
+                    </Typography>
+                  </Box>
+                }
+              />
+            </FormControl>
+          )}
 
           {/* Start Immediately Checkbox */}
           <FormControl fullWidth>

@@ -21,6 +21,7 @@ import (
 // controller calls during provision()/Delete(). Extracted so tests can swap
 // in a fake without standing up a RevDial connection.
 type hydraProvisionClient interface {
+	Ready(ctx context.Context) error
 	CreateDevContainer(ctx context.Context, req *hydra.CreateDevContainerRequest) (*hydra.DevContainerResponse, error)
 	ListDevContainers(ctx context.Context) (*hydra.ListDevContainersResponse, error)
 	DeleteDevContainer(ctx context.Context, sessionID string) (*hydra.DevContainerResponse, error)
@@ -49,6 +50,7 @@ var allowedResourcePresets = []resourcePreset{
 	{VCPUs: 8, MemoryMB: 16384},
 	{VCPUs: 12, MemoryMB: 24576},
 	{VCPUs: 16, MemoryMB: 32768},
+	{VCPUs: 32, MemoryMB: 65536},
 }
 
 func resolveSandboxResources(req *types.CreateSandboxRequest) (int, int, error) {
@@ -62,7 +64,11 @@ func resolveSandboxResources(req *types.CreateSandboxRequest) (int, int, error) 
 			return vcpus, memoryMB, nil
 		}
 	}
-	return 0, 0, fmt.Errorf("invalid sandbox resources: choose one of 1 CPU / 2GB RAM, 4 CPU / 8GB RAM, or 8 CPU / 16GB RAM")
+	choices := make([]string, 0, len(allowedResourcePresets))
+	for _, preset := range allowedResourcePresets {
+		choices = append(choices, fmt.Sprintf("%d CPU / %dGB RAM", preset.VCPUs, preset.MemoryMB/1024))
+	}
+	return 0, 0, fmt.Errorf("invalid sandbox resources: choose one of %s", strings.Join(choices, ", "))
 }
 
 // provision picks a hydra host and asks it to launch the container.
@@ -84,6 +90,7 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, err.Error())
 		return
 	}
+	spec = c.runtimes.forProject(spec, sandbox.ProjectID)
 
 	// Pick a hydra host. Three rules apply, in order:
 	//
@@ -194,6 +201,7 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 
 	createReq := &hydra.CreateDevContainerRequest{
 		SessionID:           sandbox.ID,
+		MaxSandboxes:        host.MaxSandboxes,
 		Image:               image,
 		ContainerName:       containerName,
 		Hostname:            containerName,
@@ -205,6 +213,7 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		DisplayFPS:          sandbox.DisplayFPS,
 		Network:             "bridge",
 		Privileged:          spec.Privileged,
+		DesktopRootless:     spec.DesktopRootless,
 		UserID:              sandbox.Owner,
 		VCPUs:               sandbox.VCPUs,
 		MemoryMB:            sandbox.MemoryMB,
@@ -318,13 +327,20 @@ func (c *Controller) buildMounts(sandbox *types.Sandbox, spec *RuntimeSpec) []hy
 
 	// Desktop-only mounts — same as the spec-task hydra executor, minus the
 	// Zed-specific paths since HELIX_DISABLE_AGENT=1 keeps the agent stack
-	// off. Without /var/lib/docker as a volume the desktop init script
-	// errors out and the container exits.
+	// off. Without the container-engine storage volume the desktop init
+	// script errors out and the container exits. Rootless Docker storage lives
+	// under the user's home, not /var/lib/docker.
 	if spec.ContainerType == hydra.DevContainerTypeUbuntu || spec.ContainerType == hydra.DevContainerTypeSway {
+		containerDataDestination := "/var/lib/docker"
+		containerDataSource := fmt.Sprintf("docker-data-%s", sandbox.ID)
+		if spec.DesktopRootless {
+			containerDataDestination = "/home/retro/.local/share/docker"
+			containerDataSource = fmt.Sprintf("rootless-docker-data-%s", sandbox.ID)
+		}
 		mounts = append(mounts,
 			hydra.MountConfig{
-				Source:      fmt.Sprintf("docker-data-%s", sandbox.ID),
-				Destination: "/var/lib/docker",
+				Source:      containerDataSource,
+				Destination: containerDataDestination,
 				Type:        "volume",
 			},
 			hydra.MountConfig{
@@ -444,6 +460,11 @@ func (c *Controller) HostReadyForReplacement(ctx context.Context, sandbox *types
 		return false, fmt.Sprintf("pinned host %s no longer advertises the %q image for runtime %s",
 			host.ID, spec.VersionKey, spec.Name)
 	}
+	readyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := c.newHydraClient(host.ID).Ready(readyCtx); err != nil {
+		return false, fmt.Sprintf("pinned host %s Hydra is not ready: %v", host.ID, err)
+	}
 	return true, ""
 }
 
@@ -519,13 +540,22 @@ func (c *Controller) pickHostForSandbox(ctx context.Context, sandbox *types.Sand
 	if err != nil {
 		return nil, fmt.Errorf("list hosts: %w", err)
 	}
+	sawFull := false
 	for _, h := range hosts {
 		// Headless containers run no compositor and no encoder, so any
 		// online host will do - including CPU-only and inference
 		// accelerator hosts that cannot stream a desktop.
-		if h.Status == "online" {
-			return h, nil
+		if h.Status != "online" {
+			continue
 		}
+		if h.AtCapacity() {
+			sawFull = true
+			continue
+		}
+		return h, nil
+	}
+	if sawFull {
+		return nil, store.ErrAllSandboxHostsFull
 	}
 	return nil, errors.New("no available sandbox host with the requested runtime")
 }

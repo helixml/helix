@@ -136,7 +136,7 @@ func TestLiveSpecTaskIDsForReaper_KeepAliveOutranksTerminalStatus(t *testing.T) 
 			{ID: "spt_done_recent", Status: types.TaskStatusDone, UpdatedAt: now},
 		}, nil)
 
-	ids, err := liveSpecTaskIDsForReaper(context.Background(), mockStore, cutoff)
+	ids, err := liveSpecTaskIDsForReaper(context.Background(), mockStore, cutoff, nil)
 	assert.NoError(t, err)
 
 	assert.Contains(t, ids, "spt_keepalive_done",
@@ -147,4 +147,27 @@ func TestLiveSpecTaskIDsForReaper_KeepAliveOutranksTerminalStatus(t *testing.T) 
 	assert.Contains(t, ids, "spt_done_recent", "a recently-touched task is live")
 	assert.NotContains(t, ids, "spt_done_stale",
 		"an unpinned, terminal, stale task must still be reapable, or the GC stops reclaiming anything")
+}
+
+// A done or archived task whose desktop is still running keeps its workspace:
+// it is the agent's cwd and holds its transcript. Liveness used to come only
+// from the task's own status and timestamp, so a task finished more than the
+// grace period ago lost its workspace under a running agent.
+func TestLiveSpecTaskIDsForReaper_LiveSessionKeepsFinishedTask(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	now := time.Now()
+	stale := now.Add(-60 * 24 * time.Hour)
+	mockStore.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{
+		{ID: "spt_done_in_use", Status: types.TaskStatusDone, PlanningSessionID: "ses_running", UpdatedAt: stale},
+		{ID: "spt_archived_in_use", Status: types.TaskStatusDone, Archived: true, PlanningSessionID: "ses_running_2", UpdatedAt: stale},
+		{ID: "spt_done_idle", Status: types.TaskStatusDone, PlanningSessionID: "ses_gone", UpdatedAt: stale},
+	}, nil)
+
+	ids, err := liveSpecTaskIDsForReaper(context.Background(), mockStore, now.Add(-30*24*time.Hour), []string{"ses_running", "ses_running_2"})
+	assert.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{"spt_done_in_use", "spt_archived_in_use"}, ids)
 }

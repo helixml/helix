@@ -258,15 +258,17 @@ func (i *Interaction) ToOpenAIAssistantMessage() (openai.ChatCompletionMessage, 
 }
 
 type ListInteractionsQuery struct {
-	AppID         string
-	SessionID     string
-	InteractionID string
-	UserID        string
-	GenerationID  int // Use -1 to get all generations for a session
-	Page          int
-	PerPage       int
-	Feedback      string
-	Order         string // Defaults to ID ASC
+	AppID              string
+	SessionID          string
+	InteractionID      string
+	UserID             string
+	GenerationID       int // Use -1 to get all generations for a session
+	Page               int
+	PerPage            int
+	Feedback           string
+	State              InteractionState
+	HasPendingQuestion bool
+	Order              string // Defaults to ID ASC
 }
 
 // GetMessageMultiContentPart - probably specifically for PromptContent
@@ -716,14 +718,12 @@ func (c *ExternalAgentConfig) Validate() error {
 // GetEffectiveResolution returns the display dimensions based on Resolution preset
 // Falls back to DisplayWidth/DisplayHeight if set, otherwise uses defaults
 func (c *ExternalAgentConfig) GetEffectiveResolution() (width, height int) {
-	// If Resolution preset is set, use it
-	switch c.Resolution {
-	case "5k":
-		return 5120, 2880
-	case "4k":
-		return 3840, 2160
-	case "1080p":
-		return 1920, 1080
+	if c.Resolution == "" && c.DisplayWidth == 0 && c.DisplayHeight == 0 {
+		w, h, _ := SandboxResolutionSize(DefaultSandboxResolution())
+		return w, h
+	}
+	if w, h, ok := SandboxResolutionSize(c.Resolution); ok {
+		return w, h
 	}
 
 	// Fall back to explicit dimensions if set
@@ -748,14 +748,10 @@ func (c *ExternalAgentConfig) GetEffectiveZoomLevel() int {
 	if c.ZoomLevel > 0 {
 		return c.ZoomLevel
 	}
-	// Auto-set 200% zoom only when user explicitly selects "4k" or "5k" preset
-	// (these presets imply 2x scaling for readable UI)
-	switch c.Resolution {
-	case "5k", "4k":
-		return 200
-	default:
-		return 100
+	if c.Resolution == "" && c.DisplayWidth == 0 && c.DisplayHeight == 0 {
+		return SandboxResolutionDefaultZoom(DefaultSandboxResolution())
 	}
+	return SandboxResolutionDefaultZoom(c.Resolution)
 }
 
 func (s *SessionChatRequest) Message() (string, bool) {
@@ -1056,6 +1052,10 @@ type ApiKey struct { //nolint:revive
 	ProjectID      string          `json:"project_id"`      // Used for isolation and metrics tracking
 	SpecTaskID     string          `json:"spec_task_id"`    // Used for isolation and metrics tracking
 	SessionID      string          `json:"session_id"`      // Session this key is scoped to (ephemeral keys)
+	// EmbedInteractive lets an embed key also DRIVE its one session's desktop
+	// (keyboard, mouse, clipboard). Off for public embeds; set for an operator
+	// that embeds a tenant's own agent for that tenant. Ignored on other types.
+	EmbedInteractive bool `json:"embed_interactive,omitempty"`
 }
 
 type OwnerContext struct {
@@ -1107,9 +1107,12 @@ type EntryPatch struct {
 	Index        int    `json:"index"`                    // Position in the entries array
 	MessageID    string `json:"message_id"`               // Zed message_id for this entry
 	Type         string `json:"type"`                     // "text", "tool_call", or "plan"
-	Patch        string `json:"patch,omitempty"`          // Content delta from PatchOffset onwards
-	PatchOffset  int    `json:"patch_offset,omitempty"`   // UTF-16 offset of first change in this entry
-	TotalLength  int    `json:"total_length,omitempty"`   // Final content length of this entry after patch
+	// Patch/PatchOffset/TotalLength are deliberately NOT omitempty: a rewrite
+	// from offset 0 must arrive as an explicit 0, or the frontend's applyPatch
+	// appends instead of replacing and the entry is silently corrupted.
+	Patch        string `json:"patch"`        // Content delta from PatchOffset onwards
+	PatchOffset  int    `json:"patch_offset"` // UTF-16 offset of first change in this entry
+	TotalLength  int    `json:"total_length"` // Final content length of this entry after patch
 	ToolName     string `json:"tool_name,omitempty"`      // For tool_call: the tool label
 	ToolStatus   string `json:"tool_status,omitempty"`    // For tool_call: "Completed", "In Progress", etc.
 	ToolCallID   string `json:"tool_call_id,omitempty"`   // Stable ACP tool-call id
@@ -1283,6 +1286,10 @@ type ServerConfigForFrontend struct {
 	// the default gets a task selector that marks the wrong rung "Default" while
 	// containers come up at the configured size.
 	DefaultSpecTaskSandbox SandboxResourceOverrides `json:"default_spec_task_sandbox"`
+	// NativeDisplay is the host's own display (Helix for Mac), offered as the
+	// "native" sandbox resolution and used when a desktop has none set. Nil
+	// where the host reported no display; the UI then defaults to 1080p.
+	NativeDisplay *NativeDisplay `json:"native_display,omitempty"`
 	// DefaultChatSystemPrompt is the system prompt the platform applies to
 	// direct model chats when the user has not customised one. Surfaced to
 	// the frontend so the chat-settings page can prefill the textbox.
@@ -2229,25 +2236,25 @@ type DesktopAgent struct {
 	OnBeforeCreate func(ctx context.Context, agent *DesktopAgent) error `json:"-"`
 }
 
+// ApplySandboxDisplay sets the desktop size from a SpecTask's display setting.
+// Every spec-task launch path (start, resume, restart, auto-start) must call it
+// so the chosen resolution survives restarts.
+func (z *DesktopAgent) ApplySandboxDisplay(d *SandboxDisplay) {
+	z.DisplayWidth, z.DisplayHeight = d.EffectiveSize()
+	z.DisplayRefreshRate = 60
+	z.Resolution = d.EffectiveResolution()
+	z.ZoomLevel = d.EffectiveZoomLevel()
+}
+
 // GetEffectiveResolution returns the display dimensions based on Resolution preset
 // Falls back to DisplayWidth/DisplayHeight if set, otherwise uses defaults
 func (z *DesktopAgent) GetEffectiveResolution() (width, height, refreshRate int) {
-	// If Resolution preset is set, use it
-	switch z.Resolution {
-	case "5k":
-		width, height = 5120, 2880
-	case "4k":
-		width, height = 3840, 2160
-	case "1080p":
-		width, height = 1920, 1080
-	default:
-		// Fall back to explicit dimensions if set
-		if z.DisplayWidth > 0 && z.DisplayHeight > 0 {
-			width, height = z.DisplayWidth, z.DisplayHeight
-		} else {
-			// Default to 1080p
-			width, height = 1920, 1080
-		}
+	if w, h, ok := SandboxResolutionSize(z.Resolution); ok {
+		width, height = w, h
+	} else if z.DisplayWidth > 0 && z.DisplayHeight > 0 {
+		width, height = z.DisplayWidth, z.DisplayHeight
+	} else {
+		width, height, _ = SandboxResolutionSize(DefaultSandboxResolution())
 	}
 
 	// Get refresh rate (default to 60Hz)
@@ -3676,17 +3683,25 @@ type SandboxInstance struct {
 	// (e.g. "inf2.8xlarge"). Empty on bare-metal / non-AWS hosts.
 	InstanceType string `json:"instance_type,omitempty" gorm:"type:varchar(100)"`
 
-	// Sandbox capacity. MaxSandboxes is set explicitly at auto-register
-	// and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
-	// (default 20); the gorm default below only applies to rows inserted
-	// via paths that don't set the field. Kept aligned with the env-var
-	// default to avoid surprises.
-	ActiveSandboxes int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
-	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:20"`   // Maximum allowed containers
-	PrivilegedMode  bool `json:"privileged_mode" gorm:"default:false"`
+	// Sandbox capacity. MaxSandboxes is the hard per-Runner cap enforced
+	// by FindAvailableSandboxInstance. When the Runner reports MAX_SANDBOXES
+	// in its heartbeat, that value wins and MaxSandboxesFromRunner is set
+	// (so the boot-time backfill leaves it alone). Otherwise it is set at
+	// auto-register and Manager-provisioned paths from
+	// HELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1, unlimited); the gorm default below
+	// only applies to rows inserted via paths that don't set the field.
+	ActiveSandboxes        int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
+	MaxSandboxes           int  `json:"max_sandboxes" gorm:"default:-1"`   // Maximum allowed containers; -1 means unlimited
+	MaxSandboxesFromRunner bool `json:"max_sandboxes_from_runner" gorm:"default:false"`
+	PrivilegedMode         bool `json:"privileged_mode" gorm:"default:false"`
 
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty" gorm:"type:varchar(255)"`
+
+	// GoldenCacheUnavailable is set when the sandbox has no container data root
+	// (/container-docker), so Hydra can't build or seed golden Docker caches. Negative so sandboxes
+	// whose heartbeat predates it keep building.
+	GoldenCacheUnavailable bool `json:"golden_cache_unavailable" gorm:"default:false"`
 
 	// --- Sandbox-absorbs-runner pivot fields (Decision 13 in design.md) ---
 	// Populated by the sandbox's compose-manager process (where present).
@@ -3784,6 +3799,33 @@ func (s *SandboxInstance) CanHostDesktop() bool {
 	return s.RenderNode != "SOFTWARE"
 }
 
+// EligibleForPlacement reports whether placement could put a sandbox needing
+// the given desktop version key on this Runner: it must advertise a non-empty
+// image for versionKey, and, when a display is required, be render-capable.
+// Liveness (online, fresh heartbeat) and capacity are checked by callers.
+// FindAvailableSandboxInstance and the spec-task sandbox-capacity gate share
+// this so the gate never counts capacity placement could not actually use.
+func (s *SandboxInstance) EligibleForPlacement(versionKey string, requiresDisplay bool) bool {
+	if requiresDisplay && !s.CanHostDesktop() {
+		return false
+	}
+	if len(s.DesktopVersions) == 0 {
+		return false
+	}
+	var versions map[string]string
+	if err := json.Unmarshal(s.DesktopVersions, &versions); err != nil {
+		return false
+	}
+	return versions[versionKey] != ""
+}
+
+// AtCapacity reports whether the Runner already hosts its maximum number
+// of dev containers. -1 means unlimited; 0 is not enforced while awaiting
+// the control plane fallback.
+func (s *SandboxInstance) AtCapacity() bool {
+	return s.MaxSandboxes > 0 && s.ActiveSandboxes >= s.MaxSandboxes
+}
+
 // SandboxHeartbeatRequest is sent by sandbox-heartbeat daemon every 30 seconds
 type SandboxHeartbeatRequest struct {
 	// Desktop image versions (content-addressable Docker image hashes)
@@ -3797,6 +3839,9 @@ type SandboxHeartbeatRequest struct {
 	// Container disk usage (per-container storage)
 	ContainerUsage []ContainerDiskUsage `json:"container_usage,omitempty"`
 
+	// Cumulative cgroup OOM kills for Helix containers on this runner.
+	ContainerOOMKills []ContainerOOMKills `json:"container_oom_kills,omitempty"`
+
 	// GPU configuration
 	GPUVendor  string `json:"gpu_vendor,omitempty"`  // nvidia, amd, intel, none
 	RenderNode string `json:"render_node,omitempty"` // /dev/dri/renderD128 or SOFTWARE
@@ -3809,8 +3854,16 @@ type SandboxHeartbeatRequest struct {
 	// Privileged mode (host Docker access for development)
 	PrivilegedModeEnabled bool `json:"privileged_mode_enabled,omitempty"`
 
+	// GoldenCacheUnavailable: see SandboxInstance.GoldenCacheUnavailable.
+	GoldenCacheUnavailable bool `json:"golden_cache_unavailable,omitempty"`
+
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty"`
+
+	// MaxSandboxes is the runner's own cap on concurrent dev containers,
+	// from its MAX_SANDBOXES env var. -1 means unlimited. 0 (omitted) means
+	// the runner did not report one and the API's fallback applies.
+	MaxSandboxes int `json:"max_sandboxes,omitempty"`
 
 	// --- Sandbox-absorbs-runner pivot fields ---
 	// Reported by the compose-manager process inside the sandbox.
@@ -3873,6 +3926,14 @@ type ContainerDiskUsage struct {
 	ContainerName string `json:"container_name"`
 	SizeBytes     uint64 `json:"size_bytes"`
 	RwSizeBytes   uint64 `json:"rw_size_bytes"` // Writable layer size
+}
+
+// ContainerOOMKills identifies a Helix container and its cumulative cgroup
+// oom_kill count. SessionID is the helix.session_id Docker label.
+type ContainerOOMKills struct {
+	ContainerID string `json:"container_id"`
+	SessionID   string `json:"session_id"`
+	Count       uint64 `json:"count"`
 }
 
 // DiskUsageHistory stores historical disk usage for trend analysis and alerting

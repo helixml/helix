@@ -176,14 +176,16 @@ export function useStartSpecTaskPlanning() {
       taskId,
       keyboard,
       timezone,
+      languages,
     }: {
       taskId: string;
       keyboard?: string;
       timezone?: string;
+      languages?: string;
     }) => {
       const response = await api
         .getApiClient()
-        .v1SpecTasksStartPlanningCreate(taskId, { keyboard, timezone });
+        .v1SpecTasksStartPlanningCreate(taskId, { keyboard, timezone, languages });
       return response.data;
     },
     onSuccess: (_, { taskId }) => {
@@ -474,13 +476,19 @@ export function useArchiveSpecTask() {
     mutationFn: async ({
       taskId,
       archived,
+      stopAgent,
     }: {
       taskId: string;
       archived: boolean;
+      // Omitted keeps the server default (stop the agent and free the sandbox).
+      stopAgent?: boolean;
     }) => {
       const response = await api
         .getApiClient()
-        .v1SpecTasksArchivePartialUpdate(taskId, { archived });
+        .v1SpecTasksArchivePartialUpdate(taskId, {
+          archived,
+          ...(stopAgent === undefined ? {} : { stop_agent: stopAgent }),
+        });
       return response.data;
     },
     onSuccess: (_, { taskId }) => {

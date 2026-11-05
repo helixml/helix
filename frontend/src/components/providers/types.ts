@@ -26,6 +26,9 @@ export interface Provider {
   base_url: string;
   endpoint_name?: string;
   configurable_base_url?: boolean;
+  // Server env var that sets the base URL when the provider is configured
+  // from the environment rather than the UI.
+  base_url_env?: string;
 
   optional_api_key?: boolean; // If provider doesn't need an API key
 
@@ -39,6 +42,11 @@ export interface Provider {
   // Used by the Create Provider Endpoint dialog to render a "Get API key" link.
   api_key_url?: string;
 }
+
+// Env-configured providers are synthesised by the API with a "global/<name>"
+// id (or the legacy "-" sentinel) and have no database row to edit.
+export const isEnvConfiguredEndpoint = (endpoint?: { id?: string }) =>
+  !!endpoint?.id && (endpoint.id === '-' || endpoint.id.startsWith('global/'));
 
 export const PROVIDERS: Provider[] = [
   {
@@ -80,6 +88,8 @@ export const PROVIDERS: Provider[] = [
     description: 'Access Anthropic Claude models for advanced language tasks.',
     logo: AnthropicLogo,
     base_url: "https://api.anthropic.com/v1",
+    configurable_base_url: true,
+    base_url_env: 'ANTHROPIC_BASE_URL',
     setup_instructions: "Get your API key from https://platform.claude.com/settings/keys",
     api_key_url: "https://platform.claude.com/settings/keys"
   },

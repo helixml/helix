@@ -221,6 +221,10 @@ type SpecTasks interface {
 	// StopAgent stops the task's running desktop, if any. It leaves the task
 	// and session records intact so work can be resumed.
 	StopAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
+	// Complete marks the task done (answering any pending completion request
+	// from its agent), which stops its desktop. Merged pull requests never
+	// complete a task on their own.
+	Complete(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
 	// RestartAgent recreates the task's desktop through the canonical session
 	// restart path, preserving a healthy conversation and recovering a wedged one.
 	RestartAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskAgentActionView, error)
@@ -393,6 +397,9 @@ func (NoopSpecTasks) StartAgent(_ context.Context, _ string, _ orgchart.NodeID, 
 	return SpecTaskAgentActionView{}, ErrSpecTasksUnsupported
 }
 func (NoopSpecTasks) StopAgent(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) Complete(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
 func (NoopSpecTasks) RestartAgent(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskAgentActionView, error) {

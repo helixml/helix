@@ -70,6 +70,9 @@ const embedToken = (() => {
   return token
 })()
 
+// The embed token, for URLs the page cannot attach a header to (an iframe src).
+export const getEmbedAccessToken = (): string | null => embedToken
+
 if (embedToken) {
   const authValue = `Bearer ${embedToken}`
   axios.defaults.headers.common['Authorization'] = authValue

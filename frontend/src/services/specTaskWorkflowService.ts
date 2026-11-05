@@ -28,23 +28,7 @@ export function useApproveImplementation(specTaskId: string) {
         snackbar.info(
           "Branch has diverged from main. Agent is rebasing — the merge will complete automatically once it finishes.",
         );
-      } else if (response.repo_pull_requests && response.repo_pull_requests.length > 0) {
-        // External repo - show link to first PR
-        const firstPR = response.repo_pull_requests[0];
-        if (firstPR.pr_url) {
-          snackbar.success(
-            `Pull request opened! View PR: ${firstPR.pr_url}`,
-          );
-        } else {
-          snackbar.success(
-            `Pull request #${firstPR.pr_id} opened - awaiting merge`,
-          );
-        }
-      } else if (response.status === "pull_request") {
-        // External repo - task moved to pull_request status, waiting for agent to push
-        snackbar.success("Agent will push changes to open a pull request...");
       } else {
-        // Fallback
         snackbar.success("Implementation approved!");
       }
       // Invalidate queries to refetch task
@@ -155,14 +139,18 @@ export function useReopenTask(specTaskId: string) {
   const snackbar = useSnackbar();
 
   return useMutation({
-    mutationFn: async () => {
+    // A task with pull requests goes back to Pull Request, where its PRs are
+    // tracked; one without goes back to implementation.
+    mutationFn: async ({ hasPullRequests }: { hasPullRequests: boolean }) => {
       const response = await apiClient.v1SpecTasksUpdate(specTaskId, {
-        status: TypesSpecTaskStatus.TaskStatusImplementation,
+        status: hasPullRequests
+          ? TypesSpecTaskStatus.TaskStatusPullRequest
+          : TypesSpecTaskStatus.TaskStatusImplementation,
       });
       return response.data;
     },
     onSuccess: () => {
-      snackbar.success("Task reopened - moved back to in progress");
+      snackbar.success("Task reopened");
       queryClient.invalidateQueries({ queryKey: ["spec-tasks", specTaskId] });
       queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
     },

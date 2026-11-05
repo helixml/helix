@@ -62,7 +62,9 @@ func TestPushBranchToRemote_GitLabUserWithoutOAuthFallsBackToPAT(t *testing.T) {
 				Password:      tt.password,
 			}
 			mockStore.EXPECT().GetGitRepository(gomock.Any(), repo.ID).Return(repo, nil)
-			mockStore.EXPECT().ListOAuthConnections(gomock.Any(), &store.ListOAuthConnectionsQuery{UserID: "user-x"}).Return(nil, nil).Times(2)
+			mockStore.EXPECT().MarkGitRepositorySyncStarted(gomock.Any(), repo.ID, gomock.Any()).Return(nil)
+			mockStore.EXPECT().MarkGitRepositorySyncFinished(gomock.Any(), repo.ID, gomock.Any(), gomock.Not("")).Return(nil)
+			mockStore.EXPECT().ListOAuthConnections(gomock.Any(), &store.ListOAuthConnectionsQuery{UserID: "user-x"}).Return(nil, nil)
 
 			err := service.PushBranchToRemote(context.Background(), repo.ID, "feature", true, "user-x")
 

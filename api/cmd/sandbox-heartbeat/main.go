@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/gpudetect"
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -62,13 +64,18 @@ type HeartbeatRequest struct {
 	// Desktop image versions (content-addressable Docker image hashes)
 	// Key: desktop name (e.g., "sway", "zorin", "ubuntu")
 	// Value: image hash (e.g., "a1b2c3d4e5f6...")
-	DesktopVersions       map[string]string    `json:"desktop_versions,omitempty"`
-	DiskUsage             []DiskUsageMetric    `json:"disk_usage,omitempty"`
-	ContainerUsage        []ContainerDiskUsage `json:"container_usage,omitempty"`
-	PrivilegedModeEnabled bool                 `json:"privileged_mode_enabled,omitempty"`
-	GPUVendor             string               `json:"gpu_vendor,omitempty"`    // nvidia, amd, intel, none
-	InstanceType          string               `json:"instance_type,omitempty"` // cloud instance type via IMDS; empty on bare metal
-	HelixVersion          string               `json:"helix_version,omitempty"` // git commit hash or release version
+	DesktopVersions       map[string]string         `json:"desktop_versions,omitempty"`
+	DiskUsage             []DiskUsageMetric         `json:"disk_usage,omitempty"`
+	ContainerUsage        []ContainerDiskUsage      `json:"container_usage,omitempty"`
+	ContainerOOMKills     []types.ContainerOOMKills `json:"container_oom_kills,omitempty"`
+	PrivilegedModeEnabled bool                      `json:"privileged_mode_enabled,omitempty"`
+	GPUVendor             string                    `json:"gpu_vendor,omitempty"`    // nvidia, amd, intel, none
+	InstanceType          string                    `json:"instance_type,omitempty"` // cloud instance type via IMDS; empty on bare metal
+	HelixVersion          string                    `json:"helix_version,omitempty"` // git commit hash or release version
+	MaxSandboxes          int                       `json:"max_sandboxes,omitempty"` // per-runner cap; -1 means unlimited, omitted when unset
+	// Without a container data root, Hydra keeps desktops' container data in
+	// plain Docker volumes, where it can neither promote nor seed a golden cache.
+	GoldenCacheUnavailable bool `json:"golden_cache_unavailable,omitempty"`
 
 	// Sandbox-absorbs-runner pivot: rich GPU inventory used by the inference
 	// router's profile-compatibility check. Detected via nvidia-smi /
@@ -77,10 +84,10 @@ type HeartbeatRequest struct {
 
 	// Inference subsystem state, read from the status.json file the
 	// compose-manager writes after each Apply.
-	ProfileStatus   string                                       `json:"profile_status,omitempty"`
-	ProfileError    string                                       `json:"profile_error,omitempty"`
-	ServiceHealth   map[string]string                            `json:"service_health,omitempty"`
-	ProfileProgress map[string]types.ServiceDownloadProgress     `json:"profile_progress,omitempty"`
+	ProfileStatus   string                                   `json:"profile_status,omitempty"`
+	ProfileError    string                                   `json:"profile_error,omitempty"`
+	ServiceHealth   map[string]string                        `json:"service_health,omitempty"`
+	ProfileProgress map[string]types.ServiceDownloadProgress `json:"profile_progress,omitempty"`
 }
 
 // composeManagerStatusFile is where compose-manager persists its current
@@ -136,10 +143,20 @@ func main() {
 	// Check if privileged mode is enabled
 	privilegedModeEnabled := os.Getenv("HYDRA_PRIVILEGED_MODE_ENABLED") == "true"
 
+	// Per-runner sandbox cap, reported to the API so dispatch honours it.
+	// 0 means "not reported" and the API falls back to its global
+	// HELIX_SANDBOX_MAX_DEV_CONTAINERS.
+	maxSandboxes, ok := types.ParseSandboxMaxSandboxes(os.Getenv("MAX_SANDBOXES"))
+	if !ok {
+		log.Warn().Str("MAX_SANDBOXES", os.Getenv("MAX_SANDBOXES")).
+			Msg("Ignoring invalid MAX_SANDBOXES (must be -1, 0, or a positive integer); API will use its global default")
+	}
+
 	log.Info().
 		Str("api_url", apiURL).
 		Str("sandbox_instance_id", sandboxInstanceID).
 		Bool("privileged_mode_enabled", privilegedModeEnabled).
+		Int("max_sandboxes", maxSandboxes).
 		Dur("interval", HeartbeatInterval).
 		Msg("Starting sandbox heartbeat daemon")
 
@@ -152,13 +169,13 @@ func main() {
 	defer ticker.Stop()
 
 	// Send initial heartbeat immediately
-	sendHeartbeat(apiURL, runnerToken, sandboxInstanceID, privilegedModeEnabled)
+	sendHeartbeat(apiURL, runnerToken, sandboxInstanceID, privilegedModeEnabled, maxSandboxes)
 
 	// Main loop
 	for {
 		select {
 		case <-ticker.C:
-			sendHeartbeat(apiURL, runnerToken, sandboxInstanceID, privilegedModeEnabled)
+			sendHeartbeat(apiURL, runnerToken, sandboxInstanceID, privilegedModeEnabled, maxSandboxes)
 		case sig := <-sigChan:
 			log.Info().Str("signal", sig.String()).Msg("Received signal, shutting down")
 			return
@@ -240,7 +257,7 @@ func detectInstanceType(ctx context.Context) string {
 	return it
 }
 
-func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedModeEnabled bool) {
+func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedModeEnabled bool, maxSandboxes int) {
 	// Discover all desktop versions dynamically
 	// Scans /opt/images/helix-*.version files
 	desktopVersions := discoverDesktopVersions()
@@ -248,6 +265,7 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 	// Collect disk usage metrics
 	diskUsage := collectDiskUsage()
 	containerUsage := collectContainerDiskUsage()
+	containerOOMKills := collectContainerOOMKills()
 
 	// Read GPU vendor from environment (set by install.sh on the sandbox)
 	gpuVendor := os.Getenv("GPU_VENDOR") // nvidia, amd, intel, none
@@ -271,18 +289,21 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 
 	// Build request
 	req := HeartbeatRequest{
-		DesktopVersions:       desktopVersions,
-		DiskUsage:             diskUsage,
-		ContainerUsage:        containerUsage,
-		PrivilegedModeEnabled: privilegedModeEnabled,
-		GPUVendor:             gpuVendor,
-		InstanceType:          instType,
-		HelixVersion:          data.GetHelixVersion(),
-		GPUs:                  gpus,
-		ProfileStatus:         profileStatus,
-		ProfileError:          profileError,
-		ServiceHealth:         serviceHealth,
-		ProfileProgress:       profileProgress,
+		DesktopVersions:        desktopVersions,
+		DiskUsage:              diskUsage,
+		ContainerUsage:         containerUsage,
+		ContainerOOMKills:      containerOOMKills,
+		PrivilegedModeEnabled:  privilegedModeEnabled,
+		GPUVendor:              gpuVendor,
+		InstanceType:           instType,
+		HelixVersion:           data.GetHelixVersion(),
+		MaxSandboxes:           maxSandboxes,
+		GoldenCacheUnavailable: !hydra.ContainerDataRootAvailable(),
+		GPUs:                   gpus,
+		ProfileStatus:          profileStatus,
+		ProfileError:           profileError,
+		ServiceHealth:          serviceHealth,
+		ProfileProgress:        profileProgress,
 	}
 
 	// Log disk status
@@ -342,6 +363,120 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 		Interface("desktop_versions", desktopVersions).
 		Str("gpu_vendor", gpuVendor).
 		Msg("Heartbeat sent successfully")
+}
+
+type dockerContainerSummary struct {
+	ID     string            `json:"Id"`
+	Labels map[string]string `json:"Labels"`
+}
+
+type dockerContainerInspect struct {
+	State struct {
+		Pid       int  `json:"Pid"`
+		OOMKilled bool `json:"OOMKilled"`
+	} `json:"State"`
+}
+
+func collectContainerOOMKills() []types.ContainerOOMKills {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "unix", "/var/run/docker.sock")
+			},
+		},
+		Timeout: 10 * time.Second,
+	}
+	return collectContainerOOMKillsFrom(ctx, client, "http://localhost", "/proc", "/sys/fs/cgroup")
+}
+
+func collectContainerOOMKillsFrom(ctx context.Context, client *http.Client, dockerURL, procRoot, cgroupRoot string) []types.ContainerOOMKills {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dockerURL+"/containers/json?all=true", nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to list Docker containers for OOM metrics")
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var containers []dockerContainerSummary
+	if err := json.NewDecoder(resp.Body).Decode(&containers); err != nil {
+		log.Warn().Err(err).Msg("Failed to decode Docker containers for OOM metrics")
+		return nil
+	}
+
+	metrics := make([]types.ContainerOOMKills, 0, len(containers))
+	for _, container := range containers {
+		sessionID := container.Labels["helix.session_id"]
+		if sessionID == "" {
+			continue
+		}
+		inspectReq, err := http.NewRequestWithContext(ctx, http.MethodGet, dockerURL+"/containers/"+container.ID+"/json", nil)
+		if err != nil {
+			continue
+		}
+		inspectResp, err := client.Do(inspectReq)
+		if err != nil {
+			continue
+		}
+		var inspect dockerContainerInspect
+		if inspectResp.StatusCode == http.StatusOK {
+			err = json.NewDecoder(inspectResp.Body).Decode(&inspect)
+		}
+		inspectResp.Body.Close()
+		if err != nil || inspectResp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		count := uint64(0)
+		if inspect.State.Pid > 0 {
+			count, err = readOOMKillCount(procRoot, cgroupRoot, inspect.State.Pid)
+			if err != nil {
+				continue
+			}
+		} else if inspect.State.OOMKilled {
+			count = 1
+		}
+		metrics = append(metrics, types.ContainerOOMKills{
+			ContainerID: container.ID,
+			SessionID:   sessionID,
+			Count:       count,
+		})
+	}
+	return metrics
+}
+
+func readOOMKillCount(procRoot, cgroupRoot string, pid int) (uint64, error) {
+	cgroup, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "cgroup"))
+	if err != nil {
+		return 0, err
+	}
+	for _, line := range strings.Split(string(cgroup), "\n") {
+		parts := strings.SplitN(line, ":", 3)
+		if len(parts) != 3 || parts[0] != "0" || parts[1] != "" {
+			continue
+		}
+		rel := strings.TrimPrefix(filepath.Clean(parts[2]), string(filepath.Separator))
+		events, err := os.ReadFile(filepath.Join(cgroupRoot, rel, "memory.events"))
+		if err != nil {
+			return 0, err
+		}
+		for _, event := range strings.Split(string(events), "\n") {
+			fields := strings.Fields(event)
+			if len(fields) == 2 && fields[0] == "oom_kill" {
+				count, err := strconv.ParseUint(fields[1], 10, 64)
+				return count, err
+			}
+		}
+	}
+	return 0, fmt.Errorf("cgroup v2 oom_kill counter not found for pid %d", pid)
 }
 
 // discoverDesktopVersions scans for all desktop version files

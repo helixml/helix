@@ -121,9 +121,9 @@ const ProjectAuditTrail: React.FC<ProjectAuditTrailProps> = ({ projectId, onTask
   // Navigate to session with optional interaction scroll
   const handleViewSession = (sessionId: string, interactionId?: string) => {
     if (interactionId) {
-      account.orgNavigate('session', { session_id: sessionId }, { scroll_to: interactionId });
+      account.orgNavigate('project-session', { id: projectId, session_id: sessionId }, { scroll_to: interactionId });
     } else {
-      account.orgNavigate('session', { session_id: sessionId });
+      account.orgNavigate('project-session', { id: projectId, session_id: sessionId });
     }
   };
 

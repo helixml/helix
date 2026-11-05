@@ -112,32 +112,32 @@ type ServerConfig struct {
 	// their DB row.
 	SandboxDispatchStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_DISPATCH_STALE_THRESHOLD" default:"90s"`
 
-	// SandboxMaxDevContainers is the per-Runner ceiling on isolated dev
-	// containers (current vocab "sandboxes") that hydra will spawn
+	// SandboxMaxDevContainers is the default per-Runner ceiling on isolated
+	// dev containers (current vocab "sandboxes") that hydra will spawn
 	// inside one helix-sandbox host. Written to SandboxInstance.MaxSandboxes
 	// when a Runner is registered (both legacy auto-register and
-	// Manager-provisioned paths). The ComputeManager's autoscaler treats
+	// Manager-provisioned paths).
+	//
+	// A Runner that reports its own MAX_SANDBOXES in its heartbeat
+	// overrides this value for its row (MaxSandboxesFromRunner=true); this
+	// setting is the fallback for Runners that don't report one. The packaged
+	// Runner default is -1, so set MAX_SANDBOXES=0 on a Runner when this global
+	// positive fallback should apply.
+	//
+	// Positive caps are enforced: FindAvailableSandboxInstance skips Runners with
+	// active_sandboxes >= max_sandboxes and returns
+	// store.ErrAllSandboxHostsFull when all eligible Runners are full. The
+	// ComputeManager's autoscaler also treats
 	// `headroom = sum(max_sandboxes) - sum(active_sandboxes) < ScaleUpHeadroomMin`
-	// as demand pressure, so this value is what determines when scale-up
-	// fires under load.
+	// as demand pressure. An online, ready, render-capable Runner set to -1
+	// supplies unlimited capacity and suppresses that scale-up signal.
 	//
-	// NOTE: this value only affects the autoscaler signal today; the
-	// dispatcher (FindAvailableSandboxInstance) does NOT enforce a hard
-	// rejection at the ceiling - new dev containers can still be placed
-	// on a "full" Runner (sorted ASC by active_sandboxes). Hard
-	// dispatcher rejection is tracked separately as a follow-up.
+	// Default -1 (unlimited). Set a positive value to enforce a per-Runner cap.
 	//
-	// Default 20. Raise for hosts with more headroom, lower to make
-	// the autoscaler trigger sooner on smaller hosts. Range is not
-	// enforced - sane values are typically 1-50, beyond which the host
-	// kernel will OOM before the limit binds.
-	//
-	// Changing this env var only affects newly-registered Runners and
-	// Manager-provisioned rows on the next boot; existing rows keep
-	// their persisted MaxSandboxes value. A boot-time backfill rewrites
-	// rows that disagree with the current config so the new value takes
-	// effect across the fleet on next API restart.
-	SandboxMaxDevContainers int `envconfig:"HELIX_SANDBOX_MAX_DEV_CONTAINERS" default:"20"`
+	// A boot-time backfill rewrites rows that disagree with the current
+	// config (skipping Runner-reported rows), so a change takes effect
+	// across the fleet on next API restart.
+	SandboxMaxDevContainers int `envconfig:"HELIX_SANDBOX_MAX_DEV_CONTAINERS" default:"-1"`
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
@@ -190,6 +190,18 @@ type Sandboxes struct {
 	// create request. False blocks anything outside the configured runtimes.
 	AllowCustomImage bool `envconfig:"HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE" default:"false"`
 
+	// DesktopRootless runs desktop runtimes (ubuntu-desktop, spec-task
+	// desktops) unprivileged via rootless Docker instead of privileged Docker
+	// --privileged, so a root user inside a desktop can no longer reach the
+	// runner host or sibling tenants (host block devices / zvols / /dev/mem).
+	// Default false: enabling it requires a desktop-image rebuild and a live
+	// GPU-stream validation. See design/2026-10-08-desktop-root-isolation.md.
+	DesktopRootless bool `envconfig:"HELIX_SANDBOX_DESKTOP_ROOTLESS" default:"false"`
+
+	// DesktopRootlessProjectIDs limits desktop rootless mode to the listed
+	// projects. When empty, DesktopRootless keeps its global behavior.
+	DesktopRootlessProjectIDs []string `envconfig:"HELIX_SANDBOX_DESKTOP_ROOTLESS_PROJECT_IDS"`
+
 	// DefaultRuntime is the runtime applied when the create request omits
 	// both `runtime` and `image`. Must match one of the names in Runtimes.
 	DefaultRuntime string `envconfig:"HELIX_SANDBOX_DEFAULT_RUNTIME" default:"headless-ubuntu"`
@@ -211,6 +223,38 @@ type Sandboxes struct {
 	// operator with a bigger or smaller box can move them without a rebuild.
 	DefaultSpecTaskVCPUs    int `envconfig:"HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS" default:"12"`
 	DefaultSpecTaskMemoryMB int `envconfig:"HELIX_SPEC_TASK_SANDBOX_DEFAULT_MEMORY_MB" default:"24576"`
+
+	// NativeDisplay* describe the host's own screen. Helix for Mac sets them from
+	// the Mac's main display so desktops default to its width and zoom (16:9);
+	// unset elsewhere, which keeps the 1080p default.
+	NativeDisplayWidth  int `envconfig:"HELIX_NATIVE_DISPLAY_WIDTH"`
+	NativeDisplayHeight int `envconfig:"HELIX_NATIVE_DISPLAY_HEIGHT"`
+	NativeDisplayZoom   int `envconfig:"HELIX_NATIVE_DISPLAY_ZOOM"`
+}
+
+func DesktopRootlessForProject(global bool, projectIDs []string, projectID string) bool {
+	for _, allowedProjectID := range projectIDs {
+		allowedProjectID = strings.TrimSpace(allowedProjectID)
+		if allowedProjectID == "" {
+			continue
+		}
+		if allowedProjectID == projectID {
+			return true
+		}
+	}
+	if DesktopRootlessProjectScopeEnabled(projectIDs) {
+		return false
+	}
+	return global
+}
+
+func DesktopRootlessProjectScopeEnabled(projectIDs []string) bool {
+	for _, projectID := range projectIDs {
+		if strings.TrimSpace(projectID) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Compute configures the cloud-provisioning side of Helix's sandbox
@@ -488,6 +532,14 @@ func LoadServerConfig() (ServerConfig, error) {
 		return ServerConfig{}, fmt.Errorf(
 			"HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS/_MEMORY_MB: %w", err)
 	}
+	// Same reasoning: read wherever a desktop's size is resolved.
+	if err := types.SetNativeDisplay(types.NativeDisplay{
+		Width:     cfg.Sandboxes.NativeDisplayWidth,
+		Height:    cfg.Sandboxes.NativeDisplayHeight,
+		ZoomLevel: cfg.Sandboxes.NativeDisplayZoom,
+	}); err != nil {
+		return ServerConfig{}, fmt.Errorf("HELIX_NATIVE_DISPLAY_WIDTH/_HEIGHT/_ZOOM: %w", err)
+	}
 	return cfg, nil
 }
 
@@ -677,6 +729,13 @@ type OIDC struct {
 	// customer deployments. Set it (e.g. on meta.helix.ml) to lock sign-in to a
 	// specific organisation's domain(s).
 	AllowedEmailDomains string `envconfig:"OIDC_ALLOWED_EMAIL_DOMAINS" default:""`
+	// WaitlistOutsideAllowedDomains softens OIDC_ALLOWED_EMAIL_DOMAINS: instead of
+	// rejecting verified emails outside the allowed domains, let them sign in as
+	// waitlisted users that an admin must approve (pending org invitations still
+	// pre-approve them). Allowed-domain users are never waitlisted in this mode,
+	// regardless of AUTH_WAITLIST_ENABLED. Unverified emails are still rejected.
+	// No effect when OIDC_ALLOWED_EMAIL_DOMAINS is empty. Default false (hard reject).
+	WaitlistOutsideAllowedDomains bool `envconfig:"OIDC_WAITLIST_OUTSIDE_ALLOWED_DOMAINS" default:"false"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen
@@ -753,6 +812,7 @@ type Stripe struct {
 	AppURL               string
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET" description:"The webhook signing secret for stripe."`
+	WebhookEndpointID    string `envconfig:"STRIPE_WEBHOOK_ENDPOINT_ID" description:"The Stripe webhook endpoint to reconcile before creating credit checkouts."`
 	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY" default:"helix-subscription" description:"The lookup key for the stripe price."`
 	PromoCreditPriceID   string `envconfig:"STRIPE_PROMO_CREDIT_PRICE_ID" description:"The Stripe price ID for the fixed $5 promotional credit top-up."`
 	OrgPriceLookupKey    string `envconfig:"STRIPE_ORG_PRICE_LOOKUP_KEY" default:"helix-org-subscription" description:"The lookup key for the stripe price."`

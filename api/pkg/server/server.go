@@ -59,7 +59,6 @@ import (
 	"github.com/helixml/helix/api/pkg/webhooks"
 	"github.com/helixml/helix/api/pkg/webservice"
 
-	_ "net/http/pprof" // enable profiling
 )
 
 const APIPrefix = "/api/v1"
@@ -198,6 +197,7 @@ type HelixAPIServer struct {
 	streamingRateLimiterMutex  sync.RWMutex
 	specTaskOrchestrator       *services.SpecTaskOrchestrator
 	attentionService           *services.AttentionService
+	prProposals                *services.PRProposalService
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
@@ -300,6 +300,11 @@ func NewServer(
 			OfflineAccess:       cfg.Auth.OIDC.OfflineAccess,
 			Waitlist:            cfg.Auth.Waitlist,
 			AllowedEmailDomains: auth.ParseEmailDomains(cfg.Auth.OIDC.AllowedEmailDomains),
+
+			WaitlistOutsideAllowedDomains: cfg.Auth.OIDC.WaitlistOutsideAllowedDomains,
+		}
+		if oidcCfg.WaitlistOutsideAllowedDomains && len(oidcCfg.AllowedEmailDomains) == 0 {
+			log.Warn().Msg("OIDC_WAITLIST_OUTSIDE_ALLOWED_DOMAINS has no effect without OIDC_ALLOWED_EMAIL_DOMAINS")
 		}
 		if adminAlerter != nil {
 			oidcCfg.EventHandler = &oidcSignupNotifier{alerter: adminAlerter}
@@ -362,6 +367,8 @@ func NewServer(
 		Connman:                       connectionManager,
 		GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
 		LicenseKey:                    licenseKeyForHydra,      // Pass to nested Helix instances
+		DesktopRootless:               cfg.Sandboxes.DesktopRootless,
+		DesktopRootlessProjectIDs:     cfg.Sandboxes.DesktopRootlessProjectIDs,
 	})
 	appController.Options.ExternalAgentExecutor = externalAgentExecutor
 
@@ -591,7 +598,12 @@ func NewServer(
 	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController, apiServer.authorizeUserToApp))
 
 	// Register Session MCP backend (session navigation and context tools)
-	apiServer.mcpGateway.RegisterBackend("session", NewSessionMCPBackend(store, appController.Options.Notifier))
+	sessionMCPBackend := NewSessionMCPBackend(store, appController.Options.Notifier)
+	apiServer.mcpGateway.RegisterBackend("session", sessionMCPBackend)
+
+	// Register Visualization MCP backend (html_render inline pages). Wired into
+	// every agent config as helix-viz, independent of instance profiles.
+	apiServer.mcpGateway.RegisterBackend(types.MCPBackendVisualization, NewVisualizationMCPBackend(store, appController))
 
 	// Register External MCP backend (user-configured MCP servers)
 	// This proxies requests from Zed to external MCP servers configured in agents
@@ -670,6 +682,12 @@ func NewServer(
 	apiServer.attentionService = services.NewAttentionService(store, cfg)
 	apiServer.gitHTTPServer.SetAttentionService(apiServer.attentionService)
 
+	// Every spec-task PR is opened from an agent proposal a user approved.
+	apiServer.prProposals = services.NewPRProposalService(store, gitRepositoryService, apiServer.attentionService, cfg.WebServer.URL)
+	apiServer.prProposals.SetMessageEnqueuer(apiServer.enqueueSpecTaskAgentMessage)
+	apiServer.gitHTTPServer.SetPRProposals(apiServer.prProposals)
+	sessionMCPBackend.SetPRProposals(apiServer.prProposals)
+
 	// Initialize SpecTask Orchestrator components
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
@@ -685,7 +703,7 @@ func NewServer(
 		apiServer.specDrivenTaskService,
 	)
 	apiServer.specTaskOrchestrator.SetGoldenBuildService(apiServer.goldenBuildService)
-	apiServer.specTaskOrchestrator.SetEnsurePRsFunc(apiServer.ensurePullRequestsForAllRepos)
+	apiServer.specTaskOrchestrator.SetPRProposals(apiServer.prProposals)
 	apiServer.specTaskOrchestrator.SetAttentionService(apiServer.attentionService)
 	apiServer.specTaskOrchestrator.SetCINotifier(services.NewEnqueueCINotifier(apiServer.enqueueSpecTaskAgentMessage))
 
@@ -753,7 +771,7 @@ func (s *HelixAPIServer) requestDesktopWake(sessionID string) {
 	}
 	go func() {
 		defer s.desktopWakeInflight.Delete(sessionID)
-		s.autoStartDevContainerForSession(sessionID)
+		_ = s.autoStartDevContainerForSession(context.Background(), sessionID) // logged inside
 	}()
 }
 
@@ -975,6 +993,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	adminRouter := authRouter.MatcherFunc(matchAllRoutes).Subrouter()
 	adminRouter.Use(requireAdmin)
 
+	// admin-or-runner router: infrastructure reads/ops shared by the admin UI
+	// and sandbox hosts (which authenticate with the runner token)
+	adminOrRunnerRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
+	adminOrRunnerRouter.Use(requireAdminOrRunner)
+
 	// helix-org: register the helix-org HTTP surface. All of its routing +
 	// lifecycle wiring lives in registerHelixOrgRoutes (helix_org.go).
 	// Route registration does not depend on a deployment-wide service user.
@@ -1114,6 +1137,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.listSessions)).Methods(http.MethodGet)
 	subRouter.HandleFunc("/sessions/{id}", apiServer.getSession).Methods(http.MethodGet)
+	// Serve agent-published inline visualizations. On subRouter (not authRouter)
+	// so an iframe can load it with the SPA's access_token cookie; the handler
+	// authorizes the session itself.
+	subRouter.HandleFunc("/sessions/{id}/visualization", apiServer.getSessionVisualization).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.deleteSession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.updateSession)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/sessions/{id}/archive", system.Wrapper(apiServer.archiveSession)).Methods(http.MethodPatch)
@@ -1252,12 +1279,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspaces", apiServer.getExternalAgentWorkspaces).Methods("GET") // List git workspaces in container
 
 	// Sandbox instance registry routes (multi-sandbox support)
-	authRouter.HandleFunc("/sandboxes/register", apiServer.registerSandbox).Methods("POST")
-	authRouter.HandleFunc("/sandboxes/{id}/heartbeat", apiServer.sandboxHeartbeat).Methods("POST")
-	authRouter.HandleFunc("/sandboxes/{id}/disk-history", apiServer.getDiskUsageHistory).Methods("GET")
-	authRouter.HandleFunc("/sandboxes/{id}/containers/{session_id}/blkio", apiServer.getContainerBlkioStats).Methods("GET")
-	authRouter.HandleFunc("/sandboxes", apiServer.listSandboxes).Methods("GET")
-	authRouter.HandleFunc("/sandboxes/{id}", apiServer.deregisterSandbox).Methods("DELETE")
+	apiServer.registerSandboxRegistryRoutes(authRouter, runnerRouter, adminOrRunnerRouter)
 	// Reverse dial endpoint for user sandboxes (spec tasks, PDEs)
 	// Accepts user API tokens with session ownership validation
 	authRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
@@ -1385,6 +1407,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	adminRouter.HandleFunc("/admin/orgs", apiServer.adminListOrganizations).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/orgs/{id}/plan", apiServer.adminSetOrgPlan).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/service-accounts", system.Wrapper(apiServer.adminCreateServiceAccount)).Methods(http.MethodPost)
 
 	// Sandbox-absorbs-runner pivot: /scheduler/heartbeats and /slots
 	// endpoints removed — no scheduler, no slots.
@@ -1569,8 +1592,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods(http.MethodPost)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods(http.MethodPost)
 
-	// register pprof routes
-	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
+	registerDebugRoutes(router, apiServer.authMiddleware.extractMiddleware)
 
 	// Register Git HTTP protocol routes for clone/push operations BEFORE default handler
 	// These routes don't use authRouter - they have their own auth middleware
@@ -1691,6 +1713,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/agent-tools", apiServer.listAgentToolCatalogue).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/execution-config", apiServer.getSpecTaskExecutionConfig).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/execution-config", apiServer.updateSpecTaskExecutionConfig).Methods(http.MethodPatch)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/interactive-embed-model", apiServer.getInteractiveEmbedModel).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/interactive-embed-model", apiServer.updateInteractiveEmbedModel).Methods(http.MethodPatch)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.deleteSpecTask).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/archive", apiServer.archiveSpecTask).Methods(http.MethodPatch)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/specs", apiServer.getTaskSpecs).Methods(http.MethodGet)
@@ -1713,6 +1737,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// Workflow automation routes
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/approve-implementation", apiServer.approveImplementation).Methods(http.MethodPost) // MOVE
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/pr-proposals", apiServer.listSpecTaskPRProposals).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide", apiServer.decideSpecTaskPRProposal).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/completion/decide", apiServer.decideSpecTaskCompletion).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/stop-agent", apiServer.stopAgentSession).Methods(http.MethodPost)
 
 	// Design review routes
@@ -2609,11 +2636,12 @@ func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sa
 
 	// Not registered - auto-register it.
 	//
-	// MaxSandboxes comes from HELIX_SANDBOX_MAX_DEV_CONTAINERS (default 20).
+	// MaxSandboxes comes from HELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1,
+	// unlimited).
 	// This is the per-Runner ceiling on isolated dev containers that hydra
 	// will spawn inside this helix-sandbox host. Operators tuning for
-	// smaller hosts or wanting the autoscaler to trigger sooner can drop
-	// this without redeploying the runner image.
+	// smaller hosts or wanting the autoscaler to trigger sooner can set a
+	// positive value without redeploying the runner image.
 	instance := &types.SandboxInstance{
 		ID:           sandboxID,
 		Hostname:     fmt.Sprintf("sandbox-%s", sandboxID),

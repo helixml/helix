@@ -9,6 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // --- vhost_routes ---
@@ -205,21 +206,43 @@ func (s *PostgresStore) SetWebServiceHostDeviceID(ctx context.Context, projectID
 
 // --- web_service_deploys ---
 
-// CreateWebServiceDeploy inserts a new deploy row.
+// CreateWebServiceDeploy inserts a new deploy row and supersedes older work
+// for the same project atomically.
 func (s *PostgresStore) CreateWebServiceDeploy(ctx context.Context, d *types.WebServiceDeploy) error {
 	if d.ProjectID == "" {
 		return fmt.Errorf("project_id is required")
 	}
-	if d.ID == "" {
-		d.ID = system.GenerateWebServiceDeployID()
-	}
-	if d.StartedAt.IsZero() {
-		d.StartedAt = time.Now()
-	}
 	if d.Status == "" {
 		d.Status = types.WebServiceDeployStatusPending
 	}
-	return s.gdb.WithContext(ctx).Create(d).Error
+	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var state types.ProjectWebServiceState
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("project_id = ?", d.ProjectID).
+			First(&state).Error; err != nil {
+			return fmt.Errorf("lock web service state: %w", err)
+		}
+		if d.ID == "" {
+			d.ID = system.GenerateWebServiceDeployID()
+		}
+		if d.StartedAt.IsZero() {
+			d.StartedAt = time.Now()
+		}
+
+		now := time.Now()
+		if err := tx.Model(&types.WebServiceDeploy{}).
+			Where("project_id = ? AND status IN ?", d.ProjectID, []types.WebServiceDeployStatus{
+				types.WebServiceDeployStatusPending,
+				types.WebServiceDeployStatusBuilding,
+			}).
+			Updates(map[string]interface{}{
+				"status":      types.WebServiceDeployStatusSuperseded,
+				"finished_at": &now,
+			}).Error; err != nil {
+			return fmt.Errorf("supersede in-flight web service deploys: %w", err)
+		}
+		return tx.Create(d).Error
+	})
 }
 
 // UpdateWebServiceDeploy patches a deploy row in place. Used to flip
@@ -317,7 +340,7 @@ func (s *PostgresStore) ListWebServiceDeploys(ctx context.Context, projectID str
 	var rows []*types.WebServiceDeploy
 	err := s.gdb.WithContext(ctx).
 		Where("project_id = ?", projectID).
-		Order("started_at DESC").
+		Order("started_at DESC, id DESC").
 		Limit(limit).
 		Find(&rows).Error
 	if err != nil {

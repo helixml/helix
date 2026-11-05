@@ -117,7 +117,7 @@ func TestSandboxAPIProxyRetriesListenerUntilAddressIsAvailable(t *testing.T) {
 	address := occupied.Addr().String()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	server := NewServer(NewManager(t.TempDir(), t.TempDir()), "")
+	server := &Server{manager: &Manager{}}
 	require.NoError(t, server.StartSandboxAPIProxyWithRetry(ctx, address, upstream.URL, 10*time.Millisecond))
 	require.NoError(t, occupied.Close())
 

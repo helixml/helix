@@ -1,4 +1,4 @@
-/* Helix Desktop — Dark theme matching Helix web UI */
+/* Helix Desktop — themes matching the Helix web UI */
 
 * {
     margin: 0;
@@ -26,9 +26,78 @@
     --error: #ef4444;
     --gradient-start: #00c8ff;
     --gradient-end: #6f00ff;
+    --titlebar-bg: rgba(30, 30, 36, 0.85);
+    --overlay-subtle: rgba(255, 255, 255, 0.04);
+    --overlay: rgba(255, 255, 255, 0.08);
+    --overlay-strong: rgba(255, 255, 255, 0.1);
+    --violet-text: rgba(200, 180, 255, 0.9);
+    --violet-text-strong: #d4c4ff;
+    --blurple-text: #7289da;
+    --success-text: #4ade80;
+    --success-text-strong: #86efac;
     --titlebar-height: 52px;
     --transition-fast: 0.15s ease;
     --transition-normal: 0.25s ease;
+}
+
+/* Light palette: follows macOS unless the Helix UI's theme toggle pins a mode
+   (App.tsx sets data-theme from its helix:theme messages). */
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        --bg-primary: #ffffff;
+        --bg-panel: #f4f4f4;
+        --bg-card: #ececf0;
+        --bg-input: #ffffff;
+        --border: #dcdce2;
+        --border-hover: #aeaeae;
+        --text-primary: #000000;
+        --text-secondary: #4a4a4a;
+        --text-faded: #6b6b78;
+        --teal: #0e7490;
+        --teal-dark: #0e7490;
+        --teal-glow: rgba(14, 116, 144, 0.12);
+        --magenta-glow: rgba(239, 46, 198, 0.10);
+        --success: #16a34a;
+        --warning: #d97706;
+        --error: #dc2626;
+        --titlebar-bg: rgba(244, 244, 244, 0.92);
+        --overlay-subtle: rgba(0, 0, 0, 0.03);
+        --overlay: rgba(0, 0, 0, 0.06);
+        --overlay-strong: rgba(0, 0, 0, 0.08);
+        --violet-text: #6d28d9;
+        --violet-text-strong: #5b21b6;
+        --blurple-text: #4752c4;
+        --success-text: #15803d;
+        --success-text-strong: #166534;
+    }
+}
+
+:root[data-theme="light"] {
+    --bg-primary: #ffffff;
+    --bg-panel: #f4f4f4;
+    --bg-card: #ececf0;
+    --bg-input: #ffffff;
+    --border: #dcdce2;
+    --border-hover: #aeaeae;
+    --text-primary: #000000;
+    --text-secondary: #4a4a4a;
+    --text-faded: #6b6b78;
+    --teal: #0e7490;
+    --teal-dark: #0e7490;
+    --teal-glow: rgba(14, 116, 144, 0.12);
+    --magenta-glow: rgba(239, 46, 198, 0.10);
+    --success: #16a34a;
+    --warning: #d97706;
+    --error: #dc2626;
+    --titlebar-bg: rgba(244, 244, 244, 0.92);
+    --overlay-subtle: rgba(0, 0, 0, 0.03);
+    --overlay: rgba(0, 0, 0, 0.06);
+    --overlay-strong: rgba(0, 0, 0, 0.08);
+    --violet-text: #6d28d9;
+    --violet-text-strong: #5b21b6;
+    --blurple-text: #4752c4;
+    --success-text: #15803d;
+    --success-text-strong: #166534;
 }
 
 body {
@@ -59,7 +128,7 @@ body {
     padding: 0 16px;
     /* Offset for macOS traffic lights (68px buttons + gap) */
     padding-left: 104px;
-    background: rgba(30, 30, 36, 0.85);
+    background: var(--titlebar-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
@@ -72,25 +141,6 @@ body {
 
 .titlebar.fullscreen {
     padding-left: 16px;
-}
-
-.titlebar-logo {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-right: 4px;
-}
-
-.titlebar-logo img {
-    height: 20px;
-    width: auto;
-    border-radius: 3px;
-}
-
-.titlebar-logo span {
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
 }
 
 .titlebar-status {
@@ -154,7 +204,7 @@ body {
     border-radius: 16px;
     border: 1px solid rgba(167, 139, 250, 0.3);
     background: linear-gradient(135deg, rgba(111, 0, 255, 0.12) 0%, rgba(0, 200, 255, 0.08) 100%);
-    color: rgba(200, 180, 255, 0.9);
+    color: var(--violet-text);
     font-size: 11px;
     font-weight: 500;
     cursor: pointer;
@@ -166,22 +216,22 @@ body {
 .upsell-banner:hover {
     border-color: rgba(167, 139, 250, 0.55);
     background: linear-gradient(135deg, rgba(111, 0, 255, 0.2) 0%, rgba(0, 200, 255, 0.14) 100%);
-    color: #d4c4ff;
+    color: var(--violet-text-strong);
     box-shadow: 0 0 12px rgba(111, 0, 255, 0.15);
 }
 
-.upsell-banner svg {
+.upsell-chevron {
     opacity: 0.6;
     transition: transform var(--transition-fast);
 }
 
-.upsell-banner:hover svg {
+.upsell-banner:hover .upsell-chevron {
     opacity: 1;
     transform: translateX(2px);
 }
 
 .upsell-sparkle {
-    font-size: 12px;
+    flex-shrink: 0;
 }
 
 /* ---- Discord Link (titlebar) ---- */
@@ -195,7 +245,7 @@ body {
     height: 28px;
     border-radius: 8px;
     border: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--overlay-subtle);
     color: var(--text-secondary);
     cursor: pointer;
     transition: all var(--transition-fast);
@@ -205,7 +255,7 @@ body {
 .discord-link:hover {
     border-color: rgba(88, 101, 242, 0.5);
     background: rgba(88, 101, 242, 0.12);
-    color: #7289da;
+    color: var(--blurple-text);
 }
 
 /* ---- Trial Badge (titlebar) ---- */
@@ -249,7 +299,7 @@ body {
     border-radius: 12px;
     border: 1px solid rgba(34, 197, 94, 0.45);
     background: rgba(34, 197, 94, 0.15);
-    color: #4ade80;
+    color: var(--success-text);
     font-size: 11px;
     font-weight: 600;
     cursor: pointer;
@@ -261,7 +311,7 @@ body {
 .buy-license-btn:hover {
     background: rgba(34, 197, 94, 0.28);
     border-color: rgba(34, 197, 94, 0.7);
-    color: #86efac;
+    color: var(--success-text-strong);
     box-shadow: 0 0 10px rgba(34, 197, 94, 0.2);
 }
 
@@ -274,7 +324,7 @@ body {
     padding: 4px 10px;
     border-radius: 12px;
     border: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--overlay-subtle);
     cursor: default;
     flex-shrink: 0;
 }
@@ -289,7 +339,7 @@ body {
     width: 3px;
     height: 12px;
     border-radius: 1px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--overlay-strong);
     transition: background 0.2s;
 }
 
@@ -334,7 +384,7 @@ body {
 }
 
 .titlebar-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--overlay);
     color: var(--text-primary);
 }
 
@@ -903,7 +953,7 @@ body {
     border-radius: 8px;
     border: 1px solid rgba(34, 197, 94, 0.4);
     background: rgba(34, 197, 94, 0.12);
-    color: #4ade80;
+    color: var(--success-text);
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
@@ -913,7 +963,7 @@ body {
 .buy-license-card-btn:hover {
     background: rgba(34, 197, 94, 0.25);
     border-color: rgba(34, 197, 94, 0.65);
-    color: #86efac;
+    color: var(--success-text-strong);
     box-shadow: 0 0 12px rgba(34, 197, 94, 0.15);
 }
 
@@ -1022,7 +1072,7 @@ body {
 }
 
 .panel-close:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--overlay);
     color: var(--text-primary);
 }
 
@@ -1375,7 +1425,7 @@ body {
     padding: 4px 10px;
     border-radius: 12px;
     border: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--overlay-subtle);
     cursor: default;
     flex-shrink: 0;
 }
@@ -1426,7 +1476,7 @@ body {
     border-radius: 12px;
     border: 1px solid rgba(34, 197, 94, 0.5);
     background: rgba(34, 197, 94, 0.15);
-    color: #4ade80;
+    color: var(--success-text);
     font-size: 11px;
     font-weight: 600;
     cursor: pointer;
@@ -1439,7 +1489,7 @@ body {
 .update-ready-badge:hover {
     background: rgba(34, 197, 94, 0.28);
     border-color: rgba(34, 197, 94, 0.7);
-    color: #86efac;
+    color: var(--success-text-strong);
     box-shadow: 0 0 10px rgba(34, 197, 94, 0.2);
 }
 

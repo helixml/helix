@@ -61,6 +61,49 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSession() {
 	suite.Equal(session.Name, retrievedSession.Name)
 }
 
+func (suite *PostgresStoreTestSuite) TestProjectDeletionMakesLegacyPlanningSessionReapable() {
+	ctx := context.Background()
+	project := suite.createTestProject()
+	task := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Legacy planning session",
+		Status:         types.TaskStatusBacklog,
+		OriginalPrompt: "Test project cleanup",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	suite.Require().NoError(suite.db.CreateSpecTask(ctx, task))
+
+	session := types.Session{
+		ID:        system.GenerateSessionID(),
+		Owner:     "test-user",
+		ModelName: "external_agent",
+		Created:   time.Now(),
+		Updated:   time.Now(),
+		Metadata: types.SessionMetadata{
+			SpecTaskID:          task.ID,
+			ExternalAgentStatus: "running",
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.Require().NoError(err)
+
+	live, err := suite.db.ListExternalAgentSessionIDs(ctx, time.Now().Add(time.Hour))
+	suite.Require().NoError(err)
+	suite.Contains(live, session.ID)
+
+	_, err = suite.db.DeleteSession(ctx, session.ID)
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.DeleteSpecTask(ctx, task.ID))
+	suite.Require().NoError(suite.db.DeleteProject(ctx, project.ID))
+
+	live, err = suite.db.ListExternalAgentSessionIDs(ctx, time.Now().Add(time.Hour))
+	suite.Require().NoError(err)
+	suite.NotContains(live, session.ID)
+}
+
 func (suite *PostgresStoreTestSuite) TestClaimSessionAutoRestartHonorsGracePeriod() {
 	ctx := context.Background()
 	session := types.Session{

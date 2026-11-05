@@ -1,0 +1,224 @@
+From ee82a93c6f7cc1e84cfc89c49324ea8f3bf23948 Mon Sep 17 00:00:00 2001
+From: Luke Marsden <luke@mlops.consulting>
+Date: Tue, 6 Oct 2026 18:34:19 +0100
+Subject: [PATCH] vkr: import shm resources as host memory when dma_buf is
+ emulated
+
+On a host without dma_buf, a resource the guest shares (a GBM buffer, a
+dma_buf exported by another context) is shm, which vkAllocateMemory
+rejected with VK_ERROR_INVALID_EXTERNAL_HANDLE, so a guest that renders
+into shared buffers (Chromium on Zink) lost its context. Import the
+resource's pages as host memory through a mapping of its own, so the
+memory outlives the resource, and report the importable memory types for
+it in vkGetMemoryResourcePropertiesMESA.
+
+A shm resource created from device memory held the dup'ed fd where a
+mapping was expected, and was then munmap()ed by its fd number. Hold
+every shm resource as a mapping.
+---
+ src/venus/vkr_context.c       |  30 ++++++++--
+ src/venus/vkr_device_memory.c | 105 ++++++++++++++++++++++++++++++++--
+ 2 files changed, 123 insertions(+), 12 deletions(-)
+
+diff --git a/src/venus/vkr_context.c b/src/venus/vkr_context.c
+index 2ea58988..9423e23d 100644
+--- a/src/venus/vkr_context.c
++++ b/src/venus/vkr_context.c
+@@ -189,9 +189,10 @@ static inline void
+ vkr_context_free_resource(struct hash_entry *entry)
+ {
+    struct vkr_resource *res = entry->data;
+-   if (res->fd_type == VIRGL_RESOURCE_FD_SHM)
+-      munmap(res->u.data, res->size);
+-   else if (res->u.fd >= 0)
++   if (res->fd_type == VIRGL_RESOURCE_FD_SHM) {
++      if (res->u.data)
++         munmap(res->u.data, res->size);
++   } else if (res->u.fd >= 0)
+       close(res->u.fd);
+    free(res);
+ }
+@@ -238,9 +239,12 @@ vkr_context_import_resource_internal(struct vkr_context *ctx,
+    res->fd_type = fd_type;
+    res->size = blob_size;
+ 
+-   /* fd and mmap_ptr cannot be valid at the same time, but allowed to be -1 and NULL */
++   /* fd and mmap_ptr cannot be valid at the same time, but allowed to be -1 and NULL.
++    * A shm resource is always held as a mapping (or none), never as an fd.
++    */
+    assert(fd < 0 || !mmap_ptr);
+-   if (mmap_ptr)
++   assert(fd_type != VIRGL_RESOURCE_FD_SHM || fd < 0);
++   if (fd_type == VIRGL_RESOURCE_FD_SHM)
+       res->u.data = mmap_ptr;
+    else
+       res->u.fd = fd;
+@@ -345,10 +349,24 @@ vkr_context_create_resource_from_device_memory(struct vkr_context *ctx,
+       }
+    }
+ 
++   /* A shm resource is held as a mapping, which also lets it be imported as host memory. */
++   void *res_ptr = NULL;
++   if (blob.type == VIRGL_RESOURCE_FD_SHM && res_fd >= 0) {
++      res_ptr = mmap(NULL, blob_size, PROT_WRITE | PROT_READ, MAP_SHARED, res_fd, 0);
++      close(res_fd);
++      res_fd = -1;
++      if (res_ptr == MAP_FAILED) {
++         close(blob.u.fd);
++         return false;
++      }
++   }
++
+    if (!vkr_context_import_resource_internal(ctx, res_id, blob_size, blob.type, res_fd,
+-                                             NULL)) {
++                                             res_ptr)) {
+       if (res_fd >= 0)
+          close(res_fd);
++      if (res_ptr)
++         munmap(res_ptr, blob_size);
+       close(blob.u.fd);
+       return false;
+    }
+diff --git a/src/venus/vkr_device_memory.c b/src/venus/vkr_device_memory.c
+index 1c460fdd..fe59b0dd 100644
+--- a/src/venus/vkr_device_memory.c
++++ b/src/venus/vkr_device_memory.c
+@@ -274,6 +274,43 @@ vkr_shm_alloc(uint64_t size)
+    return shm;
+ }
+ 
++#ifdef __APPLE__
++#include <mach/mach.h>
++#include <mach/mach_vm.h>
++#endif
++
++/* A second mapping of size bytes at ptr that keeps the pages alive on its own. */
++static struct vkr_shm *
++vkr_shm_alias(void *ptr, uint64_t size)
++{
++#ifdef __APPLE__
++   mach_vm_address_t addr = 0;
++   vm_prot_t cur_prot, max_prot;
++   size = (size + vm_page_size - 1) & ~((uint64_t)vm_page_size - 1);
++   kern_return_t kr = mach_vm_remap(mach_task_self(), &addr, size, 0, VM_FLAGS_ANYWHERE,
++                                    mach_task_self(), (mach_vm_address_t)ptr, FALSE,
++                                    &cur_prot, &max_prot, VM_INHERIT_NONE);
++   if (kr != KERN_SUCCESS) {
++      vkr_log("mach_vm_remap of %p+%llu failed: %d", ptr, (unsigned long long)size, kr);
++      return NULL;
++   }
++
++   struct vkr_shm *shm = calloc(1, sizeof(*shm));
++   if (!shm) {
++      munmap((void *)addr, size);
++      return NULL;
++   }
++   shm->fd = -1;
++   shm->ptr = (void *)addr;
++   shm->size = size;
++   return shm;
++#else
++   (void)ptr;
++   (void)size;
++   return NULL;
++#endif
++}
++
+ static void
+ vkr_shm_free(struct vkr_shm *shm)
+ {
+@@ -306,14 +343,48 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+    VkImportMemoryResourceInfoMESA *res_info = NULL;
+    VkBaseInStructure *prev_of_res_info = vkr_find_prev_struct(
+       alloc_info, VK_STRUCTURE_TYPE_IMPORT_MEMORY_RESOURCE_INFO_MESA);
++   struct vkr_shm *imported_shm = NULL;
++   VkImportMemoryHostPointerInfoEXT local_res_host_import;
+    if (prev_of_res_info) {
+       res_info = (VkImportMemoryResourceInfoMESA *)prev_of_res_info->pNext;
+-      if (!vkr_get_fd_info_from_resource_info(ctx, res_info, &local_import_info)) {
+-         args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
+-         return;
+-      }
++      struct vkr_resource *res = vkr_context_get_resource(ctx, res_info->resourceId);
++      if (physical_dev->is_dma_buf_emulated && res && res->fd_type == VIRGL_RESOURCE_FD_SHM) {
++         if (!res->u.data) {
++            vkr_log("failed to import resource %u: shm without a mapping", res->res_id);
++            args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
++            return;
++         }
++         /* With dma_buf emulated, a resource the guest shares is shm: import its pages
++          * as host memory, through a mapping of our own so the memory outlives the
++          * resource.
++          */
++         imported_shm = vkr_shm_alias(res->u.data, res->size);
++         if (!imported_shm) {
++            args->ret = VK_ERROR_OUT_OF_HOST_MEMORY;
++            return;
++         }
++         local_res_host_import = (VkImportMemoryHostPointerInfoEXT){
++            .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT,
++            .pNext = res_info->pNext,
++            .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
++            .pHostPointer = imported_shm->ptr,
++         };
++         prev_of_res_info->pNext = (const struct VkBaseInStructure *)&local_res_host_import;
++         alloc_info->allocationSize = imported_shm->size;
++
++         /* Host memory can't be exported as a dma_buf; the resource already is the export. */
++         VkBaseInStructure *prev_of_export = vkr_find_prev_struct(
++            alloc_info, VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO);
++         if (prev_of_export)
++            prev_of_export->pNext = prev_of_export->pNext->pNext;
++      } else {
++         if (!vkr_get_fd_info_from_resource_info(ctx, res_info, &local_import_info)) {
++            args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
++            return;
++         }
+ 
+-      prev_of_res_info->pNext = (const struct VkBaseInStructure *)&local_import_info;
++         prev_of_res_info->pNext = (const struct VkBaseInStructure *)&local_import_info;
++      }
+    }
+ 
+    VkExportMemoryAllocateInfo *export_info =
+@@ -338,7 +409,7 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+    uint32_t valid_fd_types = 0;
+    int udmabuf_fd = -1;
+    void *gbm_bo = NULL;
+-   struct vkr_shm *shm = NULL;
++   struct vkr_shm *shm = imported_shm;
+    VkExportMemoryAllocateInfo local_export_info;
+    VkImportMemoryHostPointerInfoEXT local_host_import;
+ 
+@@ -564,6 +635,28 @@ vkr_dispatch_vkGetMemoryResourcePropertiesMESA(
+       return;
+    }
+ 
++   if (res->fd_type == VIRGL_RESOURCE_FD_SHM && dev->physical_device->is_dma_buf_emulated &&
++       res->u.data) {
++      /* Imported as host memory by vkAllocateMemory, see there. */
++      VkMemoryHostPointerPropertiesEXT host_props = {
++         .sType = VK_STRUCTURE_TYPE_MEMORY_HOST_POINTER_PROPERTIES_EXT,
++      };
++      vn_replace_vkGetMemoryResourcePropertiesMESA_args_handle(args);
++      args->ret = dev->GetMemoryHostPointerPropertiesEXT(
++         args->device, VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT, res->u.data,
++         &host_props);
++      if (args->ret != VK_SUCCESS)
++         return;
++
++      args->pMemoryResourceProperties->memoryTypeBits = host_props.memoryTypeBits;
++      VkMemoryResourceAllocationSizePropertiesMESA *size_props =
++         vkr_find_struct(args->pMemoryResourceProperties->pNext,
++                         VK_STRUCTURE_TYPE_MEMORY_RESOURCE_ALLOCATION_SIZE_PROPERTIES_MESA);
++      if (size_props)
++         size_props->allocationSize = res->size;
++      return;
++   }
++
+    if (res->fd_type != VIRGL_RESOURCE_FD_DMABUF) {
+       args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
+       return;
+-- 
+2.50.1 (Apple Git-155)
+

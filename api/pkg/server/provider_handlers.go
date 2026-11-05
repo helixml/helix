@@ -323,6 +323,8 @@ func (s *HelixAPIServer) globalProviderEndpoint(provider types.Provider) *types.
 		baseURL = s.Cfg.Providers.OpenAI.BaseURL
 	case types.ProviderTogetherAI:
 		baseURL = s.Cfg.Providers.TogetherAI.BaseURL
+	case types.ProviderAnthropic:
+		baseURL = s.Cfg.Providers.Anthropic.BaseURL
 	case types.ProviderVLLM:
 		baseURL = s.Cfg.Providers.VLLM.BaseURL
 	case types.ProviderHelix:
@@ -786,6 +788,12 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 
 	endpoint.Name = strings.TrimSpace(endpoint.Name)
+	models, err := normalizeProviderModels(endpoint.Models)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	endpoint.Models = models
 	duplicate, err := s.providerEndpointNameExists(ctx, &endpoint, "")
 	if err != nil {
 		log.Err(err).Msg("error listing providers for name validation")
@@ -985,7 +993,12 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	if updatedEndpoint.BillingEnabled != nil {
 		existingEndpoint.BillingEnabled = *updatedEndpoint.BillingEnabled
 	}
-	existingEndpoint.Models = updatedEndpoint.Models
+	models, err := normalizeProviderModels(updatedEndpoint.Models)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	existingEndpoint.Models = models
 	existingEndpoint.BaseURL = strings.TrimSpace(updatedEndpoint.BaseURL)
 	// A nil map means the caller left headers out of the request; an empty map
 	// means "remove every header". Both are legitimate, so only the nil case
@@ -1167,15 +1180,10 @@ func (s *HelixAPIServer) updateProviderEndpointModels(rw http.ResponseWriter, r 
 		return
 	}
 
-	models := make([]string, 0, len(req.Models))
-	seen := make(map[string]bool, len(req.Models))
-	for _, m := range req.Models {
-		m = strings.TrimSpace(m)
-		if m == "" || seen[m] {
-			continue
-		}
-		seen[m] = true
-		models = append(models, m)
+	models, err := normalizeProviderModels(req.Models)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
 	}
 	endpoint.Models = models
 

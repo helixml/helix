@@ -88,6 +88,12 @@ func (c *Controller) BeginSession(ctx context.Context, req *types.BeginSandboxSe
 	}
 
 	if existing != nil {
+		// A row still marked running (the stop never reached us, e.g. an API
+		// restart) has unbilled usage; settle it before the reopen clears the
+		// cursor, or that usage is never charged.
+		if err := c.billSandboxFinal(ctx, existing, time.Now()); err != nil {
+			return nil, fmt.Errorf("settle session sandbox before reopen: %w", err)
+		}
 		// Reuse the row so a paused-then-resumed task keeps one identity (and
 		// one charge history) across restarts.
 		existing.VCPUs = vcpus
@@ -224,7 +230,7 @@ func (c *Controller) ResizeSession(ctx context.Context, sessionID string, vcpus,
 		return fmt.Errorf("get system settings: %w", err)
 	}
 	if settings.SandboxBillingEnabled && sb.Status == types.SandboxStatusRunning {
-		if err := c.billSandbox(ctx, settings, sb, time.Now(), true, false); err != nil {
+		if err := c.settleSandbox(ctx, settings, sb, time.Now()); err != nil {
 			return fmt.Errorf("settle charges at previous size before resize: %w", err)
 		}
 	}

@@ -15,6 +15,7 @@ import Tooltip from "@mui/material/Tooltip";
 import { ChevronDown } from "lucide-react";
 import AgentDropdown from "../agent/AgentDropdown";
 import AgentHarness, { getAgentHarnessRuntime } from "../agent/AgentHarness";
+import { useIsCodeAgentRuntimeEnabled } from "../../services/codeAgentHarnessesService";
 import useApps from "../../hooks/useApps";
 import useSnackbar from "../../hooks/useSnackbar";
 import { useListProjectSpecTaskAgents } from "../../services/projectService";
@@ -74,6 +75,7 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
   const session = sessionResponse?.data;
   const switchMutation = useSwitchAgent(sessionId);
   const { data: projectAgents = [] } = useListProjectSpecTaskAgents(projectId, !!projectId);
+  const isRuntimeEnabled = useIsCodeAgentRuntimeEnabled();
 
   // The dropdown value reflects the session's parent_app (the helix app the
   // agent was launched from). For sessions without parent_app the dropdown
@@ -108,6 +110,10 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
       } as unknown as IApp];
     });
   }, [apps.apps, projectAgents]);
+  // Hide agents whose runtime the organization disabled: the server rejects
+  // them at desktop startup.
+  const switchableAgents = eligibleAgents.filter((agent) =>
+    agent.id === currentAppId || isRuntimeEnabled(getAgentHarnessRuntime(agent)));
 
   const handleSelect = (newAppId: string) => {
     setMenuAnchor(null);
@@ -152,7 +158,7 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
   const currentAgentName = currentAgent?.config?.helix?.name || (currentAppId ? "the current agent" : "");
 
   const isPaused = !!session?.config?.paused;
-  const disabled = pending || isPaused || eligibleAgents.length === 0;
+  const disabled = pending || isPaused || switchableAgents.length === 0;
   const tooltip = isPaused
     ? "This session is paused — switch on its active descendant instead"
     : "Pick a different agent to switch this session";
@@ -217,7 +223,7 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
             open={!!menuAnchor}
             onClose={() => setMenuAnchor(null)}
           >
-            {eligibleAgents.map((agent) => (
+            {switchableAgents.map((agent) => (
               <MenuItem
                 key={agent.id}
                 selected={agent.id === currentAppId}
@@ -239,7 +245,7 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
             <AgentDropdown
               value={currentAppId}
               onChange={handleSelect}
-              agents={eligibleAgents}
+              agents={switchableAgents}
               disabled={disabled}
               size={size}
             />

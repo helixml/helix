@@ -72,7 +72,11 @@ import (
 // mounted under /api/v1/orgs/{org}/. The React UI at
 // /orgs/:org_id/* consumes those endpoints.
 type helixOrgHandlers struct {
-	api     http.Handler
+	api http.Handler
+	// botMCP serves one Bot's MCP surface, with org, bot, and acting user
+	// bound on the request context by the authenticated gateway backend.
+	// It is not reachable through `api`.
+	botMCP  http.Handler
 	configs *configregistry.Registry
 	// mcpServer is the org MCP server behind `api`. Held directly so the
 	// spec-task MCP backend can serve a project-scoped caller through the
@@ -477,7 +481,7 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 	botsSvc := nodes.New(nodes.Deps{
 		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: deps.Reconciler,
 		Now: deps.Now, NewID: deps.NewID,
-		BaseTools: mcptools.BaseReadTools, KnownTools: knownTools,
+		BaseTools: mcptools.BaseReadTools, GrantableTools: mcptools.DefaultBotTools(), KnownTools: knownTools,
 		OnToolsChanged:    deps.ToolChangeNotifier,
 		OnRestartRequired: deps.RestartRequiredNotifier,
 	})
@@ -1551,6 +1555,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 
 	return &helixOrgHandlers{
 		api:                           orgServer.Handler(extras...),
+		botMCP:                        orgServer.BotMCPHandler(),
 		configs:                       configReg,
 		mcpServer:                     orgServer,
 		scope:                         scope,
@@ -1788,6 +1793,10 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, orgID, d.Cfg)
 	specsMandate, _ := d.Cfg.GetString(ctx, orgID, "worker.specs_mandate")
 	sandboxRuntime, sandboxResources := d.Cfg.GetDefaultSandboxConfig(ctx, orgID)
+	maxInflight, err := d.Cfg.GetMaxConcurrentActivations(ctx, orgID)
+	if err != nil {
+		return runtimehelix.SpawnerConfig{}, fmt.Errorf("read organization activation limit: %w", err)
+	}
 	return runtimehelix.SpawnerConfig{
 		Client:           d.SpawnerClient,
 		ProjectService:   d.ProjectSvc,
@@ -1800,6 +1809,7 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 		SandboxRuntime:   sandboxRuntime,
 		SandboxResources: sandboxResources,
 		SpecsMandate:     specsMandate,
+		MaxInflight:      maxInflight,
 		Store:            d.OrgStore,
 		Hub:              d.Hub,
 		PubSub:           d.PubSub,
@@ -1822,16 +1832,13 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 //
 // Building per activation is cheap (a handful of config-registry
 // reads) and ensures newly provisioned apps use current org defaults.
-// Existing apps retain their own configuration. The one thing the old cache
-// legitimately provided — a single process-wide inflight cap — is
-// preserved by minting one shared semaphore here and injecting it into
-// each per-activation config via SpawnerConfig.Sem.
+// Existing apps retain their own configuration. A shared limiter tracks
+// each organization's independent inflight count.
 //
 // The dynamic applier still runs first to provision or fast-path the
 // per-Worker project.
 func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
-	// One inflight cap shared across every per-org spawner config.
-	sem := make(chan struct{}, runtimehelix.DefaultMaxInflight)
+	limiter := runtimehelix.NewInflightLimiter()
 	return func(ctx context.Context, orgID string, workerID orgchart.NodeID, triggers []activation.Trigger) error {
 		ctx = helixorgserver.WithOrgID(ctx, orgID)
 		// Apply (or fast-path) the per-Worker project with the current
@@ -1842,14 +1849,13 @@ func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
 			}
 		}
 		// Rebuild the SpawnerConfig for THIS org on every activation —
-		// never reuse another org's config. The shared semaphore keeps
-		// the global inflight cap intact.
+		// never reuse another org's config.
 		cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, d)
 		if err != nil {
 			return fmt.Errorf("helix-org spawner not configured: %w", err)
 		}
 		cfgVal.Mirror = d.Mirror // process-wide singleton; not per-org config
-		cfgVal.Sem = sem
+		cfgVal.Limiter = limiter
 		log.Trace().
 			Str("org_id", orgID).
 			Str("worker_id", string(workerID)).

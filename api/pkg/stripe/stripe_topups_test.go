@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,22 +20,64 @@ import (
 )
 
 type topUpSessionBackend struct {
-	t      *testing.T
-	params *stripe.CheckoutSessionParams
+	t                    *testing.T
+	params               *stripe.CheckoutSessionParams
+	endpoint             *stripe.WebhookEndpoint
+	updatedEndpoint      *stripe.WebhookEndpoint
+	endpointGetErr       error
+	endpointUpdateErr    error
+	endpointUpdateParams *stripe.WebhookEndpointParams
+	calls                []string
 }
 
 func (b *topUpSessionBackend) Call(method, path, _ string, params stripe.ParamsContainer, v stripe.LastResponseSetter) error {
-	require.Equal(b.t, http.MethodPost, method)
-	require.Equal(b.t, "/v1/checkout/sessions", path)
-
-	checkoutParams, ok := params.(*stripe.CheckoutSessionParams)
-	require.True(b.t, ok)
-	b.params = checkoutParams
-
-	session, ok := v.(*stripe.CheckoutSession)
-	require.True(b.t, ok)
-	session.URL = "https://checkout.stripe.test/session"
-	return nil
+	b.calls = append(b.calls, method+" "+path)
+	switch {
+	case method == http.MethodGet && path == "/v1/webhook_endpoints/we_test":
+		if b.endpointGetErr != nil {
+			return b.endpointGetErr
+		}
+		endpoint, ok := v.(*stripe.WebhookEndpoint)
+		require.True(b.t, ok)
+		if b.endpoint == nil {
+			b.endpoint = &stripe.WebhookEndpoint{
+				ID:            "we_test",
+				Status:        "enabled",
+				EnabledEvents: []string{string(stripe.EventTypeCheckoutSessionCompleted), string(stripe.EventTypePaymentIntentSucceeded)},
+			}
+		}
+		*endpoint = *b.endpoint
+		return nil
+	case method == http.MethodPost && path == "/v1/webhook_endpoints/we_test":
+		if b.endpointUpdateErr != nil {
+			return b.endpointUpdateErr
+		}
+		updateParams, ok := params.(*stripe.WebhookEndpointParams)
+		require.True(b.t, ok)
+		b.endpointUpdateParams = updateParams
+		endpoint, ok := v.(*stripe.WebhookEndpoint)
+		require.True(b.t, ok)
+		if b.updatedEndpoint != nil {
+			*endpoint = *b.updatedEndpoint
+			return nil
+		}
+		endpoint.ID = "we_test"
+		endpoint.Status = "enabled"
+		for _, event := range updateParams.EnabledEvents {
+			endpoint.EnabledEvents = append(endpoint.EnabledEvents, *event)
+		}
+		return nil
+	case method == http.MethodPost && path == "/v1/checkout/sessions":
+		checkoutParams, ok := params.(*stripe.CheckoutSessionParams)
+		require.True(b.t, ok)
+		b.params = checkoutParams
+		session, ok := v.(*stripe.CheckoutSession)
+		require.True(b.t, ok)
+		session.URL = "https://checkout.stripe.test/session"
+		return nil
+	default:
+		return fmt.Errorf("unexpected Stripe call: %s %s", method, path)
+	}
 }
 
 func (b *topUpSessionBackend) CallStreaming(string, string, string, stripe.ParamsContainer, stripe.StreamingLastResponseSetter) error {
@@ -77,6 +120,7 @@ func TestGetTopUpSessionURLUsesPromoCreditPriceForFiveDollars(t *testing.T) {
 		AppURL:               "https://app.helix.test",
 		SecretKey:            "sk_test",
 		WebhookSigningSecret: "whsec_test",
+		WebhookEndpointID:    "we_test",
 		PromoCreditPriceID:   "price_promo_credits",
 	}, nil)
 
@@ -104,6 +148,7 @@ func TestGetTopUpSessionURLUsesInlineProductForOtherAmounts(t *testing.T) {
 		AppURL:               "https://app.helix.test",
 		SecretKey:            "sk_test",
 		WebhookSigningSecret: "whsec_test",
+		WebhookEndpointID:    "we_test",
 	}, nil)
 
 	_, err := s.GetTopUpSessionURL(TopUpSessionParams{Amount: 10})
@@ -115,6 +160,149 @@ func TestGetTopUpSessionURLUsesInlineProductForOtherAmounts(t *testing.T) {
 	require.Equal(t, "Helix Credits", *lineItem.PriceData.ProductData.Name)
 	require.Equal(t, "Top up of $10.00", *lineItem.PriceData.ProductData.Description)
 	require.Equal(t, int64(1000), *lineItem.PriceData.UnitAmount)
+}
+
+func TestGetTopUpSessionURLReconcilesWebhookEventsBeforeCheckout(t *testing.T) {
+	backend := &topUpSessionBackend{
+		t: t,
+		endpoint: &stripe.WebhookEndpoint{
+			ID:            "we_test",
+			Status:        "enabled",
+			EnabledEvents: []string{"invoice.paid", string(stripe.EventTypePaymentIntentSucceeded)},
+		},
+	}
+	setTopUpBackend(t, backend)
+
+	s := NewStripe(topUpStripeConfig(), nil)
+	_, err := s.GetTopUpSessionURL(TopUpSessionParams{Amount: 10})
+	require.NoError(t, err)
+	require.NotNil(t, backend.params)
+	require.Equal(t, stripe.StringSlice([]string{
+		"invoice.paid",
+		string(stripe.EventTypePaymentIntentSucceeded),
+		string(stripe.EventTypeCheckoutSessionCompleted),
+	}), backend.endpointUpdateParams.EnabledEvents)
+	require.Equal(t, []string{
+		"GET /v1/webhook_endpoints/we_test",
+		"POST /v1/webhook_endpoints/we_test",
+		"POST /v1/checkout/sessions",
+	}, backend.calls)
+}
+
+func TestGetTopUpSessionURLAcceptsWildcardWebhookEvents(t *testing.T) {
+	backend := &topUpSessionBackend{
+		t: t,
+		endpoint: &stripe.WebhookEndpoint{
+			ID:            "we_test",
+			Status:        "enabled",
+			EnabledEvents: []string{"*"},
+		},
+	}
+	setTopUpBackend(t, backend)
+
+	s := NewStripe(topUpStripeConfig(), nil)
+	_, err := s.GetTopUpSessionURL(TopUpSessionParams{Amount: 10})
+	require.NoError(t, err)
+	require.Nil(t, backend.endpointUpdateParams)
+	require.NotNil(t, backend.params)
+}
+
+func TestGetTopUpSessionURLAddsBothWebhookEvents(t *testing.T) {
+	backend := &topUpSessionBackend{
+		t: t,
+		endpoint: &stripe.WebhookEndpoint{
+			ID:            "we_test",
+			Status:        "enabled",
+			EnabledEvents: []string{"invoice.paid"},
+		},
+	}
+	setTopUpBackend(t, backend)
+
+	s := NewStripe(topUpStripeConfig(), nil)
+	_, err := s.GetTopUpSessionURL(TopUpSessionParams{Amount: 10})
+	require.NoError(t, err)
+	require.Equal(t, stripe.StringSlice([]string{
+		"invoice.paid",
+		string(stripe.EventTypeCheckoutSessionCompleted),
+		string(stripe.EventTypePaymentIntentSucceeded),
+	}), backend.endpointUpdateParams.EnabledEvents)
+}
+
+func TestGetTopUpSessionURLRefusesCheckoutWithoutValidWebhook(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   config.Stripe
+		backend  *topUpSessionBackend
+		contains string
+	}{
+		{
+			name:     "missing endpoint id",
+			config:   config.Stripe{SecretKey: "sk_test", WebhookSigningSecret: "whsec_test"},
+			backend:  &topUpSessionBackend{},
+			contains: "webhook endpoint ID is required",
+		},
+		{
+			name:     "endpoint read fails",
+			config:   topUpStripeConfig(),
+			backend:  &topUpSessionBackend{endpointGetErr: errors.New("Stripe unavailable")},
+			contains: "get Stripe webhook endpoint",
+		},
+		{
+			name:   "endpoint disabled",
+			config: topUpStripeConfig(),
+			backend: &topUpSessionBackend{endpoint: &stripe.WebhookEndpoint{
+				ID: "we_test", Status: "disabled",
+			}},
+			contains: "is not enabled",
+		},
+		{
+			name:   "endpoint update fails",
+			config: topUpStripeConfig(),
+			backend: &topUpSessionBackend{
+				endpoint:          &stripe.WebhookEndpoint{ID: "we_test", Status: "enabled"},
+				endpointUpdateErr: errors.New("Stripe unavailable"),
+			},
+			contains: "update Stripe webhook endpoint",
+		},
+		{
+			name:   "endpoint update omits event",
+			config: topUpStripeConfig(),
+			backend: &topUpSessionBackend{
+				endpoint: &stripe.WebhookEndpoint{ID: "we_test", Status: "enabled"},
+				updatedEndpoint: &stripe.WebhookEndpoint{
+					ID: "we_test", Status: "enabled", EnabledEvents: []string{string(stripe.EventTypePaymentIntentSucceeded)},
+				},
+			},
+			contains: "missing required credit events",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.backend.t = t
+			setTopUpBackend(t, tt.backend)
+			s := NewStripe(tt.config, nil)
+			_, err := s.GetTopUpSessionURL(TopUpSessionParams{Amount: 10})
+			require.ErrorContains(t, err, tt.contains)
+			require.Nil(t, tt.backend.params)
+		})
+	}
+}
+
+func setTopUpBackend(t *testing.T, backend stripe.Backend) {
+	t.Helper()
+	originalBackend := stripe.GetBackend(stripe.APIBackend)
+	stripe.SetBackend(stripe.APIBackend, backend)
+	t.Cleanup(func() { stripe.SetBackend(stripe.APIBackend, originalBackend) })
+}
+
+func topUpStripeConfig() config.Stripe {
+	return config.Stripe{
+		AppURL:               "https://app.helix.test",
+		SecretKey:            "sk_test",
+		WebhookSigningSecret: "whsec_test",
+		WebhookEndpointID:    "we_test",
+	}
 }
 
 func TestHandleTopUpEvent_UsesRequestedAmountMetadata(t *testing.T) {

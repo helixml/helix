@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -54,9 +55,40 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
 	}
 
 	s.executor.EXPECT().StopDesktop(ctx, "session-456").Return(nil)
+	s.store.EXPECT().ReapWaitingInteractions(ctx, "session-456", types.InteractionStateInterrupted, "task marked done").Return(nil, nil)
+	s.store.EXPECT().ListPromptHistoryBySession(ctx, "session-456").Return(nil, nil)
 
 	err := s.orchestrator.handleDone(ctx, task)
 	s.Require().NoError(err)
+}
+
+// Anything that would start a done task's agent again would reopen the task,
+// undoing its completion: a turn left waiting (auto-wake) or a message queued
+// before completion (queue delivery). A message sent afterwards is kept — that
+// is a deliberate request to carry on.
+func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_SettlesTheFinishedAgent() {
+	ctx := context.Background()
+	completedAt := time.Now()
+	task := &types.SpecTask{
+		ID:                "task-123",
+		PlanningSessionID: "session-456",
+		Status:            types.TaskStatusDone,
+		CompletedAt:       &completedAt,
+	}
+	before, after := completedAt.Add(-time.Minute), completedAt.Add(time.Minute)
+
+	s.executor.EXPECT().StopDesktop(ctx, "session-456").Return(nil)
+	s.store.EXPECT().ReapWaitingInteractions(ctx, "session-456", types.InteractionStateInterrupted, "task marked done").Return(nil, nil)
+	s.store.EXPECT().ListPromptHistoryBySession(ctx, "session-456").Return([]*types.PromptHistoryEntry{
+		{ID: "queued-before", Status: "pending", CreatedAt: before},
+		{ID: "retrying-before", Status: "failed", CreatedAt: before},
+		{ID: "sent-before", Status: "sent", CreatedAt: before},
+		{ID: "queued-after", Status: "pending", CreatedAt: after},
+	}, nil)
+	s.store.EXPECT().DeletePromptHistoryEntry(ctx, "queued-before").Return(nil)
+	s.store.EXPECT().DeletePromptHistoryEntry(ctx, "retrying-before").Return(nil)
+
+	s.Require().NoError(s.orchestrator.handleDone(ctx, task))
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestPreparingTaskWaitsForAttachmentIngestion() {
@@ -696,6 +728,12 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_ClaimsAcr
 	}).DoAndReturn(func(context.Context, *types.SpecTaskFilters) ([]*types.SpecTask, error) {
 		return []*types.SpecTask{newTaskSnapshot()}, nil
 	}).Times(2)
+	s.store.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{}, nil).Times(2)
+	// An unlimited runner makes the sandbox-capacity gate a no-op, so this test
+	// keeps exercising only the WIP-claim race.
+	s.store.EXPECT().ListSandboxInstances(ctx).Return([]*types.SandboxInstance{
+		{Status: "online", LastSeen: time.Now(), MaxSandboxes: -1},
+	}, nil).AnyTimes()
 
 	var claimAttempts atomic.Int32
 	s.store.EXPECT().TransitionSpecTaskStatus(
@@ -1004,12 +1042,121 @@ func TestImplementationQueueReason(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ImplementationQueueReason(project, tt.projectTasks, tt.task)
+			got := ImplementationQueueReason(project, tt.projectTasks, tt.task, types.DefaultFreeImplementationTasks)
 			if tt.wantEmpty {
 				assert.Empty(t, got)
 			} else {
 				assert.Contains(t, got, tt.wantContains)
 			}
+		})
+	}
+}
+
+func TestImplementationQueueReasonUsesPlanDefaultAndProjectOverride(t *testing.T) {
+	queued := &types.SpecTask{ID: "queued", Status: types.TaskStatusQueuedImplementation}
+	tasks := make([]*types.SpecTask, 29)
+	for i := range tasks {
+		tasks[i] = &types.SpecTask{Status: types.TaskStatusImplementation}
+	}
+
+	assert.Empty(t, ImplementationQueueReason(&types.Project{}, tasks, queued, types.DefaultProImplementationTasks))
+	tasks = append(tasks, &types.SpecTask{Status: types.TaskStatusImplementation})
+	assert.Contains(t, ImplementationQueueReason(&types.Project{}, tasks, queued, types.DefaultProImplementationTasks), "limit 30")
+
+	project := &types.Project{Metadata: types.ProjectMetadata{BoardSettings: &types.BoardSettings{
+		WIPLimits: types.WIPLimits{Implementation: 5},
+	}}}
+	assert.Contains(t, ImplementationQueueReason(project, tasks[:5], queued, types.DefaultProImplementationTasks), "limit 5")
+}
+
+func TestProjectImplementationWIPLimit(t *testing.T) {
+	t.Run("pro", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		projectStore := store.NewMockStore(ctrl)
+		ctx := context.Background()
+		project := &types.Project{OrganizationID: "org_1"}
+
+		projectStore.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{EnforceQuotas: true}, nil)
+		projectStore.EXPECT().GetWalletByOrg(ctx, "org_1").Return(&types.Wallet{PlanOverride: types.PlanOverridePro}, nil)
+		limit, err := ProjectImplementationWIPLimit(ctx, projectStore, project)
+		require.NoError(t, err)
+		assert.Equal(t, types.DefaultProImplementationTasks, limit)
+	})
+
+	t.Run("quotas disabled", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		projectStore := store.NewMockStore(ctrl)
+		ctx := context.Background()
+
+		projectStore.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{}, nil)
+		limit, err := ProjectImplementationWIPLimit(ctx, projectStore, &types.Project{OrganizationID: "org_1"})
+		require.NoError(t, err)
+		assert.Equal(t, types.DefaultFreeImplementationTasks, limit)
+	})
+}
+
+func TestProImplementationLimitAtOrchestratorBoundaries(t *testing.T) {
+	for _, count := range []int{29, 30} {
+		t.Run(fmt.Sprintf("backlog_%d", count), func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			projectStore := store.NewMockStore(ctrl)
+			orchestrator := &SpecTaskOrchestrator{store: projectStore}
+			ctx := context.Background()
+			task := &types.SpecTask{ID: "task", ProjectID: "project", Status: types.TaskStatusBacklog, JustDoItMode: true}
+			project := &types.Project{ID: "project", OrganizationID: "org", AutoStartBacklogTasks: true}
+			tasks := make([]*types.SpecTask, count, count+1)
+			for i := range tasks {
+				tasks[i] = &types.SpecTask{Status: types.TaskStatusImplementation}
+			}
+			tasks = append(tasks, task)
+
+			projectStore.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{EnforceQuotas: true}, nil)
+			projectStore.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+			projectStore.EXPECT().GetProject(ctx, project.ID).Return(project, nil)
+			projectStore.EXPECT().ListSpecTasks(ctx, gomock.Any()).Return(tasks, nil)
+			projectStore.EXPECT().GetWalletByOrg(ctx, "org").Return(&types.Wallet{PlanOverride: types.PlanOverridePro}, nil)
+			if count == 29 {
+				projectStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, got *types.SpecTask) error {
+					assert.Equal(t, types.TaskStatusQueuedImplementation, got.Status)
+					return nil
+				})
+			}
+			require.NoError(t, orchestrator.handleBacklog(ctx, task))
+		})
+
+		t.Run(fmt.Sprintf("queued_%d", count), func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			projectStore := store.NewMockStore(ctrl)
+			workflow := &countingSpecTaskWorkflowService{}
+			orchestrator := &SpecTaskOrchestrator{store: projectStore, specTaskService: workflow}
+			ctx := context.Background()
+			task := &types.SpecTask{ID: "task", ProjectID: "project", Status: types.TaskStatusQueuedImplementation}
+			project := &types.Project{ID: "project", OrganizationID: "org"}
+			tasks := make([]*types.SpecTask, count, count+1)
+			for i := range tasks {
+				tasks[i] = &types.SpecTask{Status: types.TaskStatusImplementation}
+			}
+			tasks = append(tasks, task)
+
+			projectStore.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{EnforceQuotas: true}, nil)
+			projectStore.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+			projectStore.EXPECT().GetProject(ctx, project.ID).Return(project, nil)
+			projectStore.EXPECT().ListSpecTasks(ctx, gomock.Any()).Return(tasks, nil)
+			projectStore.EXPECT().GetWalletByOrg(ctx, "org").Return(&types.Wallet{PlanOverride: types.PlanOverridePro}, nil)
+			if count == 29 {
+				// Under the plan limit, promotion reaches the sandbox-capacity
+				// gate. No runner reports a confirmed cap, so it fails open and
+				// this test stays focused on the Pro implementation limit.
+				projectStore.EXPECT().ListSandboxInstances(ctx).Return(nil, nil)
+				projectStore.EXPECT().TransitionSpecTaskStatus(ctx, task.ID, []types.SpecTaskStatus{types.TaskStatusQueuedImplementation}, types.TaskStatusImplementation, nil).Return(true, nil)
+			}
+			require.NoError(t, orchestrator.handleQueuedImplementation(ctx, task))
+			orchestrator.wg.Wait()
+			expectedStarts := int32(0)
+			if count == 29 {
+				expectedStarts = 1
+			}
+			assert.Equal(t, expectedStarts, workflow.justDoItStarts.Load())
 		})
 	}
 }
@@ -1102,7 +1249,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestIsDeletedProjectError() {
 	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("branch not found")))
 }
 
-func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishesNotFoundTypes() {
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_PermanentApprovalConfigErrorFailsTask() {
 	ctx := context.Background()
 
 	// Verify processTask dispatches to handleSpecApproved
@@ -1129,11 +1276,233 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishes
 		DefaultRepoID: "",
 	}, nil)
 
+	// A permanent handoff misconfiguration now fails the task instead of
+	// returning an error the orchestrator would re-drive every 10s tick.
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-test",
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, extra map[string]any) (bool, error) {
+		meta, ok := extra["metadata"].(map[string]interface{})
+		s.Require().True(ok, "metadata field must be set on the failed task")
+		assert.Contains(s.T(), fmt.Sprint(meta["error"]), "default repository not set")
+		assert.NotEmpty(s.T(), fmt.Sprint(meta["error_timestamp"]))
+		return true, nil
+	})
+
+	err := s.orchestrator.processTask(ctx, task)
+	s.Require().NoError(err, "permanent misconfiguration fails the task, not the tick")
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_TransientApprovalErrorStillSurfaces() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:              "task-transient",
+		ProjectID:       "project-1",
+		Status:          types.TaskStatusSpecApproved,
+		TaskNumber:      7,
+		Name:            "transient-task",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+	}
+
+	service := NewSpecDrivenTaskService(
+		s.store, nil, "test-helix-agent", []string{},
+		nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+	s.orchestrator.specTaskService = service
+
+	s.store.EXPECT().GetSpecTask(ctx, "task-transient").Return(task, nil)
+	// A non-not-found store error is transient: the handoff must keep
+	// retrying (error surfaces) and the task must NOT be failed.
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(nil, fmt.Errorf("connection refused"))
+
 	err := s.orchestrator.processTask(ctx, task)
 	s.Require().Error(err)
-	// The error should contain "not found" in a domain-specific way, not "record not found"
-	assert.Contains(s.T(), err.Error(), "default repository not set")
-	assert.False(s.T(), isDeletedProjectError(err))
+	assert.Contains(s.T(), err.Error(), "connection refused")
+	assert.False(s.T(), IsPermanentApprovalConfigError(err))
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestFailApprovalHandoff_NoOpWhenAlreadyMovedOn() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-raced",
+		ProjectID: "project-1",
+		Status:    types.TaskStatusSpecApproved,
+	}
+
+	// A concurrent transition already claimed the task.
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-raced",
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).Return(false, nil)
+
+	err := s.orchestrator.failApprovalHandoff(ctx, task, ErrApprovalDefaultRepoNotFound)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestIsPermanentApprovalConfigError_MatchesWrapped() {
+	assert.True(s.T(), IsPermanentApprovalConfigError(ErrApprovalNoCodeAgentConfig))
+	assert.True(s.T(), IsPermanentApprovalConfigError(ErrApprovalNoPlanningSession))
+	// The deleted-repo case wraps the sentinel with the repo id.
+	assert.True(s.T(), IsPermanentApprovalConfigError(
+		fmt.Errorf("%w: code-kodit-1771951977", ErrApprovalDefaultRepoNotFound),
+	))
+	assert.True(s.T(), IsPermanentApprovalConfigError(
+		fmt.Errorf("failed to approve specs: %w", ErrApprovalNoDefaultBranch),
+	))
+
+	assert.False(s.T(), IsPermanentApprovalConfigError(store.ErrNotFound))
+	assert.False(s.T(), IsPermanentApprovalConfigError(fmt.Errorf("some transient failure")))
+	assert.False(s.T(), IsPermanentApprovalConfigError(nil))
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProjectMissing_CachesPerSweep() {
+	ctx := context.Background()
+	cache := make(map[string]bool)
+
+	// One miss — the store is consulted exactly once for a repeated project.
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(nil, store.ErrNotFound).Times(1)
+
+	assert.True(s.T(), s.orchestrator.projectMissing(ctx, "project-1", cache))
+	assert.True(s.T(), s.orchestrator.projectMissing(ctx, "project-1", cache), "cached answer")
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTasks_NotFoundOnLiveProjectIsNotSilenced() {
+	ctx := context.Background()
+
+	// Reproduces the prod incident shape: ApproveSpecs fails with a wrapped
+	// ErrNotFound (default repo deleted) while the project itself is alive.
+	// The sweep must consult the project and treat the error as a real
+	// failure (Error log) rather than a deleted-project skip.
+	task := &types.SpecTask{
+		ID:        "task-kodit",
+		ProjectID: "project-1",
+		Status:    types.TaskStatusSpecApproved,
+		Name:      "kodit-task",
+	}
+
+	s.orchestrator.specTaskService = &stubApprovalWorkflowService{
+		err: fmt.Errorf("failed to get default repository: %w", store.ErrNotFound),
+	}
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{WithDependsOn: true}).
+		Return([]*types.SpecTask{task}, nil)
+	// Once for the error verification — the project exists, so this is a real
+	// failure on a live project, not an orphan.
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{ID: "project-1"}, nil).Times(1)
+
+	s.orchestrator.processTasks(ctx)
+	// No transition expectations: a non-permanent error must not fail the task.
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTasks_TrueOrphanStaysSilent() {
+	ctx := context.Background()
+
+	task := &types.SpecTask{
+		ID:        "task-orphan",
+		ProjectID: "project-gone",
+		Status:    types.TaskStatusSpecApproved,
+		Name:      "orphan-task",
+	}
+
+	s.orchestrator.specTaskService = &stubApprovalWorkflowService{
+		err: fmt.Errorf("failed to get project: %w", store.ErrNotFound),
+	}
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{WithDependsOn: true}).
+		Return([]*types.SpecTask{task}, nil)
+	s.store.EXPECT().GetProject(ctx, "project-gone").Return(nil, store.ErrNotFound).Times(1)
+
+	s.orchestrator.processTasks(ctx)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleImplementationQueued_PermanentErrorFailsTask() {
+	ctx := context.Background()
+
+	// The claim already moved this task to implementation_queued; a permanent
+	// error on retry must fail it from there, not re-drive it every tick.
+	task := &types.SpecTask{
+		ID:        "task-iq",
+		ProjectID: "project-1",
+		Status:    types.TaskStatusImplementationQueued,
+	}
+
+	s.orchestrator.specTaskService = &stubApprovalWorkflowService{
+		err: fmt.Errorf("%w: repo-1", ErrApprovalDefaultRepoNotFound),
+	}
+
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-iq",
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).Return(true, nil)
+
+	s.Require().NoError(s.orchestrator.handleImplementationQueued(ctx, task))
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestApproveSpecs_MissingPlanningSessionFailsBeforeClaim() {
+	ctx := context.Background()
+
+	// A task with no planning session must fail BEFORE the claim moves it to
+	// implementation_queued: after the claim the failure transition can never
+	// match (from implementation_queued it would retry forever instead).
+	task := &types.SpecTask{
+		ID:                "task-noplanning",
+		ProjectID:         "project-1",
+		Status:            types.TaskStatusSpecApproved,
+		TaskNumber:        11,
+		Name:              "noplanning-task",
+		CodeAgentConfig:   testSpecTaskCodeAgentConfig(),
+		PlanningSessionID: "", // the permanent condition
+	}
+
+	service := NewSpecDrivenTaskService(
+		s.store, nil, "test-helix-agent", []string{},
+		nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	// NOT test mode: the planning-session validation must run.
+	s.orchestrator.specTaskService = service
+
+	s.store.EXPECT().GetSpecTask(ctx, "task-noplanning").Return(task, nil)
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	s.store.EXPECT().GetGitRepository(ctx, "repo-1").Return(&types.GitRepository{
+		ID:            "repo-1",
+		DefaultBranch: "main",
+	}, nil)
+	// The only transition: the terminal failure, from spec_approved.
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-noplanning",
+		[]types.SpecTaskStatus{types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).Return(true, nil)
+
+	err := s.orchestrator.handleSpecApproved(ctx, task)
+	s.Require().NoError(err, "missing planning session fails the task before the claim")
+}
+
+// stubApprovalWorkflowService injects an ApproveSpecs result without the real
+// service's store round-trips.
+type stubApprovalWorkflowService struct {
+	err error
+}
+
+func (s *stubApprovalWorkflowService) StartSpecGeneration(context.Context, *types.SpecTask) {}
+func (s *stubApprovalWorkflowService) StartJustDoItMode(context.Context, *types.SpecTask)   {}
+func (s *stubApprovalWorkflowService) ApproveSpecs(context.Context, *types.SpecTask) error {
+	return s.err
 }
 
 // makePullRequestTask returns a task in pull_request status with the given
@@ -1293,22 +1662,6 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 	assert.Nil(s.T(), task.MergedAt, "MergedAt must not be set on error")
 }
 
-func (s *SpecTaskOrchestratorTestSuite) TestTaskHasPRsForAllRepos_PendingFollowUpRetries() {
-	ctx := context.Background()
-	task := &types.SpecTask{
-		ProjectID: "project-1",
-		RepoPullRequests: []types.RepoPR{
-			{RepositoryID: "repo-1", PRState: "unknown"},
-		},
-	}
-	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(&types.Project{ID: task.ProjectID}, nil)
-	s.store.EXPECT().ListGitRepositories(ctx, gomock.Any()).Return([]*types.GitRepository{
-		{ID: "repo-1", IsExternal: true, ExternalURL: "https://github.com/org/one"},
-	}, nil)
-
-	s.False(s.orchestrator.taskHasPRsForAllRepos(ctx, task))
-}
-
 func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_PendingFollowUpStaysInPullRequest() {
 	ctx := context.Background()
 	task := makePullRequestTask(2)
@@ -1322,11 +1675,20 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_Pen
 	s.False(task.MergedToMain)
 }
 
-// Sanity: when every PR genuinely is merged, the task DOES transition to
-// done. Guards against an over-eager fix that breaks the happy path.
-func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllMerged_TransitionsToDone() {
+// Merged PRs never complete a task: the agent may have follow-up work, so it
+// is told about each merge and asks to finish with mark_task_complete.
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllMerged_StaysOpenAndTellsAgent() {
 	ctx := context.Background()
 	task := makePullRequestTask(2)
+
+	var messages []string
+	prs := NewPRProposalService(s.store, nil, nil, "")
+	prs.SetMessageEnqueuer(func(_ context.Context, _ *types.SpecTask, message string, interrupt bool, _ string) error {
+		s.False(interrupt)
+		messages = append(messages, message)
+		return nil
+	})
+	s.orchestrator.SetPRProposals(prs)
 
 	s.gitService.EXPECT().
 		GetPullRequest(ctx, "repo-1", "1").
@@ -1335,14 +1697,25 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 		GetPullRequest(ctx, "repo-2", "2").
 		Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
 	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).Return(nil)
-	s.store.EXPECT().DismissAttentionEventsForTask(ctx, "task-pr-1").Return(int64(0), nil)
 
-	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
-	s.Require().NoError(err)
+	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
 
-	assert.Equal(s.T(), types.TaskStatusDone, task.Status)
-	assert.True(s.T(), task.MergedToMain)
-	assert.NotNil(s.T(), task.MergedAt)
+	s.Equal(types.TaskStatusPullRequest, task.Status)
+	s.Nil(task.CompletedAt)
+	s.Require().Len(messages, 2)
+	s.Contains(messages[0], "pull request #1 was merged")
+	s.Contains(messages[1], "pull request #2 was merged")
+	s.Contains(messages[1], "mark_task_complete")
+
+	// Unchanged states on the next poll say nothing new.
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-2", "2").
+		Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
+	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
+	s.Len(messages, 2)
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_BackfillsPRMetadata() {

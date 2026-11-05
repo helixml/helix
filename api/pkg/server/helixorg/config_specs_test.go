@@ -17,6 +17,19 @@ func TestRegisterConfigSpecsDoesNotExposeHelixURL(t *testing.T) {
 	}
 }
 
+func TestRegisterConfigSpecsDefaultsOrganizationActivationLimit(t *testing.T) {
+	t.Parallel()
+	reg := helixorgconfig.New(orggorm.GetOrgTestDB(t).Configs)
+	RegisterConfigSpecs(reg)
+	limit, err := reg.GetMaxConcurrentActivations(context.Background(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if limit != 32 {
+		t.Fatalf("activation limit = %d, want 32", limit)
+	}
+}
+
 // TestRegisterHelixOrgConfigSpecs_RedactsTransportGitHubSecrets pins
 // down the spec registration for `transport.github`: both `token` and
 // `webhook_secret` MUST be redacted on `config get`. Without this, a
@@ -104,6 +117,35 @@ func TestRegisterHelixOrgConfigSpecs_RedactsGitLabSigningToken(t *testing.T) {
 	}
 	if strings.Contains(got, secret) || strings.Contains(got, legacy) {
 		t.Fatalf("redacted output leaks signing_token: %s", got)
+	}
+}
+
+// TestRegisterHelixOrgConfigSpecs_RedactsHelixAPIKey guards the org
+// owner's service API key: GET /settings is readable by every org
+// member, so the value must never come back from GetRedacted.
+func TestRegisterHelixOrgConfigSpecs_RedactsHelixAPIKey(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reg := helixorgconfig.New(orggorm.GetOrgTestDB(t).Configs)
+	RegisterConfigSpecs(reg)
+	const key = "hl-owner-key-plaintext-leaked"
+	if err := reg.Set(ctx, "org-test", "helix.api_key", `"`+key+`"`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := reg.GetRedacted(ctx, "org-test", "helix.api_key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, key) {
+		t.Fatalf("redacted output leaks helix.api_key: %s", got)
+	}
+	plain, err := reg.GetString(ctx, "org-test", "helix.api_key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain != key {
+		t.Fatalf("GetString = %q, want plaintext key for the runtime", plain)
 	}
 }
 

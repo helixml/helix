@@ -60,6 +60,51 @@ func TestProjectNameExists(t *testing.T) {
 	}
 }
 
+func TestGetProjectIncludesEffectiveImplementationLimit(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		project *types.Project
+		setup   func(*store.MockStore)
+		want    int
+	}{
+		{
+			name:    "pro default",
+			project: &types.Project{ID: "project", UserID: "user"},
+			setup: func(projectStore *store.MockStore) {
+				projectStore.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{EnforceQuotas: true}, nil)
+				projectStore.EXPECT().GetWalletByUser(gomock.Any(), "user").Return(&types.Wallet{PlanOverride: types.PlanOverridePro}, nil)
+			},
+			want: types.DefaultProImplementationTasks,
+		},
+		{
+			name: "project override",
+			project: &types.Project{ID: "project", UserID: "user", Metadata: types.ProjectMetadata{
+				BoardSettings: &types.BoardSettings{WIPLimits: types.WIPLimits{Implementation: 7}},
+			}},
+			setup: func(*store.MockStore) {},
+			want:  7,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			projectStore := store.NewMockStore(ctrl)
+			server := &HelixAPIServer{Store: projectStore}
+			projectStore.EXPECT().GetProject(gomock.Any(), tt.project.ID).Return(tt.project, nil)
+			tt.setup(projectStore)
+			projectStore.EXPECT().ListGoldenBuilds(gomock.Any(), &store.ListGoldenBuildsQuery{ProjectID: tt.project.ID}).Return(nil, nil)
+			projectStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: tt.project.UserID}).Return(&types.User{ID: tt.project.UserID}, nil)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+tt.project.ID, http.NoBody)
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: tt.project.UserID}))
+			req = mux.SetURLVars(req, map[string]string{"id": tt.project.ID})
+			got, httpErr := server.getProject(nil, req)
+
+			require.Nil(t, httpErr)
+			require.Equal(t, tt.want, got.ImplementationLimit)
+		})
+	}
+}
+
 func TestNewProjectCodeAgentConfigInheritsOrganizationDefault(t *testing.T) {
 	orgStore := orgmemory.New()
 	configs := configregistry.New(orgStore.Configs)

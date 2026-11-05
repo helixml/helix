@@ -25,10 +25,6 @@ ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:92906d87596d63
 # upstream `download_cli.sh` install path.
 ARG GOOSE_COMMIT=ca26f01d3acd9871691fa8981f05d19aed9a3b82
 
-# Rootless BuildKit binaries used by headless sessions. Pin the multi-platform
-# image index so amd64 and arm64 builds resolve reproducibly.
-FROM moby/buildkit:v0.27.1-rootless@sha256:5616ed4e78a3552f3575864c8ab585c882b892c4e93b6a7b6ac8afbc98bd2f7a AS rootless-buildkit
-
 # ====================================================================
 # Go build stage for Helix binaries
 # ====================================================================
@@ -723,7 +719,15 @@ if [ "$(id -u)" = "0" ]; then
         source "${init_script}"
     done
 fi
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+drop_desktop_sys_admin=()
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
+    drop_desktop_sys_admin=(setpriv --bounding-set=-sys_admin --)
+fi
+# A desktop in rootless mode (HELIX_DESKTOP_ROOTLESS=1) also sets
+# HELIX_ROOTLESS_CONTAINER_ENGINE=1 so 17-start-dockerd.sh starts rootless
+# Docker, but it must NOT take this headless privilege-drop branch: the GNOME
+# session runs as root and keeps sudo (design/2026-10-08-desktop-root-isolation.md).
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" != "1" ] && { [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; }; then
     if [ -f /zed-build/zed ] && [ ! -e /usr/local/bin/zed ]; then
         ln -sf /zed-build/zed /usr/local/bin/zed
     fi
@@ -765,12 +769,12 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENG
     exec "${drop_privileges[@]}" gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
 fi
 if [ -n "${@:-}" ]; then
-    /bin/bash -c "$@"
+    "${drop_desktop_sys_admin[@]}" /bin/bash -c "$@"
     exit $?
 fi
 gow_log "Launching the container's startup script as user '${UNAME}'"
 chmod +x /opt/gow/startup.sh 2>/dev/null || true
-exec gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
+exec "${drop_desktop_sys_admin[@]}" gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
 _ENTRYPOINT
 RUN chmod +x /entrypoint.sh /etc/cont-init.d/*.sh /opt/gow/bash-lib/utils.sh
 
@@ -802,9 +806,12 @@ ENV LANG=en_US.UTF-8 \
     CLUTTER_DEFAULT_FPS=60
 
 # GOW dbus init script
-COPY <<_DBUS_INIT /etc/cont-init.d/99-startdbus.sh
+COPY <<'_DBUS_INIT' /etc/cont-init.d/99-startdbus.sh
 #!/bin/bash
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+# Rootless desktops keep sudo, so drop sys_admin without no_new_privs.
+if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
+    setpriv --bounding-set=-sys_admin -- service dbus start 2>/dev/null || true
+elif [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     setpriv --bounding-set=-sys_admin --nnp -- service dbus start 2>/dev/null || true
 else
     service dbus start 2>/dev/null || true
@@ -835,10 +842,8 @@ RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-# Docker Engine (dockerd + CLI + containerd + runc) for docker-in-desktop mode
-# In docker-in-desktop mode, each desktop container runs its own dockerd with a
-# volume-backed /var/lib/docker. This eliminates the need for per-session sibling
-# dockerds and all the bridge/veth/DNS infrastructure that connected them.
+# Docker Engine for both legacy rootful sessions and rootless sessions. Rootless
+# Docker uses an image-owned dockerd with volume-backed data under retro's home.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gnupg ca-certificates curl lsb-release iptables \
     && install -m 0755 -d /etc/apt/keyrings \
@@ -846,17 +851,11 @@ RUN apt-get update \
     && chmod a+r /etc/apt/keyrings/docker.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
-    && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin \
-        podman crun uidmap fuse-overlayfs passt slirp4netns \
+    && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
+        docker-ce-rootless-extras uidmap fuse-overlayfs slirp4netns libcap2-bin \
     && { grep -q '^retro:' /etc/subuid || echo 'retro:100000:65536' >> /etc/subuid; } \
     && { grep -q '^retro:' /etc/subgid || echo 'retro:100000:65536' >> /etc/subgid; } \
     && rm -rf /var/lib/apt/lists/*
-
-COPY --from=rootless-buildkit \
-    /usr/bin/buildkitd \
-    /usr/bin/buildctl \
-    /usr/local/bin/
-COPY --from=rootless-buildkit /usr/bin/rootlesskit /usr/bin/rootlesskit
 
 # NVIDIA Container Toolkit (enables GPU passthrough in inner containers)
 # This allows the desktop's dockerd to run containers with --runtime=nvidia
@@ -906,6 +905,7 @@ RUN apt-get update && apt-get install -y \
     dnsutils \
     iproute2 \
     silversearcher-ag \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Helix background
@@ -941,14 +941,28 @@ RUN apt-get update && \
 
 # Chrome installation - use Google Chrome on amd64, Chromium on arm64
 # Google Chrome doesn't provide arm64 Linux packages
-RUN <<_INSTALL_CHROME
+# apt's package cache and lists live in per-arch cache mounts, so a rebuild of
+# this layer reuses the Chromium packages and PPA index it downloaded last time
+# instead of needing Launchpad to be up (it often isn't: 503s from its CDN failed
+# 2.12.37's first build). The mounts are on the runner, not in the image.
+# The XtraDeb PPA's source (key fingerprint 5301FA4FD93244FBC6F6149982BB6851C64F6880,
+# as published on Launchpad) is checked in rather than added with
+# add-apt-repository, which needs Launchpad's API for the key, and which would add
+# the PPA only after the first apt-get update had already dropped its cached index.
+RUN --mount=type=cache,id=apt-cache-chrome-${TARGETARCH},target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=apt-lists-chrome-${TARGETARCH},target=/var/lib/apt/lists,sharing=locked \
+    --mount=type=bind,source=desktop/ubuntu-config/xtradeb-apps.sources,target=/tmp/xtradeb-apps.sources \
+    <<_INSTALL_CHROME
 set -e
 
-# Launchpad is intermittently unavailable; both `add-apt-repository`
-# (which hits launchpad.net for the PPA's GPG key) and `apt-get update`
-# (which fetches InRelease from ppa.launchpadcontent.net) fail with
-# timeouts during outages. Three consecutive CI failures on 2026-05-02
-# prompted this retry wrapper. Backoff: 5s, 15s, 30s, 60s.
+# The base image deletes downloaded packages after every apt run; keep them in
+# the cache for this step, and restore the hook for later steps.
+mv /etc/apt/apt.conf.d/docker-clean /tmp/docker-clean
+
+# Launchpad is intermittently unavailable; `apt-get update` and package
+# downloads from ppa.launchpadcontent.net fail with timeouts and 503s during
+# outages. Three consecutive CI failures on 2026-05-02 prompted this retry
+# wrapper. Backoff: 5s, 15s, 30s, 60s.
 # POSIX-compatible (no `local`) so it works under dash, the default
 # `RUN` shell.
 retry_apt() {
@@ -966,25 +980,45 @@ retry_apt() {
     done
 }
 
+# When ppa.launchpadcontent.net (the PPA's CDN) fails, launchpadlibrarian.net
+# usually still serves the same files: download the PPA packages apt wants from
+# there into its cache, where apt finds them by name and checksum.
+fetch_ppa_debs_from_librarian() {
+    apt-get install -y --print-uris "$@" \
+        | sed -n "s|^'https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu/pool/[^']*/\([^'/]*\.deb\)' \([^ ]*\) .*|\1 \2|p" \
+        | while read -r file name; do
+            echo "Fetching $file from launchpadlibrarian.net"
+            curl -fsSL --retry 3 -o "/var/cache/apt/archives/$name" \
+                "https://launchpad.net/~xtradeb/+archive/ubuntu/apps/+files/$file"
+        done
+}
+
+if [ "${TARGETARCH}" = "arm64" ]; then
+    cp /tmp/xtradeb-apps.sources /etc/apt/sources.list.d/xtradeb-ubuntu-apps-questing.sources
+fi
+
+# A failed index download keeps the cached index ("old ones used instead").
 retry_apt apt-get update
 
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Installing Chromium for arm64 (XtraDeb PPA) ==="
     # Ubuntu's chromium-browser is a snap transitional package (no snapd in containers).
     # XtraDeb PPA provides real .deb packages named "chromium" (NOT "chromium-browser").
-    retry_apt apt-get install -y software-properties-common
-    retry_apt add-apt-repository -y ppa:xtradeb/apps
-    retry_apt apt-get update
     # Install the real chromium package from XtraDeb + chromedriver
-    retry_apt apt-get install -y chromium chromium-driver
+    if ! apt-get install -y chromium chromium-driver; then
+        fetch_ppa_debs_from_librarian chromium chromium-driver || true
+        retry_apt apt-get install -y chromium chromium-driver
+    fi
+    # Without the PPA's index, "chromium" resolves to Ubuntu's snap stub instead.
+    if ! dpkg-query -W -f='${Version}' chromium | grep -q xtradeb; then
+        echo "FATAL: chromium did not come from the XtraDeb PPA: $(dpkg-query -W -f='${Version}' chromium)"
+        exit 1
+    fi
     # Remove the snap transitional chromium-browser if it got pulled in as a dependency
     apt-get remove -y chromium-browser 2>/dev/null || true
 
-    # Wrap chromium binary with --password-store=basic to bypass gnome-keyring
-    # (prevents "Choose password for new keyring" dialog in containers)
+    # /usr/bin/chromium becomes desktop/shared/helix-chromium.sh (added below).
     mv /usr/bin/chromium /usr/bin/chromium.real
-    printf '#!/bin/sh\nexec /usr/bin/chromium.real --password-store=basic --disable-dev-shm-usage "$@"\n' > /usr/bin/chromium
-    chmod +x /usr/bin/chromium
 
     # Create compatibility wrappers pointing to the wrapped /usr/bin/chromium.
     # chrome-devtools-mcp and other tools expect google-chrome / google-chrome-stable.
@@ -1082,7 +1116,7 @@ else
     echo "=== Google Chrome installed for amd64 ==="
 fi
 
-rm -rf /var/lib/apt/lists/*
+mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
 _INSTALL_CHROME
 
 # Set Chrome/Chromium as default browser (GNOME defaults to Firefox otherwise)
@@ -1165,11 +1199,15 @@ ADD desktop/shared/agent-tier-bash.sh /usr/local/libexec/helix/agent-tier/bash
 RUN chmod 755 /etc/cont-init.d/16-cpu-tiers.sh /usr/local/libexec/helix/agent-tier/bash
 
 # Start the per-session container engine: rootful Docker for desktops and
-# rootless Podman for unprivileged headless agents.
+# rootless Docker for unprivileged sessions.
 ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
-ADD desktop/shared/headless-containers.conf /opt/helix/headless-containers.conf
-ADD desktop/shared/helix-buildkit-cache-stats.sh /usr/local/bin/helix-buildkit-cache-stats
+ADD desktop/shared/helix-buildkit-cache-stats.py /usr/local/bin/helix-buildkit-cache-stats
 RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh /usr/local/bin/helix-buildkit-cache-stats
+
+# Send the user's browser languages (HELIX_BROWSER_LANGUAGES) as Chrome's
+# Accept-Language, so sites don't localize to the runner's location.
+ADD desktop/shared/18-browser-languages.sh /etc/cont-init.d/18-browser-languages.sh
+RUN chmod 755 /etc/cont-init.d/18-browser-languages.sh
 
 # Workspace README
 RUN mkdir -p /opt/helix
@@ -1580,8 +1618,13 @@ ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridg
 ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+ADD desktop/shared/helix-git-mtime.py /usr/local/bin/helix-git-mtime
 ADD desktop/shared/helix-chrome-devtools-mcp.sh /usr/local/bin/helix-chrome-devtools-mcp
+# arm64 only: Chromium launcher (amd64 ships Google Chrome, which has no chromium.real)
+RUN --mount=type=bind,source=desktop/shared/helix-chromium.sh,target=/tmp/helix-chromium.sh \
+    if [ -x /usr/bin/chromium.real ]; then install -m 755 /tmp/helix-chromium.sh /usr/bin/chromium; fi
 ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
+ADD desktop/shared/helix-golden-startup.sh /usr/local/bin/helix-golden-startup
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-headless-workspace-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
@@ -1595,8 +1638,9 @@ ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
 ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
 RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridge.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
-    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-chrome-devtools-mcp \
-    /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-git-mtime \
+    /usr/local/bin/helix-chrome-devtools-mcp \
+    /usr/local/bin/helix-run-startup-script.sh /usr/local/bin/helix-golden-startup \
     /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh \
     /usr/local/bin/start-settings-sync-daemon.sh \
     /usr/local/bin/start-zed-headless.sh /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh

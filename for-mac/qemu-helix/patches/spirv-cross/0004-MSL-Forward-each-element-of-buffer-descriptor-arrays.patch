@@ -1,0 +1,73 @@
+From 6490ba0d747ed14e867c83f6f081820a2291035b Mon Sep 17 00:00:00 2001
+From: Luke Marsden <luke@mlops.consulting>
+Date: Tue, 6 Oct 2026 17:53:24 +0100
+Subject: [PATCH 4/4] MSL: Forward each element of buffer descriptor arrays in
+ mesh wrappers
+
+With discrete descriptors, a buffer descriptor array is an entry point
+argument per element (name_0, name_1, ...), but the geometry-to-mesh
+wrapper passed the array's name, which is undeclared.
+---
+ spirv_msl.cpp | 19 +++++++++++++++++--
+ spirv_msl.hpp |  1 +
+ 2 files changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/spirv_msl.cpp b/spirv_msl.cpp
+index 3d42b6ab..4bb8fd16 100644
+--- a/spirv_msl.cpp
++++ b/spirv_msl.cpp
+@@ -1928,6 +1928,21 @@ int CompilerMSL::get_primitive_vertex_count()
+ 	return 1;
+ }
+ 
++// A discrete buffer descriptor array is passed as one argument per element (see
++// entry_point_args_discrete_descriptors), so the wrapper must forward each element.
++string CompilerMSL::mesh_wrapper_call_arg(const Entry_Point_Resource &resource)
++{
++	auto &type = get_variable_data_type(*resource.var);
++	if (resource.basetype != SPIRType::Struct || type.array.empty() || is_var_runtime_size_array(*resource.var))
++		return resource.name;
++
++	string args;
++	uint32_t array_size = get_resource_array_size(type, resource.var->self);
++	for (uint32_t i = 0; i < array_size; i++)
++		args += join(i ? ", " : "", resource.name, "_", i);
++	return args;
++}
++
+ void CompilerMSL::emit_mesh_wrapper()
+ {
+ 	auto &execution = get_entry_point();
+@@ -2133,7 +2148,7 @@ void CompilerMSL::emit_mesh_wrapper()
+ 
+ 		for (auto &resource : resources)
+ 		{
+-			statement(need_comma ? ", " : "", resource.name);
++			statement(need_comma ? ", " : "", mesh_wrapper_call_arg(resource));
+ 			need_comma = true;
+ 		}
+ 		ir.for_each_typed_id<SPIRVariable>([&](uint32_t var_id, SPIRVariable &var)
+@@ -2275,7 +2290,7 @@ void CompilerMSL::emit_mesh_wrapper()
+ 		auto resources = get_sorted_entry_point_args(false);
+ 
+ 		for (auto &resource : resources)
+-			statement(", ", resource.name);
++			statement(", ", mesh_wrapper_call_arg(resource));
+ 
+ 		statement(");");
+ 		end_scope();
+diff --git a/spirv_msl.hpp b/spirv_msl.hpp
+index a8886ce9..3beec883 100644
+--- a/spirv_msl.hpp
++++ b/spirv_msl.hpp
+@@ -1147,6 +1147,7 @@ protected:
+ 	};
+ 
+ 	SmallVector<Entry_Point_Resource> get_sorted_entry_point_args(bool add_name = true);
++	std::string mesh_wrapper_call_arg(const Entry_Point_Resource &resource);
+ 	std::string append_member_name(const std::string &qualifier, const SPIRType &type, uint32_t index);
+ 	std::string ensure_valid_name(std::string name, std::string pfx);
+ 	std::string to_sampler_expression(uint32_t id);
+-- 
+2.50.1 (Apple Git-155)
+

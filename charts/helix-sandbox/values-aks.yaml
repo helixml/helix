@@ -43,7 +43,7 @@ podDisruptionBudget:
 sandbox:
   runnerTokenExistingSecret: "helix-sandbox-token"
   runnerTokenExistingSecretKey: "token"
-  maxSandboxes: 5
+  maxSandboxes: -1
 
 # AKS with cgroup v2 breaks exec probes in privileged DinD containers.
 # Disable probes until the sandbox exposes an HTTP health endpoint.

@@ -1,4 +1,5 @@
 import React, { FC, useEffect, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Box,
   Button,
@@ -16,6 +17,7 @@ import {
   TypesCodeAgentCredentialType,
   TypesCodeAgentExecutionConfig,
   TypesCodeAgentRuntime,
+  TypesInteractiveEmbedModel,
   TypesOrgCodeAgentHarnessStatus,
   TypesProviderEndpoint,
 } from '../../api/api'
@@ -23,6 +25,7 @@ import { useGetOrgByName } from '../../services/orgService'
 import { useListProviders } from '../../services/providersService'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
+import { useHelixOrgSettings } from '../../services/helixOrgService'
 import useRouter from '../../hooks/useRouter'
 import { matchesAllTokens } from '../../utils/searchUtils'
 import {
@@ -51,12 +54,16 @@ import {
   providersForCodeAgentRuntime,
 } from '../../utils/codeAgentProviders'
 import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
+import { parseOrgDefaultRuntime } from '../../pages/newChatLogic'
 import {
   currentNativeModels,
   isLegacyNativeModel,
   nativeProviderForRuntime,
 } from '../../utils/nativeModels'
 import { isEmbedRouteName } from '../../utils/organizations'
+import useApi from '../../hooks/useApi'
+import { extractErrorMessage } from '../../hooks/useErrorCallback'
+import useSnackbar from '../../hooks/useSnackbar'
 
 type Runtime = TypesCodeAgentRuntime
 
@@ -64,6 +71,7 @@ interface CodeAgentConfigPickerProps {
   value?: TypesCodeAgentExecutionConfig
   disabled?: boolean
   autoSelectDefault?: boolean
+  interactiveEmbedTaskId?: string
   onChange: (value: TypesCodeAgentExecutionConfig, source: CodeAgentConfigChangeSource) => void
 }
 
@@ -212,15 +220,81 @@ function defaultCodeAgentConfig(
   return undefined
 }
 
+function orgDefaultCodeAgentConfig(
+  preferredRuntime: Runtime | undefined,
+  configured: TypesCodeAgentExecutionConfig | undefined,
+  selectableRuntimes: Runtime[],
+  harnesses: TypesOrgCodeAgentHarnessStatus[],
+  providers: TypesProviderEndpoint[],
+): TypesCodeAgentExecutionConfig | undefined {
+  if (!configured) return undefined
+  if (preferredRuntime && preferredRuntime !== configured.runtime) return undefined
+  const runtime = configured.runtime
+  if (!runtime || !selectableRuntimes.includes(runtime)) return undefined
+
+  const harness = findHarnessStatus(harnesses, runtime)
+  if (configured.credential_type === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription) {
+    if (!isSubscriptionRuntime(runtime)
+      || harness?.subscription_enabled !== true
+      || !harness.viewer_has_subscription
+      || !subscriptionModelOptions(runtime).some(({ id }) => id === configured.model)) return undefined
+    return { ...configured, runtime, provider_ref: undefined }
+  }
+
+  if (configured.credential_type !== TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey) {
+    return undefined
+  }
+  const allowedProviders = providersAllowedForHarness(providers, harness, true, runtime)
+  const provider = resolveProviderEndpointRef(allowedProviders, configured.provider_ref)
+  if (!provider || !apiModelOptions([provider]).some(({ id }) => id === configured.model)) return undefined
+  return {
+    ...configured,
+    runtime,
+    provider_ref: providerRef(provider),
+  }
+}
+
 const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   value,
   disabled = false,
   autoSelectDefault = false,
+  interactiveEmbedTaskId,
   onChange,
 }) => {
   const router = useRouter()
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  const snackbar = useSnackbar()
   const orgName = router.params.org_id
   const isEmbedRoute = isEmbedRouteName(router.name)
+  const interactiveEmbedEnabled = isEmbedRoute && !!interactiveEmbedTaskId
+  const interactiveEmbedModelKey = ['spec-tasks', interactiveEmbedTaskId, 'interactive-embed-model']
+  const interactiveEmbedModel = useQuery({
+    queryKey: interactiveEmbedModelKey,
+    queryFn: async () => {
+      const response = await apiClient.v1SpecTasksInteractiveEmbedModelDetail(interactiveEmbedTaskId!)
+      return response.data
+    },
+    enabled: interactiveEmbedEnabled,
+    retry: false,
+  })
+  const effectiveRuntime = interactiveEmbedModel.data?.runtime || value?.runtime
+  const effectiveModel = interactiveEmbedModel.data?.model || value?.model
+  const updateInteractiveEmbedModel = useMutation({
+    mutationFn: async ({ taskId, model }: { taskId: string, model: string }) => {
+      const response = await apiClient.v1SpecTasksInteractiveEmbedModelPartialUpdate(
+        taskId,
+        { model },
+      )
+      return response.data
+    },
+    onSuccess: async (_, { taskId }) => {
+      await queryClient.invalidateQueries({
+        queryKey: ['spec-tasks', taskId, 'interactive-embed-model'],
+      })
+    },
+  })
   const { data: org, isLoading: loadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
   const { data: providers = [], isLoading: loadingProviders } = useListProviders({
     loadModels: true,
@@ -234,6 +308,13 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   } = useOrgCodeAgentHarnesses(org?.id, { enabled: !loadingOrg })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const { data: codexSubscriptions } = useCodexSubscriptions()
+  const shouldLoadOrgDefault = autoSelectDefault && !!orgName && !isEmbedRoute
+  const {
+    data: orgSettings,
+    isLoading: loadingOrgSettings,
+    isFetching: fetchingOrgSettings,
+    isError: orgSettingsError,
+  } = useHelixOrgSettings({ enabled: shouldLoadOrgDefault })
 
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [noAgentsOpen, setNoAgentsOpen] = useState(false)
@@ -245,17 +326,29 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   const searchRef = useRef<HTMLInputElement>(null)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
+  const interactiveEmbedTaskIdRef = useRef(interactiveEmbedTaskId)
+  interactiveEmbedTaskIdRef.current = interactiveEmbedTaskId
+
+  useEffect(() => {
+    if (interactiveEmbedEnabled && interactiveEmbedModel.data?.runtime) {
+      setRuntime(interactiveEmbedModel.data.runtime)
+    }
+  }, [interactiveEmbedEnabled, interactiveEmbedModel.data?.runtime])
 
   // Organization policy controls which runtimes and provider endpoints may be
   // used. Models remain task-level choices from each allowed provider's live
   // model list.
-  const selectableRuntimes = !orgName
+  const selectableRuntimes = isEmbedRoute
+    ? effectiveRuntime ? [effectiveRuntime] : []
+    : !orgName
     ? [...SELECTABLE_CODE_AGENT_RUNTIMES]
     : SELECTABLE_CODE_AGENT_RUNTIMES.filter((option) =>
       findHarnessStatus(orgHarnesses, option)?.enabled)
   const runtimeStatus = findHarnessStatus(orgHarnesses, runtime)
   const settingsLoaded = !loadingOrg && !loadingOrgHarnesses && !loadingProviders
-  const policySettled = settingsLoaded && !refetchingOrgHarnesses
+  const orgDefaultSettled = !shouldLoadOrgDefault
+    || (!loadingOrgSettings && !fetchingOrgSettings)
+  const policySettled = settingsLoaded && !refetchingOrgHarnesses && orgDefaultSettled
   const hasAnyRuntime = selectableRuntimes.length > 0
   const selectedRuntimeEnabled = !orgName
     || !!findHarnessStatus(orgHarnesses, value?.runtime)?.enabled
@@ -278,10 +371,10 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
         || configuredRuntimeStatus.provider_refs.some((ref) =>
           resolveProviderEndpointRef(runtimeProviders, ref)?.id === selectedProvider.id))))
   const selectedConfigurationAllowed = isEmbedRoute
-    ? !!value?.runtime && !!value?.model
+    ? !!effectiveRuntime && !!effectiveModel
     : selectedRuntimeEnabled && selectedSourceAllowed
-  const unconfigured = !value?.runtime
-    || !value?.model
+  const unconfigured = !effectiveRuntime
+    || !effectiveModel
     || (policySettled && !selectedConfigurationAllowed)
 
   const claudeStatus = findHarnessStatus(
@@ -303,7 +396,17 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
       && !!codexStatus.viewer_has_subscription
     : !!codexSubscriptions?.some((subscription) => subscription.owner_type === 'user')
 
-  const automaticDefault = defaultCodeAgentConfig(
+  const orgDefaultValue = orgSettings?.specs?.find((spec) => spec.key === 'agent.default')?.value
+  const configuredOrgDefault = parseOrgDefaultRuntime(orgDefaultValue)
+  const orgSettingsUnavailable = orgSettingsError && !orgSettings
+  const inheritedDefault = orgDefaultCodeAgentConfig(
+    value?.runtime,
+    configuredOrgDefault,
+    selectableRuntimes,
+    orgHarnesses,
+    providers,
+  )
+  const automaticDefault = inheritedDefault || defaultCodeAgentConfig(
     value?.runtime,
     selectableRuntimes,
     orgHarnesses,
@@ -315,7 +418,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
 
   useEffect(() => {
     if (!autoSelectDefault || !policySettled) return
-    if (value?.model && selectedConfigurationAllowed) return
+    if ((value?.model && selectedConfigurationAllowed) || orgSettingsUnavailable) return
     if (automaticDefault) onChangeRef.current(automaticDefault, 'auto')
   }, [
     autoSelectDefault,
@@ -323,6 +426,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     value?.model,
     policySettled,
     selectedConfigurationAllowed,
+    orgSettingsUnavailable,
     automaticDefault?.runtime,
     automaticDefault?.credential_type,
     automaticDefault?.provider_ref,
@@ -331,8 +435,9 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   ])
 
   const openPicker = (element: HTMLElement) => {
-    const selected = value?.runtime && (!orgName || findHarnessStatus(orgHarnesses, value.runtime)?.enabled)
-      ? value.runtime as Runtime
+    const selected = effectiveRuntime && (isEmbedRoute
+      || !orgName || findHarnessStatus(orgHarnesses, effectiveRuntime)?.enabled)
+      ? effectiveRuntime as Runtime
       : selectableRuntimes[0] || TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent
     setRuntime(selected)
     setQuery('')
@@ -355,10 +460,21 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
       : !!codexSubscriptions?.some((subscription) => subscription.owner_type === 'user'))
   const organizationName = org?.display_name || org?.name
   const allowedProviders = providersAllowedForHarness(providers, runtimeStatus, !!orgName, runtime)
-  const models = [
-    ...(subscriptionAvailable ? subscriptionModelOptions(runtime) : []),
-    ...apiModelOptions(allowedProviders, organizationName),
-  ]
+  const embedModels: ModelOption[] = (interactiveEmbedModel.data?.models || [])
+    .filter((model): model is TypesInteractiveEmbedModel & { id: string } => !!model.id)
+    .map((model) => ({
+      key: model.id,
+      id: model.id,
+      label: model.name || model.id,
+      providerLabel: 'Current provider',
+      credentialType: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+    }))
+  const models = isEmbedRoute
+    ? embedModels
+    : [
+      ...(subscriptionAvailable ? subscriptionModelOptions(runtime) : []),
+      ...apiModelOptions(allowedProviders, organizationName),
+    ]
   const visibleModels = models.filter((model) => matchesAllTokens(
     query,
     model.label,
@@ -382,12 +498,31 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     && value.runtime
     ? subscriptionModelOptions(value.runtime)
     : apiModelOptions(configuredProviders, organizationName)
-  const modelLabel = configuredModels.find((model) => model.id === value?.model
+  const currentModel = effectiveModel
+  const modelLabel = (isEmbedRoute ? embedModels : configuredModels).find((model) => model.id === currentModel
     && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '', providers)))?.label
-    || value?.model?.split('/').pop()
+    || currentModel?.split('/').pop()
     || 'Select model'
 
-  const chooseModel = (model: ModelOption) => {
+  const chooseModel = async (model: ModelOption) => {
+    if (interactiveEmbedEnabled) {
+      if (model.id !== interactiveEmbedModel.data?.model) {
+        try {
+          const response = await updateInteractiveEmbedModel.mutateAsync({
+            taskId: interactiveEmbedTaskId,
+            model: model.id,
+          })
+          snackbar.success(response.agent_thread_restarted
+            ? 'Model changed. Started a new agent thread.'
+            : 'Model changed.')
+        } catch (error) {
+          snackbar.error(`Failed to change model: ${extractErrorMessage(error)}`)
+          return
+        }
+      }
+      if (interactiveEmbedTaskIdRef.current === interactiveEmbedTaskId) setAnchor(null)
+      return
+    }
     const sameRuntime = value?.runtime === runtime
       && value?.credential_type === model.credentialType
       && (model.provider
@@ -413,16 +548,19 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   }
 
   const renderModelOption = (model: ModelOption) => {
-    const selected = value?.runtime === runtime
-      && value?.credential_type === model.credentialType
-      && value?.model === model.id
-      && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '', providers))
+    const selected = isEmbedRoute
+      ? effectiveRuntime === runtime && currentModel === model.id
+      : value?.runtime === runtime
+        && value?.credential_type === model.credentialType
+        && currentModel === model.id
+        && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '', providers))
     return (
       <Button
         key={model.key}
         aria-label={`Select ${model.label} from ${model.providerLabel}`}
         fullWidth
-        onClick={() => chooseModel(model)}
+        disabled={updateInteractiveEmbedModel.isPending}
+        onClick={() => void chooseModel(model)}
         sx={{
           minHeight: 52,
           px: 1.25,
@@ -451,11 +589,14 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
 
   return (
     <>
-      <Tooltip title={unconfigured ? '' : 'Change coding agent and model'}>
+      <Tooltip title={interactiveEmbedModel.isError
+        ? `Model selection unavailable: ${extractErrorMessage(interactiveEmbedModel.error)}`
+        : unconfigured ? '' : isEmbedRoute ? 'Change model' : 'Change coding agent and model'}>
         <Box component="span" sx={{ display: 'inline-flex', minWidth: 0 }}>
           <Button
             aria-label="Change coding agent"
-            disabled={disabled || isEmbedRoute}
+            disabled={disabled || (isEmbedRoute && !interactiveEmbedModel.isSuccess)
+              || updateInteractiveEmbedModel.isPending}
             onClick={(event) => {
               // Nothing to pick from: explain and offer the fix rather than
               // opening an empty popover.
@@ -481,7 +622,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
                 */}
                 {/* The mark identifies the runtime, so naming it too is redundant. */}
                 <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0 }}>
-                  <AgentHarness runtime={value?.runtime || runtime} variant="short" size={16} />
+                  <AgentHarness runtime={effectiveRuntime || runtime} variant="short" size={16} />
                 </Box>
                 <Box component="span" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {modelLabel.replace(/ \(.+\)$/, '')}

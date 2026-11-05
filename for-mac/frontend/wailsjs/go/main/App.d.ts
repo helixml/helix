@@ -90,6 +90,8 @@ export function SetCursor(arg1:string):Promise<void>;
 
 export function SetVMConfig(arg1:main.VMConfig):Promise<void>;
 
+export function SetWindowTheme(arg1:string):Promise<void>;
+
 export function StartCombinedUpdate():Promise<void>;
 
 export function StartTrial():Promise<void>;

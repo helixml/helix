@@ -97,6 +97,9 @@ var embedRules = []embedRule{
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", suffix: "/interactions", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", suffix: "/step-info", scope: scopeSession},
+	// Inline visualizations the agent published into this conversation. The
+	// handler reads them from this session's own folder only.
+	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", suffix: "/visualization", scope: scopeSession},
 	{methods: []string{"POST"}, prefix: "/api/v1/sessions/", suffix: "/cancel", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/external-agents/", suffix: "/file", scope: scopeSession},
 
@@ -120,6 +123,20 @@ var embedRules = []embedRule{
 	// about the one session/task the key already reads.
 	{methods: []string{"POST"}, prefix: "/api/v1/sessions/", suffix: "/foreground-thread", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/progress", scope: scopeTask},
+}
+
+// embedInteractiveRules are granted ONLY to interactive embed keys: driving the
+// bound session's desktop. Interactive keys are minted for the desktop's own
+// operator (a tenant watching and taking over its own agent) — never for a
+// public page — and remain confined to their one session like every rule above.
+var embedInteractiveRules = []embedRule{
+	{methods: []string{"GET", "PATCH"}, prefix: "/api/v1/spec-tasks/", suffix: "/interactive-embed-model", scope: scopeTask},
+	{methods: []string{"GET"}, prefix: "/api/v1/external-agents/", suffix: "/ws/input", scope: scopeSession},
+	{methods: []string{"GET", "POST"}, prefix: "/api/v1/external-agents/", suffix: "/clipboard", scope: scopeSession},
+	// Starting the desktop again once it has stopped (Helix restarted, or the
+	// sandbox idled out). Without it the operator sees "Desktop paused" with a
+	// Start button that is refused, and has to abandon the run.
+	{methods: []string{"POST"}, prefix: "/api/v1/sessions/", suffix: "/resume", scope: scopeSession},
 }
 
 // embedBodyRules covers endpoints whose subject is in the JSON body rather than
@@ -249,7 +266,11 @@ func embedKeyAllows(user *types.User, r *http.Request) bool {
 		return embedSubjectInScope(user, rule.scope, id)
 	}
 
-	for _, rule := range embedRules {
+	rules := embedRules
+	if user.EmbedInteractive {
+		rules = append(append([]embedRule{}, embedRules...), embedInteractiveRules...)
+	}
+	for _, rule := range rules {
 		if !rule.matchesMethod(r.Method) {
 			continue
 		}

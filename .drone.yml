@@ -71,6 +71,7 @@ steps:
       # build` step is needed any more.)
       - helm lint charts/helix-controlplane
       - helm lint charts/helix-sandbox
+      - sh scripts/test-sandbox-runner-identity-chart.sh
       # Lint controlplane with production-like example values
       - helm lint charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml
       # Template render to catch runtime errors (missing helpers, bad references)
@@ -105,11 +106,14 @@ steps:
   - name: shell-script-tests
     image: alpine:3.21
     commands:
-      - apk add --no-cache bash git
+      - apk add --no-cache bash git procps
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./desktop/shared/test-helix-specs-creation.sh
       - ./desktop/shared/test-helix-specs-creation.sh
+      - bash sandbox/tests/resolve-sandbox-instance-id.sh
+      - ./desktop/shared/test-golden-startup.sh
+      - ./scripts/test-deploy-prod.sh
     when:
       event:
         - push
@@ -128,6 +132,7 @@ steps:
       - apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
       - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
       - CGO_ENABLED=1 go build -tags ORT -ldflags "-s -w" -o ./helix-bin ./api
+      - CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags nokodit -o /tmp/helix-windows-check.exe .
     when:
       event:
         - push
@@ -2237,7 +2242,16 @@ steps:
       # Clean up VM disk (no longer needed after upload to R2)
       - rm -rf /Volumes/Big/helix-vm/ci-provision
 
-  # Step 2: Build QEMU from the qemu-utm commit pinned in for-mac/qemu-helix/QEMU_UTM_COMMIT
+  # Step 2a: Build the UTM sysroot from the release pinned in for-mac/qemu-helix/UTM_VERSION
+  # (no-op unless the pin changed; ~1-1.5h when it did)
+  - name: build-utm-sysroot
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+    commands:
+      - export HOME=/Users/luke
+      - ./for-mac/qemu-helix/build-utm-sysroot.sh
+
+  # Step 2b: Build QEMU from the qemu-utm commit pinned in for-mac/qemu-helix/QEMU_UTM_COMMIT
   # (cached per commit on the runner; never installs into the shared UTM sysroot)
   - name: build-qemu
     environment:
@@ -2322,6 +2336,80 @@ steps:
               --content-type "application/json" \
               --no-progress
         fi
+
+---
+# Dry run of the build-macos-dmg steps from any branch, without provisioning a
+# VM or publishing anything: promote a build to the "macos-dryrun" target.
+#   curl -X POST -H "Authorization: Bearer $DRONE_TOKEN" \
+#     "$DRONE_SERVER/api/repos/helixml/helix/builds/<n>/promote?target=macos-dryrun"
+# Builds the UTM sysroot, QEMU, MoltenVK and the signed app, then notarizes the DMG.
+kind: pipeline
+type: exec
+name: macos-dryrun
+
+platform:
+  os: darwin
+  arch: arm64
+
+trigger:
+  event:
+    - promote
+  target:
+    - macos-dryrun
+
+steps:
+  - name: build-utm-sysroot
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+    commands:
+      - export HOME=/Users/luke
+      - ./for-mac/qemu-helix/build-utm-sysroot.sh
+
+  - name: build-qemu
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+    commands:
+      - export HOME=/Users/luke
+      - ./for-mac/qemu-helix/build-qemu-ci.sh
+
+  - name: build-app
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+      KEYCHAIN_PASSWORD:
+        from_secret: keychain_password
+      APPLE_SIGNING_IDENTITY:
+        from_secret: apple_signing_identity
+    commands:
+      - export HOME=/Users/luke
+      - security unlock-keychain -p "$KEYCHAIN_PASSWORD" /Users/luke/Library/Keychains/Helix-Dev.keychain-db
+      - security list-keychains -d user -s /Users/luke/Library/Keychains/Helix-Dev.keychain-db /Users/luke/Library/Keychains/login.keychain-db
+      - echo "APPLE_SIGNING_IDENTITY='$APPLE_SIGNING_IDENTITY'" > for-mac/.env.signing
+      - cd for-mac
+      - export QEMU_PREFIX="$(./qemu-helix/build-qemu-ci.sh --prefix)"
+      - APP_VERSION="dryrun-$(echo $DRONE_COMMIT_SHA | head -c 9)" ./scripts/build-helix-app.sh
+
+  - name: notarize-dmg
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+      KEYCHAIN_PASSWORD:
+        from_secret: keychain_password
+      APPLE_SIGNING_IDENTITY:
+        from_secret: apple_signing_identity
+    commands:
+      - export HOME=/Users/luke
+      - security unlock-keychain -p "$KEYCHAIN_PASSWORD" /Users/luke/Library/Keychains/Helix-Dev.keychain-db
+      - security list-keychains -d user -s /Users/luke/Library/Keychains/Helix-Dev.keychain-db /Users/luke/Library/Keychains/login.keychain-db
+      - echo "APPLE_SIGNING_IDENTITY='$APPLE_SIGNING_IDENTITY'" > for-mac/.env.signing
+      - cd for-mac
+      - ./scripts/create-dmg.sh --skip-styling --version "dryrun-$(echo $DRONE_COMMIT_SHA | head -c 9)"
+      - |
+        xcrun notarytool submit build/bin/Helix-for-Mac.dmg \
+          --keychain-profile "helix-notarize" \
+          --keychain /Users/luke/Library/Keychains/Helix-Dev.keychain-db \
+          --wait
+      # Fails unless notarization was accepted; the stapled DMG stays local.
+      - xcrun stapler staple build/bin/Helix-for-Mac.dmg
+      - codesign --verify --deep --strict --verbose=2 build/bin/Helix.app
 
 ---
 # ====================================================================
@@ -2454,16 +2542,16 @@ steps:
 
 ---
 # ====================================================================
-# Self-deploy a GREEN release to the live SaaS (controlplane + runner),
+# Self-deploy a GREEN release to the live SaaS (control plane + runners),
 # automating design/2026-06-25-prod-version-bump-runbook.md. Runs only when the
 # core build/test/manifest steps succeeded; the macOS DMG is a non-gating long
 # pole and is intentionally NOT a dependency. Mutually exclusive with
 # release-rollback (which fires on failure of the same core steps).
 #
 # Required Drone secret:
-#   helix_cd_ssh_key  base64 OpenSSH private key authorised on both
+#   helix_cd_ssh_key  base64 OpenSSH private key authorised on
 #                     luke_helix_ml@helix-cloud-london (static IP, passwordless
-#                     sudo) and root@code.helix.ml
+#                     sudo), root@code.helix.ml, and root@dev.code.helix.ml
 # Can also be run manually: scripts/deploy-prod.sh VERSION
 # ====================================================================
 kind: pipeline
@@ -2481,7 +2569,7 @@ trigger:
     - success
 
 steps:
-  - name: deploy-prod
+  - name: prod control plane
     image: debian:bookworm-slim
     environment:
       HELIX_CD_SSH_KEY:
@@ -2491,7 +2579,35 @@ steps:
     commands:
       - apt-get update -qq
       - apt-get install -y -qq curl ca-certificates openssh-client > /dev/null
-      - scripts/deploy-prod.sh "$DRONE_TAG"
+      - DEPLOY_RUNNER=false scripts/deploy-prod.sh "$DRONE_TAG"
+
+  - name: prod runner code.helix.ml
+    image: debian:bookworm-slim
+    depends_on:
+      - prod control plane
+    environment:
+      HELIX_CD_SSH_KEY:
+        from_secret: helix_cd_ssh_key
+      SLACK_WEBHOOK_URL:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+    commands:
+      - apt-get update -qq
+      - apt-get install -y -qq curl ca-certificates openssh-client > /dev/null
+      - DEPLOY_CONTROLPLANE=false RUNNER_SSH=root@code.helix.ml scripts/deploy-prod.sh "$DRONE_TAG"
+
+  - name: prod runner dev.code.helix.ml
+    image: debian:bookworm-slim
+    depends_on:
+      - prod control plane
+    environment:
+      HELIX_CD_SSH_KEY:
+        from_secret: helix_cd_ssh_key
+      SLACK_WEBHOOK_URL:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+    commands:
+      - apt-get update -qq
+      - apt-get install -y -qq curl ca-certificates openssh-client > /dev/null
+      - DEPLOY_CONTROLPLANE=false RUNNER_SSH=root@dev.code.helix.ml RUNNER_START_SCRIPT=/opt/HelixML/prod-app-runner/run.sh scripts/deploy-prod.sh "$DRONE_TAG"
 
 ---
 kind: pipeline

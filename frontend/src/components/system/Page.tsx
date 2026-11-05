@@ -85,7 +85,7 @@ const Page: React.FC<{
   const chatSidebar = useChatSidebar()
   const [searchDialogOpen, setSearchDialogOpen] = useState(false)
   const showChatSidebarButton = chatSidebar.collapsed && [
-    'org_chat',
+    'org_project-new',
     'org_chat-task',
     'org_session',
     'org_bot_session',

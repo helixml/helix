@@ -51,8 +51,9 @@ func (s *StartDevContainerForSessionSuite) TearDownTest() {
 // TestSpecTaskShape: session has SpecTaskID — load spec task, take project/org from it.
 func (s *StartDevContainerForSessionSuite) TestSpecTaskShape() {
 	session := &types.Session{
-		ID:    "ses_spec",
-		Owner: "user-1",
+		ID:        "ses_spec",
+		Owner:     "user-1",
+		SandboxID: "runner-original",
 		Metadata: types.SessionMetadata{
 			AgentType:  "zed_external",
 			SpecTaskID: "spt_abc",
@@ -80,6 +81,7 @@ func (s *StartDevContainerForSessionSuite) TestSpecTaskShape() {
 	s.NoError(err)
 	s.Require().NotNil(captured)
 	s.Equal("ses_spec", captured.SessionID)
+	s.Equal("runner-original", captured.SandboxID)
 	s.Equal("spt_abc", captured.SpecTaskID)
 	s.Equal("prj_from_spectask", captured.ProjectID)
 	s.Equal("org_from_spectask", captured.OrganizationID)

@@ -288,7 +288,7 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
                             size="small"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            sx={{ minWidth: 320 }}
+                            sx={{ minWidth: { xs: 0, sm: 320 }, flexGrow: { xs: 1, sm: 0 } }}
                             InputProps={{
                                 startAdornment: (
                                     <InputAdornment position="start">
@@ -322,7 +322,7 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
                             </Box>
                         )}
                     </Box>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
                         {totalCount} user{totalCount !== 1 ? "s" : ""} total
                     </Typography>
                 </Box>

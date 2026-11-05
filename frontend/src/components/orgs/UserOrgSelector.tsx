@@ -41,11 +41,10 @@ import { styled, keyframes } from '@mui/material/styles'
 import LoginRegisterDialog from './LoginRegisterDialog'
 import { TypesAuthProvider } from '../../api/api'
 import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
-import { orgLandingParams, orgLandingRoute } from '../../utils/organizations'
+import { CHIEF_OF_STAFF_BOT_ID, orgLandingParams, orgLandingRoute } from '../../utils/organizations'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
 import {
-  chatRailAction,
   isNavigationRouteActive,
   isOrgProjectSettingsRoute,
 } from './UserOrgSelector.logic'
@@ -335,14 +334,14 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     account.setMobileMenuOpen(false)
   }
 
+  const chatRoutes = ['project-new', 'chat-task', 'session', 'bot_session']
+
   const handleChatClick = () => {
-    const action = chatRailAction(isPhone, isActive(['chat', 'session', 'bot_session']))
-    if (!action.keepDrawerOpen) {
-      orgNavigateTo('chat')
+    if (isPhone && isActive(chatRoutes)) {
+      account.setMobileMenuOpen(true)
       return
     }
-    if (action.navigate) account.orgNavigate('chat')
-    account.setMobileMenuOpen(true)
+    account.orgNavigate('bot_session', { bot_id: CHIEF_OF_STAFF_BOT_ID, intro: '1' })
   }
 
   const orgNavigateTo = (path: string, params: Record<string, any> = {}) => {
@@ -396,7 +395,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       {
         icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
         tooltip: "AI chat assistant",
-        isActive: isActive(['chat', 'session', 'bot_session']),
+        isActive: isActive(chatRoutes),
         onClick: handleChatClick,
         label: "Chat",
       },
@@ -467,7 +466,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-    // isPhone changes what tapping Chat does, so it belongs in here.
   }, [isActive, isOrgProjectSettings, currentOrgSlug, router.name, isPhone])
 
   const isAccountSettingsActive = settingsDialog.activeDialog === 'account'

@@ -1,0 +1,133 @@
+From 7b734d929c1d92b9a7f58fa5aa83015a110322a3 Mon Sep 17 00:00:00 2001
+From: Luke Marsden <luke@mlops.consulting>
+Date: Tue, 6 Oct 2026 17:26:22 +0100
+Subject: [PATCH 3/4] MSL: Fix robustBufferAccess2 for descriptor arrays of
+ buffers
+
+Indexing an array of blocks selects a descriptor, which robustBufferAccess2
+doesn't cover, but the code bounds-checked it against the buffer size, and
+then used the per-descriptor buffer size array (constant uint*) as if it
+were a single size, which doesn't compile. Skip the check on the descriptor
+index and use BufferSize[descriptor index] for the accesses inside it,
+carrying the descriptor index across chained access chains.
+---
+ spirv_msl.cpp | 40 ++++++++++++++++++++++++++++++++--------
+ spirv_msl.hpp |  6 +++++-
+ 2 files changed, 37 insertions(+), 9 deletions(-)
+
+diff --git a/spirv_msl.cpp b/spirv_msl.cpp
+index 1c85069e..3d42b6ab 100644
+--- a/spirv_msl.cpp
++++ b/spirv_msl.cpp
+@@ -10164,11 +10164,23 @@ void CompilerMSL::access_chain_internal_append_index(std::string &expr, uint32_t
+ 			// unless the index is dynamic.
+ 			bool is_runtime_array = is_runtime_size_array(*type);
+ 			bool is_fixed_array = is_array(*type) && !is_runtime_array;
+-
+-			if (is_runtime_array || (is_fixed_array && !index_is_literal))
+-			{
+-				string count_expr = get_robust_buffer_array_length(*type, var->self);
+-				string idx_expr = to_unpacked_expression(index, register_expression_read);
++			// Indexing an array of blocks selects a descriptor, which robustBufferAccess2 doesn't
++			// cover. Remember the index: the buffer sizes of a descriptor array are per descriptor.
++			bool is_descriptor_index = type->basetype == SPIRType::Struct && is_fixed_array &&
++			                           (has_decoration(type->self, DecorationBlock) ||
++			                            has_decoration(type->self, DecorationBufferBlock));
++			bool is_descriptor_array = is_array(get_variable_data_type(*var));
++			string idx_expr = index_is_literal ? to_string(index) : to_unpacked_expression(index, register_expression_read);
++
++			if (is_descriptor_index)
++				pending_robust_access_info.descriptor_index = idx_expr;
++			// The descriptor was selected somewhere this chain can't see, so its size is unknown.
++			else if (is_descriptor_array && pending_robust_access_info.descriptor_index.empty())
++				;
++			else if (is_runtime_array || (is_fixed_array && !index_is_literal))
++			{
++				string count_expr =
++				    get_robust_buffer_array_length(*type, var->self, pending_robust_access_info.descriptor_index);
+ 
+ 				// Create clamped index: min(idx, max(count - 1, 0))
+ 				// For empty buffers (count=0), max ensures we get 0
+@@ -11234,8 +11246,12 @@ void CompilerMSL::emit_instruction(const Instruction &instruction)
+ 	case OpAccessChain:
+ 	case OpPtrAccessChain:
+ 	{
+-		// Clear pending robust access info before processing
+-		pending_robust_access_info.valid = false;
++		// Clear pending robust access info before processing; a chain continuing one that
++		// selected a descriptor keeps its descriptor index.
++		pending_robust_access_info = {};
++		auto desc_itr = robust_descriptor_indices.find(ops[2]);
++		if (desc_itr != robust_descriptor_indices.end())
++			pending_robust_access_info.descriptor_index = desc_itr->second;
+ 
+ 		if (is_tessellation_shader())
+ 		{
+@@ -11246,6 +11262,9 @@ void CompilerMSL::emit_instruction(const Instruction &instruction)
+ 			CompilerGLSL::emit_instruction(instruction);
+ 		fix_up_interpolant_access_chain(ops, instruction.length);
+ 
++		if (!pending_robust_access_info.descriptor_index.empty())
++			robust_descriptor_indices[ops[1]] = pending_robust_access_info.descriptor_index;
++
+ 		// If we have pending robust access info, associate it with the result ID
+ 		if (pending_robust_access_info.valid)
+ 		{
+@@ -14854,11 +14873,14 @@ string CompilerMSL::get_robust_image_zero_value(const SPIRType &result_type, uin
+ 	}
+ }
+ 
+-string CompilerMSL::get_robust_buffer_array_length(const SPIRType &type, uint32_t var_id)
++string CompilerMSL::get_robust_buffer_array_length(const SPIRType &type, uint32_t var_id,
++                                                   const string &descriptor_index)
+ {
+ 	if (is_runtime_size_array(type))
+ 	{
+ 		string size_expr = to_buffer_size_expression(var_id);
++		if (!descriptor_index.empty())
++			size_expr = join(size_expr, "[", descriptor_index, "]");
+ 		// Array types share self with their element type, so ArrayStride can't be looked up here.
+ 		uint32_t stride = get_declared_type_array_stride_msl(type, false, false);
+ 		return join("(", size_expr, " / ", stride, "u)");
+@@ -14869,6 +14891,8 @@ string CompilerMSL::get_robust_buffer_array_length(const SPIRType &type, uint32_
+ 		if (msl_options.robust_buffer_access2)
+ 		{
+ 			string size_expr = to_buffer_size_expression(var_id);
++			if (!size_expr.empty() && !descriptor_index.empty())
++				size_expr = join(size_expr, "[", descriptor_index, "]");
+ 			if (!size_expr.empty())
+ 			{
+ 				uint32_t stride = get_declared_type_array_stride_msl(type, false, false);
+diff --git a/spirv_msl.hpp b/spirv_msl.hpp
+index 4cdeb2da..a8886ce9 100644
+--- a/spirv_msl.hpp
++++ b/spirv_msl.hpp
+@@ -1159,7 +1159,8 @@ protected:
+ 	                                          const std::string &lod_expr, bool include_null_check = true);
+ 	std::string get_robust_image_zero_value(const SPIRType &result_type, uint32_t format_components);
+ 	// Robust buffer access helpers for robustBufferAccess2
+-	std::string get_robust_buffer_array_length(const SPIRType &type, uint32_t var_id);
++	std::string get_robust_buffer_array_length(const SPIRType &type, uint32_t var_id,
++	                                           const std::string &descriptor_index = {});
+ 
+ 	bool is_sample_rate() const;
+ 	bool is_intersection_query() const;
+@@ -1416,12 +1417,15 @@ protected:
+ 	struct RobustAccessInfo
+ 	{
+ 		std::string bounds_check_condition;
++		std::string descriptor_index;
+ 		bool valid = false;
+ 	};
+ 	std::unordered_map<uint32_t, RobustAccessInfo> robust_access_chains;
+ 
+ 	// Temporary storage for robust access info during access chain building
+ 	RobustAccessInfo pending_robust_access_info;
++	// Descriptor index selected by access chains into descriptor arrays, by result ID
++	std::unordered_map<uint32_t, std::string> robust_descriptor_indices;
+ 
+ 	// Track image texel pointers for robust image atomic access
+ 	struct RobustImageAtomicInfo
+-- 
+2.50.1 (Apple Git-155)
+

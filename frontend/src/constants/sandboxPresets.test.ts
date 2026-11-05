@@ -14,6 +14,7 @@ describe('sandbox presets', () => {
       [8, 16384],
       [12, 24576],
       [16, 32768],
+      [32, 65536],
     ])
   })
 
@@ -50,7 +51,7 @@ describe('sandbox presets', () => {
       memory_mb: 12288,
       description: '12 GB RAM',
     })
-    expect(presets.map((preset) => preset.vcpus)).toEqual([1, 4, 6, 8, 12, 16])
+    expect(presets.map((preset) => preset.vcpus)).toEqual([1, 4, 6, 8, 12, 16, 32])
   })
 
   it('leaves the ladder alone when no size is stored', () => {

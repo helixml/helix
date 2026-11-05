@@ -22,7 +22,6 @@ export interface ITheme {
   darkScrollbarThumb: string,
   darkScrollbarHover: string,
   darkBackgroundColor: string,
-  darkBackgroundImage: string,
   darkBorder: string,
   darkText: string,
   darkTextFaded: string,
@@ -31,7 +30,6 @@ export interface ITheme {
   lightIconHover: string,
   lightHighlight: string,
   lightBackgroundColor: string,
-  lightBackgroundImage: string,
   lightBorder: string,
   lightText: string,
   lightTextFaded: string,
@@ -106,7 +104,6 @@ export const THEMES: Record<string, ITheme> = {
     darkScrollbarThumb: '#35354a',
     darkScrollbarHover: '#505070',
     darkBackgroundColor: DARK_APP_BACKGROUND,
-    darkBackgroundImage: "none",
     darkBorder: "1px solid #282838",
     darkText: "#e0e0e0",
     darkTextFaded: "#a0a0b0",
@@ -118,7 +115,6 @@ export const THEMES: Record<string, ITheme> = {
     lightIconHover: '#0e7490', // cyan-700 — passes WCAG AA on white
     lightHighlight: '#0e7490',
     lightBackgroundColor: "#ffffff",
-    lightBackgroundImage: "url('/img/nebula-light.png')",
     lightBorder: "1px solid #aeaeae",
     lightText: "#000000",
     // "Faded" in light mode = sunlit-iPad readable, not actually faded.

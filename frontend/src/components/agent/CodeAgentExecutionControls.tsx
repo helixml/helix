@@ -16,6 +16,7 @@ import { ChevronDown, Cpu, Monitor } from 'lucide-react'
 import {
   TypesCodeAgentExecutionConfig,
   TypesCodeAgentRuntime,
+  TypesSandboxDisplay,
   TypesSandboxResourceOverrides,
   TypesSandboxRuntime,
 } from '../../api/api'
@@ -28,6 +29,8 @@ import CodeAgentConfigPicker from './CodeAgentConfigPicker'
 import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
 import { sandboxPresetsFor } from '../../constants/sandboxPresets'
 import { useDefaultSandboxPreset } from '../../hooks/useDefaultSandboxPreset'
+import { defaultSandboxResolution, sandboxResolution, sandboxResolutionLabel, sandboxResolutions } from '../../services/externalAgentDisplay'
+import { useNativeDisplay } from '../../hooks/useNativeDisplay'
 
 type MaybePromise = void | Promise<unknown>
 
@@ -38,6 +41,9 @@ export interface CodeAgentExecutionControlsProps {
   sandboxRuntime?: TypesSandboxRuntime
   onSandboxResourceOverridesChange?: (value: TypesSandboxResourceOverrides) => MaybePromise
   onSandboxRuntimeChange?: (value: TypesSandboxRuntime) => MaybePromise
+  sandboxDisplay?: TypesSandboxDisplay
+  /** Shows the Display (resolution) section in the compute menu. */
+  onSandboxDisplayChange?: (value: TypesSandboxDisplay) => MaybePromise
   disabled?: boolean
   compact?: boolean
   grouped?: boolean
@@ -51,6 +57,7 @@ export interface CodeAgentExecutionControlsProps {
   autoSelectDefault?: boolean
   /** Use the full row, keeping model selection left and reasoning effort right. */
   spreadAgentControls?: boolean
+  interactiveEmbedTaskId?: string
 }
 
 const compactButtonSx = {
@@ -76,12 +83,15 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   sandboxRuntime,
   onSandboxResourceOverridesChange,
   onSandboxRuntimeChange,
+  sandboxDisplay,
+  onSandboxDisplayChange,
   disabled = false,
   compact = false,
   grouped = false,
   computeOnly = false,
   autoSelectDefault = false,
   spreadAgentControls = false,
+  interactiveEmbedTaskId,
 }) => {
   const isPhone = useIsPhone()
   const snackbar = useSnackbar()
@@ -107,6 +117,14 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   const showSandboxRuntime = sandboxRuntime !== undefined || !!onSandboxRuntimeChange
   const sandboxRuntimeLocked = showSandboxRuntime && !onSandboxRuntimeChange
   const controlsDisabled = disabled || isSaving
+  const showSandboxDisplay = !!onSandboxDisplayChange
+    && runtimeEnvironment === TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop
+  const nativeDisplay = useNativeDisplay()
+  const resolution = sandboxResolution(sandboxDisplay, nativeDisplay)
+  const defaultResolution = defaultSandboxResolution(nativeDisplay)
+  const computeLabel = showSandboxDisplay && resolution !== defaultResolution
+    ? `${resources.vcpus} vCPU · ${sandboxResolutionLabel(sandboxDisplay, nativeDisplay)}`
+    : `${resources.vcpus} vCPU`
 
   const save = async (
     next: TypesCodeAgentExecutionConfig,
@@ -133,12 +151,13 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
       value={value}
       disabled={controlsDisabled}
       autoSelectDefault={autoSelectDefault}
+      interactiveEmbedTaskId={interactiveEmbedTaskId}
       onChange={(next, source) => void save(next, source)}
     />
   )
   // Reasoning depth is a setting *of* a harness, so it has nothing to configure
   // until one is picked.
-  const reasoningControl = value?.model && !unconfigured ? (
+  const reasoningControl = !interactiveEmbedTaskId && value?.model && !unconfigured ? (
     <Tooltip title="Change reasoning and service tier">
       <Box component="span" sx={{ display: 'inline-flex' }}>
         <Button
@@ -172,7 +191,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
       </Box>
     </Tooltip>
   ) : (
-    <Tooltip title={`Change sandbox size (${resources.vcpus} vCPU)`}>
+    <Tooltip title={`Change sandbox size (${computeLabel})`}>
       <Box component="span" sx={{ display: 'inline-flex' }}>
         <Button
           size="small"
@@ -188,7 +207,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
           endIcon={<ChevronDown size={13} />}
           sx={compactButtonSx}
         >
-          {resources.vcpus} vCPU
+          {computeLabel}
         </Button>
       </Box>
     </Tooltip>
@@ -330,6 +349,27 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
               }}
             >
               <Typography variant="body2">{option.label}</Typography>
+            </MenuItem>
+          )),
+        ]}
+        {showSandboxDisplay && [
+          <Divider key="display-divider" sx={{ my: 0.5 }} />,
+          <ListSubheader key="display-heading" disableSticky>Display</ListSubheader>,
+          ...sandboxResolutions(nativeDisplay).map((option) => (
+            <MenuItem
+              key={option.value}
+              selected={option.value === resolution}
+              disabled={controlsDisabled}
+              onClick={() => {
+                setCpuAnchor(null)
+                if (option.value !== resolution) void onSandboxDisplayChange?.({ resolution: option.value })
+              }}
+              sx={{ columnGap: 2 }}
+            >
+              <Typography variant="body2" sx={{ flex: 1 }}>{option.label}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {option.description}{option.value === defaultResolution ? ' · Default' : ''}
+              </Typography>
             </MenuItem>
           )),
         ]}

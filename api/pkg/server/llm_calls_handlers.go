@@ -210,7 +210,7 @@ func (s *HelixAPIServer) listAppInteractions(_ http.ResponseWriter, r *http.Requ
 		InteractionID: interactionID,
 		UserID:        user.ID,
 		Feedback:      feedback,
-		Order:         "id DESC",
+		Order:         "created DESC, id DESC",
 	}
 
 	if query.Feedback != "" {

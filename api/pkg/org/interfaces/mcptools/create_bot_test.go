@@ -31,9 +31,12 @@ func newCreateBotCaller(t *testing.T, orgID string) (Config, orgchart.Node) {
 	deps.AgentCreator = testAgentCreator{}
 	deps.Now = func() time.Time { return time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC) }
 	deps.NewID = func() string { return "id-create-bot-test" }
-	caller, err := orgchart.NewNode("b-owner", "# Owner", nil, deps.Now(), orgID)
+	caller, err := orgchart.NewNode("b-owner", "# Owner", OwnerBotTools(), deps.Now(), orgID)
 	if err != nil {
 		t.Fatalf("new caller: %v", err)
+	}
+	if err := st.Nodes.Create(context.Background(), caller); err != nil {
+		t.Fatalf("create caller: %v", err)
 	}
 	return deps, caller
 }
@@ -44,7 +47,7 @@ func invokeCreateBot(t *testing.T, deps Config, caller orgchart.Node, args strin
 	t.Helper()
 	ctx := context.Background()
 	out, err := (&CreateBot{deps: deps.Build()}).Invoke(ctx, tool.Invocation{
-		Caller: botCaller{id: string(caller.ID), orgID: caller.OrganizationID},
+		Caller: botCaller{id: string(caller.ID), orgID: caller.OrganizationID, admin: true},
 		Args:   json.RawMessage(args),
 	})
 	if err != nil {
@@ -65,10 +68,14 @@ func invokeCreateBot(t *testing.T, deps Config, caller orgchart.Node, args strin
 
 // botCaller adapts a Bot identity to tool.Caller for direct-Invoke
 // unit tests (the MCP server builds the real adapter at the boundary).
-type botCaller struct{ id, orgID string }
+type botCaller struct {
+	id, orgID string
+	admin     bool
+}
 
-func (c botCaller) ID() string             { return c.id }
-func (c botCaller) OrganizationID() string { return c.orgID }
+func (c botCaller) ID() string                  { return c.id }
+func (c botCaller) OrganizationID() string      { return c.orgID }
+func (c botCaller) CanManageOrganization() bool { return c.admin }
 
 func TestCreateBotDescriptionRequiresConfirmedNameAndPurpose(t *testing.T) {
 	t.Parallel()

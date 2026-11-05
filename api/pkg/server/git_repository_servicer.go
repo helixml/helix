@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"sync"
 
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/types"
@@ -40,7 +39,7 @@ type gitRepositoryServicer interface {
 	SyncBaseBranch(ctx context.Context, repoID, branchName string) error
 	GetLocalBranchSHA(ctx context.Context, repoID, branch string) (string, error)
 	GetExternalRepoStatus(ctx context.Context, repoID, branchName string) (*types.ExternalStatus, error)
-	GetRepoLock(repoID string) *sync.Mutex
+	GetRepoLock(repoID string) *services.RepoLock
 	WithRepoLock(repoID string, fn func() error) error
 	WithExternalRepoRead(ctx context.Context, repo *types.GitRepository, readFunc func() error) error
 	WithExternalRepoWrite(ctx context.Context, repo *types.GitRepository, opts services.ExternalRepoWriteOptions, writeFunc func() error) error

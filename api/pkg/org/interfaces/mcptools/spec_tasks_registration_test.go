@@ -24,6 +24,7 @@ var specTaskToolNames = []tool.Name{
 	mcptools.ApproveSpecTaskSpecName,
 	mcptools.RequestSpecTaskChangesName,
 	mcptools.CreateSpecTaskPRsName,
+	mcptools.CompleteSpecTaskName,
 }
 
 // TestSpecTaskToolsRegistered pins that RegisterBuiltins registers every

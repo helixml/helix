@@ -46,6 +46,8 @@ type SpecTaskWorkflow interface {
 	SendAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, userID string) (string, error)
 	StartAgent(ctx context.Context, task *types.SpecTask, userID string) error
 	StopAgent(ctx context.Context, task *types.SpecTask) error
+	// CompleteTask marks the task done, which stops its desktop.
+	CompleteTask(ctx context.Context, task *types.SpecTask) error
 	RestartAgent(ctx context.Context, task *types.SpecTask, userID string) (promptsReset int, threadReset bool, err error)
 }
 
@@ -185,11 +187,14 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 
 	taskType := in.Type
 	if taskType == "" {
-		taskType = "feature"
+		taskType = types.SpecTaskTypeFeature
 	}
 	priority := types.SpecTaskPriority(in.Priority)
 	if priority == "" {
 		priority = types.SpecTaskPriorityMedium
+	}
+	if err := types.ValidateSpecTaskTypeAndPriority(taskType, priority); err != nil {
+		return runtime.SpecTaskView{}, err
 	}
 	var dependsOn []types.SpecTask
 	for _, id := range in.DependsOn {
@@ -251,6 +256,7 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 		SandboxResourceOverrides: sandboxResources,
 		SandboxRuntime:           sandboxRuntime,
 	}
+	task.InitAutoApprovePullRequests(nil, project, hiringUserID)
 	taskNumber, err := s.tasks.IncrementGlobalTaskNumber(ctx)
 	if err != nil {
 		return runtime.SpecTaskView{}, fmt.Errorf("assign task number: %w", err)
@@ -329,20 +335,16 @@ func (s *SpecTasks) Update(ctx context.Context, orgID string, workerID orgchart.
 		task.Description = strings.TrimSpace(*in.Description)
 	}
 	if in.Type != nil {
-		switch *in.Type {
-		case "feature", "bug", "refactor":
-			task.Type = *in.Type
-		default:
-			return runtime.SpecTaskView{}, fmt.Errorf("invalid type %q: must be feature, bug, or refactor", *in.Type)
+		if !types.ValidSpecTaskType(*in.Type) {
+			return runtime.SpecTaskView{}, errors.New("invalid type: must be feature, bug, or refactor")
 		}
+		task.Type = *in.Type
 	}
 	if in.Priority != nil {
-		switch types.SpecTaskPriority(*in.Priority) {
-		case types.SpecTaskPriorityLow, types.SpecTaskPriorityMedium, types.SpecTaskPriorityHigh, types.SpecTaskPriorityCritical:
-			task.Priority = types.SpecTaskPriority(*in.Priority)
-		default:
-			return runtime.SpecTaskView{}, fmt.Errorf("invalid priority %q: must be low, medium, high, or critical", *in.Priority)
+		if !types.SpecTaskPriority(*in.Priority).Valid() {
+			return runtime.SpecTaskView{}, errors.New("invalid priority: must be low, medium, high, or critical")
 		}
+		task.Priority = types.SpecTaskPriority(*in.Priority)
 	}
 	if in.SkipPlanning != nil {
 		task.JustDoItMode = *in.SkipPlanning
@@ -434,7 +436,7 @@ func (s *SpecTasks) ListAgentMessages(ctx context.Context, orgID string, workerI
 		SessionID:    task.PlanningSessionID,
 		GenerationID: -1,
 		PerPage:      limit,
-		Order:        "id DESC",
+		Order:        "created DESC, id DESC",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list spec task agent messages: %w", err)
@@ -494,6 +496,24 @@ func (s *SpecTasks) StopAgent(ctx context.Context, orgID string, workerID orgcha
 	}
 	if err := s.workflow.StopAgent(ctx, task); err != nil {
 		return runtime.SpecTaskView{}, fmt.Errorf("stop spec task agent: %w", err)
+	}
+	return toView(task), nil
+}
+
+func (s *SpecTasks) Complete(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string) (runtime.SpecTaskView, error) {
+	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	if err := s.workflow.CompleteTask(ctx, task); err != nil {
+		return runtime.SpecTaskView{}, fmt.Errorf("complete spec task: %w", err)
+	}
+	if latest, gErr := s.tasks.GetSpecTask(ctx, taskID); gErr == nil {
+		task = latest
 	}
 	return toView(task), nil
 }

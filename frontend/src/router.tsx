@@ -111,10 +111,10 @@ const routes: IApplicationRoute[] = [
     <Projects />
   ),
 }, {
-  name: 'org_chat',
-  path: '/orgs/:org_id/chat',
+  name: 'org_project-new',
+  path: '/orgs/:org_id/projects/:id/new',
   meta: {
-    title: 'Chat',
+    title: 'New Task',
     drawer: true,
   },
   render: () => (

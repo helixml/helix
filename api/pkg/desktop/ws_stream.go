@@ -174,11 +174,12 @@ const (
 	StreamMsgCursorImage = 0x50 // Cursor image data when cursor changes
 	StreamMsgCursorName  = 0x51 // CSS cursor name for fallback rendering (when pixels unavailable)
 	// Multi-user cursor message types (server → all clients)
-	StreamMsgRemoteCursor = 0x53 // Remote user cursor position
-	StreamMsgRemoteUser   = 0x54 // Remote user joined/left
-	StreamMsgAgentCursor  = 0x55 // AI agent cursor position/action
-	StreamMsgRemoteTouch  = 0x56 // Remote user touch event
-	StreamMsgSelfId       = 0x58 // Tell client their own clientId
+	StreamMsgRemoteCursor     = 0x53 // Remote user cursor position
+	StreamMsgRemoteUser       = 0x54 // Remote user joined/left
+	StreamMsgAgentCursor      = 0x55 // AI agent cursor position/action
+	StreamMsgRemoteTouch      = 0x56 // Remote user touch event
+	StreamMsgSelfId           = 0x58 // Tell client their own clientId
+	StreamMsgClipboardChanged = 0x59 // The desktop's clipboard changed (not by a paste from a viewer)
 )
 
 // Video codec types
@@ -2011,6 +2012,13 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 		}
 	}
 
+	// Keys this viewer holds are released when it disconnects, so a closed tab
+	// or dropped network cannot leave Ctrl held for every other viewer.
+	keyboard := newKeyboardClient()
+	if server != nil && !readOnly {
+		defer server.releaseKeyboardClient(keyboard)
+	}
+
 	// Handle incoming messages (input events, ping/pong, etc.)
 	for {
 		messageType, msg, err := ws.ReadMessage()
@@ -2129,7 +2137,7 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 				if sc := sessionClient(); sc != nil {
 					clientID = sc.ID
 				}
-				server.handleStreamInputMessageWithClient(msg, streamer.config.SessionID, clientID)
+				server.handleStreamInputMessageWithClient(msg, keyboard, streamer.config.SessionID, clientID)
 			} else {
 				logger.Debug("received input event (no server context)", "type", msgType)
 			}
@@ -2137,16 +2145,10 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	}
 }
 
-// handleStreamInputMessage processes input messages from the combined stream WebSocket.
-// Note: Ping/Pong (0x40/0x41) are handled in the message loop, not here.
-// Deprecated: Use handleStreamInputMessageWithClient for multi-player cursor support.
-func (s *Server) handleStreamInputMessage(data []byte) {
-	s.handleStreamInputMessageWithClient(data, s.config.SessionID, 0)
-}
-
 // handleStreamInputMessageWithClient processes input messages with client context.
-// sessionID and clientID are used for multi-player cursor broadcasting.
-func (s *Server) handleStreamInputMessageWithClient(data []byte, sessionID string, clientID uint32) {
+// keyboard is the sending connection's held-key state; sessionID and clientID
+// are used for multi-player cursor broadcasting.
+func (s *Server) handleStreamInputMessageWithClient(data []byte, keyboard *keyboardClient, sessionID string, clientID uint32) {
 	if len(data) < 1 {
 		return
 	}
@@ -2158,7 +2160,7 @@ func (s *Server) handleStreamInputMessageWithClient(data []byte, sessionID strin
 	// Types 0x10-0x14 are reserved for input
 	switch msgType {
 	case StreamMsgKeyboard: // 0x10
-		s.handleWSKeyboard(payload)
+		s.handleWSKeyboard(keyboard, payload)
 	case StreamMsgMouseClick: // 0x11
 		s.handleWSMouseButton(payload)
 	case StreamMsgMouseAbsolute: // 0x12

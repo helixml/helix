@@ -17,6 +17,27 @@ func forwardServer() *httptest.Server {
 	}))
 }
 
+func TestForwardMarksResponseThatReachedUpstream(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer upstream.Close()
+	proxy := forwardServer()
+	defer proxy.Close()
+
+	req, _ := http.NewRequest(http.MethodHead, proxy.URL, nil)
+	req.Header.Set("X-Test-Target", upstream.URL)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound || resp.Header.Get(devContainerUpstreamReachedHeader) != "1" {
+		t.Fatalf("got %d (upstream reached=%q), want upstream 404 with marker",
+			resp.StatusCode, resp.Header.Get(devContainerUpstreamReachedHeader))
+	}
+}
+
 // A hosted web service may take more than 30s to answer. The proxy used to cap
 // every request at 30s end to end, which turned a 32s CV parse on we-find.ai
 // into the branded "Starting up" page. Takes 31s, so it is skipped with -short.

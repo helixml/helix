@@ -50,6 +50,20 @@ func requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(f)
 }
 
+// requireAdminOrRunner admits global admins and the runner token. Used for
+// infrastructure endpoints that both the admin UI and sandbox hosts call.
+func requireAdminOrRunner(next http.Handler) http.Handler {
+	f := func(w http.ResponseWriter, r *http.Request) {
+		user := getRequestUser(r)
+		if !isAdmin(user) && !isRunner(user) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
+	return http.HandlerFunc(f)
+}
+
 func requireRunner(next http.Handler) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		user := getRequestUser(r)
@@ -77,6 +91,21 @@ func getBearerToken(r *http.Request) string {
 
 func getQueryToken(r *http.Request) string {
 	return r.URL.Query().Get("access_token")
+}
+
+// namesOwnAPIKey reports whether the request carries a Helix API key it was
+// given explicitly (a header, or ?access_token= on a WebSocket or EventSource,
+// which cannot set headers), as opposed to one the browser sends by itself.
+// Such a key says who the caller is, so it must win over the browser's
+// session cookie: an embed in another product's page runs in a browser that
+// may also hold the viewer's own Helix session.
+func namesOwnAPIKey(r *http.Request) bool {
+	for _, token := range []string{getBearerToken(r), r.Header.Get("x-api-key"), r.Header.Get("api-key"), getQueryToken(r)} {
+		if strings.HasPrefix(token, types.APIKeyPrefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func getRequestToken(r *http.Request) string {

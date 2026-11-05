@@ -24,6 +24,7 @@ APP_BUNDLE_NAME="Helix"
 APP_BUNDLE="${FOR_MAC_DIR}/build/bin/${APP_BUNDLE_NAME}.app"
 APP_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements-app.plist"
 QEMU_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements.plist"
+RENDER_SERVER_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements-render-server.plist"
 IDENTITY="-"  # Ad-hoc by default
 NOTARIZE=false
 APPLE_ID=""
@@ -140,6 +141,12 @@ QEMU_IMG="${MACOS_DIR}/qemu-img"
 if [ -f "$QEMU_IMG" ]; then
     codesign "${SIGN_OPTS[@]}" --entitlements "$APP_ENTITLEMENTS" "$QEMU_IMG"
     log "  Signed qemu-img (with app entitlements)"
+fi
+
+RENDER_SERVER="${MACOS_DIR}/virgl_render_server"
+if [ -f "$RENDER_SERVER" ]; then
+    codesign "${SIGN_OPTS[@]}" --entitlements "$RENDER_SERVER_ENTITLEMENTS" "$RENDER_SERVER"
+    log "  Signed virgl_render_server"
 fi
 
 # =============================================================================

@@ -29,7 +29,7 @@ deployment:
 sandbox:
   runnerTokenExistingSecret: "helix-sandbox-token"
   runnerTokenExistingSecretKey: "token"
-  maxSandboxes: 10
+  maxSandboxes: -1
 
 gpu:
   vendor: "nvidia"

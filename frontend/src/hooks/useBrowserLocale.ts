@@ -17,6 +17,8 @@ export interface BrowserLocaleInfo {
   keyboardLayout: string;
   /** IANA timezone, e.g., "America/New_York" */
   timezone: string;
+  /** Comma-separated preferred languages (navigator.languages), e.g., "en-GB,en" */
+  languages: string;
   /** Whether the keyboard layout was overridden via query param */
   isOverridden: boolean;
 }
@@ -118,8 +120,9 @@ export function useBrowserLocale(): BrowserLocaleInfo {
   const override = getKeyboardOverride();
   const keyboardLayout = override || deriveKeyboardLayout(language);
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const languages = (navigator.languages?.length ? navigator.languages : [language]).join(',');
 
-  return { language, keyboardLayout, timezone, isOverridden: !!override };
+  return { language, keyboardLayout, timezone, languages, isOverridden: !!override };
 }
 
 /**
@@ -131,6 +134,7 @@ export function getBrowserLocale(): BrowserLocaleInfo {
   const override = getKeyboardOverride();
   const keyboardLayout = override || deriveKeyboardLayout(language);
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const languages = (navigator.languages?.length ? navigator.languages : [language]).join(',');
 
-  return { language, keyboardLayout, timezone, isOverridden: !!override };
+  return { language, keyboardLayout, timezone, languages, isOverridden: !!override };
 }

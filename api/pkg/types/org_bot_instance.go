@@ -51,7 +51,14 @@ const (
 	// InstanceMCPServerHelixOrg is the org tools server. It is controlled by
 	// BotInstanceProfile.Tools, never listed in MCPServers.
 	InstanceMCPServerHelixOrg = "helix"
+	// MCPServerHelixViz serves html_render (inline visualizations). Every
+	// instance keeps it: it only writes a page into the instance's own chat.
+	MCPServerHelixViz = "helix-viz"
 )
+
+// MCPBackendVisualization is the MCP gateway backend behind MCPServerHelixViz
+// (/api/v1/mcp/visualization).
+const MCPBackendVisualization = "visualization"
 
 // BotInstanceProfile configures the sessions an org bot starts as instances.
 // Instances are minimal by default: a browser and the bot's own instructions,

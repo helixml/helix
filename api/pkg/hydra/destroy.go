@@ -47,9 +47,14 @@ func (dm *DevContainerManager) DestroyDevContainer(ctx context.Context, sessionI
 	if err := removeSessionContainers(ctx, dockerClient, sessionID); err != nil {
 		errs = append(errs, err)
 	}
-	volume := "docker-data-" + sessionID
-	if err := dockerClient.VolumeRemove(ctx, volume, true); err != nil && !client.IsErrNotFound(err) {
-		errs = append(errs, fmt.Errorf("remove volume %s: %w", volume, err))
+	volumes := []string{
+		containerDataVolumeName(sessionID, dockerGoldenCache),
+		containerDataVolumeName(sessionID, rootlessDockerGoldenCache),
+	}
+	for _, volume := range volumes {
+		if err := dockerClient.VolumeRemove(ctx, volume, true); err != nil && !client.IsErrNotFound(err) {
+			errs = append(errs, fmt.Errorf("remove volume %s: %w", volume, err))
+		}
 	}
 	if ZFSAvailable() {
 		if err := CleanupSessionZvol(sessionID); err != nil {
@@ -60,9 +65,11 @@ func (dm *DevContainerManager) DestroyDevContainer(ctx context.Context, sessionI
 		errs = append(errs, err)
 	}
 	dirs := []string{
-		filepath.Join(sessionsBaseDir, volume),
 		filepath.Join(workspacesBaseDir, "sessions", sessionID),
 		filepath.Join(sessionRuntimeBaseDir, sessionID),
+	}
+	for _, volume := range volumes {
+		dirs = append(dirs, filepath.Join(sessionsBaseDir, volume))
 	}
 	if specTaskID != "" {
 		dirs = append(dirs, filepath.Join(workspacesBaseDir, "spec-tasks", specTaskID))

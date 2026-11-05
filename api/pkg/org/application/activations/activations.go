@@ -145,6 +145,22 @@ func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgch
 	return a.activate(ctx, orgID, workerID, false)
 }
 
+// LatestError returns the newest completed activation failure. A newer
+// pending or successful activation clears the error shown to the operator.
+func (a *Activations) LatestError(ctx context.Context, orgID string, workerID orgchart.NodeID) (string, error) {
+	if a.repo == nil {
+		return "", nil
+	}
+	rows, err := a.repo.ListForWorker(ctx, orgID, workerID, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) == 0 || !rows[0].IsCompleted() || rows[0].Outcome.Status != activation.StatusError {
+		return "", nil
+	}
+	return rows[0].Outcome.Error, nil
+}
+
 func (a *Activations) activate(ctx context.Context, orgID string, workerID orgchart.NodeID, forceManual bool) (ActivateResult, error) {
 	if a.ensurer == nil || a.dispatcher == nil {
 		return ActivateResult{}, ErrActivateUnavailable

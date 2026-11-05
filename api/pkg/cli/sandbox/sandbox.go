@@ -246,7 +246,7 @@ Pass --project to associate the sandbox with a project (optional).`,
 	cmd.Flags().StringVar(&name, "name", "", "Display name")
 	cmd.Flags().StringVar(&runtime, "runtime", "", "Configured runtime name (e.g. headless-ubuntu, node22). Empty = server default.")
 	cmd.Flags().StringVar(&image, "image", "", "Custom Docker image (requires HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE=true on the server)")
-	cmd.Flags().StringVar(&size, "size", "small", "Resource size: small=1CPU/2GB, medium=4CPU/8GB, large=8CPU/16GB, xlarge=12CPU/24GB, 2xlarge=16CPU/32GB")
+	cmd.Flags().StringVar(&size, "size", "small", "Resource size: small=1CPU/2GB, medium=4CPU/8GB, large=8CPU/16GB, xlarge=12CPU/24GB, 2xlarge=16CPU/32GB, 4xlarge=32CPU/64GB")
 	cmd.Flags().IntVar(&ttl, "ttl", 600, "Lifetime in seconds")
 	cmd.Flags().BoolVar(&wait, "wait", true, "Wait for status=running")
 	cmd.Flags().BoolVar(&persistent, "persistent", false, "Mount a persistent workspace volume that survives container restarts")
@@ -265,8 +265,10 @@ func parseSandboxSize(size string) (int, int, error) {
 		return 12, 24576, nil
 	case "2xlarge", "16cpu-32gb":
 		return 16, 32768, nil
+	case "4xlarge", "32cpu-64gb":
+		return 32, 65536, nil
 	default:
-		return 0, 0, fmt.Errorf("invalid sandbox size %q: use small, medium, large, xlarge, or 2xlarge", size)
+		return 0, 0, fmt.Errorf("invalid sandbox size %q: use small, medium, large, xlarge, 2xlarge, or 4xlarge", size)
 	}
 }
 

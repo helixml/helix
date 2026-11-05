@@ -1056,14 +1056,20 @@ const SystemSettingsTable: FC = () => {
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={`${settings?.max_concurrent_desktop_sandboxes ?? 10} concurrent`}
+                      label={
+                        (settings?.max_concurrent_desktop_sandboxes ?? 0) > 0
+                          ? `${settings?.max_concurrent_desktop_sandboxes} concurrent`
+                          : 'Plan defaults'
+                      }
                       color="primary"
                       size="small"
                     />
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontFamily="monospace">
-                      {settings?.max_concurrent_desktop_sandboxes ?? 10}
+                      {(settings?.max_concurrent_desktop_sandboxes ?? 0) > 0
+                        ? settings?.max_concurrent_desktop_sandboxes
+                        : 'Plan defaults'}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -1074,6 +1080,7 @@ const SystemSettingsTable: FC = () => {
                             size="small"
                             value={sandboxDesktopLimitValue}
                             onChange={(e) => setSandboxDesktopLimitValue(e.target.value)}
+                            helperText="Positive limit overrides plan defaults"
                             sx={{ width: 130 }}
                           />
                           <Button
@@ -1097,7 +1104,11 @@ const SystemSettingsTable: FC = () => {
                         <Button
                           startIcon={<EditIcon />}
                           onClick={() => {
-                            setSandboxDesktopLimitValue(String(settings?.max_concurrent_desktop_sandboxes ?? 10))
+                            setSandboxDesktopLimitValue(
+                              (settings?.max_concurrent_desktop_sandboxes ?? 0) > 0
+                                ? String(settings.max_concurrent_desktop_sandboxes)
+                                : '',
+                            )
                             setEditingSandboxDesktopLimit(true)
                           }}
                           size="small"

@@ -455,8 +455,8 @@ const Providers: React.FC = () => {
             // The custom provider tile always opens a fresh "Add" dialog — many custom
             // providers can coexist, and each existing one is shown as its own card below.
             // This section manages keys owned by the current user or organization.
-            // Synthetic global providers have id "-" and are configured by the server
-            // environment, so they cannot be disconnected from this dialog.
+            // Env-configured global providers (see isEnvConfiguredEndpoint) are not
+            // owned endpoints, so they never reach this dialog.
             const existingProvider = provider.is_custom ? undefined : ownedEndpoints.find(
               endpoint => getProviderPresetDefinition(endpoint)?.id === provider.id
             );

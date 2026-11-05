@@ -34,6 +34,8 @@ interface AgentChatProps {
   appendText?: string
   leadingActions?: ReactNode
   footerContent?: ReactNode
+  /** Requests shown after the last message (e.g. PR proposals awaiting approval). */
+  actionCards?: ReactNode
   reviewComments?: readonly WorkspaceReviewComment[]
   onRemoveReviewComment?: (commentId: string) => void
   onReviewCommentsSent?: () => void
@@ -67,6 +69,7 @@ const AgentChat: FC<AgentChatProps> = ({
   appendText,
   leadingActions,
   footerContent,
+  actionCards,
   reviewComments,
   onRemoveReviewComment,
   onReviewCommentsSent,
@@ -106,9 +109,18 @@ const AgentChat: FC<AgentChatProps> = ({
   )
   const latestInteraction = latestInteractionsResponse?.data?.interactions?.[0]
   const latestInteractionId = latestInteraction?.id || null
-  const pendingQuestion = latestInteraction?.state === TypesInteractionState.InteractionStateWaiting
-    ? latestInteraction.pending_question
-    : undefined
+  const { data: pendingQuestionsResponse } = useListInteractions(
+    sessionId,
+    0,
+    100,
+    'desc',
+    {
+      enabled: !!sessionId,
+      refetchInterval: 3000,
+      pendingQuestionOnly: true,
+    },
+  )
+  const pendingQuestionInteractions = pendingQuestionsResponse?.data?.interactions ?? []
   // Has the customer said anything yet?
   //
   // One interaction means only the session's opening briefing exists — the
@@ -116,7 +128,7 @@ const AgentChat: FC<AgentChatProps> = ({
   // has asked it anything, so there is no conversation to show. hasSentInWelcome
   // covers the gap between clicking send and the count catching up on the next
   // poll, which would otherwise flash the welcome screen back for a moment.
-  const showWelcome = !pendingQuestion && shouldShowWelcome(
+  const showWelcome = pendingQuestionInteractions.length === 0 && shouldShowWelcome(
     minimal,
     hasSentInWelcome,
     latestInteractionsResponse?.data?.totalCount ?? 0,
@@ -211,7 +223,7 @@ const AgentChat: FC<AgentChatProps> = ({
       onRemoveReviewComment={onRemoveReviewComment}
       onReviewCommentsSent={onReviewCommentsSent}
       hasAttachedHeader={
-        !!pendingQuestion || (showComposerPlan && composerPlanExpanded) || hasSessionQueue
+        (showComposerPlan && composerPlanExpanded) || hasSessionQueue
       }
     />
   )
@@ -259,6 +271,22 @@ const AgentChat: FC<AgentChatProps> = ({
           enableInteractionDebugCopy={enableInteractionDebugCopy}
           minimal={minimal}
           hasBriefingTurn={hasBriefingTurn}
+          trailingContent={
+            actionCards || pendingQuestionInteractions.length > 0 ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {actionCards}
+                {pendingQuestionInteractions.map((interaction) =>
+                  interaction.id && interaction.pending_question ? (
+                    <PendingQuestionCard
+                      key={interaction.id}
+                      interactionId={interaction.id}
+                      pendingQuestion={interaction.pending_question}
+                    />
+                  ) : null,
+                )}
+              </Box>
+            ) : undefined
+          }
         />
       </Box>
 
@@ -297,13 +325,6 @@ const AgentChat: FC<AgentChatProps> = ({
                 entries={sessionQueue.entries}
                 onRemove={sessionQueue.remove}
                 onRestartAgent={sessionQueue.restartAgent}
-              />
-            )}
-            {pendingQuestion && latestInteractionId && (
-              <PendingQuestionCard
-                interactionId={latestInteractionId}
-                pendingQuestion={pendingQuestion}
-                attachedAbove={hasSessionQueue || (showComposerPlan && composerPlanExpanded)}
               />
             )}
             {composer}

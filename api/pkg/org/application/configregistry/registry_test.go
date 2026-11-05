@@ -157,6 +157,28 @@ func TestRegistryRedaction(t *testing.T) {
 	}
 }
 
+func TestRegistryRedactsWholeSecretValue(t *testing.T) {
+	t.Parallel()
+	r := newRegistry(t)
+	r.Register(configregistry.Spec{Key: "svc.api_key", Type: configregistry.TypeString, Secret: true})
+
+	ctx := context.Background()
+	if err := r.Set(ctx, testOrgID, "svc.api_key", `"hl-plaintext"`); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	redacted, err := r.GetRedacted(ctx, testOrgID, "svc.api_key")
+	if err != nil {
+		t.Fatalf("GetRedacted: %v", err)
+	}
+	if redacted != `"..."` {
+		t.Fatalf("GetRedacted = %q, want %q", redacted, `"..."`)
+	}
+	raw, _ := r.GetRaw(ctx, testOrgID, "svc.api_key")
+	if raw != `"hl-plaintext"` {
+		t.Fatalf("GetRaw should not redact: %q", raw)
+	}
+}
+
 func TestRegistryRegisterTwicePanics(t *testing.T) {
 	t.Parallel()
 	r := newRegistry(t)

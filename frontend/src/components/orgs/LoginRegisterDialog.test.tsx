@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ThemeProvider, createTheme } from '@mui/material/styles'
 import LoginRegisterDialog from './LoginRegisterDialog'
 
 const mockV1AuthLoginCreate = vi.fn()
@@ -314,5 +315,78 @@ describe('LoginRegisterDialog', () => {
       const registerButton = screen.getByRole('button', { name: 'Register' })
       expect(registerButton).toBeDisabled()
     })
+  })
+})
+
+// jsdom's getComputedStyle does not resolve emotion's descendant rules
+// (`.css-xxx .MuiOutlinedInput-input`), so read the matching cascade rule
+// directly — it is exactly what the browser applies to the input.
+function resolvedInputColor(input: HTMLInputElement): string {
+  const root = input.closest('.MuiFormControl-root') as HTMLElement
+  const cssClass = [...root.classList].find((c) => c.startsWith('css-'))
+  const colors: string[] = []
+  for (const sheet of document.styleSheets) {
+    let rules: CSSRuleList
+    try {
+      rules = (sheet as CSSStyleSheet).cssRules
+    } catch {
+      continue
+    }
+    for (const rule of Array.from(rules)) {
+      const styleRule = rule as CSSStyleRule
+      if (
+        styleRule.selectorText?.includes(cssClass) &&
+        styleRule.selectorText.includes('.MuiOutlinedInput-input')
+      ) {
+        colors.push(styleRule.style.color)
+      }
+    }
+  }
+  expect(colors.length).toBeGreaterThan(0)
+  return colors[colors.length - 1]
+}
+
+// Regression: the shared input styling was hardcoded to dark-theme colors
+// while the dialog surface follows the app theme, so in light mode typed
+// text (near-white #F1F1F1) was invisible on the near-white dialog — worst
+// on the register form's Confirm Password.
+describe('LoginRegisterDialog — password field theming', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function renderStyledDialog(mode: 'light' | 'dark') {
+    render(
+      <ThemeProvider theme={createTheme({ palette: { mode } })}>
+        <LoginRegisterDialog open onClose={() => {}} />
+      </ThemeProvider>
+    )
+    switchToRegister()
+    return {
+      password: document.querySelector('input[name="password"]') as HTMLInputElement,
+      confirm: document.querySelector('input[name="password-confirm"]') as HTMLInputElement,
+    }
+  }
+
+  it('keeps both password fields masked and readable in light mode', () => {
+    const { password, confirm } = renderStyledDialog('light')
+
+    expect(password.type).toBe('password')
+    expect(confirm.type).toBe('password')
+
+    // Light token (lightText = #000000), not the legacy hardcoded #F1F1F1.
+    expect(resolvedInputColor(password)).toBe('#000000')
+    expect(resolvedInputColor(confirm)).toBe('#000000')
+  })
+
+  it('keeps both password fields masked and readable in dark mode', () => {
+    const { password, confirm } = renderStyledDialog('dark')
+
+    expect(password.type).toBe('password')
+    expect(confirm.type).toBe('password')
+
+    // Dark token (darkText = #e0e0e0).
+    expect(resolvedInputColor(password)).toBe('#e0e0e0')
+    expect(resolvedInputColor(confirm)).toBe('#e0e0e0')
   })
 })

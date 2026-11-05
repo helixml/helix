@@ -71,13 +71,25 @@ log line) instead of erroring for (a) payment intents without topup metadata
 and (b) zero-amount topups without the requested-amount metadata (the session
 event owns those purchases).
 
-## Operational requirement (not fixable in code)
+## Required Stripe event subscriptions
 
 The Stripe webhook endpoint must deliver **both** `checkout.session.completed`
-and `payment_intent.succeeded`. Either one alone credits every realistic
-purchase shape (with the store dedupe preventing overlap); if neither
-arrives, nothing can credit. Check the endpoint's event subscription in the
-Stripe dashboard when investigating missed credits.
+and `payment_intent.succeeded`. A fully discounted Checkout session can have no
+PaymentIntent, so `payment_intent.succeeded` alone cannot credit that purchase.
+The session event is also needed for the normal overlap and dedupe path. If
+neither event arrives, nothing can credit. Check the endpoint's event
+subscription in the Stripe dashboard when investigating missed credits.
+
+Credit checkout creation reconciles the configured Stripe webhook endpoint
+before creating a Checkout Session. `STRIPE_WEBHOOK_ENDPOINT_ID` identifies
+the existing endpoint associated with the configured signing secret. Helix
+requires that endpoint to be enabled, accepts `*`, and otherwise adds the two
+required events while preserving its other subscriptions. A missing,
+unavailable, disabled, or unrepairable endpoint blocks only the credit
+checkout; it does not affect application startup or subscription flows. The
+endpoint URL is left unchanged so local forwarding and webhook relays remain
+supported, but the endpoint must still deliver to the Helix webhook receiver.
+Helix does not create endpoints or rotate secrets automatically.
 
 ## Regression coverage
 

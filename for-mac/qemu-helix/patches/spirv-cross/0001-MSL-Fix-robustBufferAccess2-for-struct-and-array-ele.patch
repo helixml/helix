@@ -1,0 +1,70 @@
+From f96224bd380ab5ca9b34dd70b038febf540465b3 Mon Sep 17 00:00:00 2001
+From: Luke Marsden <luke@mlops.consulting>
+Date: Tue, 6 Oct 2026 10:56:06 +0100
+Subject: [PATCH 1/4] MSL: Fix robustBufferAccess2 for struct and array
+ elements
+
+The out-of-bounds value for a robust load was T(0), which does not
+compile for structs or arrays. Use T{} for aggregates.
+
+get_robust_buffer_array_length() read ArrayStride from type.self, but
+array types share self with their element type, so the decoration was
+never found and the fallback (0 for structs, then 4) undercounted the
+stride. Use get_declared_type_array_stride_msl().
+---
+ spirv_msl.cpp | 25 ++++++-------------------
+ 1 file changed, 6 insertions(+), 19 deletions(-)
+
+diff --git a/spirv_msl.cpp b/spirv_msl.cpp
+index d4252fcf..47f325f5 100644
+--- a/spirv_msl.cpp
++++ b/spirv_msl.cpp
+@@ -10336,9 +10336,9 @@ void CompilerMSL::emit_instruction(const Instruction &instruction)
+ 			if (expr)
+ 			{
+ 				auto &loaded_type = get<SPIRType>(result_type);
+-				// Generate a proper zero expression using type constructor
+-				// to_zero_initialized_expression returns {} which doesn't work in ternary
+-				string zero_expr = join(type_to_glsl(loaded_type), "(0)");
++				// T(0) only constructs scalars and vectors; aggregates need T{}.
++				bool is_aggregate = loaded_type.basetype == SPIRType::Struct || is_array(loaded_type);
++				string zero_expr = join(type_to_glsl(loaded_type), is_aggregate ? "{}" : "(0)");
+ 
+ 				// Wrap the expression with a select: (in_bounds) ? loaded_value : zero
+ 				expr->expression = join("(", info.bounds_check_condition, " ? ", expr->expression, " : ", zero_expr, ")");
+@@ -14834,14 +14834,8 @@ string CompilerMSL::get_robust_buffer_array_length(const SPIRType &type, uint32_
+ 	if (is_runtime_size_array(type))
+ 	{
+ 		string size_expr = to_buffer_size_expression(var_id);
+-		uint32_t stride = get_decoration(type.self, DecorationArrayStride);
+-		if (stride == 0 && type.parent_type)
+-		{
+-			auto &elem_type = get<SPIRType>(type.parent_type);
+-			stride = (elem_type.width / 8) * elem_type.vecsize * elem_type.columns;
+-		}
+-		if (stride == 0)
+-			stride = 4;
++		// Array types share self with their element type, so ArrayStride can't be looked up here.
++		uint32_t stride = get_declared_type_array_stride_msl(type, false, false);
+ 		return join("(", size_expr, " / ", stride, "u)");
+ 	}
+ 	else
+@@ -14852,14 +14846,7 @@ string CompilerMSL::get_robust_buffer_array_length(const SPIRType &type, uint32_
+ 			string size_expr = to_buffer_size_expression(var_id);
+ 			if (!size_expr.empty())
+ 			{
+-				uint32_t stride = get_decoration(type.self, DecorationArrayStride);
+-				if (stride == 0 && type.parent_type)
+-				{
+-					auto &elem_type = get<SPIRType>(type.parent_type);
+-					stride = (elem_type.width / 8) * elem_type.vecsize * elem_type.columns;
+-				}
+-				if (stride == 0)
+-					stride = 4;
++				uint32_t stride = get_declared_type_array_stride_msl(type, false, false);
+ 				return join("(", size_expr, " / ", stride, "u)");
+ 			}
+ 		}
+-- 
+2.50.1 (Apple Git-155)
+

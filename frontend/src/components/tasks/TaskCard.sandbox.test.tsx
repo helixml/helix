@@ -35,6 +35,7 @@ vi.mock("./UsagePulseChart", () => ({ default: () => null }));
 vi.mock("./CIStatusIcon", () => ({ default: () => null }));
 vi.mock("./SpecTaskActionButtons", () => ({ default: () => null }));
 vi.mock("./AssigneeSelector", () => ({ default: () => null }));
+vi.mock("./MarkDoneDialog", () => ({ default: () => null }));
 
 function baseTask(overrides: Partial<SpecTaskWithExtras> = {}): SpecTaskWithExtras {
   return {

@@ -128,3 +128,24 @@ func TestWaitForGoldenBuildResult_ResultWrittenJustBeforeExit(t *testing.T) {
 		t.Fatalf("got (%q, %v), want (\"0\\n\", nil)", data, err)
 	}
 }
+
+func TestWaitForGoldenBuildResult_IgnoresEmptyFileDuringPublication(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".golden-build-result")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var publishErr error
+	exited := func() (bool, string) {
+		publishErr = os.WriteFile(path, []byte("0\n"), 0o644)
+		return false, ""
+	}
+
+	data, err := waitForGoldenBuildResult(time.Second, time.Millisecond, exited, path)
+	if publishErr != nil {
+		t.Fatal(publishErr)
+	}
+	if err != nil || string(data) != "0\n" {
+		t.Fatalf("got (%q, %v), want (\"0\\n\", nil)", data, err)
+	}
+}

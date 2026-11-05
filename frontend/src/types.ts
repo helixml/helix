@@ -319,9 +319,11 @@ export interface IEntryPatch {
   index: number,
   message_id: string,
   type: string,
-  patch: string,
-  patch_offset: number,
-  total_length: number,
+  // Optional because older API builds serialized these with omitempty, so a
+  // zero value arrives as undefined. applyPatch normalizes them.
+  patch?: string,
+  patch_offset?: number,
+  total_length?: number,
   tool_name?: string,
   tool_status?: string,
   tool_call_id?: string,

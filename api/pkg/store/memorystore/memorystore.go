@@ -63,6 +63,10 @@ func New() *MemoryStore {
 	}
 }
 
+func (m *MemoryStore) GetSystemSettings(_ context.Context) (*types.SystemSettings, error) {
+	return &types.SystemSettings{}, nil
+}
+
 // --- Test validation helpers (not part of store.Store interface) ---
 
 // GetAllSessions returns all sessions for test validation.
@@ -242,6 +246,22 @@ func (m *MemoryStore) GetInteraction(_ context.Context, id string) (*types.Inter
 		return nil, store.ErrNotFound
 	}
 	cp := *i
+	return &cp, nil
+}
+
+func (m *MemoryStore) GetLatestInteractionByPromptID(_ context.Context, promptID string) (*types.Interaction, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var latest *types.Interaction
+	for _, interaction := range m.interactions {
+		if interaction.PromptID == promptID && (latest == nil || interaction.Created.After(latest.Created) || (interaction.Created.Equal(latest.Created) && interaction.ID > latest.ID)) {
+			latest = interaction
+		}
+	}
+	if latest == nil {
+		return nil, nil
+	}
+	cp := *latest
 	return &cp, nil
 }
 
@@ -532,6 +552,27 @@ func (m *MemoryStore) MarkInteractionErrorIfWaiting(_ context.Context, interacti
 	return true, nil
 }
 
+func (m *MemoryStore) MarkStaleInteractionErrorIfWaiting(_ context.Context, interactionID string, generationID int, observedUpdated time.Time, reason string) (bool, error) {
+	m.mu.Lock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID || existing.State != types.InteractionStateWaiting || !existing.Updated.Equal(observedUpdated) {
+		m.mu.Unlock()
+		return false, nil
+	}
+	existing.State = types.InteractionStateError
+	existing.Error = reason
+	existing.Completed = time.Now()
+	existing.Updated = time.Now()
+	cp := *existing
+	cb := m.OnInteractionUpdated
+	m.mu.Unlock()
+
+	if cb != nil {
+		cb(&cp)
+	}
+	return true, nil
+}
+
 func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -544,17 +585,29 @@ func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInter
 		if query.GenerationID >= 0 && i.GenerationID != query.GenerationID {
 			continue
 		}
+		if query.HasPendingQuestion &&
+			(i.State != types.InteractionStateWaiting || i.PendingQuestion == nil) {
+			continue
+		}
+		if !query.HasPendingQuestion && query.State != "" && i.State != query.State {
+			continue
+		}
 		cp := *i
 		result = append(result, &cp)
 	}
-	// Honor the requested order. The prompt-queue busy-check relies on
-	// Order="id DESC" + PerPage=1 returning the NEWEST interaction (ULID IDs sort
-	// chronologically); the default is ascending (creation order).
-	if strings.Contains(strings.ToLower(query.Order), "desc") {
-		sort.Slice(result, func(a, b int) bool { return result[a].ID > result[b].ID })
-	} else {
-		sort.Slice(result, func(a, b int) bool { return result[a].ID < result[b].ID })
-	}
+	desc := strings.Contains(strings.ToLower(query.Order), "desc")
+	sort.Slice(result, func(a, b int) bool {
+		if result[a].Created.Equal(result[b].Created) {
+			if desc {
+				return result[a].ID > result[b].ID
+			}
+			return result[a].ID < result[b].ID
+		}
+		if desc {
+			return result[a].Created.After(result[b].Created)
+		}
+		return result[a].Created.Before(result[b].Created)
+	})
 	// Apply PerPage limit
 	if query.PerPage > 0 && len(result) > query.PerPage {
 		result = result[:query.PerPage]
@@ -625,6 +678,28 @@ func (m *MemoryStore) CreatePromptHistoryEntry(_ context.Context, entry *types.P
 	cp := *entry
 	m.prompts[entry.ID] = &cp
 	return nil
+}
+
+func (m *MemoryStore) CreatePromptHistoryEntryIfAbsent(_ context.Context, entry *types.PromptHistoryEntry) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.prompts[entry.ID]; ok {
+		return false, nil
+	}
+	cp := *entry
+	m.prompts[entry.ID] = &cp
+	return true, nil
+}
+
+func (m *MemoryStore) GetPromptHistoryEntry(_ context.Context, id string) (*types.PromptHistoryEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	entry := m.prompts[id]
+	if entry == nil {
+		return nil, nil
+	}
+	cp := *entry
+	return &cp, nil
 }
 
 func (m *MemoryStore) ListPromptHistoryBySession(_ context.Context, sessionID string) ([]*types.PromptHistoryEntry, error) {

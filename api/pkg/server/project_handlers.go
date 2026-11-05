@@ -227,6 +227,10 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	project.ImplementationLimit, err = services.ProjectImplementationWIPLimit(r.Context(), s.Store, project)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("resolve implementation WIP limit: %s", err))
+	}
 
 	cacheStatus, err := s.dockerCacheStatus(r.Context(), project.ID)
 	if err != nil {
@@ -732,6 +736,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.AutoStartBacklogTasks != nil {
 		project.AutoStartBacklogTasks = *req.AutoStartBacklogTasks
 	}
+	if req.AutoApprovePullRequests != nil {
+		project.AutoApprovePullRequests = *req.AutoApprovePullRequests
+	}
 	if req.AutoArchiveCompletedTasks != nil {
 		project.AutoArchiveCompletedTasks = *req.AutoArchiveCompletedTasks
 	}
@@ -913,6 +920,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		if req.AutoStartBacklogTasks != nil {
 			changedFields = append(changedFields, "auto_start_backlog_tasks")
 		}
+		if req.AutoApprovePullRequests != nil {
+			changedFields = append(changedFields, "auto_approve_pull_requests")
+		}
 		if req.AutoArchiveCompletedTasks != nil {
 			changedFields = append(changedFields, "auto_archive_completed_tasks")
 		}
@@ -1000,30 +1010,49 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 			Msg("Stopping exploratory session before project deletion")
 
 		stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), exploratorySession.ID)
-		if stopErr != nil {
+		if stopErr != nil && !sandboxHostGone(stopErr, exploratorySession.ID) {
 			return nil, system.NewHTTPError500(fmt.Sprintf("stop exploratory session before project deletion: %s", stopErr))
 		}
 	}
 
-	// 2. Stop all SpecTask planning sessions for this project
+	// 2. Stop all SpecTask planning sessions for this project, then delete the
+	// tasks themselves — including archived ones. Tasks that outlive their
+	// project stay in whatever status they had forever: the orchestrator
+	// re-drives the active ones every tick and nothing else reconciles them
+	// (102 such orphans had accumulated in prod by 2026-10). A failure to list
+	// or delete a task aborts the project deletion so no orphan can be created;
+	// the caller can simply retry.
 	tasks, err := s.Store.ListSpecTasks(r.Context(), &types.SpecTaskFilters{
-		ProjectID: projectID,
+		ProjectID:       projectID,
+		IncludeArchived: true,
 	})
-	if err == nil {
-		for _, task := range tasks {
-			if task.PlanningSessionID != "" {
-				log.Info().
-					Str("project_id", projectID).
-					Str("task_id", task.ID).
-					Str("session_id", task.PlanningSessionID).
-					Msg("Stopping SpecTask session before project deletion")
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("list project tasks before deletion: %s", err))
+	}
+	for _, task := range tasks {
+		if task.PlanningSessionID != "" {
+			log.Info().
+				Str("project_id", projectID).
+				Str("task_id", task.ID).
+				Str("session_id", task.PlanningSessionID).
+				Msg("Stopping SpecTask session before project deletion")
 
-				stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
-				if stopErr != nil {
-					return nil, system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
-				}
+			stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
+			if stopErr != nil && !sandboxHostGone(stopErr, task.PlanningSessionID) {
+				return nil, system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
+			}
+			if _, delErr := s.Store.DeleteSession(r.Context(), task.PlanningSessionID); delErr != nil && !errors.Is(delErr, store.ErrNotFound) {
+				return nil, system.NewHTTPError500(fmt.Sprintf("delete session %s before project deletion: %s", task.PlanningSessionID, delErr))
 			}
 		}
+
+		if delErr := s.deleteSpecTaskCascade(r.Context(), task.ID); delErr != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("delete task %s before project deletion: %s", task.ID, delErr))
+		}
+		log.Info().
+			Str("project_id", projectID).
+			Str("task_id", task.ID).
+			Msg("Deleted SpecTask before project deletion")
 	}
 
 	// Static artifacts inherit project ownership, so project deletion must
@@ -1626,6 +1655,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 			zedAgent := &types.DesktopAgent{
 				OrganizationID:      project.OrganizationID,
 				SessionID:           existingSession.ID,
+				SandboxID:           existingSession.SandboxID,
 				UserID:              user.ID,
 				Input:               fmt.Sprintf("Explore the %s project", project.Name),
 				ProjectPath:         "workspace",

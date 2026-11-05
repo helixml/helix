@@ -21,11 +21,9 @@ import { getChatColors } from "./chatStyles";
 export default function PendingQuestionCard({
   interactionId,
   pendingQuestion,
-  attachedAbove = false,
 }: {
   interactionId: string;
   pendingQuestion: TypesPendingQuestion;
-  attachedAbove?: boolean;
 }) {
   const theme = useTheme();
   const colors = getChatColors(theme);
@@ -172,10 +170,10 @@ export default function PendingQuestionCard({
         position: "relative",
         zIndex: 0,
         overflow: "hidden",
+        flexShrink: 0,
         border: "1px solid",
-        borderBottom: 0,
         borderColor: colors.border,
-        borderRadius: attachedAbove ? 0 : "20px 20px 0 0",
+        borderRadius: "16px",
         backgroundColor: colors.composerSurface,
         color: colors.foreground,
       }}

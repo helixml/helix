@@ -33,10 +33,13 @@ func (s *HelixAPIServer) populateQueueReasons(ctx context.Context, projectID str
 
 	// Fast path: only do the extra loads if something is actually queued.
 	hasQueued := false
+	hasQueuedImplementation := false
 	for _, t := range tasks {
 		if t.Status == types.TaskStatusQueuedSpecGeneration || t.Status == types.TaskStatusQueuedImplementation {
 			hasQueued = true
-			break
+			if t.Status == types.TaskStatusQueuedImplementation {
+				hasQueuedImplementation = true
+			}
 		}
 	}
 	if !hasQueued {
@@ -60,6 +63,14 @@ func (s *HelixAPIServer) populateQueueReasons(ctx context.Context, projectID str
 	for _, t := range projectTasks {
 		depsByID[t.ID] = t.DependsOn
 	}
+	implementationDefault := types.DefaultFreeImplementationTasks
+	if hasQueuedImplementation {
+		implementationDefault, err = services.ProjectImplementationWIPLimit(ctx, s.Store, project)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", projectID).Msg("failed to resolve implementation WIP limit")
+			return
+		}
+	}
 
 	for _, t := range tasks {
 		switch t.Status {
@@ -70,7 +81,7 @@ func (s *HelixAPIServer) populateQueueReasons(ctx context.Context, projectID str
 		case types.TaskStatusQueuedImplementation:
 			probe := *t
 			probe.DependsOn = depsByID[t.ID]
-			t.QueueReason = services.ImplementationQueueReason(project, projectTasks, &probe)
+			t.QueueReason = services.ImplementationQueueReason(project, projectTasks, &probe, implementationDefault)
 		}
 	}
 }
@@ -184,12 +195,24 @@ func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.Response
 		http.Error(w, "prompt is required", http.StatusBadRequest)
 		return
 	}
+	if err := types.ValidateSpecTaskTypeAndPriority(req.Type, req.Priority); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if req.AppID != "" || req.CodeAgentOverrides != nil {
 		http.Error(w, "app_id and code_agent_overrides are no longer supported; provide code_agent_config", http.StatusBadRequest)
 		return
 	}
+	if err := req.ValidateBranchFields(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
-		http.Error(w, "sandbox size must be 1 CPU/2 GB, 4 CPU/8 GB, or 8 CPU/16 GB", http.StatusBadRequest)
+		http.Error(w, "sandbox size must be one of "+types.SpecTaskSandboxPresetList(), http.StatusBadRequest)
+		return
+	}
+	if err := req.SandboxDisplay.Validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if !types.ValidSpecTaskSandboxRuntime(req.SandboxRuntime) {
@@ -1150,6 +1173,7 @@ func parseIntQuery(value string, defaultValue int) int {
 // @Param taskId path string true "SpecTask ID"
 // @Param keyboard query string false "XKB keyboard layout code (e.g., 'us', 'fr', 'de') - for testing browser locale detection"
 // @Param timezone query string false "IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection"
+// @Param languages query string false "Comma-separated browser languages (e.g., 'en-GB,en') - sets the desktop browser's Accept-Language"
 // @Success 200 {object} types.SpecTask
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
@@ -1179,6 +1203,7 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	opts := types.StartPlanningOptions{
 		KeyboardLayout: r.URL.Query().Get("keyboard"),
 		Timezone:       r.URL.Query().Get("timezone"),
+		Languages:      types.SanitizeBrowserLanguages(r.URL.Query().Get("languages")),
 	}
 
 	// Get the task
@@ -1270,10 +1295,18 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		if errorMessage, ok := task.Metadata["error"].(string); ok && strings.TrimSpace(errorMessage) != "" {
 			stalePlanningSessionID = task.PlanningSessionID
 			if err := s.stopSessionAgent(ctx, stalePlanningSessionID, "retrying failed spec task"); err != nil {
-				log.Warn().Err(err).Str("task_id", task.ID).Str("session_id", stalePlanningSessionID).
-					Msg("Failed to stop agent session before retrying task")
-				http.Error(w, "failed to stop agent session", http.StatusInternalServerError)
-				return
+				if !sandboxHostGone(err, stalePlanningSessionID) {
+					log.Warn().Err(err).Str("task_id", task.ID).Str("session_id", stalePlanningSessionID).
+						Msg("Failed to stop agent session before retrying task")
+					http.Error(w, "failed to stop agent session", http.StatusInternalServerError)
+					return
+				}
+				if _, err := s.Store.ReapWaitingInteractions(ctx, stalePlanningSessionID, types.InteractionStateInterrupted, "retrying failed spec task"); err != nil {
+					log.Warn().Err(err).Str("task_id", task.ID).Str("session_id", stalePlanningSessionID).
+						Msg("Failed to interrupt agent session before retrying task")
+					http.Error(w, "failed to interrupt agent session", http.StatusInternalServerError)
+					return
+				}
 			}
 			task.PlanningSessionID = ""
 			task.ExternalAgentID = ""
@@ -1334,6 +1367,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	if err := types.ValidateSpecTaskTypeAndPriority("", updateReq.Priority); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Get existing task
 	task, err := s.Store.GetSpecTask(ctx, taskID)
@@ -1373,6 +1410,14 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		// Update StatusUpdatedAt so task appears at top of new column in Kanban
 		now := time.Now()
 		task.StatusUpdatedAt = &now
+		// Moving the task by hand answers any pending completion request.
+		if updateReq.Status != previousStatus && task.CompletionRequestedAt != nil {
+			if err := s.Store.DismissAttentionEventByKey(ctx, services.CompletionRequestAttentionKey(task)); err != nil {
+				log.Warn().Err(err).Str("task_id", task.ID).Msg("Failed to dismiss completion request")
+			}
+			task.CompletionRequestedAt = nil
+			task.CompletionRequestSummary = ""
+		}
 		if previousStatus == types.TaskStatusDone && updateReq.Status != types.TaskStatusDone {
 			task.CompletedAt = nil
 			task.MergedToMain = false
@@ -1439,6 +1484,14 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	previousKeepAlive := task.KeepAlive
 	if updateReq.KeepAlive != nil {
 		task.KeepAlive = *updateReq.KeepAlive
+	}
+	if updateReq.AutoApprovePullRequests != nil {
+		// Proposals are auto-approved with the provider credentials of
+		// whoever turned this on.
+		task.AutoApprovePullRequests = *updateReq.AutoApprovePullRequests
+		if task.AutoApprovePullRequests {
+			task.AutoApprovePullRequestsBy = user.ID
+		}
 	}
 	// Update assignee (pointer allows clearing with empty string to unassign)
 	if updateReq.AgentTools != nil {
@@ -1576,19 +1629,7 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Clean up attachment rows and the filestore prefix before deleting the task row
-	// itself. Best-effort: log and continue if either step fails so the task delete
-	// isn't blocked by orphaned blobs.
-	if err := s.Store.DeleteSpecTaskAttachmentsByTaskID(ctx, taskID); err != nil {
-		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment rows for task")
-	}
-	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(ctx, taskID); err != nil {
-		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment blobs for task")
-	}
-
-	// Delete the task
-	err = s.Store.DeleteSpecTask(ctx, taskID)
-	if err != nil {
+	if err := s.deleteSpecTaskCascade(ctx, taskID); err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to delete SpecTask")
 		http.Error(w, fmt.Sprintf("failed to delete SpecTask: %v", err), http.StatusInternalServerError)
 		return
@@ -1597,9 +1638,25 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// deleteSpecTaskCascade removes a spec task's attachment rows and filestore
+// blobs, then the task row (and its child rows) itself. Attachment cleanup is
+// best-effort — an orphaned blob must never block a delete — while the task
+// delete is authoritative and its error is returned. Shared by the task delete
+// endpoint and project deletion, so a project's tasks can never outlive the
+// project and churn through the orchestrator forever.
+func (s *HelixAPIServer) deleteSpecTaskCascade(ctx context.Context, taskID string) error {
+	if err := s.Store.DeleteSpecTaskAttachmentsByTaskID(ctx, taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment rows for task")
+	}
+	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(ctx, taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment blobs for task")
+	}
+	return s.Store.DeleteSpecTask(ctx, taskID)
+}
+
 // archiveSpecTask godoc
 // @Summary Archive or unarchive a spec task
-// @Description Archive a spec task to hide it from the main view, or unarchive to restore it
+// @Description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.
 // @Tags spec-driven-tasks
 // @Accept json
 // @Produce json
@@ -1654,14 +1711,43 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// When archiving, stop any running external agents in the background.
+	// When archiving, by default stop any external agent still holding a
+	// desktop for the task, so releasing a finished lane frees the sandbox.
+	// That is the documented behaviour callers rely on (issue #3427); the
+	// caller can now opt out with stop_agent=false.
+	//
 	// Stopping a desktop is slow (screenshot capture, container teardown,
 	// billing settle, key revocation) and must not block the archive response.
-	if req.Archived {
+	//
+	// A live agent is a different matter: the default is deliberately safe and
+	// refuses to kill an agent mid-turn, because a caller clearing finished
+	// lanes while other work runs must not destroy an in-flight turn. Opting
+	// in to stopping a live agent is explicit and logged.
+	if req.Archived && req.StopAgentEnabled() {
 		planningSessionID := task.PlanningSessionID
 		stopCtx, stopCancel := detachContext(r.Context(), 5*time.Minute)
 		go func() {
 			defer stopCancel()
+
+			// A live agent is only stopped when the caller asked for it. The
+			// task status alone is not enough: a task can sit in an active
+			// status while its agent is idle, and conversely an agent may
+			// still be finishing after the status went terminal.
+			if s.specTaskAgentIsLive(stopCtx, taskID, planningSessionID) {
+				if !req.StopAgentExplicit {
+					log.Info().
+						Str("task_id", taskID).
+						Str("session_id", planningSessionID).
+						Str("status", string(task.Status)).
+						Msg("Skipping agent stop when archiving: agent is still live (pass stop_agent=true to stop it anyway)")
+					return
+				}
+				log.Info().
+					Str("task_id", taskID).
+					Str("session_id", planningSessionID).
+					Str("status", string(task.Status)).
+					Msg("Stopping live agent on archive: stop_agent was requested explicitly")
+			}
 
 			// Stop the external agent if it's running
 			if planningSessionID != "" {
@@ -1921,10 +2007,17 @@ func (s *HelixAPIServer) getBoardSettings(w http.ResponseWriter, r *http.Request
 		// Return default settings if not found
 		boardSettings = types.BoardSettings{
 			WIPLimits: types.WIPLimits{
-				Planning:       3,
-				Review:         2,
-				Implementation: 5,
+				Planning: 3,
+				Review:   2,
 			},
+		}
+	}
+	if boardSettings.WIPLimits.Implementation <= 0 {
+		boardSettings.WIPLimits.Implementation, err = services.ProjectImplementationWIPLimit(ctx, s.Store, project)
+		if err != nil {
+			log.Error().Err(err).Str("project_id", project.ID).Msg("failed to resolve implementation WIP limit")
+			http.Error(w, "failed to resolve board settings", http.StatusInternalServerError)
+			return
 		}
 	}
 
@@ -2013,4 +2106,58 @@ func deriveAgentWorkState(task *types.SpecTask, latest *types.Interaction) types
 		return types.AgentWorkStateWorking
 	}
 	return types.AgentWorkStateIdle
+}
+
+// specTaskAgentIsLive reports whether the task still has an agent that would
+// lose in-flight work if its desktop were stopped right now.
+//
+// Archiving a spec task is bookkeeping (issue #3427): it must not kill an agent
+// that is still working. Callers use this to decide whether stopping is safe.
+// It is deliberately pessimistic — any of the following counts as live, because
+// the cost of wrongly stopping is a lost agent turn while the cost of wrongly
+// skipping is a desktop that the caller can stop explicitly:
+//
+//   - the external-agent row says "running" or "starting", or
+//   - the session reports the agent as "running" / "starting" / "restarting", or
+//   - the latest interaction is still waiting (the agent is mid-turn).
+func (s *HelixAPIServer) specTaskAgentIsLive(ctx context.Context, taskID, planningSessionID string) bool {
+	// The external-agent probe is best-effort: "no agent row" is an ordinary
+	// store error here and means nothing is running, so only the session and
+	// interaction probes below can claim the agent is live.
+	agent, err := s.Store.GetSpecTaskExternalAgent(ctx, taskID)
+	if err == nil && agent != nil {
+		switch agent.Status {
+		case "running", "starting":
+			return true
+		}
+	}
+
+	if planningSessionID == "" {
+		return false
+	}
+
+	session, err := s.Store.GetSession(ctx, planningSessionID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Str("session_id", planningSessionID).
+			Msg("Session liveness probe failed; treating the agent as live so archiving does not stop it")
+		return true
+	}
+	if session != nil {
+		switch session.Metadata.ExternalAgentStatus {
+		case "running", "starting", "restarting":
+			return true
+		}
+	}
+
+	latestBySession, err := s.Store.GetLatestInteractionsForSessions(ctx, []string{planningSessionID})
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Str("session_id", planningSessionID).
+			Msg("Interaction liveness probe failed; treating the agent as live so archiving does not stop it")
+		return true
+	}
+	if latest := latestBySession[planningSessionID]; latest != nil && latest.State == types.InteractionStateWaiting {
+		return true
+	}
+
+	return false
 }

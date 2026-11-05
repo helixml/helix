@@ -28,6 +28,32 @@ const (
 
 var ErrImplementationHandoffAlreadyClaimed = errors.New("implementation handoff is already being started")
 
+// Approval-handoff errors that no amount of orchestrator retries can fix:
+// the task owner must correct the task/project configuration and recreate the
+// task (implementation_failed is terminal — nothing reopens it). The
+// orchestrator fails tasks that hit these instead of re-driving them every 10s
+// tick (see handleSpecApproved and handleImplementationQueued) — a dangling
+// default repository kept one task retrying invisibly for 7 months (2026-03 →
+// 2026-10) because the wrapped store.ErrNotFound made isDeletedProjectError
+// classify it as a deleted-project skip.
+var (
+	ErrApprovalNoCodeAgentConfig   = errors.New("task has no implementation code-agent configuration")
+	ErrApprovalNoDefaultRepo       = errors.New("default repository not set for project")
+	ErrApprovalDefaultRepoNotFound = errors.New("default repository not found")
+	ErrApprovalNoDefaultBranch     = errors.New("default branch not set for repository, please set it")
+	ErrApprovalNoPlanningSession   = errors.New("task has no planning session for implementation handoff")
+)
+
+// IsPermanentApprovalConfigError reports whether an ApproveSpecs error is one
+// of the permanent misconfigurations above, so callers can stop retrying.
+func IsPermanentApprovalConfigError(err error) bool {
+	return errors.Is(err, ErrApprovalNoCodeAgentConfig) ||
+		errors.Is(err, ErrApprovalNoDefaultRepo) ||
+		errors.Is(err, ErrApprovalDefaultRepoNotFound) ||
+		errors.Is(err, ErrApprovalNoDefaultBranch) ||
+		errors.Is(err, ErrApprovalNoPlanningSession)
+}
+
 // RequestMappingRegistrar is a function type for registering request-to-session mappings
 type RequestMappingRegistrar func(requestID, sessionID string)
 
@@ -171,6 +197,9 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
 		return nil, fmt.Errorf("invalid sandbox resource preset")
 	}
+	if err := req.SandboxDisplay.Validate(); err != nil {
+		return nil, err
+	}
 	if !types.ValidSpecTaskSandboxRuntime(req.SandboxRuntime) {
 		return nil, fmt.Errorf("invalid spec task sandbox runtime %q", req.SandboxRuntime)
 	}
@@ -224,6 +253,9 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	}
 	if branchMode == types.BranchModeExisting && strings.TrimSpace(req.WorkingBranch) == "" {
 		return nil, fmt.Errorf("working branch is required for existing branch mode")
+	}
+	if err := req.ValidateBranchFields(); err != nil {
+		return nil, err
 	}
 
 	// An explicit name wins; otherwise derive one from the prompt.
@@ -290,6 +322,7 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 		PlanningCodeAgentConfig:  planningCodeAgentConfig,
 		SandboxResourceOverrides: sandboxResources,
 		SandboxRuntime:           sandboxRuntime,
+		SandboxDisplay:           req.SandboxDisplay,
 		JustDoItMode:             req.JustDoItMode, // Set Just Do It mode from request
 		// Credential-only override: whose Claude subscription authenticates this
 		// task's agent. Enforced at resolution time against the named user's
@@ -310,6 +343,7 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
+	task.InitAutoApprovePullRequests(req.AutoApprovePullRequests, project, req.UserID)
 	if req.DependsOn != nil {
 		task.DependsOn = make([]types.SpecTask, 0, len(req.DependsOn))
 		for _, dependsOnID := range req.DependsOn {
@@ -695,13 +729,6 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	launchTask := task
 	launchSession := session
 
-	// Display settings are sandbox concerns. Legacy App display preferences are
-	// intentionally not part of the task execution-config migration.
-	displayWidth := 1920
-	displayHeight := 1080
-	displayRefreshRate := 60
-	resolution := ""
-	zoomLevel := 0
 	desktopType := ""
 
 	// Ensure desktopType has a sensible default (ubuntu) when not set by app config
@@ -742,11 +769,6 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		VCPUs:          sandboxVCPUs(task),
 		MemoryMB:       sandboxMemoryMB(task),
 		// RepositoryIDs / PrimaryRepositoryID set by SetRepoContext below.
-		DisplayWidth:       displayWidth,
-		DisplayHeight:      displayHeight,
-		DisplayRefreshRate: displayRefreshRate,
-		Resolution:         resolution,
-		ZoomLevel:          zoomLevel,
 		DesktopType:        desktopType,
 		Env:                envVars,
 		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
@@ -766,6 +788,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		BaseBranch:    task.BaseBranch,
 		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
+	zedAgent.ApplySandboxDisplay(task.SandboxDisplay)
 	zedAgent.SetRepoContext(projectRepos, project.DefaultRepoID)
 	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Created ZedAgent struct")
 
@@ -1043,6 +1066,17 @@ Follow these guidelines when making changes:
 - Verify: `+"`git branch --show-current`"+` should show %s
 - Make your changes
 - Push: `+"`git push origin %s`", branchName, branchName)
+	hasPullRequests := false
+	for _, repo := range projectRepos {
+		if repo.ExternalURL != "" {
+			hasPullRequests = true
+			break
+		}
+	}
+	if hasPullRequests {
+		gitInstructions += "\n\n" + PullRequestProposalGuidance(branchName)
+	}
+	gitInstructions += "\n\n" + MarkTaskCompleteGuidance(hasPullRequests)
 
 	// Build repository section listing local + Kodit repos for the agent
 	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
@@ -1120,13 +1154,6 @@ Follow these guidelines when making changes:
 		return
 	}
 
-	// Use task/session sandbox defaults; execution config no longer references
-	// an App-owned display profile.
-	displayWidthJDI := 1920
-	displayHeightJDI := 1080
-	displayRefreshRateJDI := 60
-	resolutionJDI := ""
-	zoomLevelJDI := 0
 	desktopTypeJDI := ""
 
 	// Build env vars (base + locale; project secrets injected by HydraExecutor.StartDesktop)
@@ -1157,11 +1184,6 @@ Follow these guidelines when making changes:
 		MemoryMB:            sandboxMemoryMB(task),
 		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
 		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
-		DisplayWidth:        displayWidthJDI,
-		DisplayHeight:       displayHeightJDI,
-		DisplayRefreshRate:  displayRefreshRateJDI,
-		Resolution:          resolutionJDI,
-		ZoomLevel:           zoomLevelJDI,
 		DesktopType:         desktopTypeJDI,
 		Env:                 envVarsJDI,
 		// Branch configuration - startup script will checkout correct branch
@@ -1169,6 +1191,7 @@ Follow these guidelines when making changes:
 		BaseBranch:    task.BaseBranch,
 		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
+	zedAgent.ApplySandboxDisplay(task.SandboxDisplay)
 
 	// Start the Zed agent via Wolf executor
 	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
@@ -1231,6 +1254,14 @@ func buildEnvWithLocale(userAPIKey string, opts types.StartPlanningOptions) []st
 	if opts.Timezone != "" {
 		env = append(env, fmt.Sprintf("TZ=%s", opts.Timezone))
 		log.Debug().Str("timezone", opts.Timezone).Msg("Adding timezone to container env")
+	}
+
+	// Add browser languages so the desktop browser sends the user's Accept-Language
+	// instead of whatever websites infer from the runner's IP address.
+	// Sanitized again here because PlanningOptions is persisted on the task.
+	if languages := types.SanitizeBrowserLanguages(opts.Languages); languages != "" {
+		env = append(env, fmt.Sprintf("HELIX_BROWSER_LANGUAGES=%s", languages))
+		log.Debug().Str("languages", languages).Msg("Adding browser languages to container env")
 	}
 
 	return env
@@ -1342,20 +1373,32 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		}
 
 		if task.CodeAgentConfig == nil {
-			return fmt.Errorf("task has no implementation code-agent configuration")
+			return ErrApprovalNoCodeAgentConfig
 		}
 
 		if project.DefaultRepoID == "" {
-			return fmt.Errorf("default repository not set for project")
+			return ErrApprovalNoDefaultRepo
 		}
 
 		repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
 		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("%w: %s", ErrApprovalDefaultRepoNotFound, project.DefaultRepoID)
+			}
 			return fmt.Errorf("failed to get default repository: %w", err)
 		}
 
 		if repo.DefaultBranch == "" {
-			return fmt.Errorf("default branch not set for repository, please set it")
+			return ErrApprovalNoDefaultBranch
+		}
+
+		// Validate the planning session with the other permanent conditions,
+		// BEFORE the claim below moves the task to implementation_queued: the
+		// branch checkout and the agent instruction after the claim both need
+		// it, so a task that claims with no planning session can never be
+		// driven to completion and would be retried forever instead.
+		if task.PlanningSessionID == "" && !s.testMode {
+			return ErrApprovalNoPlanningSession
 		}
 
 		effectiveBaseBranch := TaskTargetBranch(repo, task, project.DefaultRepoID)
@@ -1519,8 +1562,6 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				Str("branch_name", branchName).
 				Str("base_branch", effectiveBaseBranch).
 				Msg("Specs approved - started implementation on a fresh agent thread")
-		} else if sessionID == "" && !s.testMode {
-			return fmt.Errorf("task has no planning session for implementation handoff")
 		}
 
 		// Only now is it safe to commit the durable implementation status: the
@@ -2212,19 +2253,6 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	// session lock) to prevent a race where StopDesktop revokes the key between
 	// creation and container start.
 
-	// Use display settings from session metadata or defaults
-	displayWidth := session.Metadata.AgentVideoWidth
-	displayHeight := session.Metadata.AgentVideoHeight
-	displayRefreshRate := session.Metadata.AgentVideoRefreshRate
-	if displayWidth == 0 {
-		displayWidth = 2560
-	}
-	if displayHeight == 0 {
-		displayHeight = 1600
-	}
-	if displayRefreshRate == 0 {
-		displayRefreshRate = 60
-	}
 
 	desktopType := "ubuntu" // Default
 
@@ -2232,6 +2260,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	zedAgent := &types.DesktopAgent{
 		OrganizationID:      task.OrganizationID,
 		SessionID:           session.ID,
+		SandboxID:           session.SandboxID,
 		UserID:              task.UserID,
 		Input:               "Resuming Zed development environment after container restart",
 		ProjectPath:         "workspace",
@@ -2240,11 +2269,6 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		MemoryMB:            sandboxMemoryMB(task),
 		PrimaryRepositoryID: primaryRepoID,
 		RepositoryIDs:       repositoryIDs,
-		DisplayWidth:        displayWidth,
-		DisplayHeight:       displayHeight,
-		DisplayRefreshRate:  displayRefreshRate,
-		Resolution:          fmt.Sprintf("%dx%d", displayWidth, displayHeight),
-		ZoomLevel:           1.0,
 		DesktopType:         desktopType,
 		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
 			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
@@ -2262,6 +2286,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		BaseBranch:    task.BaseBranch,
 		WorkingBranch: task.BranchName,
 	}
+	zedAgent.ApplySandboxDisplay(task.SandboxDisplay)
 
 	// Start the desktop container
 	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)

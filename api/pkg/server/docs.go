@@ -800,6 +800,45 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/service-accounts": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a non-human user that owns a new organization, so an orchestrator serving many customers can give each one its own org, projects and credentials instead of running them all as one account. Works on OIDC deployments (the account has no IdP identity; it acts only through API keys minted with POST /admin/users/{id}/api-keys). Idempotent per organization_name.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Create a service account and its organization (Admin only)",
+                "parameters": [
+                    {
+                        "description": "Service account",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.AdminCreateServiceAccountRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AdminServiceAccount"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}": {
             "delete": {
                 "security": [
@@ -2669,7 +2708,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get API keys",
+                "description": "Get the caller's own API keys. With no filter, returns (creating it if needed) the caller's personal key. A caller authenticated with a scoped (org, project, session or app) API key cannot use the unfiltered form, and sees only the prefix of keys broader than the one it presents.",
                 "tags": [
                     "api-keys"
                 ],
@@ -8911,7 +8950,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List API keys for an organization. Owners see all keys, members see only their own.",
+                "description": "List API keys for an organization. Owners see all keys, members see only their own. Key secrets are never returned; each key has a non-secret id and key_prefix.",
                 "tags": [
                     "organizations"
                 ],
@@ -8931,7 +8970,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/types.ApiKey"
+                                "$ref": "#/definitions/server.orgAPIKeyResponse"
                             }
                         }
                     }
@@ -8998,7 +9037,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "API key to delete",
+                        "description": "ID of the API key to delete (the id field from the list)",
                         "name": "key",
                         "in": "path",
                         "required": true
@@ -9485,6 +9524,12 @@ const docTemplate = `{
                         "name": "email",
                         "in": "query",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only report a pending invitation for this app/project (project access dialogs). Omit to report any pending invitation in the org.",
+                        "name": "app_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -16934,6 +16979,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sandbox-desktop-types": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Desktop types (e.g. ubuntu, sway) offered by registered sandboxes",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sandbox"
+                ],
+                "summary": "List available sandbox desktop types",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sandbox-runtimes": {
             "get": {
                 "security": [
@@ -18757,6 +18830,12 @@ const docTemplate = `{
                         "description": "Sort order: 'asc' (oldest first, default) or 'desc' (newest first)",
                         "name": "order",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only waiting interactions with a pending question",
+                        "name": "pending_question",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -19774,6 +19853,47 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/visualization": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Serve an agent-published HTML visualization page for inline rendering",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get a session visualization",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Visualization ID",
+                        "name": "viz_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "HTML document",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/workspace-status": {
             "get": {
                 "security": [
@@ -20385,6 +20505,58 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/types.SpecTask"
                         }
+                    },
+                    "202": {
+                        "description": "External repo: the agent was asked to push and propose its pull request(s)",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/completion/decide": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approving moves the task to done (which stops its desktop), whether or not the agent asked to finish with mark_task_complete. Rejecting clears the agent's pending request and sends the comment to it as feedback.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "Mark a spec task done, or send the agent's completion request back",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Decision",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CompletionDecisionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
                     }
                 }
             }
@@ -20889,6 +21061,96 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{spec_task_id}/pr-proposals": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every pull request a spec task opens starts as an agent proposal awaiting user approval.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "List a spec task's pull request proposals",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.SpecTaskPRProposal"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approving grants the agent push rights to the proposal's head branch and opens the pull request as soon as the branch has commits beyond the base. Edited fields override the agent's proposal. Rejecting withdraws push rights.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "Approve or reject a pull request proposal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Proposal ID",
+                        "name": "proposal_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Decision",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.PRProposalDecisionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskPRProposal"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{spec_task_id}/stop-agent": {
             "post": {
                 "security": [
@@ -21142,7 +21404,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it",
+                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.",
                 "consumes": [
                     "application/json"
                 ],
@@ -21539,7 +21801,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Replaces a task's planning or implementation code-agent configuration, or its sandbox resource preset. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.",
+                "description": "Replaces a task's planning or implementation code-agent configuration, its sandbox resource preset, or its sandbox display. Display changes take effect when the desktop next starts; sandbox_display_requires_restart reports a running desktop. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.",
                 "consumes": [
                     "application/json"
                 ],
@@ -21577,6 +21839,114 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/interactive-embed-model": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the current model and enabled models from the task's current provider. Available only to an interactive embed key bound to the task's active session.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get models available to an interactive task embed",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.InteractiveEmbedModelResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Changes only the model on the task's current code-agent configuration. Available only to an interactive embed key bound to the task's active session.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Update the model for an interactive task embed",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Model selection",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.InteractiveEmbedModelUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.InteractiveEmbedModelResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -21894,6 +22264,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection",
                         "name": "timezone",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated browser languages (e.g., 'en-GB,en') - sets the desktop browser's Accept-Language",
+                        "name": "languages",
                         "in": "query"
                     }
                 ],
@@ -24264,6 +24640,10 @@ const docTemplate = `{
         "api.BotDTO": {
             "type": "object",
             "properties": {
+                "activation_error": {
+                    "description": "ActivationError is the latest completed activation failure. It clears\nwhen a newer activation starts or succeeds.",
+                    "type": "string"
+                },
                 "agent_model": {
                     "type": "string"
                 },
@@ -26503,6 +26883,18 @@ const docTemplate = `{
                 }
             }
         },
+        "server.AdminCreateServiceAccountRequest": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "description": "OrganizationName is the URL-safe name of the organization the account\nowns. It is the idempotency key: asking again for the same name returns\nthe same account and organization.",
+                    "type": "string"
+                }
+            }
+        },
         "server.AdminOrganizationsResponse": {
             "type": "object",
             "properties": {
@@ -26523,6 +26915,17 @@ const docTemplate = `{
                 },
                 "totalPages": {
                     "type": "integer"
+                }
+            }
+        },
+        "server.AdminServiceAccount": {
+            "type": "object",
+            "properties": {
+                "organization": {
+                    "$ref": "#/definitions/types.Organization"
+                },
+                "user": {
+                    "$ref": "#/definitions/types.User"
                 }
             }
         },
@@ -26929,6 +27332,9 @@ const docTemplate = `{
                 "ip_address": {
                     "description": "Network info for RevDial/screenshot-server connections",
                     "type": "string"
+                },
+                "is_golden_build": {
+                    "type": "boolean"
                 },
                 "memory_mb": {
                     "type": "integer"
@@ -28980,6 +29386,45 @@ const docTemplate = `{
                 }
             }
         },
+        "server.orgAPIKeyResponse": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID is a stable, non-secret handle for the key, derived from a hash of\nthe secret. Use it to delete a key you did not create.",
+                    "type": "string"
+                },
+                "key_prefix": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "owner_email": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "$ref": "#/definitions/types.OwnerType"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.APIKeyType"
+                }
+            }
+        },
         "server.runnerProfileAssignRequest": {
             "type": "object",
             "properties": {
@@ -29290,23 +29735,23 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "cron",
                 "email",
-                "local",
-                "gitlab",
                 "webhook",
-                "github",
+                "local",
                 "slack",
+                "cron",
+                "gitlab",
+                "github",
                 "helix_events"
             ],
             "x-enum-varnames": [
-                "KindCron",
                 "KindEmail",
-                "KindLocal",
-                "KindGitLab",
                 "KindWebhook",
-                "KindGitHub",
+                "KindLocal",
                 "KindSlack",
+                "KindCron",
+                "KindGitLab",
+                "KindGitHub",
                 "KindHelixEvents"
             ]
         },
@@ -29822,6 +30267,10 @@ const docTemplate = `{
                 },
                 "created": {
                     "type": "string"
+                },
+                "embed_interactive": {
+                    "description": "EmbedInteractive lets an embed key also DRIVE its one session's desktop\n(keyboard, mouse, clipboard). Off for public embeds; set for an operator\nthat embeds a tenant's own agent for that tenant. Ignored on other types.",
+                    "type": "boolean"
                 },
                 "key": {
                     "type": "string"
@@ -30665,6 +31114,8 @@ const docTemplate = `{
                 "spec_failed",
                 "implementation_failed",
                 "pr_ready",
+                "pr_proposal",
+                "completion_request",
                 "org_message",
                 "ci_passed",
                 "ci_failed"
@@ -30675,6 +31126,8 @@ const docTemplate = `{
                 "AttentionEventSpecFailed",
                 "AttentionEventImplementationFailed",
                 "AttentionEventPRReady",
+                "AttentionEventPRProposal",
+                "AttentionEventCompletionRequest",
                 "AttentionEventOrgMessage",
                 "AttentionEventCIPassed",
                 "AttentionEventCIFailed"
@@ -30842,14 +31295,16 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "regular",
-                "oidc"
+                "oidc",
+                "service"
             ],
             "x-enum-comments": {
                 "AuthProviderRegular": "Embedded in Helix, no external dependencies"
             },
             "x-enum-varnames": [
                 "AuthProviderRegular",
-                "AuthProviderOIDC"
+                "AuthProviderOIDC",
+                "AuthProviderService"
             ]
         },
         "types.AuthenticatedResponse": {
@@ -31855,6 +32310,18 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CompletionDecisionRequest": {
+            "type": "object",
+            "properties": {
+                "comment": {
+                    "type": "string"
+                },
+                "decision": {
+                    "description": "\"approve\" or \"reject\"",
+                    "type": "string"
+                }
+            }
+        },
         "types.ContainerDiskUsage": {
             "type": "object",
             "properties": {
@@ -31870,6 +32337,20 @@ const docTemplate = `{
                 },
                 "size_bytes": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.ContainerOOMKills": {
+            "type": "object",
+            "properties": {
+                "container_id": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
                 }
             }
         },
@@ -32235,6 +32716,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.SpecTaskInlineAttachment"
                     }
                 },
+                "auto_approve_pull_requests": {
+                    "description": "Optional: approve the agent's pull request proposals without asking.\nUnset takes the project's auto_approve_pull_requests default.",
+                    "type": "boolean"
+                },
                 "auto_start": {
                     "description": "Optional: Skip backlog and start immediately, regardless of project auto-start setting",
                     "type": "boolean"
@@ -32307,6 +32792,9 @@ const docTemplate = `{
                 },
                 "prompt": {
                     "type": "string"
+                },
+                "sandbox_display": {
+                    "$ref": "#/definitions/types.SandboxDisplay"
                 },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
@@ -33372,6 +33860,14 @@ const docTemplate = `{
                 "last_activity": {
                     "type": "string"
                 },
+                "last_sync_at": {
+                    "description": "Last successful upstream fetch or push",
+                    "type": "string"
+                },
+                "last_sync_error": {
+                    "description": "Error from the most recent failed upstream operation; cleared on success",
+                    "type": "string"
+                },
                 "local_path": {
                     "description": "Local filesystem path for Helix-hosted repos (empty for external)",
                     "type": "string"
@@ -33404,6 +33900,10 @@ const docTemplate = `{
                 },
                 "status": {
                     "$ref": "#/definitions/types.GitRepositoryStatus"
+                },
+                "sync_in_progress_since": {
+                    "description": "Set while an upstream operation is running",
+                    "type": "string"
                 },
                 "updated_at": {
                     "type": "string"
@@ -33455,6 +33955,13 @@ const docTemplate = `{
                 },
                 "gitlab": {
                     "$ref": "#/definitions/types.GitLab"
+                },
+                "initial_executable_files": {
+                    "description": "InitialExecutableFiles lists paths in InitialFiles committed as executable\n(mode 100755), e.g. scripts a template expects to run as ./script.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "initial_files": {
                     "type": "object",
@@ -33933,6 +34440,60 @@ const docTemplate = `{
                 "InteractionStateError",
                 "InteractionStateInterrupted"
             ]
+        },
+        "types.InteractiveEmbedModel": {
+            "type": "object",
+            "properties": {
+                "context_length": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "input_modalities": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "reasoning_efforts": {
+                    "$ref": "#/definitions/types.ReasoningEffortProfile"
+                }
+            }
+        },
+        "types.InteractiveEmbedModelResponse": {
+            "type": "object",
+            "properties": {
+                "agent_thread_restarted": {
+                    "type": "boolean"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.InteractiveEmbedModel"
+                    }
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                }
+            }
+        },
+        "types.InteractiveEmbedModelUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string"
+                }
+            }
         },
         "types.Item": {
             "type": "object",
@@ -34806,6 +35367,20 @@ const docTemplate = `{
                 }
             }
         },
+        "types.NativeDisplay": {
+            "type": "object",
+            "properties": {
+                "height": {
+                    "type": "integer"
+                },
+                "width": {
+                    "type": "integer"
+                },
+                "zoom_level": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.OAuthConnection": {
             "type": "object",
             "properties": {
@@ -35610,7 +36185,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "app_id": {
-                    "description": "AppID + GrantRoles record the optional access-grant context. When an\ninvitation is sent from a project/app's access management dialog,\nwe store the resource id and the role names the inviter chose, so\nthat consuming the invitation at register time can also materialise\nthe access grant — the invitee then shows up in the project access\nlist immediately, exactly as if they had been added directly.",
+                    "description": "AppID + GrantRoles record the optional access-grant context. When an\ninvitation is sent from a project/app's access management dialog,\nwe store the resource id and the role names the inviter chose, so\nthat consuming the invitation at register time can also materialise\nthe access grant — the invitee then shows up in the project access\nlist immediately, exactly as if they had been added directly.\nDespite the name, AppID is a generic resource ID: the shared access\ndialog passes an app, project (prj_…) or repository ID. Pending\ninvitations are unique per (organization, email, app_id).",
                     "type": "string"
                 },
                 "created_at": {
@@ -35708,6 +36283,34 @@ const docTemplate = `{
                 "OwnerTypeSocket",
                 "OwnerTypeOrg"
             ]
+        },
+        "types.PRProposalDecisionRequest": {
+            "type": "object",
+            "properties": {
+                "auto_approve_future": {
+                    "description": "AutoApproveFuture, with an approval, approves this task's later\nproposals without asking, as the deciding user.",
+                    "type": "boolean"
+                },
+                "base_branch": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "comment": {
+                    "type": "string"
+                },
+                "decision": {
+                    "description": "\"approve\" or \"reject\"",
+                    "type": "string"
+                },
+                "head_branch": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
         },
         "types.PaginatedInteractions": {
             "type": "object",
@@ -35975,6 +36578,10 @@ const docTemplate = `{
                     "description": "Archive tasks idle for ArchiveStaleTasksDays",
                     "type": "boolean"
                 },
+                "auto_approve_pull_requests": {
+                    "description": "AutoApprovePullRequests is the default for new spec tasks: their agents'\npull request proposals are approved without asking. Each task keeps its\nown setting, so changing this does not affect existing tasks.",
+                    "type": "boolean"
+                },
                 "auto_archive_completed_tasks": {
                     "description": "Archive automation, reconciled by the spec task orchestrator",
                     "type": "boolean"
@@ -36053,6 +36660,9 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "implementation_limit": {
+                    "type": "integer"
                 },
                 "kodit_enabled": {
                     "type": "boolean"
@@ -36589,6 +37199,10 @@ const docTemplate = `{
                 },
                 "archive_stale_tasks_enabled": {
                     "description": "Archive tasks idle for ArchiveStaleTasksDays",
+                    "type": "boolean"
+                },
+                "auto_approve_pull_requests": {
+                    "description": "Default for new spec tasks: auto-approve agent PR proposals",
                     "type": "boolean"
                 },
                 "auto_archive_completed_tasks": {
@@ -37422,6 +38036,10 @@ const docTemplate = `{
                 "ci_url": {
                     "type": "string"
                 },
+                "head_branch": {
+                    "description": "HeadBranch is the branch the PR was opened from. ProposalID links PRs\nopened from an approved SpecTaskPRProposal; their title and body come from\nthe approved proposal rather than the helix-specs pull_request*.md files.",
+                    "type": "string"
+                },
                 "pr_id": {
                     "type": "string"
                 },
@@ -37433,6 +38051,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "pr_url": {
+                    "type": "string"
+                },
+                "proposal_id": {
                     "type": "string"
                 },
                 "repository_id": {
@@ -37991,6 +38612,19 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SandboxDisplay": {
+            "type": "object",
+            "properties": {
+                "resolution": {
+                    "description": "\"1080p\", \"4k\", \"5k\" or \"native\"; empty =\u003e DefaultSandboxResolution()",
+                    "type": "string"
+                },
+                "zoom_level": {
+                    "description": "GNOME zoom percentage; 0 =\u003e the preset's default",
+                    "type": "integer"
+                }
+            }
+        },
         "types.SandboxFileUploadResponse": {
             "type": "object",
             "properties": {
@@ -38011,6 +38645,13 @@ const docTemplate = `{
         "types.SandboxHeartbeatRequest": {
             "type": "object",
             "properties": {
+                "container_oom_kills": {
+                    "description": "Cumulative cgroup OOM kills for Helix containers on this runner.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ContainerOOMKills"
+                    }
+                },
                 "container_usage": {
                     "description": "Container disk usage (per-container storage)",
                     "type": "array",
@@ -38032,6 +38673,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.DiskUsageMetric"
                     }
                 },
+                "golden_cache_unavailable": {
+                    "description": "GoldenCacheUnavailable: see SandboxInstance.GoldenCacheUnavailable.",
+                    "type": "boolean"
+                },
                 "gpu_vendor": {
                     "description": "GPU configuration",
                     "type": "string"
@@ -38050,6 +38695,10 @@ const docTemplate = `{
                 "instance_type": {
                     "description": "InstanceType is the cloud instance type (e.g. \"inf2.8xlarge\", \"g5.xlarge\")\ndetected via the AWS IMDS. Empty on bare-metal hosts (e.g. prime) and any\nnon-AWS environment — the admin UI then just shows the GPU model instead.",
                     "type": "string"
+                },
+                "max_sandboxes": {
+                    "description": "MaxSandboxes is the runner's own cap on concurrent dev containers,\nfrom its MAX_SANDBOXES env var. -1 means unlimited. 0 (omitted) means\nthe runner did not report one and the API's fallback applies.",
+                    "type": "integer"
                 },
                 "privileged_mode_enabled": {
                     "description": "Privileged mode (host Docker access for development)",
@@ -38091,7 +38740,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "active_sandboxes": {
-                    "description": "Sandbox capacity. MaxSandboxes is set explicitly at auto-register\nand Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS\n(default 20); the gorm default below only applies to rows inserted\nvia paths that don't set the field. Kept aligned with the env-var\ndefault to avoid surprises.",
+                    "description": "Sandbox capacity. MaxSandboxes is the hard per-Runner cap enforced\nby FindAvailableSandboxInstance. When the Runner reports MAX_SANDBOXES\nin its heartbeat, that value wins and MaxSandboxesFromRunner is set\n(so the boot-time backfill leaves it alone). Otherwise it is set at\nauto-register and Manager-provisioned paths from\nHELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1, unlimited); the gorm default below\nonly applies to rows inserted via paths that don't set the field.",
                     "type": "integer"
                 },
                 "compute_state": {
@@ -38107,6 +38756,10 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "golden_cache_unavailable": {
+                    "description": "GoldenCacheUnavailable is set when the sandbox has no container data root\n(/container-docker), so Hydra can't build or seed golden Docker caches. Negative so sandboxes\nwhose heartbeat predates it keep building.",
+                    "type": "boolean"
                 },
                 "gpu_vendor": {
                     "description": "GPU configuration",
@@ -38143,8 +38796,11 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "max_sandboxes": {
-                    "description": "Maximum allowed containers",
+                    "description": "Maximum allowed containers; -1 means unlimited",
                     "type": "integer"
+                },
+                "max_sandboxes_from_runner": {
+                    "type": "boolean"
                 },
                 "privileged_mode": {
                     "type": "boolean"
@@ -38428,6 +39084,14 @@ const docTemplate = `{
                 "minimum_inference_balance": {
                     "description": "Minimum wallet balance required for inference",
                     "type": "number"
+                },
+                "native_display": {
+                    "description": "NativeDisplay is the host's own display (Helix for Mac), offered as the\n\"native\" sandbox resolution and used when a desktop has none set. Nil\nwhere the host reported no display; the UI then defaults to 1080p.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.NativeDisplay"
+                        }
+                    ]
                 },
                 "onboarding_helix_model": {
                     "type": "string"
@@ -39883,6 +40547,13 @@ const docTemplate = `{
                     "description": "Team member assigned to work on this task",
                     "type": "string"
                 },
+                "auto_approve_pull_requests": {
+                    "description": "AutoApprovePullRequests approves the agent's PR proposals without asking.\nThey are approved as AutoApprovePullRequestsBy, whose provider\ncredentials push and open the PR; it is the user who turned this on.",
+                    "type": "boolean"
+                },
+                "auto_approve_pull_requests_by": {
+                    "type": "string"
+                },
                 "base_branch": {
                     "description": "The base branch this was created from",
                     "type": "string"
@@ -39932,6 +40603,13 @@ const docTemplate = `{
                     ]
                 },
                 "completed_at": {
+                    "type": "string"
+                },
+                "completion_request_summary": {
+                    "type": "string"
+                },
+                "completion_requested_at": {
+                    "description": "CompletionRequestedAt is set while the agent's request to mark the task\ndone (mark_task_complete) awaits the user's decision.",
                     "type": "string"
                 },
                 "created_at": {
@@ -40141,6 +40819,14 @@ const docTemplate = `{
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
                 },
+                "sandbox_display": {
+                    "description": "SandboxDisplay is the desktop resolution; nil means 1080p.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxDisplay"
+                        }
+                    ]
+                },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
                 },
@@ -40231,6 +40917,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "archived": {
+                    "type": "boolean"
+                },
+                "stop_agent": {
+                    "description": "StopAgent controls whether archiving stops the task's external agent and\nfrees its sandbox. Omitted (nil) means yes. Archiving never kills an agent\nthat is mid-turn unless the caller says so explicitly.",
                     "type": "boolean"
                 }
             }
@@ -40633,6 +41323,9 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "sandbox_display": {
+                    "$ref": "#/definitions/types.SandboxDisplay"
+                },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
                 }
@@ -40642,6 +41335,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "agent_thread_restarted": {
+                    "type": "boolean"
+                },
+                "sandbox_display_requires_restart": {
+                    "description": "SandboxDisplayRequiresRestart is set when the display changed while the\ndesktop is running; it takes effect only after the desktop restarts.",
                     "type": "boolean"
                 },
                 "sandbox_resources_applied": {
@@ -40671,6 +41368,94 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.SpecTaskPRProposal": {
+            "type": "object",
+            "properties": {
+                "auto_approved": {
+                    "type": "boolean"
+                },
+                "base_branch": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "decided_at": {
+                    "type": "string"
+                },
+                "decided_by": {
+                    "type": "string"
+                },
+                "decision_comment": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "head_branch": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "pr_id": {
+                    "type": "string"
+                },
+                "pr_number": {
+                    "type": "integer"
+                },
+                "pr_url": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "proposed_by_session": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "repository_name": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.SpecTaskPRProposalStatus"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskPRProposalStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "approved",
+                "opened",
+                "rejected",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "PRProposalStatusPending",
+                "PRProposalStatusApproved",
+                "PRProposalStatusOpened",
+                "PRProposalStatusRejected",
+                "PRProposalStatusFailed"
+            ]
         },
         "types.SpecTaskPhase": {
             "type": "string",
@@ -40768,6 +41553,10 @@ const docTemplate = `{
                     "description": "Pointer to allow clearing (set to empty string to unassign)",
                     "type": "string"
                 },
+                "auto_approve_pull_requests": {
+                    "description": "Approve the agent's PR proposals without asking, as the updating user",
+                    "type": "boolean"
+                },
                 "depends_on": {
                     "description": "IDs of tasks this task depends on",
                     "type": "array",
@@ -40831,6 +41620,13 @@ const docTemplate = `{
                     "description": "Team member assigned to work on this task",
                     "type": "string"
                 },
+                "auto_approve_pull_requests": {
+                    "description": "AutoApprovePullRequests approves the agent's PR proposals without asking.\nThey are approved as AutoApprovePullRequestsBy, whose provider\ncredentials push and open the PR; it is the user who turned this on.",
+                    "type": "boolean"
+                },
+                "auto_approve_pull_requests_by": {
+                    "type": "string"
+                },
                 "base_branch": {
                     "description": "The base branch this was created from",
                     "type": "string"
@@ -40880,6 +41676,13 @@ const docTemplate = `{
                     ]
                 },
                 "completed_at": {
+                    "type": "string"
+                },
+                "completion_request_summary": {
+                    "type": "string"
+                },
+                "completion_requested_at": {
+                    "description": "CompletionRequestedAt is set while the agent's request to mark the task\ndone (mark_task_complete) awaits the user's decision.",
                     "type": "string"
                 },
                 "created_at": {
@@ -41091,6 +41894,14 @@ const docTemplate = `{
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
+                },
+                "sandbox_display": {
+                    "description": "SandboxDisplay is the desktop resolution; nil means 1080p.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxDisplay"
+                        }
+                    ]
                 },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
@@ -41373,6 +42184,10 @@ const docTemplate = `{
             "properties": {
                 "keyboard_layout": {
                     "description": "KeyboardLayout is the XKB keyboard layout code (e.g., \"us\", \"fr\", \"de\")\nUsed to configure the desktop container's keyboard layout from browser detection",
+                    "type": "string"
+                },
+                "languages": {
+                    "description": "Languages is the user's browser language preference list (navigator.languages),\ncomma-separated BCP 47 tags (e.g., \"en-GB,en\"). The desktop's browser sends these\nas Accept-Language so websites don't pick the language of the runner's location.",
                     "type": "string"
                 },
                 "timezone": {
@@ -42849,6 +43664,10 @@ const docTemplate = `{
                 "email": {
                     "type": "string"
                 },
+                "embed_interactive": {
+                    "description": "EmbedInteractive: an embed key that may drive its bound session's desktop.",
+                    "type": "boolean"
+                },
                 "full_name": {
                     "type": "string"
                 },
@@ -43854,6 +44673,12 @@ const docTemplate = `{
                 "golden": {
                     "$ref": "#/definitions/types.ZFSTreeNode"
                 },
+                "goldens": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ZFSTreeNode"
+                    }
+                },
                 "orphans": {
                     "type": "array",
                     "items": {
@@ -43868,6 +44693,9 @@ const docTemplate = `{
         "types.ZFSTreeNode": {
             "type": "object",
             "properties": {
+                "cache_kind": {
+                    "type": "string"
+                },
                 "children": {
                     "type": "array",
                     "items": {

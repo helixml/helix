@@ -36,7 +36,7 @@ func (s *DiskPressureSuite) SetupTest() {
 	resetZFSState()
 	resetDiskPressureConfig()
 
-	// Force ZFS "available" so poolFreePercent() doesn't shell out. Consume the
+	// Force ZFS "available" so poolFreePercentZFS() doesn't shell out. Consume the
 	// sync.Once (with a no-op) so ZFSAvailable() returns these forced values
 	// instead of re-running the real `zfs list` probe, which would clobber both
 	// zfsAvailableFlag and zfsParentDataset.
@@ -86,7 +86,7 @@ func (s *DiskPressureSuite) TestPoolName_Empty() {
 func (s *DiskPressureSuite) TestPoolFreePercent_Parses() {
 	// size=1000, free=20 → 2.0%
 	s.zpoolOut = "1000\t20\n"
-	pct, err := poolFreePercent()
+	pct, err := poolFreePercentZFS()
 	require.NoError(s.T(), err)
 	assert.InDelta(s.T(), 2.0, pct, 0.0001)
 }
@@ -94,38 +94,38 @@ func (s *DiskPressureSuite) TestPoolFreePercent_Parses() {
 func (s *DiskPressureSuite) TestPoolFreePercent_ParsesHalf() {
 	// size=200, free=100 → 50%
 	s.zpoolOut = "200 100"
-	pct, err := poolFreePercent()
+	pct, err := poolFreePercentZFS()
 	require.NoError(s.T(), err)
 	assert.InDelta(s.T(), 50.0, pct, 0.0001)
 }
 
 func (s *DiskPressureSuite) TestPoolFreePercent_CommandError() {
 	s.zpoolErr = fmt.Errorf("zpool: no such pool")
-	_, err := poolFreePercent()
+	_, err := poolFreePercentZFS()
 	require.Error(s.T(), err)
 }
 
 func (s *DiskPressureSuite) TestPoolFreePercent_SizeZero() {
 	s.zpoolOut = "0\t0\n"
-	_, err := poolFreePercent()
+	_, err := poolFreePercentZFS()
 	require.Error(s.T(), err)
 }
 
 func (s *DiskPressureSuite) TestPoolFreePercent_UnparsableOutput() {
 	s.zpoolOut = "not-a-number"
-	_, err := poolFreePercent()
+	_, err := poolFreePercentZFS()
 	require.Error(s.T(), err)
 }
 
 func (s *DiskPressureSuite) TestPoolFreePercent_ZFSUnavailable() {
 	zfsAvailableFlag = false
-	_, err := poolFreePercent()
+	_, err := poolFreePercentZFS()
 	require.Error(s.T(), err)
 }
 
 func (s *DiskPressureSuite) TestPoolFreePercent_EmptyPoolName() {
 	zfsParentDataset = ""
-	_, err := poolFreePercent()
+	_, err := poolFreePercentZFS()
 	require.Error(s.T(), err)
 }
 
@@ -160,13 +160,13 @@ func (s *DiskPressureSuite) TestPoolFreeBytes_UnparsableOutput() {
 
 func (s *DiskPressureSuite) TestPoolFreeBytes_ZFSUnavailable() {
 	zfsAvailableFlag = false
-	_, err := poolFreeBytes()
+	_, err := poolFreeBytesZFS()
 	require.Error(s.T(), err)
 }
 
 func (s *DiskPressureSuite) TestPoolFreeBytes_EmptyPoolName() {
 	zfsParentDataset = ""
-	_, err := poolFreeBytes()
+	_, err := poolFreeBytesZFS()
 	require.Error(s.T(), err)
 }
 
@@ -188,7 +188,7 @@ func (s *DiskPressureSuite) TestCheckStart_RefusesWhenLow() {
 
 func (s *DiskPressureSuite) TestCreateHandlerReturnsInsufficientStorage() {
 	s.zpoolOut = "1000\t10\n"
-	server := NewServer(NewManager(s.T().TempDir(), s.T().TempDir()), "")
+	server := &Server{devContainerManager: &DevContainerManager{}}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/dev-containers", strings.NewReader(`{
 		"session_id":"ses_test","image":"helix-ubuntu:2.12.8-linux-amd64","container_name":"desktop-test"
 	}`))
@@ -261,36 +261,27 @@ func (s *DiskPressureSuite) TestCheckStart_AllowsWhenDisabled() {
 // emergency-stop decision
 // -----------------------------------------------------------------------
 
-// shouldEmergencyStop mirrors the monitor's per-tick decision: stop when the
-// measurement succeeds AND free% is at or below the stop threshold. A failed
-// measurement (err != nil) never triggers a stop (fail-open).
-func shouldEmergencyStop(freePct float64, measureErr error, stopPct float64) bool {
-	if measureErr != nil {
-		return false
-	}
-	return freePct <= stopPct
-}
-
 func (s *DiskPressureSuite) TestEmergencyStopDecision_Triggers() {
 	cfg := getDiskPressureConfig()
 	// free = 1% (at stop threshold) → stop
-	assert.True(s.T(), shouldEmergencyStop(1.0, nil, cfg.stopFreePct))
+	assert.True(s.T(), shouldEmergencyStop(measurement{freePct: 1.0, hasPct: true}, cfg.stopFreePct))
 	// free = 0.5% → stop
-	assert.True(s.T(), shouldEmergencyStop(0.5, nil, cfg.stopFreePct))
+	assert.True(s.T(), shouldEmergencyStop(measurement{freePct: 0.5, hasPct: true}, cfg.stopFreePct))
 }
 
 func (s *DiskPressureSuite) TestEmergencyStopDecision_DoesNotTrigger() {
 	cfg := getDiskPressureConfig()
 	// free = 1.5% → no stop (above 1% stop threshold)
-	assert.False(s.T(), shouldEmergencyStop(1.5, nil, cfg.stopFreePct))
+	assert.False(s.T(), shouldEmergencyStop(measurement{freePct: 1.5, hasPct: true}, cfg.stopFreePct))
 	// free = 5% → no stop
-	assert.False(s.T(), shouldEmergencyStop(5.0, nil, cfg.stopFreePct))
+	assert.False(s.T(), shouldEmergencyStop(measurement{freePct: 5.0, hasPct: true}, cfg.stopFreePct))
 }
 
-func (s *DiskPressureSuite) TestEmergencyStopDecision_FailOpenOnError() {
+func (s *DiskPressureSuite) TestEmergencyStopDecision_FailOpenWithoutPercentage() {
 	cfg := getDiskPressureConfig()
-	// Even at 0% free, a measurement error must NOT trigger a stop.
-	assert.False(s.T(), shouldEmergencyStop(0.0, fmt.Errorf("boom"), cfg.stopFreePct))
+	// A failed measurement carries no percentage; its zero freePct must NOT
+	// read as "0% free" and stop every desktop.
+	assert.False(s.T(), shouldEmergencyStop(measurement{}, cfg.stopFreePct))
 }
 
 // emergencyStopAllDevContainers with an empty container set must be a safe no-op
@@ -485,6 +476,20 @@ func (s *DiskPressureStatfsSuite) TestCheckStart_StatfsFailsClosedOnENOENT() {
 	// Misconfigured path: refuse, do NOT silently allow. This is the bug the
 	// fallback exists to fix.
 	s.statfsErr = syscall.ENOENT
+	err := checkDiskPressureForStart()
+	require.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "does not exist")
+}
+
+// One path measuring fine must not mask another that does not exist: the
+// missing mount is exactly the misconfiguration the statfs guard exists to
+// catch, and its writes would otherwise fill an unwatched disk.
+func (s *DiskPressureStatfsSuite) TestCheckStart_StatfsFailsClosedWhenAnyPathIsMissing() {
+	s.T().Setenv("HELIX_DISK_PRESSURE_PATHS", "/a,/b")
+	s.installPerPathStatfs(map[string]perPathResult{
+		"/a": {blocks: 1000, bavail: 500, bsize: 1},
+		"/b": {err: syscall.ENOENT},
+	})
 	err := checkDiskPressureForStart()
 	require.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "does not exist")

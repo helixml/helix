@@ -136,6 +136,11 @@ definitions:
     type: object
   api.BotDTO:
     properties:
+      activation_error:
+        description: |-
+          ActivationError is the latest completed activation failure. It clears
+          when a newer activation starts or succeeds.
+        type: string
       agent_model:
         type: string
       agent_runtime:
@@ -1802,6 +1807,17 @@ definitions:
       hostname:
         type: string
     type: object
+  server.AdminCreateServiceAccountRequest:
+    properties:
+      display_name:
+        type: string
+      organization_name:
+        description: |-
+          OrganizationName is the URL-safe name of the organization the account
+          owns. It is the idempotency key: asking again for the same name returns
+          the same account and organization.
+        type: string
+    type: object
   server.AdminOrganizationsResponse:
     properties:
       organizations:
@@ -1816,6 +1832,13 @@ definitions:
         type: integer
       totalPages:
         type: integer
+    type: object
+  server.AdminServiceAccount:
+    properties:
+      organization:
+        $ref: '#/definitions/types.Organization'
+      user:
+        $ref: '#/definitions/types.User'
     type: object
   server.AgentConfigAppliedResponse:
     properties:
@@ -2103,6 +2126,8 @@ definitions:
       ip_address:
         description: Network info for RevDial/screenshot-server connections
         type: string
+      is_golden_build:
+        type: boolean
       memory_mb:
         type: integer
       organization_id:
@@ -3521,6 +3546,34 @@ definitions:
       object:
         type: string
     type: object
+  server.orgAPIKeyResponse:
+    properties:
+      app_id:
+        type: string
+      created:
+        type: string
+      id:
+        description: |-
+          ID is a stable, non-secret handle for the key, derived from a hash of
+          the secret. Use it to delete a key you did not create.
+        type: string
+      key_prefix:
+        type: string
+      name:
+        type: string
+      organization_id:
+        type: string
+      owner:
+        type: string
+      owner_email:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
+      project_id:
+        type: string
+      type:
+        $ref: '#/definitions/types.APIKeyType'
+    type: object
   server.runnerProfileAssignRequest:
     properties:
       profile_id:
@@ -3738,23 +3791,23 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - cron
     - email
-    - local
-    - gitlab
     - webhook
-    - github
+    - local
     - slack
+    - cron
+    - gitlab
+    - github
     - helix_events
     type: string
     x-enum-varnames:
-    - KindCron
     - KindEmail
-    - KindLocal
-    - KindGitLab
     - KindWebhook
-    - KindGitHub
+    - KindLocal
     - KindSlack
+    - KindCron
+    - KindGitLab
+    - KindGitHub
     - KindHelixEvents
   transport.ResolvedActivation:
     properties:
@@ -4111,6 +4164,12 @@ definitions:
         $ref: '#/definitions/sql.NullString'
       created:
         type: string
+      embed_interactive:
+        description: |-
+          EmbedInteractive lets an embed key also DRIVE its one session's desktop
+          (keyboard, mouse, clipboard). Off for public embeds; set for an operator
+          that embeds a tenant's own agent for that tenant. Ignored on other types.
+        type: boolean
       key:
         type: string
       name:
@@ -4744,6 +4803,8 @@ definitions:
     - spec_failed
     - implementation_failed
     - pr_ready
+    - pr_proposal
+    - completion_request
     - org_message
     - ci_passed
     - ci_failed
@@ -4754,6 +4815,8 @@ definitions:
     - AttentionEventSpecFailed
     - AttentionEventImplementationFailed
     - AttentionEventPRReady
+    - AttentionEventPRProposal
+    - AttentionEventCompletionRequest
     - AttentionEventOrgMessage
     - AttentionEventCIPassed
     - AttentionEventCIFailed
@@ -4890,12 +4953,14 @@ definitions:
     enum:
     - regular
     - oidc
+    - service
     type: string
     x-enum-comments:
       AuthProviderRegular: Embedded in Helix, no external dependencies
     x-enum-varnames:
     - AuthProviderRegular
     - AuthProviderOIDC
+    - AuthProviderService
   types.AuthenticatedResponse:
     properties:
       authenticated:
@@ -5663,6 +5728,14 @@ definitions:
           type: string
         type: array
     type: object
+  types.CompletionDecisionRequest:
+    properties:
+      comment:
+        type: string
+      decision:
+        description: '"approve" or "reject"'
+        type: string
+    type: object
   types.ContainerDiskUsage:
     properties:
       container_id:
@@ -5674,6 +5747,15 @@ definitions:
         type: integer
       size_bytes:
         type: integer
+    type: object
+  types.ContainerOOMKills:
+    properties:
+      container_id:
+        type: string
+      count:
+        type: integer
+      session_id:
+        type: string
     type: object
   types.ContextMenuAction:
     properties:
@@ -5939,6 +6021,11 @@ definitions:
         items:
           $ref: '#/definitions/types.SpecTaskInlineAttachment'
         type: array
+      auto_approve_pull_requests:
+        description: |-
+          Optional: approve the agent's pull request proposals without asking.
+          Unset takes the project's auto_approve_pull_requests default.
+        type: boolean
       auto_start:
         description: 'Optional: Skip backlog and start immediately, regardless of
           project auto-start setting'
@@ -6000,6 +6087,8 @@ definitions:
         type: string
       prompt:
         type: string
+      sandbox_display:
+        $ref: '#/definitions/types.SandboxDisplay'
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
       sandbox_runtime:
@@ -6770,6 +6859,13 @@ definitions:
         type: boolean
       last_activity:
         type: string
+      last_sync_at:
+        description: Last successful upstream fetch or push
+        type: string
+      last_sync_error:
+        description: Error from the most recent failed upstream operation; cleared
+          on success
+        type: string
       local_path:
         description: Local filesystem path for Helix-hosted repos (empty for external)
         type: string
@@ -6796,6 +6892,9 @@ definitions:
         $ref: '#/definitions/types.GitRepositoryType'
       status:
         $ref: '#/definitions/types.GitRepositoryStatus'
+      sync_in_progress_since:
+        description: Set while an upstream operation is running
+        type: string
       updated_at:
         type: string
       username:
@@ -6829,6 +6928,13 @@ definitions:
         $ref: '#/definitions/types.GitHub'
       gitlab:
         $ref: '#/definitions/types.GitLab'
+      initial_executable_files:
+        description: |-
+          InitialExecutableFiles lists paths in InitialFiles committed as executable
+          (mode 100755), e.g. scripts a template expects to run as ./script.
+        items:
+          type: string
+        type: array
       initial_files:
         additionalProperties:
           type: string
@@ -7197,6 +7303,41 @@ definitions:
     - InteractionStateComplete
     - InteractionStateError
     - InteractionStateInterrupted
+  types.InteractiveEmbedModel:
+    properties:
+      context_length:
+        type: integer
+      description:
+        type: string
+      id:
+        type: string
+      input_modalities:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      reasoning_efforts:
+        $ref: '#/definitions/types.ReasoningEffortProfile'
+    type: object
+  types.InteractiveEmbedModelResponse:
+    properties:
+      agent_thread_restarted:
+        type: boolean
+      model:
+        type: string
+      models:
+        items:
+          $ref: '#/definitions/types.InteractiveEmbedModel'
+        type: array
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+    type: object
+  types.InteractiveEmbedModelUpdateRequest:
+    properties:
+      model:
+        type: string
+    type: object
   types.Item:
     properties:
       b64_json:
@@ -7832,6 +7973,15 @@ definitions:
         description: nil if no conflict
         type: string
     type: object
+  types.NativeDisplay:
+    properties:
+      height:
+        type: integer
+      width:
+        type: integer
+      zoom_level:
+        type: integer
+    type: object
   types.OAuthConnection:
     properties:
       access_token:
@@ -8412,6 +8562,9 @@ definitions:
           that consuming the invitation at register time can also materialise
           the access grant — the invitee then shows up in the project access
           list immediately, exactly as if they had been added directly.
+          Despite the name, AppID is a generic resource ID: the shared access
+          dialog passes an app, project (prj_…) or repository ID. Pending
+          invitations are unique per (organization, email, app_id).
         type: string
       created_at:
         type: string
@@ -8483,6 +8636,27 @@ definitions:
     - OwnerTypeSystem
     - OwnerTypeSocket
     - OwnerTypeOrg
+  types.PRProposalDecisionRequest:
+    properties:
+      auto_approve_future:
+        description: |-
+          AutoApproveFuture, with an approval, approves this task's later
+          proposals without asking, as the deciding user.
+        type: boolean
+      base_branch:
+        type: string
+      body:
+        type: string
+      comment:
+        type: string
+      decision:
+        description: '"approve" or "reject"'
+        type: string
+      head_branch:
+        type: string
+      title:
+        type: string
+    type: object
   types.PaginatedInteractions:
     properties:
       interactions:
@@ -8661,6 +8835,12 @@ definitions:
       archive_stale_tasks_enabled:
         description: Archive tasks idle for ArchiveStaleTasksDays
         type: boolean
+      auto_approve_pull_requests:
+        description: |-
+          AutoApprovePullRequests is the default for new spec tasks: their agents'
+          pull request proposals are approved without asking. Each task keeps its
+          own setting, so changing this does not affect existing tasks.
+        type: boolean
       auto_archive_completed_tasks:
         description: Archive automation, reconciled by the spec task orchestrator
         type: boolean
@@ -8723,6 +8903,8 @@ definitions:
         type: integer
       id:
         type: string
+      implementation_limit:
+        type: integer
       kodit_enabled:
         type: boolean
       last_activity_at:
@@ -9086,6 +9268,9 @@ definitions:
         type: integer
       archive_stale_tasks_enabled:
         description: Archive tasks idle for ArchiveStaleTasksDays
+        type: boolean
+      auto_approve_pull_requests:
+        description: 'Default for new spec tasks: auto-approve agent PR proposals'
         type: boolean
       auto_archive_completed_tasks:
         description: Archive tasks immediately when they enter Done
@@ -9715,6 +9900,12 @@ definitions:
         type: string
       ci_url:
         type: string
+      head_branch:
+        description: |-
+          HeadBranch is the branch the PR was opened from. ProposalID links PRs
+          opened from an approved SpecTaskPRProposal; their title and body come from
+          the approved proposal rather than the helix-specs pull_request*.md files.
+        type: string
       pr_id:
         type: string
       pr_number:
@@ -9723,6 +9914,8 @@ definitions:
         description: '"open", "closed", "merged"'
         type: string
       pr_url:
+        type: string
+      proposal_id:
         type: string
       repository_id:
         type: string
@@ -10146,6 +10339,15 @@ definitions:
       updated:
         type: string
     type: object
+  types.SandboxDisplay:
+    properties:
+      resolution:
+        description: '"1080p", "4k", "5k" or "native"; empty => DefaultSandboxResolution()'
+        type: string
+      zoom_level:
+        description: GNOME zoom percentage; 0 => the preset's default
+        type: integer
+    type: object
   types.SandboxFileUploadResponse:
     properties:
       filename:
@@ -10160,6 +10362,11 @@ definitions:
     type: object
   types.SandboxHeartbeatRequest:
     properties:
+      container_oom_kills:
+        description: Cumulative cgroup OOM kills for Helix containers on this runner.
+        items:
+          $ref: '#/definitions/types.ContainerOOMKills'
+        type: array
       container_usage:
         description: Container disk usage (per-container storage)
         items:
@@ -10178,6 +10385,9 @@ definitions:
         items:
           $ref: '#/definitions/types.DiskUsageMetric'
         type: array
+      golden_cache_unavailable:
+        description: 'GoldenCacheUnavailable: see SandboxInstance.GoldenCacheUnavailable.'
+        type: boolean
       gpu_vendor:
         description: GPU configuration
         type: string
@@ -10198,6 +10408,12 @@ definitions:
           detected via the AWS IMDS. Empty on bare-metal hosts (e.g. prime) and any
           non-AWS environment — the admin UI then just shows the GPU model instead.
         type: string
+      max_sandboxes:
+        description: |-
+          MaxSandboxes is the runner's own cap on concurrent dev containers,
+          from its MAX_SANDBOXES env var. -1 means unlimited. 0 (omitted) means
+          the runner did not report one and the API's fallback applies.
+        type: integer
       privileged_mode_enabled:
         description: Privileged mode (host Docker access for development)
         type: boolean
@@ -10239,11 +10455,13 @@ definitions:
         type: string
       active_sandboxes:
         description: |-
-          Sandbox capacity. MaxSandboxes is set explicitly at auto-register
-          and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
-          (default 20); the gorm default below only applies to rows inserted
-          via paths that don't set the field. Kept aligned with the env-var
-          default to avoid surprises.
+          Sandbox capacity. MaxSandboxes is the hard per-Runner cap enforced
+          by FindAvailableSandboxInstance. When the Runner reports MAX_SANDBOXES
+          in its heartbeat, that value wins and MaxSandboxesFromRunner is set
+          (so the boot-time backfill leaves it alone). Otherwise it is set at
+          auto-register and Manager-provisioned paths from
+          HELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1, unlimited); the gorm default below
+          only applies to rows inserted via paths that don't set the field.
         type: integer
       compute_state:
         description: |-
@@ -10262,6 +10480,12 @@ definitions:
           Desktop image versions available on this sandbox
           Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
         type: object
+      golden_cache_unavailable:
+        description: |-
+          GoldenCacheUnavailable is set when the sandbox has no container data root
+          (/container-docker), so Hydra can't build or seed golden Docker caches. Negative so sandboxes
+          whose heartbeat predates it keep building.
+        type: boolean
       gpu_vendor:
         description: GPU configuration
         type: string
@@ -10296,8 +10520,10 @@ definitions:
         description: Last heartbeat time
         type: string
       max_sandboxes:
-        description: Maximum allowed containers
+        description: Maximum allowed containers; -1 means unlimited
         type: integer
+      max_sandboxes_from_runner:
+        type: boolean
       privileged_mode:
         type: boolean
       profile_error:
@@ -10537,6 +10763,13 @@ definitions:
       minimum_inference_balance:
         description: Minimum wallet balance required for inference
         type: number
+      native_display:
+        allOf:
+        - $ref: '#/definitions/types.NativeDisplay'
+        description: |-
+          NativeDisplay is the host's own display (Helix for Mac), offered as the
+          "native" sandbox resolution and used when a desktop has none set. Nil
+          where the host reported no display; the UI then defaults to 1080p.
       onboarding_helix_model:
         type: string
       onboarding_helix_model_effort:
@@ -11659,6 +11892,14 @@ definitions:
       assignee_id:
         description: Team member assigned to work on this task
         type: string
+      auto_approve_pull_requests:
+        description: |-
+          AutoApprovePullRequests approves the agent's PR proposals without asking.
+          They are approved as AutoApprovePullRequestsBy, whose provider
+          credentials push and open the PR; it is the user who turned this on.
+        type: boolean
+      auto_approve_pull_requests_by:
+        type: string
       base_branch:
         description: The base branch this was created from
         type: string
@@ -11691,6 +11932,13 @@ definitions:
         description: Legacy migration source; cleared together with HelixAppID on
           task start.
       completed_at:
+        type: string
+      completion_request_summary:
+        type: string
+      completion_requested_at:
+        description: |-
+          CompletionRequestedAt is set while the agent's request to mark the task
+          done (mark_task_complete) awaits the user's decision.
         type: string
       created_at:
         type: string
@@ -11876,6 +12124,10 @@ definitions:
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
         type: string
+      sandbox_display:
+        allOf:
+        - $ref: '#/definitions/types.SandboxDisplay'
+        description: SandboxDisplay is the desktop resolution; nil means 1080p.
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
       sandbox_runtime:
@@ -11945,6 +12197,12 @@ definitions:
   types.SpecTaskArchiveRequest:
     properties:
       archived:
+        type: boolean
+      stop_agent:
+        description: |-
+          StopAgent controls whether archiving stops the task's external agent and
+          frees its sandbox. Omitted (nil) means yes. Archiving never kills an agent
+          that is mid-turn unless the caller says so explicitly.
         type: boolean
     type: object
   types.SpecTaskAttachment:
@@ -12232,12 +12490,19 @@ definitions:
         enum:
         - planning
         - implementation
+      sandbox_display:
+        $ref: '#/definitions/types.SandboxDisplay'
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
     type: object
   types.SpecTaskExecutionConfigUpdateResponse:
     properties:
       agent_thread_restarted:
+        type: boolean
+      sandbox_display_requires_restart:
+        description: |-
+          SandboxDisplayRequiresRestart is set when the display changed while the
+          desktop is running; it takes effect only after the desktop restarts.
         type: boolean
       sandbox_resources_applied:
         type: boolean
@@ -12258,6 +12523,67 @@ definitions:
     - content_base64
     - name
     type: object
+  types.SpecTaskPRProposal:
+    properties:
+      auto_approved:
+        type: boolean
+      base_branch:
+        type: string
+      body:
+        type: string
+      created_at:
+        type: string
+      decided_at:
+        type: string
+      decided_by:
+        type: string
+      decision_comment:
+        type: string
+      error:
+        type: string
+      head_branch:
+        type: string
+      id:
+        type: string
+      pr_id:
+        type: string
+      pr_number:
+        type: integer
+      pr_url:
+        type: string
+      project_id:
+        type: string
+      proposed_by_session:
+        type: string
+      reason:
+        type: string
+      repository_id:
+        type: string
+      repository_name:
+        type: string
+      spec_task_id:
+        type: string
+      status:
+        $ref: '#/definitions/types.SpecTaskPRProposalStatus'
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  types.SpecTaskPRProposalStatus:
+    enum:
+    - pending
+    - approved
+    - opened
+    - rejected
+    - failed
+    type: string
+    x-enum-varnames:
+    - PRProposalStatusPending
+    - PRProposalStatusApproved
+    - PRProposalStatusOpened
+    - PRProposalStatusRejected
+    - PRProposalStatusFailed
   types.SpecTaskPhase:
     enum:
     - planning
@@ -12342,6 +12668,10 @@ definitions:
       assignee_id:
         description: Pointer to allow clearing (set to empty string to unassign)
         type: string
+      auto_approve_pull_requests:
+        description: Approve the agent's PR proposals without asking, as the updating
+          user
+        type: boolean
       depends_on:
         description: IDs of tasks this task depends on
         items:
@@ -12388,6 +12718,14 @@ definitions:
       assignee_id:
         description: Team member assigned to work on this task
         type: string
+      auto_approve_pull_requests:
+        description: |-
+          AutoApprovePullRequests approves the agent's PR proposals without asking.
+          They are approved as AutoApprovePullRequestsBy, whose provider
+          credentials push and open the PR; it is the user who turned this on.
+        type: boolean
+      auto_approve_pull_requests_by:
+        type: string
       base_branch:
         description: The base branch this was created from
         type: string
@@ -12420,6 +12758,13 @@ definitions:
         description: Legacy migration source; cleared together with HelixAppID on
           task start.
       completed_at:
+        type: string
+      completion_request_summary:
+        type: string
+      completion_requested_at:
+        description: |-
+          CompletionRequestedAt is set while the agent's request to mark the task
+          done (mark_task_complete) awaits the user's decision.
         type: string
       created_at:
         type: string
@@ -12607,6 +12952,10 @@ definitions:
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
         type: string
+      sandbox_display:
+        allOf:
+        - $ref: '#/definitions/types.SandboxDisplay'
+        description: SandboxDisplay is the desktop resolution; nil means 1080p.
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
       sandbox_runtime:
@@ -12817,6 +13166,12 @@ definitions:
         description: |-
           KeyboardLayout is the XKB keyboard layout code (e.g., "us", "fr", "de")
           Used to configure the desktop container's keyboard layout from browser detection
+        type: string
+      languages:
+        description: |-
+          Languages is the user's browser language preference list (navigator.languages),
+          comma-separated BCP 47 tags (e.g., "en-GB,en"). The desktop's browser sends these
+          as Accept-Language so websites don't pick the language of the runner's location.
         type: string
       timezone:
         description: Timezone is the IANA timezone (e.g., "America/New_York", "Europe/Paris")
@@ -13837,6 +14192,10 @@ definitions:
         $ref: '#/definitions/gorm.DeletedAt'
       email:
         type: string
+      embed_interactive:
+        description: 'EmbedInteractive: an embed key that may drive its bound session''s
+          desktop.'
+        type: boolean
       full_name:
         type: string
       git_commit_email:
@@ -14558,6 +14917,10 @@ definitions:
         type: boolean
       golden:
         $ref: '#/definitions/types.ZFSTreeNode'
+      goldens:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
       orphans:
         items:
           $ref: '#/definitions/types.ZFSTreeNode'
@@ -14567,6 +14930,8 @@ definitions:
     type: object
   types.ZFSTreeNode:
     properties:
+      cache_kind:
+        type: string
       children:
         items:
           $ref: '#/definitions/types.ZFSTreeNode'
@@ -15199,6 +15564,34 @@ paths:
       summary: Set an organization's plan override (admin only)
       tags:
       - organizations
+  /api/v1/admin/service-accounts:
+    post:
+      consumes:
+      - application/json
+      description: Create a non-human user that owns a new organization, so an orchestrator
+        serving many customers can give each one its own org, projects and credentials
+        instead of running them all as one account. Works on OIDC deployments (the
+        account has no IdP identity; it acts only through API keys minted with POST
+        /admin/users/{id}/api-keys). Idempotent per organization_name.
+      parameters:
+      - description: Service account
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.AdminCreateServiceAccountRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.AdminServiceAccount'
+      security:
+      - BearerAuth: []
+      summary: Create a service account and its organization (Admin only)
+      tags:
+      - users
   /api/v1/admin/users/{id}:
     delete:
       description: Permanently delete a user and all associated data. Only admins
@@ -16418,7 +16811,10 @@ paths:
       tags:
       - api-keys
     get:
-      description: Get API keys
+      description: Get the caller's own API keys. With no filter, returns (creating
+        it if needed) the caller's personal key. A caller authenticated with a scoped
+        (org, project, session or app) API key cannot use the unfiltered form, and
+        sees only the prefix of keys broader than the one it presents.
       parameters:
       - description: Filter by types (comma-separated list)
         in: query
@@ -20418,7 +20814,8 @@ paths:
   /api/v1/organizations/{id}/api_keys:
     get:
       description: List API keys for an organization. Owners see all keys, members
-        see only their own.
+        see only their own. Key secrets are never returned; each key has a non-secret
+        id and key_prefix.
       parameters:
       - description: Organization ID
         in: path
@@ -20430,7 +20827,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/types.ApiKey'
+              $ref: '#/definitions/server.orgAPIKeyResponse'
             type: array
       security:
       - BearerAuth: []
@@ -20472,7 +20869,7 @@ paths:
         name: id
         required: true
         type: string
-      - description: API key to delete
+      - description: ID of the API key to delete (the id field from the list)
         in: path
         name: key
         required: true
@@ -20785,6 +21182,11 @@ paths:
         in: query
         name: email
         required: true
+        type: string
+      - description: Only report a pending invitation for this app/project (project
+          access dialogs). Omit to report any pending invitation in the org.
+        in: query
+        name: app_id
         type: string
       responses:
         "200":
@@ -25561,6 +25963,23 @@ paths:
       summary: Create sample repository
       tags:
       - samples
+  /api/v1/sandbox-desktop-types:
+    get:
+      description: Desktop types (e.g. ubuntu, sway) offered by registered sandboxes
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List available sandbox desktop types
+      tags:
+      - sandbox
   /api/v1/sandbox-runtimes:
     get:
       description: List the sandbox runtimes available on this server
@@ -26753,6 +27172,10 @@ paths:
         in: query
         name: order
         type: string
+      - description: Only waiting interactions with a pending question
+        in: query
+        name: pending_question
+        type: boolean
       produces:
       - application/json
       responses:
@@ -27425,6 +27848,32 @@ paths:
       summary: Get a session's LLM usage
       tags:
       - sessions
+  /api/v1/sessions/{id}/visualization:
+    get:
+      description: Serve an agent-published HTML visualization page for inline rendering
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Visualization ID
+        in: query
+        name: viz_id
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML document
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get a session visualization
+      tags:
+      - sessions
   /api/v1/sessions/{id}/workspace-status:
     get:
       description: Used by the fork-confirm modal so we can show "N files will be
@@ -27755,9 +28204,45 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/types.SpecTask'
+        "202":
+          description: 'External repo: the agent was asked to push and propose its
+            pull request(s)'
+          schema:
+            $ref: '#/definitions/types.SpecTask'
       security:
       - BearerAuth: []
       summary: Approve implementation and merge to main
+      tags:
+      - spec-tasks
+  /api/v1/spec-tasks/{spec_task_id}/completion/decide:
+    post:
+      consumes:
+      - application/json
+      description: Approving moves the task to done (which stops its desktop), whether
+        or not the agent asked to finish with mark_task_complete. Rejecting clears
+        the agent's pending request and sends the comment to it as feedback.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CompletionDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+      security:
+      - BearerAuth: []
+      summary: Mark a spec task done, or send the agent's completion request back
       tags:
       - spec-tasks
   /api/v1/spec-tasks/{spec_task_id}/design-reviews:
@@ -28085,6 +28570,66 @@ paths:
       summary: Submit design review decision
       tags:
       - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/pr-proposals:
+    get:
+      description: Every pull request a spec task opens starts as an agent proposal
+        awaiting user approval.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskPRProposal'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List a spec task's pull request proposals
+      tags:
+      - spec-tasks
+  /api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide:
+    post:
+      consumes:
+      - application/json
+      description: Approving grants the agent push rights to the proposal's head branch
+        and opens the pull request as soon as the branch has commits beyond the base.
+        Edited fields override the agent's proposal. Rejecting withdraws push rights.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Proposal ID
+        in: path
+        name: proposal_id
+        required: true
+        type: string
+      - description: Decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.PRProposalDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskPRProposal'
+      security:
+      - BearerAuth: []
+      summary: Approve or reject a pull request proposal
+      tags:
+      - spec-tasks
   /api/v1/spec-tasks/{spec_task_id}/stop-agent:
     post:
       description: Stop the running agent session for a spec task
@@ -28249,7 +28794,9 @@ paths:
       consumes:
       - application/json
       description: Archive a spec task to hide it from the main view, or unarchive
-        to restore it
+        to restore it. Archiving stops the task's agent and frees its sandbox by default
+        (stop_agent, default true); pass stop_agent=false for bookkeeping only. A
+        live agent mid-turn is never stopped unless stop_agent is sent explicitly.
       parameters:
       - description: Task ID
         in: path
@@ -28505,9 +29052,11 @@ paths:
       consumes:
       - application/json
       description: Replaces a task's planning or implementation code-agent configuration,
-        or its sandbox resource preset. Omitting phase updates the active phase. Running
-        sandboxes are resized in place and active code-agent changes start a fresh
-        ACP thread; stopped sandboxes and inactive phases record changes for later.
+        its sandbox resource preset, or its sandbox display. Display changes take
+        effect when the desktop next starts; sandbox_display_requires_restart reports
+        a running desktop. Omitting phase updates the active phase. Running sandboxes
+        are resized in place and active code-agent changes start a fresh ACP thread;
+        stopped sandboxes and inactive phases record changes for later.
       parameters:
       - description: SpecTask ID
         in: path
@@ -28538,6 +29087,78 @@ paths:
       security:
       - BearerAuth: []
       summary: Update task execution configuration
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/interactive-embed-model:
+    get:
+      description: Returns the current model and enabled models from the task's current
+        provider. Available only to an interactive embed key bound to the task's active
+        session.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.InteractiveEmbedModelResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get models available to an interactive task embed
+      tags:
+      - spec-driven-tasks
+    patch:
+      consumes:
+      - application/json
+      description: Changes only the model on the task's current code-agent configuration.
+        Available only to an interactive embed key bound to the task's active session.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Model selection
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.InteractiveEmbedModelUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.InteractiveEmbedModelResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update the model for an interactive task embed
       tags:
       - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/labels:
@@ -28741,6 +29362,11 @@ paths:
           detection
         in: query
         name: timezone
+        type: string
+      - description: Comma-separated browser languages (e.g., 'en-GB,en') - sets the
+          desktop browser's Accept-Language
+        in: query
+        name: languages
         type: string
       produces:
       - application/json

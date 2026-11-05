@@ -36,6 +36,10 @@ import (
 //
 // On failure it writes the HTTP error response and returns false. Returns true
 // if the id is a session OR a sandbox the caller is allowed to view.
+// desktopInputActivityInterval bounds how often viewer input on a desktop
+// stream refreshes the session's activity time (see InputActivity).
+const desktopInputActivityInterval = time.Minute
+
 func (apiServer *HelixAPIServer) authorizeDesktopID(res http.ResponseWriter, req *http.Request, id string) bool {
 	user := getRequestUser(req)
 	if user == nil {
@@ -1500,15 +1504,28 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	// re-grant input to an embed-key viewer.
 	streamInitReplay := proxy.NewStreamInitReplay()
 
-	// Create resilient proxy
-	resilientProxy := proxy.NewResilientProxy(proxy.ResilientProxyConfig{
+	proxyConfig := proxy.ResilientProxyConfig{
 		SessionID:   proxySessionID,
 		ClientConn:  clientConn,
 		ServerConn:  serverConn,
 		DialFunc:    dialFunc,
 		UpgradeFunc: upgradeFunc,
 		Replay:      streamInitReplay,
-	})
+	}
+	// Keyboard, mouse and touch input from the viewer counts as activity for the
+	// desktop idle checker, which otherwise only sees chat interactions and
+	// would stop a desktop someone is working in directly. Read-only viewers
+	// can't drive the desktop, so their input doesn't count.
+	if !desktopStreamIsReadOnly(req) {
+		proxyConfig.Activity = proxy.NewInputActivity(desktopInputActivityInterval, func() {
+			if err := apiServer.Store.TouchSession(context.Background(), sessionID); err != nil {
+				log.Debug().Err(err).Str("session_id", sessionID).Msg("failed to record desktop input activity")
+			}
+		})
+	}
+
+	// Create resilient proxy
+	resilientProxy := proxy.NewResilientProxy(proxyConfig)
 	defer resilientProxy.Close()
 
 	// Publish the proxy reference so that a subsequent supersede (above) can

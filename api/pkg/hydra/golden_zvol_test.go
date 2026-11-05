@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,11 @@ type mockZFS struct {
 	creationByDataset map[string]int64
 	// props holds ZFS user properties set via `zfs set`, per dataset.
 	props map[string]map[string]string
+	// remountAfterUmount simulates a session restart remounting a path
+	// right after it was unmounted.
+	remountAfterUmount map[string]bool
+	// origins tracks the snapshot each clone was created from.
+	origins map[string]string
 	// deviceDelay makes /dev/zvol/<dataset> missing for this many stats after
 	// the dataset exists (simulates udev lagging behind zfs create/rename).
 	// -1 = never appears.
@@ -86,7 +92,9 @@ func newMockZFS() *mockZFS {
 		snapshotsByDataset: make(map[string][]string),
 		failCommands:       make(map[string]error),
 		creationByDataset:  make(map[string]int64),
+		remountAfterUmount: make(map[string]bool),
 		props:              make(map[string]map[string]string),
+		origins:            make(map[string]string),
 		deviceDelay:        make(map[string]int),
 		deviceStats:        make(map[string]int),
 	}
@@ -264,6 +272,12 @@ func (m *mockZFS) handleZFS(args ...string) ([]byte, error) {
 			// zfs get -H -s local -o value <prop> <dataset>: no output when unset
 			return []byte(m.props[args[len(args)-1]][goldenPendingPromotionProp]), nil
 		}
+		if contains(args, "origin") {
+			if origin := m.origins[args[len(args)-1]]; origin != "" {
+				return []byte(origin), nil
+			}
+			return []byte("-"), nil
+		}
 		// zfs get -Hp -o value creation <dataset>
 		// Return the recorded creation unix-secs, or "now" if not set.
 		dataset := args[len(args)-1]
@@ -278,9 +292,14 @@ func (m *mockZFS) handleZFS(args ...string) ([]byte, error) {
 		if contains(args, "-t") && contains(args, "snapshot") && contains(args, "-r") {
 			// List snapshots for a dataset
 			dataset := args[len(args)-1]
-			snaps := m.snapshotsByDataset[dataset]
+			snaps := append([]string(nil), m.snapshotsByDataset[dataset]...)
 			if len(snaps) == 0 {
 				return []byte(""), nil
+			}
+			if contains(args, "name,used,refer") {
+				for i := range snaps {
+					snaps[i] += " 1 1"
+				}
 			}
 			return []byte(strings.Join(snaps, "\n")), nil
 		}
@@ -290,7 +309,21 @@ func (m *mockZFS) handleZFS(args ...string) ([]byte, error) {
 			var volumes []string
 			for ds := range m.datasets {
 				if strings.HasPrefix(ds, parent+"/") && !strings.Contains(ds, "@") {
-					volumes = append(volumes, ds)
+					line := ds
+					if contains(args, "name,origin") {
+						origin := m.origins[ds]
+						if origin == "" {
+							origin = "-"
+						}
+						line += " " + origin
+					} else if contains(args, "name,used,refer,origin") {
+						origin := m.origins[ds]
+						if origin == "" {
+							origin = "-"
+						}
+						line += " 1 1 " + origin
+					}
+					volumes = append(volumes, line)
 				}
 			}
 			return []byte(strings.Join(volumes, "\n")), nil
@@ -300,6 +333,13 @@ func (m *mockZFS) handleZFS(args ...string) ([]byte, error) {
 			dataset := args[len(args)-1]
 			if m.datasets[dataset] {
 				return []byte(dataset), nil
+			}
+			return nil, fmt.Errorf("dataset not found")
+		}
+		if contains(args, "name,used,refer") {
+			dataset := args[len(args)-1]
+			if m.datasets[dataset] {
+				return []byte(dataset + " 1 1"), nil
 			}
 			return nil, fmt.Errorf("dataset not found")
 		}
@@ -318,6 +358,7 @@ func (m *mockZFS) handleZFS(args ...string) ([]byte, error) {
 				return nil, fmt.Errorf("snapshot %s not found", snapshot)
 			}
 			m.datasets[clone] = true
+			m.origins[clone] = snapshot
 		}
 		return nil, nil
 
@@ -325,6 +366,7 @@ func (m *mockZFS) handleZFS(args ...string) ([]byte, error) {
 		target := args[len(args)-1]
 		delete(m.datasets, target)
 		delete(m.props, target)
+		delete(m.origins, target)
 		return nil, nil
 
 	case "set":
@@ -394,7 +436,7 @@ func (m *mockZFS) handleZFS(args ...string) ([]byte, error) {
 		return nil, nil
 
 	case "promote":
-		// Promote just records the command; the test verifies it was called
+		delete(m.origins, args[len(args)-1])
 		return nil, nil
 	}
 
@@ -409,7 +451,9 @@ func (m *mockZFS) handleSideEffects(name string, args ...string) {
 		}
 	case "umount":
 		target := args[len(args)-1]
-		delete(m.mountedPaths, target)
+		if !m.remountAfterUmount[target] {
+			delete(m.mountedPaths, target)
+		}
 	}
 }
 
@@ -428,13 +472,115 @@ func contains(slice []string, item string) bool {
 
 type GoldenZvolSuite struct {
 	suite.Suite
-	mock    *mockZFS
-	cleanup func()
-	tmpDir  string
+	mock               *mockZFS
+	cleanup            func()
+	tmpDir             string
+	oldSessionsBaseDir string
 }
 
 func TestGoldenZvolSuite(t *testing.T) {
 	suite.Run(t, new(GoldenZvolSuite))
+}
+
+func TestRealZFSPodmanGoldenLifecycle(t *testing.T) {
+	if os.Getenv("HELIX_TEST_REAL_ZFS") != "1" {
+		t.Skip("set HELIX_TEST_REAL_ZFS=1 to run against a real ZFS pool")
+	}
+	if runtime.GOOS != "linux" {
+		t.Fatal("real ZFS integration test requires Linux")
+	}
+	if os.Geteuid() != 0 {
+		t.Fatal("real ZFS integration test requires root")
+	}
+
+	resetZFSState()
+	t.Cleanup(resetZFSState)
+	poolRoot := detectPoolRoot()
+	require.NotEmpty(t, poolRoot, "could not detect the ZFS pool for CONTAINER_DOCKER_PATH")
+	zfsParentDataset = poolRoot + "/" + helixZvolsDatasetName
+	require.True(t, zfsDatasetExists(zfsParentDataset), "required parent dataset %s does not exist", zfsParentDataset)
+	zfsAvailableFlag = true
+	zfsAvailableOnce.Do(func() {})
+
+	unique := fmt.Sprintf("real-zfs-%d-%d", os.Getpid(), time.Now().UnixNano())
+	projectID := "prj-" + unique
+	buildSessionID := "build-" + unique
+	cloneSessionID := "clone-" + unique
+	buildDataset := sessionZvolNameForKind(buildSessionID, podmanGoldenCache)
+	goldenDataset := goldenZvolNameForKind(projectID, podmanGoldenCache)
+	cloneDataset := sessionZvolNameForKind(cloneSessionID, podmanGoldenCache)
+	buildMount := sessionZvolMountPathForKind(buildSessionID, podmanGoldenCache)
+	goldenMount := goldenZvolMountPathForKind(projectID, podmanGoldenCache)
+	cloneMount := sessionZvolMountPathForKind(cloneSessionID, podmanGoldenCache)
+	externalMarkerDir := filepath.Join(sessionsBaseDir, "docker-data-"+cloneSessionID)
+
+	for _, dataset := range []string{buildDataset, goldenDataset, cloneDataset} {
+		require.False(t, zfsDatasetExists(dataset), "refusing to use existing dataset %s", dataset)
+	}
+	for _, mountPath := range []string{buildMount, goldenMount, cloneMount} {
+		require.False(t, isMounted(mountPath), "refusing to use mounted path %s", mountPath)
+		_, err := os.Stat(mountPath)
+		require.ErrorIs(t, err, os.ErrNotExist, "refusing to use existing mount path %s", mountPath)
+	}
+	_, err := os.Stat(externalMarkerDir)
+	require.ErrorIs(t, err, os.ErrNotExist, "refusing to use existing marker path %s", externalMarkerDir)
+
+	t.Cleanup(func() {
+		for _, target := range []struct {
+			dataset string
+			mount   string
+		}{
+			{dataset: cloneDataset, mount: cloneMount},
+			{dataset: goldenDataset, mount: goldenMount},
+			{dataset: buildDataset, mount: buildMount},
+		} {
+			if isMounted(target.mount) {
+				if err := runCmd("umount", target.mount); err != nil {
+					t.Errorf("cleanup unmount %s: %v", target.mount, err)
+				}
+			}
+			if zfsDatasetExists(target.dataset) {
+				if err := runCmd("zfs", "destroy", "-r", target.dataset); err != nil {
+					t.Errorf("cleanup destroy %s: %v", target.dataset, err)
+				}
+			}
+			if isMounted(target.mount) {
+				t.Errorf("cleanup left mount active: %s", target.mount)
+			}
+			if zfsDatasetExists(target.dataset) {
+				t.Errorf("cleanup left dataset present: %s", target.dataset)
+			}
+			if err := os.Remove(target.mount); err != nil && !os.IsNotExist(err) {
+				t.Errorf("cleanup mount path %s: %v", target.mount, err)
+			}
+		}
+		if err := os.RemoveAll(externalMarkerDir); err != nil {
+			t.Errorf("cleanup marker path %s: %v", externalMarkerDir, err)
+		}
+		if _, err := os.Stat(externalMarkerDir); !os.IsNotExist(err) {
+			t.Errorf("cleanup left marker path present: %s", externalMarkerDir)
+		}
+	})
+
+	createdMount, err := createSessionZvolForKind(buildSessionID, podmanGoldenCache)
+	require.NoError(t, err)
+	require.Equal(t, buildMount, createdMount)
+	fixture := filepath.Join(createdMount, "buildkit", "cache.db")
+	require.NoError(t, os.MkdirAll(filepath.Dir(fixture), 0755))
+	require.NoError(t, os.WriteFile(fixture, []byte("podman-buildkit-cache"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(createdMount, ".golden-build-result"), []byte("0\n"), 0600))
+
+	require.NoError(t, promoteSessionToGoldenZvolForKind(projectID, buildSessionID, podmanGoldenCache))
+	require.False(t, zfsDatasetExists(buildDataset))
+	require.True(t, goldenZvolExistsForKind(projectID, podmanGoldenCache))
+
+	clonedMount, err := setupGoldenCloneForKind(projectID, cloneSessionID, podmanGoldenCache)
+	require.NoError(t, err)
+	require.Equal(t, cloneMount, clonedMount)
+	data, err := os.ReadFile(filepath.Join(clonedMount, "buildkit", "cache.db"))
+	require.NoError(t, err)
+	require.Equal(t, "podman-buildkit-cache", string(data))
+	require.NoFileExists(t, filepath.Join(clonedMount, ".golden-build-result"))
 }
 
 func (s *GoldenZvolSuite) SetupTest() {
@@ -452,9 +598,14 @@ func (s *GoldenZvolSuite) SetupTest() {
 	// Set up the ZFS parent dataset (simulates what ZFSAvailable() would set)
 	resetZFSState()
 	zfsParentDataset = "testpool/helix-zvols"
+
+	// Reapers read last-active markers; never let them see the host's.
+	s.oldSessionsBaseDir = sessionsBaseDir
+	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
 }
 
 func (s *GoldenZvolSuite) TearDownTest() {
+	sessionsBaseDir = s.oldSessionsBaseDir
 	s.cleanup()
 	os.RemoveAll(s.tmpDir)
 	goldenBaseDirOverride = ""
@@ -557,9 +708,117 @@ func (s *GoldenZvolSuite) TestNamingConventions() {
 	zfsParentDataset = "prod/helix-zvols"
 
 	assert.Equal(s.T(), "prod/helix-zvols/golden-prj_abc", goldenZvolName("prj_abc"))
+	assert.Equal(s.T(), "prod/helix-zvols/golden-podman-prj_abc", goldenZvolNameForKind("prj_abc", podmanGoldenCache))
+	assert.Equal(s.T(), "prod/helix-zvols/golden-rootless-docker-prj_abc", goldenZvolNameForKind("prj_abc", rootlessDockerGoldenCache))
 	assert.Equal(s.T(), "prod/helix-zvols/ses-ses_xyz", sessionZvolName("ses_xyz"))
+	assert.Equal(s.T(), "prod/helix-zvols/ses-podman-ses_xyz", sessionZvolNameForKind("ses_xyz", podmanGoldenCache))
+	assert.Equal(s.T(), "prod/helix-zvols/ses-rootless-docker-ses_xyz", sessionZvolNameForKind("ses_xyz", rootlessDockerGoldenCache))
 	assert.Equal(s.T(), "/container-docker/zvol-mounts/ses_xyz", sessionZvolMountPath("ses_xyz"))
+	assert.Equal(s.T(), "/container-docker/zvol-mounts/ses_xyz-podman", sessionZvolMountPathForKind("ses_xyz", podmanGoldenCache))
+	assert.Equal(s.T(), "/container-docker/zvol-mounts/ses_xyz-rootless-docker", sessionZvolMountPathForKind("ses_xyz", rootlessDockerGoldenCache))
+	assert.Equal(s.T(), "/container-docker/zvol-mounts/golden-prj_abc", goldenZvolMountPathForKind("prj_abc", dockerGoldenCache))
+	assert.Equal(s.T(), "/container-docker/zvol-mounts/golden-podman-prj_abc", goldenZvolMountPathForKind("prj_abc", podmanGoldenCache))
+	assert.Equal(s.T(), "/container-docker/zvol-mounts/golden-rootless-docker-prj_abc", goldenZvolMountPathForKind("prj_abc", rootlessDockerGoldenCache))
 	assert.Equal(s.T(), "/dev/zvol/prod/helix-zvols/golden-prj_abc", zvolDevPath("prod/helix-zvols/golden-prj_abc"))
+}
+
+func (s *GoldenZvolSuite) TestGetZFSTreeIncludesAllEngineGoldens() {
+	zfsAvailableOnce.Do(func() {})
+	zfsAvailableFlag = true
+	zfsParentDataset = "prod/helix-zvols"
+	for _, name := range []string{
+		"prod/helix-zvols/golden-prj_abc",
+		"prod/helix-zvols/golden-podman-prj_abc",
+		"prod/helix-zvols/golden-rootless-docker-prj_abc",
+	} {
+		s.mock.addDataset(name)
+		s.mock.addSnapshot(name, "gen1")
+	}
+
+	tree, err := GetZFSTree("prj_abc")
+	require.NoError(s.T(), err)
+	require.Len(s.T(), tree.Goldens, 3)
+	assert.Equal(s.T(), dockerGoldenCache, goldenCacheKind(tree.Goldens[0].CacheKind))
+	assert.Equal(s.T(), podmanGoldenCache, goldenCacheKind(tree.Goldens[1].CacheKind))
+	assert.Equal(s.T(), rootlessDockerGoldenCache, goldenCacheKind(tree.Goldens[2].CacheKind))
+	assert.Equal(s.T(), tree.Goldens[0], tree.Golden)
+}
+
+func (s *GoldenZvolSuite) TestGetZFSTreeIncludesPodmanOrphanWithoutGolden() {
+	zfsAvailableOnce.Do(func() {})
+	zfsAvailableFlag = true
+	zfsParentDataset = "prod/helix-zvols"
+	orphan := sessionZvolNameForKind("ses_orphan", podmanGoldenCache)
+	s.mock.addDataset(orphan)
+
+	tree, err := GetZFSTree("prj_abc")
+	require.NoError(s.T(), err)
+	require.Len(s.T(), tree.Orphans, 1)
+	assert.Equal(s.T(), orphan, tree.Orphans[0].Name)
+	assert.Equal(s.T(), string(podmanGoldenCache), tree.Orphans[0].CacheKind)
+}
+
+func (s *GoldenZvolSuite) TestDeleteGoldenRefusesRunningPodmanClone() {
+	zfsAvailableOnce.Do(func() {})
+	zfsAvailableFlag = true
+	zfsParentDataset = "prod/helix-zvols"
+	dockerGolden := "prod/helix-zvols/golden-prj_abc"
+	golden := "prod/helix-zvols/golden-podman-prj_abc"
+	clone := "prod/helix-zvols/ses-podman-ses_live"
+	s.mock.addDataset(dockerGolden)
+	s.mock.addSnapshot(dockerGolden, "gen1")
+	s.mock.addDataset(golden)
+	s.mock.addSnapshot(golden, "gen1")
+	s.mock.addDataset(clone)
+	s.mock.origins[clone] = golden + "@gen1"
+	s.mock.setMounted(sessionZvolMountPathForKind("ses_live", podmanGoldenCache))
+
+	err := DeleteGolden("prj_abc")
+	require.ErrorContains(s.T(), err, "running session")
+	assert.True(s.T(), s.mock.datasets[dockerGolden])
+	assert.True(s.T(), s.mock.datasets[golden])
+}
+
+func (s *GoldenZvolSuite) TestDiscardFailedPodmanGoldenBuildKeepsDockerSessionZvol() {
+	zfsAvailableOnce.Do(func() {})
+	zfsAvailableFlag = true
+	zfsParentDataset = "prod/helix-zvols"
+	dockerZvol := sessionZvolNameForKind("ses_same", dockerGoldenCache)
+	podmanZvol := sessionZvolNameForKind("ses_same", podmanGoldenCache)
+	s.mock.addDataset(dockerZvol)
+	s.mock.addDataset(podmanZvol)
+
+	discardGoldenBuildData("ses_same", podmanGoldenCache)
+	assert.True(s.T(), s.mock.datasets[dockerZvol])
+	assert.False(s.T(), s.mock.datasets[podmanZvol])
+}
+
+func (s *GoldenZvolSuite) TestDiscardFailedPodmanGoldenBuildKeepsDockerSessionDir() {
+	originalSessionsBaseDir := sessionsBaseDir
+	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
+	s.T().Cleanup(func() { sessionsBaseDir = originalSessionsBaseDir })
+	dockerDir := filepath.Join(sessionOverlayDir("docker-data-ses_same"), string(dockerGoldenCache))
+	podmanDir := filepath.Join(sessionOverlayDir("docker-data-ses_same"), string(podmanGoldenCache))
+	require.NoError(s.T(), os.MkdirAll(dockerDir, 0755))
+	require.NoError(s.T(), os.MkdirAll(podmanDir, 0755))
+
+	discardGoldenBuildData("ses_same", podmanGoldenCache)
+	require.DirExists(s.T(), dockerDir)
+	require.NoDirExists(s.T(), podmanDir)
+}
+
+func (s *GoldenZvolSuite) TestFlattenInvertedPodmanGoldenUsesPodmanIdentity() {
+	zfsAvailableOnce.Do(func() {})
+	zfsAvailableFlag = true
+	zfsParentDataset = "prod/helix-zvols"
+	golden := "prod/helix-zvols/golden-podman-prj_abc"
+	s.mock.addDataset(golden)
+	s.mock.origins[golden] = "prod/helix-zvols/ses-podman-ses_old@gen1"
+
+	flattened := FlattenInvertedGoldens(false)
+	require.Equal(s.T(), []string{golden}, flattened)
+	assert.True(s.T(), s.mock.hasCommand("zfs promote "+golden))
+	assert.False(s.T(), s.mock.hasCommand("zfs promote prod/helix-zvols/golden-podman-podman-prj_abc"))
 }
 
 // -----------------------------------------------------------------------
@@ -581,6 +840,93 @@ func (s *GoldenZvolSuite) TestSetupGoldenClone_Success() {
 	assert.True(s.T(), s.mock.hasCommand("mount -o nouuid"))
 	// Clone dataset should exist
 	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_001"])
+}
+
+func (s *GoldenZvolSuite) TestSetupGoldenClone_PodmanDoesNotUseDockerGolden() {
+	zfsParentDataset = "prod/helix-zvols"
+	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
+	s.mock.addSnapshot("prod/helix-zvols/golden-prj_abc", "gen9")
+	s.mock.addDataset("prod/helix-zvols/golden-podman-prj_abc")
+	s.mock.addSnapshot("prod/helix-zvols/golden-podman-prj_abc", "gen2")
+
+	_, err := setupGoldenCloneForKind("prj_abc", "ses_001", podmanGoldenCache)
+	require.NoError(s.T(), err)
+	assert.True(s.T(), s.mock.hasCommand("zfs clone prod/helix-zvols/golden-podman-prj_abc@gen2 prod/helix-zvols/ses-podman-ses_001"))
+	assert.False(s.T(), s.mock.hasCommand("zfs clone prod/helix-zvols/golden-prj_abc@gen9"))
+}
+
+func (s *GoldenZvolSuite) TestResolveDockerDataDirReusesLegacyPodmanSessionZvol() {
+	zfsAvailableOnce.Do(func() {})
+	zfsAvailableFlag = true
+	zfsParentDataset = "prod/helix-zvols"
+	legacyZvol := sessionZvolNameForKind("ses_legacy", dockerGoldenCache)
+	legacyDataDir := filepath.Join(sessionZvolMountPathForKind("ses_legacy", dockerGoldenCache), string(podmanGoldenCache))
+	s.mock.addDataset(legacyZvol)
+	originalExists := legacyPodmanDataDirExists
+	legacyPodmanDataDirExists = func(path string) bool { return path == legacyDataDir }
+	s.T().Cleanup(func() { legacyPodmanDataDirExists = originalExists })
+
+	path, found, err := legacyPodmanSessionDataDir("ses_legacy")
+	require.NoError(s.T(), err)
+	require.True(s.T(), found)
+	assert.Equal(s.T(), legacyDataDir, path)
+	assert.True(s.T(), s.mock.datasets[legacyZvol])
+	assert.False(s.T(), s.mock.datasets[sessionZvolNameForKind("ses_legacy", podmanGoldenCache)])
+}
+
+func (s *GoldenZvolSuite) TestResolveDockerDataDirUsesLegacyZvolRootForDocker() {
+	zfsAvailableOnce.Do(func() {})
+	zfsAvailableFlag = true
+	zfsParentDataset = "prod/helix-zvols"
+	legacyZvol := sessionZvolNameForKind("ses_legacy", dockerGoldenCache)
+	legacyMount := sessionZvolMountPathForKind("ses_legacy", dockerGoldenCache)
+	s.mock.addDataset(legacyZvol)
+	legacyChecked := false
+	originalExists := legacyPodmanDataDirExists
+	legacyPodmanDataDirExists = func(string) bool {
+		legacyChecked = true
+		return true
+	}
+	s.T().Cleanup(func() { legacyPodmanDataDirExists = originalExists })
+
+	dm := &DevContainerManager{}
+	path, err := dm.resolveDockerDataDir(&CreateDevContainerRequest{
+		SessionID: "ses_legacy",
+		ProjectID: "prj_abc",
+	}, "docker-data-ses_legacy")
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), legacyMount, path)
+	assert.False(s.T(), legacyChecked)
+	assert.True(s.T(), s.mock.hasCommand("mount -o nouuid,discard "))
+	assert.False(s.T(), s.mock.hasCommand("zfs clone"))
+	assert.False(s.T(), s.mock.hasCommand("zfs destroy"))
+}
+
+func (s *GoldenZvolSuite) TestResolveDockerDataDirKeepsExplicitPodmanSessionZvolSeparate() {
+	zfsAvailableOnce.Do(func() {})
+	zfsAvailableFlag = true
+	zfsParentDataset = "prod/helix-zvols"
+	s.mock.addDataset(sessionZvolNameForKind("ses_both", dockerGoldenCache))
+	podmanZvol := sessionZvolNameForKind("ses_both", podmanGoldenCache)
+	s.mock.addDataset(podmanZvol)
+	legacyChecked := false
+	originalExists := legacyPodmanDataDirExists
+	legacyPodmanDataDirExists = func(string) bool {
+		legacyChecked = true
+		return true
+	}
+	s.T().Cleanup(func() { legacyPodmanDataDirExists = originalExists })
+
+	dm := &DevContainerManager{}
+	path, err := dm.resolveDockerDataDir(&CreateDevContainerRequest{
+		SessionID:       "ses_both",
+		ProjectID:       "prj_abc",
+		DesktopRootless: true,
+	}, "docker-data-ses_both")
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), sessionZvolMountPathForKind("ses_both", rootlessDockerGoldenCache), path)
+	assert.False(s.T(), legacyChecked)
+	assert.True(s.T(), s.mock.datasets[podmanZvol])
 }
 
 func (s *GoldenZvolSuite) TestSetupGoldenClone_ReuseExisting() {
@@ -788,6 +1134,17 @@ func (s *GoldenZvolSuite) TestPromoteFirstGolden() {
 	assert.False(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_001"])
 }
 
+func (s *GoldenZvolSuite) TestPromoteFirstPodmanGolden() {
+	zfsParentDataset = "prod/helix-zvols"
+	s.mock.addDataset("prod/helix-zvols/ses-podman-ses_001")
+
+	err := promoteSessionToGoldenZvolForKind("prj_abc", "ses_001", podmanGoldenCache)
+	require.NoError(s.T(), err)
+	assert.True(s.T(), s.mock.hasCommand("zfs rename prod/helix-zvols/ses-podman-ses_001 prod/helix-zvols/golden-podman-prj_abc"))
+	assert.True(s.T(), s.mock.hasCommand("zfs snapshot prod/helix-zvols/golden-podman-prj_abc@gen1"))
+	assert.False(s.T(), s.mock.datasets["prod/helix-zvols/golden-prj_abc"])
+}
+
 func (s *GoldenZvolSuite) TestPromoteSecondGolden() {
 	zfsParentDataset = "prod/helix-zvols"
 	// Existing golden with gen1 snapshot
@@ -871,6 +1228,18 @@ func (s *GoldenZvolSuite) TestCreateSessionZvol_AlreadyExistsAndMounted() {
 	assert.False(s.T(), s.mock.hasCommand("mkfs.xfs"))
 }
 
+func (s *GoldenZvolSuite) TestCreateSessionZvol_AlreadyExistsAndUnmountedUsesNouuid() {
+	zfsParentDataset = "prod/helix-zvols"
+	s.mock.addDataset("prod/helix-zvols/ses-ses_001")
+
+	path, err := CreateSessionZvol("ses_001")
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "/container-docker/zvol-mounts/ses_001", path)
+	assert.True(s.T(), s.mock.hasCommand("mount -o nouuid,discard /dev/zvol/prod/helix-zvols/ses-ses_001"))
+	assert.False(s.T(), s.mock.hasCommand("zfs create"))
+	assert.False(s.T(), s.mock.hasCommand("mkfs.xfs"))
+}
+
 func (s *GoldenZvolSuite) TestCreateSessionZvol_FormatFailsCleansUp() {
 	zfsParentDataset = "prod/helix-zvols"
 	s.mock.failOn("mkfs.xfs", fmt.Errorf("device not ready"))
@@ -939,88 +1308,32 @@ func (s *GoldenZvolSuite) TestSeedZvol_GoldenDirNotFound() {
 	assert.Contains(s.T(), err.Error(), "not found")
 }
 
-// -----------------------------------------------------------------------
-// GCOrphanedZvols
-// -----------------------------------------------------------------------
-
-func (s *GoldenZvolSuite) TestGCOrphanedZvols_CleansOrphans() {
-	zfsParentDataset = "prod/helix-zvols"
+// The 10-minute housekeeping used to destroy the zvol and docker data of any
+// session hydra wasn't tracking once its marker was 7 days old — or at once if
+// the marker was missing. Hydra forgets every stopped desktop on restart, so a
+// Keep Alive session paused for a week lost its data, ignoring the database
+// and the 30-day grace ReconcileGC applies. Session data is now only reaped by
+// ReconcileGC.
+func (s *GoldenZvolSuite) TestMaintainGoldenCachesNeverReapsSessionData() {
+	s.T().Setenv("CONTAINER_DOCKER_PATH", s.tmpDir)
 	zfsAvailableFlag = true
-
-	// Override sessionsBaseDir to use temp dir for external markers
 	oldSessionsBaseDir := sessionsBaseDir
 	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
 	defer func() { sessionsBaseDir = oldSessionsBaseDir }()
 
-	// Active session
-	s.mock.addDataset("prod/helix-zvols/ses-ses_active")
-	// Orphaned session with stale external marker (>7 days old)
-	s.mock.addDataset("prod/helix-zvols/ses-ses_orphan")
-	orphanMarkerDir := filepath.Join(sessionsBaseDir, "docker-data-ses_orphan")
-	require.NoError(s.T(), os.MkdirAll(orphanMarkerDir, 0755))
-	staleTime := time.Now().Add(-8 * 24 * time.Hour).Format(time.RFC3339)
-	require.NoError(s.T(), os.WriteFile(filepath.Join(orphanMarkerDir, ".last-active"), []byte(staleTime), 0644))
-	// Golden (should not be touched)
-	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
+	s.mock.addDataset(zfsParentDataset + "/ses-ses_paused")
+	s.mock.addDataset(zfsParentDataset + "/ses-ses_no_marker")
+	pausedDir := filepath.Join(sessionsBaseDir, "docker-data-ses_paused")
+	require.NoError(s.T(), os.MkdirAll(pausedDir, 0755))
+	weekOld := time.Now().Add(-8 * 24 * time.Hour)
+	require.NoError(s.T(), os.WriteFile(filepath.Join(pausedDir, ".last-active"), []byte(weekOld.Format(time.RFC3339)), 0644))
+	require.NoError(s.T(), os.Chtimes(pausedDir, weekOld, weekOld))
 
-	active := map[string]bool{"ses_active": true}
+	maintainGoldenCaches()
 
-	cleaned, err := GCOrphanedZvols(active)
-	require.NoError(s.T(), err)
-	assert.Equal(s.T(), 1, cleaned)
-
-	// Orphan should be destroyed (recursive — see CleanupSessionZvol doc-comment)
-	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_orphan"))
-	// Active should NOT be destroyed
-	assert.False(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_active"))
-	// Golden should NOT be destroyed
-	assert.False(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/golden-prj_abc"))
-}
-
-func (s *GoldenZvolSuite) TestGCOrphanedZvols_KeepsRecentInactive() {
-	zfsParentDataset = "prod/helix-zvols"
-	zfsAvailableFlag = true
-
-	s.mock.addDataset("prod/helix-zvols/ses-ses_recent")
-	// Use temp dir as mount point and write recent .last-active marker
-	mountPath := filepath.Join(s.tmpDir, "ses_recent")
-	require.NoError(s.T(), os.MkdirAll(mountPath, 0755))
-	s.mock.setMounted(mountPath)
-	require.NoError(s.T(), os.WriteFile(
-		filepath.Join(mountPath, ".last-active"),
-		[]byte("2026-03-16T12:00:00Z"), // recent
-		0644,
-	))
-
-	// Override sessionZvolMountPath to use our temp dir
-	// The GC function calls sessionZvolMountPath which uses the const zvolMountBase.
-	// Since we can't override it, the mount path won't match. Instead, test
-	// that the GC correctly skips active sessions (simpler, still validates logic).
-	active := map[string]bool{"ses_recent": true}
-
-	cleaned, err := GCOrphanedZvols(active)
-	require.NoError(s.T(), err)
-	assert.Equal(s.T(), 0, cleaned, "should keep active zvol")
-}
-
-func (s *GoldenZvolSuite) TestGCOrphanedZvols_CleansNoMarker() {
-	zfsParentDataset = "prod/helix-zvols"
-	zfsAvailableFlag = true
-
-	// Override sessionsBaseDir to use temp dir (no markers will exist)
-	oldSessionsBaseDir := sessionsBaseDir
-	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
-	defer func() { sessionsBaseDir = oldSessionsBaseDir }()
-
-	// Session with no marker and no running container — should be GC'd
-	s.mock.addDataset("prod/helix-zvols/ses-ses_no_marker")
-
-	active := map[string]bool{} // nothing running
-
-	cleaned, err := GCOrphanedZvols(active)
-	require.NoError(s.T(), err)
-	assert.Equal(s.T(), 1, cleaned)
-	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_no_marker"))
+	assert.True(s.T(), s.mock.datasets[zfsParentDataset+"/ses-ses_paused"])
+	assert.True(s.T(), s.mock.datasets[zfsParentDataset+"/ses-ses_no_marker"])
+	assert.DirExists(s.T(), pausedDir)
 }
 
 // -----------------------------------------------------------------------
@@ -1508,17 +1821,6 @@ func (s *GoldenZvolSuite) TestGetGoldenSize_FallsBackToFileCopy() {
 }
 
 // -----------------------------------------------------------------------
-// monitorGoldenBuild result file paths
-// -----------------------------------------------------------------------
-
-func (s *GoldenZvolSuite) TestMonitorGoldenBuild_ZvolResultPath() {
-	// Verify the zvol result path is correct
-	sessionID := "ses_abc123"
-	expected := filepath.Join(zvolMountBase, sessionID, ".golden-build-result")
-	assert.Equal(s.T(), "/container-docker/zvol-mounts/ses_abc123/.golden-build-result", expected)
-}
-
-// -----------------------------------------------------------------------
 // Cleanup uses correct path per storage type
 // -----------------------------------------------------------------------
 
@@ -1719,4 +2021,251 @@ func (s *GoldenZvolSuite) TestReconcileOrphanZvols_DryRunIssuesNoDestroy() {
 	// Dry run: NO destroy issued, dataset still present.
 	assert.False(s.T(), s.mock.hasCommand("zfs destroy"))
 	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_orphan"])
+}
+
+// Sandbox-API desktops (sbx_) use the session naming scheme for their zvols
+// but are never in the session live set, so the session reaper would destroy
+// a sandbox still alive in its own lifecycle once it passed grace.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_NeverReapsSandboxAPIZvols() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	s.mock.addDataset("prod/helix-zvols/ses-sbx_api")
+	s.mock.setCreationAge("prod/helix-zvols/ses-sbx_api", 8*time.Hour)
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Equal(s.T(), "not a session", skipped[0].Reason)
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-sbx_api"])
+}
+
+// A stopped desktop keeps its zvol mounted for a warm restart, so the reaper
+// must unmount an idle one and reap it — skipping every mounted zvol leaked
+// dead sessions' disks until the sandbox restarted. A mount something still
+// holds fails the plain unmount and is kept; the lazy unmount the explicit
+// destroy path falls back to must never run here.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_MountedZvols() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	for _, kind := range goldenCacheKinds {
+		for _, busy := range []bool{false, true} {
+			s.Run(fmt.Sprintf("%s busy=%v", kind, busy), func() {
+				s.SetupTest()
+				defer s.TearDownTest()
+				zfsParentDataset = "prod/helix-zvols"
+				zfsAvailableFlag = true
+				zvol := sessionZvolNameForKind("ses_stopped", kind)
+				mountPath := sessionZvolMountPathForKind("ses_stopped", kind)
+				s.mock.addDataset(zvol)
+				s.mock.setCreationAge(zvol, 8*time.Hour)
+				s.mock.setMounted(mountPath)
+				if busy {
+					s.mock.failOn("umount "+mountPath, fmt.Errorf("target is busy"))
+				}
+
+				reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+				assert.False(s.T(), s.mock.hasCommand("umount -l"))
+				if busy {
+					assert.Empty(s.T(), reaped)
+					require.Len(s.T(), skipped, 1)
+					assert.Contains(s.T(), skipped[0].Reason, "busy")
+					assert.True(s.T(), s.mock.datasets[zvol])
+					return
+				}
+				assert.Equal(s.T(), []string{zvol}, reaped)
+				assert.False(s.T(), s.mock.datasets[zvol])
+			})
+		}
+	}
+}
+
+// A mark that cannot be read must keep the zvol, exactly like a readable one:
+// simplifying the guard to `if pending` would reap it.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_KeepsAZvolWithUnreadablePromotionState() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	s.mock.addDataset("prod/helix-zvols/ses-ses_unknown")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_unknown", 8*time.Hour)
+	s.mock.failOn("zfs get -H -s local -o value "+goldenPendingPromotionProp, fmt.Errorf("pool I/O error"))
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Contains(s.T(), skipped[0].Reason, "promotion state unknown")
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_unknown"])
+}
+
+// A promotion interrupted between `zfs promote` and `zfs rename` leaves the
+// newest golden build on the session clone, marked pending. Reaping it would
+// lose that build.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_KeepsAPendingPromotion() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	s.mock.addDataset("prod/helix-zvols/ses-ses_build")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_build", 8*time.Hour)
+	s.mock.props["prod/helix-zvols/ses-ses_build"] = map[string]string{goldenPendingPromotionProp: "3,ses_build"}
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Equal(s.T(), "pending golden promotion", skipped[0].Reason)
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_build"])
+}
+
+// A failed listing must show in the report: an empty result reads as "host
+// is clean" while disk leaks.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_ReportsAListingFailure() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	s.mock.failOn("zfs list -H -o name -t volume", fmt.Errorf("pool suspended"))
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Contains(s.T(), skipped[0].Reason, "list error")
+}
+
+// ReconcileOrphanFileCopyDirs is the only reaper of inner docker data on hosts
+// without ZFS. Each case names the regression it catches.
+func TestReconcileOrphanFileCopyDirs(t *testing.T) {
+	old := time.Now().Add(-48 * time.Hour)
+	for _, tc := range []struct {
+		name       string
+		dir        string
+		live       bool
+		freshMark  bool
+		oldMtime   bool
+		dryRun     bool
+		wantReaped bool
+		wantReason string
+	}{
+		// A marker-only age would leak marker-less (crashed) dirs forever.
+		{name: "dead, no marker, old", dir: "docker-data-ses_a", oldMtime: true, wantReaped: true},
+		// An mtime-only age would reap a session that stopped a minute ago.
+		{name: "dead, fresh marker", dir: "docker-data-ses_b", oldMtime: true, freshMark: true, wantReason: "grace"},
+		{name: "live", dir: "docker-data-ses_c", live: true, oldMtime: true, wantReason: "live"},
+		// The rootless prefix must not be parsed as docker-data-.
+		{name: "rootless, dead, old", dir: "rootless-docker-data-ses_d", oldMtime: true, wantReaped: true},
+		// Sandbox-API data is not the session reaper's to remove.
+		{name: "sandbox api", dir: "docker-data-sbx_e", oldMtime: true, wantReason: "not a session"},
+		{name: "empty id", dir: "docker-data-", oldMtime: true, wantReason: "not a session"},
+		{name: "dry run", dir: "docker-data-ses_f", oldMtime: true, dryRun: true, wantReaped: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := t.TempDir()
+			oldBase := sessionsBaseDir
+			sessionsBaseDir = base
+			t.Cleanup(func() { sessionsBaseDir = oldBase })
+			dir := filepath.Join(base, tc.dir)
+			require.NoError(t, os.MkdirAll(dir, 0755))
+			if tc.freshMark {
+				TouchSessionLastActive(dir)
+			}
+			if tc.oldMtime {
+				require.NoError(t, os.Chtimes(dir, old, old))
+			}
+			id, _ := sessionIDFromContainerDataDir(tc.dir)
+
+			reaped, skipped := ReconcileOrphanFileCopyDirs(map[string]bool{id: tc.live}, time.Hour, tc.dryRun)
+
+			if tc.wantReaped {
+				assert.Equal(t, []string{dir}, reaped)
+				if tc.dryRun {
+					assert.DirExists(t, dir)
+				} else {
+					assert.NoDirExists(t, dir)
+				}
+				return
+			}
+			assert.Empty(t, reaped)
+			require.Len(t, skipped, 1)
+			assert.Equal(t, tc.wantReason, skipped[0].Reason)
+			assert.DirExists(t, dir)
+		})
+	}
+}
+
+// A zvol's creation age has always passed grace once a long session leaves
+// the live set, so creation alone gave a dropped session no grace at all.
+// The last-active marker restarts the clock, as it does for file-copy dirs.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_GraceRunsFromLastActivity() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	oldSessionsBaseDir := sessionsBaseDir
+	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
+	defer func() { sessionsBaseDir = oldSessionsBaseDir }()
+	s.mock.addDataset("prod/helix-zvols/ses-ses_longrun")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_longrun", 60*24*time.Hour)
+	marker := filepath.Join(sessionsBaseDir, "docker-data-ses_longrun")
+	require.NoError(s.T(), os.MkdirAll(marker, 0755))
+	TouchSessionLastActive(marker)
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Equal(s.T(), "grace", skipped[0].Reason)
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_longrun"])
+}
+
+// The reaper unmounts, then destroys. A session restarting in between
+// remounts the zvol; the reaper must leave it (the destroy fails busy) and
+// never unmount again, least of all lazily under a running desktop.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_NeverUnmountsARemountedZvol() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	zvol := "prod/helix-zvols/ses-ses_resumed"
+	mountPath := sessionZvolMountPathForKind("ses_resumed", dockerGoldenCache)
+	s.mock.addDataset(zvol)
+	s.mock.setCreationAge(zvol, 8*time.Hour)
+	s.mock.setMounted(mountPath)
+	s.mock.remountAfterUmount[mountPath] = true
+	s.mock.failOn("zfs destroy -r "+zvol, fmt.Errorf("cannot destroy '%s': dataset is busy", zvol))
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Contains(s.T(), skipped[0].Reason, "busy")
+	assert.Len(s.T(), s.mock.commandsMatching("umount"), 1)
+	assert.True(s.T(), s.mock.datasets[zvol])
+}
+
+// An unreadable creation time keeps the zvol, under its own reason so a leak
+// it causes can be attributed.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_KeepsAZvolOfUnknownAge() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	s.mock.addDataset("prod/helix-zvols/ses-ses_noage")
+	s.mock.failOn("zfs get -Hp -o value creation", fmt.Errorf("pool I/O error"))
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Equal(s.T(), "age unknown", skipped[0].Reason)
+}
+
+// A dry run previews reaping; it must not unmount a stopped desktop's zvol,
+// which would cost it the warm restart.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_DryRunNeverUnmounts() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	zvol := "prod/helix-zvols/ses-ses_preview"
+	mountPath := sessionZvolMountPathForKind("ses_preview", dockerGoldenCache)
+	s.mock.addDataset(zvol)
+	s.mock.setCreationAge(zvol, 8*time.Hour)
+	s.mock.setMounted(mountPath)
+
+	reaped, _ := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, true)
+
+	assert.Equal(s.T(), []string{zvol}, reaped)
+	assert.Empty(s.T(), s.mock.commandsMatching("umount"))
+	assert.True(s.T(), isMounted(mountPath))
+	assert.True(s.T(), s.mock.datasets[zvol])
 }

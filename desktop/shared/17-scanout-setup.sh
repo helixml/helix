@@ -5,5 +5,9 @@
 if [ "${HELIX_HEADLESS}" != "1" ] && [ "${GPU_VENDOR}" = "virtio" ] && [ ! -S /var/run/dbus/system_bus_socket ]; then
     echo "**** Starting system D-Bus for scanout mode ****"
     mkdir -p /var/run/dbus
-    dbus-daemon --system --fork 2>/dev/null && echo "System D-Bus started" || { echo "FATAL: Failed to start system D-Bus"; exit 1; }
+    dbus_privileges=()
+    if [ "${HELIX_DESKTOP_ROOTLESS:-0}" = "1" ]; then
+        dbus_privileges=(setpriv --bounding-set=-sys_admin --)
+    fi
+    "${dbus_privileges[@]}" dbus-daemon --system --fork 2>/dev/null && echo "System D-Bus started" || { echo "FATAL: Failed to start system D-Bus"; exit 1; }
 fi

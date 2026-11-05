@@ -307,6 +307,15 @@ func GenerateZedMCPConfig(
 		},
 	}
 
+	// Visualization MCP server: html_render, which publishes an HTML page inline
+	// in this session's chat. Kept for every bot instance profile.
+	config.ContextServers[types.MCPServerHelixViz] = ContextServerConfig{
+		URL: fmt.Sprintf("%s/api/v1/mcp/%s?session_id=%s", helixAPIURL, types.MCPBackendVisualization, sessionID),
+		Headers: map[string]string{
+			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+		},
+	}
+
 	// 5. Add Chrome DevTools MCP server for browser automation and debugging
 	// Provides 26 tools for browser control: navigation, DOM/CSS inspection, performance tracing,
 	// console access, network analysis, and input automation.
@@ -906,6 +915,7 @@ func (c *ZedMCPConfig) ApplyBotInstanceProfile(profile *types.BotInstanceProfile
 		keep[SanitizeMCPName(name)] = true
 	}
 	keep[types.InstanceMCPServerHelixOrg] = len(profile.Tools) > 0
+	keep[types.MCPServerHelixViz] = true
 	for name := range c.ContextServers {
 		if !keep[name] {
 			delete(c.ContextServers, name)

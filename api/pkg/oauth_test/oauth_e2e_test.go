@@ -223,7 +223,7 @@ paths:
 					ID:       "test-assistant",
 					Name:     "Test Assistant",
 					Provider: "togetherai",
-					Model:    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+					Model:    "openai/gpt-oss-120b",
 					APIs:     []types.AssistantAPI{githubTool},
 				},
 			},
@@ -336,7 +336,7 @@ paths:
 
 		// Create a simple chat completion request without any OpenAI tool specifications
 		chatCompletionRequest := oai.ChatCompletionRequest{
-			Model:  "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+			Model:  "openai/gpt-oss-120b",
 			Stream: true,
 			Messages: []oai.ChatCompletionMessage{
 				{

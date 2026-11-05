@@ -22,6 +22,19 @@ describe('applyPatch', () => {
   it('truncates when the content got shorter', () => {
     expect(applyPatch('Hello world', 5, ' you', 9)).toBe('Hello you')
   })
+
+  // Older API builds serialized patch_offset/patch/total_length with
+  // omitempty, so a rewrite from offset 0 arrived with patch_offset
+  // undefined. Treating that as an append produced old content + the new
+  // text's prefix — corruption that hasLostBaseline cannot detect.
+  it('treats an undefined offset as a rewrite from 0, not an append', () => {
+    expect(applyPatch('Hello world', undefined, 'Goodbye', 7)).toBe('Goodbye')
+  })
+
+  it('handles undefined patch and total_length', () => {
+    expect(applyPatch('Hello', 5, undefined, undefined)).toBe('Hello')
+    expect(applyPatch('Hello', 5, ' world', undefined)).toBe('Hello world')
+  })
 })
 
 describe('hasPatchGap', () => {
@@ -146,6 +159,15 @@ describe('hasLostBaseline', () => {
         [{ index: 0, patch_offset: 5, message_id: 'msg-b' }],
       ),
     ).toBe(true)
+  })
+
+  it('accepts a full replacement when transcript ordering shifts an entry', () => {
+    expect(
+      hasLostBaseline(
+        [{ content: 'new answer', message_id: '4' }],
+        [{ index: 0, patch_offset: 0, message_id: '2' }],
+      ),
+    ).toBe(false)
   })
 
   it('does not cry drift when a message_id is not yet known on either side', () => {

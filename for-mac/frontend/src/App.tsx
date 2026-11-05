@@ -18,6 +18,7 @@ import {
   CheckForUpdate,
   StartVM,
   SetCursor,
+  SetWindowTheme,
   SetClipboardImagePNG,
   GetClipboardImagePNG,
   DownloadVMUpdate,
@@ -240,6 +241,12 @@ export function App() {
       setVmUpdateReady(true);
     });
 
+    EventsOn("update:vm-applied", () => {
+      setVmUpdateAvailable(null);
+      setVmUpdateProgress(null);
+      setVmUpdateReady(false);
+    });
+
     EventsOn("update:combined-progress", (progress: any) => {
       if (progress?.error) {
         setCombinedUpdateProgress(null);
@@ -261,6 +268,17 @@ export function App() {
         setAutoLoginURL(loginURL);
       }
     });
+
+    // Unless the Helix UI reports an override, follow macOS: keep the window
+    // background in step with the system appearance.
+    const systemTheme = window.matchMedia('(prefers-color-scheme: light)');
+    const followSystemTheme = () => {
+      if (!document.documentElement.dataset.theme) {
+        SetWindowTheme(systemTheme.matches ? 'light' : 'dark');
+      }
+    };
+    followSystemTheme();
+    systemTheme.addEventListener('change', followSystemTheme);
 
     // Listen for messages from the Helix iframe
     const handleMessage = (event: MessageEvent) => {
@@ -285,6 +303,18 @@ export function App() {
         } else if (typeof event.data.text === 'string') {
           ClipboardSetText(event.data.text);
         }
+      }
+      // Theme bridge: the Helix UI follows macOS (it sees prefers-color-scheme
+      // directly) unless the user overrode it with its theme toggle. It reports
+      // the mode in effect and whether it is an override; our chrome follows.
+      if (event.data?.type === 'helix:theme' &&
+          (event.data.mode === 'light' || event.data.mode === 'dark')) {
+        if (event.data.explicit === true) {
+          document.documentElement.dataset.theme = event.data.mode;
+        } else {
+          delete document.documentElement.dataset.theme;
+        }
+        SetWindowTheme(event.data.mode);
       }
       // Cursor bridge: WKWebView doesn't render CSS resize cursors from
       // cross-origin iframes. The iframe detects cursor changes and we
@@ -338,9 +368,11 @@ export function App() {
       EventsOff("update:vm-progress");
       EventsOff("update:vm-available");
       EventsOff("update:vm-ready");
+      EventsOff("update:vm-applied");
       EventsOff("update:combined-progress");
       EventsOff("update:combined-ready");
       window.removeEventListener('message', handleMessage);
+      systemTheme.removeEventListener('change', followSystemTheme);
     };
   }, []);
 
@@ -416,10 +448,6 @@ export function App() {
           className={`titlebar${isFullscreen ? " fullscreen" : ""}`}
           onDoubleClick={WindowToggleMaximise}
         >
-          <div className="titlebar-logo">
-            <img src="/helix-logo.png" alt="Helix" />
-            <span>Helix</span>
-          </div>
           <div className="titlebar-spacer" />
         </header>
         <main className="content">
@@ -443,11 +471,6 @@ export function App() {
         className={`titlebar${isFullscreen ? " fullscreen" : ""}`}
         onDoubleClick={WindowToggleMaximise}
       >
-        <div className="titlebar-logo">
-          <img src="/helix-logo.png" alt="Helix" />
-          <span>Helix</span>
-        </div>
-
         <div
           className="titlebar-status"
           onDoubleClick={(e) => e.stopPropagation()}
@@ -693,9 +716,15 @@ export function App() {
           onClick={() => BrowserOpenURL("https://helix.ml/docs/on-prem")}
           title="Deploy Helix on your own infrastructure"
         >
-          <span className="upsell-sparkle">&#x2728;</span>
+          {/* Lucide "sparkles", drawn in the pill's text colour so it follows the theme */}
+          <svg className="upsell-sparkle" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+            <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+              <path d="M20 3v4M22 5h-4M4 17v2M5 18H3" />
+            </g>
+          </svg>
           Deploy for your team &mdash; your infra, your IP
-          <svg viewBox="0 0 16 16" width="12" height="12">
+          <svg className="upsell-chevron" viewBox="0 0 16 16" width="12" height="12">
             <path
               d="M5 3l6 5-6 5"
               fill="none"

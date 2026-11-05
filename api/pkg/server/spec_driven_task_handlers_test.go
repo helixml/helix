@@ -35,6 +35,68 @@ func TestCreateTaskFromPromptRejectsLegacyAgentFields(t *testing.T) {
 	require.Contains(t, response.Body.String(), "code_agent_config")
 }
 
+// TST-01-193: traversal- and option-shaped branch refs must be rejected before
+// the task is persisted. The mock store has no CreateSpecTask expectation, so
+// any attempt to store the task fails the test.
+func TestCreateTaskFromPromptRejectsInvalidBranchRefs(t *testing.T) {
+	tests := []struct {
+		name  string
+		body  string
+		field string
+	}{
+		{
+			name:  "pentest PoC",
+			body:  `{"project_id":"project1","name":"t","prompt":"x","base_branch":"../../main","branch_prefix":"../../../evil","branch_mode":"new","auto_start":false}`,
+			field: "base_branch",
+		},
+		{
+			name:  "traversal branch prefix",
+			body:  `{"project_id":"project1","prompt":"x","branch_prefix":"../../../evil","branch_mode":"new"}`,
+			field: "branch_prefix",
+		},
+		{
+			name:  "option-shaped base branch",
+			body:  `{"project_id":"project1","prompt":"x","base_branch":"--orphan"}`,
+			field: "base_branch",
+		},
+		{
+			name:  "option-shaped working branch",
+			body:  `{"project_id":"project1","prompt":"x","branch_mode":"existing","working_branch":"-D"}`,
+			field: "working_branch",
+		},
+		{
+			name:  "absolute path base branch",
+			body:  `{"project_id":"project1","prompt":"x","base_branch":"/etc/passwd"}`,
+			field: "base_branch",
+		},
+		{
+			name:  "whitespace in base branch",
+			body:  `{"project_id":"project1","prompt":"x","base_branch":"main --force"}`,
+			field: "base_branch",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			server := &HelixAPIServer{Store: mockStore}
+			user := types.User{ID: "user1"}
+			project := &types.Project{ID: "project1", UserID: user.ID}
+			mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/from-prompt", bytes.NewBufferString(tt.body))
+			req = req.WithContext(setRequestUser(req.Context(), user))
+			response := httptest.NewRecorder()
+
+			server.createTaskFromPrompt(response, req)
+
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			require.Contains(t, response.Body.String(), "invalid "+tt.field)
+		})
+	}
+}
+
 func TestSpecTaskProviderPreflightHandlers(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -315,4 +377,26 @@ func TestBatchTaskProgressExcludesPreparingTasks(t *testing.T) {
 	server.getBatchTaskProgress(response, req)
 
 	require.Equal(t, http.StatusOK, response.Code)
+}
+
+func TestPopulateQueueReasonsUsesProImplementationLimit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	ctx := context.Background()
+	project := &types.Project{ID: "project", OrganizationID: "org"}
+	queued := &types.SpecTask{ID: "queued", ProjectID: project.ID, Status: types.TaskStatusQueuedImplementation}
+	projectTasks := make([]*types.SpecTask, 30, 31)
+	for i := range projectTasks {
+		projectTasks[i] = &types.SpecTask{Status: types.TaskStatusImplementation}
+	}
+	projectTasks = append(projectTasks, queued)
+
+	mockStore.EXPECT().GetProject(ctx, project.ID).Return(project, nil)
+	mockStore.EXPECT().ListSpecTasks(ctx, gomock.Any()).Return(projectTasks, nil)
+	mockStore.EXPECT().GetSystemSettings(ctx).Return(&types.SystemSettings{EnforceQuotas: true}, nil)
+	mockStore.EXPECT().GetWalletByOrg(ctx, "org").Return(&types.Wallet{PlanOverride: types.PlanOverridePro}, nil)
+
+	server.populateQueueReasons(ctx, project.ID, []*types.SpecTask{queued})
+	require.Contains(t, queued.QueueReason, "limit 30")
 }

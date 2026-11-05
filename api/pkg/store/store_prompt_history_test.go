@@ -113,3 +113,73 @@ func (suite *PostgresStoreTestSuite) TestRequeueBouncedPrompt_UpdatesExactInFlig
 		suite.Equal(expected.retryCount, got.RetryCount)
 	}
 }
+
+func (suite *PostgresStoreTestSuite) TestResetCrashedPromptsForSession() {
+	ctx := context.Background()
+	sessionID := "ses_crashed_" + system.GenerateUUID()
+	otherSessionID := "ses_other_crashed_" + system.GenerateUUID()
+	now := time.Now()
+	past := now.Add(-time.Minute)
+	deletedAt := now
+
+	target := &types.PromptHistoryEntry{
+		ID: "phe_crashed_" + system.GenerateUUID(), UserID: "user_crashed", SessionID: sessionID,
+		Content: "retry after config repair", Status: "pending", RetryCount: 4, CreatedAt: now.Add(-4 * time.Minute),
+	}
+	ordinaryFailure := &types.PromptHistoryEntry{
+		ID: "phe_failed_" + system.GenerateUUID(), UserID: "user_crashed", SessionID: sessionID,
+		Content: "ordinary failure", Status: "failed", RetryCount: 2, NextRetryAt: &past,
+		ErrorMessage: "temporary failure", CreatedAt: now.Add(-3 * time.Minute),
+	}
+	deleted := &types.PromptHistoryEntry{
+		ID: "phe_deleted_crashed_" + system.GenerateUUID(), UserID: "user_crashed", SessionID: sessionID,
+		Content: "deleted crash", Status: "pending", DeletedAt: &deletedAt, CreatedAt: now.Add(-5 * time.Minute),
+	}
+	otherSession := &types.PromptHistoryEntry{
+		ID: "phe_other_crashed_" + system.GenerateUUID(), UserID: "user_crashed", SessionID: otherSessionID,
+		Content: "other session crash", Status: "pending", RetryCount: 3, CreatedAt: now.Add(-2 * time.Minute),
+	}
+	suite.Require().NoError(suite.db.gdb.WithContext(ctx).Create(
+		[]*types.PromptHistoryEntry{target, ordinaryFailure, deleted, otherSession},
+	).Error)
+	suite.T().Cleanup(func() {
+		suite.db.gdb.Exec("DELETE FROM prompt_history_entries WHERE session_id IN ?", []string{sessionID, otherSessionID})
+	})
+
+	for _, entry := range []*types.PromptHistoryEntry{target, deleted, otherSession} {
+		suite.Require().NoError(suite.db.MarkPromptAsCrashed(ctx, entry.ID, "agent startup failed"))
+	}
+
+	resetCount, err := suite.db.ResetCrashedPromptsForSession(ctx, sessionID)
+	suite.Require().NoError(err)
+	suite.Equal(1, resetCount)
+
+	got, err := suite.db.GetPromptHistoryEntry(ctx, target.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(got)
+	suite.Equal("pending", got.Status)
+	suite.Zero(got.RetryCount)
+	suite.Nil(got.NextRetryAt)
+	suite.Empty(got.ErrorMessage)
+
+	got, err = suite.db.GetPromptHistoryEntry(ctx, ordinaryFailure.ID)
+	suite.Require().NoError(err)
+	suite.Equal("failed", got.Status)
+	suite.Equal(2, got.RetryCount)
+	suite.Equal("temporary failure", got.ErrorMessage)
+	suite.WithinDuration(past, *got.NextRetryAt, time.Second)
+
+	for _, entry := range []*types.PromptHistoryEntry{deleted, otherSession} {
+		got, err = suite.db.GetPromptHistoryEntry(ctx, entry.ID)
+		suite.Require().NoError(err)
+		suite.Equal("failed", got.Status)
+		suite.Equal("agent startup failed", got.ErrorMessage)
+		suite.WithinDuration(crashedPromptRetrySentinel, *got.NextRetryAt, time.Second)
+	}
+
+	claimed, err := suite.db.GetAnyPendingPrompt(ctx, sessionID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(claimed)
+	suite.Equal(target.ID, claimed.ID)
+	suite.Equal("sending", claimed.Status)
+}

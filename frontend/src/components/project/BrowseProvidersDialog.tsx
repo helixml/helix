@@ -1249,7 +1249,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               }}
               helperText={
                 selectedProvider === "github"
-                  ? "Create a classic token with 'repo' and 'read:org' scopes at GitHub → Settings → Developer settings → Personal access tokens"
+                  ? `Create a classic token with the ${GITHUB_REQUIRED_SCOPES.map((scope) => `'${scope}'`).join(", ")} scopes at GitHub → Settings → Developer settings → Personal access tokens (classic)`
                   : selectedProvider === "gitlab"
                     ? "Create a token at GitLab → Preferences → Access Tokens"
                     : selectedProvider === "bitbucket"

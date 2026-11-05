@@ -32,9 +32,11 @@ const containerPersistentLabel = "helix.persistent"
 // monitorGoldenBuild for a build whose container survived the restart, and
 // still detect, promote and report its result.
 const (
-	containerGoldenBuildLabel    = "helix.golden_build" // "true"
-	containerProjectIDLabel      = "helix.project_id"
-	containerGoldenDeadlineLabel = "helix.golden_build_deadline" // RFC3339
+	containerGoldenBuildLabel     = "helix.golden_build" // "true"
+	containerProjectIDLabel       = "helix.project_id"
+	containerGoldenCacheKindLabel = "helix.golden_cache_kind"
+	containerCacheKindLabel       = "helix.container_cache_kind"
+	containerGoldenDeadlineLabel  = "helix.golden_build_deadline" // RFC3339
 )
 
 // DevContainerType represents the type of dev container
@@ -67,6 +69,10 @@ type MountConfig struct {
 // CreateDevContainerRequest creates a dev container (Zed+agent environment) for a session
 type CreateDevContainerRequest struct {
 	SessionID string `json:"session_id"`
+	// MaxSandboxes is the control plane's fallback capacity for this runner.
+	// A valid local MAX_SANDBOXES on Hydra takes precedence. Golden builds
+	// are exempt from this cap.
+	MaxSandboxes int `json:"max_sandboxes,omitempty"`
 
 	// Container configuration
 	Image         string        `json:"image"`          // e.g., "helix-ubuntu:latest"
@@ -117,7 +123,7 @@ type CreateDevContainerRequest struct {
 	// Privileged mode (required for docker-in-desktop: inner dockerd needs it)
 	Privileged bool `json:"privileged,omitempty"`
 
-	// RootlessContainerEngine enables the rootless Podman service used by
+	// RootlessContainerEngine enables the rootless Docker service used by
 	// unprivileged headless agents. Hydra supplies only the user-namespace
 	// devices and environment required by that service; desktop dockerd keeps
 	// using Privileged instead.
@@ -128,6 +134,18 @@ type CreateDevContainerRequest struct {
 	// (Docker's default seccomp profile plus namespace creation). Used by org
 	// bot instances, which browse untrusted pages.
 	BrowserSandbox bool `json:"browser_sandbox,omitempty"`
+
+	// DesktopRootless runs a desktop (ubuntu/sway) container unprivileged,
+	// using the same rootless Docker posture as headless agents instead of
+	// Docker --privileged. It keeps the desktop's display/input/GPU device
+	// grants and its private IPC namespace, but drops the full capability set,
+	// the allow-all device cgroup and AppArmor-unconfined that --privileged
+	// grants — so a root user inside the desktop can no longer mount host
+	// block devices (runner root fs, sibling tenants' docker-data zvols) or
+	// touch /dev/mem. Sudo inside the container is retained. Mutually
+	// exclusive with Privileged. See
+	// design/2026-10-08-desktop-root-isolation.md.
+	DesktopRootless bool `json:"desktop_rootless,omitempty"`
 
 	// Untrusted instance controls. DiskSizeGB provisions a capacity-limited,
 	// persistent /home/retro filesystem. PidsLimit is enforced by the pids
@@ -195,6 +213,7 @@ type DevContainerResponse struct {
 	RenderNode     string `json:"render_node,omitempty"`     // /dev/dri/renderD128 or SOFTWARE
 	VCPUs          int    `json:"vcpus,omitempty"`
 	MemoryMB       int    `json:"memory_mb,omitempty"`
+	IsGoldenBuild  bool   `json:"is_golden_build,omitempty"`
 }
 
 type UpdateDevContainerResourcesRequest struct {
@@ -220,9 +239,10 @@ type DevContainer struct {
 	CreatedAt     time.Time          `json:"created_at"`
 	DockerSocket  string             `json:"docker_socket"` // Which dockerd manages this container
 
-	// Golden build fields
-	IsGoldenBuild bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
-	ProjectID     string `json:"project_id,omitempty"`      // Project ID for golden promotion
+	// Container cache fields
+	IsGoldenBuild   bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
+	ProjectID       string `json:"project_id,omitempty"`      // Project ID for golden promotion
+	goldenCacheKind goldenCacheKind
 
 	// GoldenBuildDeadline is when monitorGoldenBuild gives up waiting for the
 	// result file. Stored on the container as a label so it survives restarts.

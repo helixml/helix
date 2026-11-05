@@ -13,7 +13,8 @@ import (
 
 // AttachTool grants one or more tools to a Bot — the counterpart to
 // detach_tool. Tools are the Bot's live MCP surface (Bot.Tools); the
-// change takes effect on the Bot's next MCP request. Owner-only.
+// change takes effect on the Bot's next MCP request. A caller can grant only
+// standard worker tools and tools it already holds.
 type AttachTool struct {
 	deps Deps
 }
@@ -34,7 +35,8 @@ func (t *AttachTool) Name() tool.Name { return AttachToolName }
 func (t *AttachTool) Description() string {
 	return "Grant MCP tools to a Bot. Pass `tools` as an array of tool names (one or " +
 		"many) chosen from the enum. Idempotent: names the Bot already has are ignored. " +
-		"The change takes effect on the Bot's next MCP request. Use detach_tool to remove."
+		"The change takes effect on the Bot's next MCP request. Use detach_tool to remove. " +
+		"Beyond the standard worker set you can grant only tools you hold yourself."
 }
 func (t *AttachTool) InputSchema() *jsonschema.Schema {
 	return withProperty(attachToolSchema, "tools",
@@ -56,7 +58,7 @@ func (t *AttachTool) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	if orgID == "" {
 		return nil, fmt.Errorf("attach_tool: caller has no OrgID")
 	}
-	updated, err := t.deps.Nodes.AttachTools(ctx, orgID, orgchart.NodeID(args.NodeID), args.Tools)
+	updated, err := t.deps.Nodes.AttachTools(ctx, orgID, orgchart.NodeID(args.NodeID), CallerGrantor(inv.Caller), args.Tools)
 	if err != nil {
 		return nil, err
 	}

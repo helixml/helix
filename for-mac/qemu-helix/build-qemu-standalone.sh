@@ -76,6 +76,7 @@ echo ""
     --target-list=aarch64-softmmu \
     -Dshared_lib=true \
     -Dcocoa=disabled \
+    -Dsdl=disabled \
     -Db_pie=false \
     -Ddocs=disabled \
     -Dplugins=true

@@ -109,6 +109,9 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
+	if err := apiServer.validateOrgCodeAgentHarness(ctx, session.OrganizationID, targetRuntime, "", ""); err != nil {
+		return nil, system.NewHTTPError422(err.Error())
+	}
 
 	// No-op guard: reject only when NOTHING about how the agent runs would
 	// change (same app AND same runtime). Two apps sharing a runtime can still

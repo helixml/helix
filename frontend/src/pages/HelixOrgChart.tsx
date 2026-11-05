@@ -2766,11 +2766,11 @@ const HelixOrgChart: FC = () => {
   const onStartBot = useCallback(async (botId: string) => {
     try {
       await activateBot.mutateAsync(botId)
-      snackbar.success(`Starting ${botId}…`)
+      if (orgSlug) router.navigate('org_bot_session', { org_id: orgSlug, bot_id: botId })
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'start failed')
     }
-  }, [activateBot, snackbar])
+  }, [orgSlug]) // eslint-disable-line react-hooks/exhaustive-deps
   const onStopBot = useCallback(async (botId: string) => {
     try {
       await stopBot.mutateAsync(botId)

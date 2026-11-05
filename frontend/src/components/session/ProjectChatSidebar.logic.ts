@@ -1,7 +1,8 @@
-import type { TypesOrganizationMembership, TypesProject, TypesSessionMetadata, TypesSessionSummary } from '../../api/api'
+import type { TypesOrganizationMembership, TypesProject, TypesSession, TypesSessionMetadata, TypesSessionSummary } from '../../api/api'
 import type { BotDTO, BotInstanceDTO } from '../../services/helixOrgService'
 import type { SpecTask } from '../../services/specTaskService'
 import { deriveSandboxState } from '../external-agent/sandboxState'
+import { CHIEF_OF_STAFF_BOT_ID } from '../../utils/organizations'
 import { matchesAllTokens } from '../../utils/searchUtils'
 
 export type SidebarStatus = {
@@ -27,6 +28,19 @@ export type SidebarItem = {
   /** Set when the row is an instance of this bot: deleting replaces archiving. */
   botInstanceOf?: string
 }
+
+/**
+ * Where to land after the open thread disappears from the chat list (archived
+ * or deleted): a fresh chat in the same project, so you stay in the chat view
+ * instead of being bounced to the org's projects page.
+ */
+export const chatRouteAfterLeavingItem = (
+  projectId?: string,
+): { name: string; params: Record<string, string> } => (
+  projectId
+    ? { name: 'project-new', params: { id: projectId } }
+    : { name: 'new', params: {} }
+)
 
 export type SidebarGroup = {
   id: string
@@ -100,6 +114,26 @@ export const resolveSidebarProjectFilter = (
   projectId === ALL_PROJECTS_FILTER || projects.some((project) => project.id === projectId)
     ? projectId
     : ALL_PROJECTS_FILTER
+)
+
+export const ALL_USERS_FILTER = 'all-users'
+
+// Whose chats and tasks the project view lists: everyone's, or one member's.
+export const sidebarUserFilterStorageKey = (orgId: string): string => (
+  `helix:project-chat-sidebar:user-filter:${orgId}`
+)
+
+export const parseSidebarUserFilter = (storedValue: string | null): string => (
+  storedValue?.trim() || ALL_USERS_FILTER
+)
+
+export const resolveSidebarUserFilter = (
+  userId: string,
+  memberUserIds: ReadonlySet<string>,
+): string => (
+  userId === ALL_USERS_FILTER || memberUserIds.has(userId)
+    ? userId
+    : ALL_USERS_FILTER
 )
 
 export const parseSidebarParticipantIds = (storedValue: string | null): string[] | null => {
@@ -230,28 +264,6 @@ export const isOrgAgentSession = (
 export const isExternalAgentSession = (item: SidebarItem): boolean => (
   item.kind === 'session' && item.session?.metadata?.agent_type === 'zed_external'
 )
-
-// GitHub serves an owner's avatar at github.com/<owner>.png (users and orgs
-// alike). Only github.com qualifies — a GitHub Enterprise host has no public
-// avatar endpoint, so those fall back to the generic project glyph.
-export const githubOrgAvatarUrl = (
-  repos: Array<{ external_type?: string; external_url?: string }> = [],
-): string | undefined => {
-  for (const repo of repos) {
-    if (!repo.external_url) continue
-    if (repo.external_type && repo.external_type !== 'github') continue
-    try {
-      const url = new URL(repo.external_url)
-      if (url.hostname !== 'github.com' && url.hostname !== 'www.github.com') continue
-      const [owner] = url.pathname.split('/').filter(Boolean)
-      if (!owner) continue
-      return `https://github.com/${owner}.png?size=48`
-    } catch {
-      continue
-    }
-  }
-  return undefined
-}
 
 export type SidebarSandboxControl = {
   sessionId: string
@@ -413,23 +425,6 @@ export const getSidebarTaskStatus = (task?: SpecTask): SidebarStatus | null => {
   return workflowStatus
 }
 
-// "Active" here means something is happening or about to: these rows trade
-// their relative timestamp for the live status label (t3-style) — recency
-// only matters once a task has gone quiet.
-export const isActiveSidebarTask = (task?: SpecTask): boolean => {
-  if (!task) return false
-  if (task.agent_work_state === 'working') return true
-  if (task.sandbox_state === 'running' || task.sandbox_state === 'starting') return true
-  switch (task.status) {
-    case 'queued_spec_generation':
-    case 'queued_implementation':
-    case 'implementation_queued':
-      return true
-    default:
-      return false
-  }
-}
-
 const PULL_REQUEST_ICON_COLORS: Record<string, string> = {
   open: '#10b981',
   closed: '#ef4444',
@@ -518,7 +513,6 @@ export const buildProjectChatGroups = (
   sortOrder: SidebarThreadSortOrder = 'updated_at',
   pinnedAtByItemKey: ReadonlyMap<string, string> = new Map(),
 ): SidebarGroup[] => {
-  const defaultGroup: SidebarGroup = { id: 'default', name: 'No project', items: [] }
   const groupsByProjectId = new Map<string, SidebarGroup>()
   projects.forEach((project) => {
     if (!project.id) return
@@ -575,7 +569,8 @@ export const buildProjectChatGroups = (
     const projectGroup = metadata?.project_id
       ? groupsByProjectId.get(metadata.project_id)
       : undefined
-    const group = projectGroup || defaultGroup
+    if (!projectGroup) return
+    const group = projectGroup
     group.items.push({
       id: session.session_id,
       kind: 'session',
@@ -596,8 +591,7 @@ export const buildProjectChatGroups = (
       return rightActivity - leftActivity || left.name.localeCompare(right.name)
     })
 
-  return [defaultGroup, ...projectGroups]
-    .filter((group) => group.items.length > 0)
+  return projectGroups
     .map((group) => ({
       ...group,
       items: [...group.items].sort((left, right) => (
@@ -654,7 +648,9 @@ export const toSidebarBots = (bots: BotDTO[]): SidebarBot[] => (
       sessionId: bot.session_id || undefined,
     }))
     .sort((left, right) => (
-      Number(right.running) - Number(left.running) || left.name.localeCompare(right.name)
+      Number(right.id === CHIEF_OF_STAFF_BOT_ID) - Number(left.id === CHIEF_OF_STAFF_BOT_ID)
+      || Number(right.running) - Number(left.running)
+      || left.name.localeCompare(right.name)
     ))
 )
 
@@ -824,3 +820,17 @@ export const buildPersonChatItems = (
 export const pinnedAtByItemKeyFrom = (pinnedChats: Array<{ kind?: string; id?: string; pinned_at?: string }>): Map<string, string> => (
   new Map(pinnedChats.map((pin) => [`${pin.kind}:${pin.id}`, pin.pinned_at || '']))
 )
+
+// The pinned-chat detail fetch returns a full TypesSession; the sidebar rows
+// run on the summary shape. Keep every field the rows or filters read — the
+// owner filter matches on `owner`, so dropping it would hide every pinned
+// chat the moment a member filter is chosen.
+export const sessionDetailToSummary = (session: TypesSession): TypesSessionSummary => ({
+  session_id: session.id,
+  name: session.name,
+  created: session.created,
+  updated: session.updated,
+  metadata: session.config,
+  archived: session.archived,
+  owner: session.owner,
+})

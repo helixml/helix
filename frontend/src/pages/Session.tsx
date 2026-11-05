@@ -318,6 +318,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
       bot_id: botID,
     })
   }, [orgChatView, router.name, router.params.org_id, session?.data?.config?.org_worker_id, isBotInstance]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Polled: the workspace gates Diff, Files, Browser and the terminal on the
   // agent's sandbox status, which changes underneath an open page whenever the
   // agent starts, stops or is restarted.
@@ -1718,7 +1719,11 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
           organizationId={(router.params.org_id as string) || session.data.organization_id || ''}
           bot={orgBot}
           onStart={orgWorkerId
-            ? () => { void activateOrgBotAgent.mutateAsync(orgWorkerId) }
+            ? () => {
+              void activateOrgBotAgent.mutateAsync(orgWorkerId).catch((error: any) => {
+                snackbar.error(error?.response?.data?.error ?? error?.message ?? 'Could not start agent')
+              })
+            }
             : instanceSandbox ? () => { void setInstanceSandboxRunning(true) } : undefined}
           onStop={orgWorkerId
             ? () => { void stopOrgBotAgent.mutateAsync(orgWorkerId) }

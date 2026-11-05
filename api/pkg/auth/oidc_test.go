@@ -614,6 +614,8 @@ type MockOIDCServer struct {
 	server *httptest.Server
 	signer jose.Signer
 	jwk    jose.JSONWebKey
+	// userInfo overrides the claims returned by the userinfo endpoint (nil = defaults).
+	userInfo map[string]interface{}
 }
 
 func NewMockOIDCServer() *MockOIDCServer {
@@ -761,13 +763,17 @@ func (m *MockOIDCServer) handleUserInfo(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	claims := m.userInfo
+	if claims == nil {
+		claims = map[string]interface{}{
+			"sub":            "test-user-id",
+			"name":           "Test User",
+			"email":          "test@example.com",
+			"email_verified": true,
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"sub":            "test-user-id",
-		"name":           "Test User",
-		"email":          "test@example.com",
-		"email_verified": true,
-	})
+	err := json.NewEncoder(w).Encode(claims)
 	if err != nil {
 		http.Error(w, "Failed to encode userinfo", http.StatusInternalServerError)
 		return

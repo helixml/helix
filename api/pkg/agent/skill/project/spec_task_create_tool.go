@@ -188,6 +188,9 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 	if p, ok := args["priority"].(string); ok && p != "" {
 		priority = types.SpecTaskPriority(p)
 	}
+	if err := types.ValidateSpecTaskTypeAndPriority(taskType, priority); err != nil {
+		return "", err
+	}
 
 	originalPrompt := ""
 	if op, ok := args["original_prompt"].(string); ok {
@@ -227,6 +230,7 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 	}
+	task.InitAutoApprovePullRequests(nil, project, meta.UserID)
 
 	// Assign task number immediately at creation time so it's always visible in UI
 	// Task numbers are globally unique across the entire deployment

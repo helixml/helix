@@ -85,6 +85,7 @@ func zedSession(id, userID, projectID string) *types.Session {
 		Owner:     userID,
 		OwnerType: types.OwnerTypeUser,
 		ProjectID: projectID,
+		SandboxID: "runner-original",
 		Metadata: types.SessionMetadata{
 			AgentType: "zed_external",
 			ProjectID: projectID,
@@ -118,7 +119,12 @@ func (s *RestartSessionContainerSuite) TestRestartRecreatesContainerInOrder() {
 	// The load-bearing ordering: StopDesktop THEN StartDesktop.
 	gomock.InOrder(
 		s.executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(nil).Times(1),
-		s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(&types.DesktopAgentResponse{DevContainerID: "dev_new"}, nil).Times(1),
+		s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
+				s.Equal("runner-original", agent.SandboxID)
+				return &types.DesktopAgentResponse{DevContainerID: "dev_new"}, nil
+			},
+		).Times(1),
 	)
 
 	// Crashed prompts are reset and the count is returned.

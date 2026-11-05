@@ -942,7 +942,7 @@ const Runners: FC = () => {
           {/* Runner picker. Shown even when there's only one runner so
               the operator always sees which one they're looking at. */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-            <FormControl size="small" sx={{ minWidth: 360, flexGrow: 1, maxWidth: 600 }}>
+            <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 360 }, flexGrow: 1, maxWidth: 600 }}>
               <InputLabel id="runner-picker-label" shrink>Runner</InputLabel>
               <Select
                 labelId="runner-picker-label"

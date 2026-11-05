@@ -14,33 +14,12 @@ import DarkDialog from '../dialog/DarkDialog';
 import useApi from '../../hooks/useApi';
 import useSnackbar from '../../hooks/useSnackbar';
 import useRouter from '../../hooks/useRouter';
+import useThemeConfig from '../../hooks/useThemeConfig';
+import useLightTheme from '../../hooks/useLightTheme';
 import { TypesLoginRequest, TypesRegisterRequest } from '../../api/api';
 import { useGetConfig } from '../../services/userService';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const textFieldSx: SxProps<Theme> = {
-  '& .MuiOutlinedInput-root': {
-    '& fieldset': {
-      borderColor: '#2D3748',
-    },
-    '&:hover fieldset': {
-      borderColor: '#00E5FF',
-    },
-    '&.Mui-focused fieldset': {
-      borderColor: '#00E5FF',
-    },
-  },
-  '& .MuiInputLabel-root': {
-    color: '#A0AEC0',
-  },
-  '& .MuiInputLabel-root.Mui-focused': {
-    color: '#00E5FF',
-  },
-  '& .MuiOutlinedInput-input': {
-    color: '#F1F1F1',
-  },
-};
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   const e = err as { response?: { data?: unknown }; message?: string };
@@ -81,6 +60,36 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
   const snackbar = useSnackbar();
   const router = useRouter();
   const apiClient = api.getApiClient();
+  const themeConfig = useThemeConfig();
+  const lightTheme = useLightTheme();
+
+  // Theme tokens (same treatment as the password-reset pages): the dialog
+  // surface follows the app theme, so the shared input styling must too.
+  // Hardcoded dark-theme colors here left typed text near-white on the
+  // near-white light-mode dialog — invisible on every field, including the
+  // register form's Confirm Password.
+  const textFieldSx: SxProps<Theme> = {
+    '& .MuiOutlinedInput-root': {
+      '& fieldset': {
+        borderColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.23)' : 'rgba(255, 255, 255, 0.23)',
+      },
+      '&:hover fieldset': {
+        borderColor: themeConfig.tealRoot,
+      },
+      '&.Mui-focused fieldset': {
+        borderColor: themeConfig.tealRoot,
+      },
+    },
+    '& .MuiInputLabel-root': {
+      color: lightTheme.textColorFaded,
+    },
+    '& .MuiInputLabel-root.Mui-focused': {
+      color: themeConfig.tealRoot,
+    },
+    '& .MuiOutlinedInput-input': {
+      color: lightTheme.textColor,
+    },
+  };
 
   const isRegistrationDisabled = mode === 'register' && config?.registration_enabled === false;
 

@@ -20,6 +20,7 @@ import {
 import { useCreateSandbox } from '../../services/sandboxesService'
 import { useListOrgApiKeys } from '../../services/orgApiKeyService'
 import { useGetSystemSettings } from '../../services/systemSettingsService'
+import useAccount from '../../hooks/useAccount'
 import RuntimePicker, { runtimeMeta } from './RuntimePicker'
 import SandboxApiExamples from './SandboxApiExamples'
 
@@ -50,6 +51,7 @@ const RESOURCE_PRESETS = [
   { value: 'large', label: '8 CPU / 16GB RAM', vcpus: 8, memoryMB: 16384 },
   { value: 'xlarge', label: '12 CPU / 24GB RAM', vcpus: 12, memoryMB: 24576 },
   { value: '2xlarge', label: '16 CPU / 32GB RAM', vcpus: 16, memoryMB: 32768 },
+  { value: '4xlarge', label: '32 CPU / 64GB RAM', vcpus: 32, memoryMB: 65536 },
 ]
 
 // CreateSandboxDialog asks for a name, runtime, and optional TTL/env.
@@ -63,12 +65,13 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
   const [persistent, setPersistent] = useState<boolean>(false)
   const [error, setError] = useState<string | undefined>()
 
+  const account = useAccount()
   const createMutation = useCreateSandbox(orgId)
-  // Fetch org API keys lazily — only when the dialog is open. The first one is
-  // surfaced in the example snippets so the reader can copy & paste a working
-  // export without bouncing through settings.
+  // Fetch org API keys lazily — only when the dialog is open. The list never
+  // carries secrets, so the examples can only hint at which of the reader's
+  // own keys to export, by its prefix.
   const { data: orgApiKeys } = useListOrgApiKeys(orgId, open)
-  const orgApiKey = orgApiKeys && orgApiKeys.length > 0 ? orgApiKeys[0].key : undefined
+  const orgApiKeyPrefix = orgApiKeys?.find((k) => k.owner === account.user?.id)?.key_prefix
   // Pull the operator's per-second price for desktop vs headless so the
   // runtime tiles can show the right rate. We multiply by the currently
   // selected vCPU count to match what billSandbox actually deducts.
@@ -248,7 +251,7 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
             memoryMb={resourceForExamples.memoryMB}
             timeoutSeconds={autoExpire ? ttlSeconds : -1}
             persistent={persistent}
-            apiKey={orgApiKey}
+            apiKeyPrefix={orgApiKeyPrefix}
           />
         </Box>
       </DialogContent>
