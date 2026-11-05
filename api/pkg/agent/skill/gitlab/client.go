@@ -123,14 +123,21 @@ type Client struct {
 // NewClientWithPAT creates a new GitLab client using a Personal Access Token
 // baseURL is optional - leave empty for gitlab.com, or provide for self-hosted GitLab
 func NewClientWithPAT(baseURL, token string) (*Client, error) {
-	var client *gitlab.Client
-	var err error
+	return NewClientWithPATAndHTTPClient(baseURL, token, nil)
+}
 
+// NewClientWithPATAndHTTPClient is NewClientWithPAT using httpClient for all
+// requests (nil = library default). Use it with a netguard client
+// when baseURL is caller-supplied.
+func NewClientWithPATAndHTTPClient(baseURL, token string, httpClient *http.Client) (*Client, error) {
+	var opts []gitlab.ClientOptionFunc
 	if baseURL != "" {
-		client, err = gitlab.NewClient(token, gitlab.WithBaseURL(baseURL))
-	} else {
-		client, err = gitlab.NewClient(token)
+		opts = append(opts, gitlab.WithBaseURL(baseURL))
 	}
+	if httpClient != nil {
+		opts = append(opts, gitlab.WithHTTPClient(httpClient))
+	}
+	client, err := gitlab.NewClient(token, opts...)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GitLab client: %w", err)

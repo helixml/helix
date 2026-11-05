@@ -38,6 +38,7 @@ type ServerConfig struct {
 	Sandboxes          Sandboxes
 	Compute            Compute
 	Webhooks           Webhooks
+	GitProviders       GitProviders
 	ConnectPortal      ConnectPortalConfig
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
@@ -163,6 +164,16 @@ type Webhooks struct {
 	DeliveryTimeout       time.Duration `envconfig:"WEBHOOK_DELIVERY_TIMEOUT" default:"20s" description:"Timeout for one outbound webhook attempt."`
 	WorkerInterval        time.Duration `envconfig:"WEBHOOK_WORKER_INTERVAL" default:"2s" description:"How often the webhook outbox is scanned."`
 	MaxAttempts           int           `envconfig:"WEBHOOK_MAX_ATTEMPTS" default:"8" description:"Maximum delivery attempts before a webhook delivery is marked failed."`
+}
+
+// GitProviders controls server-side requests to caller-supplied git host
+// URLs (GitHub Enterprise / GitLab base_url, Azure DevOps organization_url).
+type GitProviders struct {
+	// AllowPrivateNetworks lets those URLs target loopback, RFC1918,
+	// unique-local and CGNAT addresses (an on-prem GitLab or GHE). Link-local
+	// and cloud metadata addresses stay blocked. Same netguard policy as
+	// PROVIDER_ENDPOINTS_ALLOW_PRIVATE_NETWORKS.
+	AllowPrivateNetworks bool `envconfig:"GIT_PROVIDERS_ALLOW_PRIVATE_NETWORKS" default:"false"`
 }
 
 // Sandboxes configures the user-facing Sandboxes API.
@@ -604,6 +615,12 @@ type Providers struct {
 	EnableCustomUserProviders bool   `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
 	DynamicProviders          string `envconfig:"DYNAMIC_PROVIDERS"`                            // Format: "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
 	BillingEnabled            bool   `envconfig:"PROVIDERS_BILLING_ENABLED" default:"false"`    // Enable usage tracking/billing for built-in providers (from env vars)
+	// AllowPrivateNetworks lets user- and org-owned provider endpoints target
+	// loopback, RFC1918, unique-local and CGNAT addresses (e.g. a self-hosted
+	// Ollama or vLLM on the internal network). Link-local and cloud metadata
+	// addresses stay blocked. Global endpoints (admin-only) and env-configured
+	// providers are not restricted.
+	AllowPrivateNetworks bool `envconfig:"PROVIDER_ENDPOINTS_ALLOW_PRIVATE_NETWORKS" default:"false"`
 }
 
 type OpenAI struct {
