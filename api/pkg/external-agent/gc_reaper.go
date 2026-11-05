@@ -26,9 +26,9 @@ var specTaskTerminalStatuses = map[types.SpecTaskStatus]bool{
 // session zvols and per-task/session workspace dirs, subtracts the live-set,
 // applies the grace period, and reaps the rest.
 //
-// Unlike the legacy in-memory hydra GC (DevContainerManager.GCOrphanedSessions),
-// this survives host reboots / API restarts because the live-set comes from the
-// database, not from hydra's in-memory container map.
+// It is the only reaper of session data. The live set comes from the
+// database, not hydra's in-memory container map, so it survives host reboots
+// and API restarts.
 //
 // It blocks until ctx is cancelled and is intended to run in a goroutine.
 // Errors are logged, never fatal.

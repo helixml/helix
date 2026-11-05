@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -19,6 +20,44 @@ const (
 	SpecTaskPriorityHigh     SpecTaskPriority = "high"
 	SpecTaskPriorityCritical SpecTaskPriority = "critical"
 )
+
+// Valid reports whether p is one of the documented priorities.
+func (p SpecTaskPriority) Valid() bool {
+	switch p {
+	case SpecTaskPriorityLow, SpecTaskPriorityMedium, SpecTaskPriorityHigh, SpecTaskPriorityCritical:
+		return true
+	default:
+		return false
+	}
+}
+
+const (
+	SpecTaskTypeFeature  = "feature"
+	SpecTaskTypeBug      = "bug"
+	SpecTaskTypeRefactor = "refactor"
+)
+
+// ValidSpecTaskType reports whether t is in the closed spec task type vocabulary.
+func ValidSpecTaskType(t string) bool {
+	switch t {
+	case SpecTaskTypeFeature, SpecTaskTypeBug, SpecTaskTypeRefactor:
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidateSpecTaskTypeAndPriority rejects values outside the documented enums.
+// Empty values mean "unset" and are accepted.
+func ValidateSpecTaskTypeAndPriority(taskType string, priority SpecTaskPriority) error {
+	if taskType != "" && !ValidSpecTaskType(taskType) {
+		return errors.New("invalid type: must be feature, bug, or refactor")
+	}
+	if priority != "" && !priority.Valid() {
+		return errors.New("invalid priority: must be low, medium, high, or critical")
+	}
+	return nil
+}
 
 // BranchMode determines how branches are configured for a task
 type BranchMode string
@@ -90,6 +129,10 @@ type StartPlanningOptions struct {
 	KeyboardLayout string `json:"keyboard_layout,omitempty"`
 	// Timezone is the IANA timezone (e.g., "America/New_York", "Europe/Paris")
 	Timezone string `json:"timezone,omitempty"`
+	// Languages is the user's browser language preference list (navigator.languages),
+	// comma-separated BCP 47 tags (e.g., "en-GB,en"). The desktop's browser sends these
+	// as Accept-Language so websites don't pick the language of the runner's location.
+	Languages string `json:"languages,omitempty"`
 }
 
 // Compile-time fallback for the spec task sandbox size. Config overrides it at

@@ -118,6 +118,21 @@ func (mr *MockStoreMockRecorder) BulkDismissAttentionEvents(ctx, userID, organiz
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BulkDismissAttentionEvents", reflect.TypeOf((*MockStore)(nil).BulkDismissAttentionEvents), ctx, userID, organizationID)
 }
 
+// ChargeSandbox mocks base method.
+func (m *MockStore) ChargeSandbox(ctx context.Context, charge SandboxCharge) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ChargeSandbox", ctx, charge)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ChargeSandbox indicates an expected call of ChargeSandbox.
+func (mr *MockStoreMockRecorder) ChargeSandbox(ctx, charge any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChargeSandbox", reflect.TypeOf((*MockStore)(nil).ChargeSandbox), ctx, charge)
+}
+
 // ClaimPromptForSending mocks base method.
 func (m *MockStore) ClaimPromptForSending(ctx context.Context, promptID string) (bool, error) {
 	m.ctrl.T.Helper()
@@ -6728,20 +6743,6 @@ func (mr *MockStoreMockRecorder) SetRunningSandboxesBillingLastChargedAt(ctx, ch
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRunningSandboxesBillingLastChargedAt", reflect.TypeOf((*MockStore)(nil).SetRunningSandboxesBillingLastChargedAt), ctx, chargedAt)
 }
 
-// SetSandboxBillingLastChargedAt mocks base method.
-func (m *MockStore) SetSandboxBillingLastChargedAt(ctx context.Context, id string, chargedAt time.Time) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetSandboxBillingLastChargedAt", ctx, id, chargedAt)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SetSandboxBillingLastChargedAt indicates an expected call of SetSandboxBillingLastChargedAt.
-func (mr *MockStoreMockRecorder) SetSandboxBillingLastChargedAt(ctx, id, chargedAt any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxBillingLastChargedAt", reflect.TypeOf((*MockStore)(nil).SetSandboxBillingLastChargedAt), ctx, id, chargedAt)
-}
-
 // SetSandboxContainer mocks base method.
 func (m *MockStore) SetSandboxContainer(ctx context.Context, id, hostDeviceID, containerID string) error {
 	m.ctrl.T.Helper()
@@ -7543,6 +7544,21 @@ func (m *MockStore) UpdateSandbox(ctx context.Context, sandbox *types.Sandbox) (
 func (mr *MockStoreMockRecorder) UpdateSandbox(ctx, sandbox any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandbox", reflect.TypeOf((*MockStore)(nil).UpdateSandbox), ctx, sandbox)
+}
+
+// UpdateSandboxDetails mocks base method.
+func (m *MockStore) UpdateSandboxDetails(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSandboxDetails", ctx, sandbox)
+	ret0, _ := ret[0].(*types.Sandbox)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateSandboxDetails indicates an expected call of UpdateSandboxDetails.
+func (mr *MockStoreMockRecorder) UpdateSandboxDetails(ctx, sandbox any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandboxDetails", reflect.TypeOf((*MockStore)(nil).UpdateSandboxDetails), ctx, sandbox)
 }
 
 // UpdateSandboxHeartbeat mocks base method.

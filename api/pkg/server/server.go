@@ -35,6 +35,7 @@ import (
 	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
@@ -59,7 +60,6 @@ import (
 	"github.com/helixml/helix/api/pkg/webhooks"
 	"github.com/helixml/helix/api/pkg/webservice"
 
-	_ "net/http/pprof" // enable profiling
 )
 
 const APIPrefix = "/api/v1"
@@ -230,6 +230,9 @@ type HelixAPIServer struct {
 	openAIResponsesLogStores     []openailogger.LogStore
 	openAIResponsesBillingLogger openailogger.LogStore
 	openAIResponsesTransport     http.RoundTripper
+	// openAIResponsesGuardedTransport is used instead of
+	// openAIResponsesTransport for tenant-controlled (user/org) endpoints.
+	openAIResponsesGuardedTransport http.RoundTripper
 }
 
 func NewServer(
@@ -459,6 +462,8 @@ func NewServer(
 		openAIResponsesLogStores:     responsesLogStores,
 		openAIResponsesBillingLogger: responsesBillingLogger,
 		openAIResponsesTransport:     newOpenAIResponsesTransport(cfg.Tools.TLSSkipVerify),
+		openAIResponsesGuardedTransport: newOpenAIResponsesGuardedTransport(cfg.Tools.TLSSkipVerify,
+			netguard.Policy{AllowPrivate: cfg.Providers.AllowPrivateNetworks}),
 	}
 
 	// Sandboxes API controller — orchestrates user-created sandboxes via hydra.
@@ -1593,8 +1598,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods(http.MethodPost)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods(http.MethodPost)
 
-	// register pprof routes
-	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
+	registerDebugRoutes(router, apiServer.authMiddleware.extractMiddleware)
 
 	// Register Git HTTP protocol routes for clone/push operations BEFORE default handler
 	// These routes don't use authRouter - they have their own auth middleware

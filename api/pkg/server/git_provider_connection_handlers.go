@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -96,7 +98,17 @@ func (s *HelixAPIServer) createGitProviderConnection(w http.ResponseWriter, r *h
 	// Validate the token by fetching user info
 	userInfo, err := s.validateAndFetchUserInfo(r.Context(), req.ProviderType, req.Token, req.AuthUsername, req.OrganizationURL, req.BaseURL)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Invalid token or failed to connect: %s", err.Error()), http.StatusBadRequest)
+		// Upstream/transport error text (dial errors, dialed URLs, JSON parse
+		// failures) must never reach the caller: it turns this endpoint into an
+		// internal port-probing oracle (TST-01-271). Log it and return a
+		// generic message unless the error was explicitly marked user-safe.
+		log.Warn().Err(err).
+			Str("user_id", user.ID).
+			Str("provider_type", string(req.ProviderType)).
+			Str("base_url", req.BaseURL).
+			Str("organization_url", req.OrganizationURL).
+			Msg("Git provider connection validation failed")
+		http.Error(w, gitProviderClientErrorMessage(err, errInvalidProviderConnectionMsg), http.StatusBadRequest)
 		return
 	}
 
@@ -279,13 +291,42 @@ func (s *HelixAPIServer) browseGitProviderConnectionRepositories(w http.Response
 	repos, err := s.fetchRepositoriesWithPAT(r.Context(), req)
 	if err != nil {
 		log.Error().Err(err).Str("connection_id", connectionID).Msg("Failed to browse repositories")
-		http.Error(w, fmt.Sprintf("Failed to browse repositories: %s", err.Error()), http.StatusInternalServerError)
+		http.Error(w, gitProviderClientErrorMessage(err, "Failed to browse repositories. Check the connection's token and base URL, then try again."), http.StatusInternalServerError)
 		return
 	}
 
 	json.NewEncoder(w).Encode(types.ListOAuthRepositoriesResponse{
 		Repositories: repos,
 	})
+}
+
+// errInvalidProviderConnectionMsg is the single generic message returned when
+// validating a git provider connection against the upstream API fails.
+const errInvalidProviderConnectionMsg = "Invalid provider connection: check the token, username and base URL, then try again."
+
+// gitProviderUserError is a validation failure whose message was written by us
+// (missing fields, missing token scopes, ...) and is safe to show to the
+// caller. Any other error from the provider path may carry transport details
+// (dialed address, internal URL, response parse errors) and must only be logged.
+type gitProviderUserError struct {
+	msg string
+}
+
+func (e *gitProviderUserError) Error() string { return e.msg }
+
+func newGitProviderUserError(format string, args ...any) error {
+	return &gitProviderUserError{msg: fmt.Sprintf(format, args...)}
+}
+
+// gitProviderClientErrorMessage returns the message to send to the API caller
+// for err: the user-safe message if err is (or wraps) a gitProviderUserError,
+// otherwise fallback.
+func gitProviderClientErrorMessage(err error, fallback string) string {
+	var userErr *gitProviderUserError
+	if errors.As(err, &userErr) {
+		return userErr.msg
+	}
+	return fallback
 }
 
 // validateAndFetchUserInfo validates a PAT and fetches user info from the provider
@@ -297,33 +338,8 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate GitHub token: %w", err)
 		}
-		if !scopeHeaderPresent {
-			// Fine-grained PATs don't return X-OAuth-Scopes so we can't validate
-			// their permissions. Reject them and ask for a classic token.
-			return nil, fmt.Errorf("Fine-grained GitHub tokens are not supported. Helix requires a classic token with the 'repo' scope. Please create one at https://github.com/settings/tokens")
-		}
-		if len(scopes) == 0 {
-			return nil, fmt.Errorf("GitHub token has no scopes. Helix requires the 'repo' scope for full repository access. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens")
-		}
-		hasRepo := false
-		hasWorkflow := false
-		for _, s := range scopes {
-			if s == "repo" {
-				hasRepo = true
-			}
-			if s == "workflow" {
-				hasWorkflow = true
-			}
-		}
-		var missingScopes []string
-		if !hasRepo {
-			missingScopes = append(missingScopes, "repo")
-		}
-		if !hasWorkflow {
-			missingScopes = append(missingScopes, "workflow")
-		}
-		if len(missingScopes) > 0 {
-			return nil, fmt.Errorf("GitHub token is missing required scopes: %s. Your token has scopes: %s. Please create a new classic token with the required scopes at https://github.com/settings/tokens", strings.Join(missingScopes, ", "), strings.Join(scopes, ", "))
+		if err := githubPATScopeError(scopes, scopeHeaderPresent); err != nil {
+			return nil, err
 		}
 		return &types.OAuthUserInfo{
 			ID:        fmt.Sprintf("%d", user.GetID()),
@@ -352,7 +368,7 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 
 	case types.ExternalRepositoryTypeADO:
 		if orgURL == "" {
-			return nil, fmt.Errorf("organization URL is required for Azure DevOps")
+			return nil, newGitProviderUserError("organization URL is required for Azure DevOps")
 		}
 		client := azuredevops.NewAzureDevOpsClient(orgURL, token)
 		profile, err := client.GetUserProfile(ctx)
@@ -368,7 +384,7 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 
 	case types.ExternalRepositoryTypeBitbucket:
 		if authUsername == "" {
-			return nil, fmt.Errorf("username is required for Bitbucket")
+			return nil, newGitProviderUserError("username is required for Bitbucket")
 		}
 		client := bitbucket.NewClient(authUsername, token, baseURL)
 		user, err := client.GetCurrentUser(ctx)
@@ -383,7 +399,7 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 		}, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported provider type: %s", providerType)
+		return nil, newGitProviderUserError("unsupported provider type: %s", providerType)
 	}
 }
 
@@ -435,7 +451,7 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 
 	case types.ExternalRepositoryTypeADO:
 		if req.OrganizationURL == "" {
-			return nil, fmt.Errorf("organization URL is required for Azure DevOps")
+			return nil, newGitProviderUserError("organization URL is required for Azure DevOps")
 		}
 		adoClient := azuredevops.NewAzureDevOpsClient(req.OrganizationURL, req.Token)
 		adoRepos, err := adoClient.ListRepositories(ctx, "")
@@ -474,7 +490,7 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 
 	case types.ExternalRepositoryTypeBitbucket:
 		if req.Username == "" {
-			return nil, fmt.Errorf("username is required for Bitbucket")
+			return nil, newGitProviderUserError("username is required for Bitbucket")
 		}
 		bbClient := bitbucket.NewClient(req.Username, req.Token, req.BaseURL)
 		bbRepos, err := bbClient.ListRepositories(ctx)
@@ -495,8 +511,37 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 		}
 
 	default:
-		return nil, fmt.Errorf("unsupported provider type: %s", req.ProviderType)
+		return nil, newGitProviderUserError("unsupported provider type: %s", req.ProviderType)
 	}
 
 	return repos, nil
+}
+
+// githubPATRequiredScopes are the classic-token scopes Helix needs: "repo" to
+// clone and push, "workflow" to push changes under .github/workflows.
+var githubPATRequiredScopes = []string{"repo", "workflow"}
+
+// githubPATScopeError reports why a GitHub PAT can't be used, or nil if it has
+// every required scope. Browsing repos with a token and saving it as a
+// connection both check it, so a token is rejected on entry rather than when
+// it is saved.
+func githubPATScopeError(scopes []string, scopeHeaderPresent bool) error {
+	if !scopeHeaderPresent {
+		// Fine-grained PATs don't return X-OAuth-Scopes so we can't validate
+		// their permissions. Reject them and ask for a classic token.
+		return newGitProviderUserError("Fine-grained GitHub tokens are not supported. Helix requires a classic token with the 'repo' and 'workflow' scopes. Please create one at https://github.com/settings/tokens")
+	}
+	if len(scopes) == 0 {
+		return newGitProviderUserError("GitHub token has no scopes. Helix requires the 'repo' and 'workflow' scopes. Please create a new classic token with them at https://github.com/settings/tokens")
+	}
+	var missing []string
+	for _, required := range githubPATRequiredScopes {
+		if !slices.Contains(scopes, required) {
+			missing = append(missing, required)
+		}
+	}
+	if len(missing) > 0 {
+		return newGitProviderUserError("GitHub token is missing required scopes: %s. Your token has scopes: %s. Please create a new classic token with the 'repo' and 'workflow' scopes at https://github.com/settings/tokens", strings.Join(missing, ", "), strings.Join(scopes, ", "))
+	}
+	return nil
 }

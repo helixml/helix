@@ -56,6 +56,8 @@ func (suite *ProxySuite) SetupSuite() {
 
 	suite.cfg = &config.ServerConfig{}
 	suite.cfg.Stripe.BillingEnabled = true
+	// Tests point user endpoints at httptest servers on loopback.
+	suite.cfg.Providers.AllowPrivateNetworks = true
 
 	suite.ctx = context.Background()
 	suite.store = store.NewMockStore(ctrl)

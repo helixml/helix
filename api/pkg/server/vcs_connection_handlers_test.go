@@ -162,6 +162,7 @@ func TestRepositoryStaticCredentials(t *testing.T) {
 	}{
 		{name: "public", repo: &types.GitRepository{ExternalType: types.ExternalRepositoryTypeGitHub}},
 		{name: "PAT", repo: &types.GitRepository{ExternalType: types.ExternalRepositoryTypeGitHub, GitHub: &types.GitHub{PersonalAccessToken: "pat"}}, configured: true, usable: true},
+		{name: "password-only GitHub PAT", repo: &types.GitRepository{ExternalType: types.ExternalRepositoryTypeGitHub, Password: "pat"}, configured: true, usable: true},
 		{name: "missing saved PAT", repo: &types.GitRepository{ExternalType: types.ExternalRepositoryTypeGitHub, GitProviderConnectionID: "connection"}, configured: true},
 		{name: "Bitbucket saved connection", repo: &types.GitRepository{ExternalType: types.ExternalRepositoryTypeBitbucket, GitProviderConnectionID: "connection", Bitbucket: &types.Bitbucket{Username: "user", AppPassword: "password"}}, configured: true, usable: true},
 		{name: "partial Bitbucket credentials", repo: &types.GitRepository{ExternalType: types.ExternalRepositoryTypeBitbucket, Bitbucket: &types.Bitbucket{Username: "user"}}, configured: true},

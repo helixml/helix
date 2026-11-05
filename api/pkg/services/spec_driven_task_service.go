@@ -254,6 +254,9 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	if branchMode == types.BranchModeExisting && strings.TrimSpace(req.WorkingBranch) == "" {
 		return nil, fmt.Errorf("working branch is required for existing branch mode")
 	}
+	if err := req.ValidateBranchFields(); err != nil {
+		return nil, err
+	}
 
 	// An explicit name wins; otherwise derive one from the prompt.
 	taskName := strings.TrimSpace(req.Name)
@@ -1251,6 +1254,14 @@ func buildEnvWithLocale(userAPIKey string, opts types.StartPlanningOptions) []st
 	if opts.Timezone != "" {
 		env = append(env, fmt.Sprintf("TZ=%s", opts.Timezone))
 		log.Debug().Str("timezone", opts.Timezone).Msg("Adding timezone to container env")
+	}
+
+	// Add browser languages so the desktop browser sends the user's Accept-Language
+	// instead of whatever websites infer from the runner's IP address.
+	// Sanitized again here because PlanningOptions is persisted on the task.
+	if languages := types.SanitizeBrowserLanguages(opts.Languages); languages != "" {
+		env = append(env, fmt.Sprintf("HELIX_BROWSER_LANGUAGES=%s", languages))
+		log.Debug().Str("languages", languages).Msg("Adding browser languages to container env")
 	}
 
 	return env

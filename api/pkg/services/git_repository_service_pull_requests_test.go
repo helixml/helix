@@ -131,7 +131,6 @@ func TestUpstreamRemoteForRepo_RejectsUnavailableSavedPAT(t *testing.T) {
 func TestUpstreamRemoteForRepo_RejectsPartialStaticCredentials(t *testing.T) {
 	for _, repo := range []*types.GitRepository{
 		{Name: "private-repo", ExternalURL: "https://github.com/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeGitHub, Username: "user"},
-		{Name: "private-repo", ExternalURL: "https://github.com/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeGitHub, Password: "password"},
 		{Name: "private-repo", ExternalURL: "https://bitbucket.org/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeBitbucket, Bitbucket: &types.Bitbucket{Username: "user"}},
 	} {
 		_, err := newPRTestService(&prTestStore{}).upstreamRemoteForRepo(t.Context(), repo)
@@ -377,6 +376,29 @@ func TestGetCredentialsForRepo_GitLabUserOAuthTakesPrecedence(t *testing.T) {
 
 	if username != "oauth2" || password != "user-token" {
 		t.Fatalf("expected acting GitLab OAuth credentials, got %q / %q", username, password)
+	}
+}
+
+func TestGetCredentialsForRepo_PasswordOnlyPAT(t *testing.T) {
+	// The project dialogs link a PAT-browsed repo with the token as the password
+	// and no username. The clone must still authenticate.
+	for _, tc := range []struct {
+		externalType types.ExternalRepositoryType
+		username     string
+		wantUsername string
+	}{
+		{types.ExternalRepositoryTypeGitHub, "", "x-access-token"},
+		{types.ExternalRepositoryTypeGitHub, "octocat", "octocat"},
+		{types.ExternalRepositoryTypeGitLab, "", "oauth2"},
+		{types.ExternalRepositoryTypeGitLab, "someone", "someone"},
+	} {
+		repo := &types.GitRepository{ExternalType: tc.externalType, Username: tc.username, Password: "repo-pat"}
+
+		username, password := newPRTestService(&prTestStore{}).getCredentialsForRepo(context.Background(), repo)
+
+		if username != tc.wantUsername || password != "repo-pat" {
+			t.Errorf("%s with username %q: got %q / %q, want %q / repo-pat", tc.externalType, tc.username, username, password, tc.wantUsername)
+		}
 	}
 }
 

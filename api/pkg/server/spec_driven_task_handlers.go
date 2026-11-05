@@ -195,8 +195,16 @@ func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.Response
 		http.Error(w, "prompt is required", http.StatusBadRequest)
 		return
 	}
+	if err := types.ValidateSpecTaskTypeAndPriority(req.Type, req.Priority); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if req.AppID != "" || req.CodeAgentOverrides != nil {
 		http.Error(w, "app_id and code_agent_overrides are no longer supported; provide code_agent_config", http.StatusBadRequest)
+		return
+	}
+	if err := req.ValidateBranchFields(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
@@ -1165,6 +1173,7 @@ func parseIntQuery(value string, defaultValue int) int {
 // @Param taskId path string true "SpecTask ID"
 // @Param keyboard query string false "XKB keyboard layout code (e.g., 'us', 'fr', 'de') - for testing browser locale detection"
 // @Param timezone query string false "IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection"
+// @Param languages query string false "Comma-separated browser languages (e.g., 'en-GB,en') - sets the desktop browser's Accept-Language"
 // @Success 200 {object} types.SpecTask
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
@@ -1194,6 +1203,7 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	opts := types.StartPlanningOptions{
 		KeyboardLayout: r.URL.Query().Get("keyboard"),
 		Timezone:       r.URL.Query().Get("timezone"),
+		Languages:      types.SanitizeBrowserLanguages(r.URL.Query().Get("languages")),
 	}
 
 	// Get the task
@@ -1355,6 +1365,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if err := json.NewDecoder(r.Body).Decode(&updateReq); err != nil {
 		log.Error().Err(err).Msg("Failed to decode SpecTask update request")
 		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := types.ValidateSpecTaskTypeAndPriority("", updateReq.Priority); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

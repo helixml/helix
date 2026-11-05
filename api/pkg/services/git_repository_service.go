@@ -1,6 +1,7 @@
 package services
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -2813,9 +2814,16 @@ func RepositoryStaticCredentials(repo *types.GitRepository) (username, password 
 		if repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "" {
 			return "x-access-token", repo.GitHub.PersonalAccessToken, true
 		}
+		if repo.Password != "" {
+			// A PAT linked from the project dialogs arrives without a username.
+			return cmp.Or(repo.Username, "x-access-token"), repo.Password, true
+		}
 	case types.ExternalRepositoryTypeGitLab:
 		if repo.GitLab != nil && repo.GitLab.PersonalAccessToken != "" {
 			return "oauth2", repo.GitLab.PersonalAccessToken, true
+		}
+		if repo.Password != "" {
+			return cmp.Or(repo.Username, "oauth2"), repo.Password, true
 		}
 	case types.ExternalRepositoryTypeADO:
 		if repo.AzureDevOps != nil && repo.AzureDevOps.PersonalAccessToken != "" {

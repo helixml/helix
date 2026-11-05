@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/store"
@@ -733,7 +734,7 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 	var endpoint types.ProviderEndpoint
 	if err := json.NewDecoder(r.Body).Decode(&endpoint); err != nil {
 		log.Err(err).Msg("error decoding request body")
-		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -788,6 +789,22 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 
 	endpoint.Name = strings.TrimSpace(endpoint.Name)
+	endpoint.BaseURL = strings.TrimSpace(endpoint.BaseURL)
+	endpoint.VertexProjectID = strings.TrimSpace(endpoint.VertexProjectID)
+	if err := validateProviderEndpointShape(&endpoint); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.validateProviderEndpointBaseURL(ctx, &endpoint); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	models, err := normalizeProviderModels(endpoint.Models)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	endpoint.Models = models
 	duplicate, err := s.providerEndpointNameExists(ctx, &endpoint, "")
 	if err != nil {
 		log.Err(err).Msg("error listing providers for name validation")
@@ -826,6 +843,31 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+}
+
+// validateProviderEndpointBaseURL rejects a base URL before it is stored:
+// it must be http(s), and for tenant-controlled endpoints it must not point at
+// loopback, link-local/metadata or (by default) private-network addresses.
+// The same policy is enforced again at dial time on every fetch (TST-01-270).
+// An empty base URL is allowed (e.g. Vertex endpoints).
+func (s *HelixAPIServer) validateProviderEndpointBaseURL(ctx context.Context, endpoint *types.ProviderEndpoint) error {
+	if endpoint.BaseURL == "" {
+		return nil
+	}
+	policy := endpoint.OutboundPolicy(s.Cfg.Providers.AllowPrivateNetworks)
+	var err error
+	if policy == nil {
+		_, err = netguard.ValidateHTTPURL(endpoint.BaseURL)
+	} else {
+		err = policy.ValidateURL(ctx, endpoint.BaseURL)
+	}
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, netguard.ErrPrivateNetwork) {
+		return fmt.Errorf("invalid base_url: %w (self-hosted deployments can allow private-network providers with PROVIDER_ENDPOINTS_ALLOW_PRIVATE_NETWORKS=true)", err)
+	}
+	return fmt.Errorf("invalid base_url: %w", err)
 }
 
 func (s *HelixAPIServer) providerEndpointNameExists(ctx context.Context, endpoint *types.ProviderEndpoint, excludeID string) (bool, error) {
@@ -910,7 +952,7 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	var updatedEndpoint types.UpdateProviderEndpoint
 	if err := json.NewDecoder(r.Body).Decode(&updatedEndpoint); err != nil {
 		log.Err(err).Msg("error decoding request body")
-		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -987,8 +1029,17 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	if updatedEndpoint.BillingEnabled != nil {
 		existingEndpoint.BillingEnabled = *updatedEndpoint.BillingEnabled
 	}
-	existingEndpoint.Models = updatedEndpoint.Models
+	models, err := normalizeProviderModels(updatedEndpoint.Models)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	existingEndpoint.Models = models
 	existingEndpoint.BaseURL = strings.TrimSpace(updatedEndpoint.BaseURL)
+	if err := s.validateProviderEndpointBaseURL(ctx, existingEndpoint); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
 	// A nil map means the caller left headers out of the request; an empty map
 	// means "remove every header". Both are legitimate, so only the nil case
 	// keeps the stored headers.
@@ -1026,6 +1077,11 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 	if updatedEndpoint.VertexCredentialsFile != nil {
 		existingEndpoint.VertexCredentialsFile = strings.TrimSpace(*updatedEndpoint.VertexCredentialsFile)
+	}
+
+	if err := validateProviderEndpointShape(existingEndpoint); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	// Update the endpoint
@@ -1165,19 +1221,14 @@ func (s *HelixAPIServer) updateProviderEndpointModels(rw http.ResponseWriter, r 
 
 	var req types.UpdateProviderEndpointModels
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
-	models := make([]string, 0, len(req.Models))
-	seen := make(map[string]bool, len(req.Models))
-	for _, m := range req.Models {
-		m = strings.TrimSpace(m)
-		if m == "" || seen[m] {
-			continue
-		}
-		seen[m] = true
-		models = append(models, m)
+	models, err := normalizeProviderModels(req.Models)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
 	}
 	endpoint.Models = models
 

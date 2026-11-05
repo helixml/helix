@@ -3,7 +3,6 @@ package hydra
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -34,10 +33,11 @@ func reconcileWorkspaceSubdir(subdir, requiredPrefix string, liveSet map[string]
 func reconcileIDDirs(base, label, requiredPrefix string, liveSet map[string]bool, grace time.Duration, dryRun bool, remove func(dir string) error) (reaped []string, skipped []GCSkip) {
 	entries, err := os.ReadDir(base)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Warn().Err(err).Str("dir", base).Msg("ReconcileOrphanWorkspaces: failed to read subdir")
+		if os.IsNotExist(err) {
+			return nil, nil
 		}
-		return nil, nil
+		log.Error().Err(err).Str("dir", base).Msg("ReconcileOrphanWorkspaces: failed to read subdir; nothing reaped")
+		return nil, []GCSkip{{Name: base, Reason: "list error: " + err.Error()}}
 	}
 
 	cutoff := time.Now().Add(-grace)
@@ -50,15 +50,20 @@ func reconcileIDDirs(base, label, requiredPrefix string, liveSet map[string]bool
 
 		// Guard against path traversal — name must be a single, well-formed
 		// element carrying the expected prefix.
-		if !strings.HasPrefix(name, requiredPrefix) ||
-			strings.ContainsAny(name, "/\\") ||
-			name == "." || name == ".." {
+		if !isResourceID(name, requiredPrefix) {
 			skipped = append(skipped, GCSkip{Name: filepath.Join(label, name), Reason: "name not eligible"})
 			continue
 		}
 
 		// id == directory name (full ses_… / spt_… string).
 		if liveSet[name] {
+			// A dir's mtime only moves when a direct child changes, not when
+			// files deeper inside are edited. Stamp it while live so grace
+			// runs from when it was last seen live.
+			now := time.Now()
+			if err := os.Chtimes(filepath.Join(base, name), now, now); err != nil {
+				log.Warn().Err(err).Str("dir", filepath.Join(base, name)).Msg("ReconcileOrphanWorkspaces: failed to refresh live workspace mtime")
+			}
 			skipped = append(skipped, GCSkip{Name: filepath.Join(label, name), Reason: "live"})
 			continue
 		}
