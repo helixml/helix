@@ -258,6 +258,29 @@ func TestGetCredentialsForRepo_GitLabUserOAuthTakesPrecedence(t *testing.T) {
 	}
 }
 
+func TestGetCredentialsForRepo_PasswordOnlyPAT(t *testing.T) {
+	// The project dialogs link a PAT-browsed repo with the token as the password
+	// and no username. The clone must still authenticate.
+	for _, tc := range []struct {
+		externalType types.ExternalRepositoryType
+		username     string
+		wantUsername string
+	}{
+		{types.ExternalRepositoryTypeGitHub, "", "x-access-token"},
+		{types.ExternalRepositoryTypeGitHub, "octocat", "octocat"},
+		{types.ExternalRepositoryTypeGitLab, "", "oauth2"},
+		{types.ExternalRepositoryTypeGitLab, "someone", "someone"},
+	} {
+		repo := &types.GitRepository{ExternalType: tc.externalType, Username: tc.username, Password: "repo-pat"}
+
+		username, password := newPRTestService(&prTestStore{}).getCredentialsForRepo(context.Background(), repo)
+
+		if username != tc.wantUsername || password != "repo-pat" {
+			t.Errorf("%s with username %q: got %q / %q, want %q / repo-pat", tc.externalType, tc.username, username, password, tc.wantUsername)
+		}
+	}
+}
+
 func TestCreateGitLabMergeRequest_UserOAuthTakesPrecedence(t *testing.T) {
 	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

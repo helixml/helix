@@ -30,8 +30,8 @@ export function openPullRequestCount(task: {
 }
 
 /** Identifies the agent's pending completion request, if any, for one-time reveal. */
-export function completionRequestKey(task: TypesSpecTask | undefined): string {
-  return task?.completion_requested_at && canMarkDone(task)
+export function completionRequestKey(task: TypesSpecTask | undefined, hideControls = false): string {
+  return !hideControls && task?.completion_requested_at && canMarkDone(task)
     ? `completion:${task.completion_requested_at}`
     : "";
 }

@@ -27,7 +27,9 @@ export const ACTIONABLE_PR_PROPOSAL_STATUSES: ReadonlySet<string> = new Set([
 export function proposalsToReveal(
   proposals: TypesSpecTaskPRProposal[],
   revealed: ReadonlySet<string>,
+  hideControls = false,
 ): string[] {
+  if (hideControls) return [];
   return proposals
     .filter(
       (p) =>

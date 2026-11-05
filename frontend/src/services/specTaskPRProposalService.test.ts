@@ -27,5 +27,6 @@ describe('proposalsToReveal', () => {
     expect(proposalsToReveal(proposals, new Set())).toEqual(['prp_pending', 'prp_failed'])
     expect(proposalsToReveal(proposals, new Set(['prp_pending']))).toEqual(['prp_failed'])
     expect(proposalsToReveal(proposals, new Set(['prp_pending', 'prp_failed']))).toEqual([])
+    expect(proposalsToReveal(proposals, new Set(), true)).toEqual([])
   })
 })
