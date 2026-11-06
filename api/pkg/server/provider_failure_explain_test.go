@@ -48,7 +48,7 @@ func llmCall(age time.Duration, errMsg string) *types.LLMCall {
 // destroy information.
 func (s *ProviderFailureExplainSuite) TestSpecificErrorUntouched() {
 	specific := "compilation failed: syntax error"
-	got := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", specific)
+	got, _ := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", specific)
 	s.Equal(specific, got)
 }
 
@@ -62,10 +62,9 @@ func (s *ProviderFailureExplainSuite) TestRecentProviderFailureExplainsAbort() {
 		llmCall(30*time.Second, ""),
 	}, int64(4), nil)
 
-	got := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", genericAbort)
-	s.Contains(got, "upstream unavailable")
-	s.Contains(got, "qwen3.8-27b")
-	s.Contains(got, "3 consecutive requests failed")
+	got, failure := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", genericAbort)
+	s.Equal("The AI model was temporarily unavailable, so this task did not run.", got)
+	s.NotNil(failure)
 	s.NotContains(got, "exited mid-turn")
 	s.NotContains(got, "Zed.log")
 }
@@ -78,9 +77,10 @@ func (s *ProviderFailureExplainSuite) TestSingleFailureOmitsAttemptCount() {
 		llmCall(20*time.Second, ""),
 	}, int64(2), nil)
 
-	got := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", genericAbort)
-	s.Contains(got, "upstream unavailable")
-	s.NotContains(got, "consecutive")
+	failure, ok := s.server.recentProviderFailure(context.Background(), "ses_1")
+	s.True(ok)
+	s.Contains(failure.detail, "upstream unavailable")
+	s.NotContains(failure.detail, "consecutive")
 }
 
 // A failure from earlier in the session that the agent already recovered from
@@ -91,7 +91,7 @@ func (s *ProviderFailureExplainSuite) TestStaleFailureIsNotBlamed() {
 		llmCall(30*time.Minute, upstream502),
 	}, int64(1), nil)
 
-	got := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", genericAbort)
+	got, _ := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", genericAbort)
 	s.Equal(genericAbort, got)
 }
 
@@ -103,7 +103,7 @@ func (s *ProviderFailureExplainSuite) TestNoFailedCallsLeavesMessageAlone() {
 		llmCall(9*time.Second, ""),
 	}, int64(2), nil)
 
-	got := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", genericAbort)
+	got, _ := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", genericAbort)
 	s.Equal(genericAbort, got)
 }
 
@@ -112,7 +112,7 @@ func (s *ProviderFailureExplainSuite) TestStoreErrorDegradesGracefully() {
 	s.store.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).
 		Return(nil, int64(0), errors.New("db down"))
 
-	got := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", genericAbort)
+	got, _ := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", genericAbort)
 	s.Equal(genericAbort, got)
 }
 
@@ -127,8 +127,27 @@ func (s *ProviderFailureExplainSuite) TestLongErrorIsTruncated() {
 		llmCall(time.Second, long),
 	}, int64(1), nil)
 
-	got := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", genericAbort)
-	s.Contains(got, "502 Bad Gateway")
-	s.Contains(got, "…")
-	s.Less(len(got), 450)
+	failure, ok := s.server.recentProviderFailure(context.Background(), "ses_1")
+	s.True(ok)
+	s.Contains(failure.detail, "502 Bad Gateway")
+	s.Contains(failure.detail, "…")
+	s.Less(len(failure.detail), 400)
+}
+
+func (s *ProviderFailureExplainSuite) TestRawTransportErrorIsExplained() {
+	s.store.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).Return([]*types.LLMCall{
+		llmCall(time.Second, "status code 524"),
+	}, int64(1), nil)
+
+	got, failure := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", `agent turn aborted: Internal error: status code 524: {"service":"session","errorName":"APIError"}`)
+	s.Contains(got, "temporarily unavailable")
+	s.NotNil(failure)
+	s.NotContains(got, "524")
+}
+
+func (s *ProviderFailureExplainSuite) TestRawClientTransportErrorIsPreserved() {
+	raw := `agent turn aborted: Internal error: status code 402: payment required`
+	got, failure := s.server.maybeExplainProviderFailure(context.Background(), "ses_1", raw)
+	s.Equal(raw, got)
+	s.Nil(failure)
 }

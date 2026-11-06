@@ -282,6 +282,11 @@ func (s *PostgresStore) runMigrations() error {
 	).Error; err != nil {
 		return fmt.Errorf("failed to create sessions config lookup index: %w", err)
 	}
+	if err := s.gdb.WithContext(context.Background()).Exec(
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_config_provider_recovery_provider ON sessions ((config->'provider_recovery'->>'provider'))",
+	).Error; err != nil {
+		return fmt.Errorf("failed to create sessions provider recovery index: %w", err)
+	}
 	if err := s.backfillAgentKinds(context.Background()); err != nil {
 		return err
 	}

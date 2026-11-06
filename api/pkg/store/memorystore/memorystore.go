@@ -136,6 +136,17 @@ func (m *MemoryStore) UpdateSession(_ context.Context, session types.Session) (*
 	return &cp, nil
 }
 
+func (m *MemoryStore) SetSessionProviderRecovery(_ context.Context, sessionID string, recovery *types.ProviderRecovery) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return store.ErrNotFound
+	}
+	session.Metadata.Recovery = recovery
+	return nil
+}
+
 func (m *MemoryStore) TouchSession(_ context.Context, sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -164,6 +175,15 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 	defer m.mu.RUnlock()
 	result := make([]*types.Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
+		if query.OrganizationID != "" && s.OrganizationID != query.OrganizationID {
+			continue
+		}
+		if query.OrganizationID == "" && !query.AnyOrganization && s.OrganizationID != "" {
+			continue
+		}
+		if len(query.ProviderRecoveryProviders) > 0 && (s.Metadata.Recovery == nil || !containsString(query.ProviderRecoveryProviders, s.Metadata.Recovery.Provider)) {
+			continue
+		}
 		if query.RestrictToProjects && !containsString(query.ProjectIDs, s.ProjectID) {
 			continue
 		}
@@ -766,6 +786,32 @@ func (m *MemoryStore) setPromptStatus(id, status string) {
 func (m *MemoryStore) MarkPromptAsPending(_ context.Context, id string) error {
 	m.setPromptStatus(id, "pending")
 	return nil
+}
+
+func (m *MemoryStore) RecoverProviderPrompt(_ context.Context, sessionID, promptID string, now, nextCheckAt time.Time, maxAttempts int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return false, store.ErrNotFound
+	}
+	state := session.Metadata.Recovery
+	if state == nil {
+		return false, nil
+	}
+	prompt := m.prompts[promptID]
+	interaction := m.interactions[state.InteractionID]
+	if state.PromptID != promptID || state.Attempts >= maxAttempts || state.NextCheckAt.After(now) ||
+		interaction == nil || interaction.SessionID != sessionID || interaction.State != types.InteractionStateError ||
+		prompt == nil || prompt.SessionID != sessionID || prompt.Status != "sent" {
+		return false, nil
+	}
+	state.Attempts++
+	state.NextCheckAt = nextCheckAt
+	prompt.Status = "pending"
+	prompt.NextRetryAt = nil
+	prompt.ErrorMessage = ""
+	return true, nil
 }
 
 // RevertPromptToPending mirrors the Postgres store: back to pending with

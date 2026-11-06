@@ -18,6 +18,17 @@ import (
 // the sub path any API's are served over
 const APISubPath = "/api/v1"
 
+func Has5xxStatusCode(message string) bool {
+	const marker = "status code "
+	start := strings.Index(message, marker)
+	if start < 0 {
+		return false
+	}
+	code := message[start+len(marker):]
+	return len(code) >= 3 && code[0] == '5' && code[1] >= '0' && code[1] <= '9' && code[2] >= '0' && code[2] <= '9' &&
+		(len(code) == 3 || code[3] < '0' || code[3] > '9')
+}
+
 type ClientOptions struct {
 	Host  string
 	Token string

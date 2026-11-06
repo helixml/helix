@@ -497,6 +497,8 @@ type SessionMetadata struct {
 	AutoRestartCount   int       `json:"auto_restart_count,omitempty"`
 	LastAutoRestartAt  time.Time `json:"last_auto_restart_at,omitempty"`
 
+	Recovery *ProviderRecovery `json:"provider_recovery,omitempty"`
+
 	// Title history - tracks evolution of session topics (newest first)
 	// Shown on hover in the SpecTask tab view to see what topics were covered
 	TitleHistory []*TitleHistoryEntry `json:"title_history,omitempty"`
@@ -631,6 +633,16 @@ type SessionMetadata struct {
 	Paused       bool      `json:"paused,omitempty"`
 	PausedReason string    `json:"paused_reason,omitempty"`
 	PausedAt     time.Time `json:"paused_at,omitempty"`
+}
+
+type ProviderRecovery struct {
+	Provider      string    `json:"provider"`
+	Model         string    `json:"model"`
+	PromptID      string    `json:"prompt_id"`
+	InteractionID string    `json:"interaction_id"`
+	Attempts      int       `json:"attempts"`
+	FailedAt      time.Time `json:"failed_at"`
+	NextCheckAt   time.Time `json:"next_check_at"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount

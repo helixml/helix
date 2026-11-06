@@ -71,7 +71,9 @@ type ListSessionsQuery struct {
 	// AnyOwner drops the owner clause. Only valid together with a project
 	// scope the caller has been authorized for: it is how a project group
 	// shows every member's chats.
-	AnyOwner bool `json:"any_owner"`
+	AnyOwner                  bool     `json:"any_owner"`
+	AnyOrganization           bool     `json:"-"`
+	ProviderRecoveryProviders []string `json:"-"`
 }
 
 type ListAPIKeysQuery struct {
@@ -285,6 +287,7 @@ type Store interface {
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
 	UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error
+	SetSessionProviderRecovery(ctx context.Context, sessionID string, recovery *types.ProviderRecovery) error
 	// ClaimSessionAutoRestart atomically records a restart unless another restart
 	// was recorded after before.
 	ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error)
@@ -945,6 +948,7 @@ type Store interface {
 	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
 	ListPromptHistoryBySession(ctx context.Context, sessionID string) ([]*types.PromptHistoryEntry, error)
 	MarkPromptAsPending(ctx context.Context, promptID string) error
+	RecoverProviderPrompt(ctx context.Context, sessionID, promptID string, now, nextCheckAt time.Time, maxAttempts int) (bool, error)
 	// RevertPromptToPending returns a claimed prompt to the queue after a
 	// busy-defer, without charging the retry budget. See the implementation.
 	RevertPromptToPending(ctx context.Context, promptID string) error

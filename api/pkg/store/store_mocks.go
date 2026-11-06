@@ -6380,6 +6380,21 @@ func (mr *MockStoreMockRecorder) ReconcileStuckSendingPrompts(ctx any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileStuckSendingPrompts", reflect.TypeOf((*MockStore)(nil).ReconcileStuckSendingPrompts), ctx)
 }
 
+// RecoverProviderPrompt mocks base method.
+func (m *MockStore) RecoverProviderPrompt(ctx context.Context, sessionID, promptID string, now, nextCheckAt time.Time, maxAttempts int) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecoverProviderPrompt", ctx, sessionID, promptID, now, nextCheckAt, maxAttempts)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecoverProviderPrompt indicates an expected call of RecoverProviderPrompt.
+func (mr *MockStoreMockRecorder) RecoverProviderPrompt(ctx, sessionID, promptID, now, nextCheckAt, maxAttempts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecoverProviderPrompt", reflect.TypeOf((*MockStore)(nil).RecoverProviderPrompt), ctx, sessionID, promptID, now, nextCheckAt, maxAttempts)
+}
+
 // RedeemSecretIntakeInvitation mocks base method.
 func (m *MockStore) RedeemSecretIntakeInvitation(arg0 context.Context, arg1, arg2, arg3, arg4 string, arg5, arg6 time.Time) (bool, error) {
 	m.ctrl.T.Helper()
@@ -6811,6 +6826,20 @@ func (m *MockStore) SetSessionBotInstanceProfile(ctx context.Context, sessionID 
 func (mr *MockStoreMockRecorder) SetSessionBotInstanceProfile(ctx, sessionID, profile any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionBotInstanceProfile", reflect.TypeOf((*MockStore)(nil).SetSessionBotInstanceProfile), ctx, sessionID, profile)
+}
+
+// SetSessionProviderRecovery mocks base method.
+func (m *MockStore) SetSessionProviderRecovery(ctx context.Context, sessionID string, recovery *types.ProviderRecovery) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSessionProviderRecovery", ctx, sessionID, recovery)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSessionProviderRecovery indicates an expected call of SetSessionProviderRecovery.
+func (mr *MockStoreMockRecorder) SetSessionProviderRecovery(ctx, sessionID, recovery any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionProviderRecovery", reflect.TypeOf((*MockStore)(nil).SetSessionProviderRecovery), ctx, sessionID, recovery)
 }
 
 // SetWebServiceHostDeviceID mocks base method.
