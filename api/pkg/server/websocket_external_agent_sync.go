@@ -3466,6 +3466,12 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 				Msg("♻️ [HELIX] Reset auto-restart budget after successful turn")
 		}
 	}
+	if helixSession.Metadata.Recovery != nil {
+		if err := apiServer.Store.SetSessionProviderRecovery(context.Background(), helixSessionID, nil); err != nil {
+			log.Warn().Err(err).Str("helix_session_id", helixSessionID).
+				Msg("Failed to clear provider recovery after successful turn")
+		}
+	}
 
 	// Continuous reconciliation: if the queued prompt was never marked sent
 	// via handleMessageAdded (e.g. the agent went straight to message_completed
@@ -4478,8 +4484,7 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 // (e.g. desktop replay during reconnect).
 // genericACPAbortMarker identifies the generic mid-turn abort string that Zed
 // emits when an ACP turn errors without a cause (see
-// zed/crates/external_websocket_sync/src/thread_service.rs). It is the only
-// message we attempt to reclassify — specific errors are left untouched.
+// zed/crates/external_websocket_sync/src/thread_service.rs).
 const genericACPAbortMarker = "exited mid-turn or hit max tokens"
 
 // providerFailureLookback bounds how far back a failed provider call may be and
@@ -4489,8 +4494,10 @@ const genericACPAbortMarker = "exited mid-turn or hit max tokens"
 // presented as the cause.
 const providerFailureLookback = 3 * time.Minute
 
-// maybeExplainProviderFailure replaces the generic ACP mid-turn abort message
-// with the provider error that actually caused it.
+const maxProviderRecoveryAttempts = 3
+
+// maybeExplainProviderFailure replaces opaque ACP transport errors with a
+// user-facing provider explanation only when a recent failed LLM call proves it.
 //
 // Zed's AcpThreadEvent::Error carries no cause (see
 // zed/crates/acp_thread/src/acp_thread.rs — run_turn logs the error and emits a
@@ -4503,16 +4510,36 @@ const providerFailureLookback = 3 * time.Minute
 // Returns errorMsg unchanged when the message is not the generic one, when no
 // recent call failed, or when the store is unavailable — a wrong explanation is
 // worse than a vague one.
-func (apiServer *HelixAPIServer) maybeExplainProviderFailure(ctx context.Context, helixSessionID, errorMsg string) string {
-	if !strings.Contains(errorMsg, genericACPAbortMarker) || helixSessionID == "" {
-		return errorMsg
+func (apiServer *HelixAPIServer) maybeExplainProviderFailure(ctx context.Context, helixSessionID, errorMsg string) (string, *types.LLMCall) {
+	if !isOpaqueProviderAbort(errorMsg) || helixSessionID == "" {
+		return errorMsg, nil
 	}
-	detail, ok := apiServer.recentProviderFailure(ctx, helixSessionID)
+	failure, ok := apiServer.recentProviderFailure(ctx, helixSessionID)
 	if !ok {
-		return errorMsg
+		return errorMsg, nil
 	}
-	return fmt.Sprintf("Agent turn aborted: the model provider failed and the coding agent gave up retrying. "+
-		"Last provider error: %s.", detail)
+	return "The AI model was temporarily unavailable, so this task did not run.", failure.call
+}
+
+func isOpaqueProviderAbort(errorMsg string) bool {
+	return strings.Contains(errorMsg, genericACPAbortMarker) ||
+		(strings.Contains(errorMsg, "agent turn aborted") && contains5xxStatusCode(errorMsg))
+}
+
+func contains5xxStatusCode(message string) bool {
+	const marker = "status code "
+	start := strings.Index(message, marker)
+	if start < 0 {
+		return false
+	}
+	code := message[start+len(marker):]
+	return len(code) >= 3 && code[0] == '5' && code[1] >= '0' && code[1] <= '9' && code[2] >= '0' && code[2] <= '9' &&
+		(len(code) == 3 || code[3] < '0' || code[3] > '9')
+}
+
+type recentProviderFailureResult struct {
+	detail string
+	call   *types.LLMCall
 }
 
 // recentProviderFailure returns a one-line description of the session's most
@@ -4520,9 +4547,9 @@ func (apiServer *HelixAPIServer) maybeExplainProviderFailure(ctx context.Context
 // failed" — when one happened within providerFailureLookback. Both the turn
 // abort and thread-load failure paths attach it, because the agent only ever
 // reports a generic service failure while llm_calls holds the actual reason.
-func (apiServer *HelixAPIServer) recentProviderFailure(ctx context.Context, helixSessionID string) (string, bool) {
+func (apiServer *HelixAPIServer) recentProviderFailure(ctx context.Context, helixSessionID string) (recentProviderFailureResult, bool) {
 	if helixSessionID == "" {
-		return "", false
+		return recentProviderFailureResult{}, false
 	}
 	calls, _, err := apiServer.Store.ListLLMCalls(ctx, &store.ListLLMCallsQuery{
 		SessionID: helixSessionID,
@@ -4530,7 +4557,7 @@ func (apiServer *HelixAPIServer) recentProviderFailure(ctx context.Context, heli
 		PerPage:   10,
 	})
 	if err != nil || len(calls) == 0 {
-		return "", false
+		return recentProviderFailureResult{}, false
 	}
 	// ListLLMCalls orders by created DESC, so the first failure we meet is the
 	// most recent one.
@@ -4545,7 +4572,7 @@ func (apiServer *HelixAPIServer) recentProviderFailure(ctx context.Context, heli
 		}
 	}
 	if failure == nil || time.Since(failure.Created) > providerFailureLookback {
-		return "", false
+		return recentProviderFailureResult{}, false
 	}
 
 	// Count how many consecutive recent calls failed the same way. One failure
@@ -4570,7 +4597,53 @@ func (apiServer *HelixAPIServer) recentProviderFailure(ctx context.Context, heli
 	if attempts > 1 {
 		detail += fmt.Sprintf(". %d consecutive requests failed", attempts)
 	}
-	return detail, true
+	return recentProviderFailureResult{detail: detail, call: failure}, true
+}
+
+func providerRecoveryDelay(attempts int) time.Duration {
+	switch attempts {
+	case 0:
+		return time.Minute
+	case 1:
+		return 5 * time.Minute
+	default:
+		return 30 * time.Minute
+	}
+}
+
+func (apiServer *HelixAPIServer) recordProviderRecovery(ctx context.Context, interaction *types.Interaction, failure *types.LLMCall) bool {
+	if interaction == nil || interaction.PromptID == "" || failure == nil || failure.Provider == "" {
+		return false
+	}
+	session, err := apiServer.Store.GetSession(ctx, interaction.SessionID)
+	if err != nil || session.Metadata.OrgWorkerID == "" || !session.Metadata.AutoRestartOnCrash {
+		return false
+	}
+	attempts := 0
+	if current := session.Metadata.Recovery; current != nil && current.PromptID == interaction.PromptID && current.Provider == failure.Provider {
+		attempts = current.Attempts
+	}
+	if attempts >= maxProviderRecoveryAttempts {
+		return false
+	}
+	failedAt := failure.Updated
+	if failedAt.IsZero() {
+		failedAt = time.Now()
+	}
+	session.Metadata.Recovery = &types.ProviderRecovery{
+		Provider:      failure.Provider,
+		Model:         failure.Model,
+		PromptID:      interaction.PromptID,
+		InteractionID: interaction.ID,
+		Attempts:      attempts,
+		FailedAt:      failedAt,
+		NextCheckAt:   time.Now().Add(providerRecoveryDelay(attempts)),
+	}
+	if err := apiServer.Store.SetSessionProviderRecovery(ctx, session.ID, session.Metadata.Recovery); err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to record provider recovery")
+		return false
+	}
+	return true
 }
 
 // maybeReclassifySubscriptionAuthError rewrites the generic ACP mid-turn abort
@@ -4696,8 +4769,8 @@ func (apiServer *HelixAPIServer) reapplyThreadLoadErrorAfterSilence(helixSession
 // in llm_calls and is what the operator actually needs to see.
 func (apiServer *HelixAPIServer) commitThreadLoadFailure(ctx context.Context, helixSession *types.Session, target *types.Interaction, acpThreadID, errorMsg string) {
 	helixSessionID := helixSession.ID
-	if detail, ok := apiServer.recentProviderFailure(ctx, helixSessionID); ok {
-		errorMsg = fmt.Sprintf("%s. Last model provider error: %s", errorMsg, detail)
+	if failure, ok := apiServer.recentProviderFailure(ctx, helixSessionID); ok {
+		errorMsg = fmt.Sprintf("%s. Last model provider error: %s", errorMsg, failure.detail)
 	}
 	target.State = types.InteractionStateError
 	target.Error = fmt.Sprintf("Thread load failed: %s", errorMsg)

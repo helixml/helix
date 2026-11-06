@@ -30,8 +30,12 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 
 	if query.OrganizationID != "" {
 		q = q.Where("organization_id = ?", query.OrganizationID)
-	} else {
+	} else if !query.AnyOrganization {
 		q = q.Where("organization_id IS NULL OR organization_id = ''")
+	}
+
+	if len(query.ProviderRecoveryProviders) > 0 {
+		q = q.Where("config->'provider_recovery'->>'provider' IN ?", query.ProviderRecoveryProviders)
 	}
 
 	if query.AppID != "" {
@@ -321,6 +325,21 @@ func (s *PostgresStore) UpdateSessionMetadata(ctx context.Context, sessionID str
 		return err
 	}
 	return nil
+}
+
+func (s *PostgresStore) SetSessionProviderRecovery(ctx context.Context, sessionID string, recovery *types.ProviderRecovery) error {
+	if sessionID == "" {
+		return fmt.Errorf("id not specified")
+	}
+	update := gorm.Expr("config - 'provider_recovery'")
+	if recovery != nil {
+		payload, err := json.Marshal(map[string]any{"provider_recovery": recovery})
+		if err != nil {
+			return err
+		}
+		update = gorm.Expr("config || ?::jsonb", string(payload))
+	}
+	return s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).Update("config", update).Error
 }
 
 func (s *PostgresStore) ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error) {

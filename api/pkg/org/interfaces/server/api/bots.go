@@ -200,6 +200,7 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, fmt.Errorf("get bot %s activation status: %w", id, err))
 			return
 		}
+		dto.ActivationError = displayActivationError(dto.ActivationError)
 	}
 	// Seeded nodes carry their built-in prompt so the UI can offer a
 	// reset to it; operator-created nodes have none and the field stays
@@ -237,6 +238,20 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto, LegacyAppID: b.AgentID})
+}
+
+func displayActivationError(err string) string {
+	const marker = "status code "
+	start := strings.Index(err, marker)
+	if strings.Contains(err, "agent turn aborted") && start >= 0 {
+		code := err[start+len(marker):]
+		if len(code) < 3 || code[0] != '5' || code[1] < '0' || code[1] > '9' || code[2] < '0' || code[2] > '9' ||
+			(len(code) > 3 && code[3] >= '0' && code[3] <= '9') {
+			return err
+		}
+		return "The AI model was temporarily unavailable, so this task did not run. The bot will try again automatically when the model is available."
+	}
+	return err
 }
 
 // updateBot rewrites a Bot's content / tools. A nil field is

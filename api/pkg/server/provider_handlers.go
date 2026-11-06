@@ -446,7 +446,8 @@ type cachedModels struct {
 
 // ProviderModels is the result of getProviderModels.
 type ProviderModels struct {
-	Models []types.OpenAIModel
+	Models    []types.OpenAIModel
+	FetchedAt time.Time
 	// Degraded is non-nil when Models came from the cache after an upstream
 	// refresh failed. The picker stays populated and the API response carries
 	// Status=error + Error=<reason> so the UI can show a degraded marker.
@@ -482,15 +483,15 @@ func (s *HelixAPIServer) getProviderCatalogue(ctx context.Context, providerEndpo
 func (s *HelixAPIServer) readProviderModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint, key string) (ProviderModels, error) {
 	cached, hit := s.loadCachedModels(key)
 	if hit && time.Since(cached.FetchedAt) < s.Cfg.WebServer.ModelsCacheTTL {
-		return ProviderModels{Models: cached.Models}, nil
+		return ProviderModels{Models: cached.Models, FetchedAt: cached.FetchedAt}, nil
 	}
 
 	fresh, refreshErr := s.refreshProviderModels(ctx, providerEndpoint, key)
 	switch {
 	case refreshErr == nil:
-		return ProviderModels{Models: fresh}, nil
+		return ProviderModels{Models: fresh, FetchedAt: time.Now()}, nil
 	case hit && errors.Is(refreshErr, errUpstreamUnreachable):
-		return ProviderModels{Models: cached.Models, Degraded: refreshErr}, nil
+		return ProviderModels{Models: cached.Models, FetchedAt: cached.FetchedAt, Degraded: refreshErr}, nil
 	default:
 		return ProviderModels{}, refreshErr
 	}
@@ -1634,7 +1635,7 @@ func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
 				continue
 			}
 
-			_, err := s.getProviderModels(ctx, endpoint)
+			models, err := s.getProviderModels(ctx, endpoint)
 			if err != nil {
 				log.Debug().
 					Err(err).
@@ -1643,6 +1644,9 @@ func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
 				errorCount++
 			} else {
 				successCount++
+				if models.Degraded == nil {
+					s.recoverProviderFailedWorkers(ctx, endpoint, models)
+				}
 			}
 		}
 	}
@@ -1662,7 +1666,7 @@ func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
 		log.Warn().Err(err).Msg("failed to list database providers for cache refresh")
 	} else {
 		for _, provider := range dbProviders {
-			_, err := s.getProviderModels(ctx, provider)
+			models, err := s.getProviderModels(ctx, provider)
 			if err != nil {
 				log.Debug().
 					Err(err).
@@ -1672,6 +1676,9 @@ func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
 				errorCount++
 			} else {
 				successCount++
+				if models.Degraded == nil {
+					s.recoverProviderFailedWorkers(ctx, provider, models)
+				}
 			}
 		}
 	}

@@ -8,6 +8,56 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+func (suite *PostgresStoreTestSuite) TestRecoverProviderPromptClaimsExactFailedInteractionOnce() {
+	ctx := context.Background()
+	now := time.Now()
+	promptID := "phe_provider_recovery_" + system.GenerateUUID()
+	interactionID := "int_provider_recovery_" + system.GenerateUUID()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user_provider_recovery", Created: now, Updated: now,
+		Metadata: types.SessionMetadata{Recovery: &types.ProviderRecovery{
+			Provider: "pe-1", PromptID: promptID, InteractionID: interactionID, NextCheckAt: now.Add(-time.Second),
+		}},
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	suite.Require().NoError(suite.db.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, UserID: session.Owner, SessionID: session.ID, Content: "retry me", Status: "sent",
+	}))
+	interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: interactionID, SessionID: session.ID, UserID: session.Owner, PromptID: promptID,
+		Created: now, Updated: now, State: types.InteractionStateError,
+	})
+	suite.Require().NoError(err)
+
+	claimed, err := suite.db.RecoverProviderPrompt(ctx, session.ID, promptID, now, now.Add(time.Minute), 3)
+	suite.Require().NoError(err)
+	suite.True(claimed)
+	updatedSession, err := suite.db.GetSession(ctx, session.ID)
+	suite.Require().NoError(err)
+	suite.Equal(1, updatedSession.Metadata.Recovery.Attempts)
+	prompt, err := suite.db.GetPromptHistoryEntry(ctx, promptID)
+	suite.Require().NoError(err)
+	suite.Equal("pending", prompt.Status)
+
+	claimed, err = suite.db.RecoverProviderPrompt(ctx, session.ID, promptID, now, now.Add(time.Minute), 3)
+	suite.Require().NoError(err)
+	suite.False(claimed)
+
+	interaction.State = types.InteractionStateComplete
+	_, err = suite.db.UpdateInteraction(ctx, interaction)
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.MarkPromptAsSent(ctx, promptID))
+	updatedSession.Metadata.Recovery.NextCheckAt = now.Add(-time.Second)
+	suite.Require().NoError(suite.db.SetSessionProviderRecovery(ctx, session.ID, updatedSession.Metadata.Recovery))
+	claimed, err = suite.db.RecoverProviderPrompt(ctx, session.ID, promptID, now, now.Add(time.Minute), 3)
+	suite.Require().NoError(err)
+	suite.False(claimed)
+	prompt, err = suite.db.GetPromptHistoryEntry(ctx, promptID)
+	suite.Require().NoError(err)
+	suite.Equal("sent", prompt.Status)
+}
+
 // TestGetNextPendingPrompt_RetryCapExcludesRunawayFailures verifies the runaway
 // guard: a failed prompt whose retry_count has reached the cap is no longer
 // selected by the queue, but is selected again if the cap is raised. Guards the

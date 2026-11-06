@@ -52,6 +52,67 @@ func TestInteractionQuestionLifecycle(t *testing.T) {
 	}
 }
 
+func TestRecoverProviderPromptClaimsSentPromptOnce(t *testing.T) {
+	ctx := context.Background()
+	memory := New()
+	now := time.Now()
+	_, err := memory.CreateSession(ctx, types.Session{ID: "session-1", Metadata: types.SessionMetadata{
+		Recovery: &types.ProviderRecovery{PromptID: "prompt-1", InteractionID: "interaction-1", NextCheckAt: now.Add(-time.Second)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{ID: "prompt-1", SessionID: "session-1", Status: "sent"}); err != nil {
+		t.Fatal(err)
+	}
+	interaction, err := memory.CreateInteraction(ctx, &types.Interaction{ID: "interaction-1", SessionID: "session-1", State: types.InteractionStateError})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	claimed, err := memory.RecoverProviderPrompt(ctx, "session-1", "prompt-1", now, now.Add(time.Minute), 3)
+	if err != nil || !claimed {
+		t.Fatalf("first recovery: claimed=%v err=%v", claimed, err)
+	}
+	claimed, err = memory.RecoverProviderPrompt(ctx, "session-1", "prompt-1", now, now.Add(time.Minute), 3)
+	if err != nil || claimed {
+		t.Fatalf("duplicate recovery: claimed=%v err=%v", claimed, err)
+	}
+
+	interaction.State = types.InteractionStateComplete
+	if _, err := memory.UpdateInteraction(ctx, interaction); err != nil {
+		t.Fatal(err)
+	}
+	memory.setPromptStatus("prompt-1", "sent")
+	claimed, err = memory.RecoverProviderPrompt(ctx, "session-1", "prompt-1", now.Add(2*time.Minute), now.Add(3*time.Minute), 3)
+	if err != nil || claimed {
+		t.Fatalf("completed interaction recovery: claimed=%v err=%v", claimed, err)
+	}
+}
+
+func TestListSessionsAnyOrganizationIsExplicit(t *testing.T) {
+	ctx := context.Background()
+	memory := New()
+	provider := "pe-1"
+	for _, session := range []types.Session{
+		{ID: "personal", Metadata: types.SessionMetadata{Recovery: &types.ProviderRecovery{Provider: provider}}},
+		{ID: "organization", OrganizationID: "org-1", Metadata: types.SessionMetadata{Recovery: &types.ProviderRecovery{Provider: provider}}},
+	} {
+		if _, err := memory.CreateSession(ctx, session); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	personal, _, err := memory.ListSessions(ctx, store.ListSessionsQuery{ProviderRecoveryProviders: []string{provider}})
+	if err != nil || len(personal) != 1 || personal[0].ID != "personal" {
+		t.Fatalf("personal sessions = %#v, err = %v", personal, err)
+	}
+	all, _, err := memory.ListSessions(ctx, store.ListSessionsQuery{AnyOrganization: true, ProviderRecoveryProviders: []string{provider}})
+	if err != nil || len(all) != 2 {
+		t.Fatalf("all sessions = %#v, err = %v", all, err)
+	}
+}
+
 func TestListInteractionsFiltersPendingQuestions(t *testing.T) {
 	ctx := context.Background()
 	memory := New()
