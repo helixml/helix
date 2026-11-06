@@ -146,7 +146,6 @@ const AgentChat: FC<AgentChatProps> = ({
     && dismissedPlanInteractionId !== latestInteractionId
 
   const handleSend = useCallback(async (message: string, interrupt?: boolean) => {
-    setHasSentInWelcome(true)
     setComposerPlanExpanded(false)
     setDismissedPlanInteractionId(null)
     await streaming.NewInference({
@@ -155,6 +154,7 @@ const AgentChat: FC<AgentChatProps> = ({
       sessionId,
       interrupt: interrupt ?? true,
     })
+    setHasSentInWelcome(true)
     void refreshSpecTaskStatus()
     // Provider state remains mounted; primitive route state selects the current
     // session and task whose queries need refreshing.
