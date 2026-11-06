@@ -56,6 +56,19 @@ func (suite *PostgresStoreTestSuite) TestRecoverProviderPromptClaimsExactFailedI
 	prompt, err = suite.db.GetPromptHistoryEntry(ctx, promptID)
 	suite.Require().NoError(err)
 	suite.Equal("sent", prompt.Status)
+
+	interaction.State = types.InteractionStateError
+	_, err = suite.db.UpdateInteraction(ctx, interaction)
+	suite.Require().NoError(err)
+	updatedSession.Metadata.Recovery.Attempts = 3
+	updatedSession.Metadata.Recovery.NextCheckAt = now.Add(-time.Second)
+	suite.Require().NoError(suite.db.SetSessionProviderRecovery(ctx, session.ID, updatedSession.Metadata.Recovery))
+	claimed, err = suite.db.RecoverProviderPrompt(ctx, session.ID, promptID, now, now.Add(time.Minute), 3)
+	suite.Require().NoError(err)
+	suite.False(claimed)
+	prompt, err = suite.db.GetPromptHistoryEntry(ctx, promptID)
+	suite.Require().NoError(err)
+	suite.Equal("sent", prompt.Status)
 }
 
 // TestGetNextPendingPrompt_RetryCapExcludesRunawayFailures verifies the runaway

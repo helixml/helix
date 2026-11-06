@@ -4523,18 +4523,7 @@ func (apiServer *HelixAPIServer) maybeExplainProviderFailure(ctx context.Context
 
 func isOpaqueProviderAbort(errorMsg string) bool {
 	return strings.Contains(errorMsg, genericACPAbortMarker) ||
-		(strings.Contains(errorMsg, "agent turn aborted") && contains5xxStatusCode(errorMsg))
-}
-
-func contains5xxStatusCode(message string) bool {
-	const marker = "status code "
-	start := strings.Index(message, marker)
-	if start < 0 {
-		return false
-	}
-	code := message[start+len(marker):]
-	return len(code) >= 3 && code[0] == '5' && code[1] >= '0' && code[1] <= '9' && code[2] >= '0' && code[2] <= '9' &&
-		(len(code) == 3 || code[3] < '0' || code[3] > '9')
+		(strings.Contains(errorMsg, "agent turn aborted") && system.Has5xxStatusCode(errorMsg))
 }
 
 type recentProviderFailureResult struct {

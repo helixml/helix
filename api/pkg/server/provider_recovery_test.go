@@ -63,6 +63,25 @@ func TestRecoverProviderFailedSessionIgnoresModelsCachedBeforeFailure(t *testing
 	require.False(t, recovered)
 }
 
+func TestRecoverProviderFailedSessionStopsAtAttemptLimit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Cfg: &config.ServerConfig{}, Store: st}
+	now := time.Now()
+	session := &types.Session{ID: "ses_1", Metadata: types.SessionMetadata{
+		OrgWorkerID:        "chief-of-staff",
+		AutoRestartOnCrash: true,
+		Recovery: &types.ProviderRecovery{
+			Provider: "pe_1", Model: "glm-5.3-flash", PromptID: "prompt_1", Attempts: maxProviderRecoveryAttempts,
+			FailedAt: now.Add(-2 * time.Second), NextCheckAt: now.Add(-time.Second),
+		},
+	}}
+
+	recovered, err := server.recoverProviderFailedSession(context.Background(), session, []types.OpenAIModel{{ID: "glm-5.3-flash"}}, now, now)
+	require.NoError(t, err)
+	require.False(t, recovered)
+}
+
 func TestRecordProviderRecoveryOnlyForAutonomousOrgWorker(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	st := store.NewMockStore(ctrl)

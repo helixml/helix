@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -241,14 +242,7 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 }
 
 func displayActivationError(err string) string {
-	const marker = "status code "
-	start := strings.Index(err, marker)
-	if strings.Contains(err, "agent turn aborted") && start >= 0 {
-		code := err[start+len(marker):]
-		if len(code) < 3 || code[0] != '5' || code[1] < '0' || code[1] > '9' || code[2] < '0' || code[2] > '9' ||
-			(len(code) > 3 && code[3] >= '0' && code[3] <= '9') {
-			return err
-		}
+	if strings.Contains(err, "agent turn aborted") && system.Has5xxStatusCode(err) {
 		return "The AI model was temporarily unavailable, so this task did not run. The bot will try again automatically when the model is available."
 	}
 	return err
