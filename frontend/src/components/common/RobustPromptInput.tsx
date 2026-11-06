@@ -983,6 +983,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
     if (sendMode === 'direct') {
       const inlineImages = attachments.flatMap((attachment) => attachment.file ? [attachment.file] : [])
+      clearDraft()
       setIsDirectSending(true)
       try {
         const sent = await onSend(
@@ -990,11 +991,14 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           true,
           inlineImages,
         )
-        if (sent === false) return
-        clearDraft()
+        if (sent === false) {
+          setDraft(draft)
+          return
+        }
         clearCurrentAttachments()
         onReviewCommentsSentRef.current?.()
       } catch (error) {
+        setDraft(draft)
         console.error('Failed to send prompt:', error)
       } finally {
         setIsDirectSending(false)
@@ -1006,7 +1010,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     clearDraft()
     clearCurrentAttachments()
     onReviewCommentsSentRef.current?.()
-  }, [draft, attachments, inputDisabled, sendMode, isAgentBusy, onSend, clearDraft, clearCurrentAttachments, saveToHistory, onWillSend, reviewComments.length])
+  }, [draft, attachments, inputDisabled, sendMode, isAgentBusy, onSend, clearDraft, setDraft, clearCurrentAttachments, saveToHistory, onWillSend, reviewComments.length])
 
   const handleSend = useCallback(async () => {
     await submitDraft(interruptMode)

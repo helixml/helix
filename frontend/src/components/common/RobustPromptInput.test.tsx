@@ -9,6 +9,7 @@ const updateInterrupt = vi.fn()
 const saveToHistory = vi.fn()
 const clearDraft = vi.fn()
 const setDraft = vi.fn()
+let draft = ''
 
 let pendingPrompts: PromptHistoryEntry[] = []
 
@@ -19,7 +20,7 @@ vi.mock('../../hooks/usePromptHistory', async () => {
   return {
     ...actual,
     usePromptHistory: () => ({
-      draft: '',
+      draft,
       setDraft,
       saveToHistory,
       markAsSent: vi.fn(),
@@ -33,6 +34,10 @@ vi.mock('../../hooks/usePromptHistory', async () => {
       clearDraft,
     }),
   }
+})
+
+beforeEach(() => {
+  draft = ''
 })
 
 vi.mock('./useSandboxComposerSuggestions', () => {
@@ -108,6 +113,56 @@ describe('RobustPromptInput autofocus', () => {
     )
 
     await waitFor(() => expect(view.container.querySelector('textarea')).toHaveFocus())
+  })
+})
+
+describe('RobustPromptInput direct send', () => {
+  beforeEach(() => {
+    clearDraft.mockClear()
+    setDraft.mockClear()
+  })
+
+  it('clears before the send finishes and restores the draft when it is refused', async () => {
+    draft = 'Some really good barbecue chefs'
+    let finishSend: (sent: boolean) => void = () => {}
+    const onSend = vi.fn(() => new Promise<boolean>((resolve) => {
+      finishSend = resolve
+    }))
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        sendMode="direct"
+        onSend={onSend}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(onSend).toHaveBeenCalledWith('Some really good barbecue chefs', true, [])
+    expect(clearDraft).toHaveBeenCalledTimes(1)
+    expect(setDraft).not.toHaveBeenCalled()
+
+    finishSend(false)
+    await waitFor(() => expect(setDraft).toHaveBeenCalledWith('Some really good barbecue chefs'))
+  })
+
+  it('restores the draft when sending throws', async () => {
+    draft = 'Try this again'
+    const error = new Error('send failed')
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        sendMode="direct"
+        onSend={vi.fn().mockRejectedValue(error)}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(setDraft).toHaveBeenCalledWith('Try this again'))
+    expect(errorLog).toHaveBeenCalledWith('Failed to send prompt:', error)
+    errorLog.mockRestore()
   })
 })
 

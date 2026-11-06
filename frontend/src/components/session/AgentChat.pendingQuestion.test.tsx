@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TypesInteractionState, type TypesInteraction } from "../../api/api";
@@ -16,12 +16,19 @@ const pendingQuestion = {
     },
   ],
 };
-const { pendingQuestionInteractions } = vi.hoisted(() => ({
+const { latestInteractions, newInference, pendingQuestionInteractions } = vi.hoisted(() => ({
+  latestInteractions: {
+    current: {
+      totalCount: 12,
+      interactions: [{ id: "interaction-new", state: "complete" }],
+    },
+  },
+  newInference: vi.fn(),
   pendingQuestionInteractions: { current: [] as TypesInteraction[] },
 }));
 
 vi.mock("../../contexts/streaming", () => ({
-  useStreaming: () => ({ NewInference: vi.fn() }),
+  useStreaming: () => ({ NewInference: newInference }),
 }));
 
 vi.mock("../../hooks/useApi", () => ({
@@ -47,8 +54,7 @@ vi.mock("../../services/sessionService", () => ({
             interactions: pendingQuestionInteractions.current,
           }
         : {
-            totalCount: 12,
-            interactions: [{ id: "interaction-new", state: "complete" }],
+            ...latestInteractions.current,
           },
     },
     refetch: vi.fn(),
@@ -60,11 +66,17 @@ vi.mock("../../services/specTaskService", () => ({
 }));
 
 vi.mock("../common/RobustPromptInput", () => ({
-  default: ({ hasAttachedHeader }: { hasAttachedHeader?: boolean }) => (
-    <div
+  default: ({ hasAttachedHeader, onSend }: {
+    hasAttachedHeader?: boolean;
+    onSend: (message: string) => Promise<void>;
+  }) => (
+    <button
       data-testid="composer"
       data-has-attached-header={String(hasAttachedHeader)}
-    />
+      onClick={() => void onSend("hello")}
+    >
+      Send
+    </button>
   ),
 }));
 
@@ -93,11 +105,35 @@ vi.mock("./useSessionPromptQueue", () => ({
 
 describe("AgentChat pending question placement", () => {
   beforeEach(() => {
+    latestInteractions.current = {
+      totalCount: 12,
+      interactions: [{ id: "interaction-new", state: "complete" }],
+    };
+    newInference.mockReset();
+    newInference.mockResolvedValue(undefined);
     pendingQuestionInteractions.current = [{
       id: "interaction-old",
       state: TypesInteractionState.InteractionStateWaiting,
       pending_question: pendingQuestion,
     }];
+  });
+
+  it("keeps the welcome composer mounted until the first send succeeds", async () => {
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    pendingQuestionInteractions.current = [];
+    let finishSend: () => void = () => {};
+    newInference.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishSend = resolve;
+    }));
+    render(<AgentChat sessionId="session-1" minimal />);
+
+    fireEvent.click(screen.getByTestId("composer"));
+
+    expect(screen.getByText("What would you like to know?")).toBeInTheDocument();
+    await act(async () => finishSend());
+    await waitFor(() => {
+      expect(screen.queryByText("What would you like to know?")).not.toBeInTheDocument();
+    });
   });
 
   it("puts a question older than the loaded transcript after newer replies and action cards", () => {
