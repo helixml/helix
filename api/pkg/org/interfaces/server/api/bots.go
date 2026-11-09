@@ -242,6 +242,9 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 }
 
 func displayActivationError(err string) string {
+	if strings.Contains(err, "activation prompt ") && strings.Contains(err, " was deleted") {
+		return "The previous task was cancelled before the bot could run. Start the bot, then send it again."
+	}
 	if strings.Contains(err, "agent turn aborted") && system.Has5xxStatusCode(err) {
 		return "The AI model was temporarily unavailable, so this task did not run. The bot will try again automatically when the model is available."
 	}

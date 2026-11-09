@@ -437,6 +437,31 @@ func TestGetBotPreservesClientProviderActivationError(t *testing.T) {
 	}
 }
 
+func TestGetBotExplainsCancelledDeletedPromptActivation(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedBot(t, st, ctx, "b-worker", "# Worker")
+	started := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	act, err := activation.New("a-cancelled", "b-worker", []activation.Trigger{{Kind: activation.TriggerManual}}, started, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Create(ctx, act); err != nil {
+		t.Fatal(err)
+	}
+	raw := "send message to session ses-1: non-retryable activation error: activation prompt pmt-1 was deleted"
+	if err := st.Activations.Complete(ctx, "org-test", act.ID, activation.Outcome{Status: activation.StatusError, Error: raw}, started.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, orgapi.Handler(deps), "GET", "/bots/b-worker", nil)
+	var detail orgapi.BotDetailDTO
+	decode(t, rec, &detail)
+	want := "The previous task was cancelled before the bot could run. Start the bot, then send it again."
+	if detail.Bot.ActivationError != want {
+		t.Fatalf("activation error = %q", detail.Bot.ActivationError)
+	}
+}
+
 // TestPatchBot_UpdatesContent seeds a bot, PATCHes new content, then
 // GETs the bot and asserts the markdown updated.
 func TestPatchBot_UpdatesContent(t *testing.T) {

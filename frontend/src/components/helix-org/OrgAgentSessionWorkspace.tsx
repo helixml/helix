@@ -12,6 +12,7 @@ import { FC, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from
 import Box from '@mui/material/Box'
 import Alert from '@mui/material/Alert'
 import IconButton from '@mui/material/IconButton'
+import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
 import { PanelLeft, PanelRight } from 'lucide-react'
 import {
@@ -401,7 +402,16 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     && (!sessionId
       || !/insufficient balance/i.test(bot.activation_error)
       || (isBigScreen ? chatCollapsed : view !== 'chat')) ? (
-    <Alert severity="error" role="alert" sx={{ flexShrink: 0 }}>
+    <Alert
+      severity="error"
+      role="alert"
+      sx={{ flexShrink: 0 }}
+      action={bot.status === 'stopped' && onStart ? (
+        <Button color="inherit" size="small" onClick={onStart} disabled={lifecycleBusy || starting}>
+          Start bot
+        </Button>
+      ) : undefined}
+    >
       {bot.activation_error}
     </Alert>
   ) : null
