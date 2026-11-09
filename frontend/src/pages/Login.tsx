@@ -137,10 +137,13 @@ export default function Login() {
   }, [account.initialized, account.user])
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('auto') !== 'true') return
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('auto') !== 'true') return
     if (!account.initialized || isLoadingConfig || isLoggedIn || !authProvider || isRegular) return
     if (autoLoginStarted.current) return
     autoLoginStarted.current = true
+    url.searchParams.delete('auto')
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
     account.onLogin()
   }, [account.initialized, authProvider, isLoadingConfig, isLoggedIn, isRegular])
 

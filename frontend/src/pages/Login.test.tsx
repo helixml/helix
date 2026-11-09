@@ -70,11 +70,22 @@ describe('Login auto start', () => {
     setURL('')
   })
 
-  it('starts OIDC login exactly once when auto=true', async () => {
-    setURL('?auto=true')
-    renderLogin(true)
+  it('consumes auto before starting OIDC login exactly once', async () => {
+    const loginURLs: string[] = []
+    mockAccountValue.onLogin = vi.fn(() => {
+      loginURLs.push(`${window.location.pathname}${window.location.search}${window.location.hash}`)
+    })
+    setURL('?auto=true&source=cloud#sign-in')
+    const { unmount } = renderLogin(true)
 
     await waitFor(() => expect(mockAccountValue.onLogin).toHaveBeenCalledOnce())
+    expect(loginURLs).toEqual(['/login?source=cloud#sign-in'])
+    expect(window.location.search).toBe('?source=cloud')
+    expect(window.location.hash).toBe('#sign-in')
+
+    unmount()
+    renderLogin(true)
+    expect(mockAccountValue.onLogin).toHaveBeenCalledOnce()
   })
 
   it('does not start OIDC login without auto=true', () => {
