@@ -644,6 +644,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			types.AuthProviderRegular,
 			"",          // no OIDC access token
 			"",          // no OIDC refresh token
+			"",          // no OIDC ID token
 			time.Time{}, // no OIDC token expiry
 		)
 		if err != nil {
@@ -739,6 +740,7 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to verify ID Token: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	rawIDToken, _ := oauth2Token.Extra("id_token").(string)
 
 	nonce, err := cm.Get(r, nonceCookie)
 	if err != nil {
@@ -782,6 +784,7 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 		types.AuthProviderOIDC,
 		oauth2Token.AccessToken,
 		oauth2Token.RefreshToken,
+		rawIDToken,
 		oauth2Token.Expiry,
 	)
 	if err != nil {
@@ -973,8 +976,10 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var oidcIDToken string
 	// Delete BFF session if one exists
 	if session, err := s.sessionManager.GetSessionFromRequest(r.Context(), r); err == nil && session != nil {
+		oidcIDToken = session.OIDCIDToken
 		if err := s.sessionManager.DeleteSession(r.Context(), w, session.ID); err != nil {
 			log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to delete session during logout")
 		}
@@ -1030,7 +1035,10 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	} else {
 		logoutURL = logoutURL + "?post_logout_redirect_uri=" + redirectURI + "&client_id=" + clientID
 	}
-	log.Debug().Str("logout_url", logoutURL).Msg("Redirecting to logout URL")
+	if oidcIDToken != "" {
+		logoutURL += "&id_token_hint=" + url.QueryEscape(oidcIDToken)
+	}
+	log.Debug().Msg("Redirecting to OIDC logout endpoint")
 
 	// If get_url=true query param is set, return the URL as JSON instead of redirecting
 	// This is needed because browsers can't follow cross-origin redirects from fetch()

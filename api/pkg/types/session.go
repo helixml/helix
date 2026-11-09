@@ -32,6 +32,7 @@ type UserSession struct {
 	// These are never exposed to the frontend (json:"-")
 	OIDCRefreshToken string    `json:"-" gorm:"column:oidc_refresh_token;type:text"`
 	OIDCAccessToken  string    `json:"-" gorm:"column:oidc_access_token;type:text"`
+	OIDCIDToken      string    `json:"-" gorm:"column:oidc_id_token;type:text"`
 	OIDCTokenExpiry  time.Time `json:"-" gorm:"column:oidc_token_expiry"`
 
 	// Optional metadata for security/audit
@@ -81,11 +82,11 @@ func (s *UserSession) Touch() {
 // SessionInfo is the public session information returned to the frontend
 // It does NOT include any tokens - just session metadata
 type SessionInfo struct {
-	ID           string           `json:"id"`
-	UserID       string           `json:"user_id"`
+	ID           string       `json:"id"`
+	UserID       string       `json:"user_id"`
 	AuthProvider AuthProvider `json:"auth_provider"`
-	CreatedAt    time.Time        `json:"created_at"`
-	ExpiresAt    time.Time        `json:"expires_at"`
+	CreatedAt    time.Time    `json:"created_at"`
+	ExpiresAt    time.Time    `json:"expires_at"`
 }
 
 // ToSessionInfo converts a UserSession to public SessionInfo

@@ -12,6 +12,7 @@ const mockNavigateReplace = vi.fn()
 const mockNavigate = vi.fn()
 const mockLoadOrganizations = vi.fn().mockResolvedValue(undefined)
 const mockApiGet = vi.fn()
+const mockApiRequest = vi.fn()
 const mockV1AuthAuthenticatedList = vi.fn()
 const mockV1AuthUserList = vi.fn()
 
@@ -20,6 +21,7 @@ vi.mock('../hooks/useApi', () => ({
     get: mockApiGet,
     post: vi.fn(),
     getApiClient: () => ({
+      request: mockApiRequest,
       v1AuthAuthenticatedList: mockV1AuthAuthenticatedList,
       v1AuthUserList: mockV1AuthUserList,
     }),
@@ -412,13 +414,7 @@ describe('logout', () => {
     mockOrgState.initialized = true
     mockOrgState.organizations = [{ id: 'org-1', name: 'my-org', member: true }]
     setupDefaultApiResponses()
-    // onLogout POSTs to the logout endpoint; a plain 200 means "no IdP redirect".
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      type: 'basic',
-      ok: true,
-      redirected: false,
-      status: 200,
-    }))
+    mockApiRequest.mockResolvedValue({ data: {} })
   })
 
   // `selected_org` is written per browser, not per user. Leaving it behind sent
@@ -436,5 +432,14 @@ describe('logout', () => {
     })
 
     expect(localStorage.getItem(SELECTED_ORG_STORAGE_KEY)).toBeNull()
+    expect(mockApiRequest).toHaveBeenCalledOnce()
+    expect(mockApiRequest).toHaveBeenCalledWith({
+      path: '/api/v1/auth/logout',
+      method: 'POST',
+      query: {
+        get_url: true,
+        redirect_uri: window.location.origin,
+      },
+    })
   })
 })
