@@ -120,9 +120,12 @@ export default function Login() {
   const [invitationLoading, setInvitationLoading] = useState(false)
 
   const formRef = useRef<HTMLFormElement>(null)
+  const autoLoginStarted = useRef(false)
   const apiClient = api.getApiClient()
 
-  const isRegular = config?.auth_provider === TypesAuthProvider.AuthProviderRegular
+  const authProvider = config?.auth_provider
+  const isRegular = authProvider === TypesAuthProvider.AuthProviderRegular
+  const isLoggedIn = !!account.user
   const isRegistrationDisabled = mode === 'register' && config?.registration_enabled === false
   const isCloud = config?.edition === 'cloud'
 
@@ -132,6 +135,17 @@ export default function Login() {
     if (!account.user) return
     performPostLoginRedirect()
   }, [account.initialized, account.user])
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('auto') !== 'true') return
+    if (!account.initialized || isLoadingConfig || isLoggedIn || !authProvider || isRegular) return
+    if (autoLoginStarted.current) return
+    autoLoginStarted.current = true
+    url.searchParams.delete('auto')
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+    account.onLogin()
+  }, [account.initialized, authProvider, isLoadingConfig, isLoggedIn, isRegular])
 
   // Pick up ?invitation=oin_… from the URL: switch to register mode,
   // prefill+lock email, and surface the org name. Soft-fails if the

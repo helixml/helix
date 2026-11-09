@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -44,11 +45,11 @@ vi.mock('../services/userService', () => ({
   useGetConfig: () => ({ data: mockConfigValue, isLoading: false }),
 }))
 
-function renderLogin() {
+function renderLogin(strictMode = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <Login />
+      {strictMode ? <StrictMode><Login /></StrictMode> : <Login />}
     </QueryClientProvider>
   )
 }
@@ -60,6 +61,63 @@ function renderLogin() {
 function setURL(search: string) {
   window.history.replaceState({}, '', `/login${search}`)
 }
+
+describe('Login auto start', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockConfigValue = { registration_enabled: true, auth_provider: 'oidc' }
+    mockAccountValue = { initialized: true, user: null, onLogin: vi.fn() }
+    setURL('')
+  })
+
+  it('consumes auto before starting OIDC login exactly once', async () => {
+    const loginURLs: string[] = []
+    mockAccountValue.onLogin = vi.fn(() => {
+      loginURLs.push(`${window.location.pathname}${window.location.search}${window.location.hash}`)
+    })
+    setURL('?auto=true&source=cloud#sign-in')
+    const { unmount } = renderLogin(true)
+
+    await waitFor(() => expect(mockAccountValue.onLogin).toHaveBeenCalledOnce())
+    expect(loginURLs).toEqual(['/login?source=cloud#sign-in'])
+    expect(window.location.search).toBe('?source=cloud')
+    expect(window.location.hash).toBe('#sign-in')
+
+    unmount()
+    renderLogin(true)
+    expect(mockAccountValue.onLogin).toHaveBeenCalledOnce()
+  })
+
+  it('does not start OIDC login without auto=true', () => {
+    renderLogin()
+
+    expect(mockAccountValue.onLogin).not.toHaveBeenCalled()
+  })
+
+  it('does not auto start regular login', () => {
+    mockConfigValue = { registration_enabled: true, auth_provider: 'regular' }
+    setURL('?auto=true')
+    renderLogin()
+
+    expect(mockAccountValue.onLogin).not.toHaveBeenCalled()
+  })
+
+  it('does not auto start before the auth provider is known', () => {
+    mockConfigValue = {}
+    setURL('?auto=true')
+    renderLogin()
+
+    expect(mockAccountValue.onLogin).not.toHaveBeenCalled()
+  })
+
+  it('does not auto start for an authenticated user', () => {
+    mockAccountValue = { initialized: true, user: { id: 'user-1' }, onLogin: vi.fn() }
+    setURL('?auto=true')
+    renderLogin()
+
+    expect(mockAccountValue.onLogin).not.toHaveBeenCalled()
+  })
+})
 
 describe('Login — invitation branch', () => {
   beforeEach(() => {
