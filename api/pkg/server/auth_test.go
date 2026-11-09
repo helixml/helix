@@ -24,6 +24,7 @@ import (
 const (
 	testAccessToken  = "test-access-token"
 	testRefreshToken = "test-refresh-token"
+	testIDToken      = "test-id-token"
 	testState        = "test-state"
 	testNonce        = "test-nonce"
 	testCode         = "test-code"
@@ -82,22 +83,22 @@ func (suite *AuthSuite) addCookie(req *http.Request, name, value string) {
 }
 
 func (suite *AuthSuite) createMockToken() *oauth2.Token {
-	return &oauth2.Token{
+	return (&oauth2.Token{
 		AccessToken:  testAccessToken,
 		RefreshToken: testRefreshToken,
-	}
+	}).WithExtra(map[string]any{"id_token": testIDToken})
 }
 
 func (suite *AuthSuite) createMockTokenNoRefresh() *oauth2.Token {
-	return &oauth2.Token{
+	return (&oauth2.Token{
 		AccessToken: testAccessToken,
-	}
+	}).WithExtra(map[string]any{"id_token": testIDToken})
 }
 
 func (suite *AuthSuite) createMockTokenNoAccess() *oauth2.Token {
-	return &oauth2.Token{
+	return (&oauth2.Token{
 		RefreshToken: testRefreshToken,
-	}
+	}).WithExtra(map[string]any{"id_token": testIDToken})
 }
 
 func (suite *AuthSuite) createMockUser() *types.User {
@@ -300,10 +301,13 @@ func (suite *AuthSuite) TestCallback() {
 					Email: testEmail,
 				}, nil)
 				// BFF: CreateUserSession is called to create the session
-				suite.store.EXPECT().CreateUserSession(gomock.Any(), gomock.Any()).Return(&types.UserSession{
-					ID:     "session-123",
-					UserID: "user-123",
-				}, nil)
+				suite.store.EXPECT().CreateUserSession(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, session *types.UserSession) (*types.UserSession, error) {
+						suite.Equal(testIDToken, session.OIDCIDToken)
+						session.ID = "session-123"
+						return session, nil
+					},
+				)
 			},
 			expectedStatus: http.StatusFound,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
@@ -704,6 +708,38 @@ func (suite *AuthSuite) TestLogout() {
 				return suite.createTestRequest("OPTIONS", "/api/v1/auth/logout", nil)
 			},
 			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "Logout URL response includes ID token hint",
+			setupRequest: func() *http.Request {
+				req := suite.createTestRequest(
+					"POST",
+					"/api/v1/auth/logout?get_url=true&redirect_uri=http%3A%2F%2Flocalhost%3A8080",
+					nil,
+				)
+				suite.addCookie(req, auth.SessionCookieName, "uss_test")
+				return req
+			},
+			setupMocks: func() {
+				suite.store.EXPECT().GetUserSession(gomock.Any(), "uss_test").Return(&types.UserSession{
+					ID:           "uss_test",
+					AuthProvider: types.AuthProviderOIDC,
+					ExpiresAt:    time.Now().Add(time.Hour),
+					LastUsedAt:   time.Now(),
+					OIDCIDToken:  testIDToken,
+				}, nil)
+				suite.store.EXPECT().DeleteUserSession(gomock.Any(), "uss_test").Return(nil)
+				suite.oidcClient.EXPECT().GetLogoutURL().Return("http://auth-provider/logout", nil)
+			},
+			expectedStatus: http.StatusOK,
+			checkResponse: func(rec *httptest.ResponseRecorder) {
+				var response map[string]string
+				suite.Require().NoError(json.NewDecoder(rec.Body).Decode(&response))
+				suite.Equal(
+					"http://auth-provider/logout?post_logout_redirect_uri=http%3A%2F%2Flocalhost%3A8080&client_id=&id_token_hint=test-id-token",
+					response["url"],
+				)
+			},
 		},
 		{
 			name: "Logout without end_session_endpoint (Google-like providers)",

@@ -2,6 +2,7 @@ import React, { FC, useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Divider from '@mui/material/Divider'
 import Tooltip from '@mui/material/Tooltip'
+import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
 import Popover from '@mui/material/Popover'
 import Portal from '@mui/material/Portal'
@@ -39,6 +40,7 @@ import SubscriptionStatusBanner from '../subscription/SubscriptionStatusBanner'
 import { useGetConfig } from '../../services/userService'
 import { styled, keyframes } from '@mui/material/styles'
 import LoginRegisterDialog from './LoginRegisterDialog'
+import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import { TypesAuthProvider } from '../../api/api'
 import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
 import { CHIEF_OF_STAFF_BOT_ID, orgLandingParams, orgLandingRoute } from '../../utils/organizations'
@@ -181,6 +183,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const settingsDialog = useSettingsDialog()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
+  const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const [compactExpanded, setCompactExpanded] = useState(false)
   const [menuItemsExpanded, setMenuItemsExpanded] = useState(false)
@@ -1011,10 +1014,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           {/* Logout icon - only show when user is logged in */}
           {account.user && (
             <Tooltip title="Log out of your account" placement="top">
-              <Box
+              <IconButton
+                aria-label="Log out"
                 onClick={(e) => {
                   e.stopPropagation()
-                  account.onLogout()
+                  setLogoutConfirmationOpen(true)
                 }}
                 sx={{
                   cursor: 'pointer',
@@ -1040,7 +1044,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                     transition: 'color 0.2s ease-in-out',
                   }}
                 />
-              </Box>
+              </IconButton>
             </Tooltip>
           )}
         </Box>
@@ -1272,6 +1276,15 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         open={loginDialogOpen}
         onClose={() => setLoginDialogOpen(false)}
       />
+      {logoutConfirmationOpen && (
+        <SimpleConfirmWindow
+          title="Sign out"
+          message="Sign out of Helix?"
+          confirmTitle="Sign out"
+          onCancel={() => setLogoutConfirmationOpen(false)}
+          onSubmit={() => account.onLogout()}
+        />
+      )}
     </>
   )
 }

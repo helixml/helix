@@ -69,12 +69,14 @@ func (s *SessionManagerSuite) TestCreateSession() {
 		authProvider,
 		"access_token",
 		"refresh_token",
+		"id_token",
 		time.Now().Add(time.Hour),
 	)
 
 	s.NoError(err)
 	s.NotNil(session)
 	s.Equal(userID, session.UserID)
+	s.Equal("id_token", session.OIDCIDToken)
 
 	// Check cookies were set
 	cookies := w.Result().Cookies()

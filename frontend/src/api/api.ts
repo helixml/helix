@@ -11156,10 +11156,19 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Logout
      * @request POST:/api/v1/auth/logout
      */
-    v1AuthLogoutCreate: (params: RequestParams = {}) =>
-      this.request<void, any>({
+    v1AuthLogoutCreate: (
+      query?: {
+        /** Return the logout URL instead of redirecting */
+        get_url?: boolean;
+        /** Post-logout redirect URI */
+        redirect_uri?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, any>({
         path: `/api/v1/auth/logout`,
         method: "POST",
+        query: query,
         ...params,
       }),
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
@@ -7,6 +7,7 @@ import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
 
 import useAccount from "../hooks/useAccount";
 import useRouter from "../hooks/useRouter";
+import SimpleConfirmWindow from "../components/widgets/SimpleConfirmWindow";
 
 const ACCENT = "#00e891";
 const BG = "#0d0d1a";
@@ -14,6 +15,7 @@ const BG = "#0d0d1a";
 export default function Waitlist() {
   const account = useAccount();
   const router = useRouter();
+  const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
 
   // If the user lands on /waitlist but their account is no longer
   // waitlisted (e.g. admin approved them, or an org invitation was
@@ -33,7 +35,7 @@ export default function Waitlist() {
   }, [account.initialized, account.user, router]);
 
   const handleLogout = useCallback(() => {
-    account.onLogout();
+    setLogoutConfirmationOpen(true);
   }, []);
 
   const userName =
@@ -174,6 +176,15 @@ export default function Waitlist() {
           </Button>
         </Box>
       </Fade>
+      {logoutConfirmationOpen && (
+        <SimpleConfirmWindow
+          title="Sign out"
+          message="Sign out of Helix?"
+          confirmTitle="Sign out"
+          onCancel={() => setLogoutConfirmationOpen(false)}
+          onSubmit={() => account.onLogout()}
+        />
+      )}
     </Box>
   );
 }

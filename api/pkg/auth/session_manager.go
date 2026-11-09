@@ -66,10 +66,10 @@ func (sm *SessionManager) CreateSession(
 	r *http.Request,
 	userID string,
 	authProvider types.AuthProvider,
-	oidcAccessToken, oidcRefreshToken string,
+	oidcAccessToken, oidcRefreshToken, oidcIDToken string,
 	oidcTokenExpiry time.Time,
 ) (*types.UserSession, error) {
-	return sm.createSessionWithDuration(ctx, w, r, userID, authProvider, oidcAccessToken, oidcRefreshToken, oidcTokenExpiry, DefaultSessionDuration)
+	return sm.createSessionWithDuration(ctx, w, r, userID, authProvider, oidcAccessToken, oidcRefreshToken, oidcIDToken, oidcTokenExpiry, DefaultSessionDuration)
 }
 
 // CreateDesktopSession creates a user session with a very long expiry
@@ -115,7 +115,7 @@ func (sm *SessionManager) createSessionWithDuration(
 	r *http.Request,
 	userID string,
 	authProvider types.AuthProvider,
-	oidcAccessToken, oidcRefreshToken string,
+	oidcAccessToken, oidcRefreshToken, oidcIDToken string,
 	oidcTokenExpiry time.Time,
 	duration time.Duration,
 ) (*types.UserSession, error) {
@@ -126,6 +126,7 @@ func (sm *SessionManager) createSessionWithDuration(
 		ExpiresAt:        time.Now().Add(duration),
 		OIDCAccessToken:  oidcAccessToken,
 		OIDCRefreshToken: oidcRefreshToken,
+		OIDCIDToken:      oidcIDToken,
 		OIDCTokenExpiry:  oidcTokenExpiry,
 		UserAgent:        r.UserAgent(),
 		IPAddress:        getClientIP(r),
