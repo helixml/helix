@@ -969,7 +969,9 @@ func (s *HelixAPIServer) session(w http.ResponseWriter, r *http.Request) {
 // @Summary Logout
 // @Description Logout the user
 // @Tags    auth
-// @Success 200
+// @Param get_url query bool false "Return the logout URL instead of redirecting"
+// @Param redirect_uri query string false "Post-logout redirect URI"
+// @Success 200 {object} map[string]string
 // @Router /api/v1/auth/logout [post]
 func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {

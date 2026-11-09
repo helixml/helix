@@ -3753,9 +3753,37 @@
                     "auth"
                 ],
                 "summary": "Logout",
+                "parameters": [
+                    {
+                        "description": "Return the logout URL instead of redirecting",
+                        "name": "get_url",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "Post-logout redirect URI",
+                        "name": "redirect_uri",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
-                        "description": "OK"
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

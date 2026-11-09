@@ -272,13 +272,9 @@ export const useAccountContext = (): IAccountContext => {
     clearSelectedOrg()
 
     try {
-      const response = await api.getApiClient().request<{ url?: string }>({
-        path: '/api/v1/auth/logout',
-        method: 'POST',
-        query: {
-          get_url: true,
-          redirect_uri: window.location.origin,
-        },
+      const response = await api.getApiClient().v1AuthLogoutCreate({
+        get_url: true,
+        redirect_uri: window.location.origin,
       })
       if (response.data.url) {
         window.location.href = response.data.url
