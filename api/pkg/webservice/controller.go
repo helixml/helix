@@ -1166,3 +1166,31 @@ func (c *Controller) markSupersededPrevious(ctx context.Context, currentDeployID
 func shellEscape(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// Teardown removes a project's web service for good: its public routes, its
+// sandbox (container and row), and its enabled state, so the health monitor
+// stops watching it. Deleting a project calls it; without it the container
+// and its public hostname outlived the project.
+func (c *Controller) Teardown(ctx context.Context, projectID string) error {
+	state, err := c.store.GetProjectWebServiceState(ctx, projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("get web service state: %w", err)
+	}
+	if err := c.store.DeleteVHostRoutesByTarget(ctx, types.VHostTargetProjectWebService, projectID); err != nil {
+		return fmt.Errorf("delete web service routes: %w", err)
+	}
+	if state.ActiveSandboxID != "" {
+		if err := c.sandboxes.Delete(ctx, state.ActiveSandboxID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("delete web service sandbox %s: %w", state.ActiveSandboxID, err)
+		}
+	}
+	state.Enabled = false
+	state.ActiveSandboxID = ""
+	if err := c.store.UpsertProjectWebServiceState(ctx, state); err != nil {
+		return fmt.Errorf("disable web service state: %w", err)
+	}
+	return nil
+}

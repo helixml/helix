@@ -1073,6 +1073,12 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		}
 	}
 
+	// The web service runs in its own sandbox with a public hostname; it must
+	// not outlive the project.
+	if err := s.webServiceController.Teardown(r.Context(), projectID); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("tear down project web service: %s", err))
+	}
+
 	// Now soft delete the project
 	err = s.Store.DeleteProject(r.Context(), projectID)
 	if err != nil {
