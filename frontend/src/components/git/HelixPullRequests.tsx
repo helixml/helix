@@ -220,7 +220,7 @@ const HelixPullRequestDetail: FC<{ repositoryId: string; number: number; onBack:
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
             <PRStateChip pr={pr} />
             <Typography variant="body2" color="text.secondary">
-              {pr.author_login} wants to merge{' '}
+              {state === 'merged' ? 'Merged' : `${pr.author_login} ${state === 'open' ? 'wants to merge' : 'proposed merging'}`}{' '}
               <Box component="span" sx={{ fontFamily: 'monospace' }}>
                 {pr.head_branch}
               </Box>{' '}
@@ -228,7 +228,11 @@ const HelixPullRequestDetail: FC<{ repositoryId: string; number: number; onBack:
               <Box component="span" sx={{ fontFamily: 'monospace' }}>
                 {pr.base_branch}
               </Box>
-              {pr.merged && pr.merged_at ? ` • merged ${formatDate(pr.merged_at)}` : ''}
+              {pr.merged && pr.merged_at
+                ? ` on ${formatDate(pr.merged_at)}`
+                : state === 'closed' && pr.closed_at
+                  ? ` • closed ${formatDate(pr.closed_at)}`
+                  : ''}
             </Typography>
             {detail.spec_task_id && detail.spec_task_project_id && (
               <Button
