@@ -497,7 +497,8 @@ const DiffContent: FC<DiffContentProps> = ({
                   fontFamily: monoFont,
                 }}
               >
-                {line.newLineNo ?? line.oldLineNo ?? ""}
+                {/* Mobile hides the old column, so a removed line shows its old number here. */}
+                {line.newLineNo ?? (isMobile ? line.oldLineNo : undefined) ?? ""}
               </Typography>
             </Box>
 
