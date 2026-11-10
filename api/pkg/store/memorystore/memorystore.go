@@ -633,6 +633,10 @@ func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInter
 		if !query.HasPendingQuestion && query.State != "" && i.State != query.State {
 			continue
 		}
+		if query.CompletedSuccessfully &&
+			(i.State != types.InteractionStateComplete || i.Completed.IsZero() || i.Error != "") {
+			continue
+		}
 		cp := *i
 		result = append(result, &cp)
 	}

@@ -295,6 +295,30 @@ func TestListInteractionsOrdersByCreationTime(t *testing.T) {
 	}
 }
 
+func TestListInteractionsFiltersCompletedSuccessfully(t *testing.T) {
+	ctx := context.Background()
+	memory := New()
+	now := time.Now()
+	for _, interaction := range []*types.Interaction{
+		{ID: "successful", SessionID: "session-1", GenerationID: 1, State: types.InteractionStateComplete, Created: now, Completed: now.Add(time.Second)},
+		{ID: "synthetic", SessionID: "session-1", State: types.InteractionStateComplete, Created: now.Add(time.Minute)},
+		{ID: "errored", SessionID: "session-1", State: types.InteractionStateError, Created: now.Add(2 * time.Minute), Completed: now.Add(3 * time.Minute), Error: "failed"},
+		{ID: "failed-complete", SessionID: "session-1", State: types.InteractionStateComplete, Created: now.Add(4 * time.Minute), Completed: now.Add(5 * time.Minute), Error: "failed"},
+	} {
+		if _, err := memory.CreateInteraction(ctx, interaction); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	interactions, _, err := memory.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: "session-1", GenerationID: -1, PerPage: 1,
+		CompletedSuccessfully: true, Order: "created DESC, id DESC",
+	})
+	if err != nil || len(interactions) != 1 || interactions[0].ID != "successful" {
+		t.Fatalf("successful interactions = %#v, err = %v", interactions, err)
+	}
+}
+
 func TestSpecTaskThreadTracking(t *testing.T) {
 	ctx := context.Background()
 	store := New()
