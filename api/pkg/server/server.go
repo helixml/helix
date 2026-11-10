@@ -118,6 +118,8 @@ type HelixAPIServer struct {
 	// botInstances creates a Bot's instances for chats started with the Bot's
 	// app id. Set by mountHelixOrg; nil when helix-org is disabled.
 	botInstances *botInstances
+	// gitTemplate configures the create-from-template endpoints.
+	gitTemplate gitTemplateConfig
 	// onServiceConnectionChange is an optional post-mutation hook a
 	// subsystem registers (helix-org, in registerHelixOrgRoutes) so it can react to
 	// the connection types it owns without the generic service-connection
@@ -409,6 +411,7 @@ func NewServer(
 		externalAgentWSManager:     externalAgentWSManager,
 		externalAgentRunnerManager: externalAgentRunnerManager,
 		contextMappings:            make(map[threadRouteKey]string),
+		gitTemplate:                defaultGitTemplateConfig(),
 
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
@@ -1778,6 +1781,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/work-sessions/{sessionId}/zed-thread", apiServer.createZedThreadForWorkSession).Methods(http.MethodPost)
 
 	// Git repository routes (actual git repository management)
+	// Create a repository in the user's own GitHub/GitLab account from a template.
+	// Registered before /git/repositories/{id} so "from-template" is not read as an id.
+	authRouter.HandleFunc("/git/owners", apiServer.listGitOwners).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/from-template", apiServer.createGitRepositoryFromTemplate).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories", apiServer.createGitRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories", apiServer.listGitRepositories).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}", apiServer.getGitRepository).Methods(http.MethodGet)

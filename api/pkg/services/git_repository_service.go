@@ -2746,7 +2746,7 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 		})
 		if err == nil {
 			for _, conn := range connections {
-				if oauthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
+				if OAuthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
 					return oauthGitUsername(gitRepo.ExternalType), conn.AccessToken
 				}
 			}
@@ -2829,7 +2829,7 @@ func (s *GitRepositoryService) newestLiveOAuthToken(ctx context.Context, userID 
 	}
 	var newest *types.OAuthConnection
 	for _, conn := range conns {
-		if !oauthConnectionMatchesProvider(conn, wantType) || conn.AccessToken == "" {
+		if !OAuthConnectionMatchesProvider(conn, wantType) || conn.AccessToken == "" {
 			continue
 		}
 		if newest == nil || conn.UpdatedAt.After(newest.UpdatedAt) {
@@ -2875,7 +2875,9 @@ func OAuthProviderTypeForRepo(t types.ExternalRepositoryType) types.OAuthProvide
 	}
 }
 
-func oauthConnectionMatchesProvider(conn *types.OAuthConnection, providerType types.OAuthProviderType) bool {
+// OAuthConnectionMatchesProvider reports whether conn is a connection to the
+// given provider, including custom providers whose name contains the type.
+func OAuthConnectionMatchesProvider(conn *types.OAuthConnection, providerType types.OAuthProviderType) bool {
 	return conn != nil && (conn.Provider.Type == providerType ||
 		(conn.Provider.Type == types.OAuthProviderTypeCustom && strings.Contains(strings.ToLower(conn.Provider.Name), string(providerType))))
 }
@@ -2908,7 +2910,7 @@ func (s *GitRepositoryService) GetActingAccountHandle(ctx context.Context, gitRe
 		conns, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: actingUserID})
 		if err == nil {
 			for _, conn := range conns {
-				if oauthConnectionMatchesProvider(conn, providerType) && conn.ProviderUsername != "" {
+				if OAuthConnectionMatchesProvider(conn, providerType) && conn.ProviderUsername != "" {
 					return "@" + conn.ProviderUsername
 				}
 			}
