@@ -187,6 +187,9 @@ export function useHelixPullRequest(repositoryId: string, number: number) {
       return response.data;
     },
     enabled: !!repositoryId && number > 0,
+    // An open PR changes under the page: the agent pushes (e.g. after a rebase
+    // request) or the base moves, flipping mergeability and the diff.
+    refetchInterval: (query) => (query.state.data?.pull_request?.state === 'open' ? 5000 : false),
   });
 }
 
