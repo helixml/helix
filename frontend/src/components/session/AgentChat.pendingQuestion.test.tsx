@@ -67,14 +67,19 @@ vi.mock("../../services/specTaskService", () => ({
 }));
 
 vi.mock("../common/RobustPromptInput", () => ({
-  default: ({ hasAttachedHeader, onSend }: {
+  default: ({ hasAttachedHeader, onSend, onWillSend, sendMode }: {
     hasAttachedHeader?: boolean;
     onSend: (message: string) => Promise<void>;
+    onWillSend?: () => void;
+    sendMode: "queued" | "direct";
   }) => (
     <button
       data-testid="composer"
       data-has-attached-header={String(hasAttachedHeader)}
-      onClick={() => void onSend("hello")}
+      onClick={() => {
+        onWillSend?.();
+        if (sendMode === "direct") void onSend("hello");
+      }}
     >
       Send
     </button>
@@ -269,6 +274,40 @@ describe("AgentChat pending question placement", () => {
     expect(screen.queryByText("How can I help?")).not.toBeInTheDocument();
     expect(screen.getByTestId("session-view")).toBeInTheDocument();
     expect(screen.getByTestId("session-prompt-queue")).toBeInTheDocument();
+  });
+
+  it("does not restore the welcome after a queued prompt leaves the queue", () => {
+    latestInteractions.current = {
+      totalCount: 1,
+      interactions: [{ id: "interaction-new", state: "complete", trigger: "org_hire" }],
+    } as any;
+    pendingQuestionInteractions.current = [];
+    const onWillSend = vi.fn();
+    const props = {
+      sessionId: "session-1",
+      showSessionPromptQueue: true,
+      welcomeWhenEmpty: true,
+      welcomeHeading: "How can I help?",
+      starterPrompts: ["Help me set up my team of AI bots"],
+      onSelectStarter: vi.fn(),
+      onWillSend,
+    };
+    const view = render(<AgentChat {...props} />);
+
+    expect(screen.getByText("How can I help?")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("composer"));
+    expect(onWillSend).toHaveBeenCalledTimes(1);
+    expect(newInference).not.toHaveBeenCalled();
+
+    sessionQueueEntries.current = [{ id: "queued-prompt" }];
+    view.rerender(<AgentChat {...props} />);
+    expect(screen.queryByText("How can I help?")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-prompt-queue")).toBeInTheDocument();
+
+    sessionQueueEntries.current = [];
+    view.rerender(<AgentChat {...props} />);
+    expect(screen.queryByText("How can I help?")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
   });
 
   it("leaves an empty standard task chat on the existing thread surface", () => {

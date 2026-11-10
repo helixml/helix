@@ -220,16 +220,20 @@ const AgentChat: FC<AgentChatProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
+  const sendMode = composerSendMode(minimal, !!(specTaskId && projectId))
   const composer = (
     <RobustPromptInput
       minimal={minimal}
-      sendMode={composerSendMode(minimal, !!(specTaskId && projectId))}
+      sendMode={sendMode}
       sessionId={sessionId}
       specTaskId={specTaskId}
       projectId={projectId}
       apiClient={apiClient}
       onSend={handleSend}
-      onWillSend={onWillSend}
+      onWillSend={() => {
+        if (sendMode === 'queued') setHasSentInWelcome(true)
+        onWillSend?.()
+      }}
       appendText={appendText}
       onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
       onFileUpload={handleFileUpload}
