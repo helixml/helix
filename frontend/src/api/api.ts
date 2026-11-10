@@ -2452,13 +2452,13 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindSlack = "slack",
-  KindEmail = "email",
+  KindGitHub = "github",
   KindHelixEvents = "helix_events",
   KindWebhook = "webhook",
-  KindGitHub = "github",
-  KindGitLab = "gitlab",
   KindCron = "cron",
+  KindSlack = "slack",
+  KindGitLab = "gitlab",
+  KindEmail = "email",
   KindLocal = "local",
 }
 
@@ -3677,6 +3677,12 @@ export interface TypesCompletionDecisionRequest {
   decision?: string;
 }
 
+export interface TypesConnectRequiredError {
+  code?: string;
+  connect_url?: string;
+  provider?: TypesExternalRepositoryType;
+}
+
 export interface TypesContainerDiskUsage {
   container_id?: string;
   container_name?: string;
@@ -3801,6 +3807,25 @@ export interface TypesCreatePullRequestRequest {
 export interface TypesCreatePullRequestResponse {
   id?: string;
   message?: string;
+}
+
+export interface TypesCreateRepoFromTemplateRequest {
+  description?: string;
+  name?: string;
+  owner?: string;
+  /** Private defaults to true when omitted. */
+  private?: boolean;
+  provider?: TypesExternalRepositoryType;
+  /** Template is the github.com template repository as "owner/repo". */
+  template?: string;
+}
+
+export interface TypesCreateRepoFromTemplateResponse {
+  clone_url?: string;
+  default_branch?: string;
+  full_name?: string;
+  html_url?: string;
+  provider?: TypesExternalRepositoryType;
 }
 
 export interface TypesCreateSampleRepositoryRequest {
@@ -4336,6 +4361,24 @@ export interface TypesGitLab {
   /** For self-hosted GitLab instances (empty for gitlab.com) */
   base_url?: string;
   personal_access_token?: string;
+}
+
+export interface TypesGitOwner {
+  avatar_url?: string;
+  /** ID is the GitHub account id, or the GitLab namespace id. */
+  id?: number;
+  kind?: TypesGitOwnerKind;
+  /**
+   * Login is the owner to pass to CreateRepoFromTemplateRequest.Owner: the
+   * GitHub login/org name, or the GitLab user path / group full path.
+   */
+  login?: string;
+}
+
+export enum TypesGitOwnerKind {
+  GitOwnerKindUser = "user",
+  GitOwnerKindOrg = "org",
+  GitOwnerKindGroup = "group",
 }
 
 export interface TypesGitProviderConnection {
@@ -12449,6 +12492,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Lists the acting user's own account plus the GitHub organizations or GitLab groups (Developer access or above) they belong to. Credentials: the user's OAuth connection for the provider (GitHub needs the repo scope, GitLab api), otherwise their personal access token connection. Returns 409 connect_required when neither exists.
+     *
+     * @tags git-repositories
+     * @name V1GitOwnersList
+     * @summary List accounts a repository can be created under
+     * @request GET:/api/v1/git/owners
+     * @secure
+     */
+    v1GitOwnersList: (
+      query: {
+        /** Git provider */
+        provider: "github" | "gitlab";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesGitOwner[], SystemHTTPError | TypesConnectRequiredError>({
+        path: `/api/v1/git/owners`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all git repositories, optionally filtered by owner, type, and project
      *
      * @tags git-repositories
@@ -13416,6 +13484,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Creates a repository under owner using the acting user's own credentials. GitHub generates it from the template repository (the template must have the template flag); GitLab imports https://github.com/<template>.git and the call waits for the import to finish. private defaults to true. Credentials: the user's OAuth connection for the provider (GitHub needs the repo scope, GitLab api), otherwise their personal access token connection. Returns 409 connect_required when neither exists, and 422 with the provider's message when the provider rejects the request (for example, the name is already taken).
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesFromTemplateCreate
+     * @summary Create a repository from a template in the user's GitHub/GitLab account
+     * @request POST:/api/v1/git/repositories/from-template
+     * @secure
+     */
+    v1GitRepositoriesFromTemplateCreate: (request: TypesCreateRepoFromTemplateRequest, params: RequestParams = {}) =>
+      this.request<TypesCreateRepoFromTemplateResponse, SystemHTTPError | TypesConnectRequiredError>({
+        path: `/api/v1/git/repositories/from-template`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

@@ -3791,23 +3791,23 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - slack
-    - email
+    - github
     - helix_events
     - webhook
-    - github
-    - gitlab
     - cron
+    - slack
+    - gitlab
+    - email
     - local
     type: string
     x-enum-varnames:
-    - KindSlack
-    - KindEmail
+    - KindGitHub
     - KindHelixEvents
     - KindWebhook
-    - KindGitHub
-    - KindGitLab
     - KindCron
+    - KindSlack
+    - KindGitLab
+    - KindEmail
     - KindLocal
   transport.ResolvedActivation:
     properties:
@@ -5736,6 +5736,15 @@ definitions:
         description: '"approve" or "reject"'
         type: string
     type: object
+  types.ConnectRequiredError:
+    properties:
+      code:
+        type: string
+      connect_url:
+        type: string
+      provider:
+        $ref: '#/definitions/types.ExternalRepositoryType'
+    type: object
   types.ContainerDiskUsage:
     properties:
       container_id:
@@ -5922,6 +5931,36 @@ definitions:
         type: string
       message:
         type: string
+    type: object
+  types.CreateRepoFromTemplateRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      owner:
+        type: string
+      private:
+        description: Private defaults to true when omitted.
+        type: boolean
+      provider:
+        $ref: '#/definitions/types.ExternalRepositoryType'
+      template:
+        description: Template is the github.com template repository as "owner/repo".
+        type: string
+    type: object
+  types.CreateRepoFromTemplateResponse:
+    properties:
+      clone_url:
+        type: string
+      default_branch:
+        type: string
+      full_name:
+        type: string
+      html_url:
+        type: string
+      provider:
+        $ref: '#/definitions/types.ExternalRepositoryType'
     type: object
   types.CreateSampleRepositoryRequest:
     properties:
@@ -6751,6 +6790,31 @@ definitions:
       personal_access_token:
         type: string
     type: object
+  types.GitOwner:
+    properties:
+      avatar_url:
+        type: string
+      id:
+        description: ID is the GitHub account id, or the GitLab namespace id.
+        type: integer
+      kind:
+        $ref: '#/definitions/types.GitOwnerKind'
+      login:
+        description: |-
+          Login is the owner to pass to CreateRepoFromTemplateRequest.Owner: the
+          GitHub login/org name, or the GitLab user path / group full path.
+        type: string
+    type: object
+  types.GitOwnerKind:
+    enum:
+    - user
+    - org
+    - group
+    type: string
+    x-enum-varnames:
+    - GitOwnerKindUser
+    - GitOwnerKindOrg
+    - GitOwnerKindGroup
   types.GitProviderConnection:
     properties:
       avatar_url:
@@ -18836,6 +18900,57 @@ paths:
       summary: Browse remote repositories
       tags:
       - git-repositories
+  /api/v1/git/owners:
+    get:
+      description: |-
+        Lists the acting user's own account plus the GitHub organizations
+        or GitLab groups (Developer access or above) they belong to.
+        Credentials: the user's OAuth connection for the provider (GitHub
+        needs the repo scope, GitLab api), otherwise their personal access
+        token connection. Returns 409 connect_required when neither exists.
+      parameters:
+      - description: Git provider
+        enum:
+        - github
+        - gitlab
+        in: query
+        name: provider
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GitOwner'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.ConnectRequiredError'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List accounts a repository can be created under
+      tags:
+      - git-repositories
   /api/v1/git/repositories:
     get:
       description: List all git repositories, optionally filtered by owner, type,
@@ -20351,6 +20466,63 @@ paths:
       security:
       - BearerAuth: []
       summary: Get wiki page
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/from-template:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Creates a repository under owner using the acting user's own credentials.
+        GitHub generates it from the template repository (the template must have
+        the template flag); GitLab imports https://github.com/<template>.git and
+        the call waits for the import to finish. private defaults to true.
+        Credentials: the user's OAuth connection for the provider (GitHub needs
+        the repo scope, GitLab api), otherwise their personal access token
+        connection. Returns 409 connect_required when neither exists, and 422
+        with the provider's message when the provider rejects the request
+        (for example, the name is already taken).
+      parameters:
+      - description: Repository to create
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateRepoFromTemplateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.CreateRepoFromTemplateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.ConnectRequiredError'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "504":
+          description: Gateway Timeout
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Create a repository from a template in the user's GitHub/GitLab account
       tags:
       - git-repositories
   /api/v1/helix-models:

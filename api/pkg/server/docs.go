@@ -5645,6 +5645,77 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/owners": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the acting user's own account plus the GitHub organizations\nor GitLab groups (Developer access or above) they belong to.\nCredentials: the user's OAuth connection for the provider (GitHub\nneeds the repo scope, GitLab api), otherwise their personal access\ntoken connection. Returns 409 connect_required when neither exists.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "List accounts a repository can be created under",
+                "parameters": [
+                    {
+                        "enum": [
+                            "github",
+                            "gitlab"
+                        ],
+                        "type": "string",
+                        "description": "Git provider",
+                        "name": "provider",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GitOwner"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.ConnectRequiredError"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories": {
             "get": {
                 "security": [
@@ -5749,6 +5820,81 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/from-template": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a repository under owner using the acting user's own credentials.\nGitHub generates it from the template repository (the template must have\nthe template flag); GitLab imports https://github.com/\u003ctemplate\u003e.git and\nthe call waits for the import to finish. private defaults to true.\nCredentials: the user's OAuth connection for the provider (GitHub needs\nthe repo scope, GitLab api), otherwise their personal access token\nconnection. Returns 409 connect_required when neither exists, and 422\nwith the provider's message when the provider rejects the request\n(for example, the name is already taken).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Create a repository from a template in the user's GitHub/GitLab account",
+                "parameters": [
+                    {
+                        "description": "Repository to create",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateRepoFromTemplateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateRepoFromTemplateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.ConnectRequiredError"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "504": {
+                        "description": "Gateway Timeout",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -30042,23 +30188,23 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "slack",
-                "email",
+                "github",
                 "helix_events",
                 "webhook",
-                "github",
-                "gitlab",
                 "cron",
+                "slack",
+                "gitlab",
+                "email",
                 "local"
             ],
             "x-enum-varnames": [
-                "KindSlack",
-                "KindEmail",
+                "KindGitHub",
                 "KindHelixEvents",
                 "KindWebhook",
-                "KindGitHub",
-                "KindGitLab",
                 "KindCron",
+                "KindSlack",
+                "KindGitLab",
+                "KindEmail",
                 "KindLocal"
             ]
         },
@@ -32629,6 +32775,20 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ConnectRequiredError": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "connect_url": {
+                    "type": "string"
+                },
+                "provider": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                }
+            }
+        },
         "types.ContainerDiskUsage": {
             "type": "object",
             "properties": {
@@ -32898,6 +33058,51 @@ const docTemplate = `{
                 },
                 "message": {
                     "type": "string"
+                }
+            }
+        },
+        "types.CreateRepoFromTemplateRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "private": {
+                    "description": "Private defaults to true when omitted.",
+                    "type": "boolean"
+                },
+                "provider": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                },
+                "template": {
+                    "description": "Template is the github.com template repository as \"owner/repo\".",
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateRepoFromTemplateResponse": {
+            "type": "object",
+            "properties": {
+                "clone_url": {
+                    "type": "string"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "full_name": {
+                    "type": "string"
+                },
+                "html_url": {
+                    "type": "string"
+                },
+                "provider": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
                 }
             }
         },
@@ -34006,6 +34211,38 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.GitOwner": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID is the GitHub account id, or the GitLab namespace id.",
+                    "type": "integer"
+                },
+                "kind": {
+                    "$ref": "#/definitions/types.GitOwnerKind"
+                },
+                "login": {
+                    "description": "Login is the owner to pass to CreateRepoFromTemplateRequest.Owner: the\nGitHub login/org name, or the GitLab user path / group full path.",
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitOwnerKind": {
+            "type": "string",
+            "enum": [
+                "user",
+                "org",
+                "group"
+            ],
+            "x-enum-varnames": [
+                "GitOwnerKindUser",
+                "GitOwnerKindOrg",
+                "GitOwnerKindGroup"
+            ]
         },
         "types.GitProviderConnection": {
             "type": "object",
