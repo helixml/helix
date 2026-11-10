@@ -114,6 +114,30 @@ func (s *WebSocketSyncSuite) SetupTest() {
 }
 
 func (s *WebSocketSyncSuite) TearDownTest() {
+	s.server.streamingContextsMu.Lock()
+	contexts := make([]*streamingContext, 0, len(s.server.streamingContexts))
+	for _, sctx := range s.server.streamingContexts {
+		contexts = append(contexts, sctx)
+	}
+	s.server.streamingContexts = make(map[string]*streamingContext)
+	s.server.streamingContextsMu.Unlock()
+
+	for _, sctx := range contexts {
+		sctx.mu.Lock()
+		if sctx.flushTimer != nil {
+			sctx.flushTimer.Stop()
+			sctx.flushTimer = nil
+		}
+		if sctx.dbFlushTimer != nil {
+			sctx.dbFlushTimer.Stop()
+			sctx.dbFlushTimer = nil
+		}
+		sctx.dirty = false
+		sctx.interaction = nil
+		sctx.accumulator = nil
+		sctx.mu.Unlock()
+	}
+
 	s.ctrl.Finish()
 }
 
@@ -2469,7 +2493,15 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_StreamingEvidence_DefersInstead
 
 	// No UpdateInteraction / MarkPromptAs* expectations: the failure is
 	// deferred to reapplyThreadLoadErrorAfterSilence, which re-examines the
-	// turn after the evidence window rather than failing it now.
+	// turn after the evidence window rather than failing it now. Wait for that
+	// goroutine so it cannot outlive this test's mock controller.
+	rechecked := make(chan struct{})
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-live").DoAndReturn(
+		func(context.Context, string) (*types.Interaction, error) {
+			close(rechecked)
+			return &types.Interaction{ID: "int-live", SessionID: "ses_live", State: types.InteractionStateComplete}, nil
+		},
+	)
 	err := s.server.handleThreadLoadError("ses_live", &types.SyncMessage{
 		EventType: "thread_load_error",
 		Data: map[string]interface{}{
@@ -2479,6 +2511,11 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_StreamingEvidence_DefersInstead
 		},
 	})
 	s.NoError(err)
+	select {
+	case <-rechecked:
+	case <-time.After(liveTurnEvidenceWindow + time.Second):
+		s.Fail("deferred thread_load_error was not rechecked")
+	}
 }
 
 // The agent only reports a generic service failure; the reason (a model the
