@@ -14,7 +14,8 @@ import Alert from '@mui/material/Alert'
 import IconButton from '@mui/material/IconButton'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
-import { PanelLeft, PanelRight } from 'lucide-react'
+import Typography from '@mui/material/Typography'
+import { Bot, Monitor, PanelLeft, PanelRight } from 'lucide-react'
 import {
   Group as PanelGroup,
   Panel,
@@ -37,6 +38,7 @@ import SpecTaskViewToolbar, { TaskView, toolbarIconButtonSx } from '../tasks/Spe
 import TaskSessionPlaceholder from '../tasks/TaskSessionPlaceholder'
 import OrgAgentSettingsPane from './OrgAgentSettingsPane'
 import SessionUsagePanel from '../usage/SessionUsagePanel'
+import { CHIEF_OF_STAFF_BOT_ID } from '../../utils/organizations'
 
 export interface OrgAgentSessionWorkspaceProps {
   sessionId: string
@@ -115,6 +117,15 @@ export const botSandboxIndicatorState = (bot?: BotDTO): SandboxIndicatorState =>
   return 'stopped'
 }
 
+export const botPresence = (bot?: BotDTO): { label: string; color: string } => {
+  if (bot?.activation_error) return { label: 'Needs attention', color: 'warning.main' }
+  const state = botSandboxIndicatorState(bot)
+  if (state === 'starting') return { label: 'Starting', color: 'warning.main' }
+  if (state === 'stopped') return { label: 'Stopped', color: 'text.disabled' }
+  if (bot?.agent_work_state === 'working') return { label: 'Replying', color: 'info.main' }
+  return { label: 'Available', color: 'success.main' }
+}
+
 const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   sessionId,
   organizationId,
@@ -149,6 +160,11 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   const hasLifecycle = !!bot || !!sessionSandbox
   const desktopRunning = indicatorState === 'running'
   const starting = indicatorState === 'starting'
+  const presence = botPresence(bot)
+  const botName = bot?.name || bot?.id || 'Helix bot'
+  const botRole = bot?.id === CHIEF_OF_STAFF_BOT_ID
+    ? 'Coordinates priorities and keeps your team moving.'
+    : undefined
   const defaultView: TaskView = isHeadless ? 'changes' : 'desktop'
 
   const [view, setView] = useState<TaskView>(() => loadView(viewKey) ?? defaultView)
@@ -304,6 +320,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
             sessionId={sessionId}
             sandboxId={sessionId}
             mode="stream"
+            sessionLabel={bot ? 'bot' : undefined}
           />
         )
     }
@@ -316,8 +333,99 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     ? <SubagentsPanel interactions={subagentInteractions ?? []} />
     : surface
 
+  const botIdentity = bot ? (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+      <Box
+        sx={{
+          width: 42,
+          height: 42,
+          display: 'grid',
+          placeItems: 'center',
+          flexShrink: 0,
+          borderRadius: 1,
+          backgroundColor: 'action.selected',
+          color: 'text.primary',
+        }}
+      >
+        <Bot size={28} />
+      </Box>
+      <Box sx={{ minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+          <Typography variant="h6" component="h1" noWrap sx={{ fontWeight: 600 }}>
+            {botName}
+          </Typography>
+          <Typography
+            variant="caption"
+            sx={{
+              px: 0.75,
+              py: 0.25,
+              flexShrink: 0,
+              borderRadius: 1,
+              color: 'primary.light',
+              backgroundColor: 'action.selected',
+              fontWeight: 600,
+            }}
+          >
+            Your Helix bot
+          </Typography>
+        </Box>
+        {botRole && (
+          <Typography variant="body2" color="text.secondary" noWrap>
+            {botRole}
+          </Typography>
+        )}
+      </Box>
+    </Box>
+  ) : null
+
+  const botPresenceIndicator = bot ? (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
+      <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: presence.color }} />
+      <Typography variant="caption" color="text.secondary">
+        {presence.label}
+      </Typography>
+    </Box>
+  ) : null
+
   const content = (singlePanel = false) => (
     <Box sx={{ height: '100%', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {bot && view === 'desktop' && (
+        <Box
+          sx={{
+            minHeight: 64,
+            px: 2,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.25,
+            flexShrink: 0,
+            borderBottom: `1px solid ${dividerColor}`,
+            backgroundColor: 'background.paper',
+          }}
+        >
+          <Monitor size={24} />
+          <Typography variant="h6" component="h2" sx={{ fontWeight: 600 }}>
+            {botName}&apos;s desktop
+          </Typography>
+        </Box>
+      )}
+      {bot && view === 'chat' && (
+        <Box
+          sx={{
+            minHeight: 96,
+            px: 2,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 1,
+            flexShrink: 0,
+            borderBottom: `1px solid ${dividerColor}`,
+            backgroundColor: 'background.paper',
+          }}
+        >
+          {botIdentity}
+          {botPresenceIndicator}
+        </Box>
+      )}
       <Box sx={{ flexShrink: 0, borderBottom: `1px solid ${dividerColor}` }}>
         {toolbar(singlePanel)}
       </Box>
@@ -341,13 +449,13 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     <Box sx={{ height: '100%', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Box
         sx={{
-          minHeight: 53,
-          px: 1,
+          minHeight: bot ? 96 : 53,
+          px: bot ? 2 : 1,
           pt: 1,
           pb: 0.5,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'flex-end',
+          justifyContent: 'space-between',
           gap: 0.25,
           flexShrink: 0,
           borderBottom: `1px solid ${dividerColor}`,
@@ -355,29 +463,33 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
           boxSizing: 'border-box',
         }}
       >
-        {contentCollapsed ? (
-          <Tooltip title="Show task panel">
-            <IconButton
-              size="small"
-              aria-label="Show task panel"
-              onClick={showContentPanel}
-              sx={toolbarIconButtonSx('comfortable')}
-            >
-              <PanelRight size={18} />
-            </IconButton>
-          </Tooltip>
-        ) : (
-          <Tooltip title="Collapse chat panel">
-            <IconButton
-              size="small"
-              aria-label="Collapse chat panel"
-              onClick={() => updateChatCollapsed(true)}
-              sx={toolbarIconButtonSx('comfortable')}
-            >
-              <PanelLeft size={18} />
-            </IconButton>
-          </Tooltip>
-        )}
+        {botIdentity || <Box />}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+          {botPresenceIndicator}
+          {contentCollapsed ? (
+            <Tooltip title="Show task panel">
+              <IconButton
+                size="small"
+                aria-label="Show task panel"
+                onClick={showContentPanel}
+                sx={toolbarIconButtonSx('comfortable')}
+              >
+                <PanelRight size={18} />
+              </IconButton>
+            </Tooltip>
+          ) : (
+            <Tooltip title="Collapse chat panel">
+              <IconButton
+                size="small"
+                aria-label="Collapse chat panel"
+                onClick={() => updateChatCollapsed(true)}
+                sx={toolbarIconButtonSx('comfortable')}
+              >
+                <PanelLeft size={18} />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
       </Box>
       <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
         {children}

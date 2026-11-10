@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { TypesInteractionState } from "../../api/api";
-import { Interaction } from "./Interaction";
+import MemoizedInteraction, { Interaction } from "./Interaction";
 
 vi.mock("./InteractionContainer", () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -61,6 +61,41 @@ const baseProps = {
 };
 
 describe("Interaction", () => {
+  it("identifies replies in a bot conversation", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        assistantName="Chief of Staff"
+        interaction={{
+          id: "int_bot",
+          prompt_message: "Question",
+          response_message: "Answer",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Chief of Staff")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-reply")).toHaveTextContent("Answer");
+  });
+
+  it("adds a bot name when identity loads after the reply", () => {
+    const interaction = {
+      id: "int_bot",
+      prompt_message: "Question",
+      response_message: "Answer",
+    };
+    const view = render(
+      <MemoizedInteraction {...baseProps} interaction={interaction} />,
+    );
+
+    expect(screen.queryByText("Chief of Staff")).not.toBeInTheDocument();
+    view.rerender(
+      <MemoizedInteraction {...baseProps} interaction={interaction} assistantName="Chief of Staff" />,
+    );
+
+    expect(screen.getByText("Chief of Staff")).toBeInTheDocument();
+  });
+
   it("shows debug copy only on the agent side after a reply", () => {
     render(
       <Interaction

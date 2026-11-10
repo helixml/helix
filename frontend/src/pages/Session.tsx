@@ -72,6 +72,7 @@ import { useActivateBot, useApplyBotConfig, useHelixOrgBot, useRestartBotAgent, 
 import { isBotInstanceSessionMetadata } from '../components/session/ProjectChatSidebar.logic'
 import { mergeStreamingInteraction } from '../components/session/subagentActivity'
 import { deriveSandboxState } from '../components/external-agent/sandboxState'
+import { CHIEF_OF_STAFF_BOT_ID } from '../utils/organizations'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -1681,6 +1682,16 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
           enableInteractionDebugCopy
           showSessionPromptQueue
           appendText={promptAppendText}
+          assistantName={orgBot?.name || orgBot?.id}
+          welcomeWhenEmpty={!!orgBot}
+          welcomeHeading="How can I help?"
+          welcomeSubheading={orgBot?.id === CHIEF_OF_STAFF_BOT_ID
+            ? 'Talk through a decision or ask me to coordinate the team.'
+            : undefined}
+          starterPrompts={orgBot?.id === CHIEF_OF_STAFF_BOT_ID
+            ? ['Help me set up my team of AI bots', 'Help me prioritize', 'What can you help with?']
+            : []}
+          onSelectStarter={appendToChat}
           leadingActions={(
             <CodeAgentExecutionControls
               value={selectedCodeAgentConfig}
@@ -1691,7 +1702,9 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
           )}
           placeholder={session.data.config?.paused
             ? 'This session is paused — open the forked child to keep chatting'
-            : `Chat with ${orgBot?.name || apps.app?.config.helix.name || 'agent'}…`}
+            : orgBot
+              ? `Message ${orgBot.name || orgBot.id || 'bot'}...`
+              : `Chat with ${apps.app?.config.helix.name || 'agent'}…`}
           disabled={!!session.data.config?.paused}
         />
       </Box>

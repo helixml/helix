@@ -86,6 +86,8 @@ interface EmbeddedSessionViewProps {
   // False for an org bot instance, whose first interaction is the customer's
   // own message rather than a hidden briefing. Defaults to the spec-task shape.
   hasBriefingTurn?: boolean;
+  /** Name shown above assistant replies in bot conversations. */
+  assistantName?: string;
   // Cards asking the user to act (agent questions, PR proposals), rendered
   // after the last message so any number of them scroll with the thread.
   trailingContent?: ReactNode;
@@ -108,7 +110,7 @@ export interface EmbeddedSessionViewHandle {
 const EmbeddedSessionView = forwardRef<
   EmbeddedSessionViewHandle,
   EmbeddedSessionViewProps
->(({ sessionId, onScrollToBottom, enableInteractionDebugCopy, minimal = false, hasBriefingTurn = true, trailingContent }, ref) => {
+>(({ sessionId, onScrollToBottom, enableInteractionDebugCopy, minimal = false, hasBriefingTurn = true, assistantName, trailingContent }, ref) => {
   const account = useAccount();
   const api = useApi();
   const lightTheme = useLightTheme();
@@ -751,6 +753,7 @@ const EmbeddedSessionView = forwardRef<
                 sessionSteps={sessionSteps?.data || []}
                 enableDebugCopy={enableInteractionDebugCopy}
                 hidePrompt={index === seedIndex}
+                assistantName={assistantName}
               >
                 {isLive && (isOwner || account.admin) && (
                   <InteractionLiveStream
