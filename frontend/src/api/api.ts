@@ -2452,13 +2452,13 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindWebhook = "webhook",
-  KindCron = "cron",
-  KindEmail = "email",
-  KindGitHub = "github",
   KindSlack = "slack",
+  KindEmail = "email",
   KindHelixEvents = "helix_events",
+  KindWebhook = "webhook",
+  KindGitHub = "github",
   KindGitLab = "gitlab",
+  KindCron = "cron",
   KindLocal = "local",
 }
 
@@ -5694,6 +5694,13 @@ export interface TypesProject {
   guidelines_updated_by?: string;
   /** Incremented on each update */
   guidelines_version?: number;
+  /**
+   * HelixRepoPullRequests: agents deliver work on the project's Helix-hosted
+   * repositories as pull requests (propose_pull_request, reviewed and merged
+   * on the Helix PR page) instead of Accept landing their branch. External
+   * repositories always use pull requests.
+   */
+  helix_repo_pull_requests?: boolean;
   id?: string;
   implementation_limit?: number;
   kodit_enabled?: boolean;
@@ -5942,6 +5949,8 @@ export interface TypesProjectUpdateRequest {
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
   guidelines?: string;
+  /** Agents deliver work on Helix-hosted repos as pull requests */
+  helix_repo_pull_requests?: boolean;
   /** Whether Kodit code intelligence is enabled */
   kodit_enabled?: boolean;
   metadata?: TypesProjectMetadataUpdate;

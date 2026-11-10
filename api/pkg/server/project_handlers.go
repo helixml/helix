@@ -739,6 +739,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.AutoApprovePullRequests != nil {
 		project.AutoApprovePullRequests = *req.AutoApprovePullRequests
 	}
+	if req.HelixRepoPullRequests != nil {
+		project.HelixRepoPullRequests = *req.HelixRepoPullRequests
+	}
 	if req.AutoArchiveCompletedTasks != nil {
 		project.AutoArchiveCompletedTasks = *req.AutoArchiveCompletedTasks
 	}
@@ -922,6 +925,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		}
 		if req.AutoApprovePullRequests != nil {
 			changedFields = append(changedFields, "auto_approve_pull_requests")
+		}
+		if req.HelixRepoPullRequests != nil {
+			changedFields = append(changedFields, "helix_repo_pull_requests")
 		}
 		if req.AutoArchiveCompletedTasks != nil {
 			changedFields = append(changedFields, "auto_archive_completed_tasks")

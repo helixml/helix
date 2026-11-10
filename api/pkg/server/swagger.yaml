@@ -3791,23 +3791,23 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - webhook
-    - cron
-    - email
-    - github
     - slack
+    - email
     - helix_events
+    - webhook
+    - github
     - gitlab
+    - cron
     - local
     type: string
     x-enum-varnames:
-    - KindWebhook
-    - KindCron
-    - KindEmail
-    - KindGitHub
     - KindSlack
+    - KindEmail
     - KindHelixEvents
+    - KindWebhook
+    - KindGitHub
     - KindGitLab
+    - KindCron
     - KindLocal
   transport.ResolvedActivation:
     properties:
@@ -9008,6 +9008,13 @@ definitions:
       guidelines_version:
         description: Incremented on each update
         type: integer
+      helix_repo_pull_requests:
+        description: |-
+          HelixRepoPullRequests: agents deliver work on the project's Helix-hosted
+          repositories as pull requests (propose_pull_request, reviewed and merged
+          on the Helix PR page) instead of Accept landing their branch. External
+          repositories always use pull requests.
+        type: boolean
       id:
         type: string
       implementation_limit:
@@ -9408,6 +9415,9 @@ definitions:
       guidelines:
         description: Project-specific AI agent guidelines
         type: string
+      helix_repo_pull_requests:
+        description: Agents deliver work on Helix-hosted repos as pull requests
+        type: boolean
       kodit_enabled:
         description: Whether Kodit code intelligence is enabled
         type: boolean

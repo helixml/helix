@@ -30042,23 +30042,23 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "webhook",
-                "cron",
-                "email",
-                "github",
                 "slack",
+                "email",
                 "helix_events",
+                "webhook",
+                "github",
                 "gitlab",
+                "cron",
                 "local"
             ],
             "x-enum-varnames": [
-                "KindWebhook",
-                "KindCron",
-                "KindEmail",
-                "KindGitHub",
                 "KindSlack",
+                "KindEmail",
                 "KindHelixEvents",
+                "KindWebhook",
+                "KindGitHub",
                 "KindGitLab",
+                "KindCron",
                 "KindLocal"
             ]
         },
@@ -37125,6 +37125,10 @@ const docTemplate = `{
                     "description": "Incremented on each update",
                     "type": "integer"
                 },
+                "helix_repo_pull_requests": {
+                    "description": "HelixRepoPullRequests: agents deliver work on the project's Helix-hosted\nrepositories as pull requests (propose_pull_request, reviewed and merged\non the Helix PR page) instead of Accept landing their branch. External\nrepositories always use pull requests.",
+                    "type": "boolean"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -37717,6 +37721,10 @@ const docTemplate = `{
                 "guidelines": {
                     "description": "Project-specific AI agent guidelines",
                     "type": "string"
+                },
+                "helix_repo_pull_requests": {
+                    "description": "Agents deliver work on Helix-hosted repos as pull requests",
+                    "type": "boolean"
                 },
                 "kodit_enabled": {
                     "description": "Whether Kodit code intelligence is enabled",
