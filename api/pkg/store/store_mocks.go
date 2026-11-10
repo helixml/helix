@@ -236,6 +236,21 @@ func (mr *MockStoreMockRecorder) ClearSessionInteractions(ctx, sessionID any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSessionInteractions", reflect.TypeOf((*MockStore)(nil).ClearSessionInteractions), ctx, sessionID)
 }
 
+// ClearSessionProviderRecovery mocks base method.
+func (m *MockStore) ClearSessionProviderRecovery(ctx context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearSessionProviderRecovery", ctx, sessionID, promptID, interactionID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearSessionProviderRecovery indicates an expected call of ClearSessionProviderRecovery.
+func (mr *MockStoreMockRecorder) ClearSessionProviderRecovery(ctx, sessionID, promptID, interactionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSessionProviderRecovery", reflect.TypeOf((*MockStore)(nil).ClearSessionProviderRecovery), ctx, sessionID, promptID, interactionID)
+}
+
 // ClearSessionStartingStatus mocks base method.
 func (m *MockStore) ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error) {
 	m.ctrl.T.Helper()
@@ -3173,6 +3188,21 @@ func (m *MockStore) GetKnowledgeVersion(ctx context.Context, id string) (*types.
 func (mr *MockStoreMockRecorder) GetKnowledgeVersion(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKnowledgeVersion", reflect.TypeOf((*MockStore)(nil).GetKnowledgeVersion), ctx, id)
+}
+
+// GetLatestActivationPromptHistoryEntry mocks base method.
+func (m *MockStore) GetLatestActivationPromptHistoryEntry(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestActivationPromptHistoryEntry", ctx, sessionID)
+	ret0, _ := ret[0].(*types.PromptHistoryEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLatestActivationPromptHistoryEntry indicates an expected call of GetLatestActivationPromptHistoryEntry.
+func (mr *MockStoreMockRecorder) GetLatestActivationPromptHistoryEntry(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestActivationPromptHistoryEntry", reflect.TypeOf((*MockStore)(nil).GetLatestActivationPromptHistoryEntry), ctx, sessionID)
 }
 
 // GetLatestDesignReview mocks base method.
@@ -6380,6 +6410,20 @@ func (mr *MockStoreMockRecorder) ReconcileStuckSendingPrompts(ctx any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileStuckSendingPrompts", reflect.TypeOf((*MockStore)(nil).ReconcileStuckSendingPrompts), ctx)
 }
 
+// RecordSessionAgentConfigApplied mocks base method.
+func (m *MockStore) RecordSessionAgentConfigApplied(ctx context.Context, sessionID string, appliedAt time.Time, handoffDelivered bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordSessionAgentConfigApplied", ctx, sessionID, appliedAt, handoffDelivered)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordSessionAgentConfigApplied indicates an expected call of RecordSessionAgentConfigApplied.
+func (mr *MockStoreMockRecorder) RecordSessionAgentConfigApplied(ctx, sessionID, appliedAt, handoffDelivered any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordSessionAgentConfigApplied", reflect.TypeOf((*MockStore)(nil).RecordSessionAgentConfigApplied), ctx, sessionID, appliedAt, handoffDelivered)
+}
+
 // RecoverProviderPrompt mocks base method.
 func (m *MockStore) RecoverProviderPrompt(ctx context.Context, sessionID, promptID string, now, nextCheckAt time.Time, maxAttempts int) (bool, error) {
 	m.ctrl.T.Helper()
@@ -6393,6 +6437,21 @@ func (m *MockStore) RecoverProviderPrompt(ctx context.Context, sessionID, prompt
 func (mr *MockStoreMockRecorder) RecoverProviderPrompt(ctx, sessionID, promptID, now, nextCheckAt, maxAttempts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecoverProviderPrompt", reflect.TypeOf((*MockStore)(nil).RecoverProviderPrompt), ctx, sessionID, promptID, now, nextCheckAt, maxAttempts)
+}
+
+// RecoverProviderPromptForConfigChange mocks base method.
+func (m *MockStore) RecoverProviderPromptForConfigChange(ctx context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecoverProviderPromptForConfigChange", ctx, sessionID, promptID, interactionID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecoverProviderPromptForConfigChange indicates an expected call of RecoverProviderPromptForConfigChange.
+func (mr *MockStoreMockRecorder) RecoverProviderPromptForConfigChange(ctx, sessionID, promptID, interactionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecoverProviderPromptForConfigChange", reflect.TypeOf((*MockStore)(nil).RecoverProviderPromptForConfigChange), ctx, sessionID, promptID, interactionID)
 }
 
 // RedeemSecretIntakeInvitation mocks base method.

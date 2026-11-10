@@ -288,6 +288,8 @@ type Store interface {
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
 	UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error
 	SetSessionProviderRecovery(ctx context.Context, sessionID string, recovery *types.ProviderRecovery) error
+	ClearSessionProviderRecovery(ctx context.Context, sessionID, promptID, interactionID string) (bool, error)
+	RecordSessionAgentConfigApplied(ctx context.Context, sessionID string, appliedAt time.Time, handoffDelivered bool) error
 	// ClaimSessionAutoRestart atomically records a restart unless another restart
 	// was recorded after before.
 	ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error)
@@ -947,8 +949,10 @@ type Store interface {
 	GetNextInterruptPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
 	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
 	ListPromptHistoryBySession(ctx context.Context, sessionID string) ([]*types.PromptHistoryEntry, error)
+	GetLatestActivationPromptHistoryEntry(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	RecoverProviderPrompt(ctx context.Context, sessionID, promptID string, now, nextCheckAt time.Time, maxAttempts int) (bool, error)
+	RecoverProviderPromptForConfigChange(ctx context.Context, sessionID, promptID, interactionID string) (bool, error)
 	// RevertPromptToPending returns a claimed prompt to the queue after a
 	// busy-defer, without charging the retry budget. See the implementation.
 	RevertPromptToPending(ctx context.Context, promptID string) error

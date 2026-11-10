@@ -10,13 +10,79 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 
+	"github.com/gorilla/websocket"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAgentConfigAppliedRequiresSuccessfulEventSync(t *testing.T) {
+	tests := []struct {
+		name        string
+		failSync    bool
+		wantApplied int32
+	}{
+		{name: "failed sync is not acknowledged", failSync: true},
+		{name: "successful sync is acknowledged", wantApplied: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			originalSettingsPath := SettingsPath
+			SettingsPath = filepath.Join(t.TempDir(), "settings.json")
+			t.Cleanup(func() { SettingsPath = originalSettingsPath })
+
+			var configRequests atomic.Int32
+			var appliedRequests atomic.Int32
+			upgrader := websocket.Upgrader{}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/ws/user":
+					conn, err := upgrader.Upgrade(w, r, nil)
+					if err != nil {
+						t.Errorf("upgrade websocket: %v", err)
+						return
+					}
+					if err := conn.WriteJSON(map[string]string{
+						"type":  "config_changed",
+						"field": "agent",
+					}); err != nil {
+						t.Errorf("write websocket event: %v", err)
+					}
+					_ = conn.Close()
+				case "/api/v1/sessions/ses_1/zed-config":
+					request := configRequests.Add(1)
+					if tt.failSync && request == 2 {
+						http.Error(w, "temporary failure", http.StatusInternalServerError)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{}`))
+				case "/api/v1/sessions/ses_1/agent-config-applied":
+					appliedRequests.Add(1)
+					w.WriteHeader(http.StatusOK)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			daemon := &SettingsDaemon{
+				httpClient: server.Client(),
+				apiURL:     server.URL,
+				sessionID:  "ses_1",
+			}
+			require.Error(t, daemon.runConfigEventLoop())
+
+			assert.Equal(t, int32(2), configRequests.Load())
+			assert.Equal(t, tt.wantApplied, appliedRequests.Load())
+		})
+	}
+}
 
 func TestSyncInitialConfigReportsFatalConfigError(t *testing.T) {
 	var configRequests int

@@ -147,6 +147,35 @@ func (m *MemoryStore) SetSessionProviderRecovery(_ context.Context, sessionID st
 	return nil
 }
 
+func (m *MemoryStore) ClearSessionProviderRecovery(_ context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return false, store.ErrNotFound
+	}
+	state := session.Metadata.Recovery
+	if state == nil || state.PromptID != promptID || state.InteractionID != interactionID {
+		return false, nil
+	}
+	session.Metadata.Recovery = nil
+	return true, nil
+}
+
+func (m *MemoryStore) RecordSessionAgentConfigApplied(_ context.Context, sessionID string, appliedAt time.Time, handoffDelivered bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return store.ErrNotFound
+	}
+	session.Metadata.AgentConfigAppliedAt = appliedAt
+	if handoffDelivered {
+		session.Metadata.AgentHandoffDeliveredAt = appliedAt
+	}
+	return nil
+}
+
 func (m *MemoryStore) TouchSession(_ context.Context, sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -727,6 +756,27 @@ func (m *MemoryStore) ListPromptHistoryBySession(_ context.Context, sessionID st
 	return out, nil
 }
 
+func (m *MemoryStore) GetLatestActivationPromptHistoryEntry(_ context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	prefix := system.PromptHistoryPrefix + "activation_"
+	var latest *types.PromptHistoryEntry
+	for _, entry := range m.prompts {
+		if entry.SessionID != sessionID || !strings.HasPrefix(entry.ID, prefix) {
+			continue
+		}
+		if latest == nil || entry.CreatedAt.After(latest.CreatedAt) ||
+			(entry.CreatedAt.Equal(latest.CreatedAt) && entry.ID > latest.ID) {
+			latest = entry
+		}
+	}
+	if latest == nil {
+		return nil, nil
+	}
+	cp := *latest
+	return &cp, nil
+}
+
 // claimNextPrompt finds the oldest pending/failed prompt for the session
 // matching the interrupt filter and flips it to 'sending'. interruptFilter:
 // nil = any, else must match.
@@ -808,6 +858,32 @@ func (m *MemoryStore) RecoverProviderPrompt(_ context.Context, sessionID, prompt
 	}
 	state.Attempts++
 	state.NextCheckAt = nextCheckAt
+	prompt.Status = "pending"
+	prompt.NextRetryAt = nil
+	prompt.ErrorMessage = ""
+	return true, nil
+}
+
+func (m *MemoryStore) RecoverProviderPromptForConfigChange(_ context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session := m.sessions[sessionID]
+	if session == nil {
+		return false, store.ErrNotFound
+	}
+	prompt := m.prompts[promptID]
+	interaction := m.interactions[interactionID]
+	var latest *types.Interaction
+	for _, candidate := range m.interactions {
+		if candidate.SessionID == sessionID && candidate.PromptID == promptID &&
+			(latest == nil || candidate.Created.After(latest.Created) || (candidate.Created.Equal(latest.Created) && candidate.ID > latest.ID)) {
+			latest = candidate
+		}
+	}
+	if prompt == nil || prompt.SessionID != sessionID || prompt.Status != "sent" || prompt.DeletedAt != nil ||
+		interaction == nil || latest != interaction || interaction.State != types.InteractionStateError {
+		return false, nil
+	}
 	prompt.Status = "pending"
 	prompt.NextRetryAt = nil
 	prompt.ErrorMessage = ""

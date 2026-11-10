@@ -1131,15 +1131,20 @@ func (apiServer *HelixAPIServer) resolveGooseRecipeFileParams(ctx context.Contex
 // Returning nil from this helper (e.g. when the manager isn't wired) tells
 // GenerateZedMCPConfig to skip resolution.
 func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, actorID string, app *types.App) ([]external_agent.ProviderRef, error) {
+	_, snapshot, err := apiServer.getProviderSnapshotState(ctx, actorID, app)
+	return snapshot, err
+}
+
+func (apiServer *HelixAPIServer) getProviderSnapshotState(ctx context.Context, actorID string, app *types.App) ([]*types.ProviderEndpoint, []external_agent.ProviderRef, error) {
 	if apiServer.providerManager == nil {
 		if app != nil && app.OrganizationID != "" {
-			return []external_agent.ProviderRef{}, nil
+			return nil, []external_agent.ProviderRef{}, nil
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 	endpoints, err := apiServer.listEndpointsForApp(ctx, actorID, app)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if app != nil && app.OrganizationID != "" {
 		assistant := external_agent.FindZedExternalAssistant(app)
@@ -1150,12 +1155,82 @@ func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, actorI
 			}
 			harness, err := apiServer.loadOrgCodeAgentHarnessPolicy(ctx, app.OrganizationID, runtime)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			endpoints = filterProviderEndpointsForHarness(endpoints, harness, runtime)
 		}
 	}
-	return providerSnapshotFromEndpoints(endpoints), nil
+	snapshot := providerSnapshotFromEndpoints(endpoints)
+	if apiServer.cache == nil {
+		return endpoints, snapshot, nil
+	}
+	refIndex := 0
+	for _, endpoint := range endpoints {
+		if endpoint == nil {
+			continue
+		}
+		if cached, ok := apiServer.loadCachedModels(modelCacheKey(endpoint.Name, endpoint.Owner)); ok {
+			snapshot[refIndex].ModelsKnown = true
+			snapshot[refIndex].Models = make([]string, 0, len(cached.Models))
+			for _, availableModel := range cached.Models {
+				if availableModel.Enabled {
+					snapshot[refIndex].Models = append(snapshot[refIndex].Models, availableModel.ID)
+				}
+			}
+		}
+		refIndex++
+	}
+	return endpoints, snapshot, nil
+}
+
+func (apiServer *HelixAPIServer) getProviderSnapshotForValidation(ctx context.Context, actorID string, app *types.App) ([]external_agent.ProviderRef, error) {
+	endpoints, snapshot, err := apiServer.getProviderSnapshotState(ctx, actorID, app)
+	if err != nil || snapshot == nil {
+		return snapshot, err
+	}
+	return apiServer.discoverSelectedProviderSnapshot(ctx, app, endpoints, snapshot)
+}
+
+func (apiServer *HelixAPIServer) discoverSelectedProviderSnapshot(ctx context.Context, app *types.App, endpoints []*types.ProviderEndpoint, snapshot []external_agent.ProviderRef) ([]external_agent.ProviderRef, error) {
+	assistant := external_agent.FindZedExternalAssistant(app)
+	provider, _ := external_agent.AssistantModelSelection(assistant)
+	if provider == "" || (assistant.CodeAgentCredentialType.IsSubscription() &&
+		(assistant.CodeAgentRuntime == types.CodeAgentRuntimeClaudeCode || assistant.CodeAgentRuntime == types.CodeAgentRuntimeCodexCLI)) {
+		return snapshot, nil
+	}
+	resolved, _, ok := external_agent.ResolveProvider(provider, snapshot)
+	if !ok {
+		return snapshot, nil
+	}
+	providerRef := resolved.ID
+	if providerRef == "" {
+		providerRef = resolved.Name
+	}
+	endpoint := resolveProviderEndpointRef(endpoints, providerRef)
+	if endpoint == nil {
+		return nil, fmt.Errorf("selected provider %q is no longer available", resolved.Name)
+	}
+	models, err := apiServer.getProviderModels(ctx, endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover models for provider %q: %w", resolved.Name, err)
+	}
+	if models.Degraded != nil {
+		return nil, fmt.Errorf("failed to discover current models for provider %q: %w", resolved.Name, models.Degraded)
+	}
+	for idx := range snapshot {
+		if snapshot[idx].ID != resolved.ID || snapshot[idx].Name != resolved.Name {
+			continue
+		}
+		snapshot[idx].ModelsKnown = true
+		snapshot[idx].Models = make([]string, 0, len(models.Models))
+		for _, availableModel := range models.Models {
+			if availableModel.Enabled {
+				snapshot[idx].Models = append(snapshot[idx].Models, availableModel.ID)
+			}
+		}
+		break
+	}
+	return snapshot, nil
 }
 
 func filterProviderEndpointsByRefs(endpoints []*types.ProviderEndpoint, refs []string) []*types.ProviderEndpoint {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -591,6 +592,8 @@ type ProviderRef struct {
 	ID           string
 	Name         string
 	EndpointType types.ProviderEndpointType
+	Models       []string
+	ModelsKnown  bool
 }
 
 // FindZedExternalAssistant returns the assistant config that owns the
@@ -810,6 +813,13 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 		!CodeAgentRuntimeAllowsProvider(assistant.CodeAgentRuntime, resolved.Name) {
 		return fmt.Sprintf("coding-agent runtime %q API-key mode requires the %s provider; provider %q is not compatible",
 			assistant.CodeAgentRuntime, required, resolved.Name)
+	}
+	if resolved.ModelsKnown && !slices.Contains(resolved.Models, model) {
+		normalizedModel := strings.TrimPrefix(model, resolved.ID+"/")
+		normalizedModel = strings.TrimPrefix(normalizedModel, resolved.Name+"/")
+		if !slices.Contains(resolved.Models, normalizedModel) {
+			return fmt.Sprintf("agent %q references model %q which is not currently available from provider %q - open the agent settings and pick an available model", app.ID, model, resolved.Name)
+		}
 	}
 	return ""
 }

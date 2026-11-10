@@ -10,7 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dgraph-io/ristretto/v2"
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	orgbots "github.com/helixml/helix/api/pkg/org/application/nodes"
@@ -264,6 +267,11 @@ func TestUpdateAppSyncsLinkedOrgProjectCodeAgentConfig(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	helixStore := store.NewMockStore(ctrl)
 	providerManager := manager.NewMockProviderManager(ctrl)
+	providerClient := openai.NewMockClient(ctrl)
+	modelInfoProvider := model.NewMockModelInfoProvider(ctrl)
+	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{NumCounters: 1e3, MaxCost: 1 << 20, BufferItems: 64})
+	require.NoError(t, err)
+	defer cache.Close()
 	user := types.User{ID: "usr-owner", Type: types.OwnerTypeUser}
 	existing := &types.App{
 		ID: "app-engineer", Owner: user.ID, OwnerType: user.Type,
@@ -297,7 +305,10 @@ func TestUpdateAppSyncsLinkedOrgProjectCodeAgentConfig(t *testing.T) {
 		UserID: user.ID, OrganizationID: existing.OrganizationID, Role: types.OrganizationRoleMember,
 	}, nil)
 	providerManager.EXPECT().ListProviderEndpointsForOwner(gomock.Any(), existing.OrganizationID, types.OwnerTypeOrg).
-		Return([]*types.ProviderEndpoint{{ID: "provider-qwen", Name: "qwen"}}, nil)
+		Return([]*types.ProviderEndpoint{{ID: "provider-qwen", Name: "qwen", Models: []string{"qwen3.8-27b"}}}, nil)
+	providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(providerClient, nil)
+	providerClient.EXPECT().ListModels(gomock.Any()).Return(nil, errors.New("models route unsupported"))
+	modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
 	helixStore.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, app *types.App) (*types.App, error) {
 		return app, nil
 	})
@@ -321,7 +332,7 @@ func TestUpdateAppSyncsLinkedOrgProjectCodeAgentConfig(t *testing.T) {
 	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
 	req = req.WithContext(setRequestUser(req.Context(), user))
 	server := &HelixAPIServer{
-		Store: helixStore, providerManager: providerManager,
+		Store: helixStore, providerManager: providerManager, modelInfoProvider: modelInfoProvider, cache: cache,
 		helixOrg: &helixOrgHandlers{store: orgStore},
 	}
 
@@ -404,6 +415,11 @@ func TestUpdateAppRejectsMultipleLinkedOrgProjectsAndRestoresApp(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	helixStore := store.NewMockStore(ctrl)
 	providerManager := manager.NewMockProviderManager(ctrl)
+	providerClient := openai.NewMockClient(ctrl)
+	modelInfoProvider := model.NewMockModelInfoProvider(ctrl)
+	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{NumCounters: 1e3, MaxCost: 1 << 20, BufferItems: 64})
+	require.NoError(t, err)
+	defer cache.Close()
 	user := types.User{ID: "usr-owner", Type: types.OwnerTypeUser}
 	existing := &types.App{
 		ID: "app-engineer", Owner: user.ID, OwnerType: user.Type,
@@ -430,7 +446,10 @@ func TestUpdateAppRejectsMultipleLinkedOrgProjectsAndRestoresApp(t *testing.T) {
 		UserID: user.ID, OrganizationID: existing.OrganizationID, Role: types.OrganizationRoleMember,
 	}, nil)
 	providerManager.EXPECT().ListProviderEndpointsForOwner(gomock.Any(), existing.OrganizationID, types.OwnerTypeOrg).
-		Return([]*types.ProviderEndpoint{{ID: "provider-qwen", Name: "qwen"}}, nil)
+		Return([]*types.ProviderEndpoint{{ID: "provider-qwen", Name: "qwen", Models: []string{"qwen3.8-27b"}}}, nil)
+	providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(providerClient, nil)
+	providerClient.EXPECT().ListModels(gomock.Any()).Return(nil, errors.New("models route unsupported"))
+	modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
 	gomock.InOrder(
 		helixStore.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, app *types.App) (*types.App, error) {
 			require.Equal(t, "qwen3.8-27b", app.Config.Helix.Assistants[0].Model)
@@ -448,7 +467,9 @@ func TestUpdateAppRejectsMultipleLinkedOrgProjectsAndRestoresApp(t *testing.T) {
 	require.NoError(t, err)
 	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
 	req = req.WithContext(setRequestUser(req.Context(), user))
-	server := &HelixAPIServer{Store: helixStore, providerManager: providerManager}
+	server := &HelixAPIServer{
+		Store: helixStore, providerManager: providerManager, modelInfoProvider: modelInfoProvider, cache: cache,
+	}
 
 	updated, httpErr := server.updateAgent(nil, req)
 
