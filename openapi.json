@@ -8582,6 +8582,352 @@
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/pulls": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List the pull requests of a Helix-hosted repository",
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "List Helix pull requests",
+                "operationId": "listGitRepositoryPulls",
+                "parameters": [
+                    {
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "open (default), closed or all",
+                        "name": "state",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.GitPullRequest"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/pulls/{number}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a pull request of a Helix-hosted repository with its changed files and mergeability",
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get a Helix pull request",
+                "operationId": "getGitRepositoryPull",
+                "parameters": [
+                    {
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.GitPullRequestDetail"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Edit the title or body of a Helix pull request, or close or reopen it",
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Update a Helix pull request",
+                "operationId": "updateGitRepositoryPull",
+                "parameters": [
+                    {
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.GitPullRequestUpdate"
+                            }
+                        }
+                    },
+                    "description": "Update",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.GitPullRequest"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/pulls/{number}/merge": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Merge a Helix pull request: fast-forward when possible, otherwise a merge commit. 405 when it conflicts.",
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Merge a Helix pull request",
+                "operationId": "mergeGitRepositoryPull",
+                "parameters": [
+                    {
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.GitPullRequestMergeRequest"
+                            }
+                        }
+                    },
+                    "description": "Merge options"
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.GitPullRequest"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "405": {
+                        "description": "Method Not Allowed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/pulls/{number}/request-rebase": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sends the spec task that owns the pull request an instruction to rebase its head branch onto the base branch",
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Ask the agent to rebase a Helix pull request",
+                "operationId": "requestGitRepositoryPullRebase",
+                "parameters": [
+                    {
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.GitPullRequestDetail"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/push": {
             "post": {
                 "security": [
@@ -34529,24 +34875,24 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
-                    "email",
                     "webhook",
-                    "local",
-                    "slack",
                     "cron",
-                    "gitlab",
+                    "email",
                     "github",
-                    "helix_events"
+                    "slack",
+                    "helix_events",
+                    "gitlab",
+                    "local"
                 ],
                 "x-enum-varnames": [
-                    "KindEmail",
                     "KindWebhook",
-                    "KindLocal",
-                    "KindSlack",
                     "KindCron",
-                    "KindGitLab",
+                    "KindEmail",
                     "KindGitHub",
-                    "KindHelixEvents"
+                    "KindSlack",
+                    "KindHelixEvents",
+                    "KindGitLab",
+                    "KindLocal"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -38573,6 +38919,139 @@
                     }
                 }
             },
+            "types.GitPullRequest": {
+                "type": "object",
+                "properties": {
+                    "author_id": {
+                        "type": "string"
+                    },
+                    "author_login": {
+                        "type": "string"
+                    },
+                    "base_branch": {
+                        "type": "string"
+                    },
+                    "base_sha": {
+                        "type": "string"
+                    },
+                    "body": {
+                        "type": "string"
+                    },
+                    "closed_at": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "head_branch": {
+                        "type": "string"
+                    },
+                    "head_sha": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "merge_commit_sha": {
+                        "type": "string"
+                    },
+                    "merged": {
+                        "type": "boolean"
+                    },
+                    "merged_at": {
+                        "type": "string"
+                    },
+                    "merged_by": {
+                        "type": "string"
+                    },
+                    "number": {
+                        "type": "integer"
+                    },
+                    "repository_id": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "$ref": "#/components/schemas/types.GitPullRequestState"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.GitPullRequestDetail": {
+                "type": "object",
+                "properties": {
+                    "files": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.InternalPRFile"
+                        }
+                    },
+                    "html_url": {
+                        "type": "string"
+                    },
+                    "mergeable": {
+                        "type": "boolean"
+                    },
+                    "pull_request": {
+                        "$ref": "#/components/schemas/types.GitPullRequest"
+                    },
+                    "spec_task_id": {
+                        "description": "The spec task whose work this pull request carries, if any.",
+                        "type": "string"
+                    },
+                    "spec_task_name": {
+                        "type": "string"
+                    },
+                    "spec_task_project_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.GitPullRequestMergeRequest": {
+                "type": "object",
+                "properties": {
+                    "commit_message": {
+                        "type": "string"
+                    },
+                    "commit_title": {
+                        "type": "string"
+                    },
+                    "merge_method": {
+                        "description": "merge (the only supported method)",
+                        "type": "string"
+                    }
+                }
+            },
+            "types.GitPullRequestState": {
+                "type": "string",
+                "enum": [
+                    "open",
+                    "closed"
+                ],
+                "x-enum-varnames": [
+                    "GitPullRequestStateOpen",
+                    "GitPullRequestStateClosed"
+                ]
+            },
+            "types.GitPullRequestUpdate": {
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "description": "open | closed",
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.GitRepository": {
                 "type": "object",
                 "properties": {
@@ -39285,6 +39764,33 @@
                 "type": "object",
                 "properties": {
                     "model": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.InternalPRFile": {
+                "type": "object",
+                "properties": {
+                    "additions": {
+                        "type": "integer"
+                    },
+                    "changes": {
+                        "type": "integer"
+                    },
+                    "deletions": {
+                        "type": "integer"
+                    },
+                    "filename": {
+                        "type": "string"
+                    },
+                    "patch": {
+                        "type": "string"
+                    },
+                    "previous_filename": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "added | modified | removed | renamed",
                         "type": "string"
                     }
                 }
@@ -42455,6 +42961,32 @@
                     "ProviderEndpointTypeTeam"
                 ]
             },
+            "types.ProviderRecovery": {
+                "type": "object",
+                "properties": {
+                    "attempts": {
+                        "type": "integer"
+                    },
+                    "failed_at": {
+                        "type": "string"
+                    },
+                    "interaction_id": {
+                        "type": "string"
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "next_check_at": {
+                        "type": "string"
+                    },
+                    "prompt_id": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.PublicInvitationInfo": {
                 "type": "object",
                 "properties": {
@@ -44723,6 +45255,9 @@
                     "project_id": {
                         "description": "ID of associated Project (for exploratory sessions)",
                         "type": "string"
+                    },
+                    "provider_recovery": {
+                        "$ref": "#/components/schemas/types.ProviderRecovery"
                     },
                     "rag_enabled": {
                         "description": "these settings control which features of a session we want to use\neven if we have a Lora file and RAG indexed prepared\nwe might choose to not use them (this will help our eval framework know what works the best)\nwe well as activate RAG - we also get to control some properties, e.g. which distance function to use,\nand what the threshold for a \"good\" answer is",

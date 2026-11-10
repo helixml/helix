@@ -2452,14 +2452,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindEmail = "email",
   KindWebhook = "webhook",
-  KindLocal = "local",
-  KindSlack = "slack",
   KindCron = "cron",
-  KindGitLab = "gitlab",
+  KindEmail = "email",
   KindGitHub = "github",
+  KindSlack = "slack",
   KindHelixEvents = "helix_events",
+  KindGitLab = "gitlab",
+  KindLocal = "local",
 }
 
 export interface TransportResolvedActivation {
@@ -4371,6 +4371,58 @@ export interface TypesGitProviderConnectionCreateRequest {
   token?: string;
 }
 
+export interface TypesGitPullRequest {
+  author_id?: string;
+  author_login?: string;
+  base_branch?: string;
+  base_sha?: string;
+  body?: string;
+  closed_at?: string;
+  created_at?: string;
+  head_branch?: string;
+  head_sha?: string;
+  id?: string;
+  merge_commit_sha?: string;
+  merged?: boolean;
+  merged_at?: string;
+  merged_by?: string;
+  number?: number;
+  repository_id?: string;
+  state?: TypesGitPullRequestState;
+  title?: string;
+  updated_at?: string;
+}
+
+export interface TypesGitPullRequestDetail {
+  files?: TypesInternalPRFile[];
+  html_url?: string;
+  mergeable?: boolean;
+  pull_request?: TypesGitPullRequest;
+  /** The spec task whose work this pull request carries, if any. */
+  spec_task_id?: string;
+  spec_task_name?: string;
+  spec_task_project_id?: string;
+}
+
+export interface TypesGitPullRequestMergeRequest {
+  commit_message?: string;
+  commit_title?: string;
+  /** merge (the only supported method) */
+  merge_method?: string;
+}
+
+export enum TypesGitPullRequestState {
+  GitPullRequestStateOpen = "open",
+  GitPullRequestStateClosed = "closed",
+}
+
+export interface TypesGitPullRequestUpdate {
+  body?: string;
+  /** open | closed */
+  state?: string;
+  title?: string;
+}
+
 export interface TypesGitRepository {
   /** Provider-specific settings */
   azure_devops?: TypesAzureDevOps;
@@ -4694,6 +4746,17 @@ export interface TypesInteractiveEmbedModelResponse {
 
 export interface TypesInteractiveEmbedModelUpdateRequest {
   model?: string;
+}
+
+export interface TypesInternalPRFile {
+  additions?: number;
+  changes?: number;
+  deletions?: number;
+  filename?: string;
+  patch?: string;
+  previous_filename?: string;
+  /** added | modified | removed | renamed */
+  status?: string;
 }
 
 export interface TypesItem {
@@ -6077,6 +6140,16 @@ export enum TypesProviderEndpointType {
   ProviderEndpointTypeTeam = "team",
 }
 
+export interface TypesProviderRecovery {
+  attempts?: number;
+  failed_at?: string;
+  interaction_id?: string;
+  model?: string;
+  next_check_at?: string;
+  prompt_id?: string;
+  provider?: string;
+}
+
 export interface TypesPublicInvitationInfo {
   email?: string;
   id?: string;
@@ -7324,6 +7397,7 @@ export interface TypesSessionMetadata {
   priority?: boolean;
   /** ID of associated Project (for exploratory sessions) */
   project_id?: string;
+  provider_recovery?: TypesProviderRecovery;
   /**
    * these settings control which features of a session we want to use
    * even if we have a Lora file and RAG indexed prepared
@@ -12985,6 +13059,118 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List the pull requests of a Helix-hosted repository
+     *
+     * @tags git-repositories
+     * @name ListGitRepositoryPulls
+     * @summary List Helix pull requests
+     * @request GET:/api/v1/git/repositories/{id}/pulls
+     * @secure
+     */
+    listGitRepositoryPulls: (
+      id: string,
+      query?: {
+        /** open (default), closed or all */
+        state?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesGitPullRequest[], TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pulls`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a pull request of a Helix-hosted repository with its changed files and mergeability
+     *
+     * @tags git-repositories
+     * @name GetGitRepositoryPull
+     * @summary Get a Helix pull request
+     * @request GET:/api/v1/git/repositories/{id}/pulls/{number}
+     * @secure
+     */
+    getGitRepositoryPull: (id: string, number: number, params: RequestParams = {}) =>
+      this.request<TypesGitPullRequestDetail, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pulls/${number}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Edit the title or body of a Helix pull request, or close or reopen it
+     *
+     * @tags git-repositories
+     * @name UpdateGitRepositoryPull
+     * @summary Update a Helix pull request
+     * @request PATCH:/api/v1/git/repositories/{id}/pulls/{number}
+     * @secure
+     */
+    updateGitRepositoryPull: (
+      id: string,
+      number: number,
+      request: TypesGitPullRequestUpdate,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesGitPullRequest, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pulls/${number}`,
+        method: "PATCH",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Merge a Helix pull request: fast-forward when possible, otherwise a merge commit. 405 when it conflicts.
+     *
+     * @tags git-repositories
+     * @name MergeGitRepositoryPull
+     * @summary Merge a Helix pull request
+     * @request POST:/api/v1/git/repositories/{id}/pulls/{number}/merge
+     * @secure
+     */
+    mergeGitRepositoryPull: (
+      id: string,
+      number: number,
+      request: TypesGitPullRequestMergeRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesGitPullRequest, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pulls/${number}/merge`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Sends the spec task that owns the pull request an instruction to rebase its head branch onto the base branch
+     *
+     * @tags git-repositories
+     * @name RequestGitRepositoryPullRebase
+     * @summary Ask the agent to rebase a Helix pull request
+     * @request POST:/api/v1/git/repositories/{id}/pulls/{number}/request-rebase
+     * @secure
+     */
+    requestGitRepositoryPullRebase: (id: string, number: number, params: RequestParams = {}) =>
+      this.request<TypesGitPullRequestDetail, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pulls/${number}/request-rebase`,
+        method: "POST",
+        secure: true,
         format: "json",
         ...params,
       }),

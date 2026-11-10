@@ -160,6 +160,82 @@ export function useListRepositoryPullRequests(repositoryId: string, options?: { 
   });
 }
 
+// Pull requests on Helix-hosted repositories
+
+const helixPullsKey = (repositoryId: string) => ['git-repositories', repositoryId, 'pulls'] as const
+
+export function useHelixPullRequests(repositoryId: string, state: 'open' | 'closed' | 'all', options?: { enabled?: boolean }) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: [...helixPullsKey(repositoryId), 'list', state] as const,
+    queryFn: async () => {
+      const response = await api.getApiClient().listGitRepositoryPulls(repositoryId, { state });
+      return response.data;
+    },
+    enabled: options?.enabled !== false && !!repositoryId,
+  });
+}
+
+export function useHelixPullRequest(repositoryId: string, number: number) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: [...helixPullsKey(repositoryId), 'detail', number] as const,
+    queryFn: async () => {
+      const response = await api.getApiClient().getGitRepositoryPull(repositoryId, number);
+      return response.data;
+    },
+    enabled: !!repositoryId && number > 0,
+  });
+}
+
+export function useMergeHelixPullRequest(repositoryId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (number: number) => {
+      const response = await api.getApiClient().mergeGitRepositoryPull(repositoryId, number, { merge_method: 'merge' });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: helixPullsKey(repositoryId) });
+      queryClient.invalidateQueries({ queryKey: ['git-repositories', repositoryId] });
+    },
+  });
+}
+
+export function useSetHelixPullRequestState(repositoryId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ number, state }: { number: number; state: 'open' | 'closed' }) => {
+      const response = await api.getApiClient().updateGitRepositoryPull(repositoryId, number, { state });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: helixPullsKey(repositoryId) });
+    },
+  });
+}
+
+export function useRequestHelixPullRequestRebase(repositoryId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (number: number) => {
+      const response = await api.getApiClient().requestGitRepositoryPullRebase(repositoryId, number);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: helixPullsKey(repositoryId) });
+    },
+  });
+}
+
 export function useBrowseRepositoryTree(repositoryId: string, path: string = '.', branch: string = '') {
   const api = useApi();
   const { data: repository, isLoading: repositoryLoading } = useGitRepository(repositoryId);
