@@ -744,6 +744,13 @@ type Store interface {
 	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
 	CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error)
 
+	// Git pull request methods (Helix-hosted repositories)
+	CreateGitPullRequest(ctx context.Context, pr *types.GitPullRequest) error
+	GetGitPullRequest(ctx context.Context, repositoryID string, number int) (*types.GitPullRequest, error)
+	ListGitPullRequests(ctx context.Context, repositoryID, state string) ([]*types.GitPullRequest, error)
+	UpdateGitPullRequest(ctx context.Context, pr *types.GitPullRequest) error
+	DeleteGitPullRequestsForRepository(ctx context.Context, repositoryID string) error
+
 	// spec-driven task multi-session management
 	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)
 	SpawnWorkSession(ctx context.Context, parentSessionID string, config *types.SpecTaskWorkSessionSpawnRequest) (*types.SpecTaskWorkSession, error)

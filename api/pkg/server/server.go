@@ -190,6 +190,7 @@ type HelixAPIServer struct {
 	kodit                     *KoditResult
 	mcpGateway                *MCPGateway
 	gitHTTPServer             *services.GitHTTPServer
+	githubCompatRouter        *mux.Router
 	// Streaming context cache - avoids redundant DB queries during token streaming
 	streamingContexts   map[string]*streamingContext // helix_session_id -> cached context
 	streamingContextsMu sync.RWMutex
@@ -723,6 +724,10 @@ func NewServer(
 	}
 	gitRepositoryService.SetGitHubReviewWebhooks(reviewWebhookURL)
 
+	// Helix-hosted repositories take the GitHub pull request code path against
+	// this server's GitHub-compatible API, in-process.
+	gitRepositoryService.SetInternalGitHubCompat(cfg.WebServer.URL, apiServer.newInternalCompatDispatch())
+
 	// Start orchestrator
 	go func() {
 		if err := apiServer.specTaskOrchestrator.Start(context.Background()); err != nil {
@@ -977,6 +982,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	if err := apiServer.mountConfiguredProxy(router); err != nil {
 		return nil, err
 	}
+
+	// GitHub-compatible API for Helix-hosted repositories. Header auth only, so
+	// it sits outside the /api/v1 cookie and CSRF middleware.
+	apiServer.registerGitHubCompatRoutes(router)
 
 	// insecure router is under /api/v1 but not protected by auth
 	insecureRouter := router.PathPrefix(APIPrefix).Subrouter()
@@ -1803,6 +1812,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/git/repositories/{id}/commits", apiServer.listGitRepositoryCommits).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.listGitRepositoryPullRequests).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.createGitRepositoryPullRequest).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/{id}/pulls", apiServer.listGitRepositoryPulls).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/pulls/{number}", apiServer.getGitRepositoryPull).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/pulls/{number}", apiServer.updateGitRepositoryPull).Methods(http.MethodPatch)
+	authRouter.HandleFunc("/git/repositories/{id}/pulls/{number}/merge", apiServer.mergeGitRepositoryPull).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/{id}/pulls/{number}/request-rebase", apiServer.requestGitRepositoryPullRebase).Methods(http.MethodPost)
 
 	// Browse remote repositories using PAT credentials (without needing OAuth)
 	authRouter.HandleFunc("/git/browse-remote", apiServer.browseRemoteRepositories).Methods(http.MethodPost)

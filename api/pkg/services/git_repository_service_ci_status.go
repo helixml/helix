@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
-	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
@@ -18,8 +17,9 @@ import (
 // CIStatusFailed / CIStatusNone. Empty headSHA → returns "none" without
 // hitting any provider.
 //
-// The provider is determined by the repository's ExternalType. Bitbucket
-// always returns "none" in v1 (CI integration not yet implemented).
+// The provider is determined by the repository's ExternalType. Helix-hosted
+// repositories take the GitHub path against Helix's GitHub-compatible API,
+// which reports no CI. Bitbucket always returns "none" in v1.
 //
 // Errors here are non-fatal for the caller — the PR poll loop should log
 // and continue rather than abort the whole loop.
@@ -32,8 +32,8 @@ func (s *GitRepositoryService) GetCIStatus(ctx context.Context, repoID, prID, he
 	if err != nil {
 		return nil, fmt.Errorf("repository not found: %w", err)
 	}
-	if repo.ExternalURL == "" {
-		return nil, fmt.Errorf("repository is not external")
+	if internalPRRouting(repo) {
+		return s.getGitHubCIStatus(ctx, repo, prID, headSHA)
 	}
 
 	switch repo.ExternalType {
@@ -52,13 +52,9 @@ func (s *GitRepositoryService) GetCIStatus(ctx context.Context, repoID, prID, he
 }
 
 func (s *GitRepositoryService) getGitHubCIStatus(ctx context.Context, repo *types.GitRepository, prID, headSHA string) (*types.CIStatus, error) {
-	client, err := s.getGitHubClient(ctx, repo, "")
+	client, owner, repoName, err := s.githubClientForRepo(ctx, repo, "")
 	if err != nil {
 		return nil, err
-	}
-	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse GitHub URL: %w", err)
 	}
 	res, err := client.GetCIStatus(ctx, owner, repoName, headSHA)
 	if err != nil {

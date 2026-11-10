@@ -92,6 +92,13 @@ type GitRepositoryService struct {
 	// deliveries. Deliveries are signed with a per-repo secret stored on the
 	// repo row. Set via SetGitHubReviewWebhooks from server wiring.
 	githubReviewWebhooksURL string
+
+	// compatBaseURL / compatDispatch bridge the go-github client used for
+	// Helix-hosted repositories to this instance's in-process
+	// GitHub-compatible API (see SetInternalGitHubCompat). Set from server
+	// wiring; both empty means internal pull requests are unavailable.
+	compatBaseURL  string
+	compatDispatch InternalCompatDispatch
 }
 
 // NewGitRepositoryService creates a new git repository service
@@ -1080,6 +1087,10 @@ func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID stri
 	repoPath := filepath.Join(s.gitRepoBase, repoID)
 	if err := os.RemoveAll(repoPath); err != nil {
 		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository directory")
+	}
+
+	if err := s.store.DeleteGitPullRequestsForRepository(ctx, repoID); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository pull requests")
 	}
 
 	if err := s.store.DeleteGitRepository(ctx, repoID); err != nil {
