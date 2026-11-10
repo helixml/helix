@@ -54,7 +54,7 @@ func (s *GitRepositoryService) ValidateUserOAuth(ctx context.Context, repo *type
 		return fmt.Errorf("failed to check OAuth connections: %w", err)
 	}
 	for _, conn := range connections {
-		if oauthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
+		if OAuthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
 			return nil
 		}
 	}
@@ -323,7 +323,7 @@ func gitProviderConnectionMatchesRepo(conn *types.GitProviderConnection, repo *t
 }
 
 func oauthConnectionMatchesRepo(conn *types.OAuthConnection, providerType types.OAuthProviderType, repo *types.GitRepository) bool {
-	if !oauthConnectionMatchesProvider(conn, providerType) {
+	if !OAuthConnectionMatchesProvider(conn, providerType) {
 		return false
 	}
 	repoURL, err := url.Parse(repo.ExternalURL)
@@ -847,7 +847,7 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 			return nil, fmt.Errorf("failed to look up user OAuth connections: %w", err)
 		}
 		for _, conn := range connections {
-			if oauthConnectionMatchesProvider(conn, types.OAuthProviderTypeGitHub) && conn.AccessToken != "" {
+			if OAuthConnectionMatchesProvider(conn, types.OAuthProviderTypeGitHub) && conn.AccessToken != "" {
 				return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
 			}
 		}
@@ -1158,7 +1158,7 @@ func (s *GitRepositoryService) getGitLabClient(ctx context.Context, repo *types.
 			}
 		}
 		for _, conn := range connections {
-			if oauthConnectionMatchesProvider(conn, types.OAuthProviderTypeGitLab) && conn.AccessToken != "" {
+			if OAuthConnectionMatchesProvider(conn, types.OAuthProviderTypeGitLab) && conn.AccessToken != "" {
 				return gitlab.NewClientWithOAuth(baseURL, conn.AccessToken)
 			}
 		}
