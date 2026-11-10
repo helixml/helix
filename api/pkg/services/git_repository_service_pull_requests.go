@@ -824,9 +824,13 @@ func (s *GitRepositoryService) githubClientForRepo(ctx context.Context, repo *ty
 	if internalPRRouting(repo) {
 		return s.internalGitHubClient(ctx, repo, userID)
 	}
-	client, owner, repoName, err := s.githubClientForRepo(ctx, repo, userID)
+	client, err := s.getGitHubClient(ctx, repo, userID)
 	if err != nil {
 		return nil, "", "", err
+	}
+	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to parse GitHub URL: %w", err)
 	}
 	return client, owner, repoName, nil
 }
