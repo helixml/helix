@@ -135,7 +135,7 @@ func writeCompatStatus(w http.ResponseWriter, status int, body any) {
 func (apiServer *HelixAPIServer) compatRequest(r *http.Request, action types.Action) (*types.GitRepository, *types.User, error) {
 	user := getRequestUser(r) // set only by the in-process dispatch
 	if !hasUser(user) {
-		token := getBearerToken(r)
+		token := compatAuthToken(r)
 		if token == "" {
 			return nil, nil, statusErr(http.StatusUnauthorized, "Requires authentication")
 		}
@@ -158,6 +158,19 @@ func (apiServer *HelixAPIServer) compatRequest(r *http.Request, action types.Act
 		return nil, nil, statusErr(http.StatusForbidden, "Must have push access to repository")
 	}
 	return repo, user, nil
+}
+
+// compatAuthToken reads the credential the way GitHub does: "token <key>"
+// (GitHub's documented scheme, used by gh and curl examples) or
+// "Bearer <key>" (go-github).
+func compatAuthToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	for _, scheme := range []string{"token ", "Bearer "} {
+		if token, ok := strings.CutPrefix(auth, scheme); ok {
+			return strings.TrimSpace(token)
+		}
+	}
+	return ""
 }
 
 func (apiServer *HelixAPIServer) resolveCompatRepo(ctx context.Context, owner, name string) (*types.GitRepository, error) {

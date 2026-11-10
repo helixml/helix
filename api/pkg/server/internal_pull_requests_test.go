@@ -353,3 +353,18 @@ func (s *InternalPullRequestSuite) TestCloseKeepsDiffAndHooksAreAccepted() {
 	s.Equal(http.StatusOK, s.compat(http.MethodGet, "/repos/u-usr_owner/module/hooks", owner).Code)
 	s.Equal(http.StatusOK, s.compat(http.MethodGet, "/repos/u-usr_owner/module/pulls/1/comments", owner).Code)
 }
+
+func TestCompatAuthToken(t *testing.T) {
+	for header, want := range map[string]string{
+		"token hl-abc":  "hl-abc",
+		"Bearer hl-abc": "hl-abc",
+		"hl-abc":        "",
+		"":              "",
+	} {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.Header.Set("Authorization", header)
+		if got := compatAuthToken(r); got != want {
+			t.Errorf("compatAuthToken(%q) = %q, want %q", header, got, want)
+		}
+	}
+}
