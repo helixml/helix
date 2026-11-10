@@ -456,7 +456,7 @@ const HelixModelsTable: FC = () => {
         );
     }
 
-    if (!filteredModels || filteredModels.length === 0) {
+    if (!helixModels || helixModels.length === 0) {
         return (
             <Paper sx={{ p: 2, width: "100%" }}>
                 <Box
@@ -560,6 +560,22 @@ const HelixModelsTable: FC = () => {
                         </TableRow>
                     </TableHead>
                     <TableBody>
+                        {filteredModels.length === 0 && (
+                            <TableRow>
+                                <TableCell colSpan={10} align="center">
+                                    <Typography variant="body2" color="text.secondary" component="span">
+                                        No models match "{searchQuery}"
+                                    </Typography>
+                                    <Button
+                                        size="small"
+                                        onClick={() => setSearchQuery("")}
+                                        sx={{ ml: 1 }}
+                                    >
+                                        Clear search
+                                    </Button>
+                                </TableCell>
+                            </TableRow>
+                        )}
                         {filteredModels.map((model: TypesModel) => (
                             <TableRow key={model.id}>
                                 <TableCell>
