@@ -97,7 +97,11 @@ const HelixPullRequests: FC<HelixPullRequestsProps> = ({ repository }) => {
 }
 
 const HelixPullRequestList: FC<{ repositoryId: string; onOpen: (n: number) => void }> = ({ repositoryId, onOpen }) => {
-  const [state, setState] = useState<'open' | 'closed'>('open')
+  // In the URL so returning from a pull request keeps the chosen list.
+  const router = useRouter()
+  const state: 'open' | 'closed' = router.params.pr_state === 'closed' ? 'closed' : 'open'
+  const setState = (v: 'open' | 'closed') =>
+    v === 'closed' ? router.mergeParams({ pr_state: v }) : router.removeParams(['pr_state'])
   const { data: pulls = [], isLoading } = useHelixPullRequests(repositoryId, state)
 
   return (
