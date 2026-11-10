@@ -12,7 +12,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import { ArrowLeft, GitMerge, GitPullRequest, GitPullRequestClosed, RefreshCw } from 'lucide-react'
+import { ArrowLeft, GitMerge, GitPullRequest, GitPullRequestClosed, ListTodo, RefreshCw } from 'lucide-react'
 
 import type { TypesGitPullRequest, TypesGitRepository, TypesInternalPRFile } from '../../api/api'
 import {
@@ -233,14 +233,18 @@ const HelixPullRequestDetail: FC<{ repositoryId: string; number: number; onBack:
             {detail.spec_task_id && detail.spec_task_project_id && (
               <Button
                 size="small"
+                startIcon={<ListTodo size={16} />}
                 onClick={() =>
                   account.orgNavigate('project-task-detail', {
                     id: detail.spec_task_project_id,
                     taskId: detail.spec_task_id,
                   })
                 }
+                sx={{ textTransform: 'none', minWidth: 0, maxWidth: 420, py: 0 }}
               >
-                Task: {detail.spec_task_name || detail.spec_task_id}
+                <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {detail.spec_task_name || detail.spec_task_id}
+                </Box>
               </Button>
             )}
           </Box>
