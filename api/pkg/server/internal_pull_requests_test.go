@@ -160,8 +160,9 @@ func (s *InternalPullRequestSuite) SetupTest() {
 		s.store.mu.Unlock()
 	})
 	s.server = &HelixAPIServer{
-		Store:         s.store,
-		gitHTTPServer: httpServer,
+		Store:                s.store,
+		gitHTTPServer:        httpServer,
+		gitRepositoryService: s.git,
 		Cfg:           &config.ServerConfig{WebServer: config.WebServer{URL: "http://helix.test"}},
 	}
 	s.server.registerGitHubCompatRoutes(mux.NewRouter())
@@ -352,6 +353,54 @@ func (s *InternalPullRequestSuite) TestCloseKeepsDiffAndHooksAreAccepted() {
 	owner := s.store.users["usr_owner"]
 	s.Equal(http.StatusOK, s.compat(http.MethodGet, "/repos/u-usr_owner/module/hooks", owner).Code)
 	s.Equal(http.StatusOK, s.compat(http.MethodGet, "/repos/u-usr_owner/module/pulls/1/comments", owner).Code)
+}
+
+func (s *InternalPullRequestSuite) TestDeletedBaseBranchKeepsListWorking() {
+	s.run(s.work, "git", "push", "-q", "origin", "main:release")
+	s.branch("feature/r", "r.txt", "r\n")
+	_, err := s.git.CreatePullRequest(s.ctx, s.repo.ID, "R", "", "feature/r", "release", "usr_owner")
+	s.Require().NoError(err)
+	s.run("", "git", "--git-dir", s.repo.LocalPath, "branch", "-D", "release")
+
+	rec := s.compat(http.MethodGet, "/repos/u-usr_owner/module/pulls?state=all", s.store.users["usr_owner"])
+	s.Equal(http.StatusOK, rec.Code, rec.Body.String())
+	s.Contains(rec.Body.String(), `"number":1`)
+}
+
+func (s *InternalPullRequestSuite) TestStaleRefreshDoesNotOverwriteMerge() {
+	s.branch("feature/s", "s.txt", "s\n")
+	_, err := s.git.CreatePullRequest(s.ctx, s.repo.ID, "S", "", "feature/s", "main", "usr_owner")
+	s.Require().NoError(err)
+	stale, err := s.store.GetGitPullRequest(s.ctx, s.repo.ID, 1)
+	s.Require().NoError(err)
+
+	merged, err := s.server.gitHTTPServer.MergeInternalPullRequest(s.ctx, s.repo, 1, "", "", "", "usr_owner")
+	s.Require().NoError(err)
+
+	// A refresh that read the row before the merge must not save over it.
+	_, err = s.server.gitHTTPServer.RefreshInternalPR(s.ctx, s.repo, stale, false)
+	s.Require().NoError(err)
+	got, err := s.store.GetGitPullRequest(s.ctx, s.repo.ID, 1)
+	s.Require().NoError(err)
+	s.Equal("usr_owner", got.MergedBy)
+	s.Equal(merged.MergeCommit, got.MergeCommit)
+	s.Equal("usr_owner", stale.MergedBy, "the caller's copy reflects the stored merge")
+}
+
+func (s *InternalPullRequestSuite) TestBaseRefOnlyMovesFromTheExpectedCommit() {
+	before := s.mainSHA()
+	s.branch("feature/p", "p.txt", "p\n")
+	head := s.run("", "git", "--git-dir", s.repo.LocalPath, "rev-parse", "feature/p")
+	s.advanceMain("q.txt", "q\n")
+	pushed := s.mainSHA()
+
+	// The merge computed against `before`; a push has since moved main.
+	err := services.UpdateBranchRefFrom(s.ctx, s.repo.LocalPath, "main", head, before)
+	s.Require().Error(err)
+	s.Equal(pushed, s.mainSHA(), "the concurrent push is kept")
+
+	status, _ := internalPRErrorStatus(services.ErrInternalPRBaseMoved)
+	s.Equal(http.StatusConflict, status)
 }
 
 func TestCompatAuthToken(t *testing.T) {

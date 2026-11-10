@@ -101,6 +101,8 @@ func internalPRErrorStatus(err error) (int, string) {
 		errors.Is(err, services.ErrInternalPRMergeMethod),
 		errors.Is(err, services.ErrInternalPRClosed):
 		return http.StatusMethodNotAllowed, err.Error()
+	case errors.Is(err, services.ErrInternalPRBaseMoved):
+		return http.StatusConflict, err.Error()
 	default:
 		log.Error().Err(err).Msg("internal pull request request failed")
 		return http.StatusInternalServerError, "Internal Server Error"

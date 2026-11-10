@@ -133,10 +133,31 @@ func (apiServer *HelixAPIServer) getInternalPR(ctx context.Context, repo *types.
 }
 
 func (apiServer *HelixAPIServer) updateInternalPR(ctx context.Context, repo *types.GitRepository, number int, update *types.GitPullRequestUpdate) (*types.GitPullRequest, error) {
-	pr, _, err := apiServer.getInternalPR(ctx, repo, number, false)
+	// Refresh first: it may record that the PR already landed.
+	if _, _, err := apiServer.getInternalPR(ctx, repo, number, false); err != nil {
+		return nil, err
+	}
+	var updated *types.GitPullRequest
+	err := apiServer.gitRepositoryService.WithRepoLock(repo.ID, func() error {
+		pr, err := apiServer.Store.GetGitPullRequest(ctx, repo.ID, number)
+		if err != nil {
+			return err
+		}
+		if err := apiServer.applyInternalPRUpdate(ctx, repo, pr, update); err != nil {
+			return err
+		}
+		updated = pr
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
+	return updated, nil
+}
+
+// applyInternalPRUpdate edits and saves a PR. The caller holds the repository
+// lock, so a concurrent merge cannot be overwritten by this whole-row save.
+func (apiServer *HelixAPIServer) applyInternalPRUpdate(ctx context.Context, repo *types.GitRepository, pr *types.GitPullRequest, update *types.GitPullRequestUpdate) error {
 	if update.Title != nil {
 		pr.Title = *update.Title
 	}
@@ -147,7 +168,7 @@ func (apiServer *HelixAPIServer) updateInternalPR(ctx context.Context, repo *typ
 		switch *update.State {
 		case "open":
 			if pr.Merged {
-				return nil, statusErr(http.StatusUnprocessableEntity, "Validation Failed: a merged pull request cannot be reopened")
+				return statusErr(http.StatusUnprocessableEntity, "Validation Failed: a merged pull request cannot be reopened")
 			}
 			if pr.State != types.GitPullRequestStateOpen {
 				pr.State = types.GitPullRequestStateOpen
@@ -161,13 +182,10 @@ func (apiServer *HelixAPIServer) updateInternalPR(ctx context.Context, repo *typ
 				pr.ClosedAt = &now
 			}
 		default:
-			return nil, statusErr(http.StatusUnprocessableEntity, "Validation Failed: state must be open or closed")
+			return statusErr(http.StatusUnprocessableEntity, "Validation Failed: state must be open or closed")
 		}
 	}
-	if err := apiServer.Store.UpdateGitPullRequest(ctx, pr); err != nil {
-		return nil, err
-	}
-	return pr, nil
+	return apiServer.Store.UpdateGitPullRequest(ctx, pr)
 }
 
 // ---------------------------------------------------------------------------

@@ -32,6 +32,10 @@ var ErrInternalPRMergeMethod = errors.New("Merge method not allowed: Helix-hoste
 // ErrInternalPRClosed maps to GitHub's 405 for merging a closed or merged PR.
 var ErrInternalPRClosed = errors.New("Pull Request is not open")
 
+// ErrInternalPRBaseMoved maps to GitHub's 409 when the base branch moved
+// while the merge was being prepared, e.g. by a concurrent git push.
+var ErrInternalPRBaseMoved = errors.New("Base branch was modified. Review and try the merge again.")
+
 // InternalCompatDispatch serves a request against the GitHub-compatible API
 // in-process, acting as user.
 type InternalCompatDispatch func(ctx context.Context, req *http.Request, user types.User) *http.Response
@@ -115,7 +119,8 @@ func (s *GitHTTPServer) RefreshInternalPR(ctx context.Context, repo *types.GitRe
 	}
 	base, err := GetBranchCommitID(ctx, repo.LocalPath, pr.BaseBranch)
 	if err != nil {
-		return nil, fmt.Errorf("base branch %q: %w", pr.BaseBranch, err)
+		// Base branch deleted: keep the stored SHAs, as for a deleted head.
+		return nil, nil
 	}
 	pr.HeadSHA = head
 
@@ -124,16 +129,9 @@ func (s *GitHTTPServer) RefreshInternalPR(ctx context.Context, repo *types.GitRe
 		return nil, err
 	}
 	if landed {
-		now := time.Now()
-		pr.State = types.GitPullRequestStateClosed
-		pr.Merged = true
-		pr.MergedAt = &now
-		pr.ClosedAt = &now
-		pr.MergeCommit = head
-		if err := s.store.UpdateGitPullRequest(ctx, pr); err != nil {
-			return nil, fmt.Errorf("record landed PR %s: %w", pr, err)
+		if err := s.recordLandedPR(ctx, repo, pr, head); err != nil {
+			return nil, err
 		}
-		log.Info().Str("repo_id", repo.ID).Str("pr", pr.String()).Msg("internal pull request head landed on base; marked merged")
 		return nil, nil
 	}
 	pr.BaseSHA = base
@@ -146,6 +144,33 @@ func (s *GitHTTPServer) RefreshInternalPR(ctx context.Context, repo *types.GitRe
 		return nil, err
 	}
 	return &clean, nil
+}
+
+// recordLandedPR marks an open PR merged because its head reached the base
+// by another route. It runs under the repository lock and re-reads the row,
+// so it cannot overwrite a merge or close that finished meanwhile.
+func (s *GitHTTPServer) recordLandedPR(ctx context.Context, repo *types.GitRepository, pr *types.GitPullRequest, head string) error {
+	return s.gitRepoService.WithRepoLock(repo.ID, func() error {
+		current, err := s.store.GetGitPullRequest(ctx, repo.ID, pr.Number)
+		if err != nil {
+			return err
+		}
+		if current.State == types.GitPullRequestStateOpen {
+			now := time.Now()
+			current.State = types.GitPullRequestStateClosed
+			current.Merged = true
+			current.MergedAt = &now
+			current.ClosedAt = &now
+			current.MergeCommit = head
+			current.HeadSHA = head
+			if err := s.store.UpdateGitPullRequest(ctx, current); err != nil {
+				return fmt.Errorf("record landed PR %s: %w", current, err)
+			}
+			log.Info().Str("repo_id", repo.ID).Str("pr", current.String()).Msg("internal pull request head landed on base; marked merged")
+		}
+		*pr = *current
+		return nil
+	})
 }
 
 // SettleInternalPRSHAs pins the live head/base SHAs on a PR about to be
@@ -354,8 +379,8 @@ func (s *GitHTTPServer) MergeInternalPullRequest(ctx context.Context, repo *type
 		case landed:
 			mergeSHA = head
 		case fastForward:
-			if err := UpdateBranchRef(ctx, repo.LocalPath, pr.BaseBranch, head); err != nil {
-				return fmt.Errorf("fast-forward %s: %w", pr.BaseBranch, err)
+			if err := moveBaseBranch(ctx, repo.LocalPath, pr.BaseBranch, head, base); err != nil {
+				return err
 			}
 		default:
 			clean, tree, err := mergeTree(ctx, repo.LocalPath, base, head)
@@ -378,8 +403,8 @@ func (s *GitHTTPServer) MergeInternalPullRequest(ctx context.Context, repo *type
 			if err != nil {
 				return err
 			}
-			if err := UpdateBranchRef(ctx, repo.LocalPath, pr.BaseBranch, mergeSHA); err != nil {
-				return fmt.Errorf("update %s to merge commit: %w", pr.BaseBranch, err)
+			if err := moveBaseBranch(ctx, repo.LocalPath, pr.BaseBranch, mergeSHA, base); err != nil {
+				return err
 			}
 		}
 
@@ -405,6 +430,20 @@ func (s *GitHTTPServer) MergeInternalPullRequest(ctx context.Context, repo *type
 	s.NotifyDefaultBranchMerged(repo, merged.BaseBranch, userID)
 	log.Info().Str("repo_id", repo.ID).Str("pr", merged.String()).Str("merge_commit", merged.MergeCommit).Msg("internal pull request merged")
 	return merged, nil
+}
+
+// moveBaseBranch points the base branch at newSHA only if it still points at
+// the base the merge was computed from. A push that landed in between (git
+// receive-pack does not take the repository lock) fails the merge instead of
+// being silently dropped from the branch.
+func moveBaseBranch(ctx context.Context, repoPath, branch, newSHA, expectedSHA string) error {
+	if err := UpdateBranchRefFrom(ctx, repoPath, branch, newSHA, expectedSHA); err != nil {
+		if now, _ := GetBranchCommitID(ctx, repoPath, branch); now != expectedSHA {
+			return ErrInternalPRBaseMoved
+		}
+		return fmt.Errorf("update %s: %w", branch, err)
+	}
+	return nil
 }
 
 func commitTree(ctx context.Context, repoPath, tree string, parents []string, name, email, message string) (string, error) {
