@@ -154,6 +154,15 @@ func (s *HelixAPIServer) handleCreateOAuthProvider(_ http.ResponseWriter, r *htt
 	return result, nil
 }
 
+// redactOAuthConnection strips the connection's tokens and the client secret
+// of its preloaded provider. The provider row is shared by every user of that
+// provider; its secret belongs to the operator who configured it.
+func redactOAuthConnection(connection *types.OAuthConnection) {
+	connection.AccessToken = ""
+	connection.RefreshToken = ""
+	connection.Provider.ClientSecret = ""
+}
+
 // handleListOAuthConnections returns the list of OAuth connections for the current user
 // listOAuthConnections godoc
 // @Summary List OAuth connections
@@ -175,8 +184,7 @@ func (s *HelixAPIServer) handleListOAuthConnections(_ http.ResponseWriter, r *ht
 
 	// Remove sensitive information for all connections
 	for _, connection := range connections {
-		connection.AccessToken = ""
-		connection.RefreshToken = ""
+		redactOAuthConnection(connection)
 	}
 
 	return connections, nil
@@ -372,8 +380,7 @@ func (s *HelixAPIServer) handleGetOAuthConnection(_ http.ResponseWriter, r *http
 
 	// Remove sensitive information for non-admin users
 	if !user.Admin {
-		connection.AccessToken = ""
-		connection.RefreshToken = ""
+		redactOAuthConnection(connection)
 	}
 
 	return connection, nil
@@ -455,8 +462,7 @@ func (s *HelixAPIServer) handleRefreshOAuthConnection(_ http.ResponseWriter, r *
 
 	// Remove sensitive information for non-admin users
 	if !user.Admin {
-		connection.AccessToken = ""
-		connection.RefreshToken = ""
+		redactOAuthConnection(connection)
 	}
 
 	return connection, nil
