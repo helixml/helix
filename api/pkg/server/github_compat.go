@@ -146,6 +146,9 @@ func (apiServer *HelixAPIServer) compatRequest(r *http.Request, action types.Act
 		if err != nil || !hasUser(user) {
 			return nil, nil, statusErr(http.StatusUnauthorized, "Bad credentials")
 		}
+		if err := user.AccountAccessError(); err != nil {
+			return nil, nil, statusErr(http.StatusForbidden, "%s", err.Error())
+		}
 		if reason := compatCredentialRejection(user); reason != "" {
 			return nil, nil, statusErr(http.StatusForbidden, "%s", reason)
 		}
@@ -172,8 +175,6 @@ func (apiServer *HelixAPIServer) compatRequest(r *http.Request, action types.Act
 // none of them may act on repositories as the key's owner.
 func compatCredentialRejection(user *types.User) string {
 	switch {
-	case user.Waitlisted:
-		return "Account is waiting for approval"
 	case user.AppID != "":
 		return "App API keys cannot use the GitHub API"
 	case user.APIKeyType == types.APIkeytypeEmbed, user.APIKeyType == types.APIkeytypeBotInstance:
