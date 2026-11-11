@@ -287,3 +287,29 @@ func TestRestoreMaskedAgentSecrets_DuplicateNamesAreNotCrossAssigned(t *testing.
 		require.NotContains(t, api.Headers, "Authorization")
 	}
 }
+
+// The run stream sends progress events, not the run record: a reader of a
+// finished run must not receive the snapshot's credentials there either.
+func TestStreamEvaluationRun_DoesNotSendConfigSnapshot(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	app := secretBearingApp()
+	app.Global = false
+	app.OrganizationID = "org_1"
+	mockStore.EXPECT().GetAppWithTools(gomock.Any(), "app_shared").Return(app, nil)
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(
+		&types.OrganizationMembership{OrganizationID: "org_1", UserID: "usr_member", Role: types.OrganizationRoleMember}, nil).AnyTimes()
+	mockStore.EXPECT().GetEvaluationRun(gomock.Any(), "run_1").Return(&types.EvaluationRun{
+		ID: "run_1", AppID: "app_shared", Status: types.EvaluationRunStatusCompleted,
+		AppConfigSnapshot: secretBearingApp().Config,
+	}, nil)
+	server := &HelixAPIServer{Cfg: &config.ServerConfig{}, Store: mockStore}
+
+	rr := httptest.NewRecorder()
+	server.streamEvaluationRun(rr, evaluationRunRequest("app_shared", "run_1", types.User{ID: "usr_member"}))
+	require.Equal(t, http.StatusOK, rr.Code)
+	require.Contains(t, rr.Body.String(), "run_1")
+	for _, secret := range secretValues {
+		require.NotContains(t, rr.Body.String(), secret)
+	}
+}
