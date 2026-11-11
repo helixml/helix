@@ -64,8 +64,11 @@ func TestCreateGitRepository_RejectsAnotherOwner(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rr.Code, rr.Body.String())
 }
 
-func TestUpdateGitRepository_OnlyOwnerCanRedirectUpstream(t *testing.T) {
-	stored := &types.GitRepository{
+func gitRepositoryUpstreamUpdate(t *testing.T, user *types.User, role types.OrganizationRole, body map[string]any, expectUpdate bool) *httptest.ResponseRecorder {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	repo := types.GitRepository{
 		ID:             "repo_1",
 		OwnerID:        "usr_alice",
 		OrganizationID: "org_1",
@@ -73,7 +76,39 @@ func TestUpdateGitRepository_OnlyOwnerCanRedirectUpstream(t *testing.T) {
 		ExternalType:   types.ExternalRepositoryTypeGitHub,
 		GitHub:         &types.GitHub{PersonalAccessToken: "alice-pat"},
 	}
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo_1").Return(&repo, nil).AnyTimes()
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).
+		Return(&types.OrganizationMembership{OrganizationID: "org_1", UserID: user.ID, Role: role}, nil).AnyTimes()
+	// A plain member reaches update access through an access grant.
+	mockStore.EXPECT().ListTeams(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().ListAccessGrants(gomock.Any(), gomock.Any()).Return([]*types.AccessGrant{{
+		Roles: []types.Role{{Config: types.Config{Rules: []types.Rule{{
+			Resources: []types.Resource{types.ResourceGitRepository},
+			Actions:   []types.Action{types.ActionGet, types.ActionUpdate},
+			Effect:    types.EffectAllow,
+		}}}}},
+	}}, nil).AnyTimes()
+	if expectUpdate {
+		mockStore.EXPECT().UpdateGitRepository(gomock.Any(), gomock.Any()).Return(nil).MinTimes(1)
+	} else {
+		mockStore.EXPECT().UpdateGitRepository(gomock.Any(), gomock.Any()).Times(0)
+	}
 
+	server := &HelixAPIServer{
+		Store:                mockStore,
+		gitRepositoryService: services.NewGitRepositoryService(mockStore, t.TempDir(), "http://helix.test", "Helix", "helix@example.com"),
+	}
+	payload, err := json.Marshal(body)
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/git/repositories/repo_1", bytes.NewReader(payload))
+	req = req.WithContext(setTestRequestUser(req.Context(), user))
+	req = mux.SetURLVars(req, map[string]string{"id": "repo_1"})
+	rr := httptest.NewRecorder()
+	server.updateGitRepository(rr, req)
+	return rr
+}
+
+func TestUpdateGitRepository_CollaboratorCannotRedirectUpstream(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		body map[string]any
@@ -82,28 +117,25 @@ func TestUpdateGitRepository_OnlyOwnerCanRedirectUpstream(t *testing.T) {
 		{name: "external type", body: map[string]any{"external_type": "gitlab"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			mockStore := store.NewMockStore(ctrl)
-			repo := *stored
-			mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo_1").Return(&repo, nil)
-			mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).
-				Return(&types.OrganizationMembership{OrganizationID: "org_1", UserID: "usr_bob", Role: types.OrganizationRoleOwner}, nil).AnyTimes()
-			mockStore.EXPECT().UpdateGitRepository(gomock.Any(), gomock.Any()).Times(0)
-
-			server := &HelixAPIServer{
-				Store:                mockStore,
-				gitRepositoryService: services.NewGitRepositoryService(mockStore, t.TempDir(), "http://helix.test", "Helix", "helix@example.com"),
-			}
-
-			payload, err := json.Marshal(tc.body)
-			require.NoError(t, err)
-			req := httptest.NewRequest(http.MethodPut, "/api/v1/git/repositories/repo_1", bytes.NewReader(payload))
-			req = req.WithContext(setTestRequestUser(req.Context(), &types.User{ID: "usr_bob"}))
-			req = mux.SetURLVars(req, map[string]string{"id": "repo_1"})
-			rr := httptest.NewRecorder()
-			server.updateGitRepository(rr, req)
-
+			rr := gitRepositoryUpstreamUpdate(t, &types.User{ID: "usr_bob"}, types.OrganizationRoleMember, tc.body, false)
 			require.Equal(t, http.StatusForbidden, rr.Code, rr.Body.String())
+		})
+	}
+}
+
+// The repository owner and an owner of its organization may still move it.
+func TestUpdateGitRepository_OwnerAndOrgOwnerCanRedirectUpstream(t *testing.T) {
+	body := map[string]any{"external_url": "https://github.com/acme/renamed.git"}
+	for name, tc := range map[string]struct {
+		user *types.User
+		role types.OrganizationRole
+	}{
+		"repository owner": {&types.User{ID: "usr_alice"}, types.OrganizationRoleMember},
+		"org owner":        {&types.User{ID: "usr_carol"}, types.OrganizationRoleOwner},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rr := gitRepositoryUpstreamUpdate(t, tc.user, tc.role, body, true)
+			require.NotEqual(t, http.StatusForbidden, rr.Code, rr.Body.String())
 		})
 	}
 }

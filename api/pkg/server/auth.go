@@ -69,6 +69,31 @@ func (s *HelixAPIServer) refusePasswordAuth(w http.ResponseWriter) bool {
 	return true
 }
 
+// isDelegatedAPIKey reports whether a key type is handed to someone other
+// than its owner: embed keys are given to visitors of an embedded page, bot
+// instance keys to org bot sandboxes that serve other people, and app keys
+// to the users of an app.
+func isDelegatedAPIKey(keyType types.APIKeyType) bool {
+	switch keyType {
+	case types.APIkeytypeEmbed, types.APIkeytypeBotInstance, types.APIkeytypeApp:
+		return true
+	}
+	return false
+}
+
+// delegatedKeyUserResponse is what /auth/user returns for a delegated key:
+// the owner's ID, which callers use to address the owner, and none of the
+// owner's profile (email, name, admin flag, commit identity). Onboarding is
+// reported complete so the frontend never redirects the visitor into the
+// owner's account flows.
+func delegatedKeyUserResponse(user *types.User) types.UserResponse {
+	return types.UserResponse{
+		ID:                  user.ID,
+		OnboardingCompleted: true,
+		DefaultPRFooter:     services.DefaultPRFooterTemplate,
+	}
+}
+
 // Cookies are set, used and deleted at different points in the lifecycle of the request.
 // If found it hard to line these up correctly, especially the paths, so we'll use a struct to
 // represent each cookie.
@@ -868,6 +893,10 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		if token := getRequestToken(r); token != "" {
 			user, err := s.authMiddleware.getUserFromToken(ctx, token)
 			if err == nil && hasUser(user) {
+				if isDelegatedAPIKey(user.APIKeyType) {
+					writeResponse(w, delegatedKeyUserResponse(user), http.StatusOK)
+					return
+				}
 				dbUser, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: user.ID})
 				if err == nil && dbUser != nil {
 					response := userResponse(dbUser, "")

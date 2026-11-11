@@ -529,8 +529,9 @@ func (s *HelixAPIServer) slackOAuthStart(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	if _, err := s.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	// Completing this flow installs a workspace for the whole org.
+	if _, err := s.authorizeOrgOwner(r.Context(), user, org.ID); err != nil {
+		http.Error(w, "only organization owners and administrators can change Slack workspaces", http.StatusForbidden)
 		return
 	}
 
@@ -702,8 +703,10 @@ func (s *HelixAPIServer) connectSlackWorkspace(w http.ResponseWriter, r *http.Re
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	if _, err := s.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	// A Slack workspace install is org-wide configuration: only org owners
+	// and system admins may change it, as with the other org settings.
+	if _, err := s.authorizeOrgOwner(r.Context(), user, org.ID); err != nil {
+		http.Error(w, "only organization owners and administrators can change Slack workspaces", http.StatusForbidden)
 		return
 	}
 
@@ -901,8 +904,10 @@ func (s *HelixAPIServer) deleteSlackWorkspace(w http.ResponseWriter, r *http.Req
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	if _, err := s.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	// A Slack workspace install is org-wide configuration: only org owners
+	// and system admins may change it, as with the other org settings.
+	if _, err := s.authorizeOrgOwner(r.Context(), user, org.ID); err != nil {
+		http.Error(w, "only organization owners and administrators can change Slack workspaces", http.StatusForbidden)
 		return
 	}
 

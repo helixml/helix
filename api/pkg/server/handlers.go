@@ -1500,7 +1500,17 @@ func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Re
 	apiKey := req.URL.Query().Get("key")
 	key, err := apiServer.Controller.CheckAPIKey(ctx, apiKey)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("api key not found")
+		}
 		return nil, err
+	}
+	// Report only on the caller's own keys. Anyone else's key reads as not
+	// found, so the endpoint cannot be used to validate a key someone found
+	// or to learn whose it is.
+	user := getRequestUser(req)
+	if user == nil || (key.Owner != user.ID && !isAdmin(user)) {
+		return nil, system.NewHTTPError404("api key not found")
 	}
 	return key, nil
 }

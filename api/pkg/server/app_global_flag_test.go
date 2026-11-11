@@ -54,3 +54,27 @@ func TestUpdateAgent_OwnerCannotMakeAgentGlobal(t *testing.T) {
 	require.NotNil(t, httpErr)
 	require.Equal(t, http.StatusForbidden, httpErr.StatusCode, httpErr.Message)
 }
+
+// A non-admin owner of an existing global agent may still save it: leaving
+// "global" out of the update keeps it, it is not a request to change it.
+func TestUpdateAgent_OmittedGlobalKeepsStoredValue(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetApp(gomock.Any(), "app_1").Return(&types.App{ID: "app_1", Owner: "usr_bob", Global: true}, nil)
+	var saved *types.App
+	mockStore.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, app *types.App) (*types.App, error) { saved = app; return app, nil })
+	mockStore.EXPECT().ListTriggerConfigurations(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+
+	server := &HelixAPIServer{Cfg: &config.ServerConfig{}, Store: mockStore}
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/agents/app_1",
+		strings.NewReader(`{"config":{"helix":{"name":"mine","assistants":[{"name":"a"}]}}}`))
+	req = req.WithContext(setRequestUser(context.Background(), types.User{ID: "usr_bob"}))
+	req = mux.SetURLVars(req, map[string]string{"id": "app_1"})
+
+	_, httpErr := server.updateAgent(httptest.NewRecorder(), req)
+	require.Nil(t, httpErr)
+	require.NotNil(t, saved)
+	require.True(t, saved.Global)
+}
