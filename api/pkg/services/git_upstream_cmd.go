@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -13,6 +15,8 @@ import (
 
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/netguard"
 )
 
 // Upstream git commands talk to external providers through git-remote-https and
@@ -28,10 +32,13 @@ const (
 // upstreamGitConfig is applied to every upstream command:
 //   - lowSpeedLimit/Time abort transfers that stall (e.g. a proxy swallowing a chunked upload)
 //   - postBuffer avoids chunked transfer encoding for packs under 500 MB
+//   - followRedirects=false: the destination was vetted against the outbound
+//     policy, and a redirect would send git (and its credentials) elsewhere
 var upstreamGitConfig = [][2]string{
 	{"http.lowSpeedLimit", "1000"},
 	{"http.lowSpeedTime", "60"},
 	{"http.postBuffer", "524288000"},
+	{"http.followRedirects", "false"},
 }
 
 // upstreamRemote is an external git URL plus credentials. Credentials are sent
@@ -41,6 +48,50 @@ type upstreamRemote struct {
 	URL      string
 	Username string
 	Password string
+
+	// resolve holds http.curloptResolve entries ("host:port:addr,...") that
+	// pin the remote's host to addresses the outbound policy approved, so
+	// git cannot re-resolve it to something else (DNS rebinding).
+	resolve string
+	// blocked is the policy's rejection of the remote; commands using this
+	// remote fail with it instead of running.
+	blocked error
+}
+
+// pin resolves the remote's host under policy. An allowed host is pinned to
+// the vetted addresses; a disallowed one marks the remote blocked. A host
+// that does not resolve locally (proxy-only DNS) is left to the proxy.
+func (r upstreamRemote) pin(ctx context.Context, policy netguard.Policy) upstreamRemote {
+	u, err := url.Parse(r.URL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		r.blocked = fmt.Errorf("%w: upstream URL must be an http(s) URL", netguard.ErrBlockedDestination)
+		return r
+	}
+	ips, err := policy.ResolveHost(ctx, u.Hostname())
+	if errors.Is(err, netguard.ErrBlockedDestination) {
+		r.blocked = err
+		return r
+	}
+	if err != nil || net.ParseIP(u.Hostname()) != nil {
+		return r // nothing to pin: unresolvable here, or already an address
+	}
+	port := u.Port()
+	if port == "" {
+		port = "80"
+		if u.Scheme == "https" {
+			port = "443"
+		}
+	}
+	addrs := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		if ip.To4() == nil {
+			addrs = append(addrs, "["+ip.String()+"]")
+		} else {
+			addrs = append(addrs, ip.String())
+		}
+	}
+	r.resolve = u.Hostname() + ":" + port + ":" + strings.Join(addrs, ",")
+	return r
 }
 
 // newUpstreamRemote builds an upstreamRemote. Credentials embedded in rawURL
@@ -62,8 +113,16 @@ func newUpstreamRemote(rawURL, username, password string) upstreamRemote {
 	return upstreamRemote{URL: u.String(), Username: username, Password: password}
 }
 
+// env returns the git config environment for a command that contacts r:
+// credentials, redirect handling and address pinning.
 func (r upstreamRemote) env() []string {
+	if r.blocked != nil {
+		return []string{upstreamBlockedEnv + "=" + r.blocked.Error()}
+	}
 	cfg := upstreamGitConfig
+	if r.resolve != "" {
+		cfg = append(cfg[:len(cfg):len(cfg)], [2]string{"http.curloptResolve", r.resolve})
+	}
 	if r.Password != "" && isHTTPURL(r.URL) {
 		username := r.Username
 		if username == "" {
@@ -91,17 +150,14 @@ func isHTTPURL(raw string) bool {
 // upstreamGitAllowedProtocols are the transports an upstream command may use.
 // Remote URLs come from users, so local paths, file://, ext:: (which runs a
 // command) and the other transports git would otherwise allow are refused by
-// git itself, including for redirects and submodules.
-const upstreamGitAllowedProtocols = "http:https"
+// git itself, including for redirects and submodules. It is set for every
+// upstream command, overriding any GIT_ALLOW_PROTOCOL in the server's
+// environment. A variable only so tests can use local bare repositories.
+var upstreamGitAllowedProtocols = "http:https"
 
-// upstreamGitProtocolEnv restricts upstream transports unless the operator has
-// set GIT_ALLOW_PROTOCOL in the server environment.
-func upstreamGitProtocolEnv() []string {
-	if _, ok := os.LookupEnv("GIT_ALLOW_PROTOCOL"); ok {
-		return nil
-	}
-	return []string{"GIT_ALLOW_PROTOCOL=" + upstreamGitAllowedProtocols}
-}
+// upstreamBlockedEnv marks the environment of a remote the outbound policy
+// rejected; runUpstreamGit refuses to run with it.
+const upstreamBlockedEnv = "HELIX_UPSTREAM_BLOCKED"
 
 // runUpstreamGit runs a git command that contacts an external remote. The
 // command (and every child it spawns) is killed when ctx is done or timeout
@@ -110,12 +166,21 @@ func runUpstreamGit(ctx context.Context, dir string, timeout time.Duration, env 
 	if timeout <= 0 {
 		timeout = upstreamGitDefaultTimeout
 	}
+	for _, kv := range env {
+		if reason, ok := strings.CutPrefix(kv, upstreamBlockedEnv+"="); ok {
+			reason = strings.TrimPrefix(reason, netguard.ErrBlockedDestination.Error()+": ")
+			return "", "", fmt.Errorf("git %s: upstream refused by outbound policy: %w: %s", args[0], netguard.ErrBlockedDestination, reason)
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(append(append(os.Environ(), gitcmd.CommonGitCmdEnvs()...), upstreamGitProtocolEnv()...), env...)
+	// The allowed transports are always set: even for a caller env without
+	// them (e.g. a fetch with no remote credentials), an inherited
+	// GIT_ALLOW_PROTOCOL must not widen what a user-supplied URL may use.
+	cmd.Env = append(append(append(os.Environ(), gitcmd.CommonGitCmdEnvs()...), "GIT_ALLOW_PROTOCOL="+upstreamGitAllowedProtocols), env...)
 	configureUpstreamGitProcess(cmd)
 	cmd.WaitDelay = upstreamGitWaitDelay
 

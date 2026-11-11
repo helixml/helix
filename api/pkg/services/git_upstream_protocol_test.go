@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -15,8 +14,11 @@ import (
 // run commands.
 func TestCloneUpstreamMirror_RefusesNonNetworkTransports(t *testing.T) {
 	// TestMain loosens the restriction for the rest of the package.
-	t.Setenv("GIT_ALLOW_PROTOCOL", "")
-	require.NoError(t, os.Unsetenv("GIT_ALLOW_PROTOCOL"))
+	upstreamGitAllowedProtocols = "http:https"
+	t.Cleanup(func() { upstreamGitAllowedProtocols = "file:http:https" })
+	// A permissive value inherited from the server environment must not
+	// widen what a user-supplied URL may use.
+	t.Setenv("GIT_ALLOW_PROTOCOL", "file:ext:http:https")
 
 	dir := t.TempDir()
 	local := filepath.Join(dir, "server-side.git")

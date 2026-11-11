@@ -302,3 +302,11 @@ func (p Policy) NewClient(timeout time.Duration) *http.Client {
 	p.GuardTransport(t)
 	return &http.Client{Timeout: timeout, Transport: t, CheckRedirect: NoRedirects}
 }
+
+// ResolveHost resolves host (a name or IP literal) and checks every address
+// against the policy, for callers that hand the vetted addresses to another
+// program (e.g. git's http.curloptResolve) so it cannot re-resolve. A host
+// with any blocked address is rejected; a lookup failure is returned as is.
+func (p Policy) ResolveHost(ctx context.Context, host string) ([]net.IP, error) {
+	return p.resolve(ctx, host)
+}

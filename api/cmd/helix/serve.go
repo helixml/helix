@@ -362,6 +362,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		"Helix System",
 		"system@helix.ml",
 	)
+	gitRepositoryService.SetOutboundPolicy(netguard.Policy{AllowPrivate: cfg.GitProviders.AllowPrivateNetworks})
 
 	// Initialize kodit once here so that the kodit RAG provider and the API server
 	// share a single kodit instance (and therefore a single embedding model / worker pool).

@@ -19,6 +19,7 @@ import (
 	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"code.gitea.io/gitea/modules/setting"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -85,6 +86,10 @@ type GitRepositoryService struct {
 	// concurrent handler hits) so we don't hammer GitHub and trip its 5000 req/hr
 	// rate limit. Set on construction; safe for concurrent use.
 	prListCache *prListCache
+
+	// outboundPolicy, when set, restricts the addresses external repository
+	// URLs may reach (see SetOutboundPolicy).
+	outboundPolicy *netguard.Policy
 
 	// githubReviewWebhooksURL enables PR review feedback for spec tasks: when
 	// set, creating a GitHub pull request also installs (idempotently) a
@@ -2729,7 +2734,22 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 // upstreamRemoteForRepo returns the external URL and the credentials to send with it.
 func (s *GitRepositoryService) upstreamRemoteForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) upstreamRemote {
 	username, password := s.getCredentialsForRepo(ctx, gitRepo, userID...)
-	return newUpstreamRemote(gitRepo.ExternalURL, username, password)
+	return s.pinUpstream(ctx, newUpstreamRemote(gitRepo.ExternalURL, username, password))
+}
+
+// SetOutboundPolicy restricts the addresses external repository URLs may
+// reach. Each upstream command is pinned to addresses the policy approved
+// at the time the remote was prepared.
+func (s *GitRepositoryService) SetOutboundPolicy(policy netguard.Policy) {
+	s.outboundPolicy = &policy
+}
+
+// pinUpstream applies the outbound policy, when one is set, to remote.
+func (s *GitRepositoryService) pinUpstream(ctx context.Context, remote upstreamRemote) upstreamRemote {
+	if s.outboundPolicy == nil {
+		return remote
+	}
+	return remote.pin(ctx, *s.outboundPolicy)
 }
 
 // getCredentialsForRepo returns username and password/token for a repository
