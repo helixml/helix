@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -24,7 +25,7 @@ func TestRAG(t *testing.T) {
 		IndexURL:  indexURL,
 		QueryURL:  queryURL,
 		DeleteURL: deleteURL,
-	})
+	}, netguard.Policy{AllowPrivate: true})
 
 	ctx := context.Background()
 

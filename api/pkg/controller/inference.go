@@ -18,6 +18,7 @@ import (
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/netguard"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
@@ -1618,7 +1619,7 @@ func setSystemPrompt(req *openai.ChatCompletionRequest, systemPrompt string) ope
 func (c *Controller) GetRagClient(_ context.Context, knowledge *types.Knowledge) (rag.RAG, error) {
 	// TODO: remove this
 	if knowledge.RAGSettings.IndexURL != "" && knowledge.RAGSettings.QueryURL != "" {
-		return rag.NewLlamaindex(&knowledge.RAGSettings), nil
+		return rag.NewLlamaindex(&knowledge.RAGSettings, netguard.Policy{AllowPrivate: c.Options.Config.Tools.AllowPrivateNetworks}), nil
 	}
 
 	return c.Options.RAG, nil

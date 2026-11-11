@@ -129,7 +129,7 @@ func NewController(
 		gitRepositoryService: options.GitRepositoryService,
 		models:               models,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
-			return rag.NewLlamaindex(settings)
+			return rag.NewLlamaindex(settings, netguard.Policy{AllowPrivate: options.Config.Tools.AllowPrivateNetworks})
 		},
 		stepInfoEmitter:   agent.NewPubSubStepInfoEmitter(options.PubSub, options.Store),
 		triggerStatuses:   make(map[TriggerStatusKey]types.TriggerStatus),

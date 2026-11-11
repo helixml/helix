@@ -78,7 +78,7 @@ func New(config *config.ServerConfig, store store.Store, filestore filestore.Fil
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			// this is somewhat confusingly named, but it's only used for custom RAG
 			// servers (not our own llamaindex)
-			return rag.NewLlamaindex(settings)
+			return rag.NewLlamaindex(settings, netguard.Policy{AllowPrivate: config.Tools.AllowPrivateNetworks})
 		},
 		// newCrawler: ,
 		progressMu: &sync.RWMutex{},
