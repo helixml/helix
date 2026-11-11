@@ -22,6 +22,7 @@ func newDesktopTestServer(t *testing.T) (*HelixAPIServer, *store.MockStore, *aut
 	st := store.NewMockStore(ctrl)
 	authn := auth.NewMockAuthenticator(ctrl)
 	cfg := &config.ServerConfig{}
+	cfg.Auth.Provider = types.AuthProviderRegular
 	cfg.Auth.DesktopAutoLoginSecret = testDesktopSecret
 	return &HelixAPIServer{
 		Cfg:            cfg,
