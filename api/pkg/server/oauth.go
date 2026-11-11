@@ -663,10 +663,15 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	// Use the most recent request token
 	requestToken := requestTokens[0]
 
-	// Check if the user exists (we don't need the user object)
-	_, err = s.Store.GetUser(r.Context(), &store.GetUserQuery{ID: requestToken.UserID})
+	// The flow was started by an authenticated user, but the callback is
+	// public: re-check the account so an inactive user can't finish linking.
+	flowUser, err := s.Store.GetUser(r.Context(), &store.GetUserQuery{ID: requestToken.UserID})
 	if err != nil {
 		http.Error(w, "User not found", http.StatusInternalServerError)
+		return
+	}
+	if accessErr := flowUser.AccountAccessError(); accessErr != nil {
+		http.Error(w, accessErr.Error(), http.StatusForbidden)
 		return
 	}
 

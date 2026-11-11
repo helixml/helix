@@ -146,6 +146,9 @@ func (apiServer *HelixAPIServer) compatRequest(r *http.Request, action types.Act
 		if err != nil || !hasUser(user) {
 			return nil, nil, statusErr(http.StatusUnauthorized, "Bad credentials")
 		}
+		if err := user.AccountAccessError(); err != nil {
+			return nil, nil, statusErr(http.StatusForbidden, "%s", err.Error())
+		}
 	}
 	vars := mux.Vars(r)
 	repo, err := apiServer.resolveCompatRepo(r.Context(), vars["owner"], vars["repo"])
