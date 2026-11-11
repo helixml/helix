@@ -1131,11 +1131,20 @@ func appAgentRuntimeConfig(app *types.App) agentRuntimeConfig {
 func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*types.Agent, *system.HTTPError) {
 	user := getRequestUser(r)
 
-	var update types.Agent
-	err := json.NewDecoder(r.Body).Decode(&update)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		return nil, system.NewHTTPError400(fmt.Sprintf("failed to read request body, error: %s", err))
+	}
+	var update types.Agent
+	if err := json.Unmarshal(body, &update); err != nil {
 		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 2, error: %s", err))
 	}
+	// An update that omits "global" keeps the stored value; only an explicit
+	// value is a request to change it.
+	var fields struct {
+		Global *bool `json:"global"`
+	}
+	_ = json.Unmarshal(body, &fields)
 
 	id := getID(r)
 	if update.ID != "" && update.ID != id {
@@ -1172,6 +1181,9 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	// back: they mean "keep the stored credential".
 	restoreMaskedAgentSecrets(existing.Config, &update.Config)
 
+	if fields.Global == nil {
+		update.Global = existing.Global
+	}
 	if update.Global != existing.Global && !isAdmin(user) {
 		return nil, system.NewHTTPError403("only admins can change whether an agent is global")
 	}
