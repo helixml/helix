@@ -80,6 +80,6 @@ Reported local validation after the final edits:
   mock race unit passed separately.
 
 Zed is committed locally at
-`016b615e39546f53958a10b4f3e8b4cae7ed454a`, and Helix
+`73027feda055e6ca8bf79b5e51a5bee664bcb6da`, and Helix
 `sandbox-versions.txt` pins that exact SHA. No production deployment or live
 bot configuration changed. Live connected-bot verification was not run.

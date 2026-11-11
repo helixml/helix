@@ -867,6 +867,12 @@ func TestHelixOrgPrivilegedMutation(t *testing.T) {
 		{http.MethodPatch, "/api/v1/orgs/test/assets/a-1", true},
 		{http.MethodPatch, "/api/v1/orgs/test/bots/b-1", false},
 		{http.MethodPut, "/api/v1/orgs/test/agents/b-1/secrets/GH_TOKEN", false},
+		{http.MethodPut, "/api/v1/orgs/test/settings/agent.default", true},
+		{http.MethodPut, "/api/v1/orgs/test/settings/helix.api_key", true},
+		{http.MethodPut, "/api/v1/orgs/test/settings/transport.github", true},
+		{http.MethodDelete, "/api/v1/orgs/test/settings/worker.specs_mandate", true},
+		{http.MethodGet, "/api/v1/orgs/test/settings", false},
+		{http.MethodPost, "/api/v1/orgs/test/github/app-manifest", true},
 	}
 	for _, tt := range tests {
 		req := httptest.NewRequest(tt.method, tt.path, nil)

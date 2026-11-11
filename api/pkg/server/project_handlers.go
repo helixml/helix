@@ -739,6 +739,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.AutoApprovePullRequests != nil {
 		project.AutoApprovePullRequests = *req.AutoApprovePullRequests
 	}
+	if req.HelixRepoPullRequests != nil {
+		project.HelixRepoPullRequests = *req.HelixRepoPullRequests
+	}
 	if req.AutoArchiveCompletedTasks != nil {
 		project.AutoArchiveCompletedTasks = *req.AutoArchiveCompletedTasks
 	}
@@ -923,6 +926,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		if req.AutoApprovePullRequests != nil {
 			changedFields = append(changedFields, "auto_approve_pull_requests")
 		}
+		if req.HelixRepoPullRequests != nil {
+			changedFields = append(changedFields, "helix_repo_pull_requests")
+		}
 		if req.AutoArchiveCompletedTasks != nil {
 			changedFields = append(changedFields, "auto_archive_completed_tasks")
 		}
@@ -1065,6 +1071,12 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		if err := s.deleteArtifactResources(r.Context(), artifact); err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
+	}
+
+	// The web service runs in its own sandbox with a public hostname; it must
+	// not outlive the project.
+	if err := s.webServiceController.Teardown(r.Context(), projectID); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("tear down project web service: %s", err))
 	}
 
 	// Now soft delete the project
@@ -2894,6 +2906,10 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			}
 			if s.gitRepositoryService == nil {
 				return nil, system.NewHTTPError500("git repository service is not configured")
+			}
+			if err := s.gitProviderURLPolicy().ValidateURL(r.Context(), repoSpec.URL); err != nil {
+				log.Warn().Err(err).Str("field", "repository url").Msg("rejected outbound URL")
+				return nil, system.NewHTTPError400(fmt.Sprintf("repository %s is not an allowed destination", repoSpec.URL))
 			}
 			repo, err = s.gitRepositoryService.CreateRepository(r.Context(), &types.GitRepositoryCreateRequest{
 				Name:           repoName,

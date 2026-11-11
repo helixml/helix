@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/netguard"
+
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
@@ -28,8 +30,8 @@ var replyToCommentParameters = jsonschema.Definition{
 
 // NewUpdateThreadSkill - creates a skill that allows the agent to update a thread in a pull request. This is a dedicated skill
 // that expects the agent to be told what comment to write
-func NewReplyToCommentSkill(organizationURL string, personalAccessToken string) agent.Skill {
-	client := NewAzureDevOpsClient(organizationURL, personalAccessToken)
+func NewReplyToCommentSkill(organizationURL string, personalAccessToken string, outbound netguard.Policy) agent.Skill {
+	client := NewAzureDevOpsClient(organizationURL, personalAccessToken).WithOutboundPolicy(outbound)
 	return agent.Skill{
 		Name:        "AzureDevOpsReplyToComment",
 		Description: replyToCommentSkillDescription,
@@ -82,6 +84,7 @@ func (t *AzureDevOpsPullRequestUpdateThreadTool) OpenAI() []openai.Tool {
 }
 
 func (t *AzureDevOpsPullRequestUpdateThreadTool) Execute(ctx context.Context, _ agent.Meta, args map[string]interface{}) (string, error) {
+	ctx = t.client.guard(ctx)
 	content, ok := args["content"].(string)
 	if !ok {
 		return "", fmt.Errorf("content is required")

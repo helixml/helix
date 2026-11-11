@@ -584,6 +584,55 @@ func (c *Client) ForkRepository(ctx context.Context, owner, repo, organization s
 	return forkedRepo, nil
 }
 
+// ListUserOrganizations lists the organizations the authenticated user is a
+// member of (GET /user/orgs).
+func (c *Client) ListUserOrganizations(ctx context.Context) ([]*github.Organization, error) {
+	var all []*github.Organization
+	opt := &github.ListOptions{PerPage: 100}
+	for {
+		orgs, resp, err := c.client.Organizations.List(ctx, "", opt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list organizations: %w", err)
+		}
+		all = append(all, orgs...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
+	}
+	return all, nil
+}
+
+// CreateRepositoryFromTemplate generates a new repository from a template
+// repository (POST /repos/{template}/generate). Only the template's default
+// branch is copied.
+func (c *Client) CreateRepositoryFromTemplate(ctx context.Context, templateOwner, templateRepo, owner, name, description string, private bool) (*github.Repository, error) {
+	repo, _, err := c.client.Repositories.CreateFromTemplate(ctx, templateOwner, templateRepo, &github.TemplateRepoRequest{
+		Owner:              github.String(owner),
+		Name:               github.String(name),
+		Description:        github.String(description),
+		Private:            github.Bool(private),
+		IncludeAllBranches: github.Bool(false),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create repository from template %s/%s: %w", templateOwner, templateRepo, err)
+	}
+	return repo, nil
+}
+
+// BranchExists reports whether a branch exists in a repository. A 404 is
+// reported as false, not as an error.
+func (c *Client) BranchExists(ctx context.Context, owner, repo, branch string) (bool, error) {
+	_, resp, err := c.client.Repositories.GetBranch(ctx, owner, repo, branch, 0)
+	if err != nil {
+		if resp != nil && resp.StatusCode == http.StatusNotFound {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to get branch %s: %w", branch, err)
+	}
+	return true, nil
+}
+
 // ForkExists checks if a fork of the given repo already exists in the user's account or organization
 func (c *Client) ForkExists(ctx context.Context, owner, repo, forkOwner string) (*github.Repository, error) {
 	// Try to get the forked repo directly

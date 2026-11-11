@@ -193,6 +193,13 @@ func getRequestUser(req *http.Request) *types.User {
 	return nil
 }
 
+// scrubUserCredentials clears the request-scoped credential fields of a user
+// before the record is returned to another user or saved.
+func scrubUserCredentials(user *types.User) {
+	user.Token = ""
+	user.TokenType = ""
+}
+
 func getOwnerContext(req *http.Request) types.OwnerContext {
 	user := getRequestUser(req)
 	return types.OwnerContext{

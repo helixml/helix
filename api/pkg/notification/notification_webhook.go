@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/netguard"
 )
 
 type WebhookPayload struct {
@@ -18,7 +20,11 @@ type WebhookPayload struct {
 	Event     string `json:"event"`
 }
 
-func sendWebhook(ctx context.Context, callbackURL string, n *Notification) error {
+const webhookTimeout = 10 * time.Second
+
+// sendWebhook posts n to callbackURL with client, which must enforce the
+// outbound policy (callback URLs are user-supplied).
+func sendWebhook(ctx context.Context, client *http.Client, callbackURL string, n *Notification) error {
 	status := "success"
 	if n.Event == 2 { // EventCronTriggerFailed
 		status = "error"
@@ -38,7 +44,9 @@ func sendWebhook(ctx context.Context, callbackURL string, n *Notification) error
 		return fmt.Errorf("failed to marshal webhook payload: %w", err)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	if _, err := netguard.ValidateHTTPURL(callbackURL); err != nil {
+		return fmt.Errorf("webhook callback URL: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, callbackURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create webhook request: %w", err)

@@ -5,12 +5,16 @@ import (
 	"crypto/tls"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -32,6 +36,76 @@ type Client interface {
 
 type DefaultClientGetter struct {
 	TLSSkipVerify bool
+
+	// Outbound, when set, restricts the addresses MCP server URLs may reach.
+	// MCP server URLs are user-supplied and connected to from the API server.
+	Outbound *netguard.Policy
+	// TrustedHosts are host:port values exempt from Outbound: the Helix API's
+	// own address, which built-in MCP servers (e.g. Kodit) are served from.
+	TrustedHosts []string
+
+	httpClientOnce sync.Once
+	httpClient     *http.Client
+}
+
+// client returns the HTTP client shared by every MCP connection this getter
+// creates (shared so per-connection clients need no explicit closing).
+func (d *DefaultClientGetter) client() *http.Client {
+	d.httpClientOnce.Do(func() {
+		open := http.DefaultTransport.(*http.Transport).Clone()
+		if d.TLSSkipVerify {
+			open.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		}
+		if d.Outbound == nil {
+			d.httpClient = &http.Client{Transport: open}
+			return
+		}
+		guarded := open.Clone()
+		d.Outbound.GuardTransport(guarded)
+		trusted := make(map[string]bool, len(d.TrustedHosts))
+		for _, h := range d.TrustedHosts {
+			trusted[strings.ToLower(h)] = true
+		}
+		d.httpClient = &http.Client{Transport: &trustedHostTransport{open: open, guarded: guarded, trusted: trusted}}
+	})
+	return d.httpClient
+}
+
+// trustedHostTransport sends requests for trusted hosts through open and all
+// others through guarded. It is consulted per request, so redirects away from
+// a trusted host are guarded again.
+type trustedHostTransport struct {
+	open, guarded http.RoundTripper
+	trusted       map[string]bool
+}
+
+func (t *trustedHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.trusted[strings.ToLower(canonicalHostPort(req.URL))] {
+		return t.open.RoundTrip(req)
+	}
+	return t.guarded.RoundTrip(req)
+}
+
+// canonicalHostPort returns u's host:port, filling in the scheme's default port.
+func canonicalHostPort(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		port = "80"
+		if u.Scheme == "https" {
+			port = "443"
+		}
+	}
+	return net.JoinHostPort(u.Hostname(), port)
+}
+
+// NewDefaultClientGetter returns a getter for user-configured MCP servers,
+// restricted by policy except for serverURL (the Helix API's own address).
+func NewDefaultClientGetter(tlsSkipVerify bool, policy netguard.Policy, serverURL string) *DefaultClientGetter {
+	getter := &DefaultClientGetter{TLSSkipVerify: tlsSkipVerify, Outbound: &policy}
+	if u, err := url.Parse(serverURL); err == nil && u.Hostname() != "" {
+		getter.TrustedHosts = []string{canonicalHostPort(u)}
+	}
+	return getter
 }
 
 func (d *DefaultClientGetter) NewClient(ctx context.Context, meta agent.Meta, oauthManager *oauth.Manager, cfg *types.AssistantMCP) (Client, error) {
@@ -74,12 +148,7 @@ func (d *DefaultClientGetter) NewClient(ctx context.Context, meta agent.Meta, oa
 		headers["Authorization"] = fmt.Sprintf("Bearer %s", token)
 	}
 
-	httpClient := http.DefaultClient
-	if d.TLSSkipVerify {
-		httpClient.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
-	}
+	httpClient := d.client()
 
 	switch {
 	case cfg.Transport == "sse" || strings.HasSuffix(cfg.URL, "sse"):

@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/readability"
+	"github.com/helixml/helix/api/pkg/netguard"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
@@ -101,16 +102,17 @@ var browserSkillParameters = jsonschema.Definition{
 	Required: []string{"url", "prompt"},
 }
 
-// NewBrowserSkill creates a new browser skill, this skill provides a tool to open URLs in a browser (Chrome runner)
-func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser, llm *agent.LLM, cache *ristretto.Cache[string, string], tlsSkipVerify bool) agent.Skill {
-	// Create HTTP client with optional TLS skip verify for enterprise environments
-	httpClient := &http.Client{}
+// NewBrowserSkill creates a new browser skill, this skill provides a tool to open URLs in a browser (Chrome runner).
+// URLs come from the model (and so from user content); every request, whether
+// fetched directly or by the browser, goes through the outbound policy.
+func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser, llm *agent.LLM, cache *ristretto.Cache[string, string], tlsSkipVerify bool, outbound netguard.Policy) agent.Skill {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if tlsSkipVerify {
-		// Clone the default transport to preserve all default settings
-		transport := http.DefaultTransport.(*http.Transport).Clone()
+		// Optional TLS skip verify for enterprise environments
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-		httpClient.Transport = transport
 	}
+	outbound.GuardTransport(transport)
+	httpClient := &http.Client{Transport: transport}
 
 	return agent.Skill{
 		Name:          "Browser",
@@ -249,12 +251,25 @@ func (t *browserTool) Execute(ctx context.Context, meta agent.Meta, args map[str
 				}
 			}()
 
-			page, err := t.browser.GetPage(b, proto.TargetCreateTarget{URL: url})
+			page, err := t.browser.GetPage(b, proto.TargetCreateTarget{})
 			if err != nil {
 				errCh <- fmt.Errorf("error getting page for %s: %w", url, err)
 				return
 			}
 			defer t.browser.PutPage(page)
+
+			// Chrome's own requests go through the same policy.
+			stop, err := browser.GuardPage(page, t.httpClient)
+			if err != nil {
+				errCh <- fmt.Errorf("error guarding page for %s: %w", url, err)
+				return
+			}
+			defer stop()
+
+			if err := page.Navigate(url); err != nil {
+				errCh <- fmt.Errorf("error navigating to %s: %w", url, err)
+				return
+			}
 
 			err = page.WaitLoad()
 			if err != nil {

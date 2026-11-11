@@ -266,6 +266,12 @@ type Project struct {
 	// own setting, so changing this does not affect existing tasks.
 	AutoApprovePullRequests bool `json:"auto_approve_pull_requests" gorm:"default:false"`
 
+	// HelixRepoPullRequests: agents deliver work on the project's Helix-hosted
+	// repositories as pull requests (propose_pull_request, reviewed and merged
+	// on the Helix PR page) instead of Accept landing their branch. External
+	// repositories always use pull requests.
+	HelixRepoPullRequests bool `json:"helix_repo_pull_requests" gorm:"default:false"`
+
 	// Guidelines for AI agents - project-specific style guides, conventions, and instructions
 	// Combined with organization guidelines when constructing prompts
 	Guidelines          string    `json:"guidelines"`
@@ -430,6 +436,7 @@ type ProjectUpdateRequest struct {
 	PullRequestReviewerHelixAppID   *string                   `json:"pull_request_reviewer_helix_app_id,omitempty"` // Pull request reviewer agent
 	PullRequestReviewsEnabled       *bool                     `json:"pull_request_reviews_enabled,omitempty"`       // Whether pull request reviews are enabled
 	AutoApprovePullRequests         *bool                     `json:"auto_approve_pull_requests,omitempty"`         // Default for new spec tasks: auto-approve agent PR proposals
+	HelixRepoPullRequests           *bool                     `json:"helix_repo_pull_requests,omitempty"`           // Agents deliver work on Helix-hosted repos as pull requests
 	KoditEnabled                    *bool                     `json:"kodit_enabled,omitempty"`                      // Whether Kodit code intelligence is enabled
 	Guidelines                      *string                   `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
 	Skills                          *AssistantSkills          `json:"skills,omitempty"`                             // Project-level skills

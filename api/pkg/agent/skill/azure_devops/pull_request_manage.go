@@ -9,6 +9,7 @@ import (
 )
 
 func (c *AzureDevOpsClient) CreatePullRequest(ctx context.Context, repositoryName string, title string, description string, sourceBranch string, targetBranch string, project string) (*git.GitPullRequest, error) {
+	ctx = c.guard(ctx)
 	gitClient, err := git.NewClient(ctx, c.connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure DevOps client: %w", err)
@@ -43,6 +44,7 @@ func (c *AzureDevOpsClient) CreatePullRequest(ctx context.Context, repositoryNam
 // repositoryName is the name of the repository
 // project is the name of the project in Azure DevOps
 func (c *AzureDevOpsClient) ListPullRequests(ctx context.Context, repositoryName string, project string) ([]git.GitPullRequest, error) {
+	ctx = c.guard(ctx)
 	gitClient, err := git.NewClient(ctx, c.connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure DevOps client: %w", err)
@@ -63,6 +65,7 @@ func (c *AzureDevOpsClient) ListPullRequests(ctx context.Context, repositoryName
 }
 
 func (c *AzureDevOpsClient) UpdatePullRequest(ctx context.Context, repositoryName, project string, id int, title, description string) (*git.GitPullRequest, error) {
+	ctx = c.guard(ctx)
 	gitClient, err := git.NewClient(ctx, c.connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure DevOps client: %w", err)
@@ -85,6 +88,7 @@ func (c *AzureDevOpsClient) UpdatePullRequest(ctx context.Context, repositoryNam
 }
 
 func (c *AzureDevOpsClient) GetPullRequest(ctx context.Context, repositoryName, project string, id int) (*git.GitPullRequest, error) {
+	ctx = c.guard(ctx)
 	gitClient, err := git.NewClient(ctx, c.connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure DevOps client: %w", err)
