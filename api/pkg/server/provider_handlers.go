@@ -1579,6 +1579,20 @@ func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *h
 		}
 	}
 
+	// A deployment-wide provider is used by every user, so its per-user
+	// breakdown is other users' activity: admins only.
+	if !user.Admin {
+		global, err := s.isEnvironmentGlobalProvider(ctx, id)
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("error checking provider visibility: %w", err), http.StatusInternalServerError)
+			return
+		}
+		if global {
+			writeErrResponse(rw, errors.New("only admins can view per-user usage of a global provider"), http.StatusForbidden)
+			return
+		}
+	}
+
 	visible, err := s.providerVisible(r.Context(), user, id)
 	if err != nil {
 		writeErrResponse(rw, fmt.Errorf("error checking provider visibility: %w", err), http.StatusInternalServerError)
@@ -1596,7 +1610,38 @@ func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *h
 		return
 	}
 
-	writeResponse(rw, metrics, http.StatusOK)
+	writeResponse(rw, redactUsageUsers(metrics), http.StatusOK)
+}
+
+// isEnvironmentGlobalProvider reports whether id names a provider configured
+// for the whole deployment through the server environment.
+func (s *HelixAPIServer) isEnvironmentGlobalProvider(ctx context.Context, id string) (bool, error) {
+	providers, err := s.providerManager.ListProviders(ctx, "")
+	if err != nil {
+		return false, fmt.Errorf("error listing providers: %w", err)
+	}
+	for _, provider := range providers {
+		if string(provider) == id {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// redactUsageUsers reduces each user in a per-user usage report to the fields
+// the report displays. The store loads full user rows, which carry account
+// state (admin flag, trial and credit grants, stored tokens) that other users
+// must not see.
+func redactUsageUsers(metrics []*types.UsersAggregatedUsageMetric) []*types.UsersAggregatedUsageMetric {
+	for _, metric := range metrics {
+		metric.User = types.User{
+			ID:       metric.User.ID,
+			Username: metric.User.Username,
+			Email:    metric.User.Email,
+			FullName: metric.User.FullName,
+		}
+	}
+	return metrics
 }
 
 func (s *HelixAPIServer) providerVisible(ctx context.Context, user *types.User, id string) (bool, error) {

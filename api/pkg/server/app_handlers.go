@@ -1734,7 +1734,9 @@ func (s *HelixAPIServer) getAppUsersDailyUsage(_ http.ResponseWriter, r *http.Re
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
+	// Per-user usage is other users' activity, so it needs management access
+	// to the app, not just the read access every user has to a global app.
+	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
@@ -1746,7 +1748,7 @@ func (s *HelixAPIServer) getAppUsersDailyUsage(_ http.ResponseWriter, r *http.Re
 
 	// TODO: get pricing info for days
 
-	return metrics, nil
+	return redactUsageUsers(metrics), nil
 }
 
 // getAppUserAccess godoc
