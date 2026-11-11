@@ -123,8 +123,16 @@ func isHTTPURL(raw string) bool {
 // command) and the other transports git would otherwise allow are refused by
 // git itself, including for redirects and submodules. It is set for every
 // upstream command, overriding any GIT_ALLOW_PROTOCOL in the server's
-// environment. A variable only so tests can use local bare repositories.
+// environment. A variable only so tests can use local bare repositories
+// (AllowLocalUpstreamsForTesting).
 var upstreamGitAllowedProtocols = helixgit.AllowedProtocols
+
+// AllowLocalUpstreamsForTesting lets upstream commands use file:// and
+// local-path remotes, for tests (in this and other packages) that use local
+// bare repositories as upstreams. Never call it outside tests.
+func AllowLocalUpstreamsForTesting() {
+	upstreamGitAllowedProtocols = "file:" + helixgit.AllowedProtocols
+}
 
 // upstreamBlockedEnv marks the environment of a remote the outbound policy
 // rejected; runUpstreamGit refuses to run with it.

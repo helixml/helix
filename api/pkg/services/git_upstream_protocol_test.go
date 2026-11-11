@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	helixgit "github.com/helixml/helix/api/pkg/git"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,8 +16,8 @@ import (
 // run commands.
 func TestCloneUpstreamMirror_RefusesNonNetworkTransports(t *testing.T) {
 	// TestMain loosens the restriction for the rest of the package.
-	upstreamGitAllowedProtocols = "http:https"
-	t.Cleanup(func() { upstreamGitAllowedProtocols = "file:http:https" })
+	upstreamGitAllowedProtocols = helixgit.AllowedProtocols
+	t.Cleanup(AllowLocalUpstreamsForTesting)
 	// A permissive value inherited from the server environment must not
 	// widen what a user-supplied URL may use.
 	t.Setenv("GIT_ALLOW_PROTOCOL", "file:ext:http:https")

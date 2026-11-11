@@ -15,7 +15,7 @@ func TestMain(m *testing.M) {
 
 	// Tests use local bare repositories as upstreams; production restricts
 	// upstream transports to http(s).
-	upstreamGitAllowedProtocols = "file:http:https"
+	AllowLocalUpstreamsForTesting()
 
 	// Initialize gitea git module
 	if err := giteagit.InitSimple(); err != nil {
