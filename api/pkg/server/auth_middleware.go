@@ -283,7 +283,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user, err = auth.authenticator.ValidateUserToken(ctx, token)
 	}
 	if err != nil {
-		log.Error().Err(err).Str("token", token).Msg("error validating user token")
+		log.Error().Err(err).Msg("error validating user token")
 		return nil, err
 	}
 
