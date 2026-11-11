@@ -19,6 +19,11 @@ import {
   CSRF_HEADER_NAME,
 } from '../utils/csrf'
 
+import {
+  isUnauthorizedApiError,
+  runSessionCheck,
+} from '../utils/sessionExpiry'
+
 const API_MOUNT = ""
 
 export interface IApiOptions {
@@ -218,6 +223,24 @@ const enhanceErrorMessage = (error: any) => {
 }
 axios.interceptors.response.use(undefined, enhanceErrorMessage)
 apiClientSingleton.instance.interceptors.response.use(undefined, enhanceErrorMessage)
+
+// Confirm whether the browser session is gone (see utils/sessionExpiry).
+export const checkSession = () => runSessionCheck(async () => {
+  const res = await apiClientSingleton.api.v1AuthAuthenticatedList()
+  return res.data.authenticated
+})
+
+// On a 401 mid-session, check whether we were logged out so the account
+// context can send the user to login. Embed pages use an API key, not a
+// session, so they never redirect.
+const sessionExpiryInterceptor = (error: any) => {
+  if (!embedToken && isUnauthorizedApiError(error)) {
+    void checkSession()
+  }
+  return Promise.reject(error)
+}
+axios.interceptors.response.use(undefined, sessionExpiryInterceptor)
+apiClientSingleton.instance.interceptors.response.use(undefined, sessionExpiryInterceptor)
 
 // Helper function to check if an error is auth-related
 const isAuthError = (error: any): boolean => {

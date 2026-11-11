@@ -1,5 +1,5 @@
 import { createContext, FC, useCallback, useEffect, useMemo, useRef, useState, useContext, ReactNode } from 'react'
-import useApi from '../hooks/useApi'
+import useApi, { checkSession } from '../hooks/useApi'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
@@ -14,7 +14,8 @@ import {
   IUserConfig,
   IProviderEndpoint,
 } from '../types'
-import { TypesFrontendLicenseInfo, TypesServerConfigForFrontend } from '../api/api'
+import { TypesAuthProvider, TypesFrontendLicenseInfo, TypesServerConfigForFrontend } from '../api/api'
+import { onSessionExpired } from '../utils/sessionExpiry'
 import { clearSelectedOrg } from '../utils/localStorage'
 import { isEmbedRouteName } from '../utils/organizations'
 
@@ -23,6 +24,8 @@ import { isEmbedRouteName } from '../utils/organizations'
 // "you have no organizations") must never fire there: the visitor is not
 // onboarding, and a scoped embed key sees an empty org list by design.
 const isEmbedRoute = isEmbedRouteName
+
+const SESSION_RECHECK_INTERVAL_MS = 60_000
 
 export interface IAccountContext {
   initialized: boolean,
@@ -407,6 +410,35 @@ export const useAccountContext = (): IAccountContext => {
     // Server config is loaded via React Query (useGetConfig) automatically
   }, [user])
 
+  // Session expired mid-use (detected from a 401 in useApi). Clearing the
+  // user hands off to the redirect effect below.
+  const sessionExpiredRef = useRef(false)
+  const userRef = useRef(user)
+  userRef.current = user
+  useEffect(() => {
+    return onSessionExpired(() => {
+      if (!userRef.current) return
+      sessionExpiredRef.current = true
+      snackbar.info('Your session has expired. Please log in again.')
+      setUser(undefined)
+    })
+  }, [])
+
+  // An idle tab won't make API calls, so re-check when it becomes visible.
+  useEffect(() => {
+    let lastCheck = 0
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return
+      if (!userRef.current) return
+      const now = Date.now()
+      if (now - lastCheck < SESSION_RECHECK_INTERVAL_MS) return
+      lastCheck = now
+      void checkSession()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [])
+
   // Redirect to login page if not authenticated
   useEffect(() => {
     if (!initialized) return
@@ -424,6 +456,16 @@ export const useAccountContext = (): IAccountContext => {
       localStorage.setItem('login_redirect_url', currentPath)
     }
 
+    // After a mid-session expiry on an OIDC deployment, go straight to the
+    // identity provider (Login.tsx handles ?auto=true) rather than making a
+    // non-technical user find the sign-in button.
+    const authProvider = serverConfig.auth_provider
+    if (sessionExpiredRef.current && authProvider && authProvider !== TypesAuthProvider.AuthProviderRegular) {
+      sessionExpiredRef.current = false
+      router.navigateReplace('login', { auto: 'true' })
+      return
+    }
+    sessionExpiredRef.current = false
     router.navigateReplace('login')
   }, [initialized, user, router.name])
 

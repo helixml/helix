@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 
 // Mutable state for mock factories (vi.mock is hoisted above imports)
@@ -15,8 +15,12 @@ const mockApiGet = vi.fn()
 const mockV1AuthLogoutCreate = vi.fn()
 const mockV1AuthAuthenticatedList = vi.fn()
 const mockV1AuthUserList = vi.fn()
+const mockCheckSession = vi.fn()
+const mockSnackbarInfo = vi.fn()
+const mockConfigState: { auth_provider?: string } = {}
 
 vi.mock('../hooks/useApi', () => ({
+  checkSession: () => mockCheckSession(),
   default: () => ({
     get: mockApiGet,
     post: vi.fn(),
@@ -32,7 +36,7 @@ vi.mock('../hooks/useSnackbar', () => ({
   default: () => ({
     error: vi.fn(),
     success: vi.fn(),
-    info: vi.fn(),
+    info: mockSnackbarInfo,
   }),
 }))
 
@@ -65,6 +69,7 @@ vi.mock('../services/userService', () => ({
       google_analytics_frontend: '',
       tools_enabled: true,
       apps_enabled: true,
+      auth_provider: mockConfigState.auth_provider,
     },
     isLoading: false,
     error: null,
@@ -110,6 +115,7 @@ vi.mock('../hooks/useOrganizations', () => ({
 
 import { useAccountContext } from './account'
 import { SELECTED_ORG_STORAGE_KEY } from '../utils/localStorage'
+import { runSessionCheck, __resetSessionExpiryForTests } from '../utils/sessionExpiry'
 
 function setupAuthenticatedUser(overrides: Record<string, any> = {}) {
   mockV1AuthAuthenticatedList.mockResolvedValue({ data: { authenticated: true } })
@@ -437,5 +443,79 @@ describe('logout', () => {
       get_url: true,
       redirect_uri: window.location.origin,
     })
+  })
+})
+
+describe('session expiry mid-use', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockRouterState.name = 'home'
+    mockOrgState.initialized = true
+    mockOrgState.organizations = [{ id: 'org-1', name: 'my-org', member: true }]
+    mockConfigState.auth_provider = undefined
+    setupDefaultApiResponses()
+    setupAuthenticatedUser({ onboarding_completed: true })
+  })
+
+  afterEach(() => {
+    __resetSessionExpiryForTests()
+  })
+
+  async function renderLoggedIn() {
+    const hook = renderHook(() => useAccountContext())
+    await waitFor(() => expect(hook.result.current.user?.id).toBe('user-1'))
+    mockNavigateReplace.mockClear()
+    return hook
+  }
+
+  it('sends the user to /login with a message and remembers the page', async () => {
+    mockConfigState.auth_provider = 'regular'
+    window.history.replaceState({}, '', '/orgs/my-org/projects')
+    const { result } = await renderLoggedIn()
+
+    await act(() => runSessionCheck(async () => false))
+
+    expect(result.current.user).toBeUndefined()
+    expect(mockSnackbarInfo).toHaveBeenCalledWith('Your session has expired. Please log in again.')
+    expect(mockNavigateReplace).toHaveBeenCalledWith('login')
+    expect(localStorage.getItem('login_redirect_url')).toBe('/orgs/my-org/projects')
+  })
+
+  it('goes straight to the identity provider on OIDC deployments', async () => {
+    mockConfigState.auth_provider = 'oidc'
+    await renderLoggedIn()
+
+    await act(() => runSessionCheck(async () => false))
+
+    expect(mockNavigateReplace).toHaveBeenCalledWith('login', { auto: 'true' })
+  })
+
+  it('stays logged in when the session is still valid', async () => {
+    const { result } = await renderLoggedIn()
+
+    await act(() => runSessionCheck(async () => true))
+
+    expect(result.current.user?.id).toBe('user-1')
+    expect(mockNavigateReplace).not.toHaveBeenCalledWith('login')
+  })
+
+  it('stays logged in when the check itself fails (e.g. 503 during restart)', async () => {
+    const { result } = await renderLoggedIn()
+
+    await act(() => runSessionCheck(async () => { throw new Error('503') }))
+
+    expect(result.current.user?.id).toBe('user-1')
+    expect(mockNavigateReplace).not.toHaveBeenCalledWith('login')
+  })
+
+  it('re-checks the session when the tab becomes visible', async () => {
+    await renderLoggedIn()
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    expect(mockCheckSession).toHaveBeenCalledTimes(1)
   })
 })
