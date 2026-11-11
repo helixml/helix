@@ -659,10 +659,12 @@ func (suite *HelixAuthenticatorTestSuite) TestPasswordResetComplete_UserNotFound
 	suite.Contains(err.Error(), "failed to get user")
 }
 
-func (suite *HelixAuthenticatorTestSuite) TestNewHelixAuthenticator_DefaultSecret() {
-	auth, err := NewHelixAuthenticator(suite.cfg, suite.store, "", suite.notifier)
-	suite.NoError(err)
-	suite.NotNil(auth)
+func (suite *HelixAuthenticatorTestSuite) TestNewHelixAuthenticator_RefusesEmptyOrPublicSecret() {
+	for _, secret := range []string{"", "helix-default-jwt-secret", "helix-default-secret-change-in-production"} {
+		auth, err := NewHelixAuthenticator(suite.cfg, suite.store, secret, suite.notifier)
+		suite.Error(err, "secret %q must be refused", secret)
+		suite.Nil(auth)
+	}
 }
 
 func (suite *HelixAuthenticatorTestSuite) TestGenerateUserToken_AdminFlag() {

@@ -715,7 +715,10 @@ type Auth struct {
 type Regular struct {
 	Enabled       bool          `envconfig:"REGULAR_AUTH_ENABLED" default:"true"`
 	TokenValidity time.Duration `envconfig:"REGULAR_AUTH_TOKEN_VALIDITY" default:"168h"` // 7 days
-	JWTSecret     string        `envconfig:"REGULAR_AUTH_JWT_SECRET" default:"helix-default-jwt-secret"`
+	// JWTSecret signs session and password-reset tokens. When unset, the
+	// server generates a random secret on first boot and persists it in the
+	// database (see auth.ResolveJWTSecret).
+	JWTSecret string `envconfig:"REGULAR_AUTH_JWT_SECRET"`
 }
 
 type OIDC struct {

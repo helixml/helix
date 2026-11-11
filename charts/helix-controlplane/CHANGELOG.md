@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `controlplane.regularAuthJWTSecret` (or `regularAuthJWTSecretExistingSecret` / `regularAuthJWTSecretExistingSecretKey`) sets `REGULAR_AUTH_JWT_SECRET`, the signing key for login sessions and password-reset links. When empty, the chart generates a random key into the `<release>-helix-controlplane-jwt-secret` Secret, reuses it on every upgrade and keeps it on uninstall. Existing sessions are signed out once after upgrading.
+
 ## [2.11.0-rc2]
 
 ### Fixed

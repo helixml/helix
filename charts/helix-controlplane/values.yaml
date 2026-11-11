@@ -56,6 +56,13 @@ controlplane:
   encryptionKey: ""
   encryptionKeyExistingSecret: ""
   encryptionKeyExistingSecretKey: ""
+  # Signing key for login sessions and password-reset links (authProvider: regular).
+  # Leave empty to have the chart generate a random key, stored in the
+  # <release>-jwt-secret Secret and kept across upgrades. Changing it signs
+  # everyone out. Or reference your own Secret with regularAuthJWTSecretExistingSecret.
+  regularAuthJWTSecret: ""
+  regularAuthJWTSecretExistingSecret: ""
+  regularAuthJWTSecretExistingSecretKey: ""
   licenseKey: ""
   licenseKeyExistingSecret: ""
   licenseKeyExistingSecretKey: ""

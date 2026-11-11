@@ -628,6 +628,10 @@ type Store interface {
 	GetSystemSettings(ctx context.Context) (*types.SystemSettings, error)
 	GetEffectiveSystemSettings(ctx context.Context) (*types.SystemSettings, error)
 	UpdateSystemSettings(ctx context.Context, req *types.SystemSettingsRequest) (*types.SystemSettings, error)
+	// EnsureJWTSigningSecret stores candidate as the JWT signing secret unless
+	// one is already stored, and returns the stored value. Concurrent callers
+	// with different candidates all receive the same, first-written secret.
+	EnsureJWTSigningSecret(ctx context.Context, candidate string) (string, error)
 
 	// model seeding
 	SeedModelsFromEnvironment(ctx context.Context) error

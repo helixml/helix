@@ -41,11 +41,18 @@ type helixTokenClaims struct {
 
 var _ Authenticator = &HelixAuthenticator{}
 
+// NewHelixAuthenticator creates an authenticator that signs and verifies
+// tokens with jwtSecret. The secret must be private to this deployment: an
+// empty secret or a value that once shipped as a public default is refused.
+// Servers obtain it from ResolveJWTSecret.
 func NewHelixAuthenticator(cfg *config.ServerConfig, store store.Store, jwtSecret string, notifier Notifier) (*HelixAuthenticator, error) {
-	secret := []byte(jwtSecret)
 	if jwtSecret == "" {
-		secret = []byte("helix-default-secret-change-in-production")
+		return nil, errors.New("JWT secret is required")
 	}
+	if isLegacyPublicJWTSecret(jwtSecret) {
+		return nil, errors.New("JWT secret is a publicly known value; set REGULAR_AUTH_JWT_SECRET to a private random value or leave it unset")
+	}
+	secret := []byte(jwtSecret)
 
 	key := jose.SigningKey{
 		Algorithm: jose.HS256,

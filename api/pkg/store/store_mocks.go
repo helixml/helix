@@ -2527,6 +2527,21 @@ func (mr *MockStoreMockRecorder) EnqueueWebhookEvent(ctx, eventType, organizatio
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueWebhookEvent", reflect.TypeOf((*MockStore)(nil).EnqueueWebhookEvent), ctx, eventType, organizationID, projectID, data)
 }
 
+// EnsureJWTSigningSecret mocks base method.
+func (m *MockStore) EnsureJWTSigningSecret(ctx context.Context, candidate string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnsureJWTSigningSecret", ctx, candidate)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EnsureJWTSigningSecret indicates an expected call of EnsureJWTSigningSecret.
+func (mr *MockStoreMockRecorder) EnsureJWTSigningSecret(ctx, candidate any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureJWTSigningSecret", reflect.TypeOf((*MockStore)(nil).EnsureJWTSigningSecret), ctx, candidate)
+}
+
 // EnsureUserMeta mocks base method.
 func (m *MockStore) EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
