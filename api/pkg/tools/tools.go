@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"os"
 	"sync"
@@ -11,6 +13,7 @@ import (
 	oai "github.com/sashabaranov/go-openai"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
@@ -58,6 +61,14 @@ func NewChainStrategy(cfg *config.ServerConfig, store store.Store, client openai
 	}
 
 	retryClient := system.NewRetryClient(3, cfg.Tools.TLSSkipVerify)
+	retryClient.HTTPClient.Transport = apiToolTransport(cfg)
+	checkRetry := retryClient.CheckRetry
+	retryClient.CheckRetry = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+		if errors.Is(err, netguard.ErrBlockedDestination) {
+			return false, err // a policy rejection will not change on retry
+		}
+		return checkRetry(ctx, resp, err)
+	}
 
 	return &ChainStrategy{
 		cfg:                       cfg,
@@ -90,4 +101,16 @@ func getIsActionablePromptTemplate(cfg *config.ServerConfig) (string, error) {
 	}
 
 	return string(decoded), nil
+}
+
+// apiToolTransport returns the transport for requests to API tools. Their URLs
+// are user-defined, so every connection (redirects and DNS rebinding
+// included) goes through the outbound policy.
+func apiToolTransport(cfg *config.ServerConfig) *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if cfg.Tools.TLSSkipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks}.GuardTransport(transport)
+	return transport
 }
