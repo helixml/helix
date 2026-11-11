@@ -3,7 +3,6 @@ package tools
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -398,15 +397,8 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 
 	// Make API call
 	httpClient := &http.Client{
-		Timeout: 120 * time.Second,
-	}
-
-	if c.cfg.Tools.TLSSkipVerify {
-		// Clone the default transport to preserve all default settings (timeouts, connection pooling, etc.)
-		// then add InsecureSkipVerify
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-		httpClient.Transport = transport
+		Timeout:   120 * time.Second,
+		Transport: apiToolTransport(c.cfg),
 	}
 
 	resp, err := httpClient.Do(req)

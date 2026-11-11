@@ -172,7 +172,7 @@ func (s *GitRepositoryService) updateAzureDevOpsPullRequest(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	client := azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, token)
+	client := azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, token).WithOutboundPolicy(s.adoPolicy())
 	project, err := s.getAzureDevOpsProject(repo)
 	if err != nil {
 		return fmt.Errorf("failed to get azure devops project: %w", err)
@@ -804,12 +804,12 @@ func (s *GitRepositoryService) getAzureDevOpsClient(ctx context.Context, repo *t
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Service Principal client: %w", err)
 		}
-		return client, nil
+		return client.WithOutboundPolicy(s.adoPolicy()), nil
 	}
 
 	// Fall back to Personal Access Token
 	if repo.AzureDevOps.PersonalAccessToken != "" {
-		return azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, repo.AzureDevOps.PersonalAccessToken), nil
+		return azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, repo.AzureDevOps.PersonalAccessToken).WithOutboundPolicy(s.adoPolicy()), nil
 	}
 
 	return nil, fmt.Errorf("no Azure DevOps authentication configured - provide a Personal Access Token or Service Principal credentials")

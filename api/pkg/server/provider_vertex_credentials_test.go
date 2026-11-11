@@ -18,6 +18,7 @@ func TestValidateProviderEndpointShape_VertexRegion(t *testing.T) {
 	for _, region := range []string{"us-east5", "europe-west1", "global"} {
 		require.NoError(t, validateProviderEndpointShape(&types.ProviderEndpoint{
 			Name: "vertex", VertexProjectID: "p", VertexRegion: region,
+			VertexCredentialsJSON: `{"type":"service_account"}`,
 		}), region)
 	}
 	for _, region := range []string{"evil.example/", "evil.example#", "a.b", "us-east5.evil.example?", "US-EAST5", "-x"} {
@@ -53,7 +54,9 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_NonAdminVertexNeedsOw
 			rr := httptest.NewRecorder()
 			s.server.createProviderEndpoint(rr, req)
 
-			s.Equal(http.StatusForbidden, rr.Code, rr.Body.String())
+			// Rejected by shape validation (400) or the credential-source
+			// check (403); either way nothing is stored.
+			s.Contains([]int{http.StatusBadRequest, http.StatusForbidden}, rr.Code, rr.Body.String())
 		})
 	}
 }

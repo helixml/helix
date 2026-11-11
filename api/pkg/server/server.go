@@ -60,7 +60,6 @@ import (
 	"github.com/helixml/helix/api/pkg/version"
 	"github.com/helixml/helix/api/pkg/webhooks"
 	"github.com/helixml/helix/api/pkg/webservice"
-
 )
 
 const APIPrefix = "/api/v1"
@@ -441,9 +440,8 @@ func NewServer(
 		modelInfoProvider:           modelInfoProvider,
 		openCodeResolver:            opencode.NewResolver(nil, cfg.Sandboxes.OpenCodeReleasesURL),
 		pubsub:                      ps,
-		mcpClientGetter: &mcp.DefaultClientGetter{
-			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
-		},
+		mcpClientGetter: mcp.NewDefaultClientGetter(cfg.Tools.TLSSkipVerify,
+			netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks}, cfg.WebServer.URL),
 		knowledgeManager: knowledgeManager,
 		skillManager:     skillManager,
 		inferenceRouter:  inferencerouter.NewRouter(),
@@ -628,7 +626,9 @@ func NewServer(
 	// Register External MCP backend (user-configured MCP servers)
 	// This proxies requests from Zed to external MCP servers configured in agents
 	// Route: /api/v1/mcp/external/{mcp_name}/{path...}
-	apiServer.mcpGateway.RegisterBackend("external", NewExternalMCPBackend(store))
+	externalMCPBackend := NewExternalMCPBackend(store)
+	externalMCPBackend.clientGetter = apiServer.mcpClientGetter
+	apiServer.mcpGateway.RegisterBackend("external", externalMCPBackend)
 
 	// Register Desktop MCP backend (screenshot, clipboard, input, window management)
 	// Proxies MCP requests via RevDial to desktop-bridge inside sandbox containers
@@ -1148,7 +1148,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// Insecure router as unauthenticated users will see all public provider endpoints
 	subRouter.HandleFunc("/provider-endpoints", apiServer.listProviderEndpoints).Methods(http.MethodGet)
 
-	subRouter.HandleFunc("/providers/detect-local", apiServer.detectLocalProviders).Methods(http.MethodGet)
+	// Probes the API host's local ports and returns what it finds: admins only
+	// (connecting a detected server creates a global endpoint, also admin-only).
+	adminRouter.HandleFunc("/providers/detect-local", apiServer.detectLocalProviders).Methods(http.MethodGet)
 	authRouter.HandleFunc("/provider-endpoints", apiServer.createProviderEndpoint).Methods(http.MethodPost)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.updateProviderEndpoint).Methods(http.MethodPut)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.deleteProviderEndpoint).Methods(http.MethodDelete)
@@ -1337,6 +1339,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// User auth, BFF
 	insecureRouter.HandleFunc("/auth/register", apiServer.register).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/invitations/{id}/info", apiServer.publicInvitationInfo).Methods(http.MethodGet)
+	// Authenticates itself (session + CSRF) so waitlisted accounts can accept.
+	insecureRouter.HandleFunc("/invitations/{id}/accept", apiServer.acceptInvitationHandler).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/login", apiServer.login).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/callback", apiServer.callback).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/user", apiServer.user).Methods(http.MethodGet)
@@ -1365,6 +1369,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/organizations/{id}/invitations", apiServer.listOrganizationInvitations).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{id}/invitations", apiServer.createOrganizationInvitationHandler).Methods(http.MethodPost)
 	authRouter.HandleFunc("/organizations/{id}/invitations/{invitation_id}", apiServer.deleteOrganizationInvitation).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/invitations/{invitation_id}/link", apiServer.createInvitationLink).Methods(http.MethodPost)
 	authRouter.HandleFunc("/organizations/{id}/users/lookup", apiServer.lookupOrgUser).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/organizations/{id}/roles", apiServer.listOrganizationRoles).Methods(http.MethodGet)

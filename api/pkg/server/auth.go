@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -288,6 +289,10 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// One canonical form for the address everywhere it is matched
+	// (accounts, invitations).
+	registerRequest.Email = store.NormalizeEmail(registerRequest.Email)
+
 	existingUser, err := s.Store.GetUser(ctx, &store.GetUserQuery{
 		Email: registerRequest.Email,
 	})
@@ -320,23 +325,17 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-accept any pending org invitations for this email. Best-effort —
-	// a failure here shouldn't prevent the user from signing in; they can
-	// be re-invited from the org page. If any invitations were accepted,
-	// the user is effectively onboarded (they have an org and don't need
-	// to walk through the create-an-org wizard) AND has implicit vouching
-	// from an org owner, so we also bypass the waitlist — otherwise an
-	// invited collaborator would be invited only to sit in a queue.
-	consumed, invErr := s.Store.ConsumePendingInvitations(ctx, createdUser)
-	if invErr != nil {
-		log.Warn().Err(invErr).Str("user_id", createdUser.ID).Msg("failed to consume pending invitations")
-	} else if len(consumed) > 0 {
-		log.Info().Str("user_id", createdUser.ID).Int("count", len(consumed)).Msg("auto-accepted org invitations on registration")
-		createdUser.OnboardingCompleted = true
-		createdUser.OnboardingCompletedAt = time.Now()
-		createdUser.Waitlisted = false
-		if _, err := s.Store.UpdateUser(ctx, createdUser); err != nil {
-			log.Warn().Err(err).Str("user_id", createdUser.ID).Msg("failed to mark invited user as onboarded")
+	// Accept the organization invitation from the invite link, if any.
+	// Password sign-up does not prove ownership of the email address, so
+	// pending invitations are never accepted by email alone (anyone could
+	// register an invited address and take the invited role). The proof is
+	// the invitation's secret token, sent only to that address; the ID
+	// alone is visible to org members and is not enough. Best-effort — a
+	// failure here shouldn't prevent the user from signing in; they can
+	// accept from the link later.
+	if registerRequest.InvitationID != "" {
+		if _, err := s.acceptInvitation(ctx, createdUser, registerRequest.InvitationID, registerRequest.InvitationToken); err != nil {
+			log.Warn().Err(err).Str("user_id", createdUser.ID).Msg("failed to accept invitation on registration")
 		}
 	}
 
@@ -1332,8 +1331,9 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // desktopCallback handles automatic admin login for the Helix Desktop app.
-// It validates a shared secret, creates or finds a local admin user, establishes
-// a BFF session, and redirects to the root URL. The iframe in the Desktop app
+// It validates a shared secret, signs in the desktop account (see
+// desktopIdentity; created on first use), establishes a BFF session, and
+// redirects to the root URL. The iframe in the Desktop app
 // navigates here first so the user is transparently logged in.
 //
 // GET /api/v1/auth/desktop-callback?token=<DESKTOP_AUTO_LOGIN_SECRET>
@@ -1360,10 +1360,9 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Find or create the desktop admin user.
-	// The email defaults to a local placeholder but can be overridden by the
-	// desktop app if a license key contains the licensee's email.
-	desktopEmail := "admin@helix-desktop.local"
+	// The desktop admin's email defaults to a local placeholder; the desktop
+	// app passes the licensee's email when a license key carries one.
+	desktopEmail := defaultDesktopEmail
 	if emailParam := r.URL.Query().Get("email"); emailParam != "" {
 		desktopEmail = emailParam
 	}
@@ -1372,50 +1371,15 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 		displayName = "Desktop Admin"
 	}
 
-	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{Email: desktopEmail})
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		log.Error().Err(err).Msg("Failed to look up desktop admin user")
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+	user, err := s.desktopIdentity(ctx, desktopEmail, displayName)
+	if errors.Is(err, errNotDesktopIdentity) {
+		http.Error(w, "Desktop auto-login can only sign in the desktop account", http.StatusForbidden)
 		return
 	}
-
-	if user == nil {
-		// Create the desktop admin user
-		userID := system.GenerateUserID()
-		newUser := &types.User{
-			ID:           userID,
-			Email:        desktopEmail,
-			FullName:     displayName,
-			Username:     desktopEmail,
-			Admin:        true,
-			Type:         types.OwnerTypeUser,
-			AuthProvider: types.AuthProviderRegular,
-			CreatedAt:    time.Now(),
-		}
-
-		user, err = s.authenticator.CreateUser(ctx, newUser)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to create desktop admin user")
-			http.Error(w, "Failed to create user", http.StatusInternalServerError)
-			return
-		}
-		log.Info().Str("user_id", user.ID).Str("name", displayName).Msg("Created desktop admin user")
-	}
-
-	// Update the display name if it changed (e.g., macOS user renamed)
-	needsUpdate := false
-	if !user.Admin {
-		user.Admin = true
-		needsUpdate = true
-	}
-	if user.FullName != displayName {
-		user.FullName = displayName
-		needsUpdate = true
-	}
-	if needsUpdate {
-		if _, err := s.Store.UpdateUser(ctx, user); err != nil {
-			log.Warn().Err(err).Msg("Failed to update desktop user")
-		}
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to resolve desktop admin user")
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
 	}
 
 	// Create a long-lived BFF session — sets HttpOnly cookies on the response.
@@ -1432,4 +1396,119 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 
 	// Redirect to the root — the HttpOnly session cookie is already set.
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+const defaultDesktopEmail = "admin@helix-desktop.local"
+
+var errNotDesktopIdentity = errors.New("account is not the desktop identity")
+
+// desktopIdentity returns the single account Helix Desktop auto-login signs
+// in as, creating it on first use. The shared secret authorizes signing in as
+// that account only: an email naming any other existing account is refused,
+// and no other account is ever promoted to admin.
+//
+// Accounts created by the desktop flow before the DesktopIdentity marker
+// existed are adopted once, while no account carries the marker: an admin
+// with the requested email that has no password, uses regular auth and has
+// its email as username, which is how the desktop flow created them.
+func (s *HelixAPIServer) desktopIdentity(ctx context.Context, email, displayName string) (*types.User, error) {
+	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{DesktopIdentity: true})
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, fmt.Errorf("look up desktop identity: %w", err)
+	}
+
+	if user == nil {
+		existing, err := s.Store.GetUser(ctx, &store.GetUserQuery{Email: email})
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("look up desktop email: %w", err)
+		}
+		if existing != nil {
+			if !isLegacyDesktopAccount(existing) {
+				log.Warn().Str("user_id", existing.ID).Msg("desktop auto-login refused: email belongs to another account")
+				return nil, errNotDesktopIdentity
+			}
+			existing.DesktopIdentity = true
+			if _, err := s.Store.UpdateUser(ctx, existing); err != nil {
+				return nil, fmt.Errorf("mark desktop identity: %w", err)
+			}
+			log.Info().Str("user_id", existing.ID).Msg("Adopted existing desktop admin account as the desktop identity")
+			user = existing
+		} else {
+			created, err := s.authenticator.CreateUser(ctx, &types.User{
+				ID:              system.GenerateUserID(),
+				Email:           email,
+				FullName:        displayName,
+				Username:        email,
+				Admin:           true,
+				DesktopIdentity: true,
+				Type:            types.OwnerTypeUser,
+				AuthProvider:    types.AuthProviderRegular,
+				CreatedAt:       time.Now(),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("create desktop admin user: %w", err)
+			}
+			log.Info().Str("user_id", created.ID).Str("name", displayName).Msg("Created desktop admin user")
+			return created, nil
+		}
+	}
+
+	// Keep the desktop account's details current: the macOS user may be
+	// renamed, or a license key may add the licensee's email. The email is
+	// only changed to one no other account uses.
+	needsUpdate := false
+	if !user.Admin {
+		user.Admin = true
+		needsUpdate = true
+	}
+	if user.FullName != displayName {
+		user.FullName = displayName
+		needsUpdate = true
+	}
+	if !strings.EqualFold(user.Email, email) {
+		if s.desktopEmailAvailable(ctx, email) {
+			user.Email = email
+			user.Username = email
+			needsUpdate = true
+		}
+	}
+	if needsUpdate {
+		if _, err := s.Store.UpdateUser(ctx, user); err != nil {
+			log.Warn().Err(err).Msg("Failed to update desktop user")
+		}
+	}
+	return user, nil
+}
+
+// isLegacyDesktopAccount reports whether u looks like an account the desktop
+// flow created before accounts were marked: an admin on regular auth that
+// has no password (so cannot otherwise be signed in to).
+func isLegacyDesktopAccount(u *types.User) bool {
+	return u.Admin && u.Type == types.OwnerTypeUser && u.AuthProvider == types.AuthProviderRegular &&
+		len(u.PasswordHash) == 0 && !u.Deactivated && !u.DeletedAt.Valid &&
+		// The desktop flow set the username to the email; accounts created
+		// elsewhere (admin API, OIDC, bots) do not match all of the above.
+		u.Username == u.Email
+}
+
+// desktopEmailAvailable reports whether the desktop account may take email:
+// no other account uses it and no organization invitation is pending for it
+// (an invitation is addressed to whoever owns that mailbox, not to the
+// holder of the desktop secret).
+func (s *HelixAPIServer) desktopEmailAvailable(ctx context.Context, email string) bool {
+	other, err := s.Store.GetUser(ctx, &store.GetUserQuery{Email: email})
+	switch {
+	case err == nil:
+		log.Warn().Str("user_id", other.ID).Msg("desktop email belongs to another account; keeping the desktop account's email")
+		return false
+	case !errors.Is(err, store.ErrNotFound):
+		log.Warn().Err(err).Msg("Failed to check desktop email availability")
+		return false
+	}
+	pending, err := s.Store.ListOrganizationInvitations(ctx, &store.ListOrganizationInvitationsQuery{Email: email})
+	if err != nil || len(pending) > 0 {
+		log.Warn().Err(err).Int("pending_invitations", len(pending)).Msg("desktop email has pending invitations; keeping the desktop account's email")
+		return false
+	}
+	return true
 }

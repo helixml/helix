@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -553,7 +554,7 @@ func (s *HelixAPIServer) slackOAuthStart(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
-	state, err := crypto.EncryptAES256GCM([]byte(org.ID+"|"+app.ID), key)
+	state, err := encodeSlackOAuthState(key, org.ID, app.ID, time.Now())
 	if err != nil {
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
@@ -562,6 +563,37 @@ func (s *HelixAPIServer) slackOAuthStart(w http.ResponseWriter, r *http.Request)
 	authorizeURL := slackcore.AuthorizeURL(app.SlackClientID, s.slackRedirectURI(), defaultSlackBotScopes, state)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"url": authorizeURL})
+}
+
+// slackOAuthStateTTL bounds how long an "Add to Slack" link stays usable.
+const slackOAuthStateTTL = 15 * time.Minute
+
+// encodeSlackOAuthState seals the org and Slack app being installed, and
+// when the install started, into the OAuth state parameter.
+func encodeSlackOAuthState(key []byte, orgID, appID string, now time.Time) (string, error) {
+	return crypto.EncryptAES256GCM([]byte(orgID+"|"+appID+"|"+strconv.FormatInt(now.Unix(), 10)), key)
+}
+
+// decodeSlackOAuthState opens a state from encodeSlackOAuthState, refusing
+// one older than slackOAuthStateTTL (or without an issue time).
+func decodeSlackOAuthState(key []byte, state string, now time.Time) (orgID, appID string, err error) {
+	plain, err := crypto.DecryptAES256GCM(state, key)
+	if err != nil {
+		return "", "", err
+	}
+	parts := strings.Split(string(plain), "|")
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" {
+		return "", "", errors.New("malformed state")
+	}
+	issued, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return "", "", errors.New("malformed state issue time")
+	}
+	age := now.Sub(time.Unix(issued, 0))
+	if age > slackOAuthStateTTL || age < -time.Minute {
+		return "", "", errors.New("state expired")
+	}
+	return parts[0], parts[1], nil
 }
 
 // slackOAuthCallback (GET /api/v1/slack/oauth/callback) completes the
@@ -581,13 +613,9 @@ func (s *HelixAPIServer) slackOAuthCallback(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
-	stateBytes, err := crypto.DecryptAES256GCM(state, key)
+	orgID, appConnID, err := decodeSlackOAuthState(key, state, time.Now())
 	if err != nil {
-		http.Error(w, "invalid state", http.StatusBadRequest)
-		return
-	}
-	orgID, appConnID, _ := strings.Cut(string(stateBytes), "|")
-	if orgID == "" || appConnID == "" {
+		log.Debug().Err(err).Msg("slack oauth: rejected state")
 		http.Error(w, "invalid state", http.StatusBadRequest)
 		return
 	}

@@ -3,10 +3,12 @@ package netguard
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -190,5 +192,57 @@ func TestErrorClasses(t *testing.T) {
 		if !errors.Is(err, ErrBlockedDestination) || errors.Is(err, ErrPrivateNetwork) {
 			t.Fatalf("%s: %v should be blocked but not private", raw, err)
 		}
+	}
+}
+
+// GuardContext covers clients whose transport cannot be set: a dial to a
+// blocked address cancels the request before anything is sent.
+func TestGuardContext(t *testing.T) {
+	var got atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		got.Add(1)
+	}))
+	defer srv.Close()
+
+	ctx := Policy{}.GuardContext(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = (&http.Client{}).Do(req)
+	if err == nil || !errors.Is(BlockedCause(ctx), ErrBlockedDestination) {
+		t.Fatalf("err = %v, cause = %v; want a policy rejection", err, context.Cause(ctx))
+	}
+	if got.Load() != 0 {
+		t.Fatal("request reached a loopback server")
+	}
+
+	ctx = Policy{AllowPrivate: true}.GuardContext(context.Background())
+	req, _ = http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got.Load() != 1 {
+		t.Fatal("allowed request did not arrive")
+	}
+
+	// A connection already in the shared pool is checked too.
+	shared := &http.Client{}
+	req, _ = http.NewRequest(http.MethodGet, srv.URL, nil)
+	resp, err = shared.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	before := got.Load()
+	req, _ = http.NewRequestWithContext(Policy{}.GuardContext(context.Background()), http.MethodGet, srv.URL, nil)
+	if _, err := shared.Do(req); err == nil {
+		t.Fatal("pooled connection to a blocked address was used")
+	}
+	if got.Load() != before {
+		t.Fatal("request over a pooled connection reached a loopback server")
 	}
 }

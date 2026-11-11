@@ -17,6 +17,9 @@ import (
 type GetUserQuery struct {
 	ID    string
 	Email string
+	// DesktopIdentity selects the Helix Desktop auto-login account (the
+	// oldest, should there ever be more than one).
+	DesktopIdentity bool
 }
 
 func (s *PostgresStore) GetUserMeta(ctx context.Context, userID string) (*types.UserMeta, error) {
@@ -126,20 +129,34 @@ func (s *PostgresStore) EnsureUserMeta(ctx context.Context, user types.UserMeta)
 
 // GetUser retrieves a user by ID
 func (s *PostgresStore) GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error) {
-	if q.ID == "" && q.Email == "" {
+	if q.ID == "" && q.Email == "" && !q.DesktopIdentity {
 		return nil, fmt.Errorf("userID or email cannot be empty")
 	}
 
 	query := s.gdb.WithContext(ctx)
 
+	if q.DesktopIdentity {
+		query = query.Where("desktop_identity = ?", true).Order("created_at ASC")
+	}
+
 	if q.ID != "" {
 		query = query.Where("id = ?", q.ID)
 	}
+	var user types.User
 	if q.Email != "" {
-		query = query.Where("email = ?", q.Email)
+		// Emails are matched case-insensitively (as invitations are), so an
+		// address cannot be registered twice in different cases. Rows created
+		// before that rule may differ only in case: an exact match wins, so
+		// such an account keeps resolving to itself.
+		exact := query.Session(&gorm.Session{}).Where("email = ?", strings.TrimSpace(q.Email))
+		if err := exact.Order("created_at ASC").First(&user).Error; err == nil {
+			return &user, nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		query = query.Where("LOWER(email) = ?", NormalizeEmail(q.Email)).Order("created_at ASC")
 	}
 
-	var user types.User
 	err := query.First(&user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -424,7 +441,7 @@ func (s *PostgresStore) generateUserSlug(ctx context.Context, userID string) str
 			break
 		}
 		if (userErr != nil && userErr != gorm.ErrRecordNotFound) ||
-		   (orgErr != nil && orgErr != gorm.ErrRecordNotFound) {
+			(orgErr != nil && orgErr != gorm.ErrRecordNotFound) {
 			// On error, just use the slug as-is
 			break
 		}

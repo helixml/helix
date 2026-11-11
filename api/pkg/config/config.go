@@ -679,6 +679,14 @@ type Tools struct {
 
 	TLSSkipVerify bool `envconfig:"TOOLS_TLS_SKIP_VERIFY" default:"false"`
 
+	// AllowPrivateNetworks lets user-configured URLs that the API server
+	// fetches itself (knowledge web sources and crawls, API tools, MCP
+	// servers) target loopback, RFC1918, unique-local and CGNAT addresses,
+	// for self-hosted deployments whose tools live on the internal network.
+	// Link-local and cloud metadata addresses stay blocked. Same netguard
+	// policy as PROVIDER_ENDPOINTS_ALLOW_PRIVATE_NETWORKS.
+	AllowPrivateNetworks bool `envconfig:"TOOLS_ALLOW_PRIVATE_NETWORKS" default:"false"`
+
 	// Suggestions based on provider (now set by INFERENCE_PROVIDER):
 	// - OpenAI: gpt-4-1106-preview
 	// - Together AI: openai/gpt-oss-20b

@@ -31,6 +31,7 @@ func endpointWithCredentials(id string, endpointType types.ProviderEndpointType,
 		APIKey:                testAPIKeySecret,
 		Headers:               map[string]string{"Authorization": "Bearer " + testHeaderSecret, "anthropic-version": "2023-06-01"},
 		VertexProjectID:       "project",
+		VertexRegion:          "us-east5",
 		VertexCredentialsJSON: testVertexSecret,
 	}
 }

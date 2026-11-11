@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
 	"unicode"
 
+	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -33,22 +33,37 @@ func validateProviderEndpointShape(endpoint *types.ProviderEndpoint) error {
 	if strings.IndexFunc(endpoint.Name, unicode.IsControl) >= 0 {
 		return errors.New("name contains control characters")
 	}
-	if endpoint.VertexRegion != "" && !vertexRegionPattern.MatchString(endpoint.VertexRegion) {
-		return errors.New("vertex_region must be a Google Cloud region name such as us-east5 or global")
+	if endpoint.VertexRegion != "" {
+		if err := anthropic.ValidateVertexRegion(endpoint.VertexRegion); err != nil {
+			return err
+		}
 	}
 	if endpoint.BaseURL == "" {
-		if endpoint.VertexProjectID != "" {
-			return nil
+		if endpoint.VertexProjectID == "" {
+			return errors.New("base_url is required")
 		}
-		return errors.New("base_url is required")
+	} else if err := validateProviderBaseURL(endpoint.BaseURL); err != nil {
+		return err
 	}
-	return validateProviderBaseURL(endpoint.BaseURL)
+	return validateProviderEndpointVertex(endpoint)
 }
 
-// vertexRegionPattern matches a Google Cloud region ("us-east5") or "global".
-// The region is interpolated into the Vertex hostname, so anything else could
-// point the request — and the bearer token on it — at another host.
-var vertexRegionPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+// validateProviderEndpointVertex checks the Vertex AI settings of an endpoint
+// that routes through Vertex. The region becomes part of the request hostname,
+// and user and org endpoints must bring their own service account key rather
+// than fall back to the server's Google identity.
+func validateProviderEndpointVertex(endpoint *types.ProviderEndpoint) error {
+	if endpoint.VertexProjectID == "" {
+		return nil
+	}
+	if err := anthropic.ValidateVertexRegion(endpoint.VertexRegion); err != nil {
+		return err
+	}
+	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal {
+		return nil
+	}
+	return anthropic.ValidateTenantVertexCredentials(endpoint.VertexCredentialsJSON)
+}
 
 // errVertexCredentialsFileAdminOnly and errVertexCredentialsRequired are the
 // two ways a non-admin Vertex endpoint could otherwise authenticate with the

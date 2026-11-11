@@ -17,6 +17,7 @@ import (
 
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	assetapp "github.com/helixml/helix/api/pkg/org/application/assets"
 	"github.com/helixml/helix/api/pkg/org/application/attachments"
@@ -38,6 +39,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/briefing"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -668,6 +670,10 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	// JS processors' http.* calls follow the same outbound policy as
+	// user-configured tools.
+	processor.SetJSHTTPPolicy(netguard.Policy{AllowPrivate: cfg.APIServer.Cfg.Tools.AllowPrivateNetworks})
 
 	// Convert the retired Topic model into Triggers, Processor inputs and
 	// Worker attachments. Runs once per boot before anything reads the
