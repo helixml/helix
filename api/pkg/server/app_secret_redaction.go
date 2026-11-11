@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/rs/zerolog/log"
 
@@ -31,7 +30,7 @@ func transformAgentSecrets(cfg *types.AgentConfig, fn agentSecretTransform) {
 
 	for i := range cfg.Helix.Assistants {
 		assistant := &cfg.Helix.Assistants[i]
-		base := "assistants/" + assistantSecretKey(assistant, i)
+		base := "assistants/" + assistantSecretKey(assistant)
 
 		for j := range assistant.APIs {
 			api := &assistant.APIs[j]
@@ -80,7 +79,10 @@ func transformAgentSecrets(cfg *types.AgentConfig, fn agentSecretTransform) {
 
 	for i := range cfg.Helix.Triggers {
 		t := &cfg.Helix.Triggers[i]
-		p := fmt.Sprintf("triggers/%d", i)
+		// Triggers have no ID or name, so they are keyed by kind; two
+		// triggers of one kind share a path, which restore treats as
+		// ambiguous.
+		p := "triggers"
 		if t.Slack != nil {
 			t.Slack.AppToken = transformSecretValue(p+"/slack/app_token", t.Slack.AppToken, fn)
 			t.Slack.BotToken = transformSecretValue(p+"/slack/bot_token", t.Slack.BotToken, fn)
@@ -119,15 +121,13 @@ func maskKnowledgeSourceCredentials(source *types.KnowledgeSource) {
 }
 
 // assistantSecretKey identifies an assistant across a read and the update
-// that follows it.
-func assistantSecretKey(a *types.AssistantConfig, index int) string {
+// that follows it. Positions are not used: they shift when an entry is
+// removed. Unnamed assistants share a key, which restore treats as ambiguous.
+func assistantSecretKey(a *types.AssistantConfig) string {
 	if a.ID != "" {
 		return "id:" + a.ID
 	}
-	if a.Name != "" {
-		return "name:" + a.Name
-	}
-	return fmt.Sprintf("index:%d", index)
+	return "name:" + a.Name
 }
 
 func transformSecretValue(path, value string, fn agentSecretTransform) string {
@@ -188,20 +188,34 @@ func stripAgentSecrets(cfg *types.AgentConfig) {
 }
 
 // restoreMaskedAgentSecrets resolves masked placeholders in an update: each
-// one is replaced by the stored value at the same path, or dropped when there
-// is none. Any other value is kept as sent.
+// one is replaced by the stored value at the same path. A placeholder is
+// dropped when there is no stored value, or when its path is ambiguous
+// (several entries share a name or kind in either config), so a value is
+// never assigned to an entry it did not come from. Any other value is kept as
+// sent.
 func restoreMaskedAgentSecrets(stored types.AgentConfig, update *types.AgentConfig) {
 	previous := map[string]string{}
-	storedCopy, err := cloneAgentConfig(stored)
-	if err == nil {
+	storedCount := map[string]int{}
+	if storedCopy, err := cloneAgentConfig(stored); err == nil {
 		transformAgentSecrets(&storedCopy, func(path, value string) string {
 			previous[path] = value
+			storedCount[path]++
+			return value
+		})
+	}
+	updateCount := map[string]int{}
+	if updateCopy, err := cloneAgentConfig(*update); err == nil {
+		transformAgentSecrets(&updateCopy, func(path, value string) string {
+			updateCount[path]++
 			return value
 		})
 	}
 	transformAgentSecrets(update, func(path, value string) string {
 		if !isMaskedSecret(value) {
 			return value
+		}
+		if storedCount[path] != 1 || updateCount[path] != 1 {
+			return ""
 		}
 		return previous[path]
 	})

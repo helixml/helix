@@ -241,3 +241,47 @@ func TestGetEvaluationRun_SnapshotMaskedAndScopedToAgent(t *testing.T) {
 	require.NotNil(t, httpErr)
 	require.Equal(t, http.StatusNotFound, httpErr.StatusCode)
 }
+
+// Removing an entry must not shift a stored credential onto the entry that
+// moves into its place.
+func TestRestoreMaskedAgentSecrets_DeletedTriggerDoesNotShift(t *testing.T) {
+	stored := types.AgentConfig{Helix: types.AgentHelixConfig{Triggers: []types.Trigger{
+		{Slack: &types.SlackTrigger{AppToken: "slack-app-value", BotToken: "slack-bot-value"}},
+		{Crisp: &types.CrispTrigger{Identifier: "crisp-id", Token: "crisp-token-value"}},
+	}}}
+	update := maskedAgentConfig(stored)
+	update.Helix.Triggers = update.Helix.Triggers[1:] // the Slack trigger is removed
+
+	restoreMaskedAgentSecrets(stored, &update)
+
+	require.Len(t, update.Helix.Triggers, 1)
+	require.Equal(t, "crisp-token-value", update.Helix.Triggers[0].Crisp.Token)
+	requireNoSlackValues(t, update)
+}
+
+func requireNoSlackValues(t *testing.T, cfg types.AgentConfig) {
+	t.Helper()
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "slack-bot-value")
+	require.NotContains(t, string(raw), "slack-app-value")
+}
+
+// Entries that share a name cannot be told apart, so a placeholder on either
+// is dropped rather than given the other's value.
+func TestRestoreMaskedAgentSecrets_DuplicateNamesAreNotCrossAssigned(t *testing.T) {
+	stored := types.AgentConfig{Helix: types.AgentHelixConfig{Assistants: []types.AssistantConfig{{
+		Name: "main",
+		APIs: []types.AssistantAPI{
+			{Name: "api", Headers: map[string]string{"Authorization": "first-value"}},
+			{Name: "api", Headers: map[string]string{"Authorization": "second-value"}},
+		},
+	}}}}
+	update := maskedAgentConfig(stored)
+
+	restoreMaskedAgentSecrets(stored, &update)
+
+	for _, api := range update.Helix.Assistants[0].APIs {
+		require.NotContains(t, api.Headers, "Authorization")
+	}
+}
