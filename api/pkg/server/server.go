@@ -59,7 +59,6 @@ import (
 	"github.com/helixml/helix/api/pkg/version"
 	"github.com/helixml/helix/api/pkg/webhooks"
 	"github.com/helixml/helix/api/pkg/webservice"
-
 )
 
 const APIPrefix = "/api/v1"
@@ -431,9 +430,8 @@ func NewServer(
 		modelInfoProvider:           modelInfoProvider,
 		openCodeResolver:            opencode.NewResolver(nil, cfg.Sandboxes.OpenCodeReleasesURL),
 		pubsub:                      ps,
-		mcpClientGetter: &mcp.DefaultClientGetter{
-			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
-		},
+		mcpClientGetter: mcp.NewDefaultClientGetter(cfg.Tools.TLSSkipVerify,
+			netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks}, cfg.WebServer.URL),
 		knowledgeManager: knowledgeManager,
 		skillManager:     skillManager,
 		inferenceRouter:  inferencerouter.NewRouter(),
@@ -618,7 +616,9 @@ func NewServer(
 	// Register External MCP backend (user-configured MCP servers)
 	// This proxies requests from Zed to external MCP servers configured in agents
 	// Route: /api/v1/mcp/external/{mcp_name}/{path...}
-	apiServer.mcpGateway.RegisterBackend("external", NewExternalMCPBackend(store))
+	externalMCPBackend := NewExternalMCPBackend(store)
+	externalMCPBackend.clientGetter = apiServer.mcpClientGetter
+	apiServer.mcpGateway.RegisterBackend("external", externalMCPBackend)
 
 	// Register Desktop MCP backend (screenshot, clipboard, input, window management)
 	// Proxies MCP requests via RevDial to desktop-bridge inside sandbox containers
