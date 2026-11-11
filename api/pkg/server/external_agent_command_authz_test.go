@@ -51,3 +51,32 @@ func TestSendCommandToExternalAgent_RequiresSessionAccess(t *testing.T) {
 
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 }
+
+// authorizeDesktopID gates watching (Get) and driving (Update) a desktop.
+// The owner passes both; anyone else is refused before any I/O.
+func TestAuthorizeDesktopID_OwnerAndStranger(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: st, Cfg: &config.ServerConfig{}}
+	st.EXPECT().GetSession(gomock.Any(), "ses_1").Return(&types.Session{ID: "ses_1", Owner: "usr_owner"}, nil).AnyTimes()
+
+	for _, tc := range []struct {
+		user   string
+		action types.Action
+		want   bool
+	}{
+		{"usr_owner", types.ActionGet, true},
+		{"usr_owner", types.ActionUpdate, true},
+		{"usr_other", types.ActionGet, false},
+		{"usr_other", types.ActionUpdate, false},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/external-agents/ses_1/ws/input", nil)
+		req = req.WithContext(setRequestUser(req.Context(), types.User{ID: tc.user}))
+		rec := httptest.NewRecorder()
+		got := server.authorizeDesktopID(rec, req, "ses_1", tc.action)
+		require.Equal(t, tc.want, got, "%s %s", tc.user, tc.action)
+		if !tc.want {
+			require.Equal(t, http.StatusForbidden, rec.Code)
+		}
+	}
+}
