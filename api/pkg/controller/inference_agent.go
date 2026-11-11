@@ -16,6 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/project"
 	"github.com/helixml/helix/api/pkg/agent/skill/repository"
 	modelpkg "github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/netguard"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
@@ -184,7 +185,8 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 
 		if assistantTool.ToolType == types.ToolTypeBrowser {
-			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.Browser, llm, c.browserCache, c.Options.Config.Tools.TLSSkipVerify))
+			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.Browser, llm, c.browserCache, c.Options.Config.Tools.TLSSkipVerify,
+				netguard.Policy{AllowPrivate: c.Options.Config.Tools.AllowPrivateNetworks}))
 		}
 
 		if assistantTool.ToolType == types.ToolTypeCalculator {
