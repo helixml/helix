@@ -302,7 +302,7 @@ func GuardPage(page *rod.Page, client *http.Client) (func(), error) {
 	if err := page.SetBlockedURLs([]string{"ws://*", "wss://*"}); err != nil {
 		return nil, fmt.Errorf("block websocket URLs: %w", err)
 	}
-	// Service workers run as their own targets, outside this page's request
+	// Service and shared workers run as their own targets, outside this page's request
 	// interception (dedicated workers and out-of-process iframes are
 	// covered by it). Pause every service worker the browser starts and
 	// never resume it, and keep the page's requests from being answered by
@@ -311,7 +311,7 @@ func GuardPage(page *rod.Page, client *http.Client) (func(), error) {
 		AutoAttach:             true,
 		WaitForDebuggerOnStart: true,
 		Flatten:                true,
-		Filter:                 proto.TargetTargetFilter{{Type: "service_worker"}, {Exclude: true}},
+		Filter:                 proto.TargetTargetFilter{{Type: "service_worker"}, {Type: "shared_worker"}, {Exclude: true}},
 	}).Call(page.Browser()); err != nil {
 		return nil, fmt.Errorf("hold service workers: %w", err)
 	}

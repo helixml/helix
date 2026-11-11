@@ -195,3 +195,28 @@ func (suite *UsersTestSuite) TestGetUser_EmailIsCaseInsensitive() {
 	suite.Require().NoError(err)
 	suite.Equal(u.ID, got.ID)
 }
+
+// Rows created before case-insensitive matching may differ only in case.
+// Each must keep resolving to itself when looked up by its exact address.
+func (suite *UsersTestSuite) TestGetUser_PrefersExactCaseAmongLegacyDuplicates() {
+	prefix := "dupcase-" + system.GenerateAppID()
+	older := &types.User{ID: prefix + "-a", Email: prefix + "@example.com", Username: prefix + "-a"}
+	newer := &types.User{ID: prefix + "-b", Email: strings.ToUpper(prefix[:1]) + prefix[1:] + "@example.com", Username: prefix + "-b"}
+	for _, u := range []*types.User{older, newer} {
+		_, err := suite.db.CreateUser(suite.ctx, u)
+		suite.Require().NoError(err)
+		defer suite.db.DeleteUser(suite.ctx, u.ID)
+	}
+
+	got, err := suite.db.GetUser(suite.ctx, &GetUserQuery{Email: newer.Email})
+	suite.Require().NoError(err)
+	suite.Equal(newer.ID, got.ID, "exact-case match wins")
+
+	got, err = suite.db.GetUser(suite.ctx, &GetUserQuery{Email: older.Email})
+	suite.Require().NoError(err)
+	suite.Equal(older.ID, got.ID)
+
+	got, err = suite.db.GetUser(suite.ctx, &GetUserQuery{Email: strings.ToUpper(older.Email)})
+	suite.Require().NoError(err)
+	suite.Equal(older.ID, got.ID, "no exact match: oldest row")
+}
