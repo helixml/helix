@@ -12,11 +12,11 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// ${NAME} references in an app config resolve against the app owner's
-// secrets. A caller running someone else's app must never have their own
-// secrets substituted into it: the app's API tools send headers to whatever
-// URL the author configured.
-func TestEvaluateSecrets_ResolvesFromAppOwnerNotCaller(t *testing.T) {
+// evaluateAs resolves an app whose header references one app-scoped secret
+// (APP_TOKEN) and one unscoped personal secret (PERSONAL_TOKEN) of its owner,
+// as the given caller. The caller also holds same-named secrets of their own.
+func evaluateAs(t *testing.T, callerID string) map[string]string {
+	t.Helper()
 	t.Setenv("HELIX_ENCRYPTION_KEY", "test-key")
 	key, err := crypto.GetEncryptionKey()
 	require.NoError(t, err)
@@ -32,11 +32,17 @@ func TestEvaluateSecrets_ResolvesFromAppOwnerNotCaller(t *testing.T) {
 		func(_ context.Context, q *store.ListSecretsQuery) ([]*types.Secret, error) {
 			switch q.Owner {
 			case "usr_author":
-				return []*types.Secret{{Name: "API_TOKEN", Value: encrypt("author-token")}}, nil
-			case "usr_caller":
-				return []*types.Secret{{Name: "API_TOKEN", Value: encrypt("caller-token")}}, nil
+				return []*types.Secret{
+					{Name: "APP_TOKEN", AppID: "app_shared", Value: encrypt("author-app-token")},
+					{Name: "PERSONAL_TOKEN", Value: encrypt("author-personal-token")},
+					{Name: "OTHER_APP", AppID: "app_other", Value: encrypt("author-other-app")},
+				}, nil
+			default:
+				return []*types.Secret{
+					{Name: "APP_TOKEN", Value: encrypt("caller-token")},
+					{Name: "PERSONAL_TOKEN", Value: encrypt("caller-token")},
+				}, nil
 			}
-			return nil, nil
 		}).AnyTimes()
 
 	app := &types.App{
@@ -45,15 +51,37 @@ func TestEvaluateSecrets_ResolvesFromAppOwnerNotCaller(t *testing.T) {
 		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
 			Name: "main",
 			APIs: []types.AssistantAPI{{
-				Name:    "api",
-				URL:     "https://api.example.com",
-				Headers: map[string]string{"Authorization": "Bearer ${API_TOKEN}"},
+				Name: "api",
+				URL:  "https://api.example.com",
+				Headers: map[string]string{
+					"X-App":      "${APP_TOKEN}",
+					"X-Personal": "${PERSONAL_TOKEN}",
+					"X-Other":    "${OTHER_APP}",
+				},
 			}},
 		}}}},
 	}
 
 	c := &Controller{Options: Options{Store: mockStore}}
-	enriched, err := c.evaluateSecrets(context.Background(), &types.User{ID: "usr_caller"}, app)
+	enriched, err := c.evaluateSecrets(context.Background(), &types.User{ID: callerID}, app)
 	require.NoError(t, err)
-	require.Equal(t, "Bearer author-token", enriched.Config.Helix.Assistants[0].APIs[0].Headers["Authorization"])
+	return enriched.Config.Helix.Assistants[0].APIs[0].Headers
+}
+
+func TestEvaluateSecrets_OwnerResolvesAppScopedAndPersonal(t *testing.T) {
+	headers := evaluateAs(t, "usr_author")
+	require.Equal(t, "author-app-token", headers["X-App"])
+	require.Equal(t, "author-personal-token", headers["X-Personal"])
+	require.NotContains(t, headers["X-Other"], "author-other-app")
+}
+
+// Another caller (a user of a shared app, or an editor who is not the owner)
+// gets the secrets the owner scoped to this app, never the owner's personal
+// secrets and never their own.
+func TestEvaluateSecrets_OtherCallerResolvesOnlyAppScoped(t *testing.T) {
+	headers := evaluateAs(t, "usr_editor")
+	require.Equal(t, "author-app-token", headers["X-App"])
+	require.NotContains(t, headers["X-Personal"], "author-personal-token")
+	require.NotContains(t, headers["X-Personal"], "caller-token")
+	require.NotContains(t, headers["X-App"], "caller-token")
 }
