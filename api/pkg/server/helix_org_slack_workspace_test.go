@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/crypto"
@@ -148,7 +149,7 @@ func TestSlackOAuthCallbackRedirectsSlackErrorToSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := crypto.EncryptAES256GCM([]byte("org-1|app-1"), key)
+	state, err := encodeSlackOAuthState(key, "org-1", "app-1", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +205,7 @@ func TestSlackOAuthCallbackRedirectsMissingCodeToSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := crypto.EncryptAES256GCM([]byte("org-1|app-1"), key)
+	state, err := encodeSlackOAuthState(key, "org-1", "app-1", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,5 +238,21 @@ func TestSlackAuthTestErrorClassifiesSlackResponse(t *testing.T) {
 	status, _ = slackAuthTestError(errors.New("connection refused"))
 	if status != http.StatusBadGateway {
 		t.Fatalf("network error status = %d", status)
+	}
+}
+
+func TestSlackOAuthStateExpires(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	issued := time.Unix(1_700_000_000, 0)
+	state, err := encodeSlackOAuthState(key, "org-1", "app-1", issued)
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, app, err := decodeSlackOAuthState(key, state, issued.Add(slackOAuthStateTTL-time.Second))
+	if err != nil || org != "org-1" || app != "app-1" {
+		t.Fatalf("fresh state: org=%q app=%q err=%v", org, app, err)
+	}
+	if _, _, err := decodeSlackOAuthState(key, state, issued.Add(slackOAuthStateTTL+time.Second)); err == nil {
+		t.Fatal("expired state accepted")
 	}
 }
