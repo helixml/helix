@@ -54,6 +54,7 @@ require (
 	github.com/mark3labs/mcp-go v0.47.0
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
+	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/microsoft/azure-devops-go-api/azuredevops/v7 v7.1.0
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/nats-io/nats-server/v2 v2.10.14
@@ -107,7 +108,6 @@ require (
 	github.com/go-openapi/swag/typeutils v0.25.5 // indirect
 	github.com/go-openapi/swag/yamlutils v0.25.5 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
-	github.com/microcosm-cc/bluemonday v1.0.27
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/mod v0.35.0 // indirect
 )
