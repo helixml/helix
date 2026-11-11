@@ -281,6 +281,7 @@ func (s *HelixAPIServer) listAgents(_ http.ResponseWriter, r *http.Request) ([]*
 		}
 
 		orgApps = s.populateAppOwner(ctx, orgApps)
+		s.redactAppsForUser(ctx, user, orgApps)
 
 		return orgApps, nil
 	}
@@ -311,8 +312,17 @@ func (s *HelixAPIServer) listAgents(_ http.ResponseWriter, r *http.Request) ([]*
 	allApps := append(nonGlobalUserApps, globalApps...)
 
 	filteredApps := s.populateAppOwner(ctx, allApps)
+	s.redactAppsForUser(ctx, user, filteredApps)
 
 	return filteredApps, nil
+}
+
+// redactAppsForUser masks credentials in every listed agent the caller may
+// not edit.
+func (s *HelixAPIServer) redactAppsForUser(ctx context.Context, user *types.User, apps []*types.Agent) {
+	for _, app := range apps {
+		s.redactAppForUser(ctx, user, app)
+	}
 }
 
 func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.Agent) []*types.Agent {
@@ -1033,6 +1043,18 @@ func determineInitialState(source types.KnowledgeSource) types.KnowledgeState {
 // @Router /api/v1/agents/{id} [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getAgent(_ http.ResponseWriter, r *http.Request) (*types.Agent, *system.HTTPError) {
+	app, herr := s.loadReadableAgent(r)
+	if herr != nil {
+		return nil, herr
+	}
+	s.redactAppForUser(r.Context(), getRequestUser(r), app)
+	return app, nil
+}
+
+// loadReadableAgent loads the agent named in the request and checks the
+// caller may read it. The result still holds its credentials: callers that
+// write it to a response must redact it first.
+func (s *HelixAPIServer) loadReadableAgent(r *http.Request) (*types.Agent, *system.HTTPError) {
 	user := getRequestUser(r)
 	id := getID(r)
 
@@ -1145,6 +1167,10 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+
+	// A client that round-trips a redacted agent sends masked placeholders
+	// back: they mean "keep the stored credential".
+	restoreMaskedAgentSecrets(existing.Config, &update.Config)
 
 	if update.Global != existing.Global && !isAdmin(user) {
 		return nil, system.NewHTTPError403("only admins can change whether an agent is global")
@@ -2262,6 +2288,13 @@ func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*
 	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// A reader who may not edit the agent may not see its credentials, so
+	// the copy they get must not carry them either: an API tool's URL can be
+	// pointed anywhere and would send the copied headers there.
+	if !s.canUpdateApp(r.Context(), user, app) {
+		stripAgentSecrets(&app.Config)
 	}
 
 	app.ID = system.GenerateAppID()
