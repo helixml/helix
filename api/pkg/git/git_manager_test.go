@@ -56,3 +56,26 @@ func TestCloneRepository_RefusesLocalRemotes(t *testing.T) {
 		require.NoDirExists(t, filepath.Join(dest, ".git"), remote)
 	}
 }
+
+// Diff runs git in repoPath without touching the process working directory,
+// which is shared by every goroutine in the server. A deleted working
+// directory makes os.Getwd fail, so any Getwd/Chdir dance would error here.
+func TestDiff_DoesNotDependOnProcessWorkingDirectory(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-q")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "a.txt"), []byte("one\n"), 0o600))
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-q", "-m", "one")
+	first := runGit(t, repo, "rev-parse", "HEAD")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "a.txt"), []byte("two\n"), 0o600))
+	runGit(t, repo, "commit", "-q", "-am", "two")
+	second := runGit(t, repo, "rev-parse", "HEAD")
+
+	gone := t.TempDir()
+	t.Chdir(gone)
+	require.NoError(t, os.Remove(gone))
+
+	changes, err := NewGitManager("", "").Diff(context.Background(), repo, first, second)
+	require.NoError(t, err)
+	require.Len(t, changes, 1)
+}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -93,23 +92,11 @@ func (g *GitManager) Diff(ctx context.Context, repoPath string, targetCommit, so
 		}
 	}
 
-	// Change to the repository directory
-	originalDir, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current working directory: %w", err)
-	}
-
-	if err := os.Chdir(repoPath); err != nil {
-		return nil, fmt.Errorf("failed to change to repository directory: %w", err)
-	}
-	defer func() {
-		if chdirErr := os.Chdir(originalDir); chdirErr != nil {
-			logger.Warn().Err(chdirErr).Msg("failed to restore original working directory")
-		}
-	}()
-
 	// First, get the list of changed files with their status
+	// Commands run in repoPath via cmd.Dir: changing the process working
+	// directory would affect every other goroutine in the server.
 	statusCmd := exec.CommandContext(ctx, "git", "diff", "--name-status", "--no-renames", targetCommit, sourceCommit)
+	statusCmd.Dir = repoPath
 	statusOutput, err := statusCmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("git diff status command failed: %w", err)
@@ -130,7 +117,7 @@ func (g *GitManager) Diff(ctx context.Context, repoPath string, targetCommit, so
 	// For each changed file, get the detailed diff
 	var changes []*PullRequestChange
 	for _, file := range changedFiles {
-		change, err := g.getFileDiff(ctx, file.path, file.changeType, targetCommit, sourceCommit)
+		change, err := g.getFileDiff(ctx, repoPath, file.path, file.changeType, targetCommit, sourceCommit)
 		if err != nil {
 			logger.Warn().Err(err).Str("file_path", file.path).Msg("failed to get file diff, skipping")
 			continue
@@ -178,11 +165,12 @@ func (g *GitManager) parseGitStatusOutput(output string) ([]fileChange, error) {
 }
 
 // getFileDiff gets the detailed diff for a single file
-func (g *GitManager) getFileDiff(ctx context.Context, filePath, changeType, targetCommit, sourceCommit string) (*PullRequestChange, error) {
+func (g *GitManager) getFileDiff(ctx context.Context, repoPath, filePath, changeType, targetCommit, sourceCommit string) (*PullRequestChange, error) {
 	// logger := log.Ctx(ctx)
 
 	// Get the detailed diff for this file
 	diffCmd := exec.CommandContext(ctx, "git", "diff", "--unified=0", "--no-renames", targetCommit, sourceCommit, "--", filePath)
+	diffCmd.Dir = repoPath
 	diffOutput, err := diffCmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("git diff command failed for file %s: %w", filePath, err)
