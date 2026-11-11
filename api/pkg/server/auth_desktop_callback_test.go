@@ -61,6 +61,10 @@ func TestDesktopCallback_RefusesOtherAccounts(t *testing.T) {
 		"OIDC user":      {ID: "usr_victim", Email: "victim@example.com", Type: types.OwnerTypeUser, AuthProvider: types.AuthProviderOIDC},
 		"non-admin":      {ID: "usr_victim", Email: "victim@example.com", Type: types.OwnerTypeUser, AuthProvider: types.AuthProviderRegular},
 		"password admin": {ID: "usr_victim", Email: "victim@example.com", Type: types.OwnerTypeUser, AuthProvider: types.AuthProviderRegular, Admin: true, PasswordHash: []byte("hash")},
+		// A passwordless admin the desktop flow did not create (its username
+		// is not its email) is not adopted.
+		"passwordless admin, not desktop-made": {ID: "usr_victim", Email: "victim@example.com", Username: "victim", Type: types.OwnerTypeUser, AuthProvider: types.AuthProviderRegular, Admin: true},
+		"OIDC admin":                           {ID: "usr_victim", Email: "victim@example.com", Username: "victim@example.com", Type: types.OwnerTypeUser, Admin: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s, st, _ := newDesktopTestServer(t)
