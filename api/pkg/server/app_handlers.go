@@ -448,6 +448,12 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 		}
 	}
 
+	// A global agent is listed to, readable by and runnable by every user of
+	// the deployment, so publishing one is an admin decision.
+	if app.Global && !isAdmin(user) {
+		return nil, system.NewHTTPError403("only admins can create global agents")
+	}
+
 	// If organization ID is set, authorize the user to the organization,
 	// must be a member to create it
 	if app.OrganizationID != "" {
@@ -1138,6 +1144,10 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	err = s.authorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if update.Global != existing.Global && !isAdmin(user) {
+		return nil, system.NewHTTPError403("only admins can change whether an agent is global")
 	}
 
 	if s.helixOrg != nil && s.helixOrg.store != nil && existing.OrganizationID != "" {
