@@ -114,6 +114,19 @@ func (s *WebSocketSyncSuite) SetupTest() {
 }
 
 func (s *WebSocketSyncSuite) TearDownTest() {
+	s.server.streamingContextsMu.Lock()
+	for _, sctx := range s.server.streamingContexts {
+		sctx.mu.Lock()
+		if sctx.flushTimer != nil {
+			sctx.flushTimer.Stop()
+		}
+		if sctx.dbFlushTimer != nil {
+			sctx.dbFlushTimer.Stop()
+		}
+		sctx.interaction = nil
+		sctx.mu.Unlock()
+	}
+	s.server.streamingContextsMu.Unlock()
 	s.ctrl.Finish()
 }
 
