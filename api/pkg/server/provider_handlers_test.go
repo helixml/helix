@@ -972,6 +972,37 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotSwitchT
 	s.Contains(rr.Body.String(), "Only admins can update global endpoints")
 }
 
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotAddAPIKeyFile() {
+	endpointID := "ep_123"
+	apiKeyFile := "/run/secrets/provider-key"
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "my-endpoint",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+
+	body, err := json.Marshal(types.UpdateProviderEndpoint{APIKeyFromFile: &apiKeyFile})
+	s.Require().NoError(err)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+	rr := httptest.NewRecorder()
+
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code)
+	s.Contains(rr.Body.String(), "Only admins can add endpoints with API key path auth")
+}
+
 // A non-admin who owns a global endpoint (e.g. one an admin switched to global,
 // which now retains the original owner) must not be able to edit it, even via a
 // request that omits endpoint_type. The gate keys on the stored row's type.
