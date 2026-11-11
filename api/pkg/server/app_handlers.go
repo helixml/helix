@@ -339,6 +339,7 @@ func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.Age
 		}
 
 		app.User = *user
+		scrubUserCredentials(&app.User)
 	}
 
 	return apps
