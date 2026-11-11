@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 )
 
 func newTestServerWithNotifier(mockStore *store.MockStore, notifier notification.Notifier) *HelixAPIServer {
@@ -180,18 +181,27 @@ func TestAddOrganizationMember_MembershipFails_DoesNotApprove(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
-// A waitlisted requester never reaches a handler (so cannot add themselves to
-// an org they own and self-approve): every authenticated route runs
-// rejectWaitlisted first.
-func TestRejectWaitlisted(t *testing.T) {
-	rr := httptest.NewRecorder()
-	require.True(t, rejectWaitlisted(rr, &types.User{ID: "u1", Waitlisted: true}))
-	require.Equal(t, http.StatusForbidden, rr.Code)
-	require.Contains(t, rr.Body.String(), "waiting for approval")
+// A waitlisted, deactivated or deleted requester never reaches a handler (so
+// a waitlisted user cannot add themselves to an org they own and
+// self-approve): every authenticated route runs rejectInactiveAccount first.
+func TestRejectInactiveAccount(t *testing.T) {
+	for _, tc := range []struct {
+		user     *types.User
+		wantBody string
+	}{
+		{user: &types.User{ID: "u1", Waitlisted: true}, wantBody: "waiting for approval"},
+		{user: &types.User{ID: "u1", Deactivated: true}, wantBody: "deactivated"},
+		{user: &types.User{ID: "u1", DeletedAt: gorm.DeletedAt{Valid: true}}, wantBody: "deleted"},
+	} {
+		rr := httptest.NewRecorder()
+		require.True(t, rejectInactiveAccount(rr, tc.user))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+		require.Contains(t, rr.Body.String(), tc.wantBody)
+	}
 
-	rr = httptest.NewRecorder()
-	require.False(t, rejectWaitlisted(rr, &types.User{ID: "u1"}))
-	require.False(t, rejectWaitlisted(rr, nil))
+	rr := httptest.NewRecorder()
+	require.False(t, rejectInactiveAccount(rr, &types.User{ID: "u1"}))
+	require.False(t, rejectInactiveAccount(rr, nil))
 	require.Equal(t, http.StatusOK, rr.Code)
 }
 
