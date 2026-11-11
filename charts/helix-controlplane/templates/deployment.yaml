@@ -103,16 +103,16 @@ spec:
             {{- end }}
             - name: AUTH_PROVIDER
               value: {{ .Values.controlplane.authProvider | quote }}
+            {{- if .Values.controlplane.regularAuthJWTSecretExistingSecret }}
             - name: REGULAR_AUTH_JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  {{- if .Values.controlplane.regularAuthJWTSecretExistingSecret }}
                   name: {{ .Values.controlplane.regularAuthJWTSecretExistingSecret }}
                   key: {{ .Values.controlplane.regularAuthJWTSecretExistingSecretKey | default "jwt-secret" }}
-                  {{- else }}
-                  name: {{ include "helix-controlplane.fullname" . }}-jwt-secret
-                  key: jwt-secret
-                  {{- end }}
+            {{- else if .Values.controlplane.regularAuthJWTSecret }}
+            - name: REGULAR_AUTH_JWT_SECRET
+              value: {{ .Values.controlplane.regularAuthJWTSecret | quote }}
+            {{- end }}
             {{- if .Values.controlplane.licenseKeyExistingSecret }}
             - name: LICENSE_KEY
               valueFrom:

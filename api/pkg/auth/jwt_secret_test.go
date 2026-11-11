@@ -65,7 +65,7 @@ func TestTokenSignedWithPublicDefaultIsRejected(t *testing.T) {
 		_, err := authenticator.ValidateUserToken(ctx, forged)
 		require.ErrorContains(t, err, "failed to verify token", "key %q", key)
 
-		err = authenticator.PasswordResetComplete(ctx, forged, "new-password-123")
+		_, err = authenticator.PasswordResetComplete(ctx, forged, "new-password-123")
 		require.ErrorContains(t, err, "failed to verify token", "key %q", key)
 	}
 }

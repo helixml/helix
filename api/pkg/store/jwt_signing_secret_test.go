@@ -53,17 +53,19 @@ func assertReplicasConverge(t *testing.T, db *store.PostgresStore) {
 	ctx := context.Background()
 	const replicas = 8
 	results := make([]string, replicas)
+	errs := make([]error, replicas)
 	var wg sync.WaitGroup
 	for i := range replicas {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			secret, err := auth.ResolveJWTSecret(ctx, db, "")
-			require.NoError(t, err)
-			results[i] = secret
+			results[i], errs[i] = auth.ResolveJWTSecret(ctx, db, "")
 		}()
 	}
 	wg.Wait()
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
 	require.NotEmpty(t, results[0])
 	for _, r := range results {
 		require.Equal(t, results[0], r)

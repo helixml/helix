@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
+	"github.com/helixml/helix/api/pkg/crypto"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -293,6 +294,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// HelixAuthenticator handles user management for all auth modes.
 	// For OIDC mode, the actual authentication is handled by oidcClient in the server,
 	// while HelixAuthenticator handles API key lookups and user database operations.
+	crypto.WarnIfDefaultEncryptionKey()
+
 	jwtSecret, err := auth.ResolveJWTSecret(ctx, postgresStore, cfg.Auth.Regular.JWTSecret)
 	if err != nil {
 		return fmt.Errorf("failed to resolve JWT secret: %v", err)
