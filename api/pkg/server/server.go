@@ -1185,6 +1185,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/step-info", system.Wrapper(apiServer.getSessionStepInfo)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/rdp-connection", apiServer.getSessionRDPConnection).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/sandbox-state", apiServer.getSessionSandboxState).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/operator-access", apiServer.getSessionOperatorAccess).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/resume", apiServer.resumeSession).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/messages", system.Wrapper(apiServer.sendSessionMessage)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/ensure-agent", system.Wrapper(apiServer.ensureSessionAgent)).Methods(http.MethodPost)
