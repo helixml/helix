@@ -35,6 +35,85 @@ describe('session expiry handler', () => {
     expect(redirectToLogin).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    [undefined, false],
+    ['regular', false],
+    ['oidc', true],
+  ])('uses auto-login for an available external auth provider (%s)', async (authProvider, autoLogin) => {
+    const { handler, redirectToLogin } = setup(false)
+    handler.setSignedIn(true)
+    handler.setAuthProvider(authProvider)
+
+    await fail(handler, unauthorized())
+    await flush()
+
+    expect(redirectToLogin).toHaveBeenCalledWith(autoLogin)
+  })
+
+  it('uses the latest auth provider when a session check finishes', async () => {
+    let resolve: (authenticated: boolean) => void = () => {}
+    const checkAuthenticated = vi.fn(() => new Promise<boolean>(r => { resolve = r }))
+    const redirectToLogin = vi.fn()
+    const handler = createSessionExpiryHandler({ checkAuthenticated, redirectToLogin })
+    handler.setSignedIn(true)
+
+    await fail(handler, unauthorized())
+    handler.setAuthProvider('oidc')
+    resolve(false)
+    await flush()
+
+    expect(redirectToLogin).toHaveBeenCalledWith(true)
+  })
+
+  it('checks a visible tab at most once per minute', async () => {
+    const { handler, checkAuthenticated, advance } = setup(true)
+    handler.setSignedIn(true)
+
+    handler.onVisibilityChange(true)
+    handler.onVisibilityChange(true)
+    await flush()
+    expect(checkAuthenticated).toHaveBeenCalledTimes(1)
+
+    advance(59_999)
+    handler.onVisibilityChange(true)
+    await flush()
+    expect(checkAuthenticated).toHaveBeenCalledTimes(1)
+
+    advance(1)
+    handler.onVisibilityChange(true)
+    await flush()
+    expect(checkAuthenticated).toHaveBeenCalledTimes(2)
+  })
+
+  it('shares one check between a visibility event and a concurrent 401', async () => {
+    let resolve: (authenticated: boolean) => void = () => {}
+    const checkAuthenticated = vi.fn(() => new Promise<boolean>(r => { resolve = r }))
+    const redirectToLogin = vi.fn()
+    const handler = createSessionExpiryHandler({ checkAuthenticated, redirectToLogin })
+    handler.setSignedIn(true)
+
+    handler.onVisibilityChange(true)
+    await fail(handler, unauthorized())
+    resolve(false)
+    await flush()
+
+    expect(checkAuthenticated).toHaveBeenCalledTimes(1)
+    expect(redirectToLogin).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not check a hidden tab, signed-out user, or exempt route', async () => {
+    const { handler, checkAuthenticated } = setup(true)
+
+    handler.onVisibilityChange(true)
+    handler.setSignedIn(true)
+    handler.onVisibilityChange(false)
+    handler.setRouteName('login')
+    handler.onVisibilityChange(true)
+    await flush()
+
+    expect(checkAuthenticated).not.toHaveBeenCalled()
+  })
+
   it('rejects with the original error so callers still see the failure', async () => {
     const { handler } = setup(false)
     handler.setSignedIn(true)

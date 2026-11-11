@@ -414,6 +414,18 @@ export const useAccountContext = (): IAccountContext => {
     sessionExpiry.setRouteName(router.name)
   }, [router.name])
 
+  useEffect(() => {
+    sessionExpiry.setAuthProvider(serverConfig.auth_provider)
+  }, [serverConfig.auth_provider])
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      sessionExpiry.onVisibilityChange(document.visibilityState === 'visible')
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [])
+
   // Redirect to login page if not authenticated
   useEffect(() => {
     if (!initialized) return
