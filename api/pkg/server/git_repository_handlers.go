@@ -117,6 +117,10 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 	if request.ExternalURL != "" && rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "external_url", request.ExternalURL) {
 		return
 	}
+	if request.AzureDevOps != nil && request.AzureDevOps.OrganizationURL != "" &&
+		rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "azure_devops.organization_url", request.AzureDevOps.OrganizationURL) {
+		return
+	}
 
 	// Pass API key for Kodit to clone repos via Helix's internal git server
 	if request.KoditIndexing {
@@ -292,6 +296,10 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if request.ExternalURL != "" && rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "external_url", request.ExternalURL) {
+		return
+	}
+	if request.AzureDevOps != nil && request.AzureDevOps.OrganizationURL != "" &&
+		rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "azure_devops.organization_url", request.AzureDevOps.OrganizationURL) {
 		return
 	}
 
@@ -1959,7 +1967,7 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 			return
 		}
 
-		adoClient := azuredevops.NewAzureDevOpsClient(request.OrganizationURL, request.Token)
+		adoClient := azuredevops.NewAzureDevOpsClient(request.OrganizationURL, request.Token).WithOutboundPolicy(policy)
 		adoRepos, err := adoClient.ListRepositories(ctx, "") // Empty string = all projects
 		if err != nil {
 			if isAuthenticationError(err) {

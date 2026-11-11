@@ -2744,6 +2744,15 @@ func (s *GitRepositoryService) SetOutboundPolicy(policy netguard.Policy) {
 	s.outboundPolicy = &policy
 }
 
+// adoPolicy is the outbound policy for Azure DevOps organization URLs:
+// the configured one, or the strict default.
+func (s *GitRepositoryService) adoPolicy() netguard.Policy {
+	if s.outboundPolicy == nil {
+		return netguard.Policy{}
+	}
+	return *s.outboundPolicy
+}
+
 // pinUpstream applies the outbound policy, when one is set, to remote.
 func (s *GitRepositoryService) pinUpstream(ctx context.Context, remote upstreamRemote) upstreamRemote {
 	if s.outboundPolicy == nil {

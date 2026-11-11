@@ -9,6 +9,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -137,6 +138,14 @@ func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.T
 	case types.ToolTypeAzureDevOps:
 		if tool.Config.AzureDevOps == nil {
 			return system.NewHTTPError400("Azure DevOps config is required for Azure DevOps tools")
+		}
+
+		// The organization URL is fetched from the API server; addresses are
+		// checked against the outbound policy on every connection.
+		if u := tool.Config.AzureDevOps.OrganizationURL; u != "" {
+			if _, err := netguard.ValidateHTTPURL(u); err != nil {
+				return system.NewHTTPError400("Azure DevOps organization URL must be an http(s) URL")
+			}
 		}
 
 		// TODO: re-enable this when we have a way to validate the credentials

@@ -1155,7 +1155,7 @@ func (s *HelixAPIServer) handleListOAuthConnectionRepositories(_ http.ResponseWr
 		}
 
 		// Create ADO client with OAuth token
-		adoClient := azuredevops.NewAzureDevOpsClient(orgURL, connection.AccessToken)
+		adoClient := azuredevops.NewAzureDevOpsClient(orgURL, connection.AccessToken).WithOutboundPolicy(s.gitProviderURLPolicy())
 
 		adoRepos, err := adoClient.ListRepositories(ctx, "") // Empty string = all projects
 		if err != nil {

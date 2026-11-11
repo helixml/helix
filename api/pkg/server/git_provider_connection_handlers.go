@@ -394,7 +394,7 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 		if orgURL == "" {
 			return nil, newGitProviderUserError("organization URL is required for Azure DevOps")
 		}
-		client := azuredevops.NewAzureDevOpsClient(orgURL, token)
+		client := azuredevops.NewAzureDevOpsClient(orgURL, token).WithOutboundPolicy(s.gitProviderURLPolicy())
 		profile, err := client.GetUserProfile(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate Azure DevOps token: %w", err)
@@ -482,7 +482,7 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 		if req.OrganizationURL == "" {
 			return nil, newGitProviderUserError("organization URL is required for Azure DevOps")
 		}
-		adoClient := azuredevops.NewAzureDevOpsClient(req.OrganizationURL, req.Token)
+		adoClient := azuredevops.NewAzureDevOpsClient(req.OrganizationURL, req.Token).WithOutboundPolicy(s.gitProviderURLPolicy())
 		adoRepos, err := adoClient.ListRepositories(ctx, "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to list Azure DevOps repositories: %w", err)
