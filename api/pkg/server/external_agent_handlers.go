@@ -227,8 +227,20 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgentHandler(res http.Resp
 		return
 	}
 
+	// The command is written verbatim to the session's agent and can start its
+	// container, so the caller must be allowed to change that session.
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		http.Error(res, "session not found", http.StatusNotFound)
+		return
+	}
+	if err := apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionUpdate); err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
+		return
+	}
+
 	var command types.ExternalAgentCommand
-	err := json.NewDecoder(req.Body).Decode(&command)
+	err = json.NewDecoder(req.Body).Decode(&command)
 	if err != nil {
 		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
 		return
