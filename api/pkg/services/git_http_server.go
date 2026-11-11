@@ -1250,17 +1250,20 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				continue
 			}
 
-			// Autonomous runs have nobody to click Accept. On an internal repo
-			// there is also no PR path (CreatePullRequest rejects a repo with no
-			// ExternalURL), so without this the branch is never merged by any
-			// route: it just accumulates commits, diverges from main, and
-			// eventually cannot even fast-forward. That is how a fortnight of
-			// chris-outreach memory ended up stranded across five branches.
-			if isAutonomousRun(task.Type) && !repo.IsExternal {
+			// Autonomous runs have nobody to click Accept. When the repo has no
+			// pull-request path in play, the branch would otherwise never be
+			// merged by any route: it just accumulates commits, diverges from
+			// main, and eventually cannot even fast-forward. That is how a
+			// fortnight of chris-outreach memory ended up stranded across five
+			// branches. Helix-hosted repos DO have pull requests now — but only
+			// through a proposal a human approves, so when the task has one in
+			// flight (tracked PR or outstanding proposal) the PR flow owns the
+			// merge and the auto-merge must stay out of the way. The repo passed
+			// on is not necessarily the project default: a bot contributing to a
+			// shared internal repo pushes there while the default repo is
+			// external.
+			if isAutonomousRun(task.Type) && !repo.IsExternal && len(task.RepoPullRequests) == 0 && !s.taskHasOutstandingProposal(ctx, task.ID) {
 				s.wg.Add(1)
-				// Pass the repo that was pushed to. It is not necessarily the
-				// project default — a bot contributing to a shared internal repo
-				// pushes there while the project's default repo is external.
 				go func(taskID string, pushedRepo *types.GitRepository) {
 					defer s.wg.Done()
 					s.tryAutoMergeBotRun(context.Background(), taskID, pushedRepo)
@@ -1452,6 +1455,20 @@ func isAutonomousRun(taskType string) bool {
 	default:
 		return false
 	}
+}
+
+// taskHasOutstandingProposal reports whether the task is waiting on (or has
+// opened) a pull request through the proposal flow, in which case the PR owns
+// the merge and the autonomous fast-forward must not shortcut it.
+func (s *GitHTTPServer) taskHasOutstandingProposal(ctx context.Context, taskID string) bool {
+	if s.prProposals == nil {
+		return false
+	}
+	outstanding, err := s.prProposals.HasOutstanding(ctx, taskID)
+	if err != nil {
+		return false
+	}
+	return outstanding
 }
 
 // tryAutoMergeBotRun fast-forward merges an autonomous bot run's feature branch

@@ -92,6 +92,13 @@ type GitRepositoryService struct {
 	// deliveries. Deliveries are signed with a per-repo secret stored on the
 	// repo row. Set via SetGitHubReviewWebhooks from server wiring.
 	githubReviewWebhooksURL string
+
+	// compatBaseURL / compatDispatch bridge the go-github client used for
+	// Helix-hosted repositories to this instance's in-process
+	// GitHub-compatible API (see SetInternalGitHubCompat). Set from server
+	// wiring; both empty means internal pull requests are unavailable.
+	compatBaseURL  string
+	compatDispatch InternalCompatDispatch
 }
 
 // NewGitRepositoryService creates a new git repository service
@@ -1080,6 +1087,10 @@ func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID stri
 	repoPath := filepath.Join(s.gitRepoBase, repoID)
 	if err := os.RemoveAll(repoPath); err != nil {
 		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository directory")
+	}
+
+	if err := s.store.DeleteGitPullRequestsForRepository(ctx, repoID); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository pull requests")
 	}
 
 	if err := s.store.DeleteGitRepository(ctx, repoID); err != nil {
@@ -2735,7 +2746,7 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 		})
 		if err == nil {
 			for _, conn := range connections {
-				if oauthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
+				if OAuthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
 					return oauthGitUsername(gitRepo.ExternalType), conn.AccessToken
 				}
 			}
@@ -2818,7 +2829,7 @@ func (s *GitRepositoryService) newestLiveOAuthToken(ctx context.Context, userID 
 	}
 	var newest *types.OAuthConnection
 	for _, conn := range conns {
-		if !oauthConnectionMatchesProvider(conn, wantType) || conn.AccessToken == "" {
+		if !OAuthConnectionMatchesProvider(conn, wantType) || conn.AccessToken == "" {
 			continue
 		}
 		if newest == nil || conn.UpdatedAt.After(newest.UpdatedAt) {
@@ -2864,7 +2875,9 @@ func OAuthProviderTypeForRepo(t types.ExternalRepositoryType) types.OAuthProvide
 	}
 }
 
-func oauthConnectionMatchesProvider(conn *types.OAuthConnection, providerType types.OAuthProviderType) bool {
+// OAuthConnectionMatchesProvider reports whether conn is a connection to the
+// given provider, including custom providers whose name contains the type.
+func OAuthConnectionMatchesProvider(conn *types.OAuthConnection, providerType types.OAuthProviderType) bool {
 	return conn != nil && (conn.Provider.Type == providerType ||
 		(conn.Provider.Type == types.OAuthProviderTypeCustom && strings.Contains(strings.ToLower(conn.Provider.Name), string(providerType))))
 }
@@ -2897,7 +2910,7 @@ func (s *GitRepositoryService) GetActingAccountHandle(ctx context.Context, gitRe
 		conns, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: actingUserID})
 		if err == nil {
 			for _, conn := range conns {
-				if oauthConnectionMatchesProvider(conn, providerType) && conn.ProviderUsername != "" {
+				if OAuthConnectionMatchesProvider(conn, providerType) && conn.ProviderUsername != "" {
 					return "@" + conn.ProviderUsername
 				}
 			}

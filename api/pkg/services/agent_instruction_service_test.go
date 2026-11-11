@@ -112,3 +112,17 @@ func TestBuildApprovalInstructionPrompt_MarkTaskComplete(t *testing.T) {
 		t.Error("internal-only projects have no pull requests to wait for")
 	}
 }
+
+func TestProjectUsesPullRequests(t *testing.T) {
+	internal := []*types.GitRepository{{Name: "module"}}
+	external := []*types.GitRepository{{Name: "module"}, {Name: "gh", ExternalURL: "https://github.com/acme/x"}}
+	if ProjectUsesPullRequests(&types.Project{}, internal) {
+		t.Error("a Helix-hosted-only project lands work with Accept unless it opts in")
+	}
+	if !ProjectUsesPullRequests(&types.Project{HelixRepoPullRequests: true}, internal) {
+		t.Error("a project that opts in delivers Helix-hosted work as pull requests")
+	}
+	if !ProjectUsesPullRequests(&types.Project{}, external) || !ProjectUsesPullRequests(nil, external) {
+		t.Error("external repositories always use pull requests")
+	}
+}

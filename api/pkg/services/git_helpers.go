@@ -515,6 +515,15 @@ func UpdateBranchRef(ctx context.Context, repoPath, branch, commitSHA string) er
 	return err
 }
 
+// UpdateBranchRefFrom moves a branch to commitSHA only if it currently points
+// at oldSHA. Equivalent to: git update-ref refs/heads/<branch> <commit> <old>
+func UpdateBranchRefFrom(ctx context.Context, repoPath, branch, commitSHA, oldSHA string) error {
+	_, _, err := gitcmd.NewCommand("update-ref").
+		AddDynamicArguments("refs/heads/"+branch, commitSHA, oldSHA).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	return err
+}
+
 // CommitFileToBareBranch commits a single file to a branch in a bare repo directly.
 // This avoids creating a working copy - much faster for single file updates.
 // Returns (commitSHA, changed, error) where changed indicates if a commit was made.

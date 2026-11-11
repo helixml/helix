@@ -235,6 +235,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.SpecTaskGitPushEvent{},
 		&types.SpecTaskAttachment{},
 		&types.GitRepository{},
+		&types.GitPullRequest{},
 		&types.ProjectRepository{}, // Junction table for project-repository many-to-many relationship
 		&types.SpecTaskImplementationTask{},
 		&types.AgentRunner{},

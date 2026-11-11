@@ -54,28 +54,37 @@ func (s *GitRepositoryService) ValidateUserOAuth(ctx context.Context, repo *type
 		return fmt.Errorf("failed to check OAuth connections: %w", err)
 	}
 	for _, conn := range connections {
-		if oauthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
+		if OAuthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
 			return nil
 		}
 	}
 	return &OAuthRequiredError{ProviderType: string(providerType)}
 }
 
-// CreatePullRequest opens a pull request in the external repository. Should be called after the changes are committed to the local repository and
-// it has been pushed to the external repository.
+// internalPRRouting reports whether a repository routes its pull requests
+// through Helix's GitHub-compatible API (Helix-hosted repos). External repos
+// keep their provider branches.
+func internalPRRouting(repo *types.GitRepository) bool {
+	return repo.ExternalURL == ""
+}
+
+// CreatePullRequest opens a pull request in the repository. For external
+// repositories it must be called after the changes are committed locally and
+// pushed to the external provider. Helix-hosted repositories keep everything
+// local: the branch lives in the same bare repo as the base.
 func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID string, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
 		return "", fmt.Errorf("repository not found: %w", err)
 	}
 
-	if repo.ExternalURL == "" {
-		return "", fmt.Errorf("repository is not external, cannot create pull request")
-	}
-
 	// Drop any cached PR list for this repo so the next read sees the new PR.
 	if s.prListCache != nil {
 		s.prListCache.invalidate(repoID)
+	}
+
+	if internalPRRouting(repo) {
+		return s.createGitHubPullRequest(ctx, repo, title, description, sourceBranch, targetBranch, userID)
 	}
 
 	switch repo.ExternalType {
@@ -99,13 +108,13 @@ func (s *GitRepositoryService) UpdatePullRequest(ctx context.Context, repoID str
 		return fmt.Errorf("repository not found: %w", err)
 	}
 
-	if repo.ExternalURL == "" {
-		return fmt.Errorf("repository is not external")
-	}
-
 	// Drop any cached PR list for this repo so the next read reflects the update.
 	if s.prListCache != nil {
 		s.prListCache.invalidate(repoID)
+	}
+
+	if internalPRRouting(repo) {
+		return s.updateGitHubPullRequest(ctx, repo, prNumber, title, description, userID)
 	}
 
 	switch repo.ExternalType {
@@ -123,23 +132,31 @@ func (s *GitRepositoryService) UpdatePullRequest(ctx context.Context, repoID str
 }
 
 func (s *GitRepositoryService) updateGitHubPullRequest(ctx context.Context, repo *types.GitRepository, prNumber int, title string, description string, userID string) error {
-	_, token, _, err := s.pullRequestUpdateCredentials(ctx, repo, userID)
-	if err != nil {
-		return err
+	var client *github.Client
+	var owner, repoName string
+	if internalPRRouting(repo) {
+		var err error
+		client, owner, repoName, err = s.internalGitHubClient(ctx, repo, userID)
+		if err != nil {
+			return err
+		}
+	} else {
+		_, token, _, err := s.pullRequestUpdateCredentials(ctx, repo, userID)
+		if err != nil {
+			return err
+		}
+		baseURL := ""
+		if repo.GitHub != nil {
+			baseURL = repo.GitHub.BaseURL
+		}
+		client = github.NewClientWithOAuthAndBaseURL(token, baseURL)
+		owner, repoName, err = github.ParseGitHubURL(repo.ExternalURL)
+		if err != nil {
+			return fmt.Errorf("failed to parse GitHub URL: %w", err)
+		}
 	}
-	baseURL := ""
-	if repo.GitHub != nil {
-		baseURL = repo.GitHub.BaseURL
-	}
-	client := github.NewClientWithOAuthAndBaseURL(token, baseURL)
 
-	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
-	if err != nil {
-		return fmt.Errorf("failed to parse GitHub URL: %w", err)
-	}
-
-	_, err = client.UpdatePullRequest(ctx, owner, repoName, prNumber, title, description)
-	if err != nil {
+	if _, err := client.UpdatePullRequest(ctx, owner, repoName, prNumber, title, description); err != nil {
 		return fmt.Errorf("failed to update pull request: %w", err)
 	}
 
@@ -306,7 +323,7 @@ func gitProviderConnectionMatchesRepo(conn *types.GitProviderConnection, repo *t
 }
 
 func oauthConnectionMatchesRepo(conn *types.OAuthConnection, providerType types.OAuthProviderType, repo *types.GitRepository) bool {
-	if !oauthConnectionMatchesProvider(conn, providerType) {
+	if !OAuthConnectionMatchesProvider(conn, providerType) {
 		return false
 	}
 	repoURL, err := url.Parse(repo.ExternalURL)
@@ -461,16 +478,17 @@ func (s *GitRepositoryService) ListPullRequests(ctx context.Context, repoID stri
 }
 
 // listPullRequestsUncached performs the actual upstream PR list call, dispatched
-// by the repository's external provider type. ListPullRequests wraps this with
-// the prListCache.
+// by the repository's provider: the compat API for Helix-hosted repos, the
+// provider API for external repos. ListPullRequests wraps this with the
+// prListCache.
 func (s *GitRepositoryService) listPullRequestsUncached(ctx context.Context, repoID string) ([]*types.PullRequest, error) {
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("repository not found: %w", err)
 	}
 
-	if repo.ExternalURL == "" {
-		return nil, fmt.Errorf("repository is not external, cannot list pull requests")
+	if internalPRRouting(repo) {
+		return s.listGitHubPullRequests(ctx, repo)
 	}
 
 	switch repo.ExternalType {
@@ -602,8 +620,12 @@ func (s *GitRepositoryService) GetPullRequest(ctx context.Context, repoID, id st
 		return nil, fmt.Errorf("repository not found: %w", err)
 	}
 
-	if repo.ExternalURL == "" {
-		return nil, fmt.Errorf("repository is not external, cannot get pull request")
+	if internalPRRouting(repo) {
+		number, err := strconv.Atoi(id)
+		if err != nil {
+			return nil, fmt.Errorf("invalid pull request number: %w", err)
+		}
+		return s.getGitHubPullRequest(ctx, repo, number)
 	}
 
 	switch repo.ExternalType {
@@ -795,6 +817,24 @@ func (s *GitRepositoryService) getAzureDevOpsClient(ctx context.Context, repo *t
 
 // GitHub Pull Request Operations
 
+// githubClientForRepo resolves the go-github client and owner/repo for a
+// repository on the GitHub code path: Helix-hosted repos get the in-process
+// client for Helix's GitHub-compatible API, GitHub repos the provider client.
+func (s *GitRepositoryService) githubClientForRepo(ctx context.Context, repo *types.GitRepository, userID string) (*github.Client, string, string, error) {
+	if internalPRRouting(repo) {
+		return s.internalGitHubClient(ctx, repo, userID)
+	}
+	client, err := s.getGitHubClient(ctx, repo, userID)
+	if err != nil {
+		return nil, "", "", err
+	}
+	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to parse GitHub URL: %w", err)
+	}
+	return client, owner, repoName, nil
+}
+
 func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.GitRepository, userID string) (*github.Client, error) {
 	// Get GitHub Enterprise base URL if configured
 	var baseURL string
@@ -811,7 +851,7 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 			return nil, fmt.Errorf("failed to look up user OAuth connections: %w", err)
 		}
 		for _, conn := range connections {
-			if oauthConnectionMatchesProvider(conn, types.OAuthProviderTypeGitHub) && conn.AccessToken != "" {
+			if OAuthConnectionMatchesProvider(conn, types.OAuthProviderTypeGitHub) && conn.AccessToken != "" {
 				return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
 			}
 		}
@@ -862,14 +902,9 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 }
 
 func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
-	client, err := s.getGitHubClient(ctx, repo, userID)
+	client, owner, repoName, err := s.githubClientForRepo(ctx, repo, userID)
 	if err != nil {
 		return "", err
-	}
-
-	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse GitHub URL: %w", err)
 	}
 
 	pr, err := client.CreatePullRequest(ctx, owner, repoName, title, description, sourceBranch, targetBranch)
@@ -884,7 +919,9 @@ func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo
 		return "", fmt.Errorf("failed to create pull request: %w", err)
 	}
 
-	s.ensureGitHubReviewWebhook(ctx, client, repo.ID, owner, repoName)
+	if !internalPRRouting(repo) {
+		s.ensureGitHubReviewWebhook(ctx, client, repo.ID, owner, repoName)
+	}
 
 	return strconv.Itoa(pr.GetNumber()), nil
 }
@@ -969,18 +1006,13 @@ func (s *GitRepositoryService) ListPullRequestReviewComments(ctx context.Context
 		return nil, fmt.Errorf("repository not found: %w", err)
 	}
 
-	if repo.ExternalType != types.ExternalRepositoryTypeGitHub {
+	if repo.ExternalType != types.ExternalRepositoryTypeGitHub && !internalPRRouting(repo) {
 		return nil, fmt.Errorf("pull request review comments not supported for repository type %s", repo.ExternalType)
 	}
 
-	client, err := s.getGitHubClient(ctx, repo, "")
+	client, owner, repoName, err := s.githubClientForRepo(ctx, repo, "")
 	if err != nil {
 		return nil, err
-	}
-
-	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse GitHub URL: %w", err)
 	}
 
 	prNumber, err := strconv.Atoi(prID)
@@ -1011,14 +1043,9 @@ func (s *GitRepositoryService) ListPullRequestReviewComments(ctx context.Context
 }
 
 func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
-	client, err := s.getGitHubClient(ctx, repo, "")
+	client, owner, repoName, err := s.githubClientForRepo(ctx, repo, "")
 	if err != nil {
 		return nil, err
-	}
-
-	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse GitHub URL: %w", err)
 	}
 
 	ghPRs, err := client.ListPullRequests(ctx, owner, repoName)
@@ -1058,14 +1085,9 @@ func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo 
 }
 
 func (s *GitRepositoryService) getGitHubPullRequest(ctx context.Context, repo *types.GitRepository, number int) (*types.PullRequest, error) {
-	client, err := s.getGitHubClient(ctx, repo, "")
+	client, owner, repoName, err := s.githubClientForRepo(ctx, repo, "")
 	if err != nil {
 		return nil, err
-	}
-
-	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse GitHub URL: %w", err)
 	}
 
 	ghPR, err := client.GetPullRequest(ctx, owner, repoName, number)
@@ -1140,7 +1162,7 @@ func (s *GitRepositoryService) getGitLabClient(ctx context.Context, repo *types.
 			}
 		}
 		for _, conn := range connections {
-			if oauthConnectionMatchesProvider(conn, types.OAuthProviderTypeGitLab) && conn.AccessToken != "" {
+			if OAuthConnectionMatchesProvider(conn, types.OAuthProviderTypeGitLab) && conn.AccessToken != "" {
 				return gitlab.NewClientWithOAuth(baseURL, conn.AccessToken)
 			}
 		}

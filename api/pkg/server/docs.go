@@ -5645,6 +5645,77 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/owners": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the acting user's own account plus the GitHub organizations\nor GitLab groups (Developer access or above) they belong to.\nCredentials: the user's OAuth connection for the provider (GitHub\nneeds the repo scope, GitLab api), otherwise their personal access\ntoken connection. Returns 409 connect_required when neither exists.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "List accounts a repository can be created under",
+                "parameters": [
+                    {
+                        "enum": [
+                            "github",
+                            "gitlab"
+                        ],
+                        "type": "string",
+                        "description": "Git provider",
+                        "name": "provider",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GitOwner"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.ConnectRequiredError"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories": {
             "get": {
                 "security": [
@@ -5749,6 +5820,81 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/from-template": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a repository under owner using the acting user's own credentials.\nGitHub generates it from the template repository (the template must have\nthe template flag); GitLab imports https://github.com/\u003ctemplate\u003e.git and\nthe call waits for the import to finish. private defaults to true.\nCredentials: the user's OAuth connection for the provider (GitHub needs\nthe repo scope, GitLab api), otherwise their personal access token\nconnection. Returns 409 connect_required when neither exists, and 422\nwith the provider's message when the provider rejects the request\n(for example, the name is already taken).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Create a repository from a template in the user's GitHub/GitLab account",
+                "parameters": [
+                    {
+                        "description": "Repository to create",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateRepoFromTemplateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateRepoFromTemplateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.ConnectRequiredError"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "504": {
+                        "description": "Gateway Timeout",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -7134,6 +7280,293 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/pulls": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List the pull requests of a Helix-hosted repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "List Helix pull requests",
+                "operationId": "listGitRepositoryPulls",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "open (default), closed or all",
+                        "name": "state",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GitPullRequest"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/pulls/{number}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a pull request of a Helix-hosted repository with its changed files and mergeability",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get a Helix pull request",
+                "operationId": "getGitRepositoryPull",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitPullRequestDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Edit the title or body of a Helix pull request, or close or reopen it",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Update a Helix pull request",
+                "operationId": "updateGitRepositoryPull",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.GitPullRequestUpdate"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitPullRequest"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/pulls/{number}/merge": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Merge a Helix pull request: fast-forward when possible, otherwise a merge commit. 405 when it conflicts.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Merge a Helix pull request",
+                "operationId": "mergeGitRepositoryPull",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Merge options",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitPullRequestMergeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitPullRequest"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "405": {
+                        "description": "Method Not Allowed",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/pulls/{number}/request-rebase": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sends the spec task that owns the pull request an instruction to rebase its head branch onto the base branch",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Ask the agent to rebase a Helix pull request",
+                "operationId": "requestGitRepositoryPullRebase",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitPullRequestDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -29755,24 +30188,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "email",
-                "webhook",
-                "local",
-                "slack",
-                "cron",
-                "gitlab",
                 "github",
-                "helix_events"
+                "helix_events",
+                "webhook",
+                "cron",
+                "slack",
+                "gitlab",
+                "email",
+                "local"
             ],
             "x-enum-varnames": [
-                "KindEmail",
-                "KindWebhook",
-                "KindLocal",
-                "KindSlack",
-                "KindCron",
-                "KindGitLab",
                 "KindGitHub",
-                "KindHelixEvents"
+                "KindHelixEvents",
+                "KindWebhook",
+                "KindCron",
+                "KindSlack",
+                "KindGitLab",
+                "KindEmail",
+                "KindLocal"
             ]
         },
         "transport.ResolvedActivation": {
@@ -32342,6 +32775,20 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ConnectRequiredError": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "connect_url": {
+                    "type": "string"
+                },
+                "provider": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                }
+            }
+        },
         "types.ContainerDiskUsage": {
             "type": "object",
             "properties": {
@@ -32611,6 +33058,51 @@ const docTemplate = `{
                 },
                 "message": {
                     "type": "string"
+                }
+            }
+        },
+        "types.CreateRepoFromTemplateRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "private": {
+                    "description": "Private defaults to true when omitted.",
+                    "type": "boolean"
+                },
+                "provider": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                },
+                "template": {
+                    "description": "Template is the github.com template repository as \"owner/repo\".",
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateRepoFromTemplateResponse": {
+            "type": "object",
+            "properties": {
+                "clone_url": {
+                    "type": "string"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "full_name": {
+                    "type": "string"
+                },
+                "html_url": {
+                    "type": "string"
+                },
+                "provider": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
                 }
             }
         },
@@ -33720,6 +34212,38 @@ const docTemplate = `{
                 }
             }
         },
+        "types.GitOwner": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID is the GitHub account id, or the GitLab namespace id.",
+                    "type": "integer"
+                },
+                "kind": {
+                    "$ref": "#/definitions/types.GitOwnerKind"
+                },
+                "login": {
+                    "description": "Login is the owner to pass to CreateRepoFromTemplateRequest.Owner: the\nGitHub login/org name, or the GitLab user path / group full path.",
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitOwnerKind": {
+            "type": "string",
+            "enum": [
+                "user",
+                "org",
+                "group"
+            ],
+            "x-enum-varnames": [
+                "GitOwnerKindUser",
+                "GitOwnerKindOrg",
+                "GitOwnerKindGroup"
+            ]
+        },
         "types.GitProviderConnection": {
             "type": "object",
             "properties": {
@@ -33795,6 +34319,139 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.ExternalRepositoryType"
                 },
                 "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitPullRequest": {
+            "type": "object",
+            "properties": {
+                "author_id": {
+                    "type": "string"
+                },
+                "author_login": {
+                    "type": "string"
+                },
+                "base_branch": {
+                    "type": "string"
+                },
+                "base_sha": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "closed_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "head_branch": {
+                    "type": "string"
+                },
+                "head_sha": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "merge_commit_sha": {
+                    "type": "string"
+                },
+                "merged": {
+                    "type": "boolean"
+                },
+                "merged_at": {
+                    "type": "string"
+                },
+                "merged_by": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "integer"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/types.GitPullRequestState"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitPullRequestDetail": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.InternalPRFile"
+                    }
+                },
+                "html_url": {
+                    "type": "string"
+                },
+                "mergeable": {
+                    "type": "boolean"
+                },
+                "pull_request": {
+                    "$ref": "#/definitions/types.GitPullRequest"
+                },
+                "spec_task_id": {
+                    "description": "The spec task whose work this pull request carries, if any.",
+                    "type": "string"
+                },
+                "spec_task_name": {
+                    "type": "string"
+                },
+                "spec_task_project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitPullRequestMergeRequest": {
+            "type": "object",
+            "properties": {
+                "commit_message": {
+                    "type": "string"
+                },
+                "commit_title": {
+                    "type": "string"
+                },
+                "merge_method": {
+                    "description": "merge (the only supported method)",
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitPullRequestState": {
+            "type": "string",
+            "enum": [
+                "open",
+                "closed"
+            ],
+            "x-enum-varnames": [
+                "GitPullRequestStateOpen",
+                "GitPullRequestStateClosed"
+            ]
+        },
+        "types.GitPullRequestUpdate": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "state": {
+                    "description": "open | closed",
+                    "type": "string"
+                },
+                "title": {
                     "type": "string"
                 }
             }
@@ -34511,6 +35168,33 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "model": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.InternalPRFile": {
+            "type": "object",
+            "properties": {
+                "additions": {
+                    "type": "integer"
+                },
+                "changes": {
+                    "type": "integer"
+                },
+                "deletions": {
+                    "type": "integer"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "patch": {
+                    "type": "string"
+                },
+                "previous_filename": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "added | modified | removed | renamed",
                     "type": "string"
                 }
             }
@@ -36678,6 +37362,10 @@ const docTemplate = `{
                     "description": "Incremented on each update",
                     "type": "integer"
                 },
+                "helix_repo_pull_requests": {
+                    "description": "HelixRepoPullRequests: agents deliver work on the project's Helix-hosted\nrepositories as pull requests (propose_pull_request, reviewed and merged\non the Helix PR page) instead of Accept landing their branch. External\nrepositories always use pull requests.",
+                    "type": "boolean"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -37271,6 +37959,10 @@ const docTemplate = `{
                     "description": "Project-specific AI agent guidelines",
                     "type": "string"
                 },
+                "helix_repo_pull_requests": {
+                    "description": "Agents deliver work on Helix-hosted repos as pull requests",
+                    "type": "boolean"
+                },
                 "kodit_enabled": {
                     "description": "Whether Kodit code intelligence is enabled",
                     "type": "boolean"
@@ -37680,6 +38372,32 @@ const docTemplate = `{
                 "ProviderEndpointTypeOrg",
                 "ProviderEndpointTypeTeam"
             ]
+        },
+        "types.ProviderRecovery": {
+            "type": "object",
+            "properties": {
+                "attempts": {
+                    "type": "integer"
+                },
+                "failed_at": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "next_check_at": {
+                    "type": "string"
+                },
+                "prompt_id": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                }
+            }
         },
         "types.PublicInvitationInfo": {
             "type": "object",
@@ -39949,6 +40667,9 @@ const docTemplate = `{
                 "project_id": {
                     "description": "ID of associated Project (for exploratory sessions)",
                     "type": "string"
+                },
+                "provider_recovery": {
+                    "$ref": "#/definitions/types.ProviderRecovery"
                 },
                 "rag_enabled": {
                     "description": "these settings control which features of a session we want to use\neven if we have a Lora file and RAG indexed prepared\nwe might choose to not use them (this will help our eval framework know what works the best)\nwe well as activate RAG - we also get to control some properties, e.g. which distance function to use,\nand what the threshold for a \"good\" answer is",
