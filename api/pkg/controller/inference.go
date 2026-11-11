@@ -1068,9 +1068,18 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 	return assistant, nil
 }
 
-func (c *Controller) evaluateSecrets(ctx context.Context, user *types.User, app *types.App) (*types.App, error) {
+// evaluateSecrets substitutes ${NAME} references in the app config with the
+// app owner's secrets. The references are written by whoever configures the
+// app ("use secrets by typing ${SECRET_NAME} in your app settings"), so they
+// resolve against that person's secrets. Resolving them against the calling
+// user's secrets would let the author of a shared or global app point an API
+// tool at a host of their choosing and receive each caller's secrets.
+func (c *Controller) evaluateSecrets(ctx context.Context, _ *types.User, app *types.App) (*types.App, error) {
+	if app.Owner == "" {
+		return app, nil
+	}
 	secrets, err := c.Options.Store.ListSecrets(ctx, &store.ListSecretsQuery{
-		Owner: user.ID,
+		Owner: app.Owner,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list secrets: %w", err)
