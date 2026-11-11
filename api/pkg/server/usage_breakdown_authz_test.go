@@ -42,6 +42,25 @@ func TestProviderUsersDailyUsage_GlobalProviderIsAdminOnly(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rr.Code, rr.Body.String())
 }
 
+// A stored endpoint of the global type is used by every user too, even when
+// its owner is not an admin.
+func TestProviderUsersDailyUsage_StoredGlobalEndpointIsAdminOnly(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	mockManager := manager.NewMockProviderManager(ctrl)
+	mockStore.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil).AnyTimes()
+	mockManager.EXPECT().ListProviders(gomock.Any(), "").Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), gomock.Any()).Return(&types.ProviderEndpoint{
+		ID: "pe_global", Owner: "usr_bob", OwnerType: types.OwnerTypeUser, EndpointType: types.ProviderEndpointTypeGlobal,
+	}, nil).AnyTimes()
+	mockStore.EXPECT().GetUsersAggregatedUsageMetrics(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	server := &HelixAPIServer{Cfg: &config.ServerConfig{}, Store: mockStore, providerManager: mockManager}
+	rr := getUsersDailyUsage(t, server, types.User{ID: "usr_bob"}, "pe_global")
+
+	require.Equal(t, http.StatusForbidden, rr.Code, rr.Body.String())
+}
+
 func TestProviderUsersDailyUsage_RedactsUserRecords(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
@@ -49,7 +68,7 @@ func TestProviderUsersDailyUsage_RedactsUserRecords(t *testing.T) {
 	mockStore.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil).AnyTimes()
 	mockManager.EXPECT().ListProviders(gomock.Any(), "").Return(nil, nil).AnyTimes()
 	mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), gomock.Any()).
-		Return(&types.ProviderEndpoint{ID: "pe_1", Owner: "usr_bob", OwnerType: types.OwnerTypeUser}, nil)
+		Return(&types.ProviderEndpoint{ID: "pe_1", Owner: "usr_bob", OwnerType: types.OwnerTypeUser}, nil).AnyTimes()
 	mockStore.EXPECT().GetUsersAggregatedUsageMetrics(gomock.Any(), "pe_1", gomock.Any(), gomock.Any()).
 		Return([]*types.UsersAggregatedUsageMetric{{User: types.User{
 			ID: "usr_carol", Email: "carol@example.com", FullName: "Carol",

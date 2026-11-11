@@ -1582,7 +1582,7 @@ func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *h
 	// A deployment-wide provider is used by every user, so its per-user
 	// breakdown is other users' activity: admins only.
 	if !user.Admin {
-		global, err := s.isEnvironmentGlobalProvider(ctx, id)
+		global, err := s.isGlobalProvider(ctx, id)
 		if err != nil {
 			writeErrResponse(rw, fmt.Errorf("error checking provider visibility: %w", err), http.StatusInternalServerError)
 			return
@@ -1613,9 +1613,10 @@ func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *h
 	writeResponse(rw, redactUsageUsers(metrics), http.StatusOK)
 }
 
-// isEnvironmentGlobalProvider reports whether id names a provider configured
-// for the whole deployment through the server environment.
-func (s *HelixAPIServer) isEnvironmentGlobalProvider(ctx context.Context, id string) (bool, error) {
+// isGlobalProvider reports whether id names a provider available to the whole
+// deployment: one configured through the server environment, or a stored
+// endpoint of the global type (whose owner need not be an admin).
+func (s *HelixAPIServer) isGlobalProvider(ctx context.Context, id string) (bool, error) {
 	providers, err := s.providerManager.ListProviders(ctx, "")
 	if err != nil {
 		return false, fmt.Errorf("error listing providers: %w", err)
@@ -1625,7 +1626,14 @@ func (s *HelixAPIServer) isEnvironmentGlobalProvider(ctx context.Context, id str
 			return true, nil
 		}
 	}
-	return false, nil
+	endpoint, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: id})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("error getting provider endpoint: %w", err)
+	}
+	return endpoint.EndpointType == types.ProviderEndpointTypeGlobal, nil
 }
 
 // redactUsageUsers reduces each user in a per-user usage report to the fields
