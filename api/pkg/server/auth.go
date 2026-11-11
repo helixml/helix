@@ -271,23 +271,27 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-accept any pending org invitations for this email. Best-effort —
-	// a failure here shouldn't prevent the user from signing in; they can
-	// be re-invited from the org page. If any invitations were accepted,
-	// the user is effectively onboarded (they have an org and don't need
-	// to walk through the create-an-org wizard) AND has implicit vouching
-	// from an org owner, so we also bypass the waitlist — otherwise an
-	// invited collaborator would be invited only to sit in a queue.
-	consumed, invErr := s.Store.ConsumePendingInvitations(ctx, createdUser)
-	if invErr != nil {
-		log.Warn().Err(invErr).Str("user_id", createdUser.ID).Msg("failed to consume pending invitations")
-	} else if len(consumed) > 0 {
-		log.Info().Str("user_id", createdUser.ID).Int("count", len(consumed)).Msg("auto-accepted org invitations on registration")
-		createdUser.OnboardingCompleted = true
-		createdUser.OnboardingCompletedAt = time.Now()
-		createdUser.Waitlisted = false
-		if _, err := s.Store.UpdateUser(ctx, createdUser); err != nil {
-			log.Warn().Err(err).Str("user_id", createdUser.ID).Msg("failed to mark invited user as onboarded")
+	// Accept the organization invitation from the invite link, if any.
+	// Password sign-up does not prove ownership of the email address, so
+	// pending invitations are never accepted by email alone (anyone could
+	// register an invited address and take the invited role); the
+	// invitation ID, sent only to that address, is the proof, and only that
+	// invitation is accepted. Best-effort — a failure here shouldn't
+	// prevent the user from signing in; they can be re-invited. An accepted
+	// invitation means the user is onboarded (they have an org) and vouched
+	// for by an org owner, so it also bypasses the waitlist.
+	if registerRequest.InvitationID != "" {
+		consumed, invErr := s.Store.ConsumeInvitation(ctx, createdUser, registerRequest.InvitationID)
+		if invErr != nil {
+			log.Warn().Err(invErr).Str("user_id", createdUser.ID).Msg("failed to consume invitation")
+		} else if len(consumed) > 0 {
+			log.Info().Str("user_id", createdUser.ID).Int("count", len(consumed)).Msg("accepted org invitation on registration")
+			createdUser.OnboardingCompleted = true
+			createdUser.OnboardingCompletedAt = time.Now()
+			createdUser.Waitlisted = false
+			if _, err := s.Store.UpdateUser(ctx, createdUser); err != nil {
+				log.Warn().Err(err).Str("user_id", createdUser.ID).Msg("failed to mark invited user as onboarded")
+			}
 		}
 	}
 

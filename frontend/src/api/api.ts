@@ -6373,6 +6373,13 @@ export interface TypesReasoningEffortProfile {
 export interface TypesRegisterRequest {
   email?: string;
   full_name?: string;
+  /**
+   * InvitationID is the organization invitation from the invite link
+   * (/login?invitation=<id>). Password sign-up does not verify the email
+   * address, so only the invitation presented here is accepted, and only
+   * when it was sent to Email.
+   */
+  invitation_id?: string;
   password?: string;
   password_confirm?: string;
 }

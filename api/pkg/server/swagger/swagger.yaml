@@ -6610,6 +6610,13 @@ definitions:
         type: string
       full_name:
         type: string
+      invitation_id:
+        description: |-
+          InvitationID is the organization invitation from the invite link
+          (/login?invitation=<id>). Password sign-up does not verify the email
+          address, so only the invitation presented here is accepted, and only
+          when it was sent to Email.
+        type: string
       password:
         type: string
       password_confirm:

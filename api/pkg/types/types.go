@@ -2942,6 +2942,11 @@ type RegisterRequest struct {
 	Password        string `json:"password"`
 	FullName        string `json:"full_name"`
 	PasswordConfirm string `json:"password_confirm"`
+	// InvitationID is the organization invitation from the invite link
+	// (/login?invitation=<id>). Password sign-up does not verify the email
+	// address, so only the invitation presented here is accepted, and only
+	// when it was sent to Email.
+	InvitationID string `json:"invitation_id,omitempty"`
 }
 
 type PasswordResetRequest struct {

@@ -43622,6 +43622,10 @@
                     "full_name": {
                         "type": "string"
                     },
+                    "invitation_id": {
+                        "description": "InvitationID is the organization invitation from the invite link\n(/login?invitation=<id>). Password sign-up does not verify the email\naddress, so only the invitation presented here is accepted, and only\nwhen it was sent to Email.",
+                        "type": "string"
+                    },
                     "password": {
                         "type": "string"
                     },

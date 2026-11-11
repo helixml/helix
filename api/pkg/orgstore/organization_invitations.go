@@ -152,20 +152,47 @@ func (s *Store) DeleteOrganizationInvitation(ctx context.Context, id string) err
 // immediately. All work happens inside a single transaction so a partial
 // failure can't leave the invitation in an "accepted but not joined"
 // state. Returns the list of memberships that were created.
+//
+// Only call this when the user's ownership of the email address has been
+// verified (e.g. an OIDC verified-email claim): it accepts every invitation
+// sent to that address, whoever sent it.
 func (s *Store) ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error) {
 	if user == nil || user.ID == "" || user.Email == "" {
 		return nil, nil
 	}
-
 	email := strings.ToLower(strings.TrimSpace(user.Email))
+	// Oldest first: when several invitations target the same org (say an
+	// org-wide one and a project one), the earliest decides the membership
+	// role, deterministically.
+	return s.consumeInvitations(ctx, user, func(tx *gorm.DB) *gorm.DB {
+		return tx.Where("email = ?", email).Order("created_at ASC")
+	})
+}
 
+// ConsumeInvitation accepts the single invitation invitationID for user, as
+// ConsumePendingInvitations does, if it exists and was sent to the user's
+// email address. It is for sign-ups that present an invitation link (whose
+// ID is the secret) instead of a verified email: other invitations pending
+// for the same address are left alone. Returns no memberships, and no error,
+// when the invitation does not match.
+func (s *Store) ConsumeInvitation(ctx context.Context, user *types.User, invitationID string) ([]*types.OrganizationMembership, error) {
+	if user == nil || user.ID == "" || user.Email == "" || invitationID == "" {
+		return nil, nil
+	}
+	email := strings.ToLower(strings.TrimSpace(user.Email))
+	return s.consumeInvitations(ctx, user, func(tx *gorm.DB) *gorm.DB {
+		return tx.Where("id = ? AND email = ?", invitationID, email)
+	})
+}
+
+// consumeInvitations accepts the invitations selected by query for user in
+// one transaction: memberships, access grants, and deletion of the
+// invitations.
+func (s *Store) consumeInvitations(ctx context.Context, user *types.User, query func(tx *gorm.DB) *gorm.DB) ([]*types.OrganizationMembership, error) {
 	var created []*types.OrganizationMembership
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var invitations []*types.OrganizationInvitation
-		// Oldest first: when several invitations target the same org (say an
-		// org-wide one and a project one), the earliest decides the membership
-		// role, deterministically.
-		if err := tx.Where("email = ?", email).Order("created_at ASC").Find(&invitations).Error; err != nil {
+		if err := query(tx).Find(&invitations).Error; err != nil {
 			return fmt.Errorf("list invitations: %w", err)
 		}
 		now := time.Now()
@@ -222,7 +249,7 @@ func (s *Store) ConsumePendingInvitations(ctx context.Context, user *types.User)
 	return created, nil
 }
 
-// createInvitationAccessGrant runs inside ConsumePendingInvitations'
+// createInvitationAccessGrant runs inside consumeInvitations'
 // transaction. It looks up the org's roles by name (since invitations
 // store role *names*, not IDs — names are stable across role rebuilds)
 // and creates an AccessGrant + role bindings for the new user. If a grant

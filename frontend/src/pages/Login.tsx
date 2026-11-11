@@ -237,11 +237,15 @@ export default function Login() {
     setError(null)
 
     try {
+      // The invitation ID from the invite link is what lets the backend
+      // add the new account to the inviting organization.
+      const invitationId = new URLSearchParams(window.location.search).get('invitation') || undefined
       const registerRequest: TypesRegisterRequest = {
         email: emailValue,
         full_name: fullNameValue,
         password: passwordValue,
         password_confirm: passwordConfirmValue,
+        invitation_id: invitationId,
       }
       await apiClient.v1AuthRegisterCreate(registerRequest)
       snackbar.success('Registration successful')
