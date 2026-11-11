@@ -23,6 +23,7 @@ import (
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
@@ -283,7 +284,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("runner token is required")
 	}
 
-	notifier, err := notification.New(&cfg.Notifications, postgresStore)
+	notifier, err := notification.New(&cfg.Notifications, postgresStore,
+		netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks})
 	if err != nil {
 		return fmt.Errorf("failed to create notifier: %v", err)
 	}
@@ -360,6 +362,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		"Helix System",
 		"system@helix.ml",
 	)
+	gitRepositoryService.SetOutboundPolicy(netguard.Policy{AllowPrivate: cfg.GitProviders.AllowPrivateNetworks})
 
 	// Initialize kodit once here so that the kodit RAG provider and the API server
 	// share a single kodit instance (and therefore a single embedding model / worker pool).

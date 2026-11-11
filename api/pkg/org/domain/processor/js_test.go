@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -128,7 +129,7 @@ func TestJSFanOut(t *testing.T) {
 }
 
 func TestJSHTTPGetAndJSON(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/lookup" {
 			http.NotFound(w, r)
 			return
@@ -174,7 +175,7 @@ func TestJSHTTPGetAndJSON(t *testing.T) {
 func TestJSHTTPPostJSON(t *testing.T) {
 	var gotBody string
 	var gotCT string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotCT = r.Header.Get("Content-Type")
 		b, _ := io.ReadAll(r.Body)
 		gotBody = string(b)
@@ -208,7 +209,7 @@ func TestJSHTTPPostJSON(t *testing.T) {
 
 func TestJSHTTPDelete(t *testing.T) {
 	var method string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		method = r.Method
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -266,7 +267,7 @@ func TestJSRejectsSyntaxError(t *testing.T) {
 }
 
 func TestJSUsesCtxHTTP(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "pong")
 	}))
 	defer srv.Close()
@@ -297,4 +298,13 @@ func TestKindValuesIncludesJS(t *testing.T) {
 			t.Errorf("KindValues[%d] = %q, want %q", i, got[i], want[i])
 		}
 	}
+}
+
+// newLoopbackServer starts a test server on 127.0.0.1 and lets scripts reach
+// private-network addresses for the duration of the test.
+func newLoopbackServer(t *testing.T, h http.Handler) *httptest.Server {
+	t.Helper()
+	processor.SetJSHTTPPolicy(netguard.Policy{AllowPrivate: true})
+	t.Cleanup(func() { processor.SetJSHTTPPolicy(netguard.Policy{}) })
+	return httptest.NewServer(h)
 }

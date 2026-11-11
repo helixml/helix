@@ -130,16 +130,21 @@ func TestRunUpstreamGit_CredentialsSentAsHeaderNotURL(t *testing.T) {
 func TestUpstreamRemoteEnv(t *testing.T) {
 	env := upstreamRemote{URL: "https://gitlab.example/x.git"}.env()
 	joined := strings.Join(env, "\n")
-	require.Contains(t, joined, "GIT_CONFIG_COUNT=3")
+	require.Contains(t, joined, "GIT_CONFIG_COUNT=4")
 	require.Contains(t, joined, "http.postBuffer")
+	require.Contains(t, joined, "http.followRedirects")
 	require.Contains(t, joined, "http.lowSpeedLimit")
 	require.NotContains(t, joined, "extraHeader")
 
 	env = upstreamRemote{URL: "https://gitlab.example/x.git", Password: "tok"}.env()
-	require.Contains(t, strings.Join(env, "\n"), "GIT_CONFIG_COUNT=4")
+	require.Contains(t, strings.Join(env, "\n"), "GIT_CONFIG_COUNT=5")
 
-	// Package-level defaults must not be mutated by appending the auth header.
-	require.Len(t, upstreamGitConfig, 3)
+	env = upstreamRemote{URL: "https://gitlab.example/x.git", Password: "tok", resolve: "gitlab.example:443:203.0.114.1"}.env()
+	require.Contains(t, strings.Join(env, "\n"), "GIT_CONFIG_COUNT=6")
+	require.Contains(t, strings.Join(env, "\n"), "=gitlab.example:443:203.0.114.1")
+
+	// Package-level defaults must not be mutated by appending entries.
+	require.Len(t, upstreamGitConfig, 4)
 }
 
 func TestScrubRemoteCredentials(t *testing.T) {

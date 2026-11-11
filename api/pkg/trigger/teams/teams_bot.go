@@ -93,16 +93,10 @@ func (t *TeamsBot) Start(ctx context.Context) error {
 		AppPassword: t.trigger.AppPassword,
 	}
 
-	// Log the credentials being used (mask password)
-	maskedPassword := "***"
-	if len(t.trigger.AppPassword) > 4 {
-		maskedPassword = t.trigger.AppPassword[:2] + "***" + t.trigger.AppPassword[len(t.trigger.AppPassword)-2:]
-	}
 	log.Info().
 		Str("app_id", t.app.ID).
 		Str("ms_app_id", t.trigger.AppID).
-		Str("ms_app_password", maskedPassword).
-		Int("password_length", len(t.trigger.AppPassword)).
+		Bool("has_app_password", t.trigger.AppPassword != "").
 		Msg("Teams bot credentials")
 
 	// For single-tenant bots, set the tenant ID for authentication

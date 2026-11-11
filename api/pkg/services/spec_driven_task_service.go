@@ -1066,13 +1066,7 @@ Follow these guidelines when making changes:
 - Verify: `+"`git branch --show-current`"+` should show %s
 - Make your changes
 - Push: `+"`git push origin %s`", branchName, branchName)
-	hasPullRequests := false
-	for _, repo := range projectRepos {
-		if repo.ExternalURL != "" {
-			hasPullRequests = true
-			break
-		}
-	}
+	hasPullRequests := ProjectUsesPullRequests(project, projectRepos)
 	if hasPullRequests {
 		gitInstructions += "\n\n" + PullRequestProposalGuidance(branchName)
 	}
@@ -2425,4 +2419,19 @@ func (s *SpecDrivenTaskService) prepopulateClonedSpecs(ctx context.Context, task
 	}
 
 	return nil
+}
+
+// ProjectUsesPullRequests reports whether a task's agent delivers work as pull
+// requests: always for external repositories, and for Helix-hosted ones when
+// the project opts in (HelixRepoPullRequests).
+func ProjectUsesPullRequests(project *types.Project, repos []*types.GitRepository) bool {
+	if project != nil && project.HelixRepoPullRequests {
+		return true
+	}
+	for _, repo := range repos {
+		if repo.ExternalURL != "" {
+			return true
+		}
+	}
+	return false
 }

@@ -154,6 +154,15 @@ func (s *HelixAPIServer) handleCreateOAuthProvider(_ http.ResponseWriter, r *htt
 	return result, nil
 }
 
+// redactOAuthConnection strips the connection's tokens and the client secret
+// of its preloaded provider. The provider row is shared by every user of that
+// provider; its secret belongs to the operator who configured it.
+func redactOAuthConnection(connection *types.OAuthConnection) {
+	connection.AccessToken = ""
+	connection.RefreshToken = ""
+	connection.Provider.ClientSecret = ""
+}
+
 // handleListOAuthConnections returns the list of OAuth connections for the current user
 // listOAuthConnections godoc
 // @Summary List OAuth connections
@@ -175,8 +184,7 @@ func (s *HelixAPIServer) handleListOAuthConnections(_ http.ResponseWriter, r *ht
 
 	// Remove sensitive information for all connections
 	for _, connection := range connections {
-		connection.AccessToken = ""
-		connection.RefreshToken = ""
+		redactOAuthConnection(connection)
 	}
 
 	return connections, nil
@@ -372,8 +380,7 @@ func (s *HelixAPIServer) handleGetOAuthConnection(_ http.ResponseWriter, r *http
 
 	// Remove sensitive information for non-admin users
 	if !user.Admin {
-		connection.AccessToken = ""
-		connection.RefreshToken = ""
+		redactOAuthConnection(connection)
 	}
 
 	return connection, nil
@@ -455,8 +462,7 @@ func (s *HelixAPIServer) handleRefreshOAuthConnection(_ http.ResponseWriter, r *
 
 	// Remove sensitive information for non-admin users
 	if !user.Admin {
-		connection.AccessToken = ""
-		connection.RefreshToken = ""
+		redactOAuthConnection(connection)
 	}
 
 	return connection, nil
@@ -564,7 +570,9 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	state := r.URL.Query().Get("state")
 	errorMsg := r.URL.Query().Get("error")
 
-	log.Error().Str("code", code).Str("state", state).Str("error", errorMsg).Msg("OAuth callback failed")
+	if errorMsg != "" {
+		log.Warn().Str("error", errorMsg).Msg("OAuth provider returned an error to the callback")
+	}
 
 	// Check for errors
 	if errorMsg != "" {
@@ -663,10 +671,15 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	// Use the most recent request token
 	requestToken := requestTokens[0]
 
-	// Check if the user exists (we don't need the user object)
-	_, err = s.Store.GetUser(r.Context(), &store.GetUserQuery{ID: requestToken.UserID})
+	// The flow was started by an authenticated user, but the callback is
+	// public: re-check the account so an inactive user can't finish linking.
+	flowUser, err := s.Store.GetUser(r.Context(), &store.GetUserQuery{ID: requestToken.UserID})
 	if err != nil {
 		http.Error(w, "User not found", http.StatusInternalServerError)
+		return
+	}
+	if accessErr := flowUser.AccountAccessError(); accessErr != nil {
+		http.Error(w, accessErr.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -677,8 +690,6 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 			Err(err).
 			Str("provider_id", requestToken.ProviderID).
 			Str("user_id", requestToken.UserID).
-			Str("code", code).
-			Str("state", state).
 			Msg("OAuth callback failed")
 		// Sanitize error to prevent leaking internal details
 		errInfo := sanitizeOAuthError(err)
@@ -1155,7 +1166,7 @@ func (s *HelixAPIServer) handleListOAuthConnectionRepositories(_ http.ResponseWr
 		}
 
 		// Create ADO client with OAuth token
-		adoClient := azuredevops.NewAzureDevOpsClient(orgURL, connection.AccessToken)
+		adoClient := azuredevops.NewAzureDevOpsClient(orgURL, connection.AccessToken).WithOutboundPolicy(s.gitProviderURLPolicy())
 
 		adoRepos, err := adoClient.ListRepositories(ctx, "") // Empty string = all projects
 		if err != nil {

@@ -1413,3 +1413,38 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteSpecTaskRemovesThre
 	suite.Require().NoError(err)
 	suite.Empty(workSessions)
 }
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_PRMatch() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	repoID := "repo-" + system.GenerateUUID()
+	task := &types.SpecTask{
+		ID:        "task-" + system.GenerateUUID(),
+		ProjectID: project.ID,
+		Name:      "Task with PRs",
+		Type:      "feature",
+		Priority:  types.SpecTaskPriorityMedium,
+		Status:    types.TaskStatusImplementation,
+		RepoPullRequests: []types.RepoPR{
+			{RepositoryID: "other-repo", PRNumber: 7, PRID: "7"},
+			{RepositoryID: repoID, PRNumber: 3, PRID: "3", PRState: "open"},
+		},
+	}
+	suite.Require().NoError(suite.db.CreateSpecTask(suite.ctx, task))
+
+	match, err := suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		PRMatch: &types.SpecTaskPRMatch{RepositoryID: repoID, PRNumber: 3},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(match, 1)
+	suite.Equal(task.ID, match[0].ID)
+
+	miss, err := suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		PRMatch: &types.SpecTaskPRMatch{RepositoryID: repoID, PRNumber: 7},
+	})
+	suite.Require().NoError(err)
+	suite.Empty(miss)
+}

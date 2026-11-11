@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/netguard"
+
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -22,7 +24,7 @@ func TestCreateThread_OnFile(t *testing.T) {
 		t.Skip("ADO_ORG_URL is not set")
 	}
 
-	skill := NewCreateThreadSkill(adoOrgURL, adoToken)
+	skill := NewCreateThreadSkill(adoOrgURL, adoToken, netguard.Policy{})
 
 	ctx := context.Background()
 

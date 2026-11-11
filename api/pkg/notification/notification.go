@@ -3,9 +3,11 @@ package notification
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -28,18 +30,25 @@ type Notifier interface {
 type NotificationsProvider struct {
 	store store.Store
 
+	// webhookClient posts to callback URLs, which users set on cron triggers
+	// and sessions; it enforces the outbound policy on every connection.
+	webhookClient *http.Client
+
 	email *Email
 }
 
-func New(cfg *config.Notifications, store store.Store) (Notifier, error) {
+// New returns a Notifier. webhookPolicy restricts where callback URLs may
+// point (they are user-supplied and posted to from the API server).
+func New(cfg *config.Notifications, store store.Store, webhookPolicy netguard.Policy) (Notifier, error) {
 	email, err := NewEmail(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	return &NotificationsProvider{
-		store: store,
-		email: email,
+		store:         store,
+		email:         email,
+		webhookClient: webhookPolicy.NewClient(webhookTimeout),
 	}, nil
 }
 
@@ -50,7 +59,7 @@ func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notifi
 
 	// Send webhook if callback URL is configured
 	if notification.CallbackURL != "" {
-		if err := sendWebhook(ctx, notification.CallbackURL, notification); err != nil {
+		if err := sendWebhook(ctx, n.webhookClient, notification.CallbackURL, notification); err != nil {
 			log.Error().Err(err).Str("callback_url", notification.CallbackURL).Msg("failed to send webhook notification")
 		}
 	}

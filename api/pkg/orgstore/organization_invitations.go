@@ -2,6 +2,11 @@ package orgstore
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -49,7 +54,7 @@ func (s *Store) CreateOrganizationInvitation(ctx context.Context, inv *types.Org
 		return nil, fmt.Errorf("email not specified")
 	}
 
-	inv.Email = strings.ToLower(strings.TrimSpace(inv.Email))
+	inv.Email = NormalizeEmail(inv.Email)
 
 	if inv.ID == "" {
 		inv.ID = system.GenerateOrgInvitationID()
@@ -57,6 +62,11 @@ func (s *Store) CreateOrganizationInvitation(ctx context.Context, inv *types.Org
 	if inv.Role == "" {
 		inv.Role = types.OrganizationRoleMember
 	}
+	token, hash, err := newInvitationToken()
+	if err != nil {
+		return nil, err
+	}
+	inv.Token, inv.TokenHash = token, hash
 	now := time.Now()
 	inv.CreatedAt = now
 	inv.UpdatedAt = now
@@ -66,7 +76,7 @@ func (s *Store) CreateOrganizationInvitation(ctx context.Context, inv *types.Org
 	// would mask a role-change attempt that the caller should perform
 	// explicitly.
 	var existing types.OrganizationInvitation
-	err := s.gdb.WithContext(ctx).
+	err = s.gdb.WithContext(ctx).
 		Where("organization_id = ? AND email = ? AND COALESCE(app_id, '') = ?", inv.OrganizationID, inv.Email, inv.AppID).
 		First(&existing).Error
 	if err == nil {
@@ -152,20 +162,99 @@ func (s *Store) DeleteOrganizationInvitation(ctx context.Context, id string) err
 // immediately. All work happens inside a single transaction so a partial
 // failure can't leave the invitation in an "accepted but not joined"
 // state. Returns the list of memberships that were created.
+//
+// Only call this when the user's ownership of the email address has been
+// verified (e.g. an OIDC verified-email claim): it accepts every invitation
+// sent to that address, whoever sent it.
 func (s *Store) ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error) {
 	if user == nil || user.ID == "" || user.Email == "" {
 		return nil, nil
 	}
+	email := NormalizeEmail(user.Email)
+	// Oldest first: when several invitations target the same org (say an
+	// org-wide one and a project one), the earliest decides the membership
+	// role, deterministically.
+	return s.consumeInvitations(ctx, user, func(tx *gorm.DB) *gorm.DB {
+		return tx.Where("email = ?", email).Order("created_at ASC")
+	})
+}
 
-	email := strings.ToLower(strings.TrimSpace(user.Email))
+// ConsumeInvitation accepts the single invitation invitationID for user, as
+// ConsumePendingInvitations does, if it was sent to the user's email address
+// (compared trimmed and lowercased) and token is its secret token. It is for
+// accounts whose email is not verified: the token, sent only to that address,
+// is the proof. Other invitations pending for the address are left alone.
+// Returns no memberships, and no error, when the invitation does not match.
+func (s *Store) ConsumeInvitation(ctx context.Context, user *types.User, invitationID, token string) ([]*types.OrganizationMembership, error) {
+	if user == nil || user.ID == "" || user.Email == "" || invitationID == "" || token == "" {
+		return nil, nil
+	}
+	email := NormalizeEmail(user.Email)
+	return s.consumeInvitations(ctx, user, func(tx *gorm.DB) *gorm.DB {
+		return tx.Where("id = ? AND email = ? AND token_hash = ?", invitationID, email, HashInvitationToken(token))
+	})
+}
 
+// RotateOrganizationInvitationToken gives the invitation a new secret token,
+// invalidating any link issued before, and returns it with the token set.
+func (s *Store) RotateOrganizationInvitationToken(ctx context.Context, id string) (*types.OrganizationInvitation, error) {
+	token, hash, err := newInvitationToken()
+	if err != nil {
+		return nil, err
+	}
+	res := s.gdb.WithContext(ctx).Model(&types.OrganizationInvitation{}).Where("id = ?", id).
+		Updates(map[string]any{"token_hash": hash, "updated_at": time.Now()})
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, ErrNotFound
+	}
+	inv, err := s.GetOrganizationInvitation(ctx, &GetOrganizationInvitationQuery{ID: id})
+	if err != nil {
+		return nil, err
+	}
+	inv.Token = token
+	return inv, nil
+}
+
+// InvitationTokenMatches reports whether token is inv's secret token.
+func InvitationTokenMatches(inv *types.OrganizationInvitation, token string) bool {
+	if inv == nil || inv.TokenHash == "" || token == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(inv.TokenHash), []byte(HashInvitationToken(token))) == 1
+}
+
+// HashInvitationToken returns the stored form of an invitation token.
+func HashInvitationToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+// NormalizeEmail is the canonical form of an email address for matching
+// accounts and invitations: trimmed and lowercased.
+func NormalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func newInvitationToken() (token, hash string, err error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", "", fmt.Errorf("generate invitation token: %w", err)
+	}
+	token = base64.RawURLEncoding.EncodeToString(b)
+	return token, HashInvitationToken(token), nil
+}
+
+// consumeInvitations accepts the invitations selected by query for user in
+// one transaction: memberships, access grants, and deletion of the
+// invitations.
+func (s *Store) consumeInvitations(ctx context.Context, user *types.User, query func(tx *gorm.DB) *gorm.DB) ([]*types.OrganizationMembership, error) {
 	var created []*types.OrganizationMembership
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var invitations []*types.OrganizationInvitation
-		// Oldest first: when several invitations target the same org (say an
-		// org-wide one and a project one), the earliest decides the membership
-		// role, deterministically.
-		if err := tx.Where("email = ?", email).Order("created_at ASC").Find(&invitations).Error; err != nil {
+		if err := query(tx).Find(&invitations).Error; err != nil {
 			return fmt.Errorf("list invitations: %w", err)
 		}
 		now := time.Now()
@@ -222,7 +311,7 @@ func (s *Store) ConsumePendingInvitations(ctx context.Context, user *types.User)
 	return created, nil
 }
 
-// createInvitationAccessGrant runs inside ConsumePendingInvitations'
+// createInvitationAccessGrant runs inside consumeInvitations'
 // transaction. It looks up the org's roles by name (since invitations
 // store role *names*, not IDs — names are stable across role rebuilds)
 // and creates an AccessGrant + role bindings for the new user. If a grant

@@ -82,7 +82,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	}
 
 	config := types.ServerConfigForFrontend{
-		RegistrationEnabled:                    apiServer.Cfg.Auth.RegistrationEnabled,
+		RegistrationEnabled:                    apiServer.Cfg.Auth.RegistrationEnabled && apiServer.passwordAuthEnabled(),
 		RequireActiveSubscription:              apiServer.Cfg.Stripe.RequireActiveSubscription,
 		AuthProvider:                           apiServer.Cfg.Auth.Provider,
 		FilestorePrefix:                        filestorePrefix,
@@ -903,7 +903,7 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 		return nil, system.NewHTTPError403("only admins can create users")
 	}
 
-	if apiServer.Cfg.Auth.Provider == types.AuthProviderOIDC {
+	if !apiServer.passwordAuthEnabled() {
 		return nil, system.NewHTTPError400(
 			"User creation is managed by your OIDC provider. " +
 				"Create the user in the OIDC provider's admin console; " +
@@ -975,6 +975,11 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 
 	if !adminUser.Admin {
 		return nil, system.NewHTTPError403("only admins can reset user passwords")
+	}
+
+	if !apiServer.passwordAuthEnabled() {
+		return nil, system.NewHTTPError400(
+			"Passwords are managed by your OIDC provider; Helix passwords cannot be set.")
 	}
 
 	targetUserID := mux.Vars(req)["id"]
@@ -1495,7 +1500,17 @@ func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Re
 	apiKey := req.URL.Query().Get("key")
 	key, err := apiServer.Controller.CheckAPIKey(ctx, apiKey)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("api key not found")
+		}
 		return nil, err
+	}
+	// Report only on the caller's own keys. Anyone else's key reads as not
+	// found, so the endpoint cannot be used to validate a key someone found
+	// or to learn whose it is.
+	user := getRequestUser(req)
+	if user == nil || (key.Owner != user.ID && !isAdmin(user)) {
+		return nil, system.NewHTTPError404("api key not found")
 	}
 	return key, nil
 }

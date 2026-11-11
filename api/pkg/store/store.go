@@ -254,6 +254,8 @@ type Store interface {
 	ListOrganizationInvitations(ctx context.Context, query *ListOrganizationInvitationsQuery) ([]*types.OrganizationInvitation, error)
 	DeleteOrganizationInvitation(ctx context.Context, id string) error
 	ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error)
+	ConsumeInvitation(ctx context.Context, user *types.User, invitationID, token string) ([]*types.OrganizationMembership, error)
+	RotateOrganizationInvitationToken(ctx context.Context, id string) (*types.OrganizationInvitation, error)
 
 	CreateTeam(ctx context.Context, team *types.Team) (*types.Team, error)
 	GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Team, error)
@@ -743,6 +745,13 @@ type Store interface {
 	DeleteGitRepository(ctx context.Context, id string) error
 	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
 	CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error)
+
+	// Git pull request methods (Helix-hosted repositories)
+	CreateGitPullRequest(ctx context.Context, pr *types.GitPullRequest) error
+	GetGitPullRequest(ctx context.Context, repositoryID string, number int) (*types.GitPullRequest, error)
+	ListGitPullRequests(ctx context.Context, repositoryID, state string) ([]*types.GitPullRequest, error)
+	UpdateGitPullRequest(ctx context.Context, pr *types.GitPullRequest) error
+	DeleteGitPullRequestsForRepository(ctx context.Context, repositoryID string) error
 
 	// spec-driven task multi-session management
 	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)

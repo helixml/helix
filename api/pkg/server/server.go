@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,7 +60,6 @@ import (
 	"github.com/helixml/helix/api/pkg/version"
 	"github.com/helixml/helix/api/pkg/webhooks"
 	"github.com/helixml/helix/api/pkg/webservice"
-
 )
 
 const APIPrefix = "/api/v1"
@@ -118,6 +118,8 @@ type HelixAPIServer struct {
 	// botInstances creates a Bot's instances for chats started with the Bot's
 	// app id. Set by mountHelixOrg; nil when helix-org is disabled.
 	botInstances *botInstances
+	// gitTemplate configures the create-from-template endpoints.
+	gitTemplate gitTemplateConfig
 	// onServiceConnectionChange is an optional post-mutation hook a
 	// subsystem registers (helix-org, in registerHelixOrgRoutes) so it can react to
 	// the connection types it owns without the generic service-connection
@@ -190,6 +192,7 @@ type HelixAPIServer struct {
 	kodit                     *KoditResult
 	mcpGateway                *MCPGateway
 	gitHTTPServer             *services.GitHTTPServer
+	githubCompatRouter        *mux.Router
 	// Streaming context cache - avoids redundant DB queries during token streaming
 	streamingContexts   map[string]*streamingContext // helix_session_id -> cached context
 	streamingContextsMu sync.RWMutex
@@ -272,6 +275,15 @@ func NewServer(
 
 	if cfg.WebServer.RunnerToken == "" {
 		return nil, fmt.Errorf("runner token is required")
+	}
+
+	switch cfg.Auth.Provider {
+	case types.AuthProviderRegular, types.AuthProviderOIDC:
+	default:
+		// An unrecognised value would otherwise disable OIDC while leaving
+		// some password paths reachable; refuse to start instead.
+		return nil, fmt.Errorf("unsupported AUTH_PROVIDER %q: must be %q or %q",
+			cfg.Auth.Provider, types.AuthProviderRegular, types.AuthProviderOIDC)
 	}
 
 	// Create OIDC client if using OIDC auth provider
@@ -408,6 +420,7 @@ func NewServer(
 		externalAgentWSManager:     externalAgentWSManager,
 		externalAgentRunnerManager: externalAgentRunnerManager,
 		contextMappings:            make(map[threadRouteKey]string),
+		gitTemplate:                defaultGitTemplateConfig(),
 
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
@@ -427,9 +440,8 @@ func NewServer(
 		modelInfoProvider:           modelInfoProvider,
 		openCodeResolver:            opencode.NewResolver(nil, cfg.Sandboxes.OpenCodeReleasesURL),
 		pubsub:                      ps,
-		mcpClientGetter: &mcp.DefaultClientGetter{
-			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
-		},
+		mcpClientGetter: mcp.NewDefaultClientGetter(cfg.Tools.TLSSkipVerify,
+			netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks}, cfg.WebServer.URL),
 		knowledgeManager: knowledgeManager,
 		skillManager:     skillManager,
 		inferenceRouter:  inferencerouter.NewRouter(),
@@ -614,7 +626,9 @@ func NewServer(
 	// Register External MCP backend (user-configured MCP servers)
 	// This proxies requests from Zed to external MCP servers configured in agents
 	// Route: /api/v1/mcp/external/{mcp_name}/{path...}
-	apiServer.mcpGateway.RegisterBackend("external", NewExternalMCPBackend(store))
+	externalMCPBackend := NewExternalMCPBackend(store)
+	externalMCPBackend.clientGetter = apiServer.mcpClientGetter
+	apiServer.mcpGateway.RegisterBackend("external", externalMCPBackend)
 
 	// Register Desktop MCP backend (screenshot, clipboard, input, window management)
 	// Proxies MCP requests via RevDial to desktop-bridge inside sandbox containers
@@ -722,6 +736,10 @@ func NewServer(
 		reviewWebhookURL = fmt.Sprintf("%s/api/v1/webhooks/github/reviews", strings.TrimSuffix(cfg.WebServer.URL, "/"))
 	}
 	gitRepositoryService.SetGitHubReviewWebhooks(reviewWebhookURL)
+
+	// Helix-hosted repositories take the GitHub pull request code path against
+	// this server's GitHub-compatible API, in-process.
+	gitRepositoryService.SetInternalGitHubCompat(cfg.WebServer.URL, apiServer.newInternalCompatDispatch())
 
 	// Start orchestrator
 	go func() {
@@ -978,6 +996,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 		return nil, err
 	}
 
+	// GitHub-compatible API for Helix-hosted repositories. Header auth only, so
+	// it sits outside the /api/v1 cookie and CSRF middleware.
+	apiServer.registerGitHubCompatRoutes(router)
+
 	// insecure router is under /api/v1 but not protected by auth
 	insecureRouter := router.PathPrefix(APIPrefix).Subrouter()
 
@@ -1126,7 +1148,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// Insecure router as unauthenticated users will see all public provider endpoints
 	subRouter.HandleFunc("/provider-endpoints", apiServer.listProviderEndpoints).Methods(http.MethodGet)
 
-	subRouter.HandleFunc("/providers/detect-local", apiServer.detectLocalProviders).Methods(http.MethodGet)
+	// Probes the API host's local ports and returns what it finds: admins only
+	// (connecting a detected server creates a global endpoint, also admin-only).
+	adminRouter.HandleFunc("/providers/detect-local", apiServer.detectLocalProviders).Methods(http.MethodGet)
 	authRouter.HandleFunc("/provider-endpoints", apiServer.createProviderEndpoint).Methods(http.MethodPost)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.updateProviderEndpoint).Methods(http.MethodPut)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.deleteProviderEndpoint).Methods(http.MethodDelete)
@@ -1316,6 +1340,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// User auth, BFF
 	insecureRouter.HandleFunc("/auth/register", apiServer.register).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/invitations/{id}/info", apiServer.publicInvitationInfo).Methods(http.MethodGet)
+	// Authenticates itself (session + CSRF) so waitlisted accounts can accept.
+	insecureRouter.HandleFunc("/invitations/{id}/accept", apiServer.acceptInvitationHandler).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/login", apiServer.login).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/callback", apiServer.callback).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/user", apiServer.user).Methods(http.MethodGet)
@@ -1344,6 +1370,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/organizations/{id}/invitations", apiServer.listOrganizationInvitations).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{id}/invitations", apiServer.createOrganizationInvitationHandler).Methods(http.MethodPost)
 	authRouter.HandleFunc("/organizations/{id}/invitations/{invitation_id}", apiServer.deleteOrganizationInvitation).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/invitations/{invitation_id}/link", apiServer.createInvitationLink).Methods(http.MethodPost)
 	authRouter.HandleFunc("/organizations/{id}/users/lookup", apiServer.lookupOrgUser).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/organizations/{id}/roles", apiServer.listOrganizationRoles).Methods(http.MethodGet)
@@ -1770,6 +1797,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/work-sessions/{sessionId}/zed-thread", apiServer.createZedThreadForWorkSession).Methods(http.MethodPost)
 
 	// Git repository routes (actual git repository management)
+	// Create a repository in the user's own GitHub/GitLab account from a template.
+	// Registered before /git/repositories/{id} so "from-template" is not read as an id.
+	authRouter.HandleFunc("/git/owners", apiServer.listGitOwners).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/from-template", apiServer.createGitRepositoryFromTemplate).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories", apiServer.createGitRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories", apiServer.listGitRepositories).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}", apiServer.getGitRepository).Methods(http.MethodGet)
@@ -1804,6 +1835,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/git/repositories/{id}/commits", apiServer.listGitRepositoryCommits).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.listGitRepositoryPullRequests).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.createGitRepositoryPullRequest).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/{id}/pulls", apiServer.listGitRepositoryPulls).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/pulls/{number}", apiServer.getGitRepositoryPull).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/pulls/{number}", apiServer.updateGitRepositoryPull).Methods(http.MethodPatch)
+	authRouter.HandleFunc("/git/repositories/{id}/pulls/{number}/merge", apiServer.mergeGitRepositoryPull).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/{id}/pulls/{number}/request-rebase", apiServer.requestGitRepositoryPullRebase).Methods(http.MethodPost)
 
 	// Browse remote repositories using PAT credentials (without needing OAuth)
 	authRouter.HandleFunc("/git/browse-remote", apiServer.browseRemoteRepositories).Methods(http.MethodPost)
@@ -2077,11 +2113,9 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 		}
 
 		// Validate the runner token (like GPTScript does)
-		if accessToken != apiServer.Cfg.WebServer.RunnerToken {
+		if subtle.ConstantTimeCompare([]byte(accessToken), []byte(apiServer.Cfg.WebServer.RunnerToken)) != 1 {
 			log.Warn().
 				Str("EXTERNAL_AGENT_DEBUG", "invalid_token").
-				Str("provided_token", accessToken).
-				Str("expected_token", apiServer.Cfg.WebServer.RunnerToken).
 				Str("runner_id", runnerID).
 				Msg("❌ EXTERNAL_AGENT_DEBUG: Invalid runner token for external agent runner")
 			http.Error(w, "Invalid access token", http.StatusUnauthorized)
