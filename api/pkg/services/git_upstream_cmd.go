@@ -88,6 +88,21 @@ func isHTTPURL(raw string) bool {
 	return err == nil && (u.Scheme == "http" || u.Scheme == "https")
 }
 
+// upstreamGitAllowedProtocols are the transports an upstream command may use.
+// Remote URLs come from users, so local paths, file://, ext:: (which runs a
+// command) and the other transports git would otherwise allow are refused by
+// git itself, including for redirects and submodules.
+const upstreamGitAllowedProtocols = "http:https"
+
+// upstreamGitProtocolEnv restricts upstream transports unless the operator has
+// set GIT_ALLOW_PROTOCOL in the server environment.
+func upstreamGitProtocolEnv() []string {
+	if _, ok := os.LookupEnv("GIT_ALLOW_PROTOCOL"); ok {
+		return nil
+	}
+	return []string{"GIT_ALLOW_PROTOCOL=" + upstreamGitAllowedProtocols}
+}
+
 // runUpstreamGit runs a git command that contacts an external remote. The
 // command (and every child it spawns) is killed when ctx is done or timeout
 // elapses; cancellation and the subsequent pipe wait are both bounded.
@@ -100,7 +115,7 @@ func runUpstreamGit(ctx context.Context, dir string, timeout time.Duration, env 
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(append(os.Environ(), gitcmd.CommonGitCmdEnvs()...), env...)
+	cmd.Env = append(append(append(os.Environ(), gitcmd.CommonGitCmdEnvs()...), upstreamGitProtocolEnv()...), env...)
 	configureUpstreamGitProcess(cmd)
 	cmd.WaitDelay = upstreamGitWaitDelay
 

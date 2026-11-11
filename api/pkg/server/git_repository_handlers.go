@@ -114,6 +114,9 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 	if request.RepoType == "" {
 		request.RepoType = types.GitRepositoryTypeCode
 	}
+	if request.ExternalURL != "" && rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "external_url", request.ExternalURL) {
+		return
+	}
 
 	// Pass API key for Kodit to clone repos via Helix's internal git server
 	if request.KoditIndexing {
@@ -286,6 +289,9 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
 		writeErrResponse(w, err, http.StatusForbidden)
+		return
+	}
+	if request.ExternalURL != "" && rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "external_url", request.ExternalURL) {
 		return
 	}
 
