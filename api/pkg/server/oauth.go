@@ -570,7 +570,9 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	state := r.URL.Query().Get("state")
 	errorMsg := r.URL.Query().Get("error")
 
-	log.Error().Str("code", code).Str("state", state).Str("error", errorMsg).Msg("OAuth callback failed")
+	if errorMsg != "" {
+		log.Warn().Str("error", errorMsg).Msg("OAuth provider returned an error to the callback")
+	}
 
 	// Check for errors
 	if errorMsg != "" {
@@ -683,8 +685,6 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 			Err(err).
 			Str("provider_id", requestToken.ProviderID).
 			Str("user_id", requestToken.UserID).
-			Str("code", code).
-			Str("state", state).
 			Msg("OAuth callback failed")
 		// Sanitize error to prevent leaking internal details
 		errInfo := sanitizeOAuthError(err)
