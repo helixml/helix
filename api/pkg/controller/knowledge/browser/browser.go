@@ -285,18 +285,38 @@ func (b *Browser) getChromeURL() (string, error) {
 }
 
 // GuardPage makes client carry every HTTP(S) request page issues —
-// navigations, redirects, script-initiated navigations, subresources and
-// fetch/XHR — so the client's transport (an outbound policy) decides what the
+// navigations, redirects, script-initiated navigations, subresources,
+// fetch/XHR, and requests from its dedicated workers and out-of-process
+// iframes — so the client's transport (an outbound policy) decides what the
 // browser can reach and its own DNS resolution is never used. Requests the
 // client refuses fail in the page. WebSocket connections, which request
-// interception does not see, are blocked outright. Call the returned function
-// before returning the page to the pool.
+// interception does not see, are blocked outright, and service workers are
+// held paused. Not covered: connection-only hints (<link rel=preconnect>,
+// dns-prefetch), which can open a connection or resolve a name but return
+// nothing to the page. Call the returned function before returning the page
+// to the pool.
 func GuardPage(page *rod.Page, client *http.Client) (func(), error) {
 	if err := (proto.NetworkEnable{}).Call(page); err != nil {
 		return nil, fmt.Errorf("enable network domain: %w", err)
 	}
 	if err := page.SetBlockedURLs([]string{"ws://*", "wss://*"}); err != nil {
 		return nil, fmt.Errorf("block websocket URLs: %w", err)
+	}
+	// Service workers run as their own targets, outside this page's request
+	// interception (dedicated workers and out-of-process iframes are
+	// covered by it). Pause every service worker the browser starts and
+	// never resume it, and keep the page's requests from being answered by
+	// one. The browsers used here only render guarded pages.
+	if err := (proto.TargetSetAutoAttach{
+		AutoAttach:             true,
+		WaitForDebuggerOnStart: true,
+		Flatten:                true,
+		Filter:                 proto.TargetTargetFilter{{Type: "service_worker"}, {Exclude: true}},
+	}).Call(page.Browser()); err != nil {
+		return nil, fmt.Errorf("hold service workers: %w", err)
+	}
+	if err := (proto.NetworkSetBypassServiceWorker{Bypass: true}).Call(page); err != nil {
+		return nil, fmt.Errorf("bypass service workers: %w", err)
 	}
 	router := page.HijackRequests()
 	err := router.Add("*", "", func(h *rod.Hijack) {
