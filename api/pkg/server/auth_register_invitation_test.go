@@ -24,7 +24,11 @@ func newRegisterTestServer(t *testing.T) (*HelixAPIServer, *store.MockStore) {
 	cfg.Auth.Provider = types.AuthProviderRegular
 	cfg.Auth.RegistrationEnabled = true
 
-	st.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	st.EXPECT().GetUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ any, q *store.GetUserQuery) (*types.User, error) {
+		// The address is matched in its canonical form.
+		require.Equal(t, "invited@example.com", q.Email)
+		return nil, store.ErrNotFound
+	})
 	authn.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ any, u *types.User) (*types.User, error) {
 		return u, nil
 	})
@@ -50,12 +54,13 @@ func TestRegister_DoesNotAcceptInvitationsByEmail(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 }
 
-// The invite link carries the invitation ID: only that invitation is
-// accepted (the store checks it was sent to the registering address).
+// The invite link carries the invitation ID and its secret token: only that
+// invitation is accepted (the store checks the token, and that it was sent
+// to the registering address, compared in canonical form).
 func TestRegister_AcceptsTheInvitationFromTheLink(t *testing.T) {
 	s, st := newRegisterTestServer(t)
-	st.EXPECT().ConsumeInvitation(gomock.Any(), gomock.Any(), "oin_from_link").
-		DoAndReturn(func(_ any, u *types.User, _ string) ([]*types.OrganizationMembership, error) {
+	st.EXPECT().ConsumeInvitation(gomock.Any(), gomock.Any(), "oin_from_link", "secret-from-link").
+		DoAndReturn(func(_ any, u *types.User, _, _ string) ([]*types.OrganizationMembership, error) {
 			require.Equal(t, "invited@example.com", u.Email)
 			return []*types.OrganizationMembership{{OrganizationID: "org_1", UserID: u.ID}}, nil
 		})
@@ -65,6 +70,6 @@ func TestRegister_AcceptsTheInvitationFromTheLink(t *testing.T) {
 		return u, nil
 	})
 
-	rr := register(t, s, `{"email":"invited@example.com","password":"pw","password_confirm":"pw","invitation_id":"oin_from_link"}`)
+	rr := register(t, s, `{"email":" Invited@Example.com ","password":"pw","password_confirm":"pw","invitation_id":"oin_from_link","invitation_token":"secret-from-link"}`)
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 }

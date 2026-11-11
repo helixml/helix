@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
@@ -226,7 +227,7 @@ func TestListOrganizationMembers_ExcludesAppScopedInvitations(t *testing.T) {
 	}).Return(&types.OrganizationMembership{
 		OrganizationID: orgID,
 		UserID:         userID,
-		Role:           types.OrganizationRoleMember,
+		Role:           types.OrganizationRoleOwner,
 	}, nil)
 	mockStore.EXPECT().ListOrganizationMemberships(gomock.Any(), gomock.Any()).
 		Return([]*types.OrganizationMembership{}, nil)
@@ -275,6 +276,10 @@ func TestAddOrganizationMember_DuplicateInvitation_Idempotent(t *testing.T) {
 	// treat it as a no-op success.
 	mockStore.EXPECT().CreateOrganizationInvitation(gomock.Any(), gomock.Any()).
 		Return(existing, store.ErrInvitationAlreadyExists)
+	// Only the token's hash is stored, so resending issues a new one.
+	rotated := *existing
+	rotated.Token = "new-token"
+	mockStore.EXPECT().RotateOrganizationInvitationToken(gomock.Any(), existing.ID).Return(&rotated, nil)
 
 	body, _ := json.Marshal(types.AddOrganizationMemberRequest{UserReference: "dup@example.com"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations/"+orgID+"/members", bytes.NewReader(body))
@@ -341,7 +346,7 @@ func TestListOrganizationMembers_IncludesPendingInvitations(t *testing.T) {
 	}).Return(&types.OrganizationMembership{
 		OrganizationID: orgID,
 		UserID:         userID,
-		Role:           types.OrganizationRoleMember,
+		Role:           types.OrganizationRoleOwner, // owners manage invitations
 	}, nil)
 
 	mockStore.EXPECT().ListOrganizationMemberships(gomock.Any(), &store.ListOrganizationMembershipsQuery{
@@ -645,7 +650,7 @@ func TestLookupOrgUser_RequiresEmail(t *testing.T) {
 }
 
 func TestPublicInvitationInfo_OK(t *testing.T) {
-	// Unauthenticated endpoint — only the invitation id is required.
+	// Unauthenticated endpoint — the invitation id and its link token are required.
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -660,11 +665,12 @@ func TestPublicInvitationInfo_OK(t *testing.T) {
 			ID:             invID,
 			OrganizationID: orgID,
 			Email:          "invited@example.com",
+			TokenHash:      orgstore.HashInvitationToken("link-token"),
 		}, nil)
 	mockStore.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: orgID}).
 		Return(&types.Organization{ID: orgID, Name: "acme", DisplayName: "Acme Corp"}, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/invitations/"+invID+"/info", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/invitations/"+invID+"/info?token=link-token", nil)
 	req = mux.SetURLVars(req, map[string]string{"id": invID})
 
 	rr := httptest.NewRecorder()
@@ -709,11 +715,11 @@ func TestPublicInvitationInfo_TolerantOfMissingOrg(t *testing.T) {
 	server := newTestServerNoNotifier(mockStore)
 
 	mockStore.EXPECT().GetOrganizationInvitation(gomock.Any(), gomock.Any()).
-		Return(&types.OrganizationInvitation{ID: "oin_orphan", OrganizationID: "org_gone", Email: "orphan@example.com"}, nil)
+		Return(&types.OrganizationInvitation{ID: "oin_orphan", OrganizationID: "org_gone", Email: "orphan@example.com", TokenHash: orgstore.HashInvitationToken("link-token")}, nil)
 	mockStore.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("org gone"))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/invitations/oin_orphan/info", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/invitations/oin_orphan/info?token=link-token", nil)
 	req = mux.SetURLVars(req, map[string]string{"id": "oin_orphan"})
 
 	rr := httptest.NewRecorder()

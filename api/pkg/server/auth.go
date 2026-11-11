@@ -264,6 +264,10 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// One canonical form for the address everywhere it is matched
+	// (accounts, invitations).
+	registerRequest.Email = store.NormalizeEmail(registerRequest.Email)
+
 	existingUser, err := s.Store.GetUser(ctx, &store.GetUserQuery{
 		Email: registerRequest.Email,
 	})
@@ -299,24 +303,14 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 	// Accept the organization invitation from the invite link, if any.
 	// Password sign-up does not prove ownership of the email address, so
 	// pending invitations are never accepted by email alone (anyone could
-	// register an invited address and take the invited role); the
-	// invitation ID, sent only to that address, is the proof, and only that
-	// invitation is accepted. Best-effort — a failure here shouldn't
-	// prevent the user from signing in; they can be re-invited. An accepted
-	// invitation means the user is onboarded (they have an org) and vouched
-	// for by an org owner, so it also bypasses the waitlist.
+	// register an invited address and take the invited role). The proof is
+	// the invitation's secret token, sent only to that address; the ID
+	// alone is visible to org members and is not enough. Best-effort — a
+	// failure here shouldn't prevent the user from signing in; they can
+	// accept from the link later.
 	if registerRequest.InvitationID != "" {
-		consumed, invErr := s.Store.ConsumeInvitation(ctx, createdUser, registerRequest.InvitationID)
-		if invErr != nil {
-			log.Warn().Err(invErr).Str("user_id", createdUser.ID).Msg("failed to consume invitation")
-		} else if len(consumed) > 0 {
-			log.Info().Str("user_id", createdUser.ID).Int("count", len(consumed)).Msg("accepted org invitation on registration")
-			createdUser.OnboardingCompleted = true
-			createdUser.OnboardingCompletedAt = time.Now()
-			createdUser.Waitlisted = false
-			if _, err := s.Store.UpdateUser(ctx, createdUser); err != nil {
-				log.Warn().Err(err).Str("user_id", createdUser.ID).Msg("failed to mark invited user as onboarded")
-			}
+		if _, err := s.acceptInvitation(ctx, createdUser, registerRequest.InvitationID, registerRequest.InvitationToken); err != nil {
+			log.Warn().Err(err).Str("user_id", createdUser.ID).Msg("failed to accept invitation on registration")
 		}
 	}
 

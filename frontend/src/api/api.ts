@@ -6370,16 +6370,26 @@ export interface TypesReasoningEffortProfile {
   verified_at?: string;
 }
 
+export interface TypesAcceptInvitationRequest {
+  /** Token is the invitation's secret token from the invite link. */
+  token?: string;
+}
+
+export interface TypesInvitationLinkResponse {
+  url?: string;
+}
+
 export interface TypesRegisterRequest {
   email?: string;
   full_name?: string;
   /**
-   * InvitationID is the organization invitation from the invite link
-   * (/login?invitation=<id>). Password sign-up does not verify the email
-   * address, so only the invitation presented here is accepted, and only
-   * when it was sent to Email.
+   * InvitationID and InvitationToken come from the invite link
+   * (/login?invitation=<id>&token=<token>). Password sign-up does not
+   * verify the email address, so only the invitation presented here is
+   * accepted, and only with its secret token and when it was sent to Email.
    */
   invitation_id?: string;
+  invitation_token?: string;
   password?: string;
   password_confirm?: string;
 }
@@ -13649,10 +13659,36 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Look up basic info for an invitation by id
      * @request GET:/api/v1/invitations/{id}/info
      */
-    v1InvitationsInfoDetail: (id: string, params: RequestParams = {}) =>
+    v1InvitationsInfoDetail: (
+      id: string,
+      query: {
+        /** Secret token from the invite link */
+        token: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesPublicInvitationInfo, any>({
         path: `/api/v1/invitations/${id}/info`,
         method: "GET",
+        query: query,
+        ...params,
+      }),
+
+    /**
+     * @description Accept the invitation from an invite link as the signed-in user. Requires the invitation's secret token from the link, and the account's email must be the invited address. Works for waitlisted accounts (an invitation lifts the waitlist).
+     *
+     * @tags organizations
+     * @name V1InvitationsAcceptCreate
+     * @summary Accept an organization invitation
+     * @request POST:/api/v1/invitations/{id}/accept
+     */
+    v1InvitationsAcceptCreate: (id: string, request: TypesAcceptInvitationRequest, params: RequestParams = {}) =>
+      this.request<TypesUserResponse, any>({
+        path: `/api/v1/invitations/${id}/accept`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -14344,6 +14380,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/organizations/${id}/invitations/${invitationId}`,
         method: "DELETE",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Owners only. Generates a new secret token for the invitation and returns its invite link, for sending outside email. Links issued earlier (including the emailed one) stop working.
+     *
+     * @tags organizations
+     * @name V1OrganizationsInvitationsLinkCreate
+     * @summary Issue a new invite link for a pending invitation
+     * @request POST:/api/v1/organizations/{id}/invitations/{invitation_id}/link
+     * @secure
+     */
+    v1OrganizationsInvitationsLinkCreate: (id: string, invitationId: string, params: RequestParams = {}) =>
+      this.request<TypesInvitationLinkResponse, any>({
+        path: `/api/v1/organizations/${id}/invitations/${invitationId}/link`,
+        method: "POST",
+        secure: true,
+        format: "json",
         ...params,
       }),
 

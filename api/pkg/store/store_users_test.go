@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -180,4 +181,17 @@ func (suite *UsersTestSuite) TestGetUser_DesktopIdentity() {
 	suite.Require().NoError(err)
 	suite.True(got.DesktopIdentity)
 	suite.NotEqual(plain.ID, got.ID)
+}
+
+// Emails are matched case-insensitively, so "Taken@x" is taken by "taken@x".
+func (suite *UsersTestSuite) TestGetUser_EmailIsCaseInsensitive() {
+	prefix := "case-" + system.GenerateAppID()
+	u := &types.User{ID: prefix, Email: prefix + "@example.com", Username: prefix}
+	_, err := suite.db.CreateUser(suite.ctx, u)
+	suite.Require().NoError(err)
+	defer suite.db.DeleteUser(suite.ctx, u.ID)
+
+	got, err := suite.db.GetUser(suite.ctx, &GetUserQuery{Email: "  " + strings.ToUpper(u.Email) + " "})
+	suite.Require().NoError(err)
+	suite.Equal(u.ID, got.ID)
 }

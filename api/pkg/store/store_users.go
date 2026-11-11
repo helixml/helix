@@ -143,7 +143,9 @@ func (s *PostgresStore) GetUser(ctx context.Context, q *GetUserQuery) (*types.Us
 		query = query.Where("id = ?", q.ID)
 	}
 	if q.Email != "" {
-		query = query.Where("email = ?", q.Email)
+		// Emails are matched case-insensitively (as invitations are), so an
+		// address cannot be registered twice in different cases.
+		query = query.Where("LOWER(email) = ?", NormalizeEmail(q.Email)).Order("created_at ASC")
 	}
 
 	var user types.User

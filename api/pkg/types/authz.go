@@ -135,6 +135,15 @@ type OrganizationInvitation struct {
 	// invitations are unique per (organization, email, app_id).
 	AppID      string         `json:"app_id,omitempty" gorm:"index"`
 	GrantRoles pq.StringArray `json:"grant_roles,omitempty" gorm:"type:text[];default:'{}'"`
+
+	// TokenHash is the SHA-256 of the invitation's secret token. The token
+	// itself is only ever put in the invite link (sent to Email, or handed
+	// to an org owner) and is what proves the holder received it; the ID
+	// alone, which org members can see, is not enough to accept.
+	TokenHash string `json:"-"`
+	// Token is the plaintext token, set only on the value returned when it
+	// is (re)generated. Never persisted or serialised.
+	Token string `json:"-" gorm:"-"`
 }
 
 // AddOrganizationMemberResponse covers both the immediate-membership and
