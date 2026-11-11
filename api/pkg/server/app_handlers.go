@@ -339,6 +339,7 @@ func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.Age
 		}
 
 		app.User = *user
+		scrubUserCredentials(&app.User)
 	}
 
 	return apps
@@ -445,6 +446,12 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 		if err := json.Unmarshal(body, &app); err != nil {
 			return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body as JSON, error: %s", err))
 		}
+	}
+
+	// A global agent is listed to, readable by and runnable by every user of
+	// the deployment, so publishing one is an admin decision.
+	if app.Global && !isAdmin(user) {
+		return nil, system.NewHTTPError403("only admins can create global agents")
 	}
 
 	// If organization ID is set, authorize the user to the organization,
@@ -1139,6 +1146,10 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
+	if update.Global != existing.Global && !isAdmin(user) {
+		return nil, system.NewHTTPError403("only admins can change whether an agent is global")
+	}
+
 	if s.helixOrg != nil && s.helixOrg.store != nil && existing.OrganizationID != "" {
 		bots, listErr := s.helixOrg.store.Nodes.List(r.Context(), existing.OrganizationID)
 		if listErr != nil {
@@ -1734,7 +1745,9 @@ func (s *HelixAPIServer) getAppUsersDailyUsage(_ http.ResponseWriter, r *http.Re
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
+	// Per-user usage is other users' activity, so it needs management access
+	// to the app, not just the read access every user has to a global app.
+	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
@@ -1746,7 +1759,7 @@ func (s *HelixAPIServer) getAppUsersDailyUsage(_ http.ResponseWriter, r *http.Re
 
 	// TODO: get pricing info for days
 
-	return metrics, nil
+	return redactUsageUsers(metrics), nil
 }
 
 // getAppUserAccess godoc

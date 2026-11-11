@@ -111,6 +111,12 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Owner ID is required", http.StatusBadRequest)
 		return
 	}
+	// A repository falls back to its owner's stored credentials, so a caller
+	// may only create repositories they own.
+	if request.OwnerID != user.ID && !user.Admin {
+		http.Error(w, "Owner ID must be the authenticated user", http.StatusForbidden)
+		return
+	}
 	if request.RepoType == "" {
 		request.RepoType = types.GitRepositoryTypeCode
 	}
@@ -139,6 +145,20 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 	// Enterprise ADO deployments reject commits with non-corporate email addresses
 	request.CreatorName = user.FullName
 	request.CreatorEmail = user.Email
+
+	// A pinned OAuth connection's token is sent to the repository's external
+	// URL, which the caller chooses. Only the connection's own user may pin it.
+	if request.OAuthConnectionID != "" {
+		connection, err := s.Store.GetOAuthConnection(r.Context(), request.OAuthConnectionID)
+		if err != nil {
+			http.Error(w, "Referenced OAuth connection not found", http.StatusBadRequest)
+			return
+		}
+		if connection.UserID != user.ID {
+			http.Error(w, "OAuth connection does not belong to this user", http.StatusForbidden)
+			return
+		}
+	}
 
 	// If a saved PAT connection is referenced, look up the connection, decrypt the
 	// token, and populate the provider-specific settings so the service layer can
@@ -217,6 +237,22 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(redactGitRepository(repository))
+}
+
+// redirectsRepositoryUpstream reports whether an update changes where the
+// repository's stored credentials are sent.
+func redirectsRepositoryUpstream(existing *types.GitRepository, request *types.GitRepositoryUpdateRequest) bool {
+	if request.ExternalURL != "" && request.ExternalURL != existing.ExternalURL {
+		return true
+	}
+	if request.ExternalType != "" && request.ExternalType != existing.ExternalType {
+		return true
+	}
+	if request.AzureDevOps != nil && request.AzureDevOps.OrganizationURL != "" &&
+		(existing.AzureDevOps == nil || request.AzureDevOps.OrganizationURL != existing.AzureDevOps.OrganizationURL) {
+		return true
+	}
+	return false
 }
 
 // getGitRepository retrieves repository information by ID
@@ -307,6 +343,15 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "azure_devops.organization_url must be an https URL of an allowed destination", http.StatusBadRequest)
 			return
 		}
+	}
+
+	// The stored credentials (password, PATs, the pinned OAuth connection)
+	// belong to the repository owner and are sent to the external URL on every
+	// sync. A collaborator with update access must not be able to point them at
+	// another host.
+	if redirectsRepositoryUpstream(existing, &request) && existing.OwnerID != user.ID && !user.Admin {
+		http.Error(w, "Only the repository owner can change its external URL or type", http.StatusForbidden)
+		return
 	}
 
 	// Get API key for Kodit to clone repos via Helix's git server
@@ -520,6 +565,12 @@ func (s *HelixAPIServer) createSampleRepository(w http.ResponseWriter, r *http.R
 		http.Error(w, "Owner ID is required", http.StatusBadRequest)
 		return
 	}
+	// A repository falls back to its owner's stored credentials, so a caller
+	// may only create repositories they own.
+	if request.OwnerID != user.ID && !user.Admin {
+		http.Error(w, "Owner ID must be the authenticated user", http.StatusForbidden)
+		return
+	}
 
 	if request.OrganizationID != "" {
 		org, err := s.lookupOrg(r.Context(), request.OrganizationID)
@@ -629,6 +680,12 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 
 	if request.OwnerID == "" {
 		http.Error(w, "Owner ID is required", http.StatusBadRequest)
+		return
+	}
+	// A repository falls back to its owner's stored credentials, so a caller
+	// may only create repositories they own.
+	if request.OwnerID != user.ID && !user.Admin {
+		http.Error(w, "Owner ID must be the authenticated user", http.StatusForbidden)
 		return
 	}
 

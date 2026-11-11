@@ -33,6 +33,11 @@ func validateProviderEndpointShape(endpoint *types.ProviderEndpoint) error {
 	if strings.IndexFunc(endpoint.Name, unicode.IsControl) >= 0 {
 		return errors.New("name contains control characters")
 	}
+	if endpoint.VertexRegion != "" {
+		if err := anthropic.ValidateVertexRegion(endpoint.VertexRegion); err != nil {
+			return err
+		}
+	}
 	if endpoint.BaseURL == "" {
 		if endpoint.VertexProjectID == "" {
 			return errors.New("base_url is required")
@@ -58,6 +63,32 @@ func validateProviderEndpointVertex(endpoint *types.ProviderEndpoint) error {
 		return nil
 	}
 	return anthropic.ValidateTenantVertexCredentials(endpoint.VertexCredentialsJSON)
+}
+
+// errVertexCredentialsFileAdminOnly and errVertexCredentialsRequired are the
+// two ways a non-admin Vertex endpoint could otherwise authenticate with the
+// server's own Google credentials: a path to a key file on the server, or no
+// credentials at all, which falls back to the server's Application Default
+// Credentials.
+var (
+	errVertexCredentialsFileAdminOnly = errors.New("only admins can add endpoints that read Vertex credentials from a server file")
+	errVertexCredentialsRequired      = errors.New("vertex_credentials_json is required for a Vertex AI endpoint")
+)
+
+// validateVertexCredentialsSource rejects Vertex configurations that would
+// borrow the server's own Google credentials. Admins configure the server, so
+// they may use a credentials file or the server's default credentials.
+func validateVertexCredentialsSource(endpoint *types.ProviderEndpoint, isAdmin bool) error {
+	if isAdmin {
+		return nil
+	}
+	if endpoint.VertexCredentialsFile != "" {
+		return errVertexCredentialsFileAdminOnly
+	}
+	if endpoint.VertexProjectID != "" && endpoint.VertexCredentialsJSON == "" {
+		return errVertexCredentialsRequired
+	}
+	return nil
 }
 
 // validateProviderBaseURL checks the base URL's form. Scheme and host rules
