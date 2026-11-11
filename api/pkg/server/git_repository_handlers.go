@@ -117,9 +117,12 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 	if request.ExternalURL != "" && rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "external_url", request.ExternalURL) {
 		return
 	}
-	if request.AzureDevOps != nil && request.AzureDevOps.OrganizationURL != "" &&
-		rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "azure_devops.organization_url", request.AzureDevOps.OrganizationURL) {
-		return
+	if request.AzureDevOps != nil && request.AzureDevOps.OrganizationURL != "" {
+		if err := azuredevops.CheckOrganizationURL(r.Context(), s.gitProviderURLPolicy(), request.AzureDevOps.OrganizationURL); err != nil {
+			log.Warn().Err(err).Str("field", "azure_devops.organization_url").Msg("rejected outbound URL")
+			http.Error(w, "azure_devops.organization_url must be an https URL of an allowed destination", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Pass API key for Kodit to clone repos via Helix's internal git server
@@ -298,9 +301,12 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 	if request.ExternalURL != "" && rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "external_url", request.ExternalURL) {
 		return
 	}
-	if request.AzureDevOps != nil && request.AzureDevOps.OrganizationURL != "" &&
-		rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "azure_devops.organization_url", request.AzureDevOps.OrganizationURL) {
-		return
+	if request.AzureDevOps != nil && request.AzureDevOps.OrganizationURL != "" {
+		if err := azuredevops.CheckOrganizationURL(r.Context(), s.gitProviderURLPolicy(), request.AzureDevOps.OrganizationURL); err != nil {
+			log.Warn().Err(err).Str("field", "azure_devops.organization_url").Msg("rejected outbound URL")
+			http.Error(w, "azure_devops.organization_url must be an https URL of an allowed destination", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Get API key for Kodit to clone repos via Helix's git server

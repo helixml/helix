@@ -143,8 +143,8 @@ func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.T
 		// The organization URL is fetched from the API server; addresses are
 		// checked against the outbound policy on every connection.
 		if u := tool.Config.AzureDevOps.OrganizationURL; u != "" {
-			if _, err := netguard.ValidateHTTPURL(u); err != nil {
-				return system.NewHTTPError400("Azure DevOps organization URL must be an http(s) URL")
+			if parsed, err := netguard.ValidateHTTPURL(u); err != nil || parsed.Scheme != "https" {
+				return system.NewHTTPError400("Azure DevOps organization URL must be an https URL")
 			}
 		}
 

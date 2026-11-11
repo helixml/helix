@@ -40,13 +40,34 @@ func (c *AzureDevOpsClient) WithOutboundPolicy(policy netguard.Policy) *AzureDev
 // guard applies the outbound policy to requests made with ctx. The Azure
 // DevOps SDK builds its own HTTP clients and accepts no transport, so the
 // policy is enforced through the request context.
+//
+// The organization URL must be https: the SDK shares http.DefaultTransport,
+// and over plain http a connection the policy refused after it was dialled
+// could otherwise be left in that shared pool. Over https such a connection
+// cannot complete a handshake for the organization's name.
 func (c *AzureDevOpsClient) guard(ctx context.Context) context.Context {
+	if err := requireHTTPS(c.organizationURL); err != nil {
+		ctx, cancel := context.WithCancelCause(ctx)
+		cancel(err)
+		return ctx
+	}
 	return c.outbound.GuardContext(ctx)
+}
+
+func requireHTTPS(organizationURL string) error {
+	u, err := url.Parse(organizationURL)
+	if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Host == "" {
+		return fmt.Errorf("%w: azure devops organization URL must be an https URL", netguard.ErrBlockedDestination)
+	}
+	return nil
 }
 
 // CheckOrganizationURL checks a user-supplied organization URL against the
 // outbound policy when it is saved.
 func CheckOrganizationURL(ctx context.Context, policy netguard.Policy, organizationURL string) error {
+	if err := requireHTTPS(organizationURL); err != nil {
+		return err
+	}
 	if err := policy.ValidateURL(ctx, organizationURL); err != nil {
 		return fmt.Errorf("azure devops organization URL: %w", err)
 	}
