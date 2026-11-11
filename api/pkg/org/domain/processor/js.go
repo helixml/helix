@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dop251/goja"
 
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
@@ -184,8 +186,7 @@ func (c jsConfig) Process(ctx context.Context, in streaming.Message, out []Outpu
 		}
 	}()
 
-	client := &http.Client{Timeout: jsDefaultHTTPTimeout}
-	installJSBuiltins(vm, &jsHTTP{ctx: ctx, client: client})
+	installJSBuiltins(vm, &jsHTTP{ctx: ctx, client: jsHTTPClient.Load()})
 
 	if _, err := vm.RunString(c.Code); err != nil {
 		return nil, fmt.Errorf("js load: %w", err)
@@ -205,6 +206,22 @@ func (c jsConfig) Process(ctx context.Context, in streaming.Message, out []Outpu
 		return nil, fmt.Errorf("js process: %w", err)
 	}
 	return mapJSReturn(vm, ret, in, out)
+}
+
+// jsHTTPClient is the client scripts' http.* calls use. Script URLs are
+// written by any org member and fetched from the API server, so every
+// connection (redirects and DNS rebinding included) goes through the
+// outbound policy. Strict by default; SetJSHTTPPolicy relaxes it for
+// deployments that allow private-network tool destinations.
+var jsHTTPClient atomic.Pointer[http.Client]
+
+func init() { SetJSHTTPPolicy(netguard.Policy{}) }
+
+// SetJSHTTPPolicy sets the outbound policy for scripts' http.* calls.
+func SetJSHTTPPolicy(policy netguard.Policy) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	policy.GuardTransport(transport)
+	jsHTTPClient.Store(&http.Client{Timeout: jsDefaultHTTPTimeout, Transport: transport})
 }
 
 // js is the Strategy for KindJS.

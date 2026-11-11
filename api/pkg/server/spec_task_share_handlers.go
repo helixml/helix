@@ -6,9 +6,33 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/microcosm-cc/bluemonday"
 	"github.com/rs/zerolog/log"
 	"github.com/russross/blackfriday/v2"
 )
+
+// designDocsContentSecurityPolicy applies to the server-rendered design doc
+// pages. They are served from the API origin and show agent-written markdown,
+// so no script may run and nothing but inline styles and images may load.
+const designDocsContentSecurityPolicy = "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+// designDocsHTMLPolicy keeps the formatting markdown produces and drops
+// scripts, event handlers, iframes, forms and javascript: links.
+var designDocsHTMLPolicy = bluemonday.UGCPolicy()
+
+// renderDesignDocMarkdown converts design doc markdown into HTML that is safe
+// to embed in the page. The markdown comes from spec generation and can carry
+// raw HTML, so the converted output is sanitized before it is trusted.
+func renderDesignDocMarkdown(markdown string) template.HTML {
+	return template.HTML(designDocsHTMLPolicy.SanitizeBytes(blackfriday.Run([]byte(markdown)))) //nolint:gosec // sanitized above
+}
+
+func setDesignDocsPageHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", designDocsContentSecurityPolicy)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+}
 
 // viewDesignDocsPublic renders design documents as mobile-optimized HTML (no login required if public)
 func (apiServer *HelixAPIServer) viewDesignDocsPublic(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +82,7 @@ func (apiServer *HelixAPIServer) renderPrivateTaskPage(w http.ResponseWriter, ta
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	setDesignDocsPageHeaders(w)
 	err = tmpl.Execute(w, data)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to render private task template")
@@ -70,9 +94,9 @@ func (apiServer *HelixAPIServer) renderPrivateTaskPage(w http.ResponseWriter, ta
 // renderDesignDocsPage renders the design documents for a public task
 func (apiServer *HelixAPIServer) renderDesignDocsPage(w http.ResponseWriter, task *types.SpecTask) {
 	// Convert markdown to HTML
-	requirementsHTML := template.HTML(blackfriday.Run([]byte(task.RequirementsSpec)))
-	designHTML := template.HTML(blackfriday.Run([]byte(task.TechnicalDesign)))
-	implementationHTML := template.HTML(blackfriday.Run([]byte(task.ImplementationPlan)))
+	requirementsHTML := renderDesignDocMarkdown(task.RequirementsSpec)
+	designHTML := renderDesignDocMarkdown(task.TechnicalDesign)
+	implementationHTML := renderDesignDocMarkdown(task.ImplementationPlan)
 
 	data := struct {
 		TaskID                 string
@@ -101,7 +125,7 @@ func (apiServer *HelixAPIServer) renderDesignDocsPage(w http.ResponseWriter, tas
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	setDesignDocsPageHeaders(w)
 	err = tmpl.Execute(w, data)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to render template")

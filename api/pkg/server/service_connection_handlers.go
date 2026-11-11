@@ -702,7 +702,7 @@ func (s *HelixAPIServer) testServiceConnection(ctx context.Context, req types.Se
 		}
 
 		// Try to list projects to verify the connection works
-		_, err = client.ListProjects(ctx)
+		_, err = client.WithOutboundPolicy(s.gitProviderURLPolicy()).ListProjects(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to authenticate with ADO Service Principal: %w", err)
 		}

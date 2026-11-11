@@ -304,7 +304,7 @@ func (apiServer *HelixAPIServer) getSessionCodexCredentials(_ http.ResponseWrite
 		return nil, system.NewHTTPError404("session not found")
 	}
 	user := getRequestUser(req)
-	if user == nil || (user.TokenType != types.TokenTypeRunner && session.Owner != user.ID) {
+	if user == nil || (user.TokenType != types.TokenTypeRunner && session.Owner != user.ID && user.SessionID != session.ID) {
 		return nil, system.NewHTTPError403("access denied")
 	}
 	sub, err := apiServer.Store.GetEffectiveCodexSubscription(req.Context(), session.Owner, session.OrganizationID)
@@ -313,6 +313,9 @@ func (apiServer *HelixAPIServer) getSessionCodexCredentials(_ http.ResponseWrite
 			return nil, system.NewHTTPError404("no Codex subscription found for session owner")
 		}
 		return nil, system.NewHTTPError500("failed to get Codex subscription")
+	}
+	if !canUseSessionAgentCredential(user, session, sub.OwnerID, sub.OwnerType) {
+		return nil, system.NewHTTPError403("access denied")
 	}
 	key, err := crypto.GetEncryptionKey()
 	if err != nil {
@@ -346,7 +349,7 @@ func (apiServer *HelixAPIServer) updateSessionCodexCredentials(_ http.ResponseWr
 		return nil, system.NewHTTPError404("session not found")
 	}
 	user := getRequestUser(req)
-	if user == nil || (user.TokenType != types.TokenTypeRunner && session.Owner != user.ID) {
+	if user == nil || (user.TokenType != types.TokenTypeRunner && session.Owner != user.ID && user.SessionID != session.ID) {
 		return nil, system.NewHTTPError403("access denied")
 	}
 	credentials, err := decodeCodexCredentials(req.Body)
@@ -357,6 +360,9 @@ func (apiServer *HelixAPIServer) updateSessionCodexCredentials(_ http.ResponseWr
 	sub, err := apiServer.Store.GetEffectiveCodexSubscription(req.Context(), session.Owner, session.OrganizationID)
 	if err != nil {
 		return nil, system.NewHTTPError404("no Codex subscription found for session owner")
+	}
+	if !canUseSessionAgentCredential(user, session, sub.OwnerID, sub.OwnerType) {
+		return nil, system.NewHTTPError403("access denied")
 	}
 	if sub.LastRefreshedAt != nil && !credentials.LastRefresh.After(*sub.LastRefreshedAt) {
 		return map[string]string{"status": "stale"}, nil

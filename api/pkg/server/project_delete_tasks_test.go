@@ -13,8 +13,10 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/webservice"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -48,6 +50,7 @@ func (s *DeleteProjectTasksSuite) SetupTest() {
 		Cfg:                   &config.ServerConfig{},
 		Store:                 s.sto,
 		externalAgentExecutor: s.executor,
+		webServiceController:  webservice.New(s.sto, sandbox.New(s.sto, nil, nil, "", "")),
 		Controller: &controller.Controller{Options: controller.Options{
 			Config:    &config.ServerConfig{},
 			Filestore: s.fs,
@@ -90,6 +93,7 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectDeletesAllTasksIncludingArchi
 
 	s.sto.EXPECT().ListArtifacts(gomock.Any(), &store.ListArtifactsQuery{ProjectID: "prj_del"}).
 		Return([]*types.Artifact{}, nil)
+	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(nil, store.ErrNotFound)
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
 
 	resp, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
@@ -148,6 +152,7 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectSkipsDesktopsOnDisconnectedHo
 	s.sto.EXPECT().DeleteSession(gomock.Any(), "ses_task").Return(&types.Session{ID: "ses_task"}, nil)
 	s.expectTaskDeleted("t1")
 	s.sto.EXPECT().ListArtifacts(gomock.Any(), gomock.Any()).Return([]*types.Artifact{}, nil)
+	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(nil, store.ErrNotFound)
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
 
 	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
@@ -173,6 +178,7 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectRetriesAfterSessionWasDeleted
 	s.sto.EXPECT().DeleteSession(gomock.Any(), "ses_task").Return(nil, store.ErrNotFound)
 	s.expectTaskDeleted("t1")
 	s.sto.EXPECT().ListArtifacts(gomock.Any(), gomock.Any()).Return([]*types.Artifact{}, nil)
+	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(nil, store.ErrNotFound)
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
 
 	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
@@ -192,4 +198,32 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectAbortsWhenSessionDeleteFails(
 	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Require().NotNil(httpErr)
 	s.Contains(httpErr.Error(), "delete session ses_task")
+}
+
+// Deleting a project removes its web service: the public route, the sandbox
+// running it, and the enabled state the health monitor watches.
+func (s *DeleteProjectTasksSuite) TestDeleteProjectTearsDownWebService() {
+	project := &types.Project{ID: "prj_del", UserID: s.userID}
+	s.sto.EXPECT().GetProject(gomock.Any(), "prj_del").Return(project, nil)
+	s.sto.EXPECT().GetProjectExploratorySession(gomock.Any(), "prj_del").Return(nil, nil)
+	s.sto.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.sto.EXPECT().ListArtifacts(gomock.Any(), &store.ListArtifactsQuery{ProjectID: "prj_del"}).Return(nil, nil)
+
+	state := &types.ProjectWebServiceState{ProjectID: "prj_del", Enabled: true, ContainerPort: 8080, ActiveSandboxID: "sbx_ws"}
+	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(state, nil)
+	s.sto.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetProjectWebService, "prj_del").Return(nil)
+	s.sto.EXPECT().GetSandbox(gomock.Any(), "sbx_ws").Return(&types.Sandbox{ID: "sbx_ws", Status: types.SandboxStatusStopped}, nil)
+	s.sto.EXPECT().SetSandboxStatus(gomock.Any(), "sbx_ws", types.SandboxStatusStopping, "").Return(nil)
+	s.sto.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.sto.EXPECT().DeleteSandbox(gomock.Any(), "sbx_ws").Return(nil)
+	s.sto.EXPECT().UpsertProjectWebServiceState(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, st *types.ProjectWebServiceState) error {
+			s.False(st.Enabled, "the web service must be disabled")
+			s.Empty(st.ActiveSandboxID)
+			return nil
+		})
+	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+
+	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
+	s.Nil(httpErr)
 }

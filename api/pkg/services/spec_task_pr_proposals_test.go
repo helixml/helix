@@ -384,6 +384,21 @@ func (s *PRProposalSuite) TestProviderFailureIsRetryable() {
 	s.False(outstanding)
 }
 
+// Helix-hosted repositories have pull requests too (served by Helix's
+// GitHub-compatible API), so they are proposable like external ones.
+func (s *PRProposalSuite) TestInternalRepoIsProposable() {
+	p, err := s.propose(ProposePRInput{RepositoryID: "playbook"})
+	s.Require().NoError(err)
+	s.Equal("repo_int", p.RepositoryID)
+	s.Equal(types.PRProposalStatusPending, p.Status)
+
+	opened, err := s.svc.Decide(s.ctx, s.user, p.ID, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove})
+	s.Require().NoError(err)
+	s.Equal(types.PRProposalStatusOpened, opened.Status)
+	s.Empty(s.provider.pushed, "a Helix-hosted branch is already where the PR reads it; nothing is pushed")
+	s.Len(s.provider.created, 1)
+}
+
 func (s *PRProposalSuite) TestMissingOAuthGrantsNothing() {
 	p, err := s.propose(ProposePRInput{})
 	s.Require().NoError(err)
@@ -401,7 +416,6 @@ func (s *PRProposalSuite) TestValidation() {
 		in   ProposePRInput
 		want error
 	}{
-		{"internal repo has no PRs", ProposePRInput{RepositoryID: "playbook"}, ErrPRProposalInvalid},
 		{"unknown repo", ProposePRInput{RepositoryID: "nope"}, ErrPRProposalInvalid},
 		{"invalid branch name", ProposePRInput{HeadBranch: "bad..name"}, ErrPRProposalInvalid},
 		{"head equals base", ProposePRInput{HeadBranch: "x", BaseBranch: "x"}, ErrPRProposalInvalid},

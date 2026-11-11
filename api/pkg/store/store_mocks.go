@@ -309,6 +309,21 @@ func (mr *MockStoreMockRecorder) CompleteWebhookDelivery(ctx, update any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteWebhookDelivery", reflect.TypeOf((*MockStore)(nil).CompleteWebhookDelivery), ctx, update)
 }
 
+// ConsumeInvitation mocks base method.
+func (m *MockStore) ConsumeInvitation(ctx context.Context, user *types.User, invitationID, token string) ([]*types.OrganizationMembership, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsumeInvitation", ctx, user, invitationID, token)
+	ret0, _ := ret[0].([]*types.OrganizationMembership)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConsumeInvitation indicates an expected call of ConsumeInvitation.
+func (mr *MockStoreMockRecorder) ConsumeInvitation(ctx, user, invitationID, token any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumeInvitation", reflect.TypeOf((*MockStore)(nil).ConsumeInvitation), ctx, user, invitationID, token)
+}
+
 // ConsumePendingInvitations mocks base method.
 func (m *MockStore) ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error) {
 	m.ctrl.T.Helper()
@@ -619,6 +634,20 @@ func (m *MockStore) CreateGitProviderConnection(ctx context.Context, connection 
 func (mr *MockStoreMockRecorder) CreateGitProviderConnection(ctx, connection any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateGitProviderConnection", reflect.TypeOf((*MockStore)(nil).CreateGitProviderConnection), ctx, connection)
+}
+
+// CreateGitPullRequest mocks base method.
+func (m *MockStore) CreateGitPullRequest(ctx context.Context, pr *types.GitPullRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateGitPullRequest", ctx, pr)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateGitPullRequest indicates an expected call of CreateGitPullRequest.
+func (mr *MockStoreMockRecorder) CreateGitPullRequest(ctx, pr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateGitPullRequest", reflect.TypeOf((*MockStore)(nil).CreateGitPullRequest), ctx, pr)
 }
 
 // CreateGitRepository mocks base method.
@@ -1696,6 +1725,20 @@ func (m *MockStore) DeleteGitProviderConnection(ctx context.Context, id string) 
 func (mr *MockStoreMockRecorder) DeleteGitProviderConnection(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGitProviderConnection", reflect.TypeOf((*MockStore)(nil).DeleteGitProviderConnection), ctx, id)
+}
+
+// DeleteGitPullRequestsForRepository mocks base method.
+func (m *MockStore) DeleteGitPullRequestsForRepository(ctx context.Context, repositoryID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteGitPullRequestsForRepository", ctx, repositoryID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteGitPullRequestsForRepository indicates an expected call of DeleteGitPullRequestsForRepository.
+func (mr *MockStoreMockRecorder) DeleteGitPullRequestsForRepository(ctx, repositoryID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGitPullRequestsForRepository", reflect.TypeOf((*MockStore)(nil).DeleteGitPullRequestsForRepository), ctx, repositoryID)
 }
 
 // DeleteGitRepository mocks base method.
@@ -3067,6 +3110,21 @@ func (m *MockStore) GetGitProviderConnection(ctx context.Context, id string) (*t
 func (mr *MockStoreMockRecorder) GetGitProviderConnection(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGitProviderConnection", reflect.TypeOf((*MockStore)(nil).GetGitProviderConnection), ctx, id)
+}
+
+// GetGitPullRequest mocks base method.
+func (m *MockStore) GetGitPullRequest(ctx context.Context, repositoryID string, number int) (*types.GitPullRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGitPullRequest", ctx, repositoryID, number)
+	ret0, _ := ret[0].(*types.GitPullRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGitPullRequest indicates an expected call of GetGitPullRequest.
+func (mr *MockStoreMockRecorder) GetGitPullRequest(ctx, repositoryID, number any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGitPullRequest", reflect.TypeOf((*MockStore)(nil).GetGitPullRequest), ctx, repositoryID, number)
 }
 
 // GetGitRepository mocks base method.
@@ -5065,6 +5123,21 @@ func (mr *MockStoreMockRecorder) ListGitProviderConnections(ctx, userID any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGitProviderConnections", reflect.TypeOf((*MockStore)(nil).ListGitProviderConnections), ctx, userID)
 }
 
+// ListGitPullRequests mocks base method.
+func (m *MockStore) ListGitPullRequests(ctx context.Context, repositoryID, state string) ([]*types.GitPullRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListGitPullRequests", ctx, repositoryID, state)
+	ret0, _ := ret[0].([]*types.GitPullRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListGitPullRequests indicates an expected call of ListGitPullRequests.
+func (mr *MockStoreMockRecorder) ListGitPullRequests(ctx, repositoryID, state any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGitPullRequests", reflect.TypeOf((*MockStore)(nil).ListGitPullRequests), ctx, repositoryID, state)
+}
+
 // ListGitRepositories mocks base method.
 func (m *MockStore) ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error) {
 	m.ctrl.T.Helper()
@@ -6657,6 +6730,21 @@ func (mr *MockStoreMockRecorder) RevokeSecretIntake(arg0, arg1, arg2 any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeSecretIntake", reflect.TypeOf((*MockStore)(nil).RevokeSecretIntake), arg0, arg1, arg2)
 }
 
+// RotateOrganizationInvitationToken mocks base method.
+func (m *MockStore) RotateOrganizationInvitationToken(ctx context.Context, id string) (*types.OrganizationInvitation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RotateOrganizationInvitationToken", ctx, id)
+	ret0, _ := ret[0].(*types.OrganizationInvitation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RotateOrganizationInvitationToken indicates an expected call of RotateOrganizationInvitationToken.
+func (mr *MockStoreMockRecorder) RotateOrganizationInvitationToken(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateOrganizationInvitationToken", reflect.TypeOf((*MockStore)(nil).RotateOrganizationInvitationToken), ctx, id)
+}
+
 // RotateVHostRouteHostname mocks base method.
 func (m *MockStore) RotateVHostRouteHostname(ctx context.Context, id, newHostname string) error {
 	m.ctrl.T.Helper()
@@ -7353,6 +7441,20 @@ func (m *MockStore) UpdateEvaluationSuite(ctx context.Context, suite *types.Eval
 func (mr *MockStoreMockRecorder) UpdateEvaluationSuite(ctx, suite any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEvaluationSuite", reflect.TypeOf((*MockStore)(nil).UpdateEvaluationSuite), ctx, suite)
+}
+
+// UpdateGitPullRequest mocks base method.
+func (m *MockStore) UpdateGitPullRequest(ctx context.Context, pr *types.GitPullRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateGitPullRequest", ctx, pr)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateGitPullRequest indicates an expected call of UpdateGitPullRequest.
+func (mr *MockStoreMockRecorder) UpdateGitPullRequest(ctx, pr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateGitPullRequest", reflect.TypeOf((*MockStore)(nil).UpdateGitPullRequest), ctx, pr)
 }
 
 // UpdateGitRepository mocks base method.

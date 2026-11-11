@@ -50,6 +50,9 @@ func (suite *ExtractorSuite) SetupTest() {
 	suite.filestore = filestore.NewMockFileStore(ctrl)
 
 	suite.cfg = &config.ServerConfig{}
+	// These tests serve web sources from local listeners; the default
+	// (blocked) policy is covered by TestDownloadDirectlyRejectsInternalDestinations.
+	suite.cfg.Tools.AllowPrivateNetworks = true
 
 	b := &browser.Browser{}
 

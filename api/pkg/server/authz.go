@@ -128,8 +128,9 @@ func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *t
 			project.PullRequestReviewerHelixAppID != app.ID {
 			continue
 		}
-		// App is referenced by this project — check if user has access to the project
-		if err := apiServer.authorizeUserToProject(ctx, user, project, types.ActionGet); err == nil {
+		// App is referenced by this project — the user needs the same action on
+		// the project: reading a project must not grant editing its apps.
+		if err := apiServer.authorizeUserToProject(ctx, user, project, action); err == nil {
 			return nil
 		}
 	}

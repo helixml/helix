@@ -97,12 +97,19 @@ function getLineBackground(
   }
 }
 
-function getLineColor(type: DiffLine["type"], themeConfig: ITheme, textColor?: string): string {
+// The neon greenRoot/redRoot read on dark backgrounds only; light mode uses
+// the palette's dark success/error shades so diff text keeps its contrast.
+interface DiffLineColors {
+  add: string;
+  remove: string;
+}
+
+function getLineColor(type: DiffLine["type"], themeConfig: ITheme, lineColors: DiffLineColors, textColor?: string): string {
   switch (type) {
     case "add":
-      return themeConfig.greenRoot;
+      return lineColors.add;
     case "remove":
-      return themeConfig.redRoot;
+      return lineColors.remove;
     case "hunk":
       return themeConfig.tealRoot;
     case "header":
@@ -123,6 +130,9 @@ const DiffContent: FC<DiffContentProps> = ({
   const themeConfig = useThemeConfig();
   const lightTheme = useLightTheme();
   const monoFont = theme.typography.fontFamilyMono;
+  const lineColors: DiffLineColors = lightTheme.isLight
+    ? { add: theme.palette.success.dark, remove: theme.palette.error.dark }
+    : { add: themeConfig.greenRoot, remove: themeConfig.redRoot };
 
   const parsedDiff = useMemo(() => {
     if (!file?.diff) return [];
@@ -487,7 +497,8 @@ const DiffContent: FC<DiffContentProps> = ({
                   fontFamily: monoFont,
                 }}
               >
-                {line.newLineNo ?? line.oldLineNo ?? ""}
+                {/* Mobile hides the old column, so a removed line shows its old number here. */}
+                {line.newLineNo ?? (isMobile ? line.oldLineNo : undefined) ?? ""}
               </Typography>
             </Box>
 
@@ -496,7 +507,7 @@ const DiffContent: FC<DiffContentProps> = ({
               sx={{
                 width: isMobile ? 16 : 20,
                 textAlign: "center",
-                color: getLineColor(line.type, themeConfig, lightTheme.textColor),
+                color: getLineColor(line.type, themeConfig, lineColors, lightTheme.textColor),
                 fontFamily: monoFont,
                 fontWeight: 600,
                 fontSize: isMobile ? "0.65rem" : "0.72rem",
@@ -513,7 +524,7 @@ const DiffContent: FC<DiffContentProps> = ({
                 minWidth: 0,
                 pl: isMobile ? 0.5 : 1,
                 pr: isMobile ? 1 : 2,
-                color: getLineColor(line.type, themeConfig, lightTheme.textColor),
+                color: getLineColor(line.type, themeConfig, lineColors, lightTheme.textColor),
                 fontFamily: monoFont,
                 fontSize: isMobile ? "0.65rem" : "0.72rem",
                 whiteSpace: "pre-wrap",

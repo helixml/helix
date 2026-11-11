@@ -56,6 +56,9 @@ interface AgentChatProps {
   welcomeSubheading?: string
 }
 
+// Inside an iframe (an embedded task) the host page owns focus.
+const isFramed = typeof window !== "undefined" && window.self !== window.top
+
 /** Shared org/spec-task conversation surface. */
 const AgentChat: FC<AgentChatProps> = ({
   sessionId,
@@ -215,7 +218,9 @@ const AgentChat: FC<AgentChatProps> = ({
       isCancelling={isCancelling}
       leadingActions={leadingActions}
       showContextUsage={!minimal}
-      autoFocus
+      // Focusing inside an iframe scrolls the embedding page to the composer;
+      // a host page (HelixOS, Gatewaze) decides where focus goes.
+      autoFocus={!isFramed}
       placeholder={placeholder}
       disabled={disabled}
       enableSandboxCompletions

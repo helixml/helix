@@ -2942,6 +2942,23 @@ type RegisterRequest struct {
 	Password        string `json:"password"`
 	FullName        string `json:"full_name"`
 	PasswordConfirm string `json:"password_confirm"`
+	// InvitationID and InvitationToken come from the invite link
+	// (/login?invitation=<id>&token=<token>). Password sign-up does not
+	// verify the email address, so only the invitation presented here is
+	// accepted, and only with its secret token and when it was sent to Email.
+	InvitationID    string `json:"invitation_id,omitempty"`
+	InvitationToken string `json:"invitation_token,omitempty"`
+}
+
+// AcceptInvitationRequest is the body of POST /invitations/{id}/accept.
+type AcceptInvitationRequest struct {
+	// Token is the invitation's secret token from the invite link.
+	Token string `json:"token"`
+}
+
+// InvitationLinkResponse carries a freshly issued invite link.
+type InvitationLinkResponse struct {
+	URL string `json:"url"`
 }
 
 type PasswordResetRequest struct {

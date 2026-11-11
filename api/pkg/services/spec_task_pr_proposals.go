@@ -502,8 +502,12 @@ func (s *PRProposalService) tryOpen(ctx context.Context, proposalID string) (*ty
 func (s *PRProposalService) openOnProvider(ctx context.Context, p *types.SpecTaskPRProposal, task *types.SpecTask, repo *types.GitRepository) (*types.PullRequest, error) {
 	var pr *types.PullRequest
 	err := s.git.WithRepoLock(repo.ID, func() error {
-		if err := s.git.PushBranchToRemote(ctx, repo.ID, p.HeadBranch, false, p.DecidedBy); err != nil {
-			return fmt.Errorf("push %s to %s: %w", p.HeadBranch, repo.Name, err)
+		// Helix-hosted repos keep the branch in the same bare repo as the
+		// base — there is no remote to push to.
+		if !internalPRRouting(repo) {
+			if err := s.git.PushBranchToRemote(ctx, repo.ID, p.HeadBranch, false, p.DecidedBy); err != nil {
+				return fmt.Errorf("push %s to %s: %w", p.HeadBranch, repo.Name, err)
+			}
 		}
 		if existing := s.findOpenPR(ctx, repo.ID, p.HeadBranch, p.BaseBranch); existing != nil {
 			pr = existing
@@ -614,9 +618,9 @@ func (s *PRProposalService) resolveRepository(ctx context.Context, task *types.S
 	var names []string
 	for _, r := range repos {
 		if r.ID == ref || r.Name == ref {
-			if r.ExternalURL == "" {
-				return nil, invalidProposal("repository %q is hosted by Helix and has no pull requests; its work lands when the user accepts the task", r.Name)
-			}
+			// Helix-hosted repositories now have lightweight pull requests
+			// served through the GitHub-compat API, so they are proposable
+			// exactly like external ones.
 			return r, nil
 		}
 		names = append(names, r.Name)

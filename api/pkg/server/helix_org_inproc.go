@@ -738,7 +738,7 @@ func (c *inProcHelixClient) GetAppConfig(ctx context.Context, id string) (types.
 	if err != nil {
 		return types.AppConfig{}, err
 	}
-	app, herr := c.server.getAgent(nil, r)
+	app, herr := c.server.loadReadableAgent(r)
 	if herr != nil {
 		if herr.StatusCode == http.StatusNotFound {
 			return types.AppConfig{}, fmt.Errorf("get app %s: %w", id, store.ErrNotFound)

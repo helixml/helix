@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -103,9 +104,8 @@ func NewController(
 
 	if options.MCPClientGetter == nil {
 		// Initialize default client getter
-		options.MCPClientGetter = &mcp.DefaultClientGetter{
-			TLSSkipVerify: options.Config.Tools.TLSSkipVerify,
-		}
+		options.MCPClientGetter = mcp.NewDefaultClientGetter(options.Config.Tools.TLSSkipVerify,
+			netguard.Policy{AllowPrivate: options.Config.Tools.AllowPrivateNetworks}, options.Config.WebServer.URL)
 	}
 
 	models, err := model.GetModels()
@@ -129,7 +129,7 @@ func NewController(
 		gitRepositoryService: options.GitRepositoryService,
 		models:               models,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
-			return rag.NewLlamaindex(settings)
+			return rag.NewLlamaindex(settings, netguard.Policy{AllowPrivate: options.Config.Tools.AllowPrivateNetworks})
 		},
 		stepInfoEmitter:   agent.NewPubSubStepInfoEmitter(options.PubSub, options.Store),
 		triggerStatuses:   make(map[TriggerStatusKey]types.TriggerStatus),
