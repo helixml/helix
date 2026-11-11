@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -40,9 +41,16 @@ func TestAPIToolsRejectInternalDestinations(t *testing.T) {
 			}},
 		}
 		resp, err := strategy.RunAPIActionWithParameters(context.Background(), &types.RunAPIActionRequest{Tool: tool, Action: "listPets"})
-		if err == nil {
-			require.NotEmpty(t, resp.Error, baseURL)
+		// The rejection must come from the outbound policy, not from some
+		// other failure (a timeout or an unreachable address would also
+		// leave the listener untouched).
+		msg := ""
+		if err != nil {
+			msg = err.Error()
+		} else {
+			msg = resp.Error
 		}
+		require.Contains(t, msg, netguard.ErrBlockedDestination.Error(), baseURL)
 	}
 	require.Zero(t, hits.Load(), "internal listener was contacted")
 }
