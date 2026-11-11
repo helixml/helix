@@ -365,8 +365,8 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 				return
 			}
 
-			// Session expired - clear the session cookie
-			if errors.Is(err, authpkg.ErrSessionExpired) {
+			// Session expired or from another auth provider - clear the cookie
+			if errors.Is(err, authpkg.ErrSessionExpired) || errors.Is(err, authpkg.ErrSessionProviderMismatch) {
 				auth.sessionManager.ClearSessionCookie(w)
 			}
 
