@@ -277,6 +277,15 @@ func NewServer(
 		return nil, fmt.Errorf("runner token is required")
 	}
 
+	switch cfg.Auth.Provider {
+	case types.AuthProviderRegular, types.AuthProviderOIDC:
+	default:
+		// An unrecognised value would otherwise disable OIDC while leaving
+		// some password paths reachable; refuse to start instead.
+		return nil, fmt.Errorf("unsupported AUTH_PROVIDER %q: must be %q or %q",
+			cfg.Auth.Provider, types.AuthProviderRegular, types.AuthProviderOIDC)
+	}
+
 	// Create OIDC client if using OIDC auth provider
 	helixRedirectURL := fmt.Sprintf("%s/api/v1/auth/callback", cfg.WebServer.URL)
 	// Initialize AdminAlerter early so it can be passed to the OIDC client
@@ -285,15 +294,6 @@ func NewServer(
 		log.Warn().Err(err).Msg("Failed to initialize admin alerter - admin email alerts will be disabled")
 	} else if janitor != nil {
 		adminAlerter.SetSlackSender(janitor)
-	}
-
-	switch cfg.Auth.Provider {
-	case types.AuthProviderRegular, types.AuthProviderOIDC:
-	default:
-		// An unrecognised value would otherwise disable OIDC while leaving
-		// some password paths reachable; refuse to start instead.
-		return nil, fmt.Errorf("unsupported AUTH_PROVIDER %q: must be %q or %q",
-			cfg.Auth.Provider, types.AuthProviderRegular, types.AuthProviderOIDC)
 	}
 
 	var oidcClient auth.OIDC

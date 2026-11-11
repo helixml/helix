@@ -235,3 +235,21 @@ func TestRegister_RefusedWhenAuthProviderIsUnknown(t *testing.T) {
 		require.Equal(t, http.StatusForbidden, rr.Code, string(provider))
 	}
 }
+
+// An unrecognised provider must stop startup: otherwise OIDC is silently off
+// while some password paths stay reachable.
+func TestNewServer_RejectsUnknownAuthProvider(t *testing.T) {
+	for _, provider := range []types.AuthProvider{"", "OIDC", "oidc ", "keycloak", "service"} {
+		cfg := &config.ServerConfig{}
+		cfg.WebServer.URL = "http://localhost:8080"
+		cfg.WebServer.Host = "localhost"
+		cfg.WebServer.Port = 8080
+		cfg.WebServer.RunnerToken = "runner-token"
+		cfg.Auth.Provider = provider
+
+		s, err := NewServer(cfg, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		require.Error(t, err, string(provider))
+		require.Nil(t, s)
+		require.Contains(t, err.Error(), "unsupported AUTH_PROVIDER")
+	}
+}
