@@ -165,3 +165,19 @@ func (suite *UsersTestSuite) TestListUsers_EmailFilter_NoMatch() {
 	suite.Equal(int64(0), total, "Should find no users for non-existent email")
 	suite.Len(users, 0)
 }
+
+func (suite *UsersTestSuite) TestGetUser_DesktopIdentity() {
+	prefix := "desktop-identity-" + system.GenerateAppID()
+	plain := &types.User{ID: prefix + "-plain", Email: prefix + "-plain@example.com", Username: prefix + "-plain", Admin: true}
+	desktop := &types.User{ID: prefix + "-desktop", Email: prefix + "-desktop@example.com", Username: prefix + "-desktop", Admin: true, DesktopIdentity: true}
+	for _, u := range []*types.User{plain, desktop} {
+		_, err := suite.db.CreateUser(suite.ctx, u)
+		suite.Require().NoError(err)
+		defer suite.db.DeleteUser(suite.ctx, u.ID)
+	}
+
+	got, err := suite.db.GetUser(suite.ctx, &GetUserQuery{DesktopIdentity: true})
+	suite.Require().NoError(err)
+	suite.True(got.DesktopIdentity)
+	suite.NotEqual(plain.ID, got.ID)
+}

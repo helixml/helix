@@ -282,6 +282,11 @@ type User struct {
 	SB          bool `json:"sb"`
 	Deactivated bool `json:"deactivated"`
 
+	// DesktopIdentity marks the single account that Helix Desktop's
+	// auto-login (DESKTOP_AUTO_LOGIN_SECRET) signs in as. The desktop flow
+	// never signs in as, or promotes, any other account.
+	DesktopIdentity bool `json:"desktop_identity,omitempty" gorm:"index"`
+
 	OnboardingCompleted   bool      `json:"onboarding_completed"`
 	OnboardingCompletedAt time.Time `json:"onboarding_completed_at"`
 

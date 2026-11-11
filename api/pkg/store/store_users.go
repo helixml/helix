@@ -17,6 +17,9 @@ import (
 type GetUserQuery struct {
 	ID    string
 	Email string
+	// DesktopIdentity selects the Helix Desktop auto-login account (the
+	// oldest, should there ever be more than one).
+	DesktopIdentity bool
 }
 
 func (s *PostgresStore) GetUserMeta(ctx context.Context, userID string) (*types.UserMeta, error) {
@@ -126,11 +129,15 @@ func (s *PostgresStore) EnsureUserMeta(ctx context.Context, user types.UserMeta)
 
 // GetUser retrieves a user by ID
 func (s *PostgresStore) GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error) {
-	if q.ID == "" && q.Email == "" {
+	if q.ID == "" && q.Email == "" && !q.DesktopIdentity {
 		return nil, fmt.Errorf("userID or email cannot be empty")
 	}
 
 	query := s.gdb.WithContext(ctx)
+
+	if q.DesktopIdentity {
+		query = query.Where("desktop_identity = ?", true).Order("created_at ASC")
+	}
 
 	if q.ID != "" {
 		query = query.Where("id = ?", q.ID)
