@@ -1138,7 +1138,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// Insecure router as unauthenticated users will see all public provider endpoints
 	subRouter.HandleFunc("/provider-endpoints", apiServer.listProviderEndpoints).Methods(http.MethodGet)
 
-	subRouter.HandleFunc("/providers/detect-local", apiServer.detectLocalProviders).Methods(http.MethodGet)
+	// Probes the API host's local ports and returns what it finds: admins only
+	// (connecting a detected server creates a global endpoint, also admin-only).
+	adminRouter.HandleFunc("/providers/detect-local", apiServer.detectLocalProviders).Methods(http.MethodGet)
 	authRouter.HandleFunc("/provider-endpoints", apiServer.createProviderEndpoint).Methods(http.MethodPost)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.updateProviderEndpoint).Methods(http.MethodPut)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.deleteProviderEndpoint).Methods(http.MethodDelete)
