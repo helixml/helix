@@ -16,7 +16,8 @@ type Crawler interface {
 }
 
 // NewCrawler returns the crawler for k. transport, if non-nil, carries the
-// default crawler's own page requests (it should enforce the outbound policy).
+// default crawler's page requests and requests to a user-set Firecrawl API URL
+// (it should enforce the outbound policy).
 func NewCrawler(browserPool *browser.Browser, k *types.Knowledge, updateProgress func(progress types.KnowledgeProgress), transport http.RoundTripper) (Crawler, error) {
 	switch {
 	case k.Source.Web.Crawler.Firecrawl != nil:
@@ -24,7 +25,7 @@ func NewCrawler(browserPool *browser.Browser, k *types.Knowledge, updateProgress
 			Str("knowledge_id", k.ID).
 			Str("knowledge_name", k.Name).
 			Msgf("Using firecrawl crawler")
-		return NewFirecrawl(k)
+		return NewFirecrawl(k, transport)
 	default:
 		log.Info().
 			Str("knowledge_id", k.ID).
