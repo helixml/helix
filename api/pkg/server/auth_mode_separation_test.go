@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -216,5 +217,21 @@ func TestConfig_RegistrationNotAdvertisedWhenAuthProviderIsOIDC(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, want, cfg.RegistrationEnabled)
 		})
+	}
+}
+
+func TestRegister_RefusedWhenAuthProviderIsUnknown(t *testing.T) {
+	for _, provider := range []types.AuthProvider{"OIDC", "oidc ", "keycloak"} {
+		cfg := &config.ServerConfig{}
+		cfg.Auth.Provider = provider
+		cfg.Auth.RegistrationEnabled = true
+		s := &HelixAPIServer{Cfg: cfg}
+
+		body := `{"email":"probe@example.com","password":"pw","password_confirm":"pw"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(body))
+		rr := httptest.NewRecorder()
+		s.register(rr, req)
+
+		require.Equal(t, http.StatusForbidden, rr.Code, string(provider))
 	}
 }

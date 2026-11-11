@@ -287,6 +287,15 @@ func NewServer(
 		adminAlerter.SetSlackSender(janitor)
 	}
 
+	switch cfg.Auth.Provider {
+	case types.AuthProviderRegular, types.AuthProviderOIDC:
+	default:
+		// An unrecognised value would otherwise disable OIDC while leaving
+		// some password paths reachable; refuse to start instead.
+		return nil, fmt.Errorf("unsupported AUTH_PROVIDER %q: must be %q or %q",
+			cfg.Auth.Provider, types.AuthProviderRegular, types.AuthProviderOIDC)
+	}
+
 	var oidcClient auth.OIDC
 	if cfg.Auth.Provider == types.AuthProviderOIDC {
 		if cfg.Auth.OIDC.Audience == "" {

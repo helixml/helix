@@ -234,7 +234,7 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 	// With OIDC, accounts are created on first SSO sign-in, which is where the
 	// email-domain allow list and the waitlist are enforced. A password signup
 	// would skip both and produce an active, unverified account.
-	if s.Cfg.Auth.Provider == types.AuthProviderOIDC {
+	if !s.passwordAuthEnabled() {
 		http.Error(w, "Registration is disabled: sign in with SSO", http.StatusForbidden)
 		return
 	}
