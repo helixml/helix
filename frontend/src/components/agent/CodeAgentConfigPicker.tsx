@@ -61,6 +61,7 @@ import {
   nativeProviderForRuntime,
 } from '../../utils/nativeModels'
 import { isEmbedRouteName } from '../../utils/organizations'
+import { useModelSwitcher } from '../../contexts/modelSwitcher'
 import useApi from '../../hooks/useApi'
 import { extractErrorMessage } from '../../hooks/useErrorCallback'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -324,6 +325,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     value?.runtime || TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
   )
   const searchRef = useRef<HTMLInputElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
   const interactiveEmbedTaskIdRef = useRef(interactiveEmbedTaskId)
@@ -444,6 +446,31 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     setAnchor(element)
     requestAnimationFrame(() => searchRef.current?.focus())
   }
+
+  const triggerDisabled = disabled || (isEmbedRoute && !interactiveEmbedModel.isSuccess)
+    || updateInteractiveEmbedModel.isPending
+  const handleTrigger = (element: HTMLElement) => {
+    // Nothing to pick from: explain and offer the fix rather than opening an
+    // empty popover.
+    if (policySettled && !hasAnyRuntime) {
+      setNoAgentsOpen(true)
+      return
+    }
+    openPicker(element)
+  }
+  const handleTriggerRef = useRef(handleTrigger)
+  handleTriggerRef.current = handleTrigger
+  const modelSwitcher = useModelSwitcher()
+  const registerModelSwitcher = modelSwitcher?.register
+  useEffect(() => {
+    if (!registerModelSwitcher || triggerDisabled) return
+    return registerModelSwitcher(() => {
+      const trigger = triggerRef.current
+      if (!trigger) return
+      trigger.scrollIntoView({ block: 'nearest' })
+      handleTriggerRef.current(trigger)
+    })
+  }, [registerModelSwitcher, triggerDisabled])
 
   const selectRuntime = (nextRuntime: Runtime) => {
     setRuntime(nextRuntime)
@@ -594,18 +621,10 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
         : unconfigured ? '' : isEmbedRoute ? 'Change model' : 'Change coding agent and model'}>
         <Box component="span" sx={{ display: 'inline-flex', minWidth: 0 }}>
           <Button
+            ref={triggerRef}
             aria-label="Change coding agent"
-            disabled={disabled || (isEmbedRoute && !interactiveEmbedModel.isSuccess)
-              || updateInteractiveEmbedModel.isPending}
-            onClick={(event) => {
-              // Nothing to pick from: explain and offer the fix rather than
-              // opening an empty popover.
-              if (policySettled && !hasAnyRuntime) {
-                setNoAgentsOpen(true)
-                return
-              }
-              openPicker(event.currentTarget)
-            }}
+            disabled={triggerDisabled}
+            onClick={(event) => handleTrigger(event.currentTarget)}
             sx={triggerSx}
           >
             {unconfigured ? (

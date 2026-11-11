@@ -21,6 +21,7 @@ import SessionPromptQueue from './SessionPromptQueue'
 import { useSessionPromptQueue } from './useSessionPromptQueue'
 import { getChatColors } from './chatStyles'
 import type { WorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
+import { ModelSwitcherProvider } from '../../contexts/modelSwitcher'
 
 interface AgentChatProps {
   sessionId: string
@@ -57,7 +58,13 @@ interface AgentChatProps {
 }
 
 /** Shared org/spec-task conversation surface. */
-const AgentChat: FC<AgentChatProps> = ({
+const AgentChat: FC<AgentChatProps> = (props) => (
+  <ModelSwitcherProvider>
+    <AgentChatContent {...props} />
+  </ModelSwitcherProvider>
+)
+
+const AgentChatContent: FC<AgentChatProps> = ({
   sessionId,
   projectId,
   specTaskId,

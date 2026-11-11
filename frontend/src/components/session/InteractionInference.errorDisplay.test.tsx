@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useEffect, type ReactNode } from "react";
 
 import { InteractionInference } from "./InteractionInference";
+import { ModelSwitcherProvider, useModelSwitcher } from "../../contexts/modelSwitcher";
 
 const { navigate, params, wallet } = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -35,6 +37,21 @@ vi.mock("../../services/interactionsService", () => ({
 vi.mock("../../services/useBilling", () => ({
   useGetWallet: () => ({ data: wallet }),
 }));
+
+// Stands in for the composer's model picker registering itself.
+const RegisterOpener = ({ onOpen }: { onOpen: () => void }) => {
+  const switcher = useModelSwitcher();
+  const register = switcher?.register;
+  useEffect(() => register?.(onOpen), [register, onOpen]);
+  return null;
+};
+
+const ModelSwitcherHarness = ({ onOpen, children }: { onOpen: () => void; children: ReactNode }) => (
+  <ModelSwitcherProvider>
+    <RegisterOpener onOpen={onOpen} />
+    {children}
+  </ModelSwitcherProvider>
+);
 
 const baseProps = {
   serverConfig: {
@@ -166,20 +183,23 @@ describe("InteractionInference error display", () => {
     "Anthropic API request failed with status 403: SERVICE_DISABLED for storage.googleapis.com",
     "Anthropic API request failed: SERVICE_DISABLED for aiplatform.googleapis.com",
     "HTTP 403: SERVICE_DISABLED for aiplatform.googleapis.com",
-  ])("keeps unrelated service errors unchanged", (error) => {
+  ])("treats other permission failures as credential problems, not a missing bot provider", (error) => {
     render(<InteractionInference {...baseProps} error={error} />);
 
-    expect(screen.getByText("We couldn’t complete that request")).toBeInTheDocument();
-    expect(screen.getByText(error)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Configure provider" }),
-    ).not.toBeInTheDocument();
+      screen.getByText("The AI provider rejected the request’s credentials"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Model provider unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Switch model" }));
+    expect(navigate).toHaveBeenCalledWith("helix_org_bot_detail", {
+      org_id: "org_1",
+      bot_id: "chief-of-staff",
+    });
   });
 
   it.each([
     "provider \"openai\" is not enabled for coding-agent runtime \"codex_cli\" in this organization",
-    vertexServiceDisabledError,
     "Anthropic provider not configured: set ANTHROPIC_API_KEY",
   ])("keeps provider errors unchanged outside bot chat", (error) => {
     params.bot_id = "";
@@ -192,6 +212,86 @@ describe("InteractionInference error display", () => {
     expect(
       screen.queryByRole("button", { name: "Configure provider" }),
     ).not.toBeInTheDocument();
+  });
+
+  describe("model provider failures", () => {
+    const modelNotFound = `agent turn aborted: Internal error: Internal Server Error: error, status code: 404, status: 404 Not Found, message: model not found for API profile: {
+  "service": "session",
+  "errorName": "APIError"
+}`;
+
+    beforeEach(() => {
+      params.bot_id = "";
+    });
+
+    it("explains a missing model and opens the chat's model picker", () => {
+      const openModelSwitcher = vi.fn();
+      render(
+        <ModelSwitcherHarness onOpen={openModelSwitcher}>
+          <InteractionInference {...baseProps} error={modelNotFound} />
+        </ModelSwitcherHarness>,
+      );
+
+      expect(
+        screen.getByText("The AI provider couldn’t find this model"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/Provider response \(HTTP 404\): “model not found for API profile”/),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("Switch to a different model or provider, then send your message again."),
+      ).toBeInTheDocument();
+      // Re-sending to a model that doesn't exist cannot succeed.
+      expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
+      // The raw wrapper chain is available, but not the headline.
+      expect(screen.queryByText(modelNotFound)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+      expect(screen.getByText(/agent turn aborted: Internal error/)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Switch model" }));
+      expect(openModelSwitcher).toHaveBeenCalledTimes(1);
+    });
+
+    it("offers no switch button when the chat has no model picker", () => {
+      render(<InteractionInference {...baseProps} error={modelNotFound} />);
+
+      expect(
+        screen.getByText("The AI provider couldn’t find this model"),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Switch model" })).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ["error, status code: 429, status: 429 Too Many Requests, message: rate limit exceeded", "The AI provider is limiting requests"],
+      ["Anthropic API request failed with status 529: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}", "The AI provider is having problems"],
+      ["agent turn aborted: context deadline exceeded", "The AI provider took too long to respond"],
+    ])("keeps Retry for transient provider failures: %s", (error, title) => {
+      const openModelSwitcher = vi.fn();
+      render(
+        <ModelSwitcherHarness onOpen={openModelSwitcher}>
+          <InteractionInference {...baseProps} error={error} />
+        </ModelSwitcherHarness>,
+      );
+
+      expect(screen.getByText(title)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Switch model" })).toBeInTheDocument();
+    });
+
+    it("links credential failures to the providers page", () => {
+      render(
+        <InteractionInference
+          {...baseProps}
+          error="error, status code: 401, status: 401 Unauthorized, message: invalid x-api-key"
+        />,
+      );
+
+      expect(
+        screen.getByText("The AI provider rejected the request’s credentials"),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Manage providers" }));
+      expect(navigate).toHaveBeenCalledWith("org_providers", { org_id: "org_1" });
+    });
   });
 
   it("withholds Retry once the session has recovered", () => {
