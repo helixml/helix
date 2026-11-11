@@ -99,3 +99,20 @@ func TestGetPullRequestChange_ValidatesCommitIDsFirst(t *testing.T) {
 	require.NoError(t, exec.Command("git", "init", "-q", repo).Run())
 	require.Error(t, NewGitManager("", "").CheckoutCommit(context.Background(), repo, "--orphan=x"))
 }
+
+// A name that does not resolve for the server would be resolved by git on
+// its own (a resolver can answer the two lookups differently), so without a
+// proxy it is refused rather than left unpinned.
+func TestResolvePin_UnresolvableHostFailsClosedWithoutProxy(t *testing.T) {
+	for _, k := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"} {
+		t.Setenv(k, "")
+	}
+	_, err := ResolvePin(context.Background(), netguard.Policy{}, "https://git.example.invalid/repo.git")
+	require.ErrorIs(t, err, netguard.ErrBlockedDestination)
+
+	// Behind an operator proxy, the proxy resolves and controls egress.
+	t.Setenv("HTTPS_PROXY", "http://proxy.internal:3128")
+	pin, err := ResolvePin(context.Background(), netguard.Policy{}, "https://git.example.invalid/repo.git")
+	require.NoError(t, err)
+	require.Empty(t, pin)
+}

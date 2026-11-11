@@ -1,12 +1,17 @@
 package git
 
 import (
+	"net/url"
+	"os"
+
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
 	"strings"
+
+	"golang.org/x/net/http/httpproxy"
 
 	"github.com/helixml/helix/api/pkg/netguard"
 )
@@ -35,7 +40,17 @@ func ResolvePin(ctx context.Context, policy netguard.Policy, rawURL string) (str
 	if errors.Is(err, netguard.ErrBlockedDestination) {
 		return "", err
 	}
-	if err != nil || net.ParseIP(u.Hostname()) != nil {
+	if err != nil {
+		// git would resolve the name itself, and a resolver can answer it
+		// differently than it answered us. That is only acceptable when git
+		// goes through an operator proxy, which then resolves and controls
+		// egress; otherwise an unresolvable name is refused.
+		if usesProxy(u) {
+			return "", nil
+		}
+		return "", fmt.Errorf("%w: cannot resolve %s: %v", netguard.ErrBlockedDestination, u.Hostname(), err)
+	}
+	if net.ParseIP(u.Hostname()) != nil {
 		return "", nil
 	}
 	port := u.Port()
@@ -54,6 +69,23 @@ func ResolvePin(ctx context.Context, policy netguard.Policy, rawURL string) (str
 		}
 	}
 	return u.Hostname() + ":" + port + ":" + strings.Join(addrs, ","), nil
+}
+
+// usesProxy reports whether git would reach u through a proxy configured in
+// the environment (http_proxy, https_proxy, all_proxy and no_proxy, as git
+// and curl read them).
+func usesProxy(u *url.URL) bool {
+	cfg := httpproxy.FromEnvironment()
+	if cfg.HTTPProxy == "" && cfg.HTTPSProxy == "" {
+		for _, key := range []string{"ALL_PROXY", "all_proxy"} {
+			if v := os.Getenv(key); v != "" {
+				cfg.HTTPProxy, cfg.HTTPSProxy = v, v
+				break
+			}
+		}
+	}
+	proxyURL, err := cfg.ProxyFunc()(u)
+	return err == nil && proxyURL != nil
 }
 
 // configEnv encodes git config entries as GIT_CONFIG_* environment
