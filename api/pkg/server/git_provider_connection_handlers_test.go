@@ -2,20 +2,31 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+// privateGitProvidersConfig allows loopback git provider URLs, so tests can
+// exercise upstream error handling against local listeners.
+func privateGitProvidersConfig() *config.ServerConfig {
+	cfg := &config.ServerConfig{}
+	cfg.GitProviders.AllowPrivateNetworks = true
+	return cfg
+}
 
 // closedLoopbackPort returns a loopback port with nothing listening on it, so a
 // dial gets "connection refused" (the PoC used 127.0.0.1:9).
@@ -79,7 +90,7 @@ func TestCreateGitProviderConnection_DoesNotLeakUpstreamErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			// No store expectations: a failed validation must persist nothing.
-			srv := &HelixAPIServer{Store: store.NewMockStore(ctrl)}
+			srv := &HelixAPIServer{Store: store.NewMockStore(ctrl), Cfg: privateGitProvidersConfig()}
 
 			rec := postGitProviderConnection(t, srv, map[string]string{
 				"name":          "probe",
@@ -119,7 +130,7 @@ func TestCreateGitProviderConnection_UniformErrorAcrossConnectionStates(t *testi
 		jsonErrServer.URL,
 	} {
 		ctrl := gomock.NewController(t)
-		srv := &HelixAPIServer{Store: store.NewMockStore(ctrl)}
+		srv := &HelixAPIServer{Store: store.NewMockStore(ctrl), Cfg: privateGitProvidersConfig()}
 		rec := postGitProviderConnection(t, srv, map[string]string{
 			"provider_type": string(types.ExternalRepositoryTypeGitLab),
 			"base_url":      baseURL,
@@ -152,4 +163,42 @@ func TestGitHubPATScopeErrorIsUserFacing(t *testing.T) {
 	err := githubPATScopeError([]string{"repo"}, true)
 	require.Error(t, err)
 	require.Equal(t, err.Error(), gitProviderClientErrorMessage(err, "generic"))
+}
+
+// Saved git provider connections (create, and browse by connection) must apply
+// the same outbound policy as POST /git/browse-remote.
+func TestGitProviderConnectionsRejectInternalDestinations(t *testing.T) {
+	var hits atomic.Int32
+	listener := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer listener.Close()
+
+	requests := []types.BrowseRemoteRepositoriesRequest{
+		{ProviderType: types.ExternalRepositoryTypeGitHub, BaseURL: listener.URL + "/api/v3/"},
+		{ProviderType: types.ExternalRepositoryTypeGitLab, BaseURL: listener.URL},
+		{ProviderType: types.ExternalRepositoryTypeGitLab, BaseURL: "http://169.254.169.254/"},
+		{ProviderType: types.ExternalRepositoryTypeBitbucket, BaseURL: listener.URL, Username: "u"},
+		{ProviderType: types.ExternalRepositoryTypeADO, OrganizationURL: listener.URL + "/org"},
+	}
+
+	ctrl := gomock.NewController(t)
+	// No store expectations: a rejected connection must persist nothing.
+	srv := &HelixAPIServer{Store: store.NewMockStore(ctrl), Cfg: &config.ServerConfig{}}
+	for _, req := range requests {
+		rec := postGitProviderConnection(t, srv, map[string]string{
+			"provider_type":    string(req.ProviderType),
+			"base_url":         req.BaseURL,
+			"organization_url": req.OrganizationURL,
+			"auth_username":    req.Username,
+			"token":            "dummy-token",
+		})
+		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+
+		req.Token = "dummy-token"
+		_, err := srv.fetchRepositoriesWithPAT(context.Background(), req)
+		require.Error(t, err)
+	}
+	require.Zero(t, hits.Load(), "internal listener was contacted")
 }

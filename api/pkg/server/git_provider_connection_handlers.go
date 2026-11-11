@@ -329,11 +329,35 @@ func gitProviderClientErrorMessage(err error, fallback string) string {
 	return fallback
 }
 
+// gitProviderConnectionHTTPClient checks a connection's self-hosted base URL
+// and Azure DevOps organization URL against the git provider outbound policy
+// and returns the client to use for baseURL (nil means the library default,
+// for the public github.com / gitlab.com / bitbucket.org APIs). The Azure
+// DevOps SDK builds its own client, so its URL is only checked up front.
+func (s *HelixAPIServer) gitProviderConnectionHTTPClient(ctx context.Context, baseURL, orgURL string) (*http.Client, error) {
+	policy := s.gitProviderURLPolicy()
+	for field, raw := range map[string]string{"base URL": baseURL, "organization URL": orgURL} {
+		if raw == "" {
+			continue
+		}
+		if err := policy.ValidateURL(ctx, raw); err != nil {
+			// Not a user error: callers answer with their generic message so
+			// the response does not reveal how internal names resolve.
+			return nil, fmt.Errorf("%s rejected by outbound policy: %w", field, err)
+		}
+	}
+	return gitProviderHTTPClient(policy, baseURL), nil
+}
+
 // validateAndFetchUserInfo validates a PAT and fetches user info from the provider
 func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerType types.ExternalRepositoryType, token, authUsername, orgURL, baseURL string) (*types.OAuthUserInfo, error) {
+	httpClient, err := s.gitProviderConnectionHTTPClient(ctx, baseURL, orgURL)
+	if err != nil {
+		return nil, err
+	}
 	switch providerType {
 	case types.ExternalRepositoryTypeGitHub:
-		client := github.NewClientWithPATAndBaseURL(token, baseURL)
+		client := github.NewClientWithPATBaseURLAndHTTPClient(token, baseURL, httpClient)
 		user, scopes, scopeHeaderPresent, err := client.GetAuthenticatedUserWithScopes(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate GitHub token: %w", err)
@@ -350,7 +374,7 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 		}, nil
 
 	case types.ExternalRepositoryTypeGitLab:
-		client, err := gitlab.NewClientWithPAT(baseURL, token)
+		client, err := gitlab.NewClientWithPATAndHTTPClient(baseURL, token, httpClient)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create GitLab client: %w", err)
 		}
@@ -386,7 +410,7 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 		if authUsername == "" {
 			return nil, newGitProviderUserError("username is required for Bitbucket")
 		}
-		client := bitbucket.NewClient(authUsername, token, baseURL)
+		client := bitbucket.NewClientWithHTTPClient(authUsername, token, baseURL, httpClient)
 		user, err := client.GetCurrentUser(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate Bitbucket credentials: %w", err)
@@ -407,9 +431,14 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types.BrowseRemoteRepositoriesRequest) ([]types.RepositoryInfo, error) {
 	var repos []types.RepositoryInfo
 
+	httpClient, err := s.gitProviderConnectionHTTPClient(ctx, req.BaseURL, req.OrganizationURL)
+	if err != nil {
+		return nil, err
+	}
+
 	switch req.ProviderType {
 	case types.ExternalRepositoryTypeGitHub:
-		ghClient := github.NewClientWithPATAndBaseURL(req.Token, req.BaseURL)
+		ghClient := github.NewClientWithPATBaseURLAndHTTPClient(req.Token, req.BaseURL, httpClient)
 		ghRepos, err := ghClient.ListRepositories(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list GitHub repositories: %w", err)
@@ -428,7 +457,7 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 		}
 
 	case types.ExternalRepositoryTypeGitLab:
-		glClient, err := gitlab.NewClientWithPAT(req.BaseURL, req.Token)
+		glClient, err := gitlab.NewClientWithPATAndHTTPClient(req.BaseURL, req.Token, httpClient)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create GitLab client: %w", err)
 		}
@@ -492,7 +521,7 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 		if req.Username == "" {
 			return nil, newGitProviderUserError("username is required for Bitbucket")
 		}
-		bbClient := bitbucket.NewClient(req.Username, req.Token, req.BaseURL)
+		bbClient := bitbucket.NewClientWithHTTPClient(req.Username, req.Token, req.BaseURL, httpClient)
 		bbRepos, err := bbClient.ListRepositories(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list Bitbucket repositories: %w", err)
