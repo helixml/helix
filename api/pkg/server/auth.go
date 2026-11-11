@@ -45,6 +45,30 @@ func userResponse(user *types.User, token string) types.UserResponse {
 	}
 }
 
+// passwordAuthEnabled reports whether Helix-managed passwords may be used to
+// sign in or to set, reset or change a password. Only the regular provider
+// owns credentials: under OIDC the identity provider does, and the SSO email
+// domain allow list and waitlist are enforced on SSO sign-in alone, so any
+// password path would sidestep them. Unknown providers allow neither mode.
+func (s *HelixAPIServer) passwordAuthEnabled() bool {
+	return s.Cfg.Auth.Provider == types.AuthProviderRegular
+}
+
+// oidcAuthEnabled reports whether the OIDC login and callback flows may run.
+func (s *HelixAPIServer) oidcAuthEnabled() bool {
+	return s.Cfg.Auth.Provider == types.AuthProviderOIDC && s.oidcClient != nil
+}
+
+// refusePasswordAuth writes a 403 and returns true when password flows are
+// disabled for the configured provider.
+func (s *HelixAPIServer) refusePasswordAuth(w http.ResponseWriter) bool {
+	if s.passwordAuthEnabled() {
+		return false
+	}
+	http.Error(w, "Password authentication is disabled: sign in with SSO", http.StatusForbidden)
+	return true
+}
+
 // Cookies are set, used and deleted at different points in the lifecycle of the request.
 // If found it hard to line these up correctly, especially the paths, so we'll use a struct to
 // represent each cookie.
@@ -211,7 +235,7 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 	// With OIDC, accounts are created on first SSO sign-in, which is where the
 	// email-domain allow list and the waitlist are enforced. A password signup
 	// would skip both and produce an active, unverified account.
-	if s.Cfg.Auth.Provider == types.AuthProviderOIDC {
+	if !s.passwordAuthEnabled() {
 		http.Error(w, "Registration is disabled: sign in with SSO", http.StatusForbidden)
 		return
 	}
@@ -424,6 +448,9 @@ func (s *HelixAPIServer) passwordReset(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		return
 	}
+	if s.refusePasswordAuth(w) {
+		return
+	}
 
 	var passwordResetRequest types.PasswordResetRequest
 	if err := json.NewDecoder(r.Body).Decode(&passwordResetRequest); err != nil {
@@ -470,6 +497,9 @@ func (s *HelixAPIServer) passwordReset(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/auth/password-reset-complete [post]
 func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
+		return
+	}
+	if s.refusePasswordAuth(w) {
 		return
 	}
 
@@ -532,6 +562,9 @@ func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Re
 // @Security BearerAuth
 func (s *HelixAPIServer) passwordUpdate(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
+		return
+	}
+	if s.refusePasswordAuth(w) {
 		return
 	}
 
@@ -620,6 +653,9 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if loginRequest.Email != "" && loginRequest.Password != "" {
+		if s.refusePasswordAuth(w) {
+			return
+		}
 		user, err := s.Store.GetUser(r.Context(), &store.GetUserQuery{
 			Email: loginRequest.Email,
 		})
@@ -671,8 +707,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	// OIDC - only available if not using regular auth
-	if s.Cfg.Auth.Provider != types.AuthProviderRegular {
+	if s.oidcAuthEnabled() {
 		redirectURL := s.oidcClient.GetAuthURL(state, nonce)
 		if redirectURL == "" {
 			log.Error().Msg("empty redirect URL")
@@ -705,7 +740,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 // @Param state query string true "The state from the OIDC provider"
 // @Router /api/v1/auth/callback [get]
 func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
-	if s.Cfg.Auth.Provider == types.AuthProviderRegular {
+	if !s.oidcAuthEnabled() {
 		http.Error(w, "OIDC not turned on", http.StatusBadRequest)
 		return
 	}
@@ -1282,8 +1317,10 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	// The desktop admin is a regular-provider account with a regular session;
+	// under any other provider it would be a sign-in that skips the IdP.
 	secret := s.Cfg.Auth.DesktopAutoLoginSecret
-	if secret == "" {
+	if secret == "" || !s.passwordAuthEnabled() {
 		http.Error(w, "Desktop auto-login is not configured", http.StatusNotFound)
 		return
 	}

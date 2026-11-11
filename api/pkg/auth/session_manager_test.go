@@ -318,6 +318,7 @@ func (s *SessionManagerSuite) TestGetClientIP_RemoteAddr() {
 // Tests for OIDC token refresh scenarios (addresses PR review comment about OIDC_OFFLINE_ACCESS)
 
 func (s *SessionManagerSuite) TestGetSessionFromRequest_OIDCRefreshNeeded_NoRefreshToken() {
+	s.cfg.Auth.Provider = types.AuthProviderOIDC
 	// Test case: OIDC session needs refresh but no refresh token available
 	// This happens when OIDC_OFFLINE_ACCESS is not enabled
 	sessionID := "uss_no_refresh_token"
@@ -350,6 +351,7 @@ func (s *SessionManagerSuite) TestGetSessionFromRequest_OIDCRefreshNeeded_NoRefr
 }
 
 func (s *SessionManagerSuite) TestGetSessionFromRequest_OIDCRefreshNeeded_RefreshSucceeds() {
+	s.cfg.Auth.Provider = types.AuthProviderOIDC
 	// Test case: OIDC session needs refresh and refresh succeeds
 	sessionID := "uss_refresh_success"
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -396,6 +398,7 @@ func (s *SessionManagerSuite) TestGetSessionFromRequest_OIDCRefreshNeeded_Refres
 }
 
 func (s *SessionManagerSuite) TestGetSessionFromRequest_OIDCRefreshNeeded_RefreshFails() {
+	s.cfg.Auth.Provider = types.AuthProviderOIDC
 	// Test case: OIDC session needs refresh but refresh fails
 	// Session should still be returned - the expired token may still work or force re-login
 	sessionID := "uss_refresh_fails"
@@ -427,5 +430,63 @@ func (s *SessionManagerSuite) TestGetSessionFromRequest_OIDCRefreshNeeded_Refres
 
 	s.NoError(err) // No error returned to caller
 	s.NotNil(session)
+	s.Equal(sessionID, session.ID)
+}
+
+// A session records the provider that signed it in. After AUTH_PROVIDER
+// changes (or for a session minted by a password path on an OIDC deployment)
+// it skipped the configured provider's sign-in checks, so it must not
+// authenticate anyone, and it is removed.
+func (s *SessionManagerSuite) TestGetSessionFromRequest_RejectsSessionFromOtherProvider() {
+	for _, tc := range []struct {
+		configured, session types.AuthProvider
+	}{
+		{configured: types.AuthProviderOIDC, session: types.AuthProviderRegular},
+		{configured: types.AuthProviderRegular, session: types.AuthProviderOIDC},
+	} {
+		s.Run(string(tc.configured)+"_rejects_"+string(tc.session), func() {
+			s.cfg.Auth.Provider = tc.configured
+			sessionID := "uss_other_provider"
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.AddCookie(&http.Cookie{Name: SessionCookieName, Value: sessionID})
+
+			s.mockStore.EXPECT().
+				GetUserSession(gomock.Any(), sessionID).
+				Return(&types.UserSession{
+					ID:           sessionID,
+					UserID:       "usr_test",
+					AuthProvider: tc.session,
+					ExpiresAt:    time.Now().Add(time.Hour),
+					LastUsedAt:   time.Now(),
+				}, nil)
+			s.mockStore.EXPECT().DeleteUserSession(gomock.Any(), sessionID).Return(nil)
+
+			session, err := s.sessionManager.GetSessionFromRequest(s.ctx, r)
+
+			s.ErrorIs(err, ErrSessionProviderMismatch)
+			s.Nil(session)
+		})
+	}
+}
+
+func (s *SessionManagerSuite) TestGetSessionFromRequest_AcceptsSessionFromConfiguredProvider() {
+	s.cfg.Auth.Provider = types.AuthProviderRegular
+	sessionID := "uss_same_provider"
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.AddCookie(&http.Cookie{Name: SessionCookieName, Value: sessionID})
+
+	s.mockStore.EXPECT().
+		GetUserSession(gomock.Any(), sessionID).
+		Return(&types.UserSession{
+			ID:           sessionID,
+			UserID:       "usr_test",
+			AuthProvider: types.AuthProviderRegular,
+			ExpiresAt:    time.Now().Add(time.Hour),
+			LastUsedAt:   time.Now(),
+		}, nil)
+
+	session, err := s.sessionManager.GetSessionFromRequest(s.ctx, r)
+
+	s.NoError(err)
 	s.Equal(sessionID, session.ID)
 }

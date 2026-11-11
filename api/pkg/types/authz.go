@@ -326,6 +326,37 @@ type User struct {
 	AlphaFeatures pq.StringArray `gorm:"type:text[];default:'{}'" json:"alpha_features"`
 }
 
+// AccountAccessDenied says why an account may not use the API. Its text is
+// shown to the caller as is.
+type AccountAccessDenied string
+
+func (e AccountAccessDenied) Error() string { return string(e) }
+
+const (
+	ErrAccountWaitlisted  AccountAccessDenied = "Account is waiting for approval"
+	ErrAccountDeactivated AccountAccessDenied = "Account is deactivated"
+	ErrAccountDeleted     AccountAccessDenied = "Account has been deleted"
+)
+
+// AccountAccessError reports why this account may not use the API, or nil
+// when it may. It is the single account-state policy for every credential
+// that acts as a user: session cookies, user tokens and API keys of any type
+// (the key carries its owner's state). Runner and other system identities
+// have none of these flags set and pass.
+func (u *User) AccountAccessError() error {
+	switch {
+	case u == nil:
+		return nil
+	case u.DeletedAt.Valid:
+		return ErrAccountDeleted
+	case u.Deactivated:
+		return ErrAccountDeactivated
+	case u.Waitlisted:
+		return ErrAccountWaitlisted
+	}
+	return nil
+}
+
 type UserSearchResponse struct {
 	Users      []*User `json:"users"`
 	TotalCount int64   `json:"total_count"`
