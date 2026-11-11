@@ -95,6 +95,7 @@ func TestDesktopCallback_UpdatesDesktopIdentityEmail(t *testing.T) {
 	desktop := &types.User{ID: "usr_desktop", Email: defaultDesktopEmail, FullName: "Mac User", Admin: true, DesktopIdentity: true}
 	st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{DesktopIdentity: true}).Return(desktop, nil)
 	st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{Email: "licensee@example.com"}).Return(nil, store.ErrNotFound)
+	st.EXPECT().ListOrganizationInvitations(gomock.Any(), &store.ListOrganizationInvitationsQuery{Email: "licensee@example.com"}).Return(nil, nil)
 	st.EXPECT().UpdateUser(gomock.Any(), desktop).Return(desktop, nil)
 	expectSessionFor(st, "usr_desktop")
 
@@ -124,7 +125,7 @@ func TestDesktopCallback_CreatesDesktopIdentity(t *testing.T) {
 // were marked (passwordless regular admin) is adopted.
 func TestDesktopCallback_AdoptsLegacyDesktopAccount(t *testing.T) {
 	s, st, _ := newDesktopTestServer(t)
-	legacy := &types.User{ID: "usr_legacy", Email: "licensee@example.com", FullName: "Mac User", Admin: true, Type: types.OwnerTypeUser, AuthProvider: types.AuthProviderRegular}
+	legacy := &types.User{ID: "usr_legacy", Email: "licensee@example.com", Username: "licensee@example.com", FullName: "Mac User", Admin: true, Type: types.OwnerTypeUser, AuthProvider: types.AuthProviderRegular}
 	st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{DesktopIdentity: true}).Return(nil, store.ErrNotFound)
 	st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{Email: "licensee@example.com"}).Return(legacy, nil)
 	st.EXPECT().UpdateUser(gomock.Any(), legacy).DoAndReturn(func(_ any, u *types.User) (*types.User, error) {
@@ -135,4 +136,20 @@ func TestDesktopCallback_AdoptsLegacyDesktopAccount(t *testing.T) {
 
 	rr := desktopCallback(s, "licensee@example.com")
 	require.Equal(t, http.StatusFound, rr.Code, rr.Body.String())
+}
+
+// The desktop account does not take over an address that has a pending
+// organization invitation: the invitation is meant for that mailbox's owner.
+func TestDesktopCallback_DoesNotMoveOntoInvitedAddress(t *testing.T) {
+	s, st, _ := newDesktopTestServer(t)
+	desktop := &types.User{ID: "usr_desktop", Email: defaultDesktopEmail, FullName: "Mac User", Admin: true, DesktopIdentity: true}
+	st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{DesktopIdentity: true}).Return(desktop, nil)
+	st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{Email: "cto@corp.example"}).Return(nil, store.ErrNotFound)
+	st.EXPECT().ListOrganizationInvitations(gomock.Any(), &store.ListOrganizationInvitationsQuery{Email: "cto@corp.example"}).
+		Return([]*types.OrganizationInvitation{{ID: "oin_1", Email: "cto@corp.example"}}, nil)
+	expectSessionFor(st, "usr_desktop")
+
+	rr := desktopCallback(s, "cto@corp.example")
+	require.Equal(t, http.StatusFound, rr.Code, rr.Body.String())
+	require.Equal(t, defaultDesktopEmail, desktop.Email)
 }

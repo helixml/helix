@@ -1380,8 +1380,8 @@ var errNotDesktopIdentity = errors.New("account is not the desktop identity")
 //
 // Accounts created by the desktop flow before the DesktopIdentity marker
 // existed are adopted once, while no account carries the marker: an admin
-// with the requested email that has no password and uses regular auth, which
-// is how the desktop flow created them.
+// with the requested email that has no password, uses regular auth and has
+// its email as username, which is how the desktop flow created them.
 func (s *HelixAPIServer) desktopIdentity(ctx context.Context, email, displayName string) (*types.User, error) {
 	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{DesktopIdentity: true})
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -1437,16 +1437,10 @@ func (s *HelixAPIServer) desktopIdentity(ctx context.Context, email, displayName
 		needsUpdate = true
 	}
 	if !strings.EqualFold(user.Email, email) {
-		other, err := s.Store.GetUser(ctx, &store.GetUserQuery{Email: email})
-		switch {
-		case errors.Is(err, store.ErrNotFound):
+		if s.desktopEmailAvailable(ctx, email) {
 			user.Email = email
 			user.Username = email
 			needsUpdate = true
-		case err != nil:
-			log.Warn().Err(err).Msg("Failed to check desktop email availability")
-		default:
-			log.Warn().Str("user_id", other.ID).Msg("desktop email belongs to another account; keeping the desktop account's email")
 		}
 	}
 	if needsUpdate {
@@ -1462,5 +1456,30 @@ func (s *HelixAPIServer) desktopIdentity(ctx context.Context, email, displayName
 // has no password (so cannot otherwise be signed in to).
 func isLegacyDesktopAccount(u *types.User) bool {
 	return u.Admin && u.Type == types.OwnerTypeUser && u.AuthProvider == types.AuthProviderRegular &&
-		len(u.PasswordHash) == 0 && !u.Deactivated
+		len(u.PasswordHash) == 0 && !u.Deactivated && !u.DeletedAt.Valid &&
+		// The desktop flow set the username to the email; accounts created
+		// elsewhere (admin API, OIDC, bots) do not match all of the above.
+		u.Username == u.Email
+}
+
+// desktopEmailAvailable reports whether the desktop account may take email:
+// no other account uses it and no organization invitation is pending for it
+// (an invitation is addressed to whoever owns that mailbox, not to the
+// holder of the desktop secret).
+func (s *HelixAPIServer) desktopEmailAvailable(ctx context.Context, email string) bool {
+	other, err := s.Store.GetUser(ctx, &store.GetUserQuery{Email: email})
+	switch {
+	case err == nil:
+		log.Warn().Str("user_id", other.ID).Msg("desktop email belongs to another account; keeping the desktop account's email")
+		return false
+	case !errors.Is(err, store.ErrNotFound):
+		log.Warn().Err(err).Msg("Failed to check desktop email availability")
+		return false
+	}
+	pending, err := s.Store.ListOrganizationInvitations(ctx, &store.ListOrganizationInvitationsQuery{Email: email})
+	if err != nil || len(pending) > 0 {
+		log.Warn().Err(err).Int("pending_invitations", len(pending)).Msg("desktop email has pending invitations; keeping the desktop account's email")
+		return false
+	}
+	return true
 }
