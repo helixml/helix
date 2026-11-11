@@ -2304,9 +2304,11 @@ func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*
 
 	// A reader who may not edit the agent may not see its credentials, so
 	// the copy they get must not carry them either: an API tool's URL can be
-	// pointed anywhere and would send the copied headers there.
+	// pointed anywhere and would send the copied headers there. The copy gets
+	// the same masked values a read returns, so it keeps the shape of every
+	// header, query parameter and setting for its new owner to fill in.
 	if !s.canUpdateApp(r.Context(), user, app) {
-		stripAgentSecrets(&app.Config)
+		app.Config = maskedAgentConfig(app.Config)
 	}
 
 	app.ID = system.GenerateAppID()

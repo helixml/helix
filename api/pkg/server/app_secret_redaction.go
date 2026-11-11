@@ -182,11 +182,6 @@ func maskedAgentConfig(cfg types.AgentConfig) types.AgentConfig {
 	return out
 }
 
-// stripAgentSecrets removes every credential from cfg in place.
-func stripAgentSecrets(cfg *types.AgentConfig) {
-	transformAgentSecrets(cfg, func(_, _ string) string { return "" })
-}
-
 // restoreMaskedAgentSecrets resolves masked placeholders in an update: each
 // one is replaced by the stored value at the same path. A placeholder is
 // dropped when there is no stored value, or when its path is ambiguous

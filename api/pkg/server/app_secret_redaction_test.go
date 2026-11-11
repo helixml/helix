@@ -157,7 +157,9 @@ func TestDuplicateApp_ReaderCopyHasNoCredentials(t *testing.T) {
 	require.Nil(t, httpErr)
 	require.NotNil(t, created)
 	requireNoSecrets(t, created)
-	require.NotContains(t, created.Config.Secrets, "API_TOKEN")
+	// Names and parameters survive with masked values, as on a read.
+	require.Equal(t, maskedSecret, created.Config.Secrets["API_TOKEN"])
+	require.Equal(t, maskedSecret, created.Config.Helix.Assistants[0].APIs[0].Query["key"])
 }
 
 func TestDuplicateApp_OwnerCopyKeepsCredentials(t *testing.T) {
