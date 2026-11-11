@@ -322,6 +322,17 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 	}
 	defer d.browser.PutPage(page)
 
+	// The page is rendered in Chrome, which would otherwise resolve and
+	// fetch the URL (and anything its HTML or scripts load or redirect to)
+	// itself, outside the outbound policy enforced by d.transport.
+	if d.transport != nil {
+		stop, err := browser.GuardPage(page, &http.Client{Transport: d.transport})
+		if err != nil {
+			return nil, fmt.Errorf("error guarding page for %s: %w", url, err)
+		}
+		defer stop()
+	}
+
 	if d.knowledge.Source.Web.Crawler.UserAgent != "" {
 		if err := page.SetUserAgent(&proto.NetworkSetUserAgentOverride{
 			UserAgent: d.knowledge.Source.Web.Crawler.UserAgent,

@@ -283,3 +283,35 @@ func (b *Browser) getChromeURL() (string, error) {
 
 	return wsURL.String(), nil
 }
+
+// GuardPage makes client carry every HTTP(S) request page issues —
+// navigations, redirects, script-initiated navigations, subresources and
+// fetch/XHR — so the client's transport (an outbound policy) decides what the
+// browser can reach and its own DNS resolution is never used. Requests the
+// client refuses fail in the page. WebSocket connections, which request
+// interception does not see, are blocked outright. Call the returned function
+// before returning the page to the pool.
+func GuardPage(page *rod.Page, client *http.Client) (func(), error) {
+	if err := (proto.NetworkEnable{}).Call(page); err != nil {
+		return nil, fmt.Errorf("enable network domain: %w", err)
+	}
+	if err := page.SetBlockedURLs([]string{"ws://*", "wss://*"}); err != nil {
+		return nil, fmt.Errorf("block websocket URLs: %w", err)
+	}
+	router := page.HijackRequests()
+	err := router.Add("*", "", func(h *rod.Hijack) {
+		if err := h.LoadResponse(client, true); err != nil {
+			log.Debug().Err(err).Str("url", h.Request.URL().String()).Msg("browser request refused")
+			h.Response.Fail(proto.NetworkErrorReasonBlockedByClient)
+		}
+	})
+	if err != nil {
+		_ = router.Stop()
+		return nil, fmt.Errorf("intercept page requests: %w", err)
+	}
+	go router.Run()
+	return func() {
+		_ = page.Navigate("about:blank") // leave nothing running unguarded
+		_ = router.Stop()
+	}, nil
+}
