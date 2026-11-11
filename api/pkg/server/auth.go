@@ -548,6 +548,12 @@ func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// The password is changed, but an inactive account does not get a session.
+	if accessErr := user.AccountAccessError(); accessErr != nil {
+		http.Error(w, accessErr.Error(), http.StatusForbidden)
+		return
+	}
+
 	// The reset token is not a session; issue a fresh session token.
 	token, err := s.authenticator.GenerateUserToken(ctx, user)
 	if err != nil {
