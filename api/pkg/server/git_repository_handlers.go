@@ -328,9 +328,10 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 	// The stored credentials (password, PATs, the pinned OAuth connection)
 	// belong to the repository owner and are sent to the external URL on every
 	// sync. A collaborator with update access must not be able to point them at
-	// another host.
-	if redirectsRepositoryUpstream(existing, &request) && existing.OwnerID != user.ID && !user.Admin {
-		http.Error(w, "Only the repository owner can change its external URL or type", http.StatusForbidden)
+	// another host; the owner, an owner of the repository's org and a system
+	// admin may.
+	if redirectsRepositoryUpstream(existing, &request) && !s.canRedirectRepositoryUpstream(r.Context(), user, existing) {
+		http.Error(w, "Only the repository owner or an organization owner can change its external URL or type", http.StatusForbidden)
 		return
 	}
 
@@ -2076,4 +2077,17 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Error().Err(err).Msg("Failed to encode response")
 	}
+}
+
+// canRedirectRepositoryUpstream reports whether the caller may change where a
+// repository's stored credentials are sent.
+func (s *HelixAPIServer) canRedirectRepositoryUpstream(ctx context.Context, user *types.User, repo *types.GitRepository) bool {
+	if user.ID == repo.OwnerID || user.Admin {
+		return true
+	}
+	if repo.OrganizationID == "" {
+		return false
+	}
+	_, err := s.authorizeOrgOwner(ctx, user, repo.OrganizationID)
+	return err == nil
 }
