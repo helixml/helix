@@ -822,8 +822,15 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 	endpoint.Name = strings.TrimSpace(endpoint.Name)
 	endpoint.BaseURL = strings.TrimSpace(endpoint.BaseURL)
 	endpoint.VertexProjectID = strings.TrimSpace(endpoint.VertexProjectID)
+	endpoint.VertexRegion = strings.TrimSpace(endpoint.VertexRegion)
+	endpoint.VertexCredentialsJSON = strings.TrimSpace(endpoint.VertexCredentialsJSON)
+	endpoint.VertexCredentialsFile = strings.TrimSpace(endpoint.VertexCredentialsFile)
 	if err := validateProviderEndpointShape(&endpoint); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := validateVertexCredentialsSource(&endpoint, isAdmin); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
 	}
 	if err := s.validateProviderEndpointBaseURL(ctx, &endpoint); err != nil {
@@ -1122,6 +1129,10 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 
 	if err := validateProviderEndpointShape(existingEndpoint); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := validateVertexCredentialsSource(existingEndpoint, user.Admin); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
 	}
 
