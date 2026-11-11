@@ -3,6 +3,8 @@ package azuredevops
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/git"
@@ -117,6 +119,12 @@ func GetPullRequestDiff(ctx context.Context, orgURL, token string, azureCtx type
 		Int("pull_request_id", azureCtx.PullRequestID).
 		Msg("Getting pull request diff")
 
+	// The remote URL comes from the webhook payload and is cloned with the
+	// configured token, so it must point at the configured organization's host.
+	if err := checkRemoteURLMatchesOrg(azureCtx.RemoteURL, orgURL); err != nil {
+		return nil, err
+	}
+
 	// The VCS provider. Cannot be changed.
 	vcsProvider := vcsutils.AzureRepos
 
@@ -151,4 +159,21 @@ func GetPullRequestDiff(ctx context.Context, orgURL, token string, azureCtx type
 		Changes:     changes,
 		PullRequest: pr,
 	}, nil
+}
+
+// checkRemoteURLMatchesOrg requires remoteURL to be an https URL on the same
+// host as the configured Azure DevOps organization URL.
+func checkRemoteURLMatchesOrg(remoteURL, orgURL string) error {
+	remote, err := url.Parse(remoteURL)
+	if err != nil || remote.Scheme != "https" || remote.Host == "" {
+		return fmt.Errorf("repository remote URL %q is not an https URL", remoteURL)
+	}
+	org, err := url.Parse(orgURL)
+	if err != nil || org.Host == "" {
+		return fmt.Errorf("invalid organization URL %q", orgURL)
+	}
+	if !strings.EqualFold(remote.Host, org.Host) {
+		return fmt.Errorf("repository remote URL host %q does not match organization host %q", remote.Host, org.Host)
+	}
+	return nil
 }

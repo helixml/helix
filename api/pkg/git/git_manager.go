@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	giteagit "code.gitea.io/gitea/modules/git"
@@ -30,6 +31,12 @@ func NewGitManager(remoteURL, token string) *GitManager {
 // CloneRepository clones a repository to the given path.
 // Returns the path to the cloned repository (same as repoPath).
 func (g *GitManager) CloneRepository(ctx context.Context, repoPath string) (string, error) {
+	// The remote URL can come from a webhook payload: only network
+	// repositories may be cloned, never a path on the API server.
+	if u, err := url.Parse(g.remoteURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", fmt.Errorf("refusing to clone %q: only http(s) remotes are supported", g.remoteURL)
+	}
+
 	// Build authenticated URL
 	authURL := g.buildAuthenticatedURL()
 
@@ -72,8 +79,19 @@ func (g *GitManager) CheckoutCommit(ctx context.Context, repoPath string, commit
 	return nil
 }
 
+// commitIDPattern matches an abbreviated or full SHA-1/SHA-256 object name.
+var commitIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
+
 func (g *GitManager) Diff(ctx context.Context, repoPath string, targetCommit, sourceCommit string) ([]*PullRequestChange, error) {
 	logger := log.Ctx(ctx)
+
+	// Commit IDs are passed to git as positional arguments; anything but an
+	// object name (e.g. "--output=<path>") would be parsed as an option.
+	for _, commit := range []string{targetCommit, sourceCommit} {
+		if !commitIDPattern.MatchString(commit) {
+			return nil, fmt.Errorf("invalid commit ID %q", commit)
+		}
+	}
 
 	// Change to the repository directory
 	originalDir, err := os.Getwd()
