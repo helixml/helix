@@ -974,8 +974,9 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
-	// Only admins can add endpoints with API key path auth
-	if existingEndpoint.APIKeyFromFile != "" && !user.Admin {
+	// Only admins can add or change endpoints with API key path auth.
+	if (existingEndpoint.APIKeyFromFile != "" ||
+		(updatedEndpoint.APIKeyFromFile != nil && strings.TrimSpace(*updatedEndpoint.APIKeyFromFile) != "")) && !user.Admin {
 		http.Error(rw, "Only admins can add endpoints with API key path auth", http.StatusForbidden)
 		return
 	}
