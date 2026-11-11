@@ -51,6 +51,38 @@ func (s *HelixAPIServer) listProviders(rw http.ResponseWriter, r *http.Request) 
 
 var blankAPIKey = "********"
 
+// maskedSecret replaces a stored credential in API responses. A request that
+// sends it back unchanged means "keep the stored value".
+const maskedSecret = "*****"
+
+// isMaskedSecret reports whether v is one of the placeholders the API returns
+// in place of a stored credential.
+func isMaskedSecret(v string) bool {
+	return v == maskedSecret || v == blankAPIKey
+}
+
+// redactProviderEndpointCredentials masks every credential an endpoint holds
+// before it is written to a response. Provider endpoints are readable by more
+// people than can edit them (global endpoints by every user, org endpoints by
+// every member), so the API key, custom header values (often an
+// Authorization or x-api-key header) and the Vertex service account JSON must
+// never leave the server.
+func redactProviderEndpointCredentials(endpoint *types.ProviderEndpoint) {
+	if endpoint.APIKey != "" {
+		endpoint.APIKey = maskedSecret
+	}
+	if len(endpoint.Headers) > 0 {
+		masked := make(map[string]string, len(endpoint.Headers))
+		for name := range endpoint.Headers {
+			masked[name] = maskedSecret
+		}
+		endpoint.Headers = masked
+	}
+	if endpoint.VertexCredentialsJSON != "" {
+		endpoint.VertexCredentialsJSON = maskedSecret
+	}
+}
+
 // providersManagementEnabled reports whether non-admin users may manage their
 // own provider endpoints. Two operator controls grant this and they mean the
 // same thing: the static ENABLE_CUSTOM_USER_PROVIDERS env var and the admin
@@ -143,16 +175,16 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		All:        all,
 	}
 
-	if orgID != "" {
-		query.OwnerType = types.OwnerTypeOrg
-		query.Owner = orgID
-	} else {
-		query.OwnerType = types.OwnerTypeUser
-		query.Owner = user.ID
-	}
-
 	// If authenticated, fetch user endpoints
 	if user != nil {
+		if orgID != "" {
+			query.OwnerType = types.OwnerTypeOrg
+			query.Owner = orgID
+		} else {
+			query.OwnerType = types.OwnerTypeUser
+			query.Owner = user.ID
+		}
+
 		if query.All && !user.Admin {
 			http.Error(rw, "Only system admins can list all endpoints", http.StatusForbidden)
 			return
@@ -163,12 +195,6 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			log.Err(err).Msg("error listing provider endpoints")
 			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 			return
-		}
-
-		for idx := range providerEndpoints {
-			if providerEndpoints[idx].APIKey != "" {
-				providerEndpoints[idx].APIKey = blankAPIKey
-			}
 		}
 
 		// Sort endpoints by name before adding global ones
@@ -272,6 +298,10 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 	}
 
 	wg.Wait()
+
+	for _, endpoint := range providerEndpoints {
+		redactProviderEndpointCredentials(endpoint)
+	}
 
 	writeResponse(rw, providerEndpoints, http.StatusOK)
 }
@@ -826,7 +856,8 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 
 	// Mask API key before any concurrent access to createdEndpoint.
 	endpointForWarm := *createdEndpoint // copy — goroutine needs the real API key
-	createdEndpoint.APIKey = "*****"
+	redactProviderEndpointCredentials(createdEndpoint)
+	createdEndpoint.APIKey = maskedSecret
 
 	// Warm the model cache asynchronously so the first ?with_models=true request is instant.
 	// Use a detached context so the HTTP request completing doesn't cancel the fetch.
@@ -1046,7 +1077,15 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	// means "remove every header". Both are legitimate, so only the nil case
 	// keeps the stored headers.
 	if updatedEndpoint.Headers != nil {
-		existingEndpoint.Headers = updatedEndpoint.Headers
+		existingEndpoint.Headers = mergeMaskedHeaders(existingEndpoint.Headers, updatedEndpoint.Headers)
+	}
+	// Responses mask credentials, so a client that round-trips the endpoint
+	// sends the placeholder back. That means "unchanged", not "store *****".
+	if updatedEndpoint.APIKey != nil && isMaskedSecret(strings.TrimSpace(*updatedEndpoint.APIKey)) {
+		updatedEndpoint.APIKey = nil
+	}
+	if updatedEndpoint.VertexCredentialsJSON != nil && isMaskedSecret(strings.TrimSpace(*updatedEndpoint.VertexCredentialsJSON)) {
+		updatedEndpoint.VertexCredentialsJSON = nil
 	}
 	if updatedEndpoint.APIKey != nil {
 		existingEndpoint.APIKey = strings.TrimSpace(*updatedEndpoint.APIKey)
@@ -1104,7 +1143,8 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 
 	// Mask API key in response
-	savedEndpoint.APIKey = "*****"
+	redactProviderEndpointCredentials(savedEndpoint)
+	savedEndpoint.APIKey = maskedSecret
 
 	rw.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(rw).Encode(savedEndpoint); err != nil {
@@ -1112,6 +1152,23 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+}
+
+// mergeMaskedHeaders applies a header update. A header sent back with the
+// masked placeholder keeps its stored value; any other value replaces it, and
+// headers missing from the update are removed.
+func mergeMaskedHeaders(stored, updated map[string]string) map[string]string {
+	merged := make(map[string]string, len(updated))
+	for name, value := range updated {
+		if isMaskedSecret(value) {
+			if storedValue, ok := stored[name]; ok {
+				merged[name] = storedValue
+			}
+			continue
+		}
+		merged[name] = value
+	}
+	return merged
 }
 
 // loadEditableProviderEndpoint loads a provider endpoint and authorizes the
@@ -1246,7 +1303,8 @@ func (s *HelixAPIServer) updateProviderEndpointModels(rw http.ResponseWriter, r 
 	// up to modelCacheTTL.
 	s.invalidateProviderModelCache(saved.Name, saved.Owner)
 
-	saved.APIKey = "*****"
+	redactProviderEndpointCredentials(saved)
+	saved.APIKey = maskedSecret
 	writeResponse(rw, saved, http.StatusOK)
 }
 
