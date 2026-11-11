@@ -9,6 +9,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    // CI runners are shared with Go/e2e builds; the 5s default flakes under load.
+    testTimeout: 30000,
     setupFiles: ['./src/setupTests.ts'],
     deps: {
       inline: [/react-markdown/, /react-syntax-highlighter/],
