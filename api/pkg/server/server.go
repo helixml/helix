@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2106,11 +2107,9 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 		}
 
 		// Validate the runner token (like GPTScript does)
-		if accessToken != apiServer.Cfg.WebServer.RunnerToken {
+		if subtle.ConstantTimeCompare([]byte(accessToken), []byte(apiServer.Cfg.WebServer.RunnerToken)) != 1 {
 			log.Warn().
 				Str("EXTERNAL_AGENT_DEBUG", "invalid_token").
-				Str("provided_token", accessToken).
-				Str("expected_token", apiServer.Cfg.WebServer.RunnerToken).
 				Str("runner_id", runnerID).
 				Msg("❌ EXTERNAL_AGENT_DEBUG: Invalid runner token for external agent runner")
 			http.Error(w, "Invalid access token", http.StatusUnauthorized)

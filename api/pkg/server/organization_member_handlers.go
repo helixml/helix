@@ -48,6 +48,7 @@ func (apiServer *HelixAPIServer) listOrganizationMembers(rw http.ResponseWriter,
 	}
 	now := time.Now()
 	for _, member := range members {
+		scrubUserCredentials(&member.User)
 		member.Online = types.IsUserOnline(&member.User, now)
 	}
 
