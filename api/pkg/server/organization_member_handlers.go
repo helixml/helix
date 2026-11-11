@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -31,7 +32,7 @@ func (apiServer *HelixAPIServer) listOrganizationMembers(rw http.ResponseWriter,
 	}
 
 	// Check if user has access to view members
-	_, err = apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	membership, err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
@@ -46,6 +47,7 @@ func (apiServer *HelixAPIServer) listOrganizationMembers(rw http.ResponseWriter,
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	canManageInvitations := canManageOrgInvitations(user, membership)
 	now := time.Now()
 	for _, member := range members {
 		scrubUserCredentials(&member.User)
@@ -71,18 +73,24 @@ func (apiServer *HelixAPIServer) listOrganizationMembers(rw http.ResponseWriter,
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	for _, inv := range invitations {
+	for i, inv := range invitations {
 		if inv.AppID != "" {
 			continue
 		}
+		// placeholder id (oin_…) so frontend can detect. Only owners, who
+		// manage invitations, get the real invitation ID.
+		placeholderID := inv.ID
+		if !canManageInvitations {
+			placeholderID = fmt.Sprintf("%shidden%d", system.OrgInvitationPrefix, i)
+		}
 		members = append(members, &types.OrganizationMembership{
 			OrganizationID: inv.OrganizationID,
-			UserID:         inv.ID, // placeholder id (oin_…) so frontend can detect
+			UserID:         placeholderID,
 			CreatedAt:      inv.CreatedAt,
 			UpdatedAt:      inv.UpdatedAt,
 			Role:           inv.Role,
 			User: types.User{
-				ID:    inv.ID,
+				ID:    placeholderID,
 				Email: inv.Email,
 			},
 		})
@@ -245,11 +253,15 @@ func (apiServer *HelixAPIServer) createOrganizationInvitation(ctx context.Contex
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrInvitationAlreadyExists) && invitation != nil {
-			// Idempotent path: caller is re-inviting; resend the email and
-			// return the existing row.
+			// Idempotent path: caller is re-inviting; resend the email (with
+			// a new token: only its hash is stored) and return the row.
 			log.Info().Str("email", email).Str("org_id", orgID).Msg("invitation already exists, resending email")
-			apiServer.sendInvitationEmail(ctx, invitation, inviter)
-			return invitation, nil
+			rotated, err := apiServer.Store.RotateOrganizationInvitationToken(ctx, invitation.ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to refresh invitation token: %w", err)
+			}
+			apiServer.sendInvitationEmail(ctx, rotated, inviter)
+			return rotated, nil
 		}
 		return nil, fmt.Errorf("failed to create invitation: %w", err)
 	}
@@ -282,11 +294,11 @@ func (apiServer *HelixAPIServer) sendInvitationEmail(ctx context.Context, invita
 		}
 	}
 
-	appURL := apiServer.Cfg.Notifications.AppURL
-	if appURL == "" {
-		appURL = apiServer.Cfg.WebServer.URL
+	if invitation.Token == "" {
+		log.Warn().Str("invitation_id", invitation.ID).Msg("invitation email not sent: no token issued")
+		return
 	}
-	acceptURL := fmt.Sprintf("%s/login?invitation=%s", strings.TrimRight(appURL, "/"), invitation.ID)
+	acceptURL := apiServer.invitationAcceptURL(invitation)
 
 	notification := &types.Notification{
 		Event: types.EventOrgInvitation,
@@ -315,7 +327,8 @@ func (apiServer *HelixAPIServer) sendInvitationEmail(ctx context.Context, invita
 
 // publicInvitationInfo godoc
 // @Summary Look up basic info for an invitation by id
-// @Description Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).
+// @Description Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. Requires the secret token from the invite link.
+// @Param token query string true "Secret token from the invite link"
 // @Tags    organizations
 // @Success 200 {object} types.PublicInvitationInfo
 // @Router /api/v1/invitations/{id}/info [get]
@@ -334,6 +347,12 @@ func (apiServer *HelixAPIServer) publicInvitationInfo(rw http.ResponseWriter, r 
 		}
 		log.Err(err).Msg("error loading invitation for public info")
 		http.Error(rw, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	// The ID is visible to org members; the secret token from the link is
+	// what entitles the caller to the invitee's details.
+	if !store.InvitationTokenMatches(invitation, r.URL.Query().Get("token")) {
+		http.Error(rw, "Invitation not found", http.StatusNotFound)
 		return
 	}
 
@@ -457,7 +476,8 @@ func (apiServer *HelixAPIServer) listOrganizationInvitations(rw http.ResponseWri
 		return
 	}
 
-	if _, err := apiServer.authorizeOrgMember(r.Context(), user, orgID); err != nil {
+	membership, err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	if err != nil {
 		log.Err(err).Msg("error authorizing org member for invitation list")
 		http.Error(rw, "Could not authorize: "+err.Error(), http.StatusForbidden)
 		return
@@ -474,6 +494,11 @@ func (apiServer *HelixAPIServer) listOrganizationInvitations(rw http.ResponseWri
 	}
 	if invitations == nil {
 		invitations = []*types.OrganizationInvitation{}
+	}
+	// Members see who is invited; only owners, who manage invitations, see
+	// their IDs.
+	if !canManageOrgInvitations(user, membership) {
+		invitations = redactInvitations(invitations)
 	}
 	writeResponse(rw, invitations, http.StatusOK)
 }

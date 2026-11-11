@@ -2206,8 +2206,12 @@ func (s *HelixAPIServer) extractZipFile(ctx context.Context, file *zip.File, bas
 	}
 	defer fileReader.Close()
 
-	// Create the destination path
-	destPath := filepath.Join(basePath, file.Name)
+	// Entry names come from a user-supplied archive: keep them inside basePath
+	// (no "../" into other apps' or users' filestore folders).
+	destPath, err := filestore.JoinScopedPath(basePath, file.Name)
+	if err != nil {
+		return fmt.Errorf("zip entry %q: %w", file.Name, err)
+	}
 
 	// Ensure the destination directory exists
 	destDir := filepath.Dir(destPath)

@@ -819,12 +819,18 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
+	// Credential files are read from the API server's filesystem.
+	endpoint.VertexCredentialsFile = strings.TrimSpace(endpoint.VertexCredentialsFile)
+	if endpoint.VertexCredentialsFile != "" && !isAdmin {
+		http.Error(rw, "Only admins can add endpoints with Vertex credentials file auth", http.StatusForbidden)
+		return
+	}
+
 	endpoint.Name = strings.TrimSpace(endpoint.Name)
 	endpoint.BaseURL = strings.TrimSpace(endpoint.BaseURL)
 	endpoint.VertexProjectID = strings.TrimSpace(endpoint.VertexProjectID)
 	endpoint.VertexRegion = strings.TrimSpace(endpoint.VertexRegion)
 	endpoint.VertexCredentialsJSON = strings.TrimSpace(endpoint.VertexCredentialsJSON)
-	endpoint.VertexCredentialsFile = strings.TrimSpace(endpoint.VertexCredentialsFile)
 	if err := validateProviderEndpointShape(&endpoint); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
@@ -1125,6 +1131,11 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 	if updatedEndpoint.VertexCredentialsFile != nil {
 		existingEndpoint.VertexCredentialsFile = strings.TrimSpace(*updatedEndpoint.VertexCredentialsFile)
+	}
+	// Credential files are read from the API server's filesystem.
+	if existingEndpoint.VertexCredentialsFile != "" && !user.Admin {
+		http.Error(rw, "Only admins can add endpoints with Vertex credentials file auth", http.StatusForbidden)
+		return
 	}
 
 	if err := validateProviderEndpointShape(existingEndpoint); err != nil {

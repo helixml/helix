@@ -294,6 +294,21 @@ func (mr *MockStoreMockRecorder) CompleteWebhookDelivery(ctx, update any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteWebhookDelivery", reflect.TypeOf((*MockStore)(nil).CompleteWebhookDelivery), ctx, update)
 }
 
+// ConsumeInvitation mocks base method.
+func (m *MockStore) ConsumeInvitation(ctx context.Context, user *types.User, invitationID, token string) ([]*types.OrganizationMembership, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsumeInvitation", ctx, user, invitationID, token)
+	ret0, _ := ret[0].([]*types.OrganizationMembership)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConsumeInvitation indicates an expected call of ConsumeInvitation.
+func (mr *MockStoreMockRecorder) ConsumeInvitation(ctx, user, invitationID, token any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumeInvitation", reflect.TypeOf((*MockStore)(nil).ConsumeInvitation), ctx, user, invitationID, token)
+}
+
 // ConsumePendingInvitations mocks base method.
 func (m *MockStore) ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error) {
 	m.ctrl.T.Helper()
@@ -6654,6 +6669,21 @@ func (m *MockStore) RevokeSecretIntake(arg0 context.Context, arg1, arg2 string) 
 func (mr *MockStoreMockRecorder) RevokeSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeSecretIntake", reflect.TypeOf((*MockStore)(nil).RevokeSecretIntake), arg0, arg1, arg2)
+}
+
+// RotateOrganizationInvitationToken mocks base method.
+func (m *MockStore) RotateOrganizationInvitationToken(ctx context.Context, id string) (*types.OrganizationInvitation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RotateOrganizationInvitationToken", ctx, id)
+	ret0, _ := ret[0].(*types.OrganizationInvitation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RotateOrganizationInvitationToken indicates an expected call of RotateOrganizationInvitationToken.
+func (mr *MockStoreMockRecorder) RotateOrganizationInvitationToken(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateOrganizationInvitationToken", reflect.TypeOf((*MockStore)(nil).RotateOrganizationInvitationToken), ctx, id)
 }
 
 // RotateVHostRouteHostname mocks base method.

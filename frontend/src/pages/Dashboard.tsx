@@ -435,7 +435,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
 const DashboardProviders: FC = () => {
     const account = useAccount();
     const { data: endpoints } = useListProviders({ loadModels: true, all: true, enabled: true });
-    const { data: detectedProviders } = useDetectLocalProviders(true);
+    const { data: detectedProviders } = useDetectLocalProviders(account.admin);
     const createProvider = useCreateProviderEndpoint();
     const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
     const [dialogOpen, setDialogOpen] = useState(false);

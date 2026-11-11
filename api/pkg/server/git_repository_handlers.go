@@ -120,6 +120,16 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 	if request.RepoType == "" {
 		request.RepoType = types.GitRepositoryTypeCode
 	}
+	if request.ExternalURL != "" && rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "external_url", request.ExternalURL) {
+		return
+	}
+	if request.AzureDevOps != nil && request.AzureDevOps.OrganizationURL != "" {
+		if err := azuredevops.CheckOrganizationURL(r.Context(), s.gitProviderURLPolicy(), request.AzureDevOps.OrganizationURL); err != nil {
+			log.Warn().Err(err).Str("field", "azure_devops.organization_url").Msg("rejected outbound URL")
+			http.Error(w, "azure_devops.organization_url must be an https URL of an allowed destination", http.StatusBadRequest)
+			return
+		}
+	}
 
 	// Pass API key for Kodit to clone repos via Helix's internal git server
 	if request.KoditIndexing {
@@ -323,6 +333,16 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
 		writeErrResponse(w, err, http.StatusForbidden)
 		return
+	}
+	if request.ExternalURL != "" && rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "external_url", request.ExternalURL) {
+		return
+	}
+	if request.AzureDevOps != nil && request.AzureDevOps.OrganizationURL != "" {
+		if err := azuredevops.CheckOrganizationURL(r.Context(), s.gitProviderURLPolicy(), request.AzureDevOps.OrganizationURL); err != nil {
+			log.Warn().Err(err).Str("field", "azure_devops.organization_url").Msg("rejected outbound URL")
+			http.Error(w, "azure_devops.organization_url must be an https URL of an allowed destination", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// The stored credentials (password, PATs, the pinned OAuth connection)
@@ -2010,7 +2030,7 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 			return
 		}
 
-		adoClient := azuredevops.NewAzureDevOpsClient(request.OrganizationURL, request.Token)
+		adoClient := azuredevops.NewAzureDevOpsClient(request.OrganizationURL, request.Token).WithOutboundPolicy(policy)
 		adoRepos, err := adoClient.ListRepositories(ctx, "") // Empty string = all projects
 		if err != nil {
 			if isAuthenticationError(err) {

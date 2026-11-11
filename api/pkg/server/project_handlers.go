@@ -2907,6 +2907,10 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			if s.gitRepositoryService == nil {
 				return nil, system.NewHTTPError500("git repository service is not configured")
 			}
+			if err := s.gitProviderURLPolicy().ValidateURL(r.Context(), repoSpec.URL); err != nil {
+				log.Warn().Err(err).Str("field", "repository url").Msg("rejected outbound URL")
+				return nil, system.NewHTTPError400(fmt.Sprintf("repository %s is not an allowed destination", repoSpec.URL))
+			}
 			repo, err = s.gitRepositoryService.CreateRepository(r.Context(), &types.GitRepositoryCreateRequest{
 				Name:           repoName,
 				OwnerID:        user.ID,
