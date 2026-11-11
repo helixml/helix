@@ -237,7 +237,9 @@ steps:
       # Skip migrations - already run by run-migrations step
       HELIX_SKIP_AUTOMIGRATE: "1"
       OPENAI_API_KEY:
-        from_secret: openai_tools
+        from_secret: bunker_api_key
+      OPENAI_BASE_URL:
+        from_secret: bunker_base_url
       TOGETHER_API_KEY:
         from_secret: openai_api_key
       TOGETHER_BASE_URL:
@@ -259,15 +261,15 @@ steps:
       DEV_SUBDOMAIN: "dev"
       # Agent configuration
       REASONING_MODEL_PROVIDER: openai
-      REASONING_MODEL: gpt-5.6-luna
+      REASONING_MODEL: glm-5.3-flash
       REASONING_MODEL_EFFORT: none
       GENERATION_MODEL_PROVIDER: openai
-      GENERATION_MODEL: gpt-5.6-luna
+      GENERATION_MODEL: glm-5.3-flash
       SMALL_REASONING_MODEL_PROVIDER: openai
-      SMALL_REASONING_MODEL: gpt-5.6-luna
+      SMALL_REASONING_MODEL: glm-5.3-flash
       SMALL_REASONING_MODEL_EFFORT: none
       SMALL_GENERATION_MODEL_PROVIDER: openai
-      SMALL_GENERATION_MODEL: gpt-5.6-luna
+      SMALL_GENERATION_MODEL: glm-5.3-flash
 
     commands:
       - apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*
