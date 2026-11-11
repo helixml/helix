@@ -132,3 +132,30 @@ func TestRemoveTeamMember_NonOwnerForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rr.Code)
 	require.Contains(t, rr.Body.String(), "Could not authorize org owner")
 }
+
+// Team member listings embed each member's user row. A bearer token that was
+// once saved on that row must never reach the other members.
+func TestListTeamMembers_DoesNotExposeUserTokens(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	orgID := "org_123"
+
+	expectResolveOrganizationByID(mockStore, orgID)
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(
+		&types.OrganizationMembership{OrganizationID: orgID, UserID: "user_1", Role: types.OrganizationRoleMember}, nil)
+	mockStore.EXPECT().ListTeamMemberships(gomock.Any(), gomock.Any()).Return([]*types.TeamMembership{{
+		TeamID: "team_1", UserID: "user_2", OrganizationID: orgID,
+		User: types.User{ID: "user_2", Email: "two@example.com", Token: "hl-user-two-token", TokenType: types.TokenTypeAPIKey},
+	}}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/organizations/"+orgID+"/teams/team_1/members", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": orgID, "team_id": "team_1"})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_1"}))
+	rr := httptest.NewRecorder()
+	server.listTeamMembers(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	require.Contains(t, rr.Body.String(), "two@example.com")
+	require.NotContains(t, rr.Body.String(), "hl-user-two-token")
+}

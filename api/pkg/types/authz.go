@@ -239,8 +239,12 @@ type User struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
-	// the actual token used and its type
-	Token string `json:"token"`
+	// Token is the credential the current request authenticated with. It is
+	// request state only: never stored on the user row and never serialized,
+	// because user records are embedded in responses other users read (team
+	// members, grants, project and agent owners). /auth/user returns the
+	// caller's own token through UserResponse.
+	Token string `json:"-" gorm:"-"`
 	// none, runner. keycloak, api_key
 	TokenType TokenType `json:"token_type"`
 	// if the ID of the user is contained in the env setting
