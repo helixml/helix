@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 
-	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/jfrog/froggit-go/vcsclient"
 	"github.com/rs/zerolog/log"
 	"github.com/sourcegraph/go-diff/diff"
@@ -18,6 +20,9 @@ import (
 type GitManager struct {
 	remoteURL string
 	token     string
+
+	// outbound, when set, restricts the addresses the remote may reach.
+	outbound *netguard.Policy
 }
 
 func NewGitManager(remoteURL, token string) *GitManager {
@@ -27,47 +32,57 @@ func NewGitManager(remoteURL, token string) *GitManager {
 	}
 }
 
+// WithOutboundPolicy makes clones resolve the remote under policy and pin
+// git to the approved addresses.
+func (g *GitManager) WithOutboundPolicy(policy netguard.Policy) *GitManager {
+	g.outbound = &policy
+	return g
+}
+
 // CloneRepository clones a repository to the given path.
 // Returns the path to the cloned repository (same as repoPath).
+//
+// The remote URL can come from a webhook payload, so only http(s) remotes
+// are cloned, redirects are not followed, the token is sent as a header
+// (never in argv), and with an outbound policy the host is pinned to vetted
+// addresses.
 func (g *GitManager) CloneRepository(ctx context.Context, repoPath string) (string, error) {
-	// The remote URL can come from a webhook payload: only network
-	// repositories may be cloned, never a path on the API server.
 	if u, err := url.Parse(g.remoteURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return "", fmt.Errorf("refusing to clone %q: only http(s) remotes are supported", g.remoteURL)
 	}
 
-	// Build authenticated URL
-	authURL := g.buildAuthenticatedURL()
+	cfg := [][2]string{{"http.followRedirects", "false"}}
+	if g.token != "" {
+		cfg = append(cfg, [2]string{"http.extraHeader", basicAuthHeader("helixml", g.token)})
+	}
+	if g.outbound != nil {
+		pin, err := ResolvePin(ctx, *g.outbound, g.remoteURL)
+		if err != nil {
+			return "", fmt.Errorf("refusing to clone repository: %w", err)
+		}
+		if pin != "" {
+			cfg = append(cfg, [2]string{"http.curloptResolve", pin})
+		}
+	}
 
-	err := giteagit.Clone(ctx, authURL, repoPath, giteagit.CloneRepoOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to clone repository: %w", err)
+	if err := os.MkdirAll(filepath.Dir(repoPath), 0o755); err != nil {
+		return "", fmt.Errorf("failed to create clone parent directory: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--", g.remoteURL, repoPath)
+	cmd.Env = append(append(append(os.Environ(), gitcmd.CommonGitCmdEnvs()...),
+		"GIT_ALLOW_PROTOCOL="+AllowedProtocols), configEnv(cfg)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("failed to clone repository: %w - %s", err, strings.TrimSpace(string(out)))
 	}
 
 	return repoPath, nil
 }
 
-// buildAuthenticatedURL embeds credentials into the remote URL
-func (g *GitManager) buildAuthenticatedURL() string {
-	if g.token == "" {
-		return g.remoteURL
-	}
-
-	u, err := url.Parse(g.remoteURL)
-	if err != nil {
-		return g.remoteURL
-	}
-
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return g.remoteURL
-	}
-
-	u.User = url.UserPassword("helixml", g.token)
-	return u.String()
-}
-
 // CheckoutCommit checks out a specific commit in the repository at repoPath.
 func (g *GitManager) CheckoutCommit(ctx context.Context, repoPath string, commitID string) error {
+	if !commitIDPattern.MatchString(commitID) {
+		return fmt.Errorf("invalid commit ID %q", commitID)
+	}
 	_, stderr, err := gitcmd.NewCommand("checkout", "--force").
 		AddDynamicArguments(commitID).
 		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})

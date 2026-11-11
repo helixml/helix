@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -16,6 +14,7 @@ import (
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/rs/zerolog/log"
 
+	helixgit "github.com/helixml/helix/api/pkg/git"
 	"github.com/helixml/helix/api/pkg/netguard"
 )
 
@@ -62,35 +61,7 @@ type upstreamRemote struct {
 // the vetted addresses; a disallowed one marks the remote blocked. A host
 // that does not resolve locally (proxy-only DNS) is left to the proxy.
 func (r upstreamRemote) pin(ctx context.Context, policy netguard.Policy) upstreamRemote {
-	u, err := url.Parse(r.URL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-		r.blocked = fmt.Errorf("%w: upstream URL must be an http(s) URL", netguard.ErrBlockedDestination)
-		return r
-	}
-	ips, err := policy.ResolveHost(ctx, u.Hostname())
-	if errors.Is(err, netguard.ErrBlockedDestination) {
-		r.blocked = err
-		return r
-	}
-	if err != nil || net.ParseIP(u.Hostname()) != nil {
-		return r // nothing to pin: unresolvable here, or already an address
-	}
-	port := u.Port()
-	if port == "" {
-		port = "80"
-		if u.Scheme == "https" {
-			port = "443"
-		}
-	}
-	addrs := make([]string, 0, len(ips))
-	for _, ip := range ips {
-		if ip.To4() == nil {
-			addrs = append(addrs, "["+ip.String()+"]")
-		} else {
-			addrs = append(addrs, ip.String())
-		}
-	}
-	r.resolve = u.Hostname() + ":" + port + ":" + strings.Join(addrs, ",")
+	r.resolve, r.blocked = helixgit.ResolvePin(ctx, policy, r.URL)
 	return r
 }
 
@@ -153,7 +124,7 @@ func isHTTPURL(raw string) bool {
 // git itself, including for redirects and submodules. It is set for every
 // upstream command, overriding any GIT_ALLOW_PROTOCOL in the server's
 // environment. A variable only so tests can use local bare repositories.
-var upstreamGitAllowedProtocols = "http:https"
+var upstreamGitAllowedProtocols = helixgit.AllowedProtocols
 
 // upstreamBlockedEnv marks the environment of a remote the outbound policy
 // rejected; runUpstreamGit refuses to run with it.
