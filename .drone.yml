@@ -130,6 +130,7 @@ steps:
       - ./desktop/shared/test-golden-startup.sh
       - ./desktop/shared/test-start-zed-mcp-readiness.sh
       - ./scripts/test-deploy-prod.sh
+      - sh scripts/test-image-publish.sh
     when:
       event:
         - push
@@ -934,8 +935,7 @@ steps:
           -t registry.helixml.tech/helix/controlplane:$${VERSION}-linux-amd64 \
           .
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-        docker push registry.helixml.tech/helix/controlplane:$${VERSION}-linux-amd64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/controlplane:$${VERSION}-linux-amd64
+        scripts/publish-image.sh registry.helixml.tech/helix/controlplane:$${VERSION}-linux-amd64
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
@@ -989,8 +989,7 @@ steps:
           --build-arg APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}} \
           -t registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64 \
           .
-        docker push registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64
+        scripts/publish-image.sh registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1757,8 +1756,7 @@ steps:
           --build-arg SKILLS_COMMIT=$${SKILLS_COMMIT} \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64 \
           .
-        docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
+        scripts/publish-image.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
         echo "helix-ubuntu:$${VERSION}-linux-amd64 pushed to registry"
       # Write version refs for sandbox
       - |
@@ -1837,12 +1835,10 @@ steps:
         echo "Logging in to registry..."
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         echo "Pushing helix-sandbox:$${COMMIT}-linux-amd64..."
-        docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64
+        scripts/publish-image.sh registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64
         if [ "$${IS_RELEASE}" = "true" ]; then
           echo "Pushing release tag: $${VERSION}-linux-amd64..."
-          docker push registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64
-          scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64
+          scripts/publish-image.sh registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64
         fi
         echo "Push complete!"
     volumes:
@@ -2379,8 +2375,7 @@ steps:
           --build-arg SKILLS_COMMIT=$${SKILLS_COMMIT} \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64 \
           .
-        docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64
+        scripts/publish-image.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64
         echo "helix-ubuntu:$${VERSION}-linux-arm64 pushed to registry"
       # Write version refs for sandbox
       - |
@@ -2444,12 +2439,10 @@ steps:
         echo "Logging in to registry..."
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         echo "Pushing helix-sandbox:$${COMMIT}-linux-arm64..."
-        docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-arm64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-arm64
+        scripts/publish-image.sh registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-arm64
         if [ "$${IS_RELEASE}" = "true" ]; then
           echo "Pushing release tag: $${VERSION}-linux-arm64..."
-          docker push registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-arm64
-          scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-arm64
+          scripts/publish-image.sh registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-arm64
         fi
         echo "ARM64 push complete!"
     volumes:
@@ -2833,10 +2826,12 @@ steps:
 # Runs ONLY on tag events when any release pipeline fails.
 # Cleans up partially-published user-visible artifacts:
 #   - GitHub release and uploaded assets
-#   - Remote git tag
 #   - Helm chart packages from GCS bucket
 #   - macOS DMG and VM disk from R2/Cloudflare
 #   - latest.json pointer (reverted to previous good release)
+#
+# The git tag is kept so a flaky release is retried by restarting the build
+# (see CLAUDE.md, Releases).
 #
 # Docker images are NOT cleaned up (harmless — nobody pulls a failed
 # version tag unless explicitly referencing it).
