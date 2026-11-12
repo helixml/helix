@@ -73,6 +73,14 @@ func (s *DeleteProjectTasksSuite) expectTaskDeleted(id string) {
 	s.sto.EXPECT().DeleteSpecTask(gomock.Any(), id).Return(nil)
 }
 
+// expectNoProjectOwnedResources expects the repository, access grant and
+// trigger sweep for a personal project that owns none of them.
+func (s *DeleteProjectTasksSuite) expectNoProjectOwnedResources() {
+	s.sto.EXPECT().ListProjectRepositories(gomock.Any(), &types.ListProjectRepositoriesQuery{ProjectID: "prj_del"}).Return(nil, nil)
+	s.sto.EXPECT().DeleteProjectRepositoriesByProject(gomock.Any(), "prj_del").Return(nil)
+	s.sto.EXPECT().ListTriggerConfigurations(gomock.Any(), gomock.Any()).Return(nil, nil)
+}
+
 func (s *DeleteProjectTasksSuite) TestDeleteProjectDeletesAllTasksIncludingArchived() {
 	project := &types.Project{ID: "prj_del", UserID: s.userID}
 	withSession := &types.SpecTask{ID: "t1", ProjectID: "prj_del", PlanningSessionID: "ses_1"}
@@ -95,6 +103,7 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectDeletesAllTasksIncludingArchi
 		Return([]*types.Artifact{}, nil)
 	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(nil, store.ErrNotFound)
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+	s.expectNoProjectOwnedResources()
 
 	resp, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Require().Nil(httpErr)
@@ -154,6 +163,7 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectSkipsDesktopsOnDisconnectedHo
 	s.sto.EXPECT().ListArtifacts(gomock.Any(), gomock.Any()).Return([]*types.Artifact{}, nil)
 	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(nil, store.ErrNotFound)
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+	s.expectNoProjectOwnedResources()
 
 	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Require().Nil(httpErr)
@@ -180,6 +190,7 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectRetriesAfterSessionWasDeleted
 	s.sto.EXPECT().ListArtifacts(gomock.Any(), gomock.Any()).Return([]*types.Artifact{}, nil)
 	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(nil, store.ErrNotFound)
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+	s.expectNoProjectOwnedResources()
 
 	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Require().Nil(httpErr)
@@ -223,6 +234,7 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectTearsDownWebService() {
 			return nil
 		})
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+	s.expectNoProjectOwnedResources()
 
 	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Nil(httpErr)

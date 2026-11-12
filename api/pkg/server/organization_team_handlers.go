@@ -302,7 +302,8 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 
 	query := &store.GetUserQuery{}
 
-	if strings.Contains(req.UserReference, "@") {
+	byEmail := strings.Contains(req.UserReference, "@")
+	if byEmail {
 		query.Email = req.UserReference
 	} else {
 		query.ID = req.UserReference
@@ -313,6 +314,13 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 	if err != nil {
 		log.Err(err).Msg("error getting user")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// An email resolves only to an account shown to own it; otherwise the
+	// team seat would go to whoever registered the address first.
+	if byEmail && !newMember.EmailVerified {
+		http.Error(rw, "The account for this email address has not verified it; add the member by user ID instead", http.StatusPreconditionFailed)
 		return
 	}
 

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -35,6 +36,9 @@ type HelixServer interface {
 }
 
 var _ HelixServer = &InternalHelixServer{}
+
+// ErrMissingModel is returned when an inference request names no model.
+var ErrMissingModel = errors.New("inference request missing model name")
 
 // InternalHelixClient utilizes Helix runners to complete chat requests. Primary
 // purpose is to power internal tools
@@ -194,7 +198,7 @@ func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceReques
 		return fmt.Errorf("inference router not initialised")
 	}
 	if req.Request == nil || req.Request.Model == "" {
-		return fmt.Errorf("inference request missing model name")
+		return ErrMissingModel
 	}
 	state, err := c.inferenceRouter.PickRunner(req.Request.Model)
 	if err != nil {

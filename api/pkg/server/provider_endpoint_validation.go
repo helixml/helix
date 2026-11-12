@@ -1,10 +1,8 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"unicode"
 
@@ -110,20 +108,4 @@ func validateProviderBaseURL(raw string) error {
 		return errors.New("base_url must not contain a fragment")
 	}
 	return nil
-}
-
-// jsonDecodeErrorMessage converts an encoding/json decode error into a
-// client-facing message that names the offending JSON field without exposing
-// Go type names (e.g. "pq.StringArray", "Go struct field ProviderEndpoint").
-func jsonDecodeErrorMessage(err error) string {
-	var typeErr *json.UnmarshalTypeError
-	var syntaxErr *json.SyntaxError
-	switch {
-	case errors.As(err, &typeErr) && typeErr.Field != "":
-		return fmt.Sprintf("Invalid request body: field %q has the wrong type", typeErr.Field)
-	case errors.As(err, &syntaxErr), errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
-		return "Invalid request body: must be a valid JSON object"
-	default:
-		return "Invalid request body"
-	}
 }

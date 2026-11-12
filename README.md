@@ -83,7 +83,7 @@ Helix is a full private GenAI stack, so the pieces you'd expect are here too:
 - **Knowledge / RAG** — document ingestion (PDF, Word, text), a web scraper, multiple RAG backends (Kodit, LlamaIndex), PGVector embeddings, and vision RAG.
 - **Skills & tools** — REST/OpenAPI integrations, MCP server compatibility, GPTScript, OAuth token management, and a custom-tool SDK.
 - **Tracing & observability** — every agent step, requests/responses to LLMs, APIs, and MCP servers, token usage, and cost analysis.
-- **Multi-tenancy & auth** — organizations, teams, and role-based access control, with **OIDC** single sign-on.
+- **Multi-tenancy & auth** — organizations, teams, and role-based access control, with **OIDC** single sign-on. A first SSO sign-in whose email already belongs to a Helix account is linked to that account only when the identity provider asserts `email_verified`; otherwise it is refused (HTTP 409) rather than creating a second account. Adding an organization or team member by email only resolves accounts that have verified the address (IdP assertion, admin-created, accepted invitation, or completed password reset); other addresses are invited.
 - **Billing & metering** — track token usage and spend per user and per team, so you can see where the budget goes.
 - **Automation** — scheduled/cron tasks and webhook triggers.
 - **Notifications** — Slack, Discord, and email.

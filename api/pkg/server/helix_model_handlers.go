@@ -68,7 +68,7 @@ func (apiServer *HelixAPIServer) createHelixModel(rw http.ResponseWriter, r *htt
 	err := json.NewDecoder(r.Body).Decode(&model)
 	if err != nil {
 		log.Error().Err(err).Msg("error decoding createHelixModel request body")
-		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -113,7 +113,7 @@ func (apiServer *HelixAPIServer) updateHelixModel(rw http.ResponseWriter, r *htt
 	err := json.NewDecoder(r.Body).Decode(&modelUpdates)
 	if err != nil {
 		log.Error().Err(err).Msg("error decoding updateHelixModel request body")
-		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 

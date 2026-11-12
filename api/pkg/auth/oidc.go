@@ -359,6 +359,49 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		fullName = userInfo.Email
 	}
 
+	// A first sign-in with this subject may belong to an account that already
+	// exists under the same address (created with a password before the
+	// deployment moved to SSO, or by an admin). It is linked, never
+	// duplicated, and only on the IdP's word that the address is verified: an
+	// IdP that lets users type any email must not sign them in as its owner.
+	if user == nil {
+		linked, err := c.store.GetUser(ctx, &store.GetUserQuery{OIDCSubject: userInfo.Subject})
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("invalid access token (database error): %w", err)
+		}
+		user = linked
+	}
+	if user == nil && userInfo.Email != "" {
+		existing, err := c.store.GetUser(ctx, &store.GetUserQuery{Email: userInfo.Email})
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("invalid access token (database error): %w", err)
+		}
+		if existing != nil {
+			if !userInfo.EmailVerified {
+				log.Warn().Str("subject", userInfo.Subject).Str("existing_user_id", existing.ID).
+					Msg("OIDC login refused: unverified email belongs to an existing account")
+				return nil, ErrOIDCEmailCollision
+			}
+			log.Info().Str("subject", userInfo.Subject).Str("user_id", existing.ID).
+				Msg("Linking OIDC sign-in to the existing account with its verified email")
+			if err := c.store.UpdateUserEmailVerification(ctx, existing.ID, true, userInfo.Subject); err != nil {
+				return nil, fmt.Errorf("failed to update user: %w", err)
+			}
+			existing.EmailVerified = true
+			existing.OIDCSubject = userInfo.Subject
+			user = existing
+		}
+	}
+
+	// A fresh assertion from the IdP verifies an account created before the
+	// flag existed.
+	if user != nil && !user.EmailVerified && userInfo.EmailVerified {
+		if err := c.store.UpdateUserEmailVerification(ctx, user.ID, true, ""); err != nil {
+			return nil, fmt.Errorf("failed to update user: %w", err)
+		}
+		user.EmailVerified = true
+	}
+
 	// If user doesn't exist, create them (first login after OIDC registration)
 	isNewUser := user == nil
 	if isNewUser {
@@ -368,12 +411,14 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 			Msg("Creating new user from OIDC token")
 
 		user, err = c.store.CreateUser(ctx, &types.User{
-			ID:         userInfo.Subject,
-			Username:   userInfo.Subject,
-			Email:      userInfo.Email,
-			FullName:   fullName,
-			CreatedAt:  time.Now(),
-			Waitlisted: c.newUserWaitlisted(userInfo.Subject, outsideAllowedDomains),
+			ID:            userInfo.Subject,
+			Username:      userInfo.Subject,
+			OIDCSubject:   userInfo.Subject,
+			Email:         userInfo.Email,
+			EmailVerified: userInfo.EmailVerified,
+			FullName:      fullName,
+			CreatedAt:     time.Now(),
+			Waitlisted:    c.newUserWaitlisted(userInfo.Subject, outsideAllowedDomains),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create user: %w", err)
@@ -393,7 +438,7 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 			user.OnboardingCompleted = true
 			user.OnboardingCompletedAt = time.Now()
 			user.Waitlisted = false
-			if _, err := c.store.UpdateUser(ctx, user); err != nil {
+			if err := c.store.MarkUserOnboarded(ctx, user.ID); err != nil {
 				log.Warn().Err(err).Str("user_id", user.ID).Msg("failed to mark OIDC-invited user as onboarded")
 			}
 		}
@@ -407,18 +452,26 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 	// Never for users outside the allowed domains: their domain was not vouched
 	// for, so they only get org access via an explicit invitation.
 	if userInfo.EmailVerified && userInfo.Email != "" && !outsideAllowedDomains {
-		c.tryAutoJoinOrganization(ctx, userInfo.Subject, userInfo.Email)
+		c.tryAutoJoinOrganization(ctx, user.ID, userInfo.Email)
 	}
 
 	// Determine admin status:
 	// - If user ID is in ADMIN_USER_IDS list (or "all" is set): admin
 	// - Otherwise use the database admin field
-	isAdmin := c.adminConfig.IsUserInAdminList(userInfo.Subject) || user.Admin
+	// ADMIN_USER_IDS may name the account by its ID or, for an account linked
+	// by email, by the IdP subject it signs in with.
+	isAdmin := c.adminConfig.IsUserInAdminList(user.ID) || c.adminConfig.IsUserInAdminList(userInfo.Subject) || user.Admin
 
+	// user.ID is the subject, except for an account linked by email above.
+	username := user.Username
+	if username == "" {
+		username = userInfo.Subject
+	}
 	return &types.User{
-		ID:            userInfo.Subject,
-		Username:      userInfo.Subject,
+		ID:            user.ID,
+		Username:      username,
 		Email:         userInfo.Email,
+		EmailVerified: user.EmailVerified || userInfo.EmailVerified,
 		FullName:      fullName,
 		Token:         accessToken,
 		TokenType:     types.TokenTypeOIDC,
@@ -430,6 +483,10 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		AlphaFeatures: user.AlphaFeatures,
 	}, nil
 }
+
+// ErrOIDCEmailCollision is returned when a first SSO sign-in presents an
+// unverified email that an existing account already uses.
+var ErrOIDCEmailCollision = errors.New("an account with this email address already exists and the identity provider has not verified the address; verify the email with the identity provider or sign in to the existing account")
 
 // tryAutoJoinOrganization attempts to add the user to an organization based on their email domain
 func (c *OIDCClient) tryAutoJoinOrganization(ctx context.Context, userID, email string) {

@@ -436,6 +436,13 @@ type Store interface {
 	GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error)
 	CreateUser(ctx context.Context, user *types.User) (*types.User, error)
 	UpdateUser(ctx context.Context, user *types.User) (*types.User, error)
+	// UpdateUserEmailVerification writes only the email-verification columns
+	// (email_verified and, when oidcSubject is set, oidc_subject), so a
+	// sign-in cannot clobber a concurrent password change with a stale row.
+	UpdateUserEmailVerification(ctx context.Context, id string, verified bool, oidcSubject string) error
+	// MarkUserOnboarded writes only the onboarding columns: onboarding
+	// complete now, and off the waitlist.
+	MarkUserOnboarded(ctx context.Context, id string) error
 	DeleteUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, int64, error)
 	SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error)
@@ -608,7 +615,8 @@ type Store interface {
 	GetWalletByOrg(ctx context.Context, orgID string) (*types.Wallet, error)
 	ListWallets(ctx context.Context, q *ListWalletsQuery) ([]*types.Wallet, error)
 	GetWalletByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*types.Wallet, error)
-	UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
+	UpdateWalletSubscription(ctx context.Context, walletID string, state types.WalletSubscriptionState) (*types.Wallet, error)
+	SetWalletPlanOverride(ctx context.Context, walletID string, plan string) (*types.Wallet, error)
 	DeleteWallet(ctx context.Context, id string) error
 	UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error)
 

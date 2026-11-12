@@ -53,7 +53,7 @@ func (apiServer *HelixAPIServer) adminSetOrgPlan(rw http.ResponseWriter, r *http
 	}
 	var body SetOrgPlanRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	switch body.Plan {
@@ -70,8 +70,7 @@ func (apiServer *HelixAPIServer) adminSetOrgPlan(rw http.ResponseWriter, r *http
 		http.Error(rw, "failed to get org wallet: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	wallet.PlanOverride = body.Plan
-	updated, err := apiServer.Store.UpdateWallet(r.Context(), wallet)
+	updated, err := apiServer.Store.SetWalletPlanOverride(r.Context(), wallet.ID, body.Plan)
 	if err != nil {
 		log.Err(err).Str("org_id", orgID).Msg("failed to update org wallet plan override")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)

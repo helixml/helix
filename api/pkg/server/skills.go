@@ -180,7 +180,7 @@ func (s *HelixAPIServer) handleValidateMcpSkill(_ http.ResponseWriter, r *http.R
 
 	var config types.AssistantMCP
 	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
-		return nil, fmt.Errorf("failed to decode request body: %w", err)
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	resp, err := mcp.InitializeMCPClientSkill(context.Background(), s.mcpClientGetter, agent.Meta{

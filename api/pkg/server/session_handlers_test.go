@@ -1158,15 +1158,16 @@ func (s *SessionAuthzSuite) TestListSessions_NotOrgMemberDenied() {
 	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 		OrganizationID: s.orgID,
 		UserID:         s.userID,
-	}).Return(nil, fmt.Errorf("not found"))
+	}).Return(nil, store.ErrNotFound)
 
 	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID, http.NoBody)
 	req = req.WithContext(s.authCtx)
 
 	result, err := s.server.listSessions(httptest.NewRecorder(), req)
 
+	// A non-member gets the same 404 as for an org that does not exist.
 	s.Nil(result)
-	assertHTTPError(s, err, http.StatusForbidden)
+	assertHTTPError(s, err, http.StatusNotFound)
 }
 
 // -----------------------------------------------------------------------------

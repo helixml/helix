@@ -127,7 +127,7 @@ func (apiServer *HelixAPIServer) createProjectAccessGrant(rw http.ResponseWriter
 	var req types.CreateAccessGrantRequest
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		writeErrResponse(rw, err, http.StatusBadRequest)
+		writeErrResponse(rw, jsonDecodeHTTPError(err), http.StatusBadRequest)
 		return
 	}
 

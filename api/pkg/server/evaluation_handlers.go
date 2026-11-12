@@ -61,7 +61,7 @@ func (s *HelixAPIServer) createEvaluationSuite(_ http.ResponseWriter, req *http.
 
 	var suite types.EvaluationSuite
 	if err := json.NewDecoder(req.Body).Decode(&suite); err != nil {
-		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body: %s", err))
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if suite.Name == "" {
@@ -153,7 +153,7 @@ func (s *HelixAPIServer) updateEvaluationSuite(_ http.ResponseWriter, req *http.
 
 	var suite types.EvaluationSuite
 	if err := json.NewDecoder(req.Body).Decode(&suite); err != nil {
-		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body: %s", err))
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	suite.ID = id

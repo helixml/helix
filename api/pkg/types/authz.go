@@ -180,6 +180,9 @@ type OrgUserLookupResponse struct {
 	Email    string `json:"email"`
 	Exists   bool   `json:"exists"`    // a Helix user account exists with this email
 	IsMember bool   `json:"is_member"` // user is also a member of the queried org
+	// EmailVerified — the existing account has been shown to own the address.
+	// Adding by email only adds such an account; otherwise it is invited.
+	EmailVerified bool `json:"email_verified"`
 	// IsInvited — a pending invitation exists for this email in the queried
 	// org. Used by the invite UI to disable the "Send invitation" button so
 	// admins don't accidentally double-invite.
@@ -293,6 +296,21 @@ type User struct {
 	PRFooterTemplate *string `json:"pr_footer_template" gorm:"type:text"`
 
 	AuthProvider AuthProvider `json:"auth_provider"`
+
+	// EmailVerified records that the account's owner has been shown to control
+	// Email: the identity provider asserted email_verified, an admin created the
+	// account, or the owner used a link sent to the address (invitation,
+	// password reset). A password sign-up proves nothing, so it is false until
+	// then. Resolving an account by email for a grant (adding an org or team
+	// member) requires it; anything else would hand the grant to whoever
+	// registered the address first.
+	EmailVerified bool `json:"email_verified"`
+
+	// OIDCSubject is the identity provider's subject this account is signed in
+	// with. For accounts created by SSO it equals ID; for an account created
+	// another way and later linked to an SSO identity by its verified email,
+	// it records that link so later sign-ins resolve by subject.
+	OIDCSubject string `json:"oidc_subject,omitempty" gorm:"column:oidc_subject;index"`
 
 	Password           string `json:"-" gorm:"-"`           // Temporary field for password input, not persisted
 	PasswordHash       []byte `json:"-"`                    // bcrypt hash of the password

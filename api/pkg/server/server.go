@@ -183,18 +183,20 @@ type HelixAPIServer struct {
 	oidcClient                auth.OIDC
 	oauthManager              *oauth.Manager
 	sessionManager            *auth.SessionManager
-	fileServerHandler         http.Handler
-	cache                     *ristretto.Cache[string, string]
-	avatarsBucket             *blob.Bucket
-	trigger                   *trigger.Manager
-	specDrivenTaskService     *services.SpecDrivenTaskService
-	sampleProjectCodeService  *services.SampleProjectCodeService
-	gitRepositoryService      gitRepositoryServicer
-	koditService              services.KoditServicer
-	kodit                     *KoditResult
-	mcpGateway                *MCPGateway
-	gitHTTPServer             *services.GitHTTPServer
-	githubCompatRouter        *mux.Router
+	// passwordResetSends tracks reset emails being sent after their response.
+	passwordResetSends       sync.WaitGroup
+	fileServerHandler        http.Handler
+	cache                    *ristretto.Cache[string, string]
+	avatarsBucket            *blob.Bucket
+	trigger                  *trigger.Manager
+	specDrivenTaskService    *services.SpecDrivenTaskService
+	sampleProjectCodeService *services.SampleProjectCodeService
+	gitRepositoryService     gitRepositoryServicer
+	koditService             services.KoditServicer
+	kodit                    *KoditResult
+	mcpGateway               *MCPGateway
+	gitHTTPServer            *services.GitHTTPServer
+	githubCompatRouter       *mux.Router
 	// Streaming context cache - avoids redundant DB queries during token streaming
 	streamingContexts   map[string]*streamingContext // helix_session_id -> cached context
 	streamingContextsMu sync.RWMutex
@@ -1100,9 +1102,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// Teams Bot Framework webhook - auth handled by Bot Framework JWT validation
 	insecureRouter.HandleFunc("/teams/webhook/{appID}", apiServer.teamsWebhookHandler).Methods(http.MethodPost)
 
-	insecureRouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
+	// Public: the SPA loads it before sign-in. Signed-in callers get the
+	// build and deployment identity on top (see config).
+	insecureRouter.HandleFunc("/config", apiServer.authMiddleware.optionalUser(system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,
-	})).Methods(http.MethodGet)
+	}))).Methods(http.MethodGet)
 
 	insecureRouter.Handle("/swagger", apiServer.swaggerHandler()).Methods(http.MethodGet)
 
@@ -1698,6 +1702,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost, http.MethodOptions)
 	authRouter.HandleFunc("/spec-tasks", apiServer.listTasks).Methods(http.MethodGet)
+	// Registered before /spec-tasks/{taskId}, which would otherwise match it.
+	authRouter.HandleFunc("/spec-tasks/board-settings", apiServer.getBoardSettings).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/board-settings", apiServer.updateBoardSettings).Methods(http.MethodPut)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.getTask).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/refresh-pull-request", apiServer.refreshSpecTaskPullRequest).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.updateSpecTask).Methods(http.MethodPut)

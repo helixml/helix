@@ -6514,6 +6514,20 @@ func (mr *MockStoreMockRecorder) MarkStaleInteractionErrorIfWaiting(ctx, interac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkStaleInteractionErrorIfWaiting", reflect.TypeOf((*MockStore)(nil).MarkStaleInteractionErrorIfWaiting), ctx, interactionID, generationID, observedUpdated, reason)
 }
 
+// MarkUserOnboarded mocks base method.
+func (m *MockStore) MarkUserOnboarded(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkUserOnboarded", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkUserOnboarded indicates an expected call of MarkUserOnboarded.
+func (mr *MockStoreMockRecorder) MarkUserOnboarded(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkUserOnboarded", reflect.TypeOf((*MockStore)(nil).MarkUserOnboarded), ctx, id)
+}
+
 // MarkVHostRouteVerified mocks base method.
 func (m *MockStore) MarkVHostRouteVerified(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -7121,6 +7135,21 @@ func (m *MockStore) SetSessionProviderRecovery(ctx context.Context, sessionID st
 func (mr *MockStoreMockRecorder) SetSessionProviderRecovery(ctx, sessionID, recovery any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionProviderRecovery", reflect.TypeOf((*MockStore)(nil).SetSessionProviderRecovery), ctx, sessionID, recovery)
+}
+
+// SetWalletPlanOverride mocks base method.
+func (m *MockStore) SetWalletPlanOverride(ctx context.Context, walletID, plan string) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetWalletPlanOverride", ctx, walletID, plan)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetWalletPlanOverride indicates an expected call of SetWalletPlanOverride.
+func (mr *MockStoreMockRecorder) SetWalletPlanOverride(ctx, walletID, plan any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetWalletPlanOverride", reflect.TypeOf((*MockStore)(nil).SetWalletPlanOverride), ctx, walletID, plan)
 }
 
 // SetWebServiceHostDeviceID mocks base method.
@@ -8305,6 +8334,20 @@ func (mr *MockStoreMockRecorder) UpdateUser(ctx, user any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUser", reflect.TypeOf((*MockStore)(nil).UpdateUser), ctx, user)
 }
 
+// UpdateUserEmailVerification mocks base method.
+func (m *MockStore) UpdateUserEmailVerification(ctx context.Context, id string, verified bool, oidcSubject string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateUserEmailVerification", ctx, id, verified, oidcSubject)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateUserEmailVerification indicates an expected call of UpdateUserEmailVerification.
+func (mr *MockStoreMockRecorder) UpdateUserEmailVerification(ctx, id, verified, oidcSubject any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserEmailVerification", reflect.TypeOf((*MockStore)(nil).UpdateUserEmailVerification), ctx, id, verified, oidcSubject)
+}
+
 // UpdateUserMeta mocks base method.
 func (m *MockStore) UpdateUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -8335,19 +8378,19 @@ func (mr *MockStoreMockRecorder) UpdateUserSession(ctx, session any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserSession", reflect.TypeOf((*MockStore)(nil).UpdateUserSession), ctx, session)
 }
 
-// UpdateWallet mocks base method.
-func (m *MockStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error) {
+// UpdateWalletSubscription mocks base method.
+func (m *MockStore) UpdateWalletSubscription(ctx context.Context, walletID string, state types.WalletSubscriptionState) (*types.Wallet, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateWallet", ctx, wallet)
+	ret := m.ctrl.Call(m, "UpdateWalletSubscription", ctx, walletID, state)
 	ret0, _ := ret[0].(*types.Wallet)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// UpdateWallet indicates an expected call of UpdateWallet.
-func (mr *MockStoreMockRecorder) UpdateWallet(ctx, wallet any) *gomock.Call {
+// UpdateWalletSubscription indicates an expected call of UpdateWalletSubscription.
+func (mr *MockStoreMockRecorder) UpdateWalletSubscription(ctx, walletID, state any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWallet", reflect.TypeOf((*MockStore)(nil).UpdateWallet), ctx, wallet)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletSubscription", reflect.TypeOf((*MockStore)(nil).UpdateWalletSubscription), ctx, walletID, state)
 }
 
 // UpdateWalletBalance mocks base method.

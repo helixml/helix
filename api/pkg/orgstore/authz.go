@@ -2,6 +2,7 @@ package orgstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -25,6 +26,14 @@ type Authorizer struct {
 // NewAuthorizer returns an Authorizer backed by the given Queryer.
 func NewAuthorizer(q Queryer) *Authorizer { return &Authorizer{store: q} }
 
+// ErrKeyOrgScope is returned when an org-scoped credential is used against a
+// different organization.
+var ErrKeyOrgScope = errors.New("credentials are scoped to another organization")
+
+// ErrNotOrgOwner is returned when an org member without the owner role asks
+// for an owner-only action.
+var ErrNotOrgOwner = errors.New("user is not an owner of this organization")
+
 // enforceKeyOrgScope confines an org-scoped credential to its own
 // organization. Organization API keys carry the org they were created for on
 // the request user; without this check a key created by a user belonging to
@@ -33,7 +42,7 @@ func enforceKeyOrgScope(user *types.User, orgID string) error {
 	if user == nil || user.OrganizationID == "" || user.OrganizationID == orgID {
 		return nil
 	}
-	return fmt.Errorf("credentials are scoped to organization %s", user.OrganizationID)
+	return ErrKeyOrgScope
 }
 
 // Authorizer returns an Authorizer bound to this store.
@@ -60,7 +69,7 @@ func (a *Authorizer) AuthorizeOrgOwner(ctx context.Context, user *types.User, or
 		return nil, err
 	}
 	if membership.Role != types.OrganizationRoleOwner {
-		return nil, fmt.Errorf("user is not an owner of this organization")
+		return nil, ErrNotOrgOwner
 	}
 	return membership, nil
 }

@@ -129,6 +129,9 @@ func (a *apiHandler) putWorkerSecret(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, errWorkerSecretsUnavailable)
 		return
 	}
+	if !a.authorizeBotEdit(w, r, orgID, orgchart.NodeID(r.PathValue("id")), "secrets") {
+		return
+	}
 	var req PutWorkerSecretRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, 400, err)
@@ -159,6 +162,9 @@ func (a *apiHandler) deleteWorkerSecret(w http.ResponseWriter, r *http.Request) 
 	}
 	if a.deps.WorkerSecrets == nil {
 		writeError(w, 503, errWorkerSecretsUnavailable)
+		return
+	}
+	if !a.authorizeBotEdit(w, r, orgID, orgchart.NodeID(r.PathValue("id")), "secrets") {
 		return
 	}
 	if err := a.deps.WorkerSecrets.Delete(r.Context(), orgID, orgchart.NodeID(r.PathValue("id")), r.PathValue("name")); err != nil {
