@@ -109,11 +109,11 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	f.owner = f.clientFor(t, aOwner)
 	bClient := f.clientFor(t, bOwner)
 
-	orgA, err := f.owner.CreateOrganization(f.ctx, &types.Organization{Name: "authz-a-" + run})
+	orgA, err := f.owner.CreateOrganization(f.setupCtx(t), &types.Organization{Name: "authz-a-" + run})
 	if err != nil {
 		t.Fatalf("create org A: %v", err)
 	}
-	orgB, err := bClient.CreateOrganization(f.ctx, &types.Organization{Name: "authz-b-" + run})
+	orgB, err := bClient.CreateOrganization(f.setupCtx(t), &types.Organization{Name: "authz-b-" + run})
 	if err != nil {
 		t.Fatalf("create org B: %v", err)
 	}
@@ -125,7 +125,7 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	f.vars["orgAName"] = orgA.Name
 	f.vars["orgB"] = orgB.ID
 
-	if _, err := f.owner.AddOrganizationMember(f.ctx, orgA.ID, &types.AddOrganizationMemberRequest{
+	if _, err := f.owner.AddOrganizationMember(f.setupCtx(t), orgA.ID, &types.AddOrganizationMemberRequest{
 		UserReference: f.users[aMember].ID,
 		Role:          types.OrganizationRoleMember,
 	}); err != nil {
@@ -238,7 +238,7 @@ func (f *authzFixture) api(t *testing.T, who actor, method, path string, body an
 			t.Fatalf("marshal: %v", err)
 		}
 	}
-	resp := f.do(t, who, method, path, raw, nil)
+	resp := f.send(t, authzSetupTimeout, who, method, path, raw, nil)
 	if resp.status < 200 || resp.status > 299 {
 		t.Fatalf("fixture %s %s as %s: %d %s", method, path, who, resp.status, truncate(resp.body, 500))
 	}
@@ -251,7 +251,7 @@ func (f *authzFixture) api(t *testing.T, who actor, method, path string, body an
 
 func (f *authzFixture) createApp(t *testing.T, name, orgID, kind string) string {
 	t.Helper()
-	app, err := f.owner.CreateApp(f.ctx, &types.App{
+	app, err := f.owner.CreateApp(f.setupCtx(t), &types.App{
 		OrganizationID: orgID,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
@@ -387,7 +387,7 @@ func (f *authzFixture) createOrgKey(t *testing.T) string {
 
 func (f *authzFixture) createAppKey(t *testing.T, appID string) string {
 	t.Helper()
-	key, err := f.owner.CreateAppAPIKey(f.ctx, appID, "authz matrix app key")
+	key, err := f.owner.CreateAppAPIKey(f.setupCtx(t), appID, "authz matrix app key")
 	if err != nil {
 		t.Fatalf("create app key: %v", err)
 	}
@@ -479,7 +479,7 @@ func (f *authzFixture) createArtifact(t *testing.T, name, projectID string) stri
 	t.Helper()
 	marker := f.mark(name)
 	visibility := types.ArtifactVisibilityProject
-	artifact, err := f.owner.CreateArtifact(f.ctx, projectID, &client.ArtifactUploadRequest{
+	artifact, err := f.owner.CreateArtifact(f.setupCtx(t), projectID, &client.ArtifactUploadRequest{
 		Name:       &marker,
 		Visibility: &visibility,
 		Content: &client.ArtifactContent{
@@ -536,7 +536,7 @@ func (f *authzFixture) uploadAppFile(t *testing.T, appID string) {
 	if err := writer.Close(); err != nil {
 		t.Fatalf("multipart: %v", err)
 	}
-	resp := f.do(t, aOwner, http.MethodPost, "/api/v1/filestore/upload?path=apps/"+appID, body.Bytes(),
+	resp := f.send(t, authzSetupTimeout, aOwner, http.MethodPost, "/api/v1/filestore/upload?path=apps/"+appID, body.Bytes(),
 		map[string]string{"Content-Type": writer.FormDataContentType()})
 	if resp.status != http.StatusOK {
 		t.Fatalf("upload app file: %d %s", resp.status, truncate(resp.body, 300))
@@ -582,4 +582,12 @@ func (f *authzFixture) agentProvider(orgID string) string {
 		return f.markers["providerPersonal"]
 	}
 	return f.markers["providerA"]
+}
+
+// setupCtx bounds one fixture call by authzSetupTimeout. The client would
+// otherwise apply its own 10s default, too tight for setup on a busy runner.
+func (f *authzFixture) setupCtx(t *testing.T) context.Context {
+	ctx, cancel := context.WithTimeout(f.ctx, authzSetupTimeout)
+	t.Cleanup(cancel)
+	return ctx
 }

@@ -191,15 +191,22 @@ type authzResponse struct {
 	body   string
 }
 
-// do sends one request as an actor. path is absolute (starts with /api/v1,
-// /v1, /git ...).
+// do sends one row request as an actor. path is absolute (starts with
+// /api/v1, /v1, /git ...).
 func (f *authzFixture) do(t *testing.T, who actor, method, path string, body []byte, header map[string]string) authzResponse {
+	t.Helper()
+	return f.send(t, authzRequestTimeout, who, method, path, body, header)
+}
+
+// send is do with an explicit time limit; fixture setup (repositories,
+// projects) uses the longer authzSetupTimeout.
+func (f *authzFixture) send(t *testing.T, timeout time.Duration, who actor, method, path string, body []byte, header map[string]string) authzResponse {
 	t.Helper()
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), authzRequestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, method, integrationServerURL()+path, reader)
 	if err != nil {
@@ -231,7 +238,7 @@ func (f *authzFixture) do(t *testing.T, who actor, method, path string, body []b
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
 			t.Fatalf("%s %s as %s: no answer within %s. A matrix row must not depend on the network (an LLM provider, a sandbox); point it at something that fails fast and assert it with ReachedMarker: %v",
-				method, path, who, authzRequestTimeout, err)
+				method, path, who, timeout, err)
 		}
 		t.Fatalf("%s %s as %s: %v", method, path, who, err)
 	}
@@ -249,14 +256,18 @@ func (f *authzFixture) do(t *testing.T, who actor, method, path string, body []b
 // auth password instead of a bearer token, the way git does. It is not sent.
 const basicAuthHeader = "X-Authz-Basic-Auth"
 
-// authzRequestTimeout bounds every matrix request, so a row that reaches a
-// real upstream fails by name instead of eating the suite's time budget.
-const authzRequestTimeout = 10 * time.Second
+// authzRequestTimeout bounds every row request, so a row that reaches a real
+// upstream fails by name instead of eating the suite's time budget. It is
+// well above what a working row needs, so a busy CI runner does not trip it.
+const authzRequestTimeout = 20 * time.Second
+
+// authzSetupTimeout bounds fixture setup requests, which do real work
+// (creating git repositories and projects).
+const authzSetupTimeout = 60 * time.Second
 
 // authzHTTPClient never follows redirects: a 302 to a login page is an
-// answer in its own right, not a 200.
+// answer in its own right, not a 200. Each request carries its own deadline.
 var authzHTTPClient = &http.Client{
-	Timeout: authzRequestTimeout,
 	CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	},

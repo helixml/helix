@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -133,11 +134,15 @@ func freshArtifact2(t *testing.T, f *authzFixture) map[string]string {
 // freshOrg gives aOwner a throwaway organization (deleted with the run).
 func freshOrg(t *testing.T, f *authzFixture) map[string]string {
 	t.Helper()
-	org, err := f.owner.CreateOrganization(f.ctx, &types.Organization{Name: "authz-fresh-" + uuid.NewString()[:8]})
+	org, err := f.owner.CreateOrganization(f.setupCtx(t), &types.Organization{Name: "authz-fresh-" + uuid.NewString()[:8]})
 	if err != nil {
 		t.Fatalf("create fresh org: %v", err)
 	}
-	t.Cleanup(func() { _ = f.owner.DeleteOrganization(f.ctx, org.ID) })
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), authzSetupTimeout)
+		defer cancel()
+		_ = f.owner.DeleteOrganization(ctx, org.ID)
+	})
 	return map[string]string{"orgA": org.ID}
 }
 
