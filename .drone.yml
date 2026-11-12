@@ -30,9 +30,9 @@ steps:
         - tag
     depends_on: []
 
-  # Frontend: one install, then the two vitest shards run alongside
-  # typecheck + bundle build, sharing the node_modules left in the workspace.
-  # tsc and vite build stay serial: in parallel each ran ~2x slower.
+  # Frontend: one install, then vitest runs alongside typecheck + bundle
+  # build, sharing the node_modules left in the workspace. tsc and vite
+  # build stay serial: in parallel each ran ~2x slower on node03.
   - name: frontend-install
     image: node:23-alpine
     volumes:
@@ -43,18 +43,11 @@ steps:
       - yarn install --frozen-lockfile --check-files
     depends_on: []
 
-  - name: frontend-test-1
+  - name: frontend-test
     image: node:23-alpine
     commands:
       - cd frontend
-      - yarn test --shard=1/2
-    depends_on: [frontend-install]
-
-  - name: frontend-test-2
-    image: node:23-alpine
-    commands:
-      - cd frontend
-      - yarn test --shard=2/2
+      - yarn test
     depends_on: [frontend-install]
 
   - name: build-frontend
@@ -838,7 +831,7 @@ steps:
         else
           echo "No tag present, skipping release upload"
         fi
-    depends_on: [build-backend, build-frontend, frontend-test-1, frontend-test-2]
+    depends_on: [build-backend, build-frontend, frontend-test]
 
   - name: build-operator
     image: golang:1.25-alpine
