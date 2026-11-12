@@ -67,7 +67,7 @@ func (s *PRProposalService) RequestCompletion(ctx context.Context, taskID, summa
 		// Postgres keeps microseconds; the request's attention key is derived
 		// from this time, so it must survive the round trip unchanged.
 		now := time.Now().Truncate(time.Microsecond)
-		if task.AutoApprovePullRequests {
+		if task.AutoApprovePullRequests && s.currentAutoApprover(ctx, task) != nil {
 			completeTask(task, now)
 			out.Done = true
 		} else {

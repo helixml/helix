@@ -2103,6 +2103,11 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 // canRedirectRepositoryUpstream reports whether the caller may change where a
 // repository's stored credentials are sent.
 func (s *HelixAPIServer) canRedirectRepositoryUpstream(ctx context.Context, user *types.User, repo *types.GitRepository) bool {
+	// Like access grants, this decides where credentials go: never for a
+	// project- or session-scoped key.
+	if isAgentScopedKey(user) {
+		return false
+	}
 	if user.ID == repo.OwnerID || user.Admin {
 		return true
 	}

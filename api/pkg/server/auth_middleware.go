@@ -240,7 +240,10 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		// inherit the owner's global admin — otherwise a global admin's org key
 		// would reach every organization and admin endpoint. dbUser carries the
 		// owner's Admin flag, so it must be cleared here, not just not set.
-		user.Admin = apiKey.OrganizationID == "" && auth.isAdminWithContext(ctx, user.ID)
+		// Keys minted for a project or a session (sandbox agents) are
+		// confined the same way: admin would bypass that confinement.
+		user.Admin = apiKey.OrganizationID == "" && apiKey.ProjectID == "" && apiKey.SessionID == "" &&
+			auth.isAdminWithContext(ctx, user.ID)
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}

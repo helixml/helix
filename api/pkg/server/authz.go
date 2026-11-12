@@ -223,6 +223,16 @@ func (apiServer *HelixAPIServer) enforceKeyAppScope(ctx context.Context, user *t
 	if err != nil {
 		return fmt.Errorf("%w: %v", errProjectScopedKey, err)
 	}
+	return apiServer.keyProjectAppScope(ctx, user, project, app, action)
+}
+
+// keyProjectAppScope is enforceKeyAppScope with the key's project already
+// loaded, for callers checking many apps.
+func (apiServer *HelixAPIServer) keyProjectAppScope(ctx context.Context, user *types.User, project *types.Project, app *types.App, action types.Action) error {
+	readOnly := action == types.ActionGet || action == types.ActionList || action == types.ActionUseAction
+	if app.OrganizationID == "" && app.Global && readOnly {
+		return nil
+	}
 	if project.DefaultHelixAppID == app.ID ||
 		project.ProjectManagerHelixAppID == app.ID ||
 		project.PullRequestReviewerHelixAppID == app.ID {
@@ -257,6 +267,17 @@ func (apiServer *HelixAPIServer) enforceKeyRepositoryScope(ctx context.Context, 
 	}
 	return fmt.Errorf("%w: key is scoped to project %s, repository %s is not attached to it", errProjectScopedKey, user.ProjectID, repository.ID)
 }
+
+// isAgentScopedKey reports whether the caller authenticated with a key minted
+// for a project or a session, as handed to sandbox agents.
+func isAgentScopedKey(user *types.User) bool {
+	return user != nil && (user.ProjectID != "" || user.SessionID != "")
+}
+
+// errAgentKeyDecision is returned when a project- or session-scoped key tries
+// to take a decision reserved for a human: approving its own pull requests or
+// completion, or enabling auto-approval.
+var errAgentKeyDecision = errors.New("this decision cannot be made with a project- or session-scoped key")
 
 // denyAccessGrantsToScopedKey refuses access-grant management to a
 // project-scoped credential: changing who may reach a resource is never part

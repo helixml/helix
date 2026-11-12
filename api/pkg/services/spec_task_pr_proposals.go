@@ -215,17 +215,32 @@ func (s *PRProposalService) Decide(ctx context.Context, user *types.User, propos
 // the user who enabled it. It returns nil, leaving the proposal pending for a
 // human, when that user cannot approve (e.g. no provider connection).
 func (s *PRProposalService) autoApprove(ctx context.Context, task *types.SpecTask, p *types.SpecTaskPRProposal) *types.SpecTaskPRProposal {
+	user := s.currentAutoApprover(ctx, task)
+	if user == nil {
+		return nil
+	}
+	decided, err := s.decide(ctx, user, task, p, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove}, true)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Str("proposal_id", p.ID).Msg("pr proposal: auto-approval failed; waiting for a human")
+		return nil
+	}
+	return decided
+}
+
+// currentAutoApprover returns the user whose identity a task's auto-approval
+// acts as, or nil (wait for a human) when that user cannot approve right now.
+// The approver was recorded when auto-approval was turned on; they may since
+// have been deactivated or lost access to the project, so check it each time.
+func (s *PRProposalService) currentAutoApprover(ctx context.Context, task *types.SpecTask) *types.User {
 	actorID := task.AutoApprovePullRequestsBy
 	if actorID == "" {
 		actorID = task.CreatedBy
 	}
 	user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: actorID})
-	if err != nil {
+	if err != nil || user == nil {
 		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver not found; waiting for a human")
 		return nil
 	}
-	// The approver was recorded when auto-approval was turned on; they may
-	// since have lost access to the project, so check it now.
 	if err := user.AccountAccessError(); err != nil {
 		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver account inactive; waiting for a human")
 		return nil
@@ -238,12 +253,7 @@ func (s *PRProposalService) autoApprove(ctx context.Context, task *types.SpecTas
 		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver no longer has project access; waiting for a human")
 		return nil
 	}
-	decided, err := s.decide(ctx, user, task, p, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove}, true)
-	if err != nil {
-		log.Warn().Err(err).Str("task_id", task.ID).Str("proposal_id", p.ID).Msg("pr proposal: auto-approval failed; waiting for a human")
-		return nil
-	}
-	return decided
+	return user
 }
 
 // decide applies a decision by user. auto marks an approval made on the

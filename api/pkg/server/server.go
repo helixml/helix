@@ -608,7 +608,8 @@ func NewServer(
 	apiServer.mcpGateway = NewMCPGateway()
 
 	// Register Kodit MCP backend (code intelligence)
-	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend) //nolint:staticcheck // mcpBackend is package-private but accessible within this package
+	kr.mcpBackend.SetSessionAuthorizer(apiServer.authorizeUserToSession) //nolint:staticcheck // mcpBackend is package-private but accessible within this package
+	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend)         //nolint:staticcheck // mcpBackend is package-private but accessible within this package
 
 	// Register Helix native MCP backend (APIs, Knowledge, Zapier).
 	// authorizeUserToApp enforces the same RBAC as the REST handlers so a scoped
@@ -633,7 +634,7 @@ func NewServer(
 	// Register Desktop MCP backend (screenshot, clipboard, input, window management)
 	// Proxies MCP requests via RevDial to desktop-bridge inside sandbox containers
 	// Route: /api/v1/mcp/desktop?session_id={sessionID}
-	apiServer.mcpGateway.RegisterBackend("desktop", NewDesktopMCPBackend(store, connectionManager))
+	apiServer.mcpGateway.RegisterBackend("desktop", NewDesktopMCPBackend(store, connectionManager, apiServer.authorizeUserToSession))
 
 	log.Info().Msg("Initialized MCP Gateway with Kodit, Helix, Session, External, and Desktop backends")
 

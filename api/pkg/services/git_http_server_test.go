@@ -175,6 +175,22 @@ func (s *HasReadAccessSuite) TestScopedKeyOwner_DefersToAuthorizeFn() {
 	s.Equal(2, called)
 }
 
+// The git server authenticates keys itself; it must carry the key's scope
+// onto the user so repository authorization can confine it.
+func (s *HasReadAccessSuite) TestValidateAPIKeyCarriesKeyScope() {
+	server := s.newServer(nil)
+	s.mockStore.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hl-task"}).Return(&types.ApiKey{
+		Key: "hl-task", Owner: "user1", ProjectID: "prj_a", SpecTaskID: "spt_1", SessionID: "ses_1",
+	}, nil)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user1"}, nil)
+
+	user, _, err := server.validateAPIKeyAndGetUser(context.Background(), "Bearer hl-task")
+	s.Require().NoError(err)
+	s.Equal("prj_a", user.ProjectID)
+	s.Equal("spt_1", user.SpecTaskID)
+	s.Equal("ses_1", user.SessionID)
+}
+
 // TestParsePullRequestMarkdown tests the parsePullRequestMarkdown function
 func TestParsePullRequestMarkdown(t *testing.T) {
 	tests := []struct {

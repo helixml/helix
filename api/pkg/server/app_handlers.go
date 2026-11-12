@@ -295,12 +295,20 @@ func (s *HelixAPIServer) listAgents(_ http.ResponseWriter, r *http.Request) ([]*
 	}
 
 	// remove global apps from the list in case this is the admin user who created the global app
+	// A project-scoped key sees only its project's agents.
+	var keyProject *types.Project
+	if user.ProjectID != "" {
+		keyProject, err = s.Store.GetProject(ctx, user.ProjectID)
+		if err != nil {
+			return nil, system.NewHTTPError403(errProjectScopedKey.Error())
+		}
+	}
 	nonGlobalUserApps := []*types.Agent{}
 	for _, app := range userApps {
 		if app.Global {
 			continue
 		}
-		if err := s.enforceKeyAppScope(ctx, user, app, types.ActionGet); err != nil {
+		if keyProject != nil && s.keyProjectAppScope(ctx, user, keyProject, app, types.ActionGet) != nil {
 			continue
 		}
 		nonGlobalUserApps = append(nonGlobalUserApps, app)
