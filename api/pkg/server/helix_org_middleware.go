@@ -335,18 +335,10 @@ func isHelixOrgPrivilegedMutation(r *http.Request) bool {
 	if !strings.HasPrefix(r.URL.Path, botsPath) {
 		return false
 	}
-	// Per-bot secrets and trigger attachments.
+	// Per-bot secrets. Trigger attachments are authorized per bot by the
+	// handler (org managers, or anyone who can edit the bot's agent).
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, botsPath), "/")
-	if len(parts) < 2 || parts[0] == "" {
-		return false
-	}
-	switch parts[1] {
-	case "secrets":
-		return len(parts) >= 3 && parts[2] != ""
-	case "attachments":
-		return true
-	}
-	return false
+	return len(parts) >= 3 && parts[0] != "" && parts[1] == "secrets" && parts[2] != ""
 }
 
 // stripOrgScopedPrefix strips "/api/v1/orgs/{org}" off the request
