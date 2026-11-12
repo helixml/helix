@@ -530,12 +530,10 @@ func (s *HelixAPIServer) getSpecTaskAttachmentContent(w http.ResponseWriter, r *
 	defer rc.Close()
 
 	w.Header().Set("Content-Type", att.MimeType)
-	// Force download for SVGs (defence-in-depth against any browser that ignores script-strip).
-	if att.MimeType == "image/svg+xml" {
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", att.Filename))
-	} else {
-		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", att.Filename))
-	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", att.Filename))
+	// nosniff, and a sandboxed download for anything not render-safe (SVG,
+	// which can carry script, even though uploads strip it).
+	applyServedFilePolicy(w.Header(), att.Filename)
 	if _, err := io.Copy(w, rc); err != nil {
 		log.Warn().Err(err).Msg("Failed to stream attachment to client")
 	}
