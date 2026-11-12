@@ -1938,26 +1938,39 @@ func writeErrResponse(rw http.ResponseWriter, err error, statusCode int) {
 	})
 }
 
+// embeddingsSocketMode is the file mode of the embeddings socket. Requests on
+// the socket are not authenticated, so only the API server's own user and
+// group may connect; a client in another container must share that group.
+const embeddingsSocketMode = 0o660
+
+// listenEmbeddingsSocket replaces any stale socket file at socketPath and
+// listens on it with embeddingsSocketMode.
+func listenEmbeddingsSocket(socketPath string) (net.Listener, error) {
+	if _, err := os.Lstat(socketPath); err == nil {
+		if err := os.Remove(socketPath); err != nil {
+			return nil, fmt.Errorf("failed to remove existing socket file: %w", err)
+		}
+	}
+
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen on unix socket: %w", err)
+	}
+
+	if err := os.Chmod(socketPath, embeddingsSocketMode); err != nil {
+		_ = listener.Close()
+		return nil, fmt.Errorf("failed to set socket permissions: %w", err)
+	}
+	return listener, nil
+}
+
 // startEmbeddingsSocketServer starts a UNIX socket server that serves just the /v1/embeddings endpoint with no auth
 func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context) error {
 	socketPath := apiServer.Cfg.WebServer.EmbeddingsSocket
 
-	// Remove socket file if it already exists
-	if _, err := os.Stat(socketPath); err == nil {
-		if err := os.Remove(socketPath); err != nil {
-			return fmt.Errorf("failed to remove existing socket file: %w", err)
-		}
-	}
-
-	// Create socket listener
-	listener, err := net.Listen("unix", socketPath)
+	listener, err := listenEmbeddingsSocket(socketPath)
 	if err != nil {
-		return fmt.Errorf("failed to listen on unix socket: %w", err)
-	}
-
-	// Set socket permissions
-	if err := os.Chmod(socketPath, 0666); err != nil {
-		return fmt.Errorf("failed to set socket permissions: %w", err)
+		return err
 	}
 
 	// Create a new router for the socket server
