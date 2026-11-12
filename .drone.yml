@@ -822,14 +822,14 @@ steps:
       - sed -i "s/\${HELIX_VERSION:-latest}/$DRONE_TAG/g" docker-compose.yaml
       - |
         if [ -n "$DRONE_TAG" ]; then
-          # Look for either exact match or tag followed by space and description
-          RELEASE=$(gh release list | awk -v tag="$DRONE_TAG" '$1 == tag || $1 ~ "^"tag" " {print $1; exit}')
-          if [ -n "$RELEASE" ]; then
-            echo "Uploading helix binaries, installer, and docker-compose files to release $RELEASE"
-            gh release upload --clobber "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml docker-compose.tls.yaml
-          else
-            echo "No matching release found for tag $DRONE_TAG"
+          # Releases are created before their tag build runs. A missing one means
+          # a retried build skipped `gh release create --verify-tag` (CLAUDE.md).
+          if ! gh release view "$DRONE_TAG" > /dev/null; then
+            echo "No GitHub release for tag $DRONE_TAG; recreate it before restarting this build" >&2
+            exit 1
           fi
+          echo "Uploading helix binaries, installer, and docker-compose files to release $DRONE_TAG"
+          gh release upload --clobber "$DRONE_TAG" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml docker-compose.tls.yaml
         else
           echo "No tag present, skipping release upload"
         fi

@@ -36,6 +36,10 @@ ghcr_login_once() {
 
 # Exits the calling script: nothing can be published without a login.
 ghcr_login() {
+  if [ -z "${GITHUB_TOKEN:-}" ]; then
+    echo "[$LOG_TAG] ERROR: GITHUB_TOKEN not set; ghcr.io/helixml cannot be published" >&2
+    exit 1
+  fi
   if ! retry 6 30 ghcr_login_once; then
     echo "[$LOG_TAG] ERROR: ghcr.io login failed; ghcr.io/helixml is the customer-facing registry, cannot continue" >&2
     exit 1
