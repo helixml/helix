@@ -14,7 +14,7 @@ func init() {
 		"GET /api/v1/runners/{runner_id}/assignment":               admin(),
 		"POST /api/v1/runners/{runner_id}/assign-profile":          admin(),
 		"POST /api/v1/runners/{runner_id}/clear-profile":           admin(),
-		"GET /api/v1/sandboxes/{id}/containers/{session_id}/blkio": object("authorizeUserToSession"),
+		"GET /api/v1/sandboxes/{id}/containers/{session_id}/blkio": object("authorizeUserToSession").alsoRunner(),
 		"GET /api/v1/sandbox-desktop-types":                        user(),
 		"GET /api/v1/sandbox-runtimes":                             user(),
 		"POST /api/v1/sandboxes/register":                          runner(),

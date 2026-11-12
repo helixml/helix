@@ -20,16 +20,17 @@ import (
 // open to ordinary users:
 //   - register/heartbeat are host-side calls and require the runner token
 //   - list/deregister/disk-history require a global admin or the runner token
-//   - blkio is also used by project members watching a golden build, so it is
-//     on authRouter and authorised per-session inside the handler
+//   - blkio is also used by project members watching a golden build, so it
+//     admits users and the runner token and is authorised per-session inside
+//     the handler
 //   - desktop-types exposes only the desktop type names any user may pick
-func (apiServer *HelixAPIServer) registerSandboxRegistryRoutes(authRouter, runnerRouter, adminOrRunnerRouter *mux.Router) {
+func (apiServer *HelixAPIServer) registerSandboxRegistryRoutes(authRouter, runnerRouter, adminOrRunnerRouter, userOrRunnerRouter *mux.Router) {
 	runnerRouter.HandleFunc("/sandboxes/register", apiServer.registerSandbox).Methods(http.MethodPost)
 	runnerRouter.HandleFunc("/sandboxes/{id}/heartbeat", apiServer.sandboxHeartbeat).Methods(http.MethodPost)
 	adminOrRunnerRouter.HandleFunc("/sandboxes/{id}/disk-history", apiServer.getDiskUsageHistory).Methods(http.MethodGet)
 	adminOrRunnerRouter.HandleFunc("/sandboxes", apiServer.listSandboxes).Methods(http.MethodGet)
 	adminOrRunnerRouter.HandleFunc("/sandboxes/{id}", apiServer.deregisterSandbox).Methods(http.MethodDelete)
-	authRouter.HandleFunc("/sandboxes/{id}/containers/{session_id}/blkio", apiServer.getContainerBlkioStats).Methods(http.MethodGet)
+	userOrRunnerRouter.HandleFunc("/sandboxes/{id}/containers/{session_id}/blkio", apiServer.getContainerBlkioStats).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sandbox-desktop-types", apiServer.listSandboxDesktopTypes).Methods(http.MethodGet)
 }
 

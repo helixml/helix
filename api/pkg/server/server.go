@@ -1054,6 +1054,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	subRouter.Use(apiServer.authMiddleware.extractMiddleware)
 	subRouter.Use(apiServer.authMiddleware.csrfMiddleware)
 
+	// user-or-runner router: the few user routes sandbox hosts also call with
+	// the runner token. authRouter refuses the runner token.
+	userOrRunnerRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
+	userOrRunnerRouter.Use(requireUserOrRunner)
+
 	// auth router requires a valid token from keycloak or api key
 	authRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
 	authRouter.Use(requireUser)
@@ -1276,8 +1281,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/search", system.Wrapper(apiServer.unifiedSearch)).Methods(http.MethodGet).Queries("q", "{q}")
 
 	// Zed config endpoints
-	authRouter.HandleFunc("/sessions/{id}/zed-config", system.Wrapper(apiServer.getZedConfig)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sessions/{id}/zed-config/user", system.Wrapper(apiServer.updateZedUserSettings)).Methods(http.MethodPost)
+	userOrRunnerRouter.HandleFunc("/sessions/{id}/zed-config", system.Wrapper(apiServer.getZedConfig)).Methods(http.MethodGet)
+	userOrRunnerRouter.HandleFunc("/sessions/{id}/zed-config/user", system.Wrapper(apiServer.updateZedUserSettings)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/zed-settings", system.Wrapper(apiServer.getMergedZedSettings)).Methods(http.MethodGet)
 
 	// Claude subscription endpoints
@@ -1291,8 +1296,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// login above, which drives the real Claude Code CLI inside a container.
 	authRouter.HandleFunc("/claude-subscriptions/oauth/start", system.Wrapper(apiServer.startClaudeOAuthLogin)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/claude-subscriptions/oauth/complete", system.Wrapper(apiServer.completeClaudeOAuthLogin)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.getSessionClaudeCredentials)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.updateSessionClaudeCredentials)).Methods(http.MethodPut)
+	userOrRunnerRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.getSessionClaudeCredentials)).Methods(http.MethodGet)
+	userOrRunnerRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.updateSessionClaudeCredentials)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/codex-subscriptions", system.Wrapper(apiServer.createCodexSubscription)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/codex-subscriptions", system.Wrapper(apiServer.listCodexSubscriptions)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/codex-subscriptions/{id}", system.Wrapper(apiServer.getCodexSubscription)).Methods(http.MethodGet)
@@ -1300,8 +1305,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/codex-subscriptions/start-login", system.Wrapper(apiServer.startCodexLogin)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/codex-subscriptions/poll-login/{sessionId}", system.Wrapper(apiServer.pollCodexLogin)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/codex-subscriptions/login/{sessionId}", system.Wrapper(apiServer.cancelCodexLogin)).Methods(http.MethodDelete)
-	authRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.getSessionCodexCredentials)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.updateSessionCodexCredentials)).Methods(http.MethodPut)
+	userOrRunnerRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.getSessionCodexCredentials)).Methods(http.MethodGet)
+	userOrRunnerRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.updateSessionCodexCredentials)).Methods(http.MethodPut)
 
 	apiServer.registerAgentRoutes(authRouter, insecureRouter)
 
@@ -1334,17 +1339,19 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/skills/validate", system.DefaultWrapper(apiServer.handleValidateMcpSkill)).Methods("POST")
 	// External agent routes - desktop streaming and Zed agent communication
 	// Note: Session start/stop/resume use /sessions endpoints, not /external-agents
-	authRouter.HandleFunc("/external-agents/sync", apiServer.authorizeExternalAgentSync(apiServer.handleExternalAgentSync)).Methods("GET") // WebSocket: Zed agent bidirectional communication (chat, tool calls)
-	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")                  // Desktop screenshots for previews and fallback display
-	authRouter.HandleFunc("/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")                                                  // Network throughput measurement for adaptive video bitrate
-	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")                    // Read remote desktop clipboard to sync locally
-	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")                   // Write local clipboard to remote desktop
-	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")                            // Upload files to sandbox container
-	authRouter.HandleFunc("/external-agents/{sessionID}/file", apiServer.getExternalAgentFile).Methods(http.MethodGet)                     // Read uploaded chat attachments
-	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")                                    // Execute an authenticated sandbox command
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")                           // WebSocket: keyboard/mouse input stream
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET")                         // WebSocket: H.264 video stream (primary)
-	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST")     // Configure session before container starts
+	// WebSocket: Zed agent bidirectional communication (chat, tool calls)
+	userOrRunnerRouter.HandleFunc("/external-agents/sync", apiServer.authorizeExternalAgentSync(apiServer.handleExternalAgentSync)).Methods("GET")
+
+	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")              // Desktop screenshots for previews and fallback display
+	authRouter.HandleFunc("/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")                                              // Network throughput measurement for adaptive video bitrate
+	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")                // Read remote desktop clipboard to sync locally
+	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")               // Write local clipboard to remote desktop
+	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")                        // Upload files to sandbox container
+	authRouter.HandleFunc("/external-agents/{sessionID}/file", apiServer.getExternalAgentFile).Methods(http.MethodGet)                 // Read uploaded chat attachments
+	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")                                // Execute an authenticated sandbox command
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")                       // WebSocket: keyboard/mouse input stream
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET")                     // WebSocket: H.264 video stream (primary)
+	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST") // Configure session before container starts
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-review", apiServer.getWorkspaceReview).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-review/turn/{interactionID}", apiServer.getWorkspaceTurnReview).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-files", apiServer.getWorkspaceFiles).Methods("GET")
@@ -1355,10 +1362,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspaces", apiServer.getExternalAgentWorkspaces).Methods("GET") // List git workspaces in container
 
 	// Sandbox instance registry routes (multi-sandbox support)
-	apiServer.registerSandboxRegistryRoutes(authRouter, runnerRouter, adminOrRunnerRouter)
-	// Reverse dial endpoint for user sandboxes (spec tasks, PDEs)
-	// Accepts user API tokens with session ownership validation
-	authRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
+	apiServer.registerSandboxRegistryRoutes(authRouter, runnerRouter, adminOrRunnerRouter, userOrRunnerRouter)
+	// Reverse dial endpoint: sandbox hosts register with the runner token,
+	// desktops with their session's key (ownership checked in the handler)
+	userOrRunnerRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
 
 	// RDP proxy management endpoints
 	// Note: RDP proxy health endpoint removed - not implemented

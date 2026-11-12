@@ -30,11 +30,15 @@ import (
 func (s *HelixAPIServer) filestoreViewerHandler(w http.ResponseWriter, r *http.Request) {
 	// if the session is "shared" then anyone can see the files inside the session
 	// if the user is admin then can see anything
-	// if the user is runner then can see anything
+	// the runner token is refused (no runner-token client reads the filestore)
 	// if the path is part of the user path then can see it
 	// if path has presign URL
 	// otherwise access denied
 	canAccess, err := s.isFilestoreRouteAuthorized(r)
+	if errors.Is(err, errRunnerTokenRefused) {
+		http.Error(w, errRunnerTokenNotAccepted, http.StatusForbidden)
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -183,10 +187,11 @@ func (s *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (bool, er
 		Str("user_type", string(user.Type)).
 		Msg("User information from request")
 
-	// a runner can see all files
+	// The runner token authenticates sandbox hosts and kodit, not a person, and
+	// none of them read the filestore. Refuse it rather than let it fall
+	// through to the per-user path check as "runner-system".
 	if isRunner(user) {
-		logger.Debug().Msg("User is a runner, allowing access")
-		return true, nil
+		return false, errRunnerTokenRefused
 	}
 
 	// an admin user can see all files
