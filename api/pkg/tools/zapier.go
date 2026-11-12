@@ -31,7 +31,6 @@ func (c *ChainStrategy) RunZapierAction(ctx context.Context, apiClient oai.Clien
 		Str("action", action).
 		Str("tool", tool.Name).
 		Str("model", tool.Config.Zapier.Model).
-		Str("api_key", tool.Config.Zapier.APIKey).
 		Str("prompt", currentMessage).
 		Msg("running Zapier action")
 

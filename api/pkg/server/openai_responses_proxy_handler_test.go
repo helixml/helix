@@ -280,10 +280,11 @@ func TestAnthropicProxySessionWithoutCodeAgentContextUsesLegacyProviderLookup(t 
 	mockStore.EXPECT().GetSession(gomock.Any(), "ses_test").Return(&types.Session{
 		ID: "ses_test",
 	}, nil)
-	mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
-		Owner: "",
-		Name:  "anthropic",
-	}).Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+		Owner:      "user_test",
+		OwnerType:  types.OwnerTypeUser,
+		WithGlobal: true,
+	}).Return(nil, nil)
 
 	endpoint, err := server.getProviderEndpoint(t.Context(), &types.User{
 		ID:        "user_test",

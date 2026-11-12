@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -652,4 +653,91 @@ func (suite *OrganizationInvitationsTestSuite) TestConsumePendingInvitations_Ear
 	})
 	suite.Require().NoError(err)
 	suite.Len(grants, 1)
+}
+
+// ConsumeInvitation accepts only the invitation presented (from an invite
+// link), and only when it was sent to the user's address; other invitations
+// for the same address stay pending.
+func (suite *OrganizationInvitationsTestSuite) TestConsumeInvitation_AcceptsOnlyTheMatchingInvitation() {
+	orgID2 := system.GenerateOrganizationID()
+	org2, err := suite.db.CreateOrganization(suite.ctx, &types.Organization{
+		ID:    orgID2,
+		Name:  "Second Org " + orgID2,
+		Owner: "test-owner-2",
+	})
+	suite.Require().NoError(err)
+	defer suite.db.DeleteOrganization(suite.ctx, org2.ID)
+
+	email := "link-" + system.GenerateUUID() + "@example.com"
+	fromLink, err := suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID,
+		Email:          email,
+		Role:           types.OrganizationRoleMember,
+	})
+	suite.Require().NoError(err)
+	other, err := suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: org2.ID,
+		Email:          email,
+		Role:           types.OrganizationRoleOwner,
+	})
+	suite.Require().NoError(err)
+	someoneElse, err := suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: org2.ID,
+		Email:          "someone-else-" + system.GenerateUUID() + "@example.com",
+		Role:           types.OrganizationRoleOwner,
+	})
+	suite.Require().NoError(err)
+
+	user := &types.User{ID: system.GenerateUserID(), Email: strings.ToUpper(email), CreatedAt: time.Now()}
+	_, err = suite.db.CreateUser(suite.ctx, user)
+	suite.Require().NoError(err)
+	defer suite.db.DeleteUser(suite.ctx, user.ID)
+
+	// An invitation sent to another address is not accepted.
+	memberships, err := suite.db.ConsumeInvitation(suite.ctx, user, someoneElse.ID, someoneElse.Token)
+	suite.Require().NoError(err)
+	suite.Empty(memberships)
+
+	// The ID alone (visible to org members) is not enough: the token is.
+	suite.NotEmpty(fromLink.Token)
+	for _, token := range []string{"", "wrong", other.Token} {
+		memberships, err = suite.db.ConsumeInvitation(suite.ctx, user, fromLink.ID, token)
+		suite.Require().NoError(err)
+		suite.Empty(memberships, "token %q", token)
+	}
+
+	memberships, err = suite.db.ConsumeInvitation(suite.ctx, user, fromLink.ID, fromLink.Token)
+	suite.Require().NoError(err)
+	suite.Require().Len(memberships, 1)
+	suite.Equal(suite.org.ID, memberships[0].OrganizationID)
+
+	_, err = suite.db.GetOrganizationMembership(suite.ctx, &GetOrganizationMembershipQuery{OrganizationID: org2.ID, UserID: user.ID})
+	suite.ErrorIs(err, ErrNotFound, "the other invitation for the address must not be accepted")
+
+	_, err = suite.db.GetOrganizationInvitation(suite.ctx, &GetOrganizationInvitationQuery{ID: fromLink.ID})
+	suite.ErrorIs(err, ErrNotFound, "the accepted invitation is deleted")
+	for _, id := range []string{other.ID, someoneElse.ID} {
+		_, err = suite.db.GetOrganizationInvitation(suite.ctx, &GetOrganizationInvitationQuery{ID: id})
+		suite.NoError(err, "invitation %s must stay pending", id)
+	}
+}
+
+func (suite *OrganizationInvitationsTestSuite) TestRotateInvitationToken() {
+	inv, err := suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID,
+		Email:          "rotate-" + system.GenerateUUID() + "@example.com",
+	})
+	suite.Require().NoError(err)
+	stored, err := suite.db.GetOrganizationInvitation(suite.ctx, &GetOrganizationInvitationQuery{ID: inv.ID})
+	suite.Require().NoError(err)
+	suite.Empty(stored.Token, "the plaintext token is never stored")
+	suite.True(InvitationTokenMatches(stored, inv.Token))
+
+	rotated, err := suite.db.RotateOrganizationInvitationToken(suite.ctx, inv.ID)
+	suite.Require().NoError(err)
+	suite.NotEqual(inv.Token, rotated.Token)
+	stored, err = suite.db.GetOrganizationInvitation(suite.ctx, &GetOrganizationInvitationQuery{ID: inv.ID})
+	suite.Require().NoError(err)
+	suite.False(InvitationTokenMatches(stored, inv.Token), "the previous link stops working")
+	suite.True(InvitationTokenMatches(stored, rotated.Token))
 }

@@ -109,10 +109,18 @@ func namesOwnAPIKey(r *http.Request) bool {
 }
 
 func getRequestToken(r *http.Request) string {
+	token, _ := getRequestTokenWithSource(r)
+	return token
+}
+
+// getRequestTokenWithSource returns the credential the request carries and
+// where it came from. The source is for the request audit log; the token itself
+// is never recorded. The order matches the auth layer's precedence.
+func getRequestTokenWithSource(r *http.Request) (string, string) {
 	// First try to get from Authorization header
 	token := getBearerToken(r)
 	if token != "" {
-		return token
+		return token, "bearer"
 	}
 
 	// Try x-api-key header (used by Anthropic SDK clients like Zed)
@@ -121,29 +129,30 @@ func getRequestToken(r *http.Request) string {
 	token = r.Header.Get("x-api-key")
 	if token != "" {
 		log.Trace().Str("source", "x-api-key").Str("path", r.URL.Path).Msg("token from x-api-key header")
-		return token
+		return token, "api-key"
 	}
 
 	// Try api-key header (used by Azure OpenAI SDK clients)
 	token = r.Header.Get("api-key")
 	if token != "" {
 		log.Debug().Str("source", "api-key").Str("path", r.URL.Path).Msg("token from api-key header")
-		return token
+		return token, "api-key"
 	}
 
 	// Then try to get from cookie
 	cookie, err := r.Cookie("access_token")
 	if err == nil && cookie != nil && cookie.Value != "" {
 		log.Debug().Str("source", "cookie").Str("path", r.URL.Path).Msg("token from access_token cookie")
-		return cookie.Value
+		return cookie.Value, "cookie"
 	}
 
 	// Finally fall back to query parameter
 	queryToken := getQueryToken(r)
 	if queryToken != "" {
 		log.Debug().Str("source", "query").Str("path", r.URL.Path).Msg("token from query parameter")
+		return queryToken, "query"
 	}
-	return queryToken
+	return "", ""
 }
 
 /*
@@ -165,8 +174,24 @@ func detachContext(ctx context.Context, timeout time.Duration) (context.Context,
 }
 
 func setRequestUser(ctx context.Context, user types.User) context.Context {
+	// Write through the request audit holder, if one is installed, so the outer
+	// audit middleware sees the user this inner middleware authenticated.
+	recordRequestAuditUser(ctx, user)
 	return context.WithValue(ctx, userKey, user)
 }
+
+// requestUserIDFromContext returns the id of the user the auth layer attached
+// to ctx, or "" when the request is anonymous.
+func requestUserIDFromContext(ctx context.Context) string {
+	if user, ok := ctx.Value(userKey).(types.User); ok {
+		return user.ID
+	}
+	return ""
+}
+
+// socketUserID is the identity of unix-socket requests when no
+// HELIX_EMBEDDINGS_SOCKET_USER_ID is configured.
+const socketUserID = "socket"
 
 func getRequestUser(req *http.Request) *types.User {
 	// First check if user was set in context (e.g., by socket middleware)
@@ -176,21 +201,25 @@ func getRequestUser(req *http.Request) *types.User {
 		return &user
 	}
 
-	// Check if this is a socket request by looking at the underlying connection type
+	// Requests on the embeddings unix socket carry no credentials. Unless the
+	// socket middleware set a configured user above, they run as the fixed
+	// socket identity; nothing in the request selects the identity.
 	if h, ok := req.Context().Value(http.LocalAddrContextKey).(*net.UnixAddr); ok && h != nil {
-		// Socket requests are trusted - get user ID from header
-		userID := req.Header.Get("X-Helix-User-ID")
-		if userID == "" {
-			userID = "socket"
-		}
 		return &types.User{
-			ID:        userID,
+			ID:        socketUserID,
 			Type:      types.OwnerTypeSocket,
 			TokenType: types.TokenTypeSocket,
 		}
 	}
 
 	return nil
+}
+
+// scrubUserCredentials clears the request-scoped credential fields of a user
+// before the record is returned to another user or saved.
+func scrubUserCredentials(user *types.User) {
+	user.Token = ""
+	user.TokenType = ""
 }
 
 func getOwnerContext(req *http.Request) types.OwnerContext {

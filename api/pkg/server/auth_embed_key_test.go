@@ -408,6 +408,7 @@ func TestInteractiveEmbedKeyDrivesOnlyItsOwnDesktop(t *testing.T) {
 	for _, c := range []struct{ method, path string }{
 		{"GET", "/api/v1/spec-tasks/spt_A/interactive-embed-model"},
 		{"PATCH", "/api/v1/spec-tasks/spt_A/interactive-embed-model"},
+		{"GET", "/api/v1/sessions/ses_A/operator-access"},
 		{"GET", "/api/v1/external-agents/ses_A/ws/input"},
 		{"GET", "/api/v1/external-agents/ses_A/clipboard"},
 		{"POST", "/api/v1/external-agents/ses_A/clipboard"},
@@ -420,6 +421,7 @@ func TestInteractiveEmbedKeyDrivesOnlyItsOwnDesktop(t *testing.T) {
 	for _, c := range []struct{ method, path string }{
 		{"GET", "/api/v1/spec-tasks/spt_B/interactive-embed-model"},
 		{"PATCH", "/api/v1/spec-tasks/spt_B/interactive-embed-model"},
+		{"GET", "/api/v1/sessions/ses_B/operator-access"},
 		{"GET", "/api/v1/external-agents/ses_B/ws/input"},
 		{"POST", "/api/v1/external-agents/ses_B/clipboard"},
 		{"POST", "/api/v1/sessions/ses_B/resume"},
@@ -434,9 +436,10 @@ func TestInteractiveEmbedKeyDrivesOnlyItsOwnDesktop(t *testing.T) {
 		}
 	}
 	readOnly := embedUser()
-	if embedKeyAllows(readOnly, req("GET", "/api/v1/spec-tasks/spt_A/interactive-embed-model")) ||
+	if embedKeyAllows(readOnly, req("GET", "/api/v1/sessions/ses_A/operator-access")) ||
+		embedKeyAllows(readOnly, req("GET", "/api/v1/spec-tasks/spt_A/interactive-embed-model")) ||
 		embedKeyAllows(readOnly, req("PATCH", "/api/v1/spec-tasks/spt_A/interactive-embed-model")) {
-		t.Error("SECURITY: read-only embed key reached interactive model endpoint")
+		t.Error("SECURITY: read-only embed key reached an interactive endpoint")
 	}
 	// A session-less key has no desktop to drive.
 	noSession := &types.User{ID: "user_service", APIKeyType: types.APIkeytypeEmbed, SpecTaskID: "spt_A", EmbedInteractive: true}

@@ -209,6 +209,19 @@ func applyResolvedAgentDefaults(assistant *types.AssistantConfig, defaults types
 	assistant.ReasoningEffort = defaults.ReasoningEffort
 }
 
+// AuthorizeAgentUpdate reports whether the request's user may update appID.
+func (c *inProcHelixClient) AuthorizeAgentUpdate(ctx context.Context, appID string) error {
+	user, err := c.resolveUser(ctx)
+	if err != nil {
+		return err
+	}
+	app, err := c.server.Store.GetApp(ctx, appID)
+	if err != nil {
+		return err
+	}
+	return c.server.authorizeUserToApp(ctx, user, app, types.ActionUpdate)
+}
+
 func (c *inProcHelixClient) UpdateAgent(ctx context.Context, appID string, patch orgapi.AgentConfigPatch, name, instructions *string) error {
 	user, err := c.resolveUser(ctx)
 	if err != nil {
@@ -738,7 +751,7 @@ func (c *inProcHelixClient) GetAppConfig(ctx context.Context, id string) (types.
 	if err != nil {
 		return types.AppConfig{}, err
 	}
-	app, herr := c.server.getAgent(nil, r)
+	app, herr := c.server.loadReadableAgent(r)
 	if herr != nil {
 		if herr.StatusCode == http.StatusNotFound {
 			return types.AppConfig{}, fmt.Errorf("get app %s: %w", id, store.ErrNotFound)
@@ -1180,13 +1193,13 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 				return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: interaction.ID, PromptID: promptID, Completed: true}, nil
 			}
 			if interaction != nil && interaction.State == types.InteractionStateError && entry.Status == "sent" &&
-				isOpaqueProviderAbort(interaction.Error) && session.Metadata.CodeAgentConfig != nil {
-				failure := &types.LLMCall{
-					Provider: session.Metadata.CodeAgentConfig.ProviderRef,
-					Model:    session.Metadata.CodeAgentConfig.Model,
-					Updated:  interaction.Updated,
+				(isOpaqueProviderAbort(interaction.Error) || isExplicitProviderFailure(interaction.Error)) {
+				failure, failureErr := c.server.failedProviderCallForInteraction(ctx, interaction.ID)
+				if failureErr != nil {
+					return runtimehelix.DeliveryResult{}, fmt.Errorf("load activation provider failure: %w", failureErr)
 				}
-				if c.server.recordProviderRecovery(ctx, interaction, failure) {
+				if providerFailureMatchesConfig(failure, session.Metadata.CodeAgentConfig) &&
+					c.server.recordProviderRecovery(ctx, interaction, failure) {
 					return runtimehelix.DeliveryResult{}, fmt.Errorf("activation is waiting for model provider recovery")
 				}
 			}

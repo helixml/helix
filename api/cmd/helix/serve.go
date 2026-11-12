@@ -17,12 +17,14 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
+	"github.com/helixml/helix/api/pkg/crypto"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
@@ -283,7 +285,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("runner token is required")
 	}
 
-	notifier, err := notification.New(&cfg.Notifications, postgresStore)
+	notifier, err := notification.New(&cfg.Notifications, postgresStore,
+		netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks})
 	if err != nil {
 		return fmt.Errorf("failed to create notifier: %v", err)
 	}
@@ -291,7 +294,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// HelixAuthenticator handles user management for all auth modes.
 	// For OIDC mode, the actual authentication is handled by oidcClient in the server,
 	// while HelixAuthenticator handles API key lookups and user database operations.
-	authenticator, err := auth.NewHelixAuthenticator(cfg, postgresStore, cfg.Auth.Regular.JWTSecret, notifier)
+	crypto.WarnIfDefaultEncryptionKey()
+
+	jwtSecret, err := auth.ResolveJWTSecret(ctx, postgresStore, cfg.Auth.Regular.JWTSecret)
+	if err != nil {
+		return fmt.Errorf("failed to resolve JWT secret: %v", err)
+	}
+	authenticator, err := auth.NewHelixAuthenticator(cfg, postgresStore, jwtSecret, notifier)
 	if err != nil {
 		return fmt.Errorf("failed to create helix authenticator: %v", err)
 	}
@@ -360,6 +369,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		"Helix System",
 		"system@helix.ml",
 	)
+	gitRepositoryService.SetOutboundPolicy(netguard.Policy{AllowPrivate: cfg.GitProviders.AllowPrivateNetworks})
 
 	// Initialize kodit once here so that the kodit RAG provider and the API server
 	// share a single kodit instance (and therefore a single embedding model / worker pool).

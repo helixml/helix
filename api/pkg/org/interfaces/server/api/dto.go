@@ -59,6 +59,7 @@ type BotDTO struct {
 	ProjectIDs     []string `json:"project_ids,omitempty"`
 	ParentIDs      []string `json:"parent_ids,omitempty"`
 	OrganizationID string   `json:"organization_id,omitempty"`
+	PortraitIndex  *int     `json:"portrait_index,omitempty"`
 	// PreserveContext, when true, stops the runtime from wiping this
 	// Bot's chat session before each re-activation, so it accumulates
 	// context across triggers (e.g. Slack). Defaults to false.

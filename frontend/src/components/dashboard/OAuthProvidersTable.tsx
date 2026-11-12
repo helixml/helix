@@ -29,6 +29,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { formatDate } from '../../utils/format'
+import { callbackUrlOriginDiffers } from '../../utils/oauthPopupMessage'
 import atlassianLogo from '../../../assets/img/atlassian-logo.png'
 
 import { TypesOAuthProviderType, TypesOAuthProvider } from '../../api/api'
@@ -873,7 +874,10 @@ const OAuthProvidersTable: React.FC = () => {
                   name="callback_url"
                   value={currentProvider.callback_url}
                   onChange={handleInputChange}
-                  helperText="This URL should be configured in your OAuth provider's settings"
+                  FormHelperTextProps={callbackUrlOriginDiffers(currentProvider.callback_url) ? { sx: { color: 'warning.main' } } : undefined}
+                  helperText={callbackUrlOriginDiffers(currentProvider.callback_url)
+                    ? `This URL is not on ${window.location.origin}. Connection popups opened from this page will not be notified when the flow completes.`
+                    : "This URL should be configured in your OAuth provider's settings"}
                 />
               </Grid>
               

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/types"
@@ -159,6 +160,9 @@ func (apiServer *HelixAPIServer) downloadWorkspaceFile(w http.ResponseWriter, re
 			w.Header().Set(header, value)
 		}
 	}
+	// The desktop decides the Content-Type; this origin decides whether a
+	// browser may render it inline.
+	applyServedFilePolicy(w.Header(), path.Base(req.URL.Query().Get("path")))
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
 }

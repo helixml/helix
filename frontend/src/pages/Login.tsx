@@ -112,9 +112,9 @@ export default function Login() {
   // When the user arrives via an org invitation link the page switches to
   // register mode, pre-fills (and locks) the email so they register the
   // exact address the invitation was sent to, and shows "Join {orgName}"
-  // framing. The invitation ID is the URL param — the backend's public
-  // info endpoint resolves it to email + org name without auth (the ID is
-  // the secret, same as password-reset tokens).
+  // framing. The invitation ID and its secret token are URL params — the
+  // backend's public info endpoint resolves them to email + org name
+  // without auth (the token is the secret, like a password-reset token).
   const [invitation, setInvitation] = useState<TypesPublicInvitationInfo | null>(null)
   const [invitationError, setInvitationError] = useState<string | null>(null)
   const [invitationLoading, setInvitationLoading] = useState(false)
@@ -129,11 +129,31 @@ export default function Login() {
   const isRegistrationDisabled = mode === 'register' && config?.registration_enabled === false
   const isCloud = config?.edition === 'cloud'
 
-  // If user is already logged in, redirect away
+  // If user is already logged in, redirect away — after accepting the
+  // invitation when they followed an invite link while signed in (e.g. an
+  // existing account, or one that registered without the link).
+  const acceptStarted = useRef(false)
   useEffect(() => {
     if (!account.initialized) return
     if (!account.user) return
-    performPostLoginRedirect()
+    const params = new URLSearchParams(window.location.search)
+    const invitationId = params.get('invitation')
+    const invitationToken = params.get('token')
+    if (!invitationId || !invitationToken) {
+      performPostLoginRedirect()
+      return
+    }
+    if (acceptStarted.current) return
+    acceptStarted.current = true
+    apiClient.v1InvitationsAcceptCreate(invitationId, { token: invitationToken })
+      .then(() => {
+        snackbar.success('Invitation accepted')
+        performPostLoginRedirect()
+      })
+      .catch((err: unknown) => {
+        setInvitationError(extractErrorMessage(err, 'This invitation link is invalid, has been used, or was sent to a different email address.'))
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account.initialized, account.user])
 
   useEffect(() => {
@@ -153,11 +173,13 @@ export default function Login() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const invitationId = params.get('invitation')
-    if (!invitationId) return
+    const invitationToken = params.get('token')
+    if (!invitationId || !invitationToken) return
+    if (account.user) return // accepted by the signed-in effect above
 
     setMode('register')
     setInvitationLoading(true)
-    apiClient.v1InvitationsInfoDetail(invitationId)
+    apiClient.v1InvitationsInfoDetail(invitationId, { token: invitationToken })
       .then((resp) => {
         const info = resp.data
         if (info?.email) {
@@ -237,11 +259,16 @@ export default function Login() {
     setError(null)
 
     try {
+      // The invitation ID and secret token from the invite link are what
+      // let the backend add the new account to the inviting organization.
+      const linkParams = new URLSearchParams(window.location.search)
       const registerRequest: TypesRegisterRequest = {
         email: emailValue,
         full_name: fullNameValue,
         password: passwordValue,
         password_confirm: passwordConfirmValue,
+        invitation_id: linkParams.get('invitation') || undefined,
+        invitation_token: linkParams.get('token') || undefined,
       }
       await apiClient.v1AuthRegisterCreate(registerRequest)
       snackbar.success('Registration successful')

@@ -84,7 +84,11 @@ func NewClientWithOAuthAndBaseURL(accessToken, baseURL string) *Client {
 // access token), pointed at GHES when baseURL is non-empty. Shared by
 // NewClientWithGitHubApp and MintInstallationToken.
 func newInstallationTransport(appID, installationID int64, privateKey, baseURL string) (*ghinstallation.Transport, error) {
-	itr, err := ghinstallation.New(http.DefaultTransport, appID, installationID, []byte(privateKey))
+	return newInstallationTransportWithBase(http.DefaultTransport, appID, installationID, privateKey, baseURL)
+}
+
+func newInstallationTransportWithBase(base http.RoundTripper, appID, installationID int64, privateKey, baseURL string) (*ghinstallation.Transport, error) {
+	itr, err := ghinstallation.New(base, appID, installationID, []byte(privateKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GitHub App transport: %w", err)
 	}
@@ -101,13 +105,31 @@ func newInstallationTransport(appID, installationID int64, privateKey, baseURL s
 // and privateKey is the PEM-encoded private key for JWT signing.
 // baseURL is optional for GitHub Enterprise instances (empty for github.com).
 func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL string) (*Client, error) {
-	itr, err := newInstallationTransport(appID, installationID, privateKey, baseURL)
+	return NewClientWithGitHubAppAndHTTPClient(appID, installationID, privateKey, baseURL, nil)
+}
+
+// NewClientWithGitHubAppAndHTTPClient is NewClientWithGitHubApp with every
+// request (token exchange and API calls) sent through httpClient's transport,
+// keeping its timeout and redirect policy (nil = library default). Use it
+// with a netguard client when baseURL is caller-supplied.
+func NewClientWithGitHubAppAndHTTPClient(appID, installationID int64, privateKey, baseURL string, httpClient *http.Client) (*Client, error) {
+	base := http.DefaultTransport
+	apiClient := &http.Client{}
+	if httpClient != nil {
+		if httpClient.Transport != nil {
+			base = httpClient.Transport
+		}
+		apiClient.Timeout = httpClient.Timeout
+		apiClient.CheckRedirect = httpClient.CheckRedirect
+	}
+	itr, err := newInstallationTransportWithBase(base, appID, installationID, privateKey, baseURL)
 	if err != nil {
 		return nil, err
 	}
+	apiClient.Transport = itr
 
 	ctx := context.Background()
-	client := github.NewClient(&http.Client{Transport: itr})
+	client := github.NewClient(apiClient)
 
 	// Configure for GitHub Enterprise if base URL is provided
 	if baseURL != "" {

@@ -132,7 +132,8 @@ func (t *Manager) ProcessWebhook(ctx context.Context, triggerConfig *types.Trigg
 	case triggerConfig.Trigger.AzureDevOps != nil:
 		return t.azureDevOps.ProcessWebhook(ctx, triggerConfig, payload)
 	default:
-		log.Error().Any("trigger_config", triggerConfig).Msg("unknown trigger type")
+		// The configuration holds the trigger's credentials; log identifiers only.
+		log.Error().Str("trigger_config_id", triggerConfig.ID).Str("app_id", triggerConfig.AppID).Msg("unknown trigger type")
 		return fmt.Errorf("unknown trigger type")
 	}
 }

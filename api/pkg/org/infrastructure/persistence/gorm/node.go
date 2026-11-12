@@ -44,6 +44,7 @@ type OrgBot struct {
 	SandboxVCPUs    int                             `json:"sandbox_vcpus,omitempty" gorm:"column:sandbox_vcpus;not null;default:0"`
 	SandboxMemoryMB int                             `json:"sandbox_memory_mb,omitempty" gorm:"column:sandbox_memory_mb;not null;default:0"`
 	InstanceProfile *types.BotInstanceProfile       `json:"instance_profile,omitempty" gorm:"column:instance_profile;type:jsonb;serializer:json"`
+	PortraitIndex   *int                            `json:"portrait_index,omitempty" gorm:"column:portrait_index"`
 	CreatedAt       time.Time                       `json:"created_at" gorm:"column:created_at"`
 	UpdatedAt       time.Time                       `json:"updated_at" gorm:"column:updated_at"`
 }
@@ -79,6 +80,7 @@ func (nodeMapper) ToRow(node orgchart.Node) (OrgBot, error) {
 		SandboxVCPUs:    node.SandboxVCPUs,
 		SandboxMemoryMB: node.SandboxMemoryMB,
 		InstanceProfile: node.InstanceProfile,
+		PortraitIndex:   node.PortraitIndex,
 		CreatedAt:       node.CreatedAt,
 		UpdatedAt:       node.UpdatedAt,
 	}, nil
@@ -110,6 +112,7 @@ func (nodeMapper) ToDomain(row OrgBot) (orgchart.Node, error) {
 		SandboxVCPUs:    row.SandboxVCPUs,
 		SandboxMemoryMB: row.SandboxMemoryMB,
 		InstanceProfile: row.InstanceProfile,
+		PortraitIndex:   row.PortraitIndex,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	}, nil
@@ -119,6 +122,8 @@ type nodesRepo struct {
 	*Repository[orgchart.Node, OrgBot]
 	db *gorm.DB
 }
+
+const portraitAllocationLockNamespace int32 = 1212305236 // "HBOT"
 
 func newNodesRepo(db *gorm.DB) *nodesRepo {
 	return &nodesRepo{
@@ -131,7 +136,37 @@ func (r *nodesRepo) Create(ctx context.Context, node orgchart.Node) error {
 	if node.AgentID == "" {
 		return errors.New("create node: agent app id is required")
 	}
-	return r.Repository.Create(ctx, node)
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockPortraitAllocation(tx, node.OrganizationID); err != nil {
+			return err
+		}
+		var assigned []int
+		if err := tx.Model(&OrgBot{}).
+			Where("org_id = ? AND portrait_index IS NOT NULL", node.OrganizationID).
+			Pluck("portrait_index", &assigned).Error; err != nil {
+			return fmt.Errorf("list assigned bot portraits: %w", err)
+		}
+		index := orgchart.AllocatePortraitIndex(node.ID, assigned)
+		node.PortraitIndex = &index
+		row, err := (nodeMapper{}).ToRow(node)
+		if err != nil {
+			return fmt.Errorf("map node for create: %w", err)
+		}
+		if err := tx.Create(&row).Error; err != nil {
+			return fmt.Errorf("create node: %w", err)
+		}
+		return nil
+	})
+}
+
+func lockPortraitAllocation(tx *gorm.DB, orgID string) error {
+	if tx.Dialector.Name() != "postgres" {
+		return nil
+	}
+	if err := tx.Exec("SELECT pg_advisory_xact_lock(?, hashtext(?))", portraitAllocationLockNamespace, orgID).Error; err != nil {
+		return fmt.Errorf("lock bot portrait allocation: %w", err)
+	}
+	return nil
 }
 
 func (r *nodesRepo) Get(ctx context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error) {

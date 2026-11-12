@@ -6610,6 +6610,15 @@ definitions:
         type: string
       full_name:
         type: string
+      invitation_id:
+        description: |-
+          InvitationID and InvitationToken come from the invite link
+          (/login?invitation=<id>&token=<token>). Password sign-up does not
+          verify the email address, so only the invitation presented here is
+          accepted, and only with its secret token and when it was sent to Email.
+        type: string
+      invitation_token:
+        type: string
       password:
         type: string
       password_confirm:

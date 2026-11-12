@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/crypto/bcrypt"
+	"gopkg.in/go-jose/go-jose.v2/jwt"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/notification"
@@ -521,6 +523,103 @@ func (suite *HelixAuthenticatorTestSuite) TestRequestPasswordReset() {
 	suite.NoError(err)
 }
 
+// resetTokenFromEmail requests a reset for user and returns the token from the
+// emailed link.
+func (suite *HelixAuthenticatorTestSuite) resetTokenFromEmail(user *types.User) string {
+	suite.store.EXPECT().
+		GetUser(gomock.Any(), &store.GetUserQuery{Email: user.Email}).
+		Return(user, nil)
+	var token string
+	suite.notifier.EXPECT().
+		Notify(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, n *types.Notification) error {
+			m := regexp.MustCompile(`token=([^)\s]+)`).FindStringSubmatch(n.Message)
+			suite.Require().Len(m, 2)
+			token = m[1]
+			return nil
+		})
+	suite.Require().NoError(suite.auth.RequestPasswordReset(suite.ctx, user.Email))
+	return token
+}
+
+func (suite *HelixAuthenticatorTestSuite) TestRequestPasswordReset_TokenIsShortLivedAndNotASession() {
+	user := &types.User{ID: uuid.New().String(), Email: "reset@example.com", PasswordHash: []byte("old-hash")}
+	token := suite.resetTokenFromEmail(user)
+
+	parsed, err := jwt.ParseSigned(token)
+	suite.Require().NoError(err)
+	var claims helixTokenClaims
+	suite.Require().NoError(parsed.Claims(suite.auth.jwtSecret, &claims))
+	suite.Equal(tokenPurposePasswordReset, claims.Purpose)
+	suite.LessOrEqual(time.Until(claims.Expiry.Time()), time.Hour)
+
+	// No GetUser expectation: the token must be refused before any lookup.
+	_, err = suite.auth.ValidateUserToken(suite.ctx, token)
+	suite.ErrorContains(err, "not a session token")
+}
+
+func (suite *HelixAuthenticatorTestSuite) TestPasswordResetComplete_RefusesSessionToken() {
+	user := &types.User{ID: uuid.New().String(), Email: "reset@example.com", PasswordHash: []byte("old-hash")}
+	session, err := suite.auth.GenerateUserToken(suite.ctx, user)
+	suite.Require().NoError(err)
+
+	// No GetUser/UpdateUser expectation: nothing may be changed.
+	_, err = suite.auth.PasswordResetComplete(suite.ctx, session, "newpassword123")
+	suite.ErrorContains(err, "not a password reset token")
+}
+
+func (suite *HelixAuthenticatorTestSuite) TestPasswordResetComplete_TokenIsSingleUse() {
+	user := &types.User{ID: uuid.New().String(), Email: "reset@example.com", PasswordHash: []byte("old-hash")}
+	token := suite.resetTokenFromEmail(user)
+
+	// The store hands back the current row, so the second attempt sees the
+	// hash written by the first.
+	current := *user
+	suite.store.EXPECT().
+		GetUser(gomock.Any(), &store.GetUserQuery{ID: user.ID}).
+		DoAndReturn(func(context.Context, *store.GetUserQuery) (*types.User, error) {
+			cp := current
+			return &cp, nil
+		}).Times(2)
+	suite.store.EXPECT().
+		UpdateUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, u *types.User) (*types.User, error) {
+			current = *u
+			return u, nil
+		}).Times(1)
+
+	updated, err := suite.auth.PasswordResetComplete(suite.ctx, token, "newpassword123")
+	suite.Require().NoError(err)
+	suite.Equal(user.ID, updated.ID)
+
+	_, err = suite.auth.PasswordResetComplete(suite.ctx, token, "anotherpassword456")
+	suite.ErrorContains(err, "already been used")
+}
+
+func (suite *HelixAuthenticatorTestSuite) TestPasswordResetComplete_RefusesTokenAfterPasswordChange() {
+	user := &types.User{ID: uuid.New().String(), Email: "reset@example.com", PasswordHash: []byte("old-hash")}
+	token, err := suite.auth.generatePasswordResetToken(user, time.Now())
+	suite.Require().NoError(err)
+
+	changed := *user
+	changed.PasswordHash = []byte("hash-after-a-normal-password-change")
+	suite.store.EXPECT().
+		GetUser(gomock.Any(), &store.GetUserQuery{ID: user.ID}).
+		Return(&changed, nil)
+
+	_, err = suite.auth.PasswordResetComplete(suite.ctx, token, "newpassword123")
+	suite.ErrorContains(err, "already been used")
+}
+
+func (suite *HelixAuthenticatorTestSuite) TestPasswordResetComplete_RefusesExpiredToken() {
+	user := &types.User{ID: uuid.New().String(), Email: "reset@example.com", PasswordHash: []byte("old-hash")}
+	token, err := suite.auth.generatePasswordResetToken(user, time.Now().Add(-2*time.Hour))
+	suite.Require().NoError(err)
+
+	_, err = suite.auth.PasswordResetComplete(suite.ctx, token, "newpassword123")
+	suite.ErrorContains(err, "token validation failed")
+}
+
 func (suite *HelixAuthenticatorTestSuite) TestRequestPasswordReset_UserNotFound() {
 	email := "nonexistent@example.com"
 
@@ -575,7 +674,7 @@ func (suite *HelixAuthenticatorTestSuite) TestPasswordResetComplete() {
 		PasswordHash: []byte("old-hash"),
 	}
 
-	token, err := suite.auth.GenerateUserToken(suite.ctx, user)
+	token, err := suite.auth.generatePasswordResetToken(user, time.Now())
 	suite.Require().NoError(err)
 
 	suite.store.EXPECT().
@@ -592,7 +691,7 @@ func (suite *HelixAuthenticatorTestSuite) TestPasswordResetComplete() {
 			return u, nil
 		})
 
-	err = suite.auth.PasswordResetComplete(suite.ctx, token, newPassword)
+	_, err = suite.auth.PasswordResetComplete(suite.ctx, token, newPassword)
 	suite.NoError(err)
 }
 
@@ -600,7 +699,7 @@ func (suite *HelixAuthenticatorTestSuite) TestPasswordResetComplete_InvalidToken
 	newPassword := "newpassword123"
 	invalidToken := "invalid.token.here"
 
-	err := suite.auth.PasswordResetComplete(suite.ctx, invalidToken, newPassword)
+	_, err := suite.auth.PasswordResetComplete(suite.ctx, invalidToken, newPassword)
 	suite.Error(err)
 	suite.Contains(err.Error(), "failed to parse token")
 }
@@ -612,12 +711,12 @@ func (suite *HelixAuthenticatorTestSuite) TestPasswordResetComplete_TooShortPass
 		Email: "test@example.com",
 	}
 
-	token, err := suite.auth.GenerateUserToken(suite.ctx, user)
+	token, err := suite.auth.generatePasswordResetToken(user, time.Now())
 	suite.Require().NoError(err)
 
 	shortPassword := "short"
 
-	err = suite.auth.PasswordResetComplete(suite.ctx, token, shortPassword)
+	_, err = suite.auth.PasswordResetComplete(suite.ctx, token, shortPassword)
 	suite.Error(err)
 	suite.Contains(err.Error(), "password must be between")
 }
@@ -629,12 +728,12 @@ func (suite *HelixAuthenticatorTestSuite) TestPasswordResetComplete_TooLongPassw
 		Email: "test@example.com",
 	}
 
-	token, err := suite.auth.GenerateUserToken(suite.ctx, user)
+	token, err := suite.auth.generatePasswordResetToken(user, time.Now())
 	suite.Require().NoError(err)
 
 	longPassword := string(make([]byte, 129))
 
-	err = suite.auth.PasswordResetComplete(suite.ctx, token, longPassword)
+	_, err = suite.auth.PasswordResetComplete(suite.ctx, token, longPassword)
 	suite.Error(err)
 	suite.Contains(err.Error(), "password must be between")
 }
@@ -647,22 +746,24 @@ func (suite *HelixAuthenticatorTestSuite) TestPasswordResetComplete_UserNotFound
 		Email: "test@example.com",
 	}
 
-	token, err := suite.auth.GenerateUserToken(suite.ctx, user)
+	token, err := suite.auth.generatePasswordResetToken(user, time.Now())
 	suite.Require().NoError(err)
 
 	suite.store.EXPECT().
 		GetUser(gomock.Any(), &store.GetUserQuery{ID: userID}).
 		Return(nil, errors.New("user not found"))
 
-	err = suite.auth.PasswordResetComplete(suite.ctx, token, newPassword)
+	_, err = suite.auth.PasswordResetComplete(suite.ctx, token, newPassword)
 	suite.Error(err)
 	suite.Contains(err.Error(), "failed to get user")
 }
 
-func (suite *HelixAuthenticatorTestSuite) TestNewHelixAuthenticator_DefaultSecret() {
-	auth, err := NewHelixAuthenticator(suite.cfg, suite.store, "", suite.notifier)
-	suite.NoError(err)
-	suite.NotNil(auth)
+func (suite *HelixAuthenticatorTestSuite) TestNewHelixAuthenticator_RefusesEmptyOrPublicSecret() {
+	for _, secret := range []string{"", "helix-default-jwt-secret", "helix-default-secret-change-in-production"} {
+		auth, err := NewHelixAuthenticator(suite.cfg, suite.store, secret, suite.notifier)
+		suite.Error(err, "secret %q must be refused", secret)
+		suite.Nil(auth)
+	}
 }
 
 func (suite *HelixAuthenticatorTestSuite) TestGenerateUserToken_AdminFlag() {

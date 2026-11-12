@@ -592,7 +592,14 @@ func (c *Controller) ensureSandboxAPIToken(ctx context.Context, sandbox *types.S
 		return "", err
 	}
 	if existing != nil {
-		return existing.Key, nil
+		if existing.ProjectID == sandbox.ProjectID {
+			return existing.Key, nil
+		}
+		// Minted with a different project scope (e.g. before keys carried
+		// the sandbox's project): replace it rather than hand it out.
+		if err := c.store.DeleteAPIKey(ctx, existing.Key); err != nil {
+			return "", fmt.Errorf("replace sandbox api key with mismatched project scope: %w", err)
+		}
 	}
 
 	newKey, err := system.GenerateAPIKey()
@@ -607,6 +614,10 @@ func (c *Controller) ensureSandboxAPIToken(ctx context.Context, sandbox *types.S
 		Name:           fmt.Sprintf("Sandbox key - %s", sandbox.ID),
 		Type:           types.APIkeytypeAPI,
 		SessionID:      sandbox.ID,
+		// A sandbox created in a project gets a key confined to that
+		// project (enforceKeyProjectScope), so code in the container cannot
+		// reach the owner's other projects.
+		ProjectID: sandbox.ProjectID,
 	})
 	if err != nil {
 		return "", err

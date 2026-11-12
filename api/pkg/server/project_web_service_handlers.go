@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -400,6 +401,9 @@ func (s *HelixAPIServer) addProjectWebServiceDomain(_ http.ResponseWriter, r *ht
 	if hostname == "" {
 		return nil, system.NewHTTPError400("hostname is required")
 	}
+	if err := webservice.ValidateHostname(hostname); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 
 	opts := s.vhostReserveOpts()
 	opts.Hostname = hostname
@@ -423,6 +427,9 @@ func (s *HelixAPIServer) addProjectWebServiceDomain(_ http.ResponseWriter, r *ht
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// The row is unverified until the verifier sees the token both echoed
+	// over HTTP at this hostname and published as a TXT record at
+	// types.DomainOwnershipTXTName(hostname).
 	route := &types.VHostRoute{
 		Hostname:          hostname,
 		TargetKind:        types.VHostTargetProjectWebService,
@@ -477,9 +484,25 @@ func (s *HelixAPIServer) domainVerificationResponse(w http.ResponseWriter, r *ht
 		http.Error(w, "missing token", http.StatusBadRequest)
 		return
 	}
-	// We don't look the token up here — the caller (DNS resolver hitting
-	// us) just needs the token echoed back. The verifier compares the
-	// token in the response with the one stored on the route row.
+	// Only the token of the route registered for the requested Host is
+	// echoed. Echoing any token on any Host would let a claim on hostname A
+	// be satisfied by whatever answers for A — including Helix itself, for
+	// every stale CNAME still pointing here.
+	host := strings.ToLower(stripPort(r.Host))
+	route, err := s.Store.GetVHostRouteByHostname(r.Context(), host)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "domain lookup failed", http.StatusInternalServerError)
+		return
+	}
+	if route.TargetKind != types.VHostTargetProjectWebService || route.VerificationToken == "" ||
+		subtle.ConstantTimeCompare([]byte(route.VerificationToken), []byte(token)) != 1 {
+		http.NotFound(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(token))

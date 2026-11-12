@@ -5,6 +5,7 @@ import { FilterAlt, CheckCircle, Warning, Cancel, FileOpen } from '@mui/icons-ma
 import { useTheme } from '@mui/material/styles'
 import CitationComparisonModal from './CitationComparisonModal';
 import { TypesSessionRAGResult } from '../../api/api';
+import { sanitizeCitationHtml } from '../../utils/sanitizeCitationHtml';
 
 // Reuse the same animations from the Markdown component
 const pulseFade = keyframes`
@@ -417,7 +418,7 @@ const Citation: React.FC<CitationProps> = ({
                                 </Box>
                             }
 
-                            <span dangerouslySetInnerHTML={{ __html: excerpt.snippet }}></span>
+                            <span dangerouslySetInnerHTML={{ __html: sanitizeCitationHtml(excerpt.snippet) }}></span>
 
                             {isImage(excerpt.filename) ? (
                                 null

@@ -45,6 +45,16 @@ func NewClient(username, appPassword, baseURL string) *Client {
 	}
 }
 
+// NewClientWithHTTPClient is NewClient with a caller-supplied HTTP client
+// (e.g. one restricted to allowed destinations). A nil client keeps the default.
+func NewClientWithHTTPClient(username, appPassword, baseURL string, httpClient *http.Client) *Client {
+	c := NewClient(username, appPassword, baseURL)
+	if httpClient != nil {
+		c.httpClient = httpClient
+	}
+	return c
+}
+
 // getAPIURL returns the appropriate API URL based on cloud vs server
 func (c *Client) getAPIURL(path string) string {
 	if c.isServer {

@@ -6,10 +6,12 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 
-	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/jfrog/froggit-go/vcsclient"
 	"github.com/rs/zerolog/log"
 	"github.com/sourcegraph/go-diff/diff"
@@ -18,6 +20,9 @@ import (
 type GitManager struct {
 	remoteURL string
 	token     string
+
+	// outbound, when set, restricts the addresses the remote may reach.
+	outbound *netguard.Policy
 }
 
 func NewGitManager(remoteURL, token string) *GitManager {
@@ -27,41 +32,57 @@ func NewGitManager(remoteURL, token string) *GitManager {
 	}
 }
 
+// WithOutboundPolicy makes clones resolve the remote under policy and pin
+// git to the approved addresses.
+func (g *GitManager) WithOutboundPolicy(policy netguard.Policy) *GitManager {
+	g.outbound = &policy
+	return g
+}
+
 // CloneRepository clones a repository to the given path.
 // Returns the path to the cloned repository (same as repoPath).
+//
+// The remote URL can come from a webhook payload, so only http(s) remotes
+// are cloned, redirects are not followed, the token is sent as a header
+// (never in argv), and with an outbound policy the host is pinned to vetted
+// addresses.
 func (g *GitManager) CloneRepository(ctx context.Context, repoPath string) (string, error) {
-	// Build authenticated URL
-	authURL := g.buildAuthenticatedURL()
+	if u, err := url.Parse(g.remoteURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", fmt.Errorf("refusing to clone %q: only http(s) remotes are supported", g.remoteURL)
+	}
 
-	err := giteagit.Clone(ctx, authURL, repoPath, giteagit.CloneRepoOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to clone repository: %w", err)
+	cfg := [][2]string{{"http.followRedirects", "false"}}
+	if g.token != "" {
+		cfg = append(cfg, [2]string{"http.extraHeader", basicAuthHeader("helixml", g.token)})
+	}
+	if g.outbound != nil {
+		pin, err := ResolvePin(ctx, *g.outbound, g.remoteURL)
+		if err != nil {
+			return "", fmt.Errorf("refusing to clone repository: %w", err)
+		}
+		if pin != "" {
+			cfg = append(cfg, [2]string{"http.curloptResolve", pin})
+		}
+	}
+
+	if err := os.MkdirAll(filepath.Dir(repoPath), 0o755); err != nil {
+		return "", fmt.Errorf("failed to create clone parent directory: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--", g.remoteURL, repoPath)
+	cmd.Env = append(append(append(os.Environ(), gitcmd.CommonGitCmdEnvs()...),
+		"GIT_ALLOW_PROTOCOL="+AllowedProtocols), configEnv(cfg)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("failed to clone repository: %w - %s", err, strings.TrimSpace(string(out)))
 	}
 
 	return repoPath, nil
 }
 
-// buildAuthenticatedURL embeds credentials into the remote URL
-func (g *GitManager) buildAuthenticatedURL() string {
-	if g.token == "" {
-		return g.remoteURL
-	}
-
-	u, err := url.Parse(g.remoteURL)
-	if err != nil {
-		return g.remoteURL
-	}
-
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return g.remoteURL
-	}
-
-	u.User = url.UserPassword("helixml", g.token)
-	return u.String()
-}
-
 // CheckoutCommit checks out a specific commit in the repository at repoPath.
 func (g *GitManager) CheckoutCommit(ctx context.Context, repoPath string, commitID string) error {
+	if !commitIDPattern.MatchString(commitID) {
+		return fmt.Errorf("invalid commit ID %q", commitID)
+	}
 	_, stderr, err := gitcmd.NewCommand("checkout", "--force").
 		AddDynamicArguments(commitID).
 		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
@@ -72,26 +93,25 @@ func (g *GitManager) CheckoutCommit(ctx context.Context, repoPath string, commit
 	return nil
 }
 
+// commitIDPattern matches an abbreviated or full SHA-1/SHA-256 object name.
+var commitIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
+
 func (g *GitManager) Diff(ctx context.Context, repoPath string, targetCommit, sourceCommit string) ([]*PullRequestChange, error) {
 	logger := log.Ctx(ctx)
 
-	// Change to the repository directory
-	originalDir, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current working directory: %w", err)
-	}
-
-	if err := os.Chdir(repoPath); err != nil {
-		return nil, fmt.Errorf("failed to change to repository directory: %w", err)
-	}
-	defer func() {
-		if chdirErr := os.Chdir(originalDir); chdirErr != nil {
-			logger.Warn().Err(chdirErr).Msg("failed to restore original working directory")
+	// Commit IDs are passed to git as positional arguments; anything but an
+	// object name (e.g. "--output=<path>") would be parsed as an option.
+	for _, commit := range []string{targetCommit, sourceCommit} {
+		if !commitIDPattern.MatchString(commit) {
+			return nil, fmt.Errorf("invalid commit ID %q", commit)
 		}
-	}()
+	}
 
 	// First, get the list of changed files with their status
+	// Commands run in repoPath via cmd.Dir: changing the process working
+	// directory would affect every other goroutine in the server.
 	statusCmd := exec.CommandContext(ctx, "git", "diff", "--name-status", "--no-renames", targetCommit, sourceCommit)
+	statusCmd.Dir = repoPath
 	statusOutput, err := statusCmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("git diff status command failed: %w", err)
@@ -112,7 +132,7 @@ func (g *GitManager) Diff(ctx context.Context, repoPath string, targetCommit, so
 	// For each changed file, get the detailed diff
 	var changes []*PullRequestChange
 	for _, file := range changedFiles {
-		change, err := g.getFileDiff(ctx, file.path, file.changeType, targetCommit, sourceCommit)
+		change, err := g.getFileDiff(ctx, repoPath, file.path, file.changeType, targetCommit, sourceCommit)
 		if err != nil {
 			logger.Warn().Err(err).Str("file_path", file.path).Msg("failed to get file diff, skipping")
 			continue
@@ -160,11 +180,12 @@ func (g *GitManager) parseGitStatusOutput(output string) ([]fileChange, error) {
 }
 
 // getFileDiff gets the detailed diff for a single file
-func (g *GitManager) getFileDiff(ctx context.Context, filePath, changeType, targetCommit, sourceCommit string) (*PullRequestChange, error) {
+func (g *GitManager) getFileDiff(ctx context.Context, repoPath, filePath, changeType, targetCommit, sourceCommit string) (*PullRequestChange, error) {
 	// logger := log.Ctx(ctx)
 
 	// Get the detailed diff for this file
 	diffCmd := exec.CommandContext(ctx, "git", "diff", "--unified=0", "--no-renames", targetCommit, sourceCommit, "--", filePath)
+	diffCmd.Dir = repoPath
 	diffOutput, err := diffCmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("git diff command failed for file %s: %w", filePath, err)
