@@ -2300,6 +2300,10 @@ func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*t
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get project repositories: %v", err))
 	}
 
+	if httpErr := s.authorizeProjectMoveRepositories(r.Context(), user, repoIDs); httpErr != nil {
+		return nil, httpErr
+	}
+
 	// Get existing repo names in target org
 	existingRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
 		OrganizationID: req.OrganizationID,
@@ -2393,6 +2397,29 @@ func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*t
 		Msg("project moved to organization")
 
 	return project, nil
+}
+
+// authorizeProjectMoveRepositories checks that the user may change every
+// repository attached to a project being moved. A move re-homes the attached
+// repositories into the target org, so project ownership alone is not enough:
+// a repository attached from someone else's account would change hands too.
+func (s *HelixAPIServer) authorizeProjectMoveRepositories(ctx context.Context, user *types.User, repoIDs []string) *system.HTTPError {
+	if user.Admin {
+		return nil
+	}
+	for _, repoID := range repoIDs {
+		repo, err := s.Store.GetGitRepository(ctx, repoID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			return system.NewHTTPError500(fmt.Sprintf("failed to get repository %s: %v", repoID, err))
+		}
+		if err := s.authorizeUserToRepository(ctx, user, repo, types.ActionUpdate); err != nil {
+			return system.NewHTTPError403(fmt.Sprintf("you must have access to repository %s to move it", repo.Name))
+		}
+	}
+	return nil
 }
 
 // getProjectUsage godoc
@@ -2827,6 +2854,12 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 	}
 
 	wasCreated := project == nil
+	if !wasCreated {
+		// A name match in the org is not permission to change that project.
+		if err := s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+	}
 	if wasCreated {
 		project = &types.Project{
 			ID:             system.GenerateProjectID(),
@@ -2892,6 +2925,13 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		// Find-or-create git repository by external URL
 		repo, err := s.Store.GetGitRepositoryByExternalURL(r.Context(), orgID, repoSpec.URL)
 		repairedExistingRepo := false
+		if err == nil {
+			// An existing repository with this URL may belong to someone else;
+			// attaching it requires the same access as attaching it by ID.
+			if authErr := s.authorizeUserToRepository(r.Context(), user, repo, types.ActionGet); authErr != nil {
+				return nil, system.NewHTTPError403(fmt.Sprintf("not authorized to use repository %s", repoSpec.URL))
+			}
+		}
 		if err != nil {
 			if err != store.ErrNotFound {
 				return nil, system.NewHTTPError500(fmt.Sprintf("failed to look up repository %s: %v", repoSpec.URL, err))
