@@ -1,18 +1,16 @@
 import React, { FC, useState, useMemo } from 'react'
-import {
-  Popover,
-  Box,
-  Typography,
-  Avatar,
-  List,
-  ListItemButton,
-  ListItemAvatar,
-  ListItemText,
-  TextField,
-  InputAdornment,
-  Divider,
-  CircularProgress,
-} from '@mui/material'
+import Popover from '@mui/material/Popover';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Avatar from '@mui/material/Avatar';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemAvatar from '@mui/material/ListItemAvatar';
+import ListItemText from '@mui/material/ListItemText';
+import TextField from '@mui/material/TextField';
+import InputAdornment from '@mui/material/InputAdornment';
+import Divider from '@mui/material/Divider';
+import CircularProgress from '@mui/material/CircularProgress';
 import { Search, UserX, User } from 'lucide-react'
 import { TypesOrganizationMembership, TypesUser } from '../../api/api'
 import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'

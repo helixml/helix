@@ -256,8 +256,8 @@ func (s *GitHTTPServer) authMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Invalid API key", http.StatusUnauthorized)
 			return
 		}
-		if user.Waitlisted {
-			http.Error(w, "Account is waiting for approval", http.StatusForbidden)
+		if err := user.AccountAccessError(); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 		if !s.keyTypeAllowsGit(r, keyRecord) {
@@ -316,6 +316,11 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 	if err != nil {
 		return nil, nil, fmt.Errorf("user not found: %w", err)
 	}
+	// Carry the key's scope so repository authorization can confine a
+	// project-scoped key to its project, as the API auth middleware does.
+	user.ProjectID = apiKeyRecord.ProjectID
+	user.SpecTaskID = apiKeyRecord.SpecTaskID
+	user.SessionID = apiKeyRecord.SessionID
 
 	return user, apiKeyRecord, nil
 }
@@ -524,7 +529,7 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			defer lock.Unlock()
-			log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before serving pull")
+			log.Info().Str("repo_id", repoID).Str("external_url", RedactURLCredentials(repo.ExternalURL)).Msg("Syncing from upstream before serving pull")
 			syncCtx, cancel := context.WithTimeout(r.Context(), uploadPackSyncTimeout)
 			defer cancel()
 			if err := s.gitRepoService.SyncAllBranches(syncCtx, repoID, true); err != nil {
@@ -620,7 +625,11 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	apiKey := s.extractAPIKey(r)
 	restriction, err := s.getBranchRestrictionForAPIKey(r.Context(), apiKey, repoID)
 	if err != nil {
+		// Without the key record we cannot tell whether this is a restricted
+		// agent key, so refuse rather than push unrestricted.
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get branch restriction for API key")
+		http.Error(w, "Push denied: could not resolve push permissions; try again", http.StatusServiceUnavailable)
+		return
 	}
 	if restriction != nil && restriction.IsAgentKey && restriction.ErrorMessage != "" {
 		log.Error().Str("repo_id", repoID).Str("error", restriction.ErrorMessage).Msg("Agent push denied")
@@ -648,7 +657,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	// This keeps mirrored branches current; SyncAllBranches deliberately excludes
 	// the local-authoritative helix-specs branch.
 	if repo != nil && repo.ExternalURL != "" && !planningOnlyPush {
-		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before accepting push")
+		log.Info().Str("repo_id", repoID).Str("external_url", RedactURLCredentials(repo.ExternalURL)).Msg("Syncing from upstream before accepting push")
 		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
 			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream - rejecting push")
 			http.Error(w, "Conflict: "+err.Error(), http.StatusConflict)
@@ -1091,8 +1100,9 @@ func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, rep
 		return false
 	}
 
-	// Repository owner can always read the repository
-	if user.ID == repo.OwnerID {
+	// Repository owner can always read the repository, unless their key is
+	// confined to a project: then authorizeFn decides.
+	if user.ID == repo.OwnerID && user.ProjectID == "" {
 		log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasReadAccess: user is repo owner, allowing")
 		return true
 	}
@@ -1119,8 +1129,9 @@ func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, re
 		return false
 	}
 
-	// Repository owner can always write to the repository
-	if user.ID == repo.OwnerID {
+	// Repository owner can always write to the repository, unless their key
+	// is confined to a project: then authorizeFn decides.
+	if user.ID == repo.OwnerID && user.ProjectID == "" {
 		log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasWriteAccess: user is repo owner, allowing")
 		return true
 	}
@@ -1146,6 +1157,11 @@ func (s *GitHTTPServer) handleCloneInfo(w http.ResponseWriter, r *http.Request) 
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
 
+	if !s.hasReadAccess(r.Context(), s.getUser(r), repoID) {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
+
 	cloneURL := s.GetCloneURL(repoID)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1155,6 +1171,11 @@ func (s *GitHTTPServer) handleCloneInfo(w http.ResponseWriter, r *http.Request) 
 func (s *GitHTTPServer) handleRepositoryStatus(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
+
+	if !s.hasReadAccess(r.Context(), s.getUser(r), repoID) {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
 
 	repoPath, repo, err := s.getRepoPath(r.Context(), repoID)
 	if err != nil {

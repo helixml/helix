@@ -185,9 +185,14 @@ wait_for_mcp_endpoints() {
     local RESPONSE=""
     local STATUS=""
     local BODY=""
+    local WAITING_FOR=""
+    local WAITED=0
 
     echo "Checking Helix MCP context servers are reachable..."
     while true; do
+        if [ "$REPORTED" -eq 1 ]; then
+            sleep 10
+        fi
         T0=$(date +%s)
         # Not curl -f: a non-200 carries the reason in its body and that is
         # exactly what we want to print. Status and body are captured together.
@@ -199,7 +204,17 @@ wait_for_mcp_endpoints() {
             return 0
         fi
         if [ "$REPORTED" -eq 1 ]; then
-            sleep 10
+            if [ "$STATUS" = "425" ] || [ "$STATUS" = "000" ]; then
+                WAITING_FOR="desktop-bridge"
+                WAITED=$DEP_MAX_WAIT
+            else
+                WAITING_FOR="mcp"
+                WAITED=$MCP_MAX_WAIT
+            fi
+            if ! printf '%s' "$BODY" | curl -sS --max-time 30 -X POST --data-binary @- \
+                "http://127.0.0.1:${PORT}/mcp-readiness/gave-up?waiting_for=${WAITING_FOR}&waited=${WAITED}"; then
+                echo "WARNING: could not re-report the MCP failure to the session"
+            fi
             continue
         fi
         sleep 1
@@ -219,8 +234,6 @@ wait_for_mcp_endpoints() {
             fi
         fi
 
-        local WAITING_FOR=""
-        local WAITED=0
         if [ "$DEP_WAITED" -ge "$DEP_MAX_WAIT" ]; then
             WAITING_FOR="desktop-bridge"
             WAITED=$DEP_MAX_WAIT

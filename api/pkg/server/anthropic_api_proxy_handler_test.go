@@ -46,12 +46,15 @@ func Test_getProviderEndpoint(t *testing.T) {
 						},
 					},
 				}, nil)
-				mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
-					Owner: "",
-					Name:  "openai",
-				}).Return(&types.ProviderEndpoint{
-					Name: "openai",
-				}, nil)
+				mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+					Owner:      "user-1",
+					OwnerType:  types.OwnerTypeUser,
+					WithGlobal: true,
+				}).Return([]*types.ProviderEndpoint{{
+					Name:         "openai",
+					Owner:        "user-1",
+					EndpointType: types.ProviderEndpointTypeUser,
+				}}, nil)
 			},
 			assert: func(t *testing.T, endpoint *types.ProviderEndpoint, err error) {
 				require.NoError(t, err)
@@ -134,12 +137,13 @@ func Test_getProviderEndpoint(t *testing.T) {
 						},
 					},
 				}, nil)
-				mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
-					Owner: "",
-					ID:    endpointID,
-				}).Return(&types.ProviderEndpoint{
+				mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+					Owner:      "user-1",
+					OwnerType:  types.OwnerTypeUser,
+					WithGlobal: true,
+				}).Return([]*types.ProviderEndpoint{{
 					ID: endpointID,
-				}, nil)
+				}}, nil)
 			},
 			assert: func(t *testing.T, endpoint *types.ProviderEndpoint, err error) {
 				require.NoError(t, err)
@@ -163,13 +167,15 @@ func Test_getProviderEndpoint(t *testing.T) {
 					UserID:         "user-1",
 					Role:           types.OrganizationRoleMember,
 				}, nil)
-				mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
-					Owner: "org-1",
-					Name:  "anthropic",
-				}).Return(&types.ProviderEndpoint{
-					Name:  "anthropic",
-					Owner: "org-1",
-				}, nil)
+				mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+					Owner:      "org-1",
+					OwnerType:  types.OwnerTypeOrg,
+					WithGlobal: true,
+				}).Return([]*types.ProviderEndpoint{{
+					Name:         "anthropic",
+					Owner:        "org-1",
+					EndpointType: types.ProviderEndpointTypeOrg,
+				}}, nil)
 			},
 			assert: func(t *testing.T, endpoint *types.ProviderEndpoint, err error) {
 				require.NoError(t, err)
@@ -193,10 +199,11 @@ func Test_getProviderEndpoint(t *testing.T) {
 				},
 			},
 			setup: func(mockStore *store.MockStore) {
-				mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
-					Owner: "",
-					Name:  "anthropic",
-				}).Return(nil, store.ErrNotFound)
+				mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+					Owner:      "user-1",
+					OwnerType:  types.OwnerTypeUser,
+					WithGlobal: true,
+				}).Return(nil, nil)
 			},
 			assert: func(t *testing.T, endpoint *types.ProviderEndpoint, err error) {
 				require.NoError(t, err)
@@ -233,15 +240,42 @@ func Test_getProviderEndpoint(t *testing.T) {
 						},
 					},
 				}, nil)
-				mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
-					Owner: "",
-					Name:  "openai",
-				}).Return(nil, store.ErrNotFound)
+				mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+					Owner:      "user-1",
+					OwnerType:  types.OwnerTypeUser,
+					WithGlobal: true,
+				}).Return(nil, nil)
 			},
 			assert: func(t *testing.T, endpoint *types.ProviderEndpoint, err error) {
 				require.Error(t, err)
 				assert.Nil(t, endpoint)
 				assert.Contains(t, err.Error(), `provider "openai" not found`)
+			},
+		},
+		{
+			name: "org request without an org endpoint never falls back to an unscoped lookup",
+			user: &types.User{
+				ID:             "user-1",
+				OrganizationID: "org-1",
+			},
+			cfg: &config.ServerConfig{},
+			setup: func(mockStore *store.MockStore) {
+				mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+					OrganizationID: "org-1",
+					UserID:         "user-1",
+					Role:           types.OrganizationRoleMember,
+				}, nil)
+				mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+					Owner:      "org-1",
+					OwnerType:  types.OwnerTypeOrg,
+					WithGlobal: true,
+				}).Return(nil, nil)
+				// No GetProviderEndpoint expectation: an owner-less lookup
+				// would fail the test via gomock.
+			},
+			assert: func(t *testing.T, endpoint *types.ProviderEndpoint, err error) {
+				require.Error(t, err)
+				assert.Nil(t, endpoint)
 			},
 		},
 	}
@@ -267,6 +301,19 @@ func Test_getProviderEndpoint(t *testing.T) {
 			testCase.assert(t, endpoint, err)
 		})
 	}
+}
+
+func Test_selectScopedProviderEndpoint(t *testing.T) {
+	t.Parallel()
+
+	global := &types.ProviderEndpoint{ID: "pe_global", Name: "anthropic", Owner: "admin", EndpointType: types.ProviderEndpointTypeGlobal}
+	own := &types.ProviderEndpoint{ID: "pe_own", Name: "anthropic", Owner: "org-1", EndpointType: types.ProviderEndpointTypeOrg}
+
+	assert.Same(t, own, selectScopedProviderEndpoint([]*types.ProviderEndpoint{global, own}, "org-1", "anthropic"))
+	assert.Same(t, global, selectScopedProviderEndpoint([]*types.ProviderEndpoint{global}, "org-1", "anthropic"))
+	assert.Same(t, own, selectScopedProviderEndpoint([]*types.ProviderEndpoint{global, own}, "org-1", "pe_own"))
+	assert.Nil(t, selectScopedProviderEndpoint([]*types.ProviderEndpoint{global, own}, "org-1", "pe_other"))
+	assert.Nil(t, selectScopedProviderEndpoint([]*types.ProviderEndpoint{own}, "org-1", "openai"))
 }
 
 func Test_isAnthropicCompatible(t *testing.T) {

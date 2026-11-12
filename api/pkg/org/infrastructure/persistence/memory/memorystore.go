@@ -278,6 +278,14 @@ func (r *nodesRepo) Create(_ context.Context, b orgchart.Node) error {
 	if _, ok := r.rows[k]; ok {
 		return fmt.Errorf("bot %q in org %q: already exists", b.ID, b.OrganizationID)
 	}
+	assigned := make([]int, 0)
+	for key, existing := range r.rows {
+		if key.OrgID == b.OrganizationID && existing.PortraitIndex != nil {
+			assigned = append(assigned, *existing.PortraitIndex)
+		}
+	}
+	index := orgchart.AllocatePortraitIndex(b.ID, assigned)
+	b.PortraitIndex = &index
 	r.rows[k] = b
 	return nil
 }
@@ -308,9 +316,11 @@ func (r *nodesRepo) Update(_ context.Context, b orgchart.Node) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := orgKey{OrgID: b.OrganizationID, ID: string(b.ID)}
-	if _, ok := r.rows[k]; !ok {
+	existing, ok := r.rows[k]
+	if !ok {
 		return fmt.Errorf("bot %q in org %q: %w", b.ID, b.OrganizationID, store.ErrNotFound)
 	}
+	b.PortraitIndex = existing.PortraitIndex
 	r.rows[k] = b
 	return nil
 }

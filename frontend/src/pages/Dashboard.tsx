@@ -35,7 +35,12 @@ import LMStudioModels from "../components/providers/LMStudioModels";
 import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint } from "../services/providersService";
 import { PROVIDERS, Provider } from "../components/providers/types";
 import AddProviderDialog from "../components/providers/AddProviderDialog";
-import { Card, CardHeader, CardContent, CardActions, Avatar, Button as MuiButton } from "@mui/material";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import CardContent from "@mui/material/CardContent";
+import CardActions from "@mui/material/CardActions";
+import Avatar from "@mui/material/Avatar";
+import MuiButton from "@mui/material/Button";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import { TypesProviderEndpointType } from "../api/api";
@@ -435,7 +440,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
 const DashboardProviders: FC = () => {
     const account = useAccount();
     const { data: endpoints } = useListProviders({ loadModels: true, all: true, enabled: true });
-    const { data: detectedProviders } = useDetectLocalProviders(true);
+    const { data: detectedProviders } = useDetectLocalProviders(account.admin);
     const createProvider = useCreateProviderEndpoint();
     const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
     const [dialogOpen, setDialogOpen] = useState(false);

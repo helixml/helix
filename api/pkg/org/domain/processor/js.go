@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dop251/goja"
 
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
@@ -119,7 +121,59 @@ const (
 	jsMaxHTTPTimeout     = 30 * time.Second
 	jsMaxResponseBytes   = 1 << 20 // 1 MiB
 	jsMaxScriptBytes     = 256 << 10
+
+	// DefaultJSRunTimeout bounds one script run (loading the script plus
+	// one process call, including any http.* calls it makes).
+	DefaultJSRunTimeout = 30 * time.Second
 )
+
+// jsRunTimeout is the wall-clock limit for a script run, in nanoseconds.
+var jsRunTimeout atomic.Int64
+
+func init() { jsRunTimeout.Store(int64(DefaultJSRunTimeout)) }
+
+// SetJSRunTimeout sets the wall-clock limit for one script run. A
+// non-positive value restores DefaultJSRunTimeout.
+func SetJSRunTimeout(d time.Duration) {
+	if d <= 0 {
+		d = DefaultJSRunTimeout
+	}
+	jsRunTimeout.Store(int64(d))
+}
+
+// ErrJSTimeout is returned (wrapped) when a script run exceeds its time limit.
+var ErrJSTimeout = errors.New("js run timed out")
+
+// bindJSDeadline returns a context that ends when ctx does or when the run
+// timeout elapses, and interrupts vm at that point so a script stuck in a
+// loop stops executing. The returned stop function must be called when the
+// run finishes; it releases the timer and the watcher goroutine.
+func bindJSDeadline(ctx context.Context, vm *goja.Runtime) (context.Context, func()) {
+	timeout := time.Duration(jsRunTimeout.Load())
+	runCtx, cancel := context.WithTimeoutCause(ctx, timeout, fmt.Errorf("%w after %s", ErrJSTimeout, timeout))
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-runCtx.Done():
+			vm.Interrupt(context.Cause(runCtx))
+		case <-done:
+		}
+	}()
+	return runCtx, func() {
+		close(done)
+		cancel()
+	}
+}
+
+// jsRunError maps an error from the VM to the error the caller sees. A run
+// that ended after its deadline passed or its context was cancelled (whether
+// the VM was interrupted or an http.* call was aborted) reports that cause.
+func jsRunError(runCtx context.Context, stage string, err error) error {
+	if cause := context.Cause(runCtx); cause != nil {
+		return fmt.Errorf("js %s: %w", stage, cause)
+	}
+	return fmt.Errorf("js %s: %w", stage, err)
+}
 
 // jsConfig is the parsed config for KindJS.
 type jsConfig struct {
@@ -150,9 +204,11 @@ func (c jsConfig) checkCode() error {
 		return fmt.Errorf("js code exceeds %d bytes", jsMaxScriptBytes)
 	}
 	vm := goja.New()
+	runCtx, stop := bindJSDeadline(context.Background(), vm)
+	defer stop()
 	installJSBuiltins(vm, nil) // no HTTP during validate
 	if _, err := vm.RunString(code); err != nil {
-		return fmt.Errorf("parse js code: %w", err)
+		return fmt.Errorf("parse %w", jsRunError(runCtx, "code", err))
 	}
 	fn, ok := goja.AssertFunction(vm.Get("process"))
 	if !ok || fn == nil {
@@ -172,23 +228,16 @@ func (c jsConfig) Process(ctx context.Context, in streaming.Message, out []Outpu
 	}
 
 	vm := goja.New()
-	// Interrupt the VM if the parent context is cancelled (e.g. hop
-	// timeout or shutdown) so a runaway script cannot block the runner.
-	stop := make(chan struct{})
-	defer close(stop)
-	go func() {
-		select {
-		case <-ctx.Done():
-			vm.Interrupt("context cancelled")
-		case <-stop:
-		}
-	}()
+	// Interrupt the VM when the run times out or the parent context is
+	// cancelled (hop timeout, shutdown), so a runaway script cannot pin a
+	// goroutine. http.* calls share the deadline.
+	runCtx, stop := bindJSDeadline(ctx, vm)
+	defer stop()
 
-	client := &http.Client{Timeout: jsDefaultHTTPTimeout}
-	installJSBuiltins(vm, &jsHTTP{ctx: ctx, client: client})
+	installJSBuiltins(vm, &jsHTTP{ctx: runCtx, client: jsHTTPClient.Load()})
 
 	if _, err := vm.RunString(c.Code); err != nil {
-		return nil, fmt.Errorf("js load: %w", err)
+		return nil, jsRunError(runCtx, "load", err)
 	}
 	fn, ok := goja.AssertFunction(vm.Get("process"))
 	if !ok || fn == nil {
@@ -202,9 +251,25 @@ func (c jsConfig) Process(ctx context.Context, in streaming.Message, out []Outpu
 
 	ret, err := fn(goja.Undefined(), eventVal, ctxVal)
 	if err != nil {
-		return nil, fmt.Errorf("js process: %w", err)
+		return nil, jsRunError(runCtx, "process", err)
 	}
 	return mapJSReturn(vm, ret, in, out)
+}
+
+// jsHTTPClient is the client scripts' http.* calls use. Script URLs are
+// written by any org member and fetched from the API server, so every
+// connection (redirects and DNS rebinding included) goes through the
+// outbound policy. Strict by default; SetJSHTTPPolicy relaxes it for
+// deployments that allow private-network tool destinations.
+var jsHTTPClient atomic.Pointer[http.Client]
+
+func init() { SetJSHTTPPolicy(netguard.Policy{}) }
+
+// SetJSHTTPPolicy sets the outbound policy for scripts' http.* calls.
+func SetJSHTTPPolicy(policy netguard.Policy) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	policy.GuardTransport(transport)
+	jsHTTPClient.Store(&http.Client{Timeout: jsDefaultHTTPTimeout, Transport: transport})
 }
 
 // js is the Strategy for KindJS.

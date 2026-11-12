@@ -7,6 +7,7 @@ import Login from './Login'
 const mockV1AuthLoginCreate = vi.fn()
 const mockV1AuthRegisterCreate = vi.fn()
 const mockV1InvitationsInfoDetail = vi.fn()
+const mockV1InvitationsAcceptCreate = vi.fn()
 
 let mockConfigValue: { registration_enabled?: boolean; auth_provider?: string; edition?: string } = {
   registration_enabled: true,
@@ -25,6 +26,7 @@ vi.mock('../hooks/useApi', () => ({
       v1AuthLoginCreate: mockV1AuthLoginCreate,
       v1AuthRegisterCreate: mockV1AuthRegisterCreate,
       v1InvitationsInfoDetail: mockV1InvitationsInfoDetail,
+      v1InvitationsAcceptCreate: mockV1InvitationsAcceptCreate,
     }),
   }),
 }))
@@ -144,11 +146,11 @@ describe('Login — invitation branch', () => {
         organization_display_name: 'Acme Inc.',
       },
     })
-    setURL('?invitation=oin_abc')
+    setURL('?invitation=oin_abc&token=tok')
     renderLogin()
 
     await waitFor(() => {
-      expect(mockV1InvitationsInfoDetail).toHaveBeenCalledWith('oin_abc')
+      expect(mockV1InvitationsInfoDetail).toHaveBeenCalledWith('oin_abc', { token: 'tok' })
     })
 
     // Register fields must appear (Confirm Password is register-only).
@@ -183,7 +185,7 @@ describe('Login — invitation branch', () => {
         organization_name: 'acme',
       },
     })
-    setURL('?invitation=oin_xyz')
+    setURL('?invitation=oin_xyz&token=tok')
     renderLogin()
 
     await waitFor(() => {
@@ -195,7 +197,7 @@ describe('Login — invitation branch', () => {
     mockV1InvitationsInfoDetail.mockRejectedValue({
       response: { data: { error: 'Invitation has been revoked' } },
     })
-    setURL('?invitation=oin_bad')
+    setURL('?invitation=oin_bad&token=tok')
     renderLogin()
 
     await waitFor(() => {
@@ -211,7 +213,7 @@ describe('Login — invitation branch', () => {
 
   it('uses the fallback message when the API gives no error detail', async () => {
     mockV1InvitationsInfoDetail.mockRejectedValue(new Error(''))
-    setURL('?invitation=oin_404')
+    setURL('?invitation=oin_404&token=tok')
     renderLogin()
 
     await waitFor(() => {
@@ -224,7 +226,7 @@ describe('Login — invitation branch', () => {
       data: { id: 'oin_ok', email: 'invited@example.com', organization_name: 'acme' },
     })
     mockV1AuthRegisterCreate.mockResolvedValue({})
-    setURL('?invitation=oin_ok')
+    setURL('?invitation=oin_ok&token=tok')
     renderLogin()
 
     await waitFor(() => {
@@ -247,7 +249,21 @@ describe('Login — invitation branch', () => {
         full_name: 'Test User',
         password: 'password123',
         password_confirm: 'password123',
+        invitation_id: 'oin_ok',
+        invitation_token: 'tok',
       })
     })
+  })
+
+  it('accepts the invitation for a signed-in user arriving from an invite link', async () => {
+    mockAccountValue = { initialized: true, user: { id: 'usr_1' }, onLogin: vi.fn() }
+    mockV1InvitationsAcceptCreate.mockResolvedValue({ data: {} })
+    setURL('?invitation=oin_signed_in&token=tok')
+    renderLogin()
+
+    await waitFor(() => {
+      expect(mockV1InvitationsAcceptCreate).toHaveBeenCalledWith('oin_signed_in', { token: 'tok' })
+    })
+    expect(mockV1InvitationsInfoDetail).not.toHaveBeenCalled()
   })
 })

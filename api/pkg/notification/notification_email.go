@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"html/template"
 	"regexp"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 
+	"github.com/microcosm-cc/bluemonday"
 	"github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/mail"
 	"github.com/nikoksr/notify/service/mailgun"
@@ -124,9 +126,41 @@ func (e *Email) getClient(email string) *notify.Notify {
 	return ntf
 }
 
+// dividerPlaceholder stands in for a divider line while the markdown is
+// rendered, so the renderer can stay in safe mode (raw HTML in the message is
+// not passed through) and the divider is swapped for <hr> afterwards.
+const dividerPlaceholder = "HELIXEMAILDIVIDERPLACEHOLDER"
+
+// dividerRegex matches divider patterns like "------------", "********",
+// "========", including Unicode box drawing characters like "─────", made of
+// 3 or more such characters on their own line.
+var dividerRegex = regexp.MustCompile(`(?m)^[\s]*([-*=_─━═]{3,})[\s]*$`)
+
+// emailHTMLPolicy is applied to rendered message HTML before it is placed in
+// an email template. Message content comes from model output and user input,
+// so only text formatting and plain http(s)/mailto links (marked nofollow)
+// are kept: no images, styles, classes or other attributes.
+var emailHTMLPolicy = newEmailHTMLPolicy()
+
+func newEmailHTMLPolicy() *bluemonday.Policy {
+	p := bluemonday.NewPolicy()
+	p.AllowElements(
+		"p", "br", "hr", "strong", "em", "code", "pre", "blockquote",
+		"h1", "h2", "h3", "h4", "h5", "h6",
+		"ul", "ol", "li",
+		"table", "thead", "tbody", "tr", "th", "td",
+	)
+	p.AllowAttrs("href").OnElements("a")
+	p.AllowStandardURLs()
+	p.RequireNoFollowOnLinks(true)
+	return p
+}
+
+// renderMarkdown converts message markdown to HTML that is safe to embed in
+// an email: raw HTML in the source is not passed through, and the output is
+// sanitized.
 func (e *Email) renderMarkdown(message string) (string, error) {
-	// Preprocess the message to convert divider patterns to HTML dividers
-	message = e.convertDividers(message)
+	message = dividerRegex.ReplaceAllString(message, dividerPlaceholder)
 
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
@@ -136,7 +170,6 @@ func (e *Email) renderMarkdown(message string) (string, error) {
 		goldmark.WithRendererOptions(
 			html.WithHardWraps(),
 			html.WithXHTML(),
-			html.WithUnsafe(),
 		),
 	)
 	var buf bytes.Buffer
@@ -144,27 +177,36 @@ func (e *Email) renderMarkdown(message string) (string, error) {
 		return "", fmt.Errorf("failed to convert markdown to HTML: %w", err)
 	}
 
-	return buf.String(), nil
+	rendered := strings.ReplaceAll(buf.String(), dividerPlaceholder, "<hr>")
+	return emailHTMLPolicy.Sanitize(rendered), nil
 }
 
-func (e *Email) convertDividers(message string) string {
-	// Regex to match divider patterns like "------------", "********", "========", etc.
-	// Also matches Unicode box drawing characters like "─────────────────"
-	// Matches 3 or more consecutive dashes, asterisks, equals signs, underscores, or box drawing characters on their own line
-	dividerRegex := regexp.MustCompile(`(?m)^[\s]*([-*=_─━═]{3,})[\s]*$`)
-
-	// Replace divider patterns with HTML hr tags
-	return dividerRegex.ReplaceAllString(message, "<hr>")
+// messageHTML returns the notification message as HTML for the email body.
+// Markdown messages are rendered and sanitized; anything else is escaped as
+// plain text.
+func (e *Email) messageHTML(n *Notification) (template.HTML, error) {
+	if !n.RenderMarkdown {
+		return template.HTML(template.HTMLEscapeString(n.Message)), nil // #nosec G203 -- escaped above
+	}
+	rendered, err := e.renderMarkdown(n.Message)
+	if err != nil {
+		return "", err
+	}
+	return template.HTML(rendered), nil // #nosec G203 -- sanitized by renderMarkdown
 }
 
 func (e *Email) getEmailMessage(n *Notification) (title, message string, err error) {
 
-	if n.RenderMarkdown {
-		message, err = e.renderMarkdown(n.Message)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to convert markdown to HTML: %w", err)
+	switch n.Event {
+	case types.EventCronTriggerComplete, types.EventCronTriggerFailed:
+		if n.Session == nil {
+			return "", "", fmt.Errorf("session missing for %s", n.Event.String())
 		}
-		n.Message = message
+	}
+
+	messageHTML, err := e.messageHTML(n)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to convert markdown to HTML: %w", err)
 	}
 
 	switch n.Event {
@@ -172,8 +214,8 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 		var buf bytes.Buffer
 
 		err = cronTriggerCompleteTmpl.Execute(&buf, &templateData{
-			Message:     template.HTML(n.Message),
-			SessionURL:  fmt.Sprintf("%s/orgs/%s/session/%s", e.cfg.AppURL, n.Session.OrganizationID, n.Session.ID),
+			Message:     messageHTML,
+			SessionURL:  e.sessionURL(n.Session),
 			SessionName: n.Session.Name,
 		})
 		if err != nil {
@@ -185,8 +227,8 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 		var buf bytes.Buffer
 
 		err = cronTriggerFailedTmpl.Execute(&buf, &templateData{
-			Message:      template.HTML(n.Message),
-			SessionURL:   fmt.Sprintf("%s/orgs/%s/session/%s", e.cfg.AppURL, n.Session.OrganizationID, n.Session.ID),
+			Message:      messageHTML,
+			SessionURL:   e.sessionURL(n.Session),
 			SessionName:  n.Session.Name,
 			ErrorMessage: n.Message,
 		})
@@ -199,7 +241,7 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 		var buf bytes.Buffer
 
 		err = passwordResetRequestTmpl.Execute(&buf, &templateData{
-			Message: template.HTML(n.Message),
+			Message: messageHTML,
 		})
 		if err != nil {
 			return "", "", fmt.Errorf("failed to execute template: %w", err)
@@ -255,6 +297,15 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 	default:
 		return "", "", fmt.Errorf("unknown event '%s'", n.Event.String())
 	}
+}
+
+// sessionURL links to the session in the app, or to the app itself when the
+// notification is not tied to a chat session.
+func (e *Email) sessionURL(s *types.Session) string {
+	if s.ID == "" {
+		return e.cfg.AppURL
+	}
+	return fmt.Sprintf("%s/orgs/%s/session/%s", e.cfg.AppURL, s.OrganizationID, s.ID)
 }
 
 type templateData struct {

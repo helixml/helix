@@ -89,8 +89,22 @@ func TestPreReceiveHookKeepsExistingProtections(t *testing.T) {
 	if _, ok := runHook(t, "", zeroRev+" "+someRev+" refs/heads/anything"); !ok {
 		t.Error("an unrestricted key should be able to push any branch")
 	}
-	if _, ok := runHook(t, "helix-specs", zeroRev+" "+someRev+" refs/tags/v1"); !ok {
-		t.Error("tag pushes are not branch updates and must not be restricted")
+	if _, ok := runHook(t, "", zeroRev+" "+someRev+" refs/tags/v1"); !ok {
+		t.Error("an unrestricted key should be able to push tags")
+	}
+}
+
+// A restricted agent key may only update its allowed branches: tags, notes and
+// any other ref namespace are refused.
+func TestPreReceiveHookRestrictsNonBranchRefs(t *testing.T) {
+	for _, ref := range []string{"refs/tags/v1", "refs/notes/commits", "refs/pull/1/head", "refs/remotes/origin/main"} {
+		out, ok := runHook(t, "helix-specs,feature/002667-x", zeroRev+" "+someRev+" "+ref)
+		if ok {
+			t.Errorf("restricted key must not update %s", ref)
+		}
+		if !strings.Contains(out, "refusing to update "+ref) {
+			t.Errorf("expected refusal naming %s, got:\n%s", ref, out)
+		}
 	}
 }
 

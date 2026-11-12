@@ -1,27 +1,25 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import {
-  Box,
-  Button,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControlLabel,
-  Grid,
-  IconButton,
-  Switch,
-  TextField,
-  Typography,
-  Chip,
-  Card,
-  CardContent,
-  CardActions,
-  CardHeader,
-  Avatar,
-  Tooltip,
-  Divider,
-  Alert,
-  Link,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Grid from '@mui/material/Grid';
+import IconButton from '@mui/material/IconButton';
+import Switch from '@mui/material/Switch';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import Chip from '@mui/material/Chip';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import CardActions from '@mui/material/CardActions';
+import CardHeader from '@mui/material/CardHeader';
+import Avatar from '@mui/material/Avatar';
+import Tooltip from '@mui/material/Tooltip';
+import Divider from '@mui/material/Divider';
+import Alert from '@mui/material/Alert';
+import Link from '@mui/material/Link';
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -29,6 +27,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { formatDate } from '../../utils/format'
+import { callbackUrlOriginDiffers } from '../../utils/oauthPopupMessage'
 import atlassianLogo from '../../../assets/img/atlassian-logo.png'
 
 import { TypesOAuthProviderType, TypesOAuthProvider } from '../../api/api'
@@ -873,7 +872,10 @@ const OAuthProvidersTable: React.FC = () => {
                   name="callback_url"
                   value={currentProvider.callback_url}
                   onChange={handleInputChange}
-                  helperText="This URL should be configured in your OAuth provider's settings"
+                  FormHelperTextProps={callbackUrlOriginDiffers(currentProvider.callback_url) ? { sx: { color: 'warning.main' } } : undefined}
+                  helperText={callbackUrlOriginDiffers(currentProvider.callback_url)
+                    ? `This URL is not on ${window.location.origin}. Connection popups opened from this page will not be notified when the flow completes.`
+                    : "This URL should be configured in your OAuth provider's settings"}
                 />
               </Grid>
               

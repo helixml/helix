@@ -280,6 +280,67 @@ curl -s $BASE_URL/chat/completions -H "Authorization: Bearer $KEY" \
 - **CLEAN UP DEAD CODE** immediately
 - **Org lookup in API handlers**: when a handler reads an `{org_id}` URL segment (or any `org_id` request field), ALWAYS resolve it via `s.lookupOrg(ctx, orgStr)` (in `wallet_handlers.go`) before using it as a key for store lookups, authorization, or persisting onto a row. `lookupOrg` accepts both an `org_…` id AND an org name/slug, so handlers transparently work whether the frontend sent the canonical id or the URL-facing slug. Never write the raw URL segment into a row's `OrganizationID` column — the slug doesn't match wallet/membership rows keyed by id (this caused sandbox delete to fail with `get org wallet: not found`).
 
+### API handler security checklist (MANDATORY)
+
+Applies to every API handler you **add or touch**. When you change an existing handler, bring
+it up to this bar in the same PR; don't leave a known gap for "later". A handler that fails
+any item is not done. (On Nov 10 2026, meta.helix.ml leaked its whole environment because one
+update handler checked the stored row and not the requested value.)
+
+1. **Auth (who are you).**
+   - Register the route on the narrowest router that fits: `adminRouter`, then `authRouter`,
+     then `runnerRouter`. Use `insecureRouter` only for routes that really are public, and
+     say why in a comment.
+   - Declare every new route in its `api/pkg/server/route_policy_<area>_test.go` file (class of
+     caller, and for object routes the authorize* helper the handler calls). The route
+     policy tests fail on an undeclared route, a class that doesn't match the router, a
+     handler that doesn't call its declared helper, or a probe the route fails to refuse.
+   - Never re-implement token parsing in a handler.
+   - Inactive, waitlisted and deleted accounts get no API access (`User.AccountAccessError`).
+     Don't add a credential path that skips that check.
+   - When OIDC is configured, password auth stays off, and the reverse.
+2. **Authz (may you touch *this* object).**
+   - Load the object, then authorize the caller against **that object's** owner and org:
+     `authorizeUserToResource` / `authorizeUserToProject` / `authorizeUserToApp` /
+     `authorizeUserToSession` / `authorizeUserToRepository` in `api/pkg/server/authz.go`.
+     Do this before any read, write or side effect.
+   - Never trust an owner, org, project or user id taken from the body or query string.
+     Derive it from the authenticated user, or verify it against the loaded object.
+     Resolve `{org_id}` with `lookupOrg` (see above).
+   - On **update**, authorize the new values as well as the stored row. Moving an object to
+     another org or project, or setting a privileged field (`api_key_file`, `owner`, `admin`,
+     `base_url` and the like), needs authorization for the target too.
+   - Lists filter by the caller's scope in the **store query**, not afterwards in Go, and
+     can't be widened by a query param unless the caller is an admin.
+   - For an object outside the caller's scope, return 404 or 403 consistently, and never
+     leak whether it exists in another tenant.
+3. **Audit.**
+   - Every HTTP request is recorded by the request audit middleware, which wraps the outer
+     handler in `ListenAndServe` (`api/pkg/server/request_audit.go`). Don't mount routes or
+     handlers that bypass it.
+   - If a new route's request body can carry a secret (keys, tokens, passwords, env, headers),
+     add the route to the body denylist in `api/pkg/auditlog/routes.go` and add a redaction
+     test.
+   - Security-relevant state changes (membership and role changes, access grants, secrets,
+     credentials, provider endpoints, org settings) also write a domain audit row:
+     `org_audit_logs` or `project_audit_logs`.
+4. **IDOR / cross-tenant tests (verified, not assumed).** Each new or changed handler needs a
+   test that:
+   - creates **two tenants** (two users in different orgs, plus an org member without the
+     required role);
+   - has tenant B call tenant A's object by id for **every verb** the route supports (read,
+     update, delete, list, plus any sub-resource or action endpoint);
+   - asserts the request is refused **and that nothing changed**: re-read the object or
+     check the store mock received no write.
+   
+   Also cover: a waitlisted or deactivated user, an API key scoped to another org, and an
+   update that tries to re-parent the object into another tenant. Run the test and watch it
+   **fail with the check removed** before you call it verified. A test that passes either way
+   proves nothing. Example: `api/pkg/server/user_details_authz_test.go`.
+5. **PR description.** Add a short "Security" section to the PR listing, for each touched
+   route: router or auth level, the authz call used, the cross-tenant test name, and any
+   audit denylist entry.
+
 Test suite pattern:
 ```golang
 type MySuite struct {

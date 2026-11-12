@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
-import {
-  Box,
-  Typography,
-  Chip,
-  Tooltip,
-  CircularProgress,
-  Grid,
-  Button,
-} from '@mui/material';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Chip from '@mui/material/Chip';
+import Tooltip from '@mui/material/Tooltip';
+import CircularProgress from '@mui/material/CircularProgress';
+import Grid from '@mui/material/Grid';
+import Button from '@mui/material/Button';
 import { Wand2, Check, AlertCircle, Play, PlayCircle } from 'lucide-react';
 import { useCloneGroupProgress } from '../../services/specTaskService';
 import TaskCard from '../tasks/TaskCard';

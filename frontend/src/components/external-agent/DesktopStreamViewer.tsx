@@ -1,30 +1,26 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { v4 as uuidv4 } from "uuid";
-import {
-  Box,
-  Typography,
-  Alert,
-  CircularProgress,
-  IconButton,
-  Button,
-  Tooltip,
-  Menu,
-  MenuItem,
-} from "@mui/material";
-import {
-  Fullscreen,
-  FullscreenExit,
-  Refresh,
-  BarChart,
-  Wifi,
-  SignalCellularAlt,
-  Speed,
-  Stream as StreamIcon,
-  Timeline,
-  CameraAlt,
-  TouchApp,
-  PanTool,
-} from "@mui/icons-material";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Alert from "@mui/material/Alert";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import Button from "@mui/material/Button";
+import Tooltip from "@mui/material/Tooltip";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Fullscreen from "@mui/icons-material/Fullscreen";
+import FullscreenExit from "@mui/icons-material/FullscreenExit";
+import Refresh from "@mui/icons-material/Refresh";
+import BarChart from "@mui/icons-material/BarChart";
+import Wifi from "@mui/icons-material/Wifi";
+import SignalCellularAlt from "@mui/icons-material/SignalCellularAlt";
+import Speed from "@mui/icons-material/Speed";
+import StreamIcon from "@mui/icons-material/Stream";
+import Timeline from "@mui/icons-material/Timeline";
+import CameraAlt from "@mui/icons-material/CameraAlt";
+import TouchApp from "@mui/icons-material/TouchApp";
+import PanTool from "@mui/icons-material/PanTool";
 import {
   WebSocketStream,
   CursorImageData,
@@ -1062,9 +1058,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       // Listen for stream events
       stream.addInfoListener((event: any) => {
+        if (stream !== streamRef.current) return;
         const data = event.detail;
 
         if (data.type === "connected") {
+          // A reconnect gets a new server-side client ID and cannot receive the
+          // old connection's leave event while it is offline.
+          setRemoteUsers(new Map());
+          setRemoteCursors(new Map());
+          setRemoteTouches(new Map());
+          setSelfUser(null);
+          setSelfClientId(null);
+          selfClientIdRef.current = null;
           // WebSocket opened - show initializing status (still waiting for connectionComplete)
           addConnectionLog("WebSocket opened");
           setStatus("Initializing stream...");

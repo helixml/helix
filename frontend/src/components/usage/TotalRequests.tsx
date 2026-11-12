@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Typography } from '@mui/material';
+import Typography from '@mui/material/Typography';
 import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../../api/api';
 import ShadcnAreaChart, { ShadcnSeries } from './ShadcnAreaChart';
 

@@ -478,6 +478,9 @@ func (s *ZedIntegrationService) HandleZedInstanceEvent(
 		return s.handleInstanceDisconnected(ctx, event)
 	case "instance_error":
 		return s.handleInstanceError(ctx, event)
+	case "heartbeat":
+		// Heartbeats only confirm the instance is alive; nothing is stored.
+		return nil
 	default:
 		log.Warn().
 			Str("event_type", event.EventType).

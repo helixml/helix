@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -267,16 +268,10 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	if tool.Config.API.OAuthProvider != "" {
 		authHeader := req.Header.Get("Authorization")
 		if authHeader != "" {
-			prefix := authHeader
-			if len(authHeader) > 15 {
-				prefix = authHeader[:15] + "..."
-			}
-
 			log.Info().
 				Str("tool", tool.Name).
 				Str("oauth_provider", tool.Config.API.OAuthProvider).
 				Str("action", action).
-				Str("auth_header_prefix", prefix).
 				Msg("OAuth Authorization header successfully added to request")
 		} else {
 			log.Warn().
@@ -287,32 +282,19 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		}
 	}
 
-	// Log request details for all API tools
-	log.Info().
+	// Log request details for all API tools. Header values, query values and
+	// the URL can carry the tool's credentials (secrets are substituted into
+	// them), so only names are logged.
+	log.Debug().
 		Str("tool_name", tool.Name).
 		Str("action", action).
 		Str("method", method).
 		Str("path", path).
-		Str("url", req.URL.String()).
-		Interface("params", params).
-		Interface("query_params", queryParams).
-		Interface("path_params", pathParams).
-		Interface("headers", tool.Config.API.Headers).
+		Str("host", req.URL.Host).
+		Strs("header_names", headerNames(req.Header)).
+		Bool("has_authorization", req.Header.Get("Authorization") != "").
 		Bool("has_request_body", requestBodySchema != nil).
 		Msg("API request details")
-
-	// Log authorization header if present (for debugging purposes only)
-	if authHeader := req.Header.Get("Authorization"); authHeader != "" {
-		// Log the JWT token for debugging (remove in production)
-		log.Info().
-			Str("auth_header_prefix", authHeader[:7]+"...").
-			Msg("API request has Authorization header")
-	} else {
-		log.Info().
-			Interface("all_headers", req.Header).
-			Interface("tool_headers", tool.Config.API.Headers).
-			Msg("No Authorization header found for API request")
-	}
 
 	return req, nil
 }
@@ -859,4 +841,15 @@ func processOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
 				Msg("No matching OAuth token found for tool provider")
 		}
 	}
+}
+
+// headerNames returns the sorted names of the headers on a request, for logs
+// that must not carry header values.
+func headerNames(header http.Header) []string {
+	names := make([]string, 0, len(header))
+	for name := range header {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

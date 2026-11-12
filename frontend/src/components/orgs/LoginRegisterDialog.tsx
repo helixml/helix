@@ -1,14 +1,12 @@
 import React, { useState, useRef } from 'react';
-import {
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  TextField,
-  Box,
-  Alert,
-  Typography,
-} from '@mui/material';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
+import Box from '@mui/material/Box';
+import Alert from '@mui/material/Alert';
+import Typography from '@mui/material/Typography';
 import type { SxProps, Theme } from '@mui/material';
 import DarkDialog from '../dialog/DarkDialog';
 import useApi from '../../hooks/useApi';

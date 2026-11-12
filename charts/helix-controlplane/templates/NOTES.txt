@@ -20,3 +20,11 @@
   echo "Visit http://localhost:8080 to use your application"
   kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:$CONTAINER_PORT
 {{- end }}
+{{- if not (or .Values.controlplane.encryptionKey .Values.controlplane.encryptionKeyExistingSecret) }}
+
+WARNING: controlplane.encryptionKey is not set. Stored credentials (provider API
+keys, git tokens, SSH keys) are encrypted with a publicly known default key.
+Set controlplane.encryptionKey (openssl rand -hex 32) or
+controlplane.encryptionKeyExistingSecret. On an existing install, credentials
+stored under the default key must be re-entered after changing it.
+{{- end }}

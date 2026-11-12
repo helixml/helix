@@ -1,12 +1,10 @@
 import React, { FC, useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import {
-  Dialog,
-  Box,
-  Typography,
-  CircularProgress,
-  InputBase,
-  Chip,
-} from '@mui/material'
+import Dialog from '@mui/material/Dialog';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import CircularProgress from '@mui/material/CircularProgress';
+import InputBase from '@mui/material/InputBase';
+import Chip from '@mui/material/Chip';
 import { Search, X, FolderKanban, Bot, MessageSquare, FileText, BookOpen, GitBranch, ListTodo } from 'lucide-react'
 import useLightTheme from '../../hooks/useLightTheme'
 import useResourceSearch from '../../hooks/useResourceSearch'

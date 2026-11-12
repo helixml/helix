@@ -94,6 +94,9 @@ func TestOAuthAppIDPropagationProduction(t *testing.T) {
 	// 2. Load server config and set up database connection
 	cfg, err := config.LoadServerConfig()
 	require.NoError(t, err, "Failed to load server config")
+	// The mock GitHub API is a local listener; tools refuse private
+	// destinations unless explicitly allowed.
+	cfg.Tools.AllowPrivateNetworks = true
 
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)

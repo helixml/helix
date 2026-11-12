@@ -313,18 +313,30 @@ func isHelixOrgPrivilegedMutation(r *http.Request) bool {
 		return false
 	}
 	orgSegment := mux.Vars(r)["org"]
-	settingsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/settings/agent.default"
-	if r.URL.Path == settingsPath {
+	// Every org setting is org-wide configuration (runtime credentials,
+	// transport tokens and webhook secrets, activation mandate, limits), and
+	// the GitHub App manifest flow installs an app for the whole org.
+	settingsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/settings/"
+	if strings.HasPrefix(r.URL.Path, settingsPath) {
 		return true
 	}
-	assetsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/assets"
-	if r.URL.Path == assetsPath || strings.HasPrefix(r.URL.Path, assetsPath+"/") {
+	if r.URL.Path == strings.TrimRight(APIPrefix, "/")+"/orgs/"+orgSegment+"/github/app-manifest" {
 		return true
 	}
-	botsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/bots/"
+	// Assets, triggers (including their webhook installs) and processors are
+	// org-wide wiring: they decide what wakes which bot and with what data.
+	orgPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment
+	for _, collection := range []string{"/assets", "/triggers", "/processors"} {
+		if r.URL.Path == orgPath+collection || strings.HasPrefix(r.URL.Path, orgPath+collection+"/") {
+			return true
+		}
+	}
+	botsPath := orgPath + "/bots/"
 	if !strings.HasPrefix(r.URL.Path, botsPath) {
 		return false
 	}
+	// Per-bot secrets. Trigger attachments are authorized per bot by the
+	// handler (org managers, or anyone who can edit the bot's agent).
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, botsPath), "/")
 	return len(parts) >= 3 && parts[0] != "" && parts[1] == "secrets" && parts[2] != ""
 }

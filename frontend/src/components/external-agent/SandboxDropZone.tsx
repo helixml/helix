@@ -1,5 +1,10 @@
 import React, { useState, useCallback, useRef, useEffect, FC } from 'react';
-import { Box, LinearProgress, Typography, Fade, Snackbar, Alert } from '@mui/material';
+import Box from '@mui/material/Box';
+import LinearProgress from '@mui/material/LinearProgress';
+import Typography from '@mui/material/Typography';
+import Fade from '@mui/material/Fade';
+import Snackbar from '@mui/material/Snackbar';
+import Alert from '@mui/material/Alert';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CheckIcon from '@mui/icons-material/Check';
 import ImageIcon from '@mui/icons-material/Image';

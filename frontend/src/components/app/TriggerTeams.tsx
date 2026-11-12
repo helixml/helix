@@ -33,8 +33,14 @@ const TriggerTeams: FC<TriggerTeamsProps> = ({
   onUpdate,
   readOnly = false
 }) => {
-  const hasTeamsTrigger = triggers.some(t => t.teams && t.teams.enabled === true)
   const teamsTrigger = triggers.find(t => t.teams)?.teams
+  // The switch reflects whether Teams is being set up, not whether the saved
+  // trigger is enabled: the API only lets a trigger be enabled once both
+  // credentials are present, so while the operator is still typing the
+  // block is saved with enabled:false.
+  const [teamsOn, setTeamsOn] = useState<boolean>(!!teamsTrigger)
+  const hasTeamsTrigger = teamsOn
+  const isEnabled = teamsTrigger?.enabled === true
 
   // State for Teams configuration
   const [msAppId, setMsAppId] = useState<string>(teamsTrigger?.app_id || '')
@@ -45,7 +51,7 @@ const TriggerTeams: FC<TriggerTeamsProps> = ({
 
   // If teams is configured, we need to get the status of the bot
   const { data: teamsStatus, isLoading: isLoadingTeamsStatus } = useGetAppTriggerStatus(appId, 'teams', {
-    enabled: hasTeamsTrigger,
+    enabled: isEnabled,
     refetchInterval: 1500
   })
 
@@ -55,36 +61,35 @@ const TriggerTeams: FC<TriggerTeamsProps> = ({
       setMsAppId(teamsTrigger.app_id || '')
       setAppPassword(teamsTrigger.app_password || '')
       setTenantId(teamsTrigger.tenant_id || '')
+      // An enabled trigger arriving (e.g. loaded after mount) shows as on;
+      // a disabled block is left to the switch so toggling off sticks.
+      if (teamsTrigger.enabled) {
+        setTeamsOn(true)
+      }
     }
   }, [teamsTrigger])
 
+  // A trigger may only be saved as enabled once both credentials are filled in.
+  const canEnable = (appIdValue: string, appPasswordValue: string) =>
+    appIdValue.trim() !== '' && appPasswordValue !== ''
+
   const handleTeamsToggle = (enabled: boolean) => {
+    setTeamsOn(enabled)
     if (enabled) {
-      // Enable the existing Teams trigger or create a default one if none exists
+      // Enable the existing Teams trigger (when its credentials are complete)
+      // or create a disabled placeholder to fill in.
       const currentTeamsTrigger = triggers.find(t => t.teams)?.teams
-      if (currentTeamsTrigger) {
-        // Preserve existing configuration but set enabled to true
-        const newTriggers = [...triggers.filter(t => !t.teams), {
-          teams: {
-            enabled: true,
-            app_id: currentTeamsTrigger.app_id || '',
-            app_password: currentTeamsTrigger.app_password || '',
-            tenant_id: currentTeamsTrigger.tenant_id || ''
-          }
-        }]
-        onUpdate(newTriggers)
-      } else {
-        // Create a default Teams trigger
-        const newTriggers = [...triggers.filter(t => !t.teams), {
-          teams: {
-            enabled: true,
-            app_id: '',
-            app_password: '',
-            tenant_id: ''
-          }
-        }]
-        onUpdate(newTriggers)
-      }
+      const appIdValue = currentTeamsTrigger?.app_id || ''
+      const appPasswordValue = currentTeamsTrigger?.app_password || ''
+      const newTriggers = [...triggers.filter(t => !t.teams), {
+        teams: {
+          enabled: canEnable(appIdValue, appPasswordValue),
+          app_id: appIdValue,
+          app_password: appPasswordValue,
+          tenant_id: currentTeamsTrigger?.tenant_id || ''
+        }
+      }]
+      onUpdate(newTriggers)
     } else {
       // Keep the Teams trigger but set enabled to false, preserving configuration
       const currentTeamsTrigger = triggers.find(t => t.teams)?.teams
@@ -124,7 +129,7 @@ const TriggerTeams: FC<TriggerTeamsProps> = ({
   const updateTeamsTrigger = (appIdValue: string, appPasswordValue: string, tenantIdValue: string) => {
     const newTriggers = [...triggers.filter(t => !t.teams), {
       teams: {
-        enabled: true,
+        enabled: canEnable(appIdValue, appPasswordValue),
         app_id: appIdValue,
         app_password: appPasswordValue,
         tenant_id: tenantIdValue
@@ -233,25 +238,25 @@ const TriggerTeams: FC<TriggerTeamsProps> = ({
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               {(() => {
-                // If Teams trigger is disabled
-                if (!teamsTrigger?.enabled) {
+                // If no credentials are configured yet, the trigger stays disabled
+                if (!msAppId || !appPassword) {
                   return (
                     <>
                       <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
                       <Typography variant="body2" color="text.secondary">
-                        <strong>Status:</strong> Teams integration disabled
+                        <strong>Status:</strong> Teams integration needs credentials
                       </Typography>
                     </>
                   )
                 }
 
-                // If no credentials are configured, show grey circle with existing message
-                if (teamsTrigger?.enabled && (!msAppId || !appPassword)) {
+                // If Teams trigger is disabled
+                if (!isEnabled) {
                   return (
                     <>
                       <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
                       <Typography variant="body2" color="text.secondary">
-                        <strong>Status:</strong> Teams integration {msAppId && appPassword ? 'configured' : 'needs credentials'}
+                        <strong>Status:</strong> Teams integration disabled
                       </Typography>
                     </>
                   )
