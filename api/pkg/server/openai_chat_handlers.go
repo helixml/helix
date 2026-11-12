@@ -114,9 +114,16 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	err = json.Unmarshal(body, &chatCompletionRequest)
 	if err != nil {
 		log.Error().Err(err).Msg("error unmarshalling body")
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
+		return
+	}
+	// Validate the request shape before any model or provider resolution, so a
+	// malformed body never reaches provider lookup or an upstream call.
+	if err := validateChatCompletionMessages(chatCompletionRequest.Messages); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
+	requestedModel := chatCompletionRequest.Model
 
 	injectAgentToolNudge(&chatCompletionRequest, s.Cfg.Inference.AgentToolNudgeModels)
 
@@ -284,8 +291,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 
 		app, err = s.Store.GetApp(ctx, tokenAppID)
 		if err != nil {
-			log.Error().Err(err).Str("app_id", tokenAppID).Msg("error getting app")
-			http.Error(rw, fmt.Sprintf("Error getting app: %s", err), http.StatusInternalServerError)
+			writeStoreLookupError(rw, err, "app")
 			return
 		}
 
@@ -294,8 +300,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	case options.AppID != "":
 		app, err = s.Store.GetApp(ctx, options.AppID)
 		if err != nil {
-			log.Error().Err(err).Str("app_id", options.AppID).Msg("error getting app")
-			http.Error(rw, fmt.Sprintf("Error getting app: %s", err), http.StatusInternalServerError)
+			writeStoreLookupError(rw, err, "app")
 			return
 		}
 	}
@@ -315,7 +320,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 
 		if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
 			log.Error().Err(err).Str("app_id", options.AppID).Str("user_id", user.ID).Msg("user is not authorized to access this app")
-			http.Error(rw, fmt.Sprintf("Not authorized to access app: %s", err), http.StatusForbidden)
+			http.Error(rw, "Not authorized to access app", http.StatusForbidden)
 			return
 		}
 
@@ -338,7 +343,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		resp, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 		if err != nil {
 			log.Error().Err(err).Msg("error creating chat completion")
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			writeChatCompletionError(rw, err, requestedModel)
 			return
 		}
 
@@ -372,7 +377,8 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	// Streaming request, receive and write the stream in chunks
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		log.Error().Err(err).Msg("error creating chat completion stream")
+		writeChatCompletionError(rw, err, requestedModel)
 		return
 	}
 	defer stream.Close()
@@ -582,4 +588,44 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	}
 
 	return "", ""
+}
+
+// validChatMessageRoles are the roles an OpenAI chat completion message may
+// carry.
+var validChatMessageRoles = map[string]bool{
+	openai.ChatMessageRoleSystem:    true,
+	openai.ChatMessageRoleDeveloper: true,
+	openai.ChatMessageRoleUser:      true,
+	openai.ChatMessageRoleAssistant: true,
+	openai.ChatMessageRoleTool:      true,
+	openai.ChatMessageRoleFunction:  true,
+}
+
+// validateChatCompletionMessages checks the messages array of a chat
+// completion request: at least one message, each with a known role.
+func validateChatCompletionMessages(messages []openai.ChatCompletionMessage) error {
+	if len(messages) == 0 {
+		return errors.New("messages is required and must contain at least one message")
+	}
+	for i, m := range messages {
+		if !validChatMessageRoles[m.Role] {
+			return fmt.Errorf("messages[%d].role must be one of system, developer, user, assistant, tool or function", i)
+		}
+	}
+	return nil
+}
+
+// writeChatCompletionError answers a failed chat completion. A model that
+// cannot be routed is the caller's to fix and gets a 400 that names only the
+// requested model; other failures keep the 500 they had.
+func writeChatCompletionError(rw http.ResponseWriter, err error, requestedModel string) {
+	if !isModelResolutionError(err) {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if requestedModel == "" {
+		http.Error(rw, "no model was specified and no default model is available; set model or supply an app_id", http.StatusBadRequest)
+		return
+	}
+	http.Error(rw, fmt.Sprintf("model %q is not available; prefix the model with its provider (e.g. \"openai/%s\") or supply an app_id", requestedModel, requestedModel), http.StatusBadRequest)
 }

@@ -85,7 +85,7 @@ func (apiServer *HelixAPIServer) getRunnerProfile(rw http.ResponseWriter, r *htt
 func (apiServer *HelixAPIServer) createRunnerProfile(rw http.ResponseWriter, r *http.Request) {
 	var body runnerProfileSaveRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	p, err := apiServer.runnerProfileService().Create(r.Context(), profile.SaveInput{
@@ -119,7 +119,7 @@ func (apiServer *HelixAPIServer) updateRunnerProfile(rw http.ResponseWriter, r *
 	id := mux.Vars(r)["id"]
 	var body runnerProfileSaveRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	p, err := apiServer.runnerProfileService().Update(r.Context(), profile.SaveInput{

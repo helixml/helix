@@ -82,16 +82,23 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 	}
 	ctx := req.Context()
 	user := getRequestUser(req)
+	// This route sits on the optional-auth router; refuse anonymous callers
+	// before the lookup so the response does not depend on whether the id exists.
+	if !hasUser(user) {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		writeStoreLookupError(rw, err, "session")
 		return
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusForbidden)
+		log.Ctx(ctx).Debug().Err(err).Str("session_id", id).Msg("session access refused")
+		http.Error(rw, "not authorized to access this session", http.StatusForbidden)
 		return
 	}
 
@@ -111,7 +118,8 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 	// count + max updated_at (single aggregate query), and runtime agent status.
 	interactionCount, maxInteractionUpdated, err := apiServer.Store.GetInteractionsSummary(ctx, id, session.GenerationID)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		log.Ctx(ctx).Error().Err(err).Str("session_id", id).Msg("failed to load session interactions")
+		http.Error(rw, "failed to load session", http.StatusInternalServerError)
 		return
 	}
 
@@ -146,7 +154,8 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 			PerPage:      1000,
 		})
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			log.Ctx(ctx).Error().Err(err).Str("session_id", id).Msg("failed to load session interactions")
+			http.Error(rw, "failed to load session", http.StatusInternalServerError)
 			return
 		}
 		session.Interactions = interactions
@@ -432,7 +441,7 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, storeLookupError(err, "session")
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionDelete)
@@ -485,7 +494,7 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, storeLookupError(err, "session")
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
@@ -501,7 +510,7 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 
 	err = json.NewDecoder(req.Body).Decode(&update)
 	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if update.Name != nil {
@@ -631,7 +640,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	var startReq types.SessionChatRequest
 	err = json.Unmarshal(body, &startReq)
 	if err != nil {
-		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -850,7 +859,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	if startReq.SessionID != "" {
 		session, err = s.Store.GetSession(ctx, startReq.SessionID)
 		if err != nil {
-			http.Error(rw, fmt.Sprintf("failed to get session %s, error: %s", startReq.SessionID, err), http.StatusInternalServerError)
+			writeStoreLookupError(rw, err, "session")
 			return
 		}
 
@@ -2227,7 +2236,7 @@ func (s *HelixAPIServer) getSessionStepInfo(_ http.ResponseWriter, req *http.Req
 
 	session, err := s.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get session %s, error: %s", id, err))
+		return nil, storeLookupError(err, "session")
 	}
 
 	err = s.authorizeUserToSession(ctx, user, session, types.ActionGet)
@@ -2356,7 +2365,7 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			Err(err).
 			Str("session_id", id).
 			Msg("Failed to get session for resume")
-		http.Error(rw, fmt.Sprintf("session not found: %s", err.Error()), http.StatusNotFound)
+		writeStoreLookupError(rw, err, "session")
 		return
 	}
 

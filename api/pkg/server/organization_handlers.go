@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -196,28 +197,30 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 	user := getRequestUser(r)
 	reference := mux.Vars(r)["id"]
 
+	// Unknown orgs and orgs the caller cannot see answer the same 404, so the
+	// route does not reveal which organization ids or names exist.
 	organization, err := apiServer.lookupOrg(r.Context(), reference)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			http.Error(rw, "Organization not found: "+reference, http.StatusNotFound)
+			http.Error(rw, "Organization not found", http.StatusNotFound)
 			return
 		}
 		log.Err(err).Msg("error getting organization")
-		http.Error(rw, "Could not get organization: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Could not get organization", http.StatusInternalServerError)
 		return
 	}
 
 	if _, err := apiServer.authorizeOrgMember(r.Context(), user, organization.ID); err != nil {
-		// Only a missing membership row is a permission answer. Any other
-		// store error (connection failure, timeout) is a server fault, and
-		// reporting it as 403 is actively harmful: the frontend treats 403 as
-		// permanent and evicts the user from an org they can fully access.
-		if !errors.Is(err, store.ErrNotFound) {
-			log.Err(err).Msg("error checking org membership")
-			http.Error(rw, "Could not check org membership: "+err.Error(), http.StatusInternalServerError)
+		// Only a missing membership row or a key scoped to another org is a
+		// permission answer. Any other store error (connection failure,
+		// timeout) is a server fault: the frontend treats 403/404 as permanent
+		// and evicts the user from an org they can fully access.
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, orgstore.ErrKeyOrgScope) {
+			http.Error(rw, "Organization not found", http.StatusNotFound)
 			return
 		}
-		http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
+		log.Err(err).Msg("error checking org membership")
+		http.Error(rw, "Could not check org membership", http.StatusInternalServerError)
 		return
 	}
 
@@ -433,10 +436,8 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	}
 
 	// Check if user is owner
-	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
-	if err != nil {
-		log.Err(err).Msg("error authorizing org owner")
-		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusInternalServerError)
+	if _, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID); err != nil {
+		writeOrgOwnerAuthzError(rw, err)
 		return
 	}
 
@@ -543,10 +544,8 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
-	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
-	if err != nil {
-		log.Err(err).Msg("error authorizing org owner")
-		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusInternalServerError)
+	if _, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID); err != nil {
+		writeOrgOwnerAuthzError(rw, err)
 		return
 	}
 
@@ -725,4 +724,19 @@ func (apiServer *HelixAPIServer) getOrganizationGuidelinesHistory(rw http.Respon
 	}
 
 	writeResponse(rw, history, http.StatusOK)
+}
+
+// writeOrgOwnerAuthzError answers a failed authorizeOrgOwner check: callers
+// outside the org get the same 404 as an unknown org, members without the
+// owner role get 403, and store failures a generic 500.
+func writeOrgOwnerAuthzError(rw http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, orgstore.ErrKeyOrgScope):
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+	case errors.Is(err, orgstore.ErrNotOrgOwner):
+		http.Error(rw, "Only organization owners can perform this action", http.StatusForbidden)
+	default:
+		log.Err(err).Msg("error authorizing org owner")
+		http.Error(rw, "Could not authorize org owner", http.StatusInternalServerError)
+	}
 }

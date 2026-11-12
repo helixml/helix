@@ -177,7 +177,7 @@ func (s *HelixAPIServer) putProjectWebService(_ http.ResponseWriter, r *http.Req
 
 	var req PutProjectWebServiceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	current, err := s.Store.GetProjectWebServiceState(r.Context(), project.ID)
@@ -257,7 +257,7 @@ func (s *HelixAPIServer) setActiveWebServiceSandbox(_ http.ResponseWriter, r *ht
 	}
 	var req SetActiveSandboxRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 	if req.SandboxID == "" {
 		return nil, system.NewHTTPError400("sandbox_id is required")
@@ -323,7 +323,7 @@ func (s *HelixAPIServer) deployProjectWebService(_ http.ResponseWriter, r *http.
 	var req DeployWebServiceRequest
 	if r.ContentLength > 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+			return nil, jsonDecodeHTTPError(err)
 		}
 	}
 
@@ -394,7 +394,7 @@ func (s *HelixAPIServer) addProjectWebServiceDomain(_ http.ResponseWriter, r *ht
 	}
 	var req AddDomainRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 	hostname := strings.ToLower(strings.TrimSpace(req.Hostname))
 	if hostname == "" {

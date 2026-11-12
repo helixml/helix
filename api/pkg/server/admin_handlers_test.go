@@ -224,7 +224,7 @@ func TestAdminResetPassword_InvalidJSON(t *testing.T) {
 	_, httpErr := server.adminResetPassword(rr, req)
 
 	require.NotNil(t, httpErr)
-	assert.Contains(t, httpErr.Error(), "failed to decode request")
+	assert.Equal(t, "Invalid request body", httpErr.Error())
 	httpError, ok := httpErr.(*system.HTTPError)
 	require.True(t, ok, "expected *system.HTTPError")
 	assert.Equal(t, http.StatusBadRequest, httpError.StatusCode)

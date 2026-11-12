@@ -311,7 +311,7 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 		Path string `json:"path"`
 	}
 	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
-		return filestore.Item{}, err
+		return filestore.Item{}, jsonDecodeHTTPError(err)
 	}
 
 	// Check if this is an app-scoped path
@@ -734,7 +734,7 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 	var request types.AdminCreateUserRequest
 
 	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
-		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if request.Email == "" {
@@ -810,7 +810,7 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 
 	var request types.AdminResetPasswordRequest
 	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
-		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if request.NewPassword == "" {
@@ -1135,22 +1135,22 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 		var objmap map[string]json.RawMessage
 		err = json.Unmarshal(body, &objmap)
 		if err != nil {
-			return "", err
+			return "", jsonDecodeHTTPError(err)
 		}
 		var nameStr string
 		err = json.Unmarshal(objmap["name"], &nameStr)
 		if err != nil {
-			return "", err
+			return "", jsonDecodeHTTPError(err)
 		}
 		var typeStr string
 		err = json.Unmarshal(objmap["type"], &typeStr)
 		if err != nil {
-			return "", err
+			return "", jsonDecodeHTTPError(err)
 		}
 		var apiKeyStr string
 		err = json.Unmarshal(objmap["app_id"], &apiKeyStr)
 		if err != nil {
-			return "", err
+			return "", jsonDecodeHTTPError(err)
 		}
 		newAPIKey.Name = nameStr
 		newAPIKey.Type = types.APIKeyType(typeStr)

@@ -245,7 +245,7 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgentHandler(res http.Resp
 	var command types.ExternalAgentCommand
 	err = json.NewDecoder(req.Body).Decode(&command)
 	if err != nil {
-		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
+		http.Error(res, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -1115,7 +1115,7 @@ func (apiServer *HelixAPIServer) configurePendingSession(res http.ResponseWriter
 	// Parse request body (for compatibility)
 	var configReq ConfigurePendingSessionRequest
 	if err := json.NewDecoder(req.Body).Decode(&configReq); err != nil {
-		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
+		http.Error(res, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 

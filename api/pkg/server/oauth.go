@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/sharepoint"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -114,14 +117,14 @@ func (s *HelixAPIServer) handleCreateOAuthProvider(_ http.ResponseWriter, r *htt
 
 	// Only admin users can create providers
 	if !user.Admin {
-		return nil, fmt.Errorf("unauthorized")
+		return nil, system.NewHTTPError403("only admins can create OAuth providers")
 	}
 
 	// Parse the provider details from the request body
 	var provider types.OAuthProvider
 	if err := json.NewDecoder(r.Body).Decode(&provider); err != nil {
 		log.Error().Err(err).Msg("Failed to decode OAuth provider from request body")
-		return nil, fmt.Errorf("error decoding request: %w", err)
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	log.Info().
@@ -234,7 +237,10 @@ func (s *HelixAPIServer) handleStartOAuthFlow(_ http.ResponseWriter, r *http.Req
 	authURL, err := s.oauthManager.StartOAuthFlow(r.Context(), user.ID, providerID, redirectURL, metadata, scopes)
 	if err != nil {
 		log.Error().Err(err).Str("provider_id", providerID).Str("user_id", user.ID).Msg("Failed to start OAuth flow")
-		return nil, fmt.Errorf("error starting OAuth flow: %w", err)
+		if errors.Is(err, oauth.ErrProviderNotFound) || errors.Is(err, oauth.ErrProviderDisabled) {
+			return nil, system.NewHTTPError404("OAuth provider not found")
+		}
+		return nil, system.NewHTTPError500("could not start the OAuth flow")
 	}
 
 	log.Debug().Str("provider_id", providerID).Str("user_id", user.ID).Str("auth_url", authURL).Msg("Successfully generated OAuth authorization URL")
@@ -255,13 +261,13 @@ func (s *HelixAPIServer) handleGetOAuthProvider(_ http.ResponseWriter, r *http.R
 
 	provider, err := s.Store.GetOAuthProvider(r.Context(), providerID)
 	if err != nil {
-		return nil, fmt.Errorf("error getting provider: %w", err)
+		return nil, oauthStoreError(err, "OAuth provider not found", "error getting OAuth provider")
 	}
 
 	// Non-admin users can't see sensitive information
 	if !user.Admin {
 		if !provider.Enabled {
-			return nil, fmt.Errorf("provider not found")
+			return nil, system.NewHTTPError404("OAuth provider not found")
 		}
 
 		provider.ClientSecret = ""
@@ -283,7 +289,7 @@ func (s *HelixAPIServer) handleUpdateOAuthProvider(_ http.ResponseWriter, r *htt
 
 	// Only admin users can update providers
 	if !user.Admin {
-		return nil, fmt.Errorf("unauthorized")
+		return nil, system.NewHTTPError403("only admins can update OAuth providers")
 	}
 
 	// Extract the provider ID from the URL
@@ -293,23 +299,23 @@ func (s *HelixAPIServer) handleUpdateOAuthProvider(_ http.ResponseWriter, r *htt
 	// Get the existing provider
 	existingProvider, err := s.Store.GetOAuthProvider(r.Context(), providerID)
 	if err != nil {
-		return nil, fmt.Errorf("error getting provider: %w", err)
+		return nil, oauthStoreError(err, "OAuth provider not found", "error getting OAuth provider")
 	}
 
 	// Parse the updated provider
 	var updatedProvider types.OAuthProvider
 	if err := json.NewDecoder(r.Body).Decode(&updatedProvider); err != nil {
-		return nil, fmt.Errorf("error decoding request: %w", err)
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	// Ensure the ID matches
 	if updatedProvider.ID != providerID {
-		return nil, fmt.Errorf("provider ID mismatch")
+		return nil, system.NewHTTPError400("provider ID in the body does not match the URL")
 	}
 
 	// Preserve the original type - can't change provider type
 	if updatedProvider.Type != existingProvider.Type {
-		return nil, fmt.Errorf("cannot change provider type")
+		return nil, system.NewHTTPError400("cannot change provider type")
 	}
 
 	// Update the provider
@@ -335,7 +341,7 @@ func (s *HelixAPIServer) handleDeleteOAuthProvider(_ http.ResponseWriter, r *htt
 
 	// Only admin users can delete providers
 	if !user.Admin {
-		return nil, fmt.Errorf("unauthorized")
+		return nil, system.NewHTTPError403("only admins can delete OAuth providers")
 	}
 
 	// Extract the provider ID from the URL
@@ -367,15 +373,9 @@ func (s *HelixAPIServer) handleGetOAuthConnection(_ http.ResponseWriter, r *http
 	vars := mux.Vars(r)
 	connectionID := vars["id"]
 
-	// Get the connection
-	connection, err := s.Store.GetOAuthConnection(r.Context(), connectionID)
+	connection, err := s.loadOAuthConnectionForUser(r.Context(), user, connectionID, true)
 	if err != nil {
-		return nil, fmt.Errorf("error getting connection: %w", err)
-	}
-
-	// Check if the connection belongs to the user
-	if connection.UserID != user.ID && !user.Admin {
-		return nil, fmt.Errorf("unauthorized")
+		return nil, err
 	}
 
 	// Remove sensitive information for non-admin users
@@ -402,21 +402,13 @@ func (s *HelixAPIServer) handleDeleteOAuthConnection(_ http.ResponseWriter, r *h
 	vars := mux.Vars(r)
 	connectionID := vars["id"]
 
-	// Get the connection to check ownership
-	connection, err := s.Store.GetOAuthConnection(r.Context(), connectionID)
-	if err != nil {
-		return nil, fmt.Errorf("error getting connection: %w", err)
+	if _, err := s.loadOAuthConnectionForUser(r.Context(), user, connectionID, true); err != nil {
+		return nil, err
 	}
 
-	// Check if the connection belongs to the user
-	if connection.UserID != user.ID && !user.Admin {
-		return nil, fmt.Errorf("unauthorized")
-	}
-
-	// Delete the connection
-	err = s.Store.DeleteOAuthConnection(r.Context(), connectionID)
-	if err != nil {
-		return nil, fmt.Errorf("error deleting connection: %w", err)
+	if err := s.Store.DeleteOAuthConnection(r.Context(), connectionID); err != nil {
+		log.Error().Err(err).Str("connection_id", connectionID).Msg("error deleting OAuth connection")
+		return nil, system.NewHTTPError500("error deleting OAuth connection")
 	}
 
 	return nil, nil
@@ -437,15 +429,9 @@ func (s *HelixAPIServer) handleRefreshOAuthConnection(_ http.ResponseWriter, r *
 	vars := mux.Vars(r)
 	connectionID := vars["id"]
 
-	// Get the connection to check ownership
-	connection, err := s.Store.GetOAuthConnection(r.Context(), connectionID)
+	connection, err := s.loadOAuthConnectionForUser(r.Context(), user, connectionID, true)
 	if err != nil {
-		return nil, fmt.Errorf("error getting connection: %w", err)
-	}
-
-	// Check if the connection belongs to the user
-	if connection.UserID != user.ID && !user.Admin {
-		return nil, fmt.Errorf("unauthorized")
+		return nil, err
 	}
 
 	// Refresh the connection
@@ -912,24 +898,18 @@ func (s *HelixAPIServer) handleTestOAuthConnection(_ http.ResponseWriter, r *htt
 	vars := mux.Vars(r)
 	connectionID := vars["id"]
 	if connectionID == "" {
-		return nil, fmt.Errorf("connection ID is required")
+		return nil, system.NewHTTPError400("connection ID is required")
 	}
 
 	// Get the user from the context
 	user := getRequestUser(r)
 	if user == nil {
-		return nil, fmt.Errorf("unauthorized")
+		return nil, system.NewHTTPError401("unauthorized")
 	}
 
-	// Get the connection from the database
-	connection, err := s.Store.GetOAuthConnection(ctx, connectionID)
+	connection, err := s.loadOAuthConnectionForUser(ctx, user, connectionID, false)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connection: %w", err)
-	}
-
-	// Check if the connection belongs to the user
-	if connection.UserID != user.ID {
-		return nil, fmt.Errorf("unauthorized")
+		return nil, err
 	}
 
 	// Load the provider to populate the connection.Provider field
@@ -991,38 +971,36 @@ func (s *HelixAPIServer) handleResolveSharePointSite(_ http.ResponseWriter, r *h
 	ctx := r.Context()
 	user := getRequestUser(r)
 
-	// Parse request body
 	var req SharePointSiteResolveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return nil, fmt.Errorf("invalid request body: %w", err)
+		return nil, jsonDecodeHTTPError(err)
 	}
 
-	// Validate request
 	if req.SiteURL == "" {
-		return nil, fmt.Errorf("site_url is required")
+		return nil, system.NewHTTPError400("site_url is required")
 	}
 	if req.ProviderID == "" {
-		return nil, fmt.Errorf("provider_id is required")
+		return nil, system.NewHTTPError400("provider_id is required")
+	}
+	if err := sharepoint.ValidateSiteURL(req.SiteURL); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
 	}
 
-	// Validate URL format
-	if !strings.Contains(req.SiteURL, "sharepoint.com") {
-		return nil, fmt.Errorf("invalid SharePoint URL: must be a sharepoint.com URL (e.g., https://contoso.sharepoint.com/sites/MySite)")
-	}
-
-	// Get the OAuth connection for the user and provider
 	connection, err := s.oauthManager.GetConnection(ctx, user.ID, req.ProviderID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get OAuth connection: %w (have you connected to this OAuth provider?)", err)
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, oauth.ErrProviderNotFound) || errors.Is(err, oauth.ErrProviderDisabled) {
+			return nil, system.NewHTTPError404("no connection to this OAuth provider; connect it first")
+		}
+		log.Error().Err(err).Str("provider_id", req.ProviderID).Msg("failed to get OAuth connection for SharePoint site resolution")
+		return nil, system.NewHTTPError500("could not load the OAuth connection")
 	}
 
-	// Create SharePoint client with the access token
 	spClient := sharepoint.NewClient(connection.AccessToken, s.Cfg.Tools.TLSSkipVerify)
 
-	// Resolve the site URL to a site object
 	site, err := spClient.GetSiteByURL(ctx, req.SiteURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve SharePoint site: %w", err)
+		log.Warn().Err(err).Str("site_url", req.SiteURL).Msg("failed to resolve SharePoint site")
+		return nil, system.NewHTTPError400("could not resolve the SharePoint site; check the URL and that your account can access it")
 	}
 
 	log.Info().
@@ -1057,18 +1035,12 @@ func (s *HelixAPIServer) handleListOAuthConnectionRepositories(_ http.ResponseWr
 	vars := mux.Vars(r)
 	connectionID := vars["id"]
 	if connectionID == "" {
-		return nil, fmt.Errorf("connection ID is required")
+		return nil, system.NewHTTPError400("connection ID is required")
 	}
 
-	// Get the connection from the database
-	connection, err := s.Store.GetOAuthConnection(ctx, connectionID)
+	connection, err := s.loadOAuthConnectionForUser(ctx, user, connectionID, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connection: %w", err)
-	}
-
-	// Check if the connection belongs to the user
-	if connection.UserID != user.ID && !user.Admin {
-		return nil, fmt.Errorf("unauthorized")
+		return nil, err
 	}
 
 	// Get the provider to determine the type
@@ -1223,4 +1195,32 @@ func (s *HelixAPIServer) handleListOAuthConnectionRepositories(_ http.ResponseWr
 	return &types.ListOAuthRepositoriesResponse{
 		Repositories: repos,
 	}, nil
+}
+
+// loadOAuthConnectionForUser loads an OAuth connection the caller owns (or any
+// connection, for an admin when allowAdmin is set). A missing connection, a
+// malformed id and another user's connection all answer the same 404, so the
+// route does not reveal which connection ids exist.
+func (s *HelixAPIServer) loadOAuthConnectionForUser(ctx context.Context, user *types.User, connectionID string, allowAdmin bool) (*types.OAuthConnection, error) {
+	if user == nil {
+		return nil, system.NewHTTPError401("unauthorized")
+	}
+	connection, err := s.Store.GetOAuthConnection(ctx, connectionID)
+	if err != nil {
+		return nil, oauthStoreError(err, "OAuth connection not found", "error getting OAuth connection")
+	}
+	if connection.UserID != user.ID && !(allowAdmin && user.Admin) {
+		return nil, system.NewHTTPError404("OAuth connection not found")
+	}
+	return connection, nil
+}
+
+// oauthStoreError maps a store lookup error to a 404 for a missing row and to
+// a generic 500 otherwise, logging the underlying error server-side.
+func oauthStoreError(err error, notFoundMessage, logMessage string) *system.HTTPError {
+	if errors.Is(err, store.ErrNotFound) {
+		return system.NewHTTPError404(notFoundMessage)
+	}
+	log.Error().Err(err).Msg(logMessage)
+	return system.NewHTTPError500(logMessage)
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgdomainstore "github.com/helixml/helix/api/pkg/org/domain/store"
@@ -466,7 +467,7 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 	} else {
 		// Fall back to legacy format
 		if err := json.Unmarshal(body, &app); err != nil {
-			return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body as JSON, error: %s", err))
+			return nil, jsonDecodeHTTPError(err)
 		}
 	}
 
@@ -1153,7 +1154,7 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	}
 	var update types.Agent
 	if err := json.Unmarshal(body, &update); err != nil {
-		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 2, error: %s", err))
+		return nil, jsonDecodeHTTPError(err)
 	}
 	// An update that omits "global" keeps the stored value; only an explicit
 	// value is a request to change it.
@@ -1640,7 +1641,7 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 	var req types.RunAPIActionRequest
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 4, error: %s", err))
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if req.Action == "" {
@@ -1684,6 +1685,9 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 			Str("app_id", id).
 			Str("action", req.Action).
 			Msg("Failed to run API action")
+		if errors.Is(err, netguard.ErrBlockedDestination) {
+			return nil, system.NewHTTPError400("the API action's URL is not an allowed destination: loopback, private-network, link-local and reserved addresses are blocked")
+		}
 		return nil, system.NewHTTPError500(err.Error())
 	}
 

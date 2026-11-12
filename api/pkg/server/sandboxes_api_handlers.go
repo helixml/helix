@@ -127,7 +127,7 @@ func (s *HelixAPIServer) createOrgSandbox(rw http.ResponseWriter, r *http.Reques
 
 	var req types.CreateSandboxRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		http.Error(rw, "invalid body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -177,7 +177,7 @@ func (s *HelixAPIServer) updateSandbox(rw http.ResponseWriter, r *http.Request) 
 	}
 	var req types.UpdateSandboxRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		http.Error(rw, "invalid body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	updated, err := s.sandboxController.Update(r.Context(), sb.ID, &req)
@@ -234,7 +234,7 @@ func (s *HelixAPIServer) runSandboxCommand(rw http.ResponseWriter, r *http.Reque
 
 	var body types.RunSandboxCommandRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	if body.Cmd == "" {
