@@ -74,6 +74,71 @@ func TestFilestoreViewerDeliversActiveContentAsDownload(t *testing.T) {
 	}
 }
 
+// Conditional, HEAD and range requests for a render-safe file keep working
+// as the browser issued them: no disposition appears on a 304, a HEAD or a
+// single or multi-part range response.
+func TestFilestoreViewerKeepsImageRequestsInline(t *testing.T) {
+	root := t.TempDir()
+	userDir := filepath.Join(root, "dev", "users", "usr_owner")
+	require.NoError(t, os.MkdirAll(userDir, 0o755))
+	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 64)...)
+	require.NoError(t, os.WriteFile(filepath.Join(userDir, "photo.png"), png, 0o644))
+	handler := newFilestoreViewerTestServer(t, root)
+	owner := types.User{ID: "usr_owner"}
+
+	do := func(method string, headers map[string]string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, APIPrefix+"/filestore/viewer/dev/users/usr_owner/photo.png", nil)
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		req = req.WithContext(setRequestUser(req.Context(), owner))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+
+	full := do(http.MethodGet, nil)
+	require.Equal(t, http.StatusOK, full.Code)
+	etag := full.Header().Get("Last-Modified")
+	require.NotEmpty(t, etag)
+
+	head := do(http.MethodHead, nil)
+	require.Equal(t, http.StatusOK, head.Code)
+	require.Contains(t, head.Header().Get("Content-Type"), "image/png")
+	require.Empty(t, head.Header().Get("Content-Disposition"))
+
+	single := do(http.MethodGet, map[string]string{"Range": "bytes=0-3"})
+	require.Equal(t, http.StatusPartialContent, single.Code)
+	require.Contains(t, single.Header().Get("Content-Type"), "image/png")
+	require.Empty(t, single.Header().Get("Content-Disposition"))
+
+	multi := do(http.MethodGet, map[string]string{"Range": "bytes=0-3,8-11"})
+	require.Equal(t, http.StatusPartialContent, multi.Code)
+	require.Contains(t, multi.Header().Get("Content-Type"), "multipart/byteranges")
+	require.Empty(t, multi.Header().Get("Content-Disposition"))
+	require.Equal(t, "nosniff", multi.Header().Get("X-Content-Type-Options"))
+
+	notModified := do(http.MethodGet, map[string]string{"If-Modified-Since": etag})
+	require.Equal(t, http.StatusNotModified, notModified.Code)
+	require.Empty(t, notModified.Header().Get("Content-Disposition"))
+	require.Empty(t, notModified.Header().Get("Content-Security-Policy"))
+}
+
+// A handler that writes a body without calling WriteHeader still gets the
+// policy applied on the implicit 200.
+func TestServedFileResponseWriterAppliesPolicyOnImplicitWrite(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := &servedFileResponseWriter{ResponseWriter: rec, filename: "page.html"}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, err := w.Write([]byte("<script>1</script>"))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Header().Get("Content-Disposition"), "attachment")
+	require.Contains(t, rec.Header().Get("Content-Security-Policy"), "sandbox")
+	require.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+	require.Same(t, http.ResponseWriter(rec), w.Unwrap())
+}
+
 func TestFilestoreViewerUserPrefixIsASegmentBoundary(t *testing.T) {
 	root := t.TempDir()
 	for _, user := range []string{"usr_a", "usr_ab"} {

@@ -95,6 +95,11 @@ func servedFileRendersInline(contentType string) bool {
 	if _, ok := inlineServedMediaTypes[mediaType]; ok {
 		return true
 	}
+	// A multi-range response wraps the parts' own types; a browser only
+	// requests one for a resource it is already rendering.
+	if mediaType == "multipart/byteranges" {
+		return true
+	}
 	return strings.HasPrefix(mediaType, "audio/") || strings.HasPrefix(mediaType, "video/") || strings.HasPrefix(mediaType, "font/")
 }
 
@@ -133,7 +138,10 @@ type servedFileResponseWriter struct {
 func (w *servedFileResponseWriter) WriteHeader(status int) {
 	if !w.wroteHeader {
 		w.wroteHeader = true
-		applyServedFilePolicy(w.Header(), w.filename)
+		// Redirects and 304s carry no file body to police.
+		if status < 300 || status >= 400 {
+			applyServedFilePolicy(w.Header(), w.filename)
+		}
 	}
 	w.ResponseWriter.WriteHeader(status)
 }
@@ -143,6 +151,11 @@ func (w *servedFileResponseWriter) Write(b []byte) (int, error) {
 		w.WriteHeader(http.StatusOK)
 	}
 	return w.ResponseWriter.Write(b)
+}
+
+// Unwrap exposes the underlying writer to http.ResponseController.
+func (w *servedFileResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 // given a full filestore route (i.e. one that starts with /dev/users/XXX)
