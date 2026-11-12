@@ -343,7 +343,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		resp, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 		if err != nil {
 			log.Error().Err(err).Msg("error creating chat completion")
-			writeChatCompletionError(rw, err, requestedModel)
+			writeChatCompletionError(rw, err, requestedModel, options.AppID)
 			return
 		}
 
@@ -378,7 +378,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		log.Error().Err(err).Msg("error creating chat completion stream")
-		writeChatCompletionError(rw, err, requestedModel)
+		writeChatCompletionError(rw, err, requestedModel, options.AppID)
 		return
 	}
 	defer stream.Close()
@@ -617,15 +617,19 @@ func validateChatCompletionMessages(messages []openai.ChatCompletionMessage) err
 
 // writeChatCompletionError answers a failed chat completion. A model that
 // cannot be routed is the caller's to fix and gets a 400 that names only the
-// requested model; other failures keep the 500 they had.
-func writeChatCompletionError(rw http.ResponseWriter, err error, requestedModel string) {
+// requested model (never the default provider or default model); other
+// failures keep the 500 they had.
+func writeChatCompletionError(rw http.ResponseWriter, err error, requestedModel, appID string) {
 	if !isModelResolutionError(err) {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if requestedModel == "" {
+	switch {
+	case requestedModel != "":
+		http.Error(rw, fmt.Sprintf("model %q is not available; prefix the model with its provider (e.g. \"openai/%s\") or supply an app_id", requestedModel, requestedModel), http.StatusBadRequest)
+	case appID != "":
+		http.Error(rw, "the agent's configured model is not available; check the model and provider configured for this agent, or set model", http.StatusBadRequest)
+	default:
 		http.Error(rw, "no model was specified and no default model is available; set model or supply an app_id", http.StatusBadRequest)
-		return
 	}
-	http.Error(rw, fmt.Sprintf("model %q is not available; prefix the model with its provider (e.g. \"openai/%s\") or supply an app_id", requestedModel, requestedModel), http.StatusBadRequest)
 }

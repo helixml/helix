@@ -284,7 +284,7 @@ func (s *HelixAPIServer) getGitRepository(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -331,7 +331,7 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 	if request.ExternalURL != "" && rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "external_url", request.ExternalURL) {
@@ -414,7 +414,7 @@ func (s *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionDelete); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -641,7 +641,7 @@ func (apiServer *HelixAPIServer) getGitRepositoryCloneCommand(w http.ResponseWri
 	}
 
 	if err := apiServer.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -958,7 +958,7 @@ func (apiServer *HelixAPIServer) browseGitRepositoryTree(w http.ResponseWriter, 
 	}
 
 	if err := apiServer.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1022,7 +1022,7 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 	}
 
 	if err := apiServer.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1121,7 +1121,7 @@ func (apiServer *HelixAPIServer) getGitRepositoryFileContents(w http.ResponseWri
 	}
 
 	if err := apiServer.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1194,7 +1194,7 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1313,7 +1313,7 @@ func (s *HelixAPIServer) syncAllBranches(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1377,7 +1377,7 @@ func (s *HelixAPIServer) pullFromRemote(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1438,7 +1438,7 @@ func (s *HelixAPIServer) pushToRemote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1500,7 +1500,7 @@ func (s *HelixAPIServer) pushPullGitRepository(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1577,7 +1577,7 @@ func (s *HelixAPIServer) listGitRepositoryCommits(w http.ResponseWriter, r *http
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1662,7 +1662,7 @@ func (s *HelixAPIServer) createGitRepositoryBranch(w http.ResponseWriter, r *htt
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1746,7 +1746,7 @@ func (s *HelixAPIServer) listGitRepositoryPullRequests(w http.ResponseWriter, r 
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1794,7 +1794,7 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 

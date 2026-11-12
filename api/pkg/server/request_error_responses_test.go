@@ -125,20 +125,29 @@ func TestWriteChatCompletionError(t *testing.T) {
 	notConfigured := fmt.Errorf("failed to get client: %w", &controller.ModelNotConfiguredError{Model: "llama3:instruct", Provider: "helix"})
 
 	rr := httptest.NewRecorder()
-	writeChatCompletionError(rr, notConfigured, "")
+	writeChatCompletionError(rr, notConfigured, "", "")
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	require.NotContains(t, rr.Body.String(), "llama3")
 	require.NotContains(t, rr.Body.String(), "helix")
 
 	rr = httptest.NewRecorder()
-	writeChatCompletionError(rr, notConfigured, "my-model")
+	writeChatCompletionError(rr, notConfigured, "my-model", "")
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	require.Contains(t, rr.Body.String(), `model "my-model" is not available`)
 	require.NotContains(t, rr.Body.String(), "default provider")
 
 	rr = httptest.NewRecorder()
-	writeChatCompletionError(rr, errors.New("upstream exploded"), "my-model")
+	writeChatCompletionError(rr, errors.New("upstream exploded"), "my-model", "")
 	require.Equal(t, http.StatusInternalServerError, rr.Code)
+
+	// A caller that named an agent is not told to supply an app_id: it is the
+	// agent's configured model that is unavailable.
+	rr = httptest.NewRecorder()
+	writeChatCompletionError(rr, notConfigured, "", "app_1")
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	require.Contains(t, rr.Body.String(), "agent's configured model is not available")
+	require.NotContains(t, rr.Body.String(), "supply an app_id")
+	require.NotContains(t, rr.Body.String(), "llama3")
 }
 
 func TestIsModelResolutionError(t *testing.T) {
@@ -234,4 +243,31 @@ func TestAppRunAPIAction_BlockedDestinationGets400(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	require.NotContains(t, rr.Body.String(), "169.254")
+}
+
+// GET /sessions?org_id=… answers an unknown org and an org the caller is not
+// in with the same 404, without echoing the requested reference.
+func TestListSessions_ForeignOrgGets404(t *testing.T) {
+	cases := map[string]func(m *store.MockStore){
+		"unknown org": func(m *store.MockStore) {
+			m.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+		},
+		"not a member": func(m *store.MockStore) {
+			m.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(&types.Organization{ID: "org_victim"}, nil)
+			m.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+		},
+	}
+	for name, setup := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := store.NewMockStore(gomock.NewController(t))
+			setup(m)
+			srv := &HelixAPIServer{Store: m, Cfg: &config.ServerConfig{}}
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions?org_id=probe-<b>ref</b>", nil)
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_a"}))
+			rr := httptest.NewRecorder()
+			system.DefaultWrapper(srv.listSessions)(rr, req)
+			require.Equal(t, http.StatusNotFound, rr.Code)
+			require.Equal(t, "organization not found\n", rr.Body.String())
+		})
+	}
 }

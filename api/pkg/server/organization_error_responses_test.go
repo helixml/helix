@@ -121,3 +121,47 @@ func TestUpdateDeleteOrganization_ForeignScopedKeyGets404(t *testing.T) {
 		})
 	}
 }
+
+// Store failures while updating an organization answer a generic 500; the
+// database error text stays in the server log.
+func TestUpdateOrganization_StoreFailuresAreGeneric(t *testing.T) {
+	const dbErr = `pq: duplicate key value violates unique constraint "organizations_name_key"`
+	owner := types.User{ID: "usr_owner"}
+	ownerMembership := &types.OrganizationMembership{OrganizationID: "org_1", UserID: owner.ID, Role: types.OrganizationRoleOwner}
+
+	cases := []struct {
+		name  string
+		body  string
+		setup func(m *store.MockStore)
+		want  string
+	}{
+		{"get fails", `{"name":"acme"}`, func(m *store.MockStore) {
+			m.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(&types.Organization{ID: "org_1"}, nil)
+			m.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(ownerMembership, nil)
+			m.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(nil, errors.New(dbErr))
+		}, "Could not get organization\n"},
+		{"domain check fails", `{"name":"acme","auto_join_domain":"acme.example"}`, func(m *store.MockStore) {
+			m.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(&types.Organization{ID: "org_1"}, nil).Times(2)
+			m.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(ownerMembership, nil)
+			m.EXPECT().GetOrganizationByDomain(gomock.Any(), gomock.Any()).Return(nil, errors.New(dbErr))
+		}, "Could not check domain availability\n"},
+		{"update fails", `{"name":"acme"}`, func(m *store.MockStore) {
+			m.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(&types.Organization{ID: "org_1", Name: "acme"}, nil).Times(2)
+			m.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(ownerMembership, nil)
+			m.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+			m.EXPECT().UpdateOrganization(gomock.Any(), gomock.Any()).Return(nil, errors.New(dbErr))
+		}, "Could not update organization\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := store.NewMockStore(gomock.NewController(t))
+			tc.setup(m)
+			srv := &HelixAPIServer{Store: m, Cfg: &config.ServerConfig{}}
+			rr := httptest.NewRecorder()
+			srv.updateOrganization(rr, orgRequest(http.MethodPut, "org_1", owner, tc.body))
+			require.Equal(t, http.StatusInternalServerError, rr.Code, rr.Body.String())
+			require.Equal(t, tc.want, rr.Body.String())
+			require.NotContains(t, rr.Body.String(), "pq:")
+		})
+	}
+}

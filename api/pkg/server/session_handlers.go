@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -236,16 +237,26 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	}
 	if orgID != "" {
 		// Lookup org
+		// An unknown org and one the caller cannot use answer the same 404
+		// without echoing the requested reference.
 		org, err := apiServer.lookupOrg(ctx, orgID)
 		if err != nil {
-			return nil, system.NewHTTPError404(err.Error())
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404("organization not found")
+			}
+			log.Ctx(ctx).Error().Err(err).Msg("failed to look up organization for session list")
+			return nil, system.NewHTTPError500("failed to look up organization")
 		}
 
 		orgID = org.ID
 
 		membership, err := apiServer.authorizeOrgMember(ctx, user, orgID)
 		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
+			if errors.Is(err, store.ErrNotFound) || errors.Is(err, orgstore.ErrKeyOrgScope) {
+				return nil, system.NewHTTPError404("organization not found")
+			}
+			log.Ctx(ctx).Error().Err(err).Msg("failed to check organization membership for session list")
+			return nil, system.NewHTTPError500("failed to check organization membership")
 		}
 
 		query.OrganizationID = orgID
