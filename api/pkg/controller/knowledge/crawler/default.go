@@ -39,6 +39,8 @@ type Default struct {
 	browser *browser.Browser
 
 	pageTimeout time.Duration
+	// requestTimeout bounds colly's HTTP fetch of each page.
+	requestTimeout time.Duration
 
 	updateProgress func(progress types.KnowledgeProgress)
 
@@ -54,6 +56,7 @@ func NewDefault(browser *browser.Browser, k *types.Knowledge, updateProgress fun
 		parser:         readability.NewParser(),
 		browser:        browser,
 		pageTimeout:    15 * time.Second,
+		requestTimeout: 10 * time.Second,
 		updateProgress: updateProgress,
 	}
 
@@ -129,6 +132,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	}
 
 	collector := colly.NewCollector(collyOptions...)
+	collector.SetRequestTimeout(d.requestTimeout)
 
 	b, err := d.browser.GetBrowser()
 	if err != nil {
