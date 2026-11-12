@@ -5,6 +5,7 @@ import Box from "@mui/material/Box";
 import Alert from "@mui/material/Alert";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import EditIcon from "@mui/icons-material/Edit";
 import CopyButtonWithCheck from "./CopyButtonWithCheck";
 import InteractionDebugCopyButton from "./InteractionDebugCopyButton";
@@ -18,6 +19,7 @@ import { workspaceReviewMessageCopyText } from "./workspaceReviewMessage";
 import useAccount from "../../hooks/useAccount";
 
 import { TypesServerConfigForFrontend } from "../../api/api";
+import BotPortrait from "../helix-org/BotPortrait";
 
 import {
   TypesSession,
@@ -150,6 +152,14 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     return false;
   }
 
+  if (prevProps.assistantName !== nextProps.assistantName) {
+    return false;
+  }
+
+  if (prevProps.assistantPortraitIndex !== nextProps.assistantPortraitIndex) {
+    return false;
+  }
+
   // In practice this is fixed for the life of an interaction, but it decides
   // whether a system prompt is on screen — too consequential to leave to a
   // comparator that happens not to look at it.
@@ -279,6 +289,10 @@ interface InteractionProps {
    * (repository paths, the branch to push to) before they had said a word.
    */
   hidePrompt?: boolean;
+  /** Name shown above assistant replies in bot conversations. */
+  assistantName?: string;
+  /** Server-assigned bot portrait slot. */
+  assistantPortraitIndex?: number;
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -295,6 +309,8 @@ export const Interaction: FC<InteractionProps> = ({
   nextInteraction,
   recoveredLater = false,
   hidePrompt = false,
+  assistantName,
+  assistantPortraitIndex,
 }) => {
   // Memoize computed values
   const displayData = useMemo(() => {
@@ -580,6 +596,14 @@ export const Interaction: FC<InteractionProps> = ({
             alignItems: "flex-start",
           }}
         >
+          {assistantName && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5, color: "text.secondary" }}>
+              <BotPortrait portraitIndex={assistantPortraitIndex} size={32} />
+              <Typography variant="caption" sx={{ fontWeight: 600, color: "text.primary" }}>
+                {assistantName}
+              </Typography>
+            </Box>
+          )}
           <InteractionContainer
             buttons={headerButtons}
             background={false}

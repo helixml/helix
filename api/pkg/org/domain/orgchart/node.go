@@ -76,8 +76,11 @@ type Node struct {
 	// InstanceProfile configures the Node's instances (extra sessions with
 	// their own sandboxes). nil means types.DefaultBotInstanceProfile.
 	InstanceProfile *types.BotInstanceProfile
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// PortraitIndex is the server-assigned identity artwork slot. nil is
+	// limited to rows that predate the portrait allocation migration.
+	PortraitIndex *int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // NewNode validates and constructs a Node. Treat the returned value as

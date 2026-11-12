@@ -25157,6 +25157,9 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "portrait_index": {
+                    "type": "integer"
+                },
                 "parent_ids": {
                     "type": "array",
                     "items": {
