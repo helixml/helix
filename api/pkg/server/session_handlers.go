@@ -1285,9 +1285,6 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	}
 
 	ownerID := user.ID
-	if user.TokenType == types.TokenTypeRunner {
-		ownerID = oai.RunnerID
-	}
 
 	lastInteraction := session.Interactions[len(session.Interactions)-1]
 
@@ -1554,9 +1551,6 @@ func (s *HelixAPIServer) generateSessionName(ctx context.Context, user *types.Us
 	defer cancel()
 
 	ownerID := user.ID
-	if user.TokenType == types.TokenTypeRunner {
-		ownerID = oai.RunnerID
-	}
 
 	// Get last interaction ID
 	lastInteractionID := "n/a"
