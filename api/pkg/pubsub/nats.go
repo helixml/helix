@@ -697,7 +697,11 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 
 	select {
 	case <-ctx.Done():
-		info, err := n.stream.Info(context.Background())
+		target, ok := n.streams[stream]
+		if !ok {
+			return nil, ctx.Err()
+		}
+		info, err := target.Info(context.Background())
 		if err != nil {
 			return nil, fmt.Errorf("failed to get stream info: %w", err)
 		}

@@ -115,7 +115,6 @@ const (
 	ScriptRunnerStream   = "SCRIPT_RUNNERS"
 	AppQueue             = "app"
 	RunnerQueue          = "runner"
-	HelixNatsReplyHeader = "helix-nats-reply"
 )
 
 func getStreamSub(stream, sub string) string {

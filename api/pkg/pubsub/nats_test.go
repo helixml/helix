@@ -301,3 +301,14 @@ func TestStreamConsumeUnsubscribeStopsDelivery(t *testing.T) {
 	require.ErrorContains(t, receive(t, results), "timed out")
 	assert.EqualValues(t, 1, handled.Load())
 }
+
+// With nobody consuming the requested stream, a cancelled request says so,
+// even though the ZED_AGENTS stream has its startup consumer.
+func TestStreamRequestReportsMissingConsumers(t *testing.T) {
+	n := newTestNats(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	_, err := n.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), map[string]string{}, testWait)
+	require.ErrorContains(t, err, "no consumers available")
+}
