@@ -290,6 +290,7 @@ func TestDeleteOrganization_DeletesRepositoriesBeforeOrganization(t *testing.T) 
 		// running desktops here, so no StopDesktop/DeleteSession follow.
 		mockStore.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
 			OrganizationID:        orgID,
+			AnyOwner:              true,
 			IncludeExternalAgents: true,
 		}).Return([]*types.Session{}, int64(0), nil),
 		mockStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{OrganizationID: orgID}).
@@ -331,7 +332,7 @@ func expectOrgDeletePreamble(mockStore *store.MockStore, orgID, userID string) {
 	mockStore.EXPECT().ListGitRepositories(gomock.Any(), &types.ListGitRepositoriesRequest{OrganizationID: orgID}).
 		Return([]*types.GitRepository{}, nil)
 	mockStore.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
-		OrganizationID: orgID, IncludeExternalAgents: true,
+		OrganizationID: orgID, AnyOwner: true, IncludeExternalAgents: true,
 	}).Return([]*types.Session{}, int64(0), nil)
 }
 

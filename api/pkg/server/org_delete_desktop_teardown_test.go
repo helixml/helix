@@ -51,7 +51,7 @@ func (s *OrgDeleteDesktopTeardownSuite) TestStopsOnlyDesktopSessions() {
 	noDesktop := &types.Session{ID: "ses_chat"} // no container → skipped
 
 	s.store.EXPECT().
-		ListSessions(ctx, store.ListSessionsQuery{OrganizationID: orgID, IncludeExternalAgents: true}).
+		ListSessions(ctx, store.ListSessionsQuery{OrganizationID: orgID, AnyOwner: true, IncludeExternalAgents: true}).
 		Return([]*types.Session{withDesktop, noDesktop}, int64(2), nil)
 
 	// Only the desktop session is stopped and soft-deleted.
@@ -71,7 +71,7 @@ func (s *OrgDeleteDesktopTeardownSuite) TestStopFailurePreservesSessionTracking(
 	second.Metadata.DevContainerID = "ubuntu-external-2"
 
 	s.store.EXPECT().
-		ListSessions(ctx, store.ListSessionsQuery{OrganizationID: orgID, IncludeExternalAgents: true}).
+		ListSessions(ctx, store.ListSessionsQuery{OrganizationID: orgID, AnyOwner: true, IncludeExternalAgents: true}).
 		Return([]*types.Session{first, second}, int64(2), nil)
 
 	s.executor.EXPECT().StopDesktop(ctx, "ses_1").Return(context.DeadlineExceeded)

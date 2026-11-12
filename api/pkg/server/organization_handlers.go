@@ -523,6 +523,7 @@ func (apiServer *HelixAPIServer) teardownOrgWebServices(ctx context.Context, org
 func (apiServer *HelixAPIServer) stopOrgDesktops(ctx context.Context, orgID string) error {
 	sessions, _, err := apiServer.Store.ListSessions(ctx, store.ListSessionsQuery{
 		OrganizationID:        orgID,
+		AnyOwner:              true,
 		IncludeExternalAgents: true,
 	})
 	if err != nil {

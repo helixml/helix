@@ -487,3 +487,27 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_SessionName_PreservesExac
 
 	suite.Equal(exactName, created.Name)
 }
+
+// Org deletion lists every member's desktop sessions in the org. Without
+// AnyOwner the query also matches owner = '', i.e. nothing.
+func (suite *PostgresStoreTestSuite) TestListSessionsByOrganizationNeedsAnyOwner() {
+	ctx := context.Background()
+	orgID := "org-" + system.GenerateUUID()
+	for _, owner := range []string{"user_a", "user_b"} {
+		session := types.Session{
+			ID: system.GenerateSessionID(), Owner: owner, OwnerType: types.OwnerTypeUser,
+			OrganizationID: orgID, Created: time.Now(), Updated: time.Now(), ModelName: "external_agent",
+		}
+		_, err := suite.db.CreateSession(ctx, session)
+		suite.Require().NoError(err)
+		suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	}
+
+	none, _, err := suite.db.ListSessions(ctx, ListSessionsQuery{OrganizationID: orgID, IncludeExternalAgents: true})
+	suite.Require().NoError(err)
+	suite.Empty(none)
+
+	all, _, err := suite.db.ListSessions(ctx, ListSessionsQuery{OrganizationID: orgID, AnyOwner: true, IncludeExternalAgents: true})
+	suite.Require().NoError(err)
+	suite.Len(all, 2)
+}
