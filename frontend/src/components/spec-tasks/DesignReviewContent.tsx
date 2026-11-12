@@ -15,23 +15,21 @@ import React, {
   useMemo,
   useCallback,
 } from "react";
-import {
-  Box,
-  Tabs,
-  Tab,
-  Typography,
-  Chip,
-  IconButton,
-  CircularProgress,
-  Alert,
-  Paper,
-  Tooltip,
-  Badge,
-  ToggleButtonGroup,
-  ToggleButton,
-  TextareaAutosize,
-  GlobalStyles,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import Tabs from "@mui/material/Tabs";
+import Tab from "@mui/material/Tab";
+import Typography from "@mui/material/Typography";
+import Chip from "@mui/material/Chip";
+import IconButton from "@mui/material/IconButton";
+import CircularProgress from "@mui/material/CircularProgress";
+import Alert from "@mui/material/Alert";
+import Paper from "@mui/material/Paper";
+import Tooltip from "@mui/material/Tooltip";
+import Badge from "@mui/material/Badge";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import ToggleButton from "@mui/material/ToggleButton";
+import TextareaAutosize from "@mui/material/TextareaAutosize";
+import GlobalStyles from "@mui/material/GlobalStyles";
 import {
   ArrowLeft,
   Check,

@@ -26,15 +26,14 @@ func TestSign(t *testing.T) {
 }
 
 func TestSign_Expire(t *testing.T) {
-	u := PresignURL("http://localhost:8080", "/test.txt", "secret", 100*time.Millisecond)
-
-	if !VerifySignature(u, "secret") {
+	valid := PresignURL("http://localhost:8080", "/test.txt", "secret", time.Minute)
+	if !VerifySignature(valid, "secret") {
 		t.Errorf("signature verification failed")
 	}
 
-	time.Sleep(5 * time.Second)
-
-	if VerifySignature(u, "secret") {
+	// Correctly signed, but its (whole-second) expiry is already in the past.
+	expired := PresignURL("http://localhost:8080", "/test.txt", "secret", -2*time.Second)
+	if VerifySignature(expired, "secret") {
 		t.Errorf("signature verification succeeded with expired url")
 	}
 }

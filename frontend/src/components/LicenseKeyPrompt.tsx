@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Box, Button, TextField, Typography, Link, Alert } from "@mui/material";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import Link from "@mui/material/Link";
+import Alert from "@mui/material/Alert";
 import { useAccount } from "../hooks/useAccount";
 import useApi from "../hooks/useApi";
 

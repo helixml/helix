@@ -382,14 +382,23 @@ func (m *Manager) StartOAuthFlow(ctx context.Context, userID, providerID, redire
 	return authURL, nil
 }
 
-// CompleteOAuthFlow completes the OAuth flow with the given code
+// CompleteOAuthFlow completes the OAuth flow with the given code using the
+// user's most recent request token. In-process callers only; the HTTP
+// callback uses CompleteOAuthFlowWithState so the code is matched to the
+// exact flow its state names.
 func (m *Manager) CompleteOAuthFlow(ctx context.Context, userID, providerID, code string) (*types.OAuthConnection, error) {
+	return m.CompleteOAuthFlowWithState(ctx, userID, providerID, code, "")
+}
+
+// CompleteOAuthFlowWithState completes the OAuth flow for the request token
+// identified by state, which must belong to userID and providerID.
+func (m *Manager) CompleteOAuthFlowWithState(ctx context.Context, userID, providerID, code, state string) (*types.OAuthConnection, error) {
 	provider, err := m.GetProvider(providerID)
 	if err != nil {
 		return nil, err
 	}
 
-	connection, err := provider.CompleteAuthorization(ctx, userID, code)
+	connection, err := provider.CompleteAuthorization(ctx, userID, code, state)
 	if err != nil {
 		return nil, err
 	}

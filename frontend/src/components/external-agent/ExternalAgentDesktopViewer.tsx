@@ -1,13 +1,11 @@
 import React, { FC, useState, useEffect, useCallback, useRef, useMemo } from "react";
-import {
-  Box,
-  Button,
-  Typography,
-  CircularProgress,
-  IconButton,
-  Tooltip,
-  Collapse,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import Collapse from "@mui/material/Collapse";
 import PlayArrow from "@mui/icons-material/PlayArrow";
 import TaskSessionPlaceholder from "../tasks/TaskSessionPlaceholder";
 import ChatIcon from "@mui/icons-material/Chat";
@@ -90,6 +88,7 @@ interface ExternalAgentDesktopViewerProps {
   // Pre-computed sandbox state from the task list (avoids per-card session polling on Kanban)
   initialSandboxState?: string;
   initialSandboxStatusMessage?: string;
+  sessionLabel?: string;
   // Sandboxes reuse the desktop stream transport, but they are not Helix
   // sessions. Hide session lifecycle/upload actions that would call
   // /sessions endpoints with a sandbox id.
@@ -115,6 +114,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   onConnectSubscription,
   initialSandboxState,
   initialSandboxStatusMessage,
+  sessionLabel = "task",
   sandboxMode = false,
 }) => {
   const api = useApi();
@@ -475,7 +475,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               description={
                 sandboxMode
                   ? "This sandbox has no desktop to display."
-                  : "This task's sandbox is stopped. Start the desktop to interact with it."
+                  : `This ${sessionLabel}'s sandbox is stopped. Start the desktop to interact with it.`
               }
               onStart={sandboxMode ? undefined : handleResume}
               starting={isResuming}
@@ -618,7 +618,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             description={
               sandboxMode
                 ? "This sandbox has no desktop to display."
-                : "This task's sandbox is stopped. Start the desktop to interact with it."
+                : `This ${sessionLabel}'s sandbox is stopped. Start the desktop to interact with it.`
             }
             onStart={sandboxMode ? undefined : handleResume}
             starting={isResuming}
@@ -708,7 +708,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                   description={
                     sandboxMode
                       ? "This sandbox has no desktop to display."
-                      : "This task's sandbox is stopped. Restart the desktop to interact with it."
+                      : `This ${sessionLabel}'s sandbox is stopped. Restart the desktop to interact with it.`
                   }
                   onStart={sandboxMode ? undefined : handleResume}
                   starting={isResuming}

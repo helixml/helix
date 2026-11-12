@@ -1,26 +1,24 @@
 import React, { useState, useCallback } from 'react';
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  TextField,
-  FormControl,
-  MenuItem,
-  Alert,
-  Stack,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
-  FormLabel,
-  IconButton,
-  Tooltip,
-  Box,
-  Divider,
-  Typography,
-  Switch,
-} from '@mui/material';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
+import FormControl from '@mui/material/FormControl';
+import MenuItem from '@mui/material/MenuItem';
+import Alert from '@mui/material/Alert';
+import Stack from '@mui/material/Stack';
+import RadioGroup from '@mui/material/RadioGroup';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Radio from '@mui/material/Radio';
+import FormLabel from '@mui/material/FormLabel';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import Box from '@mui/material/Box';
+import Divider from '@mui/material/Divider';
+import Typography from '@mui/material/Typography';
+import Switch from '@mui/material/Switch';
 import { Check, Copy, Server } from 'lucide-react';
 import { TypesProviderEndpointType } from '../../api/api'
 import { useUpdateProviderEndpoint } from '../../services/providersService';

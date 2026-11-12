@@ -1,5 +1,6 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
 
 // Column color mapping helper - exported for use by DroppableColumn
 export const getColumnAccent = (id: string) => {
