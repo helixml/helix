@@ -807,20 +807,7 @@ func forwardToDevContainer(w http.ResponseWriter, r *http.Request, targetURL, se
 		proxyReq.Header.Set("X-Forwarded-Proto", "https")
 	}
 
-	client := &http.Client{
-		// NO overall Timeout. It covered reading the body as well, so it capped
-		// every response at 30s end to end. Found on we-find.ai, a Helix-hosted
-		// site, 30 Sept 2026: a CV parse or advert generation taking 32s came
-		// back as this proxy's 502 → the branded "Starting up" page at exactly
-		// 30.3s, while the same call made directly to its backend returned 200.
-		// That is the "Match service unavailable" from the Find AI demo.
-		Transport: devContainerProxyTransport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	resp, err := client.Do(proxyReq)
+	resp, err := devContainerProxyClient.Do(proxyReq)
 	if err != nil {
 		log.Warn().Err(err).
 			Str("session_id", sessionID).
@@ -880,6 +867,19 @@ var devContainerProxyTransport = &http.Transport{
 	ResponseHeaderTimeout: devContainerProxyResponseHeaderTimeout,
 	IdleConnTimeout:       90 * time.Second,
 	MaxIdleConnsPerHost:   16,
+}
+
+// devContainerProxyClient has NO overall Timeout. It covered reading the body
+// as well, so it capped every response at 30s end to end. Found on we-find.ai,
+// a Helix-hosted site, 30 Sept 2026: a CV parse or advert generation taking 32s
+// came back as this proxy's 502 → the branded "Starting up" page at exactly
+// 30.3s, while the same call made directly to its backend returned 200. That is
+// the "Match service unavailable" from the Find AI demo.
+var devContainerProxyClient = &http.Client{
+	Transport: devContainerProxyTransport,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
 }
 
 // inferenceProxyAddr is the host:port of the local inference-proxy process
