@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"net/http"
 	"strings"
 
@@ -551,6 +552,22 @@ func sanitizeOAuthError(errInput interface{}) oauthErrorInfo {
 	}
 }
 
+// oauthPopupNotifyScript returns the JavaScript the OAuth callback page runs
+// to tell the window that opened the popup how the flow ended. The message is
+// delivered only to a same-origin opener (the Helix UI that started the flow):
+// targetOrigin is the callback page's own origin, never "*", so a cross-origin
+// page that opened the authorize URL cannot read connection details. The
+// payload is JSON-encoded, which escapes <, > and & so it cannot break out of
+// the surrounding <script> element.
+func oauthPopupNotifyScript(payload map[string]string) string {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		// A map[string]string always marshals; keep the page working regardless.
+		encoded = []byte("{}")
+	}
+	return fmt.Sprintf("window.opener && window.opener.postMessage(%s, window.location.origin);", encoded)
+}
+
 // handleOAuthCallback handles the OAuth callback
 func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// Get the OAuth parameters from the query
@@ -632,14 +649,12 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		<p>%s</p>
 		<button class="close-button" onclick="window.close()">Close Window</button>
 	</div>
-	<script>
-		window.opener && window.opener.postMessage({
-			type: 'oauth-failure',
-			error: '%s'
-		}, '*');
-	</script>
+	<script>%s</script>
 </body>
-</html>`, errInfo.Title, errInfo.Color, errInfo.Color, errInfo.Title, errInfo.Message, errInfo.Message)
+</html>`, html.EscapeString(errInfo.Title), errInfo.Color, errInfo.Color, html.EscapeString(errInfo.Title), html.EscapeString(errInfo.Message), oauthPopupNotifyScript(map[string]string{
+			"type":  "oauth-failure",
+			"error": errInfo.Message,
+		}))
 
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusBadRequest)
@@ -747,14 +762,12 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		<p>%s</p>
 		<button class="close-button" onclick="window.close()">Close Window</button>
 	</div>
-	<script>
-		window.opener && window.opener.postMessage({
-			type: 'oauth-failure',
-			error: '%s'
-		}, '*');
-	</script>
+	<script>%s</script>
 </body>
-</html>`, errInfo.Title, errInfo.Color, errInfo.Color, errInfo.Title, errInfo.Message, errInfo.Message)
+</html>`, html.EscapeString(errInfo.Title), errInfo.Color, errInfo.Color, html.EscapeString(errInfo.Title), html.EscapeString(errInfo.Message), oauthPopupNotifyScript(map[string]string{
+			"type":  "oauth-failure",
+			"error": errInfo.Message,
+		}))
 
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusBadRequest)
@@ -867,15 +880,15 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		<button class="close-button" onclick="window.close()">Close Window</button>
 	</div>
 	<script>
-		window.opener && window.opener.postMessage({
-			type: 'oauth-success',
-			connectionId: '%s',
-			providerId: '%s'
-		}, '*');
+		%s
 		setTimeout(function() { window.close(); }, 3000);
 	</script>
 </body>
-</html>`, providerName, connection.ID, requestToken.ProviderID)
+</html>`, html.EscapeString(providerName), oauthPopupNotifyScript(map[string]string{
+		"type":         "oauth-success",
+		"connectionId": connection.ID,
+		"providerId":   requestToken.ProviderID,
+	}))
 
 	w.Header().Set("Content-Type", "text/html")
 	// Use http.Error for any write errors - even though we've already set the header

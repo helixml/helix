@@ -383,6 +383,7 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		contentType = "image/jpeg"
 	}
 	res.Header().Set("Content-Type", contentType)
+	applyServedFilePolicy(res.Header(), "screenshot")
 	res.Write(imageData) //nolint:errcheck
 
 }
@@ -1064,6 +1065,9 @@ func (apiServer *HelixAPIServer) getExternalAgentFile(res http.ResponseWriter, r
 			res.Header().Set(header, value)
 		}
 	}
+	// The desktop's headers describe the file but do not decide how this
+	// origin renders it: the attachment was uploaded by a session member.
+	applyServedFilePolicy(res.Header(), filename)
 	res.WriteHeader(fileResp.StatusCode)
 	if _, err := io.Copy(res, fileResp.Body); err != nil {
 		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to stream chat attachment")
