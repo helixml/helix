@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
@@ -43,6 +44,7 @@ func TestCreateChatCompletionStream_RetriesUpstream502(t *testing.T) {
 	defer ts.Close()
 
 	client := New("test", ts.URL, true)
+	client.retryDelay = time.Millisecond
 
 	ctx := SetContextValues(context.Background(), &ContextValues{RequestID: requestID})
 	stream, err := client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{})
@@ -69,6 +71,7 @@ func TestCreateChatCompletionStream_RetriesUpstream503(t *testing.T) {
 	defer ts.Close()
 
 	client := New("test", ts.URL, true)
+	client.retryDelay = time.Millisecond
 
 	stream, err := client.CreateChatCompletionStream(context.Background(), openai.ChatCompletionRequest{})
 	require.NoError(t, err)
@@ -131,6 +134,7 @@ func TestCreateChatCompletion_RetriesUpstream502(t *testing.T) {
 	defer ts.Close()
 
 	client := New("test", ts.URL, true)
+	client.retryDelay = time.Millisecond
 
 	resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{})
 	require.NoError(t, err)
@@ -158,6 +162,7 @@ func TestCreateChatCompletionStream_502WithMisleadingBodyStillRetries(t *testing
 	defer ts.Close()
 
 	client := New("test", ts.URL, true)
+	client.retryDelay = time.Millisecond
 
 	stream, err := client.CreateChatCompletionStream(context.Background(), openai.ChatCompletionRequest{})
 	require.NoError(t, err)

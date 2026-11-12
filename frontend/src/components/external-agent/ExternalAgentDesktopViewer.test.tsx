@@ -137,4 +137,17 @@ describe('ExternalAgentDesktopViewer sandbox mode', () => {
     expect(screen.queryByRole('button', { name: /^Connect / })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /start desktop/i })).toBeInTheDocument()
   })
+
+  it('uses bot wording for a stopped bot desktop', () => {
+    renderViewer(
+      <ExternalAgentDesktopViewer
+        sessionId="ses_1"
+        mode="screenshot"
+        initialSandboxState="absent"
+        sessionLabel="bot"
+      />,
+    )
+
+    expect(screen.getByText("This bot's sandbox is stopped. Start the desktop to interact with it.")).toBeInTheDocument()
+  })
 })

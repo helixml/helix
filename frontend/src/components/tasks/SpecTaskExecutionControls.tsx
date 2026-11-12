@@ -1,15 +1,13 @@
 import React, { FC, useMemo, useState } from "react";
-import {
-  Box,
-  Button,
-  Divider,
-  ListSubheader,
-  Menu,
-  MenuItem,
-  Stack,
-  Tooltip,
-  Typography,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Divider from "@mui/material/Divider";
+import ListSubheader from "@mui/material/ListSubheader";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Stack from "@mui/material/Stack";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import { ChevronDown, Cpu, Monitor } from "lucide-react";
 import {
   TypesCodeAgentOverrides,

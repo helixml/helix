@@ -1,17 +1,15 @@
 import React, { FC, useEffect, useMemo, useState } from "react";
-import {
-    Paper,
-    Typography,
-    Box,
-    TextField,
-    InputAdornment,
-    IconButton,
-    Menu,
-    MenuItem,
-    Chip,
-    Tooltip,
-    TablePagination,
-} from "@mui/material";
+import Paper from "@mui/material/Paper";
+import Typography from "@mui/material/Typography";
+import Box from "@mui/material/Box";
+import TextField from "@mui/material/TextField";
+import InputAdornment from "@mui/material/InputAdornment";
+import IconButton from "@mui/material/IconButton";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Chip from "@mui/material/Chip";
+import Tooltip from "@mui/material/Tooltip";
+import TablePagination from "@mui/material/TablePagination";
 import { Search, X, EllipsisVertical, Gift, Coins, CircleSlash, BadgeDollarSign } from "lucide-react";
 import { TypesOrgDetails } from "../../api/api";
 import { useListAdminOrgs } from "../../services/dashboardService";

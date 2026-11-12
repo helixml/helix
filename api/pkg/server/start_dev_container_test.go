@@ -213,9 +213,18 @@ func (s *StartDevContainerForSessionSuite) TestReadinessWaitWakesStoppedExplorat
 		},
 	)
 	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
-	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	// The auto-start runs in its own goroutine and outlives the readiness
+	// wait; the test must not end (and gomock verify) before it finishes.
+	autoStartDone := make(chan struct{})
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ types.Session) (*types.Session, error) {
+			close(autoStartDone)
+			return session, nil
+		},
+	)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- s.server.waitForExternalAgentReady(ctx, session.ID, time.Second)
@@ -228,4 +237,10 @@ func (s *StartDevContainerForSessionSuite) TestReadinessWaitWakesStoppedExplorat
 		s.FailNow("desktop was not started before readiness wait")
 	}
 	s.ErrorContains(<-errCh, "timeout waiting for external agent to be ready")
+
+	select {
+	case <-autoStartDone:
+	case <-time.After(5 * time.Second):
+		s.FailNow("auto-start did not finish persisting the session")
+	}
 }

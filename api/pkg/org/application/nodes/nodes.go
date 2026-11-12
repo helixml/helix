@@ -208,7 +208,11 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	if err := s.nodes.Create(ctx, node); err != nil {
 		return orgchart.Node{}, err
 	}
-	return node, nil
+	created, err := s.nodes.Get(ctx, orgID, id)
+	if err != nil {
+		return orgchart.Node{}, fmt.Errorf("reload created node %q: %w", id, err)
+	}
+	return created, nil
 }
 
 // UpdateParams patches the mutable fields of a Node. A nil pointer

@@ -1,13 +1,11 @@
 import React, { FC, useEffect, useMemo, useState } from 'react';
-import {
-  Typography,
-  Box,
-  Button,
-  IconButton,
-  Menu,
-  MenuItem,
-  Tooltip,
-} from '@mui/material';
+import Typography from '@mui/material/Typography';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import Tooltip from '@mui/material/Tooltip';
 import { IProviderEndpoint } from '../../types';
 import { TypesAggregatedUsageMetric } from '../../api/api';
 import { Boxes, EllipsisVertical, ListChecks, Pencil, Plus, Trash2 } from 'lucide-react';

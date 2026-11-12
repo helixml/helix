@@ -9,7 +9,12 @@
  * RobustPromptInput, so a wedged agent gets the same Restart affordance.
  */
 import React, { useState } from 'react'
-import { Box, Button, CircularProgress, IconButton, Tooltip, Typography } from '@mui/material'
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 import { alpha } from '@mui/material/styles'
 import { CircleAlert, Hourglass, ListStart, RotateCcw, X, Zap } from 'lucide-react'
 

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Dialog, DialogProps } from '@mui/material';
+import Dialog from '@mui/material/Dialog';
+import type { DialogProps } from '@mui/material';
 
 interface DarkDialogProps extends DialogProps {
   children: React.ReactNode;
