@@ -49,7 +49,6 @@ var knownEnforcementGaps = map[string]string{
 	"GET /api/v1/specs/sample-types | runner token":                                     gapRunnerTokenAsUser,
 	"GET /api/v1/status | runner token":                                                 gapRunnerTokenAsUser,
 	"GET /api/v1/triggers | runner token":                                               gapRunnerTokenAsUser,
-	"GET /api/v1/triggers/{trigger_id}/executions | runner token":                       gapRunnerTokenAsUser,
 	"GET /api/v1/usage | runner token":                                                  gapRunnerTokenAsUser,
 	"GET /api/v1/users/me/chat-settings | runner token":                                 gapRunnerTokenAsUser,
 	"GET /api/v1/users/me/guidelines | runner token":                                    gapRunnerTokenAsUser,
