@@ -123,6 +123,12 @@ type fakeGitRepositoryStore struct {
 func (f *fakeGitRepositoryStore) GetGitRepository(_ context.Context, _ string) (*types.GitRepository, error) {
 	return f.repository, nil
 }
+func (f *fakeGitRepositoryStore) ListGitRepositoriesByKoditRepoID(_ context.Context, koditRepoID int64) ([]*types.GitRepository, error) {
+	if f.repository != nil && extractKoditRepoID(f.repository.Metadata) == koditRepoID {
+		return []*types.GitRepository{f.repository}, nil
+	}
+	return nil, nil
+}
 func (f *fakeGitRepositoryStore) ListAPIKeys(_ context.Context, _ *store.ListAPIKeysQuery) ([]*types.ApiKey, error) {
 	return nil, errors.New("api keys unavailable")
 }
@@ -289,6 +295,49 @@ func TestKoditRepositoryRoutes_RefuseOtherUsers(t *testing.T) {
 			assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 		})
 	}
+}
+
+// GET /kodit/repositories/{koditRepoId}/enrichments is addressed by the
+// numeric Kodit id: the caller must be able to read a repository indexed as
+// that Kodit repository, or be a global admin.
+func TestKoditRepoEnrichmentsByKoditID_Authorization(t *testing.T) {
+	repo := &types.GitRepository{
+		ID: "repo-123", OwnerID: koditTestOwnerID, KoditIndexing: true,
+		Metadata: map[string]any{"kodit_repo_id": int64(999)},
+	}
+	vars := map[string]string{"koditRepoId": "999"}
+
+	t.Run("other user is refused before Kodit is called", func(t *testing.T) {
+		koditSvc := &fakeKoditService{enabled: true, err: errors.New("kodit must not be called")}
+		srv := newTestAPIServer(t, koditSvc, &fakeGitRepositoryStore{repository: repo})
+		srv.Store = &fakeGitRepositoryStore{repository: repo}
+		rec := httptest.NewRecorder()
+		srv.getKoditRepoEnrichments(rec, makeRequestAs("user-other-tenant", vars, ""))
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("unknown kodit id is refused", func(t *testing.T) {
+		srv := newTestAPIServer(t, &fakeKoditService{enabled: true}, &fakeGitRepositoryStore{repository: repo})
+		srv.Store = &fakeGitRepositoryStore{repository: repo}
+		rec := httptest.NewRecorder()
+		srv.getKoditRepoEnrichments(rec, makeRequest(map[string]string{"koditRepoId": "1000"}, ""))
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("repository owner is served", func(t *testing.T) {
+		srv := newTestAPIServer(t, &fakeKoditService{enabled: true}, &fakeGitRepositoryStore{repository: repo})
+		srv.Store = &fakeGitRepositoryStore{repository: repo}
+		rec := httptest.NewRecorder()
+		srv.getKoditRepoEnrichments(rec, makeRequest(vars, ""))
+		assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	})
+	t.Run("global admin is served", func(t *testing.T) {
+		srv := newTestAPIServer(t, &fakeKoditService{enabled: true}, &fakeGitRepositoryStore{})
+		srv.Store = &fakeGitRepositoryStore{}
+		req := httptest.NewRequest("GET", "/test", nil)
+		req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-admin", Admin: true}))
+		rec := httptest.NewRecorder()
+		srv.getKoditRepoEnrichments(rec, mux.SetURLVars(req, vars))
+		assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	})
 }
 
 func TestExtractKoditRepoID(t *testing.T) {

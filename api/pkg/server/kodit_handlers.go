@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1382,8 +1383,28 @@ type KoditEnrichmentsMeta struct {
 	TotalPages     int    `json:"total_pages"`
 }
 
+// authorizeUserToKoditRepo allows a global admin, or a caller who can read at
+// least one Helix repository indexed as this Kodit repository. Kodit
+// repositories backing knowledge sources are not linked to a git repository,
+// so only admins reach them by Kodit id.
+func (apiServer *HelixAPIServer) authorizeUserToKoditRepo(ctx context.Context, user *types.User, koditRepoID int64) error {
+	if isAdmin(user) {
+		return nil
+	}
+	repos, err := apiServer.Store.ListGitRepositoriesByKoditRepoID(ctx, koditRepoID)
+	if err != nil {
+		return err
+	}
+	for _, repo := range repos {
+		if apiServer.authorizeUserToRepository(ctx, user, repo, types.ActionGet) == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("no readable repository is indexed as kodit repository %d", koditRepoID)
+}
+
 // getKoditRepoEnrichments fetches enrichments by kodit repo ID directly.
-// Works for both git repo-backed and knowledge-backed kodit repositories.
+// The caller must be able to read a repository indexed as it (admins: any).
 // @Summary Get enrichments by Kodit repo ID
 // @Description Fetch code intelligence enrichments for any Kodit repository (git or knowledge-backed).
 // @Tags kodit
@@ -1398,6 +1419,11 @@ type KoditEnrichmentsMeta struct {
 func (apiServer *HelixAPIServer) getKoditRepoEnrichments(w http.ResponseWriter, r *http.Request) {
 	koditRepoID, ok := parseKoditRepoID(w, r)
 	if !ok {
+		return
+	}
+
+	if err := apiServer.authorizeUserToKoditRepo(r.Context(), getRequestUser(r), koditRepoID); err != nil {
+		http.Error(w, "Kodit repository not found", http.StatusNotFound)
 		return
 	}
 

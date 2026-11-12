@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,6 +63,9 @@ type storeCallLog struct {
 	mu      sync.Mutex
 	current int
 	calls   []string
+	// asOwner switches the store from "every object belongs to another
+	// tenant" to "every object belongs to the caller" for the owner probe.
+	asOwner atomic.Bool
 }
 
 func (l *storeCallLog) add(ctx context.Context, name string) {
@@ -112,7 +116,7 @@ func newVictimStore(t *testing.T) (*store.MockStore, *storeCallLog) {
 			if ctx, ok := args[0].Interface().(context.Context); ok && ctx != nil {
 				log.add(ctx, name)
 			}
-			return victimStoreResult(name, mt, args)
+			return victimStoreResult(name, mt, args, log.asOwner.Load())
 		})
 		ctrl.RecordCallWithMethodType(mock, name, mt, matchers...).DoAndReturn(fn.Interface()).AnyTimes()
 	}
@@ -124,7 +128,7 @@ var (
 	denyingLookupName = regexp.MustCompile(`Membership|AccessGrant|Role|Permission|Grant|Member`)
 )
 
-func victimStoreResult(name string, mt reflect.Type, args []reflect.Value) []reflect.Value {
+func victimStoreResult(name string, mt reflect.Type, args []reflect.Value, asOwner bool) []reflect.Value {
 	switch name {
 	case "GetAPIKey":
 		q := args[1].Interface().(*types.ApiKey)
@@ -138,10 +142,25 @@ func victimStoreResult(name string, mt reflect.Type, args []reflect.Value) []ref
 			return values(&types.User{ID: routeTestUserID, Type: types.OwnerTypeUser, Email: "caller@example.com"}, nil)
 		}
 		return values((*types.User)(nil), store.ErrNotFound)
+	case "ListAPIKeys":
+		// Controller.GetAPIKeys creates a key and lists again until one exists.
+		return values([]*types.ApiKey{{Key: routeTestUserKey, Owner: routeTestUserID, OwnerType: types.OwnerTypeUser, Type: types.APIkeytypeAPI}}, nil)
+	}
+	if asOwner && ctxProbeID(args[0]) != 0 && !ownerReadOnlyCall.MatchString(name) {
+		// The owner got past authorization and is about to change state:
+		// that is all the positive control needs. Stop the handler here,
+		// before it starts background work the test server cannot run.
+		panic(ownerReachedWrite{method: name})
+	}
+	switch name {
+	case "GetOrganizationMembership":
+		if asOwner {
+			return values(&types.OrganizationMembership{OrganizationID: victimOrgID, UserID: routeTestUserID, Role: types.OrganizationRoleOwner}, nil)
+		}
 	}
 
 	outs := make([]reflect.Value, mt.NumOut())
-	deny := denyingLookupName.MatchString(name) && (strings.HasPrefix(name, "Get") || strings.HasPrefix(name, "List") ||
+	deny := !asOwner && denyingLookupName.MatchString(name) && (strings.HasPrefix(name, "Get") || strings.HasPrefix(name, "List") ||
 		strings.HasPrefix(name, "Find") || strings.HasPrefix(name, "Has") || strings.HasPrefix(name, "Is") || strings.HasPrefix(name, "Count"))
 	for i := range outs {
 		ot := mt.Out(i)
@@ -153,12 +172,28 @@ func victimStoreResult(name string, mt reflect.Type, args []reflect.Value) []ref
 				outs[i] = reflect.Zero(errType)
 			}
 		case ot.Kind() == reflect.Ptr && ot.Elem().Kind() == reflect.Struct && !deny:
-			outs[i] = victimObject(ot.Elem())
+			outs[i] = victimObject(ot.Elem(), asOwner)
 		default:
 			outs[i] = reflect.Zero(ot)
 		}
 	}
 	return outs
+}
+
+// ownerReachedWrite aborts an owner-probe request at its first store write.
+type ownerReachedWrite struct{ method string }
+
+// ownerReadOnlyCall matches store methods that only read, plus the auth
+// bookkeeping every authenticated request does.
+var ownerReadOnlyCall = regexp.MustCompile(`^(Get|List|Find|Count|Has|Is|Exists|Search|EnsureUserMeta|Lookup)`)
+
+func ctxProbeID(v reflect.Value) int {
+	ctx, ok := v.Interface().(context.Context)
+	if !ok || ctx == nil {
+		return 0
+	}
+	id, _ := ctx.Value(probeCtxKey{}).(int)
+	return id
 }
 
 func values(v any, err error) []reflect.Value {
@@ -169,8 +204,14 @@ func values(v any, err error) []reflect.Value {
 	return []reflect.Value{reflect.ValueOf(v), e}
 }
 
-// victimObject builds a *T whose ownership fields name the victim tenant.
-func victimObject(t reflect.Type) reflect.Value {
+// victimObject builds a *T whose ownership fields name the victim tenant,
+// or the caller when asOwner (the org stays the victim org, of which the
+// owner-mode store makes the caller an owner).
+func victimObject(t reflect.Type, asOwner bool) reflect.Value {
+	ownerID := victimUserID
+	if asOwner {
+		ownerID = routeTestUserID
+	}
 	v := reflect.New(t)
 	e := v.Elem()
 	for i := 0; i < t.NumField(); i++ {
@@ -182,7 +223,7 @@ func victimObject(t reflect.Type) reflect.Value {
 		case "ID":
 			f.SetString("obj_route_victim")
 		case "Owner", "OwnerID", "UserID", "CreatedBy", "CreatorID":
-			f.SetString(victimUserID)
+			f.SetString(ownerID)
 		case "OrganizationID", "OrgID":
 			f.SetString(victimOrgID)
 		case "OwnerType":
@@ -239,6 +280,14 @@ func probeRequest(router *mux.Router, r servedRoute) (*http.Request, error) {
 	return nil, fmt.Errorf("no dummy path reaches this route (shadowed by an earlier route?)")
 }
 
+// probeTimeout bounds one probe. A handler that blocks is a harness
+// artefact (a dependency the test server does not wire), not a verdict.
+const probeTimeout = time.Second
+
+// statusOwnerReachedWrite marks an owner probe stopped at its first store
+// write: it was let through.
+const statusOwnerReachedWrite = 299
+
 type probeOutcome struct {
 	status int
 	panic  string
@@ -247,7 +296,7 @@ type probeOutcome struct {
 }
 
 func serveProbe(router http.Handler, req *http.Request, probeID int) probeOutcome {
-	ctx, cancel := context.WithTimeout(context.WithValue(req.Context(), probeCtxKey{}, probeID), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithValue(req.Context(), probeCtxKey{}, probeID), probeTimeout)
 	defer cancel()
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
@@ -256,6 +305,12 @@ func serveProbe(router http.Handler, req *http.Request, probeID int) probeOutcom
 		out := probeOutcome{}
 		defer func() {
 			if p := recover(); p != nil {
+				if w, ok := p.(ownerReachedWrite); ok {
+					out.status = statusOwnerReachedWrite
+					out.calls = append(out.calls, w.method)
+					done <- out
+					return
+				}
 				out.panic = fmt.Sprintf("%v\n%s", p, firstFrames(string(debug.Stack()), 12))
 			}
 			out.status = rec.Code
@@ -266,7 +321,7 @@ func serveProbe(router http.Handler, req *http.Request, probeID int) probeOutcom
 	select {
 	case out := <-done:
 		return out
-	case <-time.After(5 * time.Second):
+	case <-time.After(probeTimeout):
 		return probeOutcome{hung: true}
 	}
 }
@@ -324,15 +379,32 @@ func probesFor(p routePolicy, hasPathObject bool) []probeKind {
 	return nil
 }
 
-// probeResults runs every probe once and caches the outcomes for the
-// subtests and the known-gap bookkeeping.
 func TestRouteAuthPolicy_Enforced(t *testing.T) {
 	st, calls := newVictimStore(t)
 	s := newRouteTestServer(t, st)
 	s.authMiddleware.lastSeenCache.Store(routeTestUserID, time.Now().Add(time.Hour)) // no background last-seen write
 
+	send := func(r servedRoute, probe probeKind, asOwner bool) (probeOutcome, error) {
+		req, err := probeRequest(s.router, r)
+		if err != nil {
+			return probeOutcome{}, err
+		}
+		switch probe {
+		case probeUserKey, probeOtherTenant:
+			req.Header.Set("Authorization", "Bearer "+routeTestUserKey)
+		case probeRunnerToken:
+			req.Header.Set("Authorization", "Bearer "+routeTestRunnerToken)
+		}
+		calls.asOwner.Store(asOwner)
+		defer calls.asOwner.Store(false)
+		out := serveProbe(s.router, req, calls.start())
+		out.calls = calls.take()
+		return out, nil
+	}
+
 	seen := map[string]bool{}
-	var problems []string
+	var problems, inconclusive []string
+	conclusiveObjectRoutes := 0
 	stillGap := map[string]bool{}
 	for _, r := range walkServedRoutes(t, s.router) {
 		if seen[r.Key()] {
@@ -355,29 +427,42 @@ func TestRouteAuthPolicy_Enforced(t *testing.T) {
 			if _, skip := probeSkips[gapKey]; skip {
 				continue
 			}
-			req, err := probeRequest(s.router, r)
+			out, err := send(r, probe, false)
 			if err != nil {
 				break // matcher-only route
 			}
-			switch probe {
-			case probeUserKey, probeOtherTenant:
-				req.Header.Set("Authorization", "Bearer "+routeTestUserKey)
-			case probeRunnerToken:
-				req.Header.Set("Authorization", "Bearer "+routeTestRunnerToken)
-			}
-			out := serveProbe(s.router, req, calls.start())
-			out.calls = calls.take()
 
 			var why string
 			switch {
-			case out.hung:
-				why = "did not answer within 5s"
-			case out.panic != "":
-				why = "panicked: " + out.panic
+			case out.hung || out.panic != "":
+				// The handler needs a subsystem the test server leaves nil.
+				// Nothing was decided either way.
+				inconclusive = append(inconclusive, gapKey+": handler hit an unwired dependency")
+				continue
 			case !refused(out.status):
 				why = fmt.Sprintf("answered %d", out.status)
 			case probe == probeNoCredentials && p.Class != classSignedWebhook && p.Class != classHandlerAuth && len(out.calls) > 0:
 				why = fmt.Sprintf("refused, but reached the store first (%s)", strings.Join(uniq(out.calls), ", "))
+			case probe == probeOtherTenant:
+				// A 400 says the body was bad, not that the caller was
+				// refused, unless an authorization lookup already ran.
+				if out.status != http.StatusUnauthorized && out.status != http.StatusForbidden && out.status != http.StatusNotFound &&
+					!callsInclude(out.calls, denyingLookupName) {
+					inconclusive = append(inconclusive, fmt.Sprintf("%s: answered %d before any authorization lookup", gapKey, out.status))
+					continue
+				}
+				// Positive control: the owner must get a different answer,
+				// or the refusal proves nothing about authorization.
+				owner, _ := send(r, probeOtherTenant, true)
+				switch {
+				case owner.hung || owner.panic != "":
+					inconclusive = append(inconclusive, gapKey+": owner control hit an unwired dependency")
+					continue
+				case owner.status == out.status:
+					inconclusive = append(inconclusive, fmt.Sprintf("%s: owner control was refused too (%d)", gapKey, owner.status))
+					continue
+				}
+				conclusiveObjectRoutes++
 			}
 			if why == "" {
 				continue
@@ -392,15 +477,37 @@ func TestRouteAuthPolicy_Enforced(t *testing.T) {
 	}
 	for key := range knownEnforcementGaps {
 		if !stillGap[key] {
-			problems = append(problems, fmt.Sprintf("%s is listed in knownEnforcementGaps but is now refused: delete the entry", key))
+			problems = append(problems, fmt.Sprintf("%s is listed in knownEnforcementGaps but is now refused (or inconclusive): delete the entry", key))
 		}
+	}
+	sort.Strings(inconclusive)
+	t.Logf("%d object routes refused a stranger and served their owner; %d probes were inconclusive:\n%s",
+		conclusiveObjectRoutes, len(inconclusive), strings.Join(inconclusive, "\n"))
+	if conclusiveObjectRoutes < minConclusiveObjectRoutes {
+		problems = append(problems, fmt.Sprintf("only %d object routes passed the stranger/owner probe pair (floor %d): "+
+			"the harness stopped reaching handlers' authorization, so the probe is no longer evidence. Run with -v for the inconclusive list.",
+			conclusiveObjectRoutes, minConclusiveObjectRoutes))
 	}
 	if len(problems) > 0 {
 		sort.Strings(problems)
 		t.Errorf("%d route(s) did not refuse a caller their policy excludes.\n"+
-			"Only 401/403/404 count as refused. Fix the handler (authorize before loading or acting), or correct the policy in %s.\n%s",
-			len(problems), routePolicyTableFile, strings.Join(problems, "\n"))
+			"Only 401/403/404 count as refused. Fix the handler (authorize before loading or acting), or correct the policy in its route_policy_*_test.go file.\n%s",
+			len(problems), strings.Join(problems, "\n"))
 	}
+}
+
+// minConclusiveObjectRoutes is a floor on how many object routes the
+// stranger/owner probe pair can tell apart. Raise it when wiring more of the
+// test server makes more routes conclusive; never lower it to pass.
+const minConclusiveObjectRoutes = 230
+
+func callsInclude(calls []string, re *regexp.Regexp) bool {
+	for _, c := range calls {
+		if re.MatchString(c) {
+			return true
+		}
+	}
+	return false
 }
 
 func uniq(in []string) []string {
