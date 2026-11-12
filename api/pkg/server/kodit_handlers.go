@@ -383,14 +383,20 @@ func fileEntriesToDTO(entries []services.KoditFileEntry, repoID string) []KoditF
 // Handler helpers
 // =============================================================================
 
-// ensureKoditRepoID checks if kodit_repo_id is set in the repository metadata.
-// If missing, it attempts to re-register the repository with Kodit and update the metadata.
+// ensureKoditRepoID loads the repository, authorizes the caller for action on
+// it, and checks that kodit_repo_id is set in its metadata. If missing, it
+// attempts to re-register the repository with Kodit and update the metadata.
 // Returns the kodit_repo_id (int64), the repository, and whether the operation succeeded.
-func (apiServer *HelixAPIServer) ensureKoditRepoID(w http.ResponseWriter, r *http.Request, repoID string) (int64, *types.GitRepository, bool) {
+func (apiServer *HelixAPIServer) ensureKoditRepoID(w http.ResponseWriter, r *http.Request, repoID string, action types.Action) (int64, *types.GitRepository, bool) {
 	repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
-		http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return 0, nil, false
+	}
+
+	if err := apiServer.authorizeUserToRepository(r.Context(), getRequestUser(r), repository, action); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return 0, nil, false
 	}
 
@@ -542,7 +548,7 @@ func (apiServer *HelixAPIServer) getRepositoryEnrichments(w http.ResponseWriter,
 	enrichmentType := r.URL.Query().Get("enrichment_type")
 	commitSHA := r.URL.Query().Get("commit_sha")
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -584,7 +590,7 @@ func (apiServer *HelixAPIServer) getEnrichment(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	_, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	_, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -631,7 +637,7 @@ func (apiServer *HelixAPIServer) getRepositoryKoditCommits(w http.ResponseWriter
 		limit = 500
 	}
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -685,7 +691,7 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 		limit = 100
 	}
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -723,7 +729,7 @@ func (apiServer *HelixAPIServer) getRepositoryIndexingStatus(w http.ResponseWrit
 		return
 	}
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -789,7 +795,7 @@ func (apiServer *HelixAPIServer) getRepositoryWikiTree(w http.ResponseWriter, r 
 		return
 	}
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -842,7 +848,7 @@ func (apiServer *HelixAPIServer) getRepositoryWikiPage(w http.ResponseWriter, r 
 		return
 	}
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -909,7 +915,7 @@ func (apiServer *HelixAPIServer) semanticSearchRepository(w http.ResponseWriter,
 
 	language := r.URL.Query().Get("language")
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -977,7 +983,7 @@ func (apiServer *HelixAPIServer) keywordSearchRepository(w http.ResponseWriter, 
 
 	language := r.URL.Query().Get("language")
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -1042,7 +1048,7 @@ func (apiServer *HelixAPIServer) visualSearchRepository(w http.ResponseWriter, r
 		limit = 100
 	}
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -1107,7 +1113,7 @@ func (apiServer *HelixAPIServer) pageImageRepository(w http.ResponseWriter, r *h
 		return
 	}
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -1165,7 +1171,7 @@ func (apiServer *HelixAPIServer) grepRepository(w http.ResponseWriter, r *http.R
 		limit = 200
 	}
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -1218,7 +1224,7 @@ func (apiServer *HelixAPIServer) listRepositoryFiles(w http.ResponseWriter, r *h
 		pattern = "**/*"
 	}
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -1284,7 +1290,7 @@ func (apiServer *HelixAPIServer) readRepositoryFile(w http.ResponseWriter, r *ht
 		}
 	}
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -1337,7 +1343,7 @@ func (apiServer *HelixAPIServer) rescanRepository(w http.ResponseWriter, r *http
 		return
 	}
 
-	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionUpdate)
 	if !ok {
 		return
 	}

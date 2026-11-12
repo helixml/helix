@@ -291,6 +291,10 @@ update handler checked the stored row and not the requested value.)
    - Register the route on the narrowest router that fits: `adminRouter`, then `authRouter`,
      then `runnerRouter`. Use `insecureRouter` only for routes that really are public, and
      say why in a comment.
+   - Declare every new route in `api/pkg/server/route_auth_policy_table_test.go` (class of
+     caller, and for object routes the authorize* helper the handler calls). The route
+     policy tests fail on an undeclared route, a class that doesn't match the router, a
+     handler that doesn't call its declared helper, or a probe the route fails to refuse.
    - Never re-implement token parsing in a handler.
    - Inactive, waitlisted and deleted accounts get no API access (`User.AccountAccessError`).
      Don't add a credential path that skips that check.
