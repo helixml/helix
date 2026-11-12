@@ -97,8 +97,8 @@ func init() {
 		"POST /api/v1/work-sessions/{sessionId}/zed-thread":                             object("authorizeUserToZedSpecTask"),
 		"GET /api/v1/sessions/{id}":                                                     handlerAuth("extractMiddleware; handler requires a user and authorizes the session").authz("authorizeUserToSession"),
 		"GET /api/v1/sessions/{id}/visualization":                                       handlerAuth("extractMiddleware (cookie for iframes); handler authorizes the session").authz("authorizeUserToSession"),
-		"ANY /api/v1/ws/external-agent-runner":                                          handlerAuth("runner token in the access_token query parameter"),
+		"ANY /api/v1/ws/external-agent-runner":                                          handlerAuth("runner token in the access_token query parameter; a per-runner token only for its own runnerid (authorizeRunnerIdentity)"),
 		"ANY /api/v1/ws/user":                                                           handlerAuth("session cookie or API key resolved in the handler; session ownership checked before subscribing"),
-		"ANY /api/v1/ws/runner":                                                         handlerAuth("runner token resolved in the handler"),
+		"ANY /api/v1/ws/runner":                                                         handlerAuth("runner token resolved in the handler; a per-runner token only for its own runnerid (authorizeRunnerIdentity)"),
 	})
 }
