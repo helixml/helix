@@ -1938,26 +1938,50 @@ func writeErrResponse(rw http.ResponseWriter, err error, statusCode int) {
 	})
 }
 
+// embeddingsSocketMode is the file mode of the embeddings socket. Requests on
+// the socket are not authenticated, so only the API server's own user and
+// group may connect; a client in another container must share that group.
+const embeddingsSocketMode = 0o660
+
+// listenEmbeddingsSocket replaces any stale socket file at socketPath and
+// listens on it with embeddingsSocketMode. The socket is bound inside a
+// private (0700) directory, given its final mode, and only then renamed into
+// place, so it is never reachable with wider permissions.
+func listenEmbeddingsSocket(socketPath string) (net.Listener, error) {
+	tmpDir, err := os.MkdirTemp(filepath.Dir(socketPath), ".embeddings-sock-")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create socket staging directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	tmpPath := filepath.Join(tmpDir, "s.sock")
+	listener, err := net.Listen("unix", tmpPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen on unix socket: %w", err)
+	}
+	// The listener's path changes with the rename below; a stale socket file
+	// is replaced on the next start.
+	listener.(*net.UnixListener).SetUnlinkOnClose(false)
+
+	if err := os.Chmod(tmpPath, embeddingsSocketMode); err != nil {
+		_ = listener.Close()
+		return nil, fmt.Errorf("failed to set socket permissions: %w", err)
+	}
+	// rename(2) atomically replaces a stale socket file at socketPath.
+	if err := os.Rename(tmpPath, socketPath); err != nil {
+		_ = listener.Close()
+		return nil, fmt.Errorf("failed to move socket into place: %w", err)
+	}
+	return listener, nil
+}
+
 // startEmbeddingsSocketServer starts a UNIX socket server that serves just the /v1/embeddings endpoint with no auth
 func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context) error {
 	socketPath := apiServer.Cfg.WebServer.EmbeddingsSocket
 
-	// Remove socket file if it already exists
-	if _, err := os.Stat(socketPath); err == nil {
-		if err := os.Remove(socketPath); err != nil {
-			return fmt.Errorf("failed to remove existing socket file: %w", err)
-		}
-	}
-
-	// Create socket listener
-	listener, err := net.Listen("unix", socketPath)
+	listener, err := listenEmbeddingsSocket(socketPath)
 	if err != nil {
-		return fmt.Errorf("failed to listen on unix socket: %w", err)
-	}
-
-	// Set socket permissions
-	if err := os.Chmod(socketPath, 0666); err != nil {
-		return fmt.Errorf("failed to set socket permissions: %w", err)
+		return err
 	}
 
 	// Create a new router for the socket server

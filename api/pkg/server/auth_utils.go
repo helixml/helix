@@ -189,6 +189,10 @@ func requestUserIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+// socketUserID is the identity of unix-socket requests when no
+// HELIX_EMBEDDINGS_SOCKET_USER_ID is configured.
+const socketUserID = "socket"
+
 func getRequestUser(req *http.Request) *types.User {
 	// First check if user was set in context (e.g., by socket middleware)
 	userIntf := req.Context().Value(userKey)
@@ -197,15 +201,12 @@ func getRequestUser(req *http.Request) *types.User {
 		return &user
 	}
 
-	// Check if this is a socket request by looking at the underlying connection type
+	// Requests on the embeddings unix socket carry no credentials. Unless the
+	// socket middleware set a configured user above, they run as the fixed
+	// socket identity; nothing in the request selects the identity.
 	if h, ok := req.Context().Value(http.LocalAddrContextKey).(*net.UnixAddr); ok && h != nil {
-		// Socket requests are trusted - get user ID from header
-		userID := req.Header.Get("X-Helix-User-ID")
-		if userID == "" {
-			userID = "socket"
-		}
 		return &types.User{
-			ID:        userID,
+			ID:        socketUserID,
 			Type:      types.OwnerTypeSocket,
 			TokenType: types.TokenTypeSocket,
 		}

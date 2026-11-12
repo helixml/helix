@@ -675,6 +675,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// JS processors' http.* calls follow the same outbound policy as
 	// user-configured tools.
 	processor.SetJSHTTPPolicy(netguard.Policy{AllowPrivate: cfg.APIServer.Cfg.Tools.AllowPrivateNetworks})
+	processor.SetJSRunTimeout(cfg.APIServer.Cfg.Organizations.JSProcessorTimeout)
 
 	// Convert the retired Topic model into Triggers, Processor inputs and
 	// Worker attachments. Runs once per boot before anything reads the
