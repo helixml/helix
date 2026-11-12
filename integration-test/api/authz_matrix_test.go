@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	authpkg "github.com/helixml/helix/api/pkg/auth"
 )
 
 // The authorization matrix drives every row of the route tables below as
@@ -27,7 +29,10 @@ const (
 	// Organization A.
 	aOwner       actor = "a-owner"         // personal API key of A's owner
 	aOwnerOrgKey actor = "a-owner-org-key" // org API key minted by A's owner for org A
-	aMember      actor = "a-member"        // personal key of a non-admin member of A
+	// aOwnerBrowser is A's owner signed in to the web app: only the BFF
+	// session cookie, no API key.
+	aOwnerBrowser actor = "a-owner-browser"
+	aMember       actor = "a-member" // personal key of a non-admin member of A
 	// projKey is a spec-task session key as minted for a sandbox agent: A's
 	// owner, scoped to project projA, session sessA and spec task taskA.
 	projKey actor = "a-project-key"
@@ -201,7 +206,9 @@ func (f *authzFixture) do(t *testing.T, who actor, method, path string, body []b
 		req.Header.Set("Content-Type", "application/json")
 	}
 	_, basic := header[basicAuthHeader]
-	if who != anonymous {
+	if who == aOwnerBrowser {
+		req.AddCookie(&http.Cookie{Name: authpkg.SessionCookieName, Value: f.keys[who]})
+	} else if who != anonymous {
 		key, ok := f.keys[who]
 		if !ok {
 			t.Fatalf("fixture has no credential for actor %s", who)

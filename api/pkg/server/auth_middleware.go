@@ -456,7 +456,20 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 
 func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user, err := auth.getUserFromToken(r.Context(), getRequestToken(r))
+		// A browser signed in to Helix holds only the BFF session cookie (the
+		// model picker reads /v1/models that way). These routes sit outside
+		// the /api/v1 CSRF middleware, so the cookie is honoured for safe
+		// methods only; a request naming its own API key uses that key.
+		var user *types.User
+		var err error
+		if auth.sessionManager != nil && isSafeMethod(r.Method) && !namesOwnAPIKey(r) {
+			if sessionUser, sessionErr := auth.getUserFromSession(r.Context(), r); sessionErr == nil && sessionUser != nil {
+				user = sessionUser
+			}
+		}
+		if user == nil {
+			user, err = auth.getUserFromToken(r.Context(), getRequestToken(r))
+		}
 		if err != nil {
 			// Check if error is due to server not ready vs invalid token
 			// Return 503 for server errors so frontend doesn't auto-logout during API restart
@@ -577,4 +590,8 @@ func (auth *authMiddleware) csrfMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isSafeMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
 }

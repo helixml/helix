@@ -1122,8 +1122,9 @@ func llmProxyRoutes() []route {
 			Expect: expect{aOwner: reached, waitlisted: deny, anonymous: deny},
 		},
 		{
+			// The web app's model picker sends only the session cookie.
 			Method: http.MethodGet, Path: "/v1/models",
-			Expect: expect{aOwner: allow, waitlisted: deny, anonymous: deny},
+			Expect: expect{aOwner: allow, aOwnerBrowser: allow, waitlisted: deny, anonymous: deny},
 		},
 		{
 			Method: http.MethodPost, Path: "/v1/responses", Body: chat,

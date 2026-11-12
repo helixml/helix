@@ -110,6 +110,43 @@ func TestDirectAPIAuthRejectsAnonymousRequest(t *testing.T) {
 	}
 }
 
+// The browser model picker reads /v1/models with only the BFF session
+// cookie. The cookie authenticates safe methods; a cookie-only POST (no CSRF
+// check on these routes) does not.
+func TestDirectAPIAuthAcceptsSessionCookieForSafeMethods(t *testing.T) {
+	for _, tc := range []struct {
+		method     string
+		wantStatus int
+	}{
+		{http.MethodGet, http.StatusNoContent},
+		{http.MethodPost, http.StatusUnauthorized},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			user := &types.User{ID: "user-123"}
+			if tc.method == http.MethodGet {
+				mockStore.EXPECT().GetUserSession(gomock.Any(), "session-123").Return(&types.UserSession{
+					ID: "session-123", UserID: user.ID, ExpiresAt: time.Now().Add(time.Hour), LastUsedAt: time.Now(),
+				}, nil)
+				mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(user, nil).AnyTimes()
+			}
+			auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{adminUserIDs: []string{"nobody"}}, nil,
+				authpkg.NewSessionManager(mockStore, nil, nil))
+			auth.lastSeenCache.Store(user.ID, time.Now())
+			request := httptest.NewRequest(tc.method, "/v1/models", nil)
+			request.AddCookie(&http.Cookie{Name: authpkg.SessionCookieName, Value: "session-123"})
+			response := httptest.NewRecorder()
+
+			auth.auth(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})(response, request)
+
+			assert.Equal(t, tc.wantStatus, response.Code)
+		})
+	}
+}
+
 // A CORS preflight carries no credential; the handler answers it.
 func TestDirectAPIAuthPassesPreflightToHandler(t *testing.T) {
 	ctrl := gomock.NewController(t)

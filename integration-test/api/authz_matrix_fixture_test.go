@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/auth"
@@ -167,6 +168,7 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 		SessionID: f.vars["sessChat"],
 	})
 	f.keys[appKey] = f.createAppKey(t, f.vars["appA"])
+	f.keys[aOwnerBrowser] = f.createBrowserSession(t)
 	// A helix-org worker's key: its session names the bot it runs as.
 	f.vars["sessWorker"] = f.createWorkerSession(t, orgA.ID, "chief-of-staff")
 	f.keys[workerKey] = f.createScopedKey(t, &types.ApiKey{
@@ -543,4 +545,22 @@ func (f *authzFixture) setTaskStatus(t *testing.T, id string, status types.SpecT
 	if err := f.db.UpdateSpecTask(f.ctx, task); err != nil {
 		t.Fatalf("update task: %v", err)
 	}
+}
+
+// createBrowserSession stores a web-app sign-in for aOwner; its id is the
+// value of the helix_session cookie.
+func (f *authzFixture) createBrowserSession(t *testing.T) string {
+	t.Helper()
+	session, err := f.db.CreateUserSession(f.ctx, &types.UserSession{
+		ID:           "authz-" + uuid.NewString(),
+		UserID:       f.users[aOwner].ID,
+		AuthProvider: types.AuthProviderRegular,
+		ExpiresAt:    time.Now().Add(time.Hour),
+		LastUsedAt:   time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("create browser session: %v", err)
+	}
+	t.Cleanup(func() { _ = f.db.DeleteUserSession(context.Background(), session.ID) })
+	return session.ID
 }
