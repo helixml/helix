@@ -68,7 +68,9 @@ restore.
    docker compose exec -T postgres psql -U postgres -q -f - < postgres12-backup.sql
    ```
 
-   `ERROR: role "postgres" already exists` is expected. Any other error means
+   `ERROR: role "postgres" already exists` is expected and harmless: the dump
+   starts by creating the `postgres` role, which the new server already
+   created at initialisation with your current password. Any other error means
    the restore is incomplete: roll back (below) and investigate before
    retrying.
 

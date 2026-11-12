@@ -1203,3 +1203,15 @@ func (s *ProvisionSuite) TestEnvMapJSONRoundTrip() {
 	s.Require().NoError(json.Unmarshal(b, &out))
 	s.Require().Equal(in, out)
 }
+
+// The creator's env reaches the container, but HELIX_* variables are the
+// platform's: a creator cannot point the container at another session or API.
+func TestCreatorEnvDropsPlatformVariables(t *testing.T) {
+	env := creatorEnv([]byte(`{"FOO":"bar","HELIX_SESSION_ID":"ses_other","helix_api_url":"http://evil","HELIXFOO":"kept"}`))
+	if len(env) != 2 || env["FOO"] != "bar" || env["HELIXFOO"] != "kept" {
+		t.Fatalf("unexpected env: %v", env)
+	}
+	if got := creatorEnv([]byte("null")); got == nil || len(got) != 0 {
+		t.Fatalf("null env: %v", got)
+	}
+}

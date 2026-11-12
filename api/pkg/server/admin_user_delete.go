@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	stripeapi "github.com/stripe/stripe-go/v76"
 )
 
 // deleteUserAccount removes a user and everything that belongs to the user
@@ -18,13 +19,17 @@ import (
 //  1. Refuse, before changing anything, when the user is the only owner of an
 //     organization that has other members: deleting them would leave that
 //     organization without an owner. An admin transfers ownership first.
-//  2. Revoke every API key, so the account stops authenticating immediately
+//  2. Cancel any live Stripe subscription on the user's wallet and on the
+//     wallets of organizations deleted with the user, so nobody is billed for
+//     an account that no longer exists. A failed cancellation aborts.
+//  3. Revoke every API key, so the account stops authenticating immediately
 //     even if a later teardown step fails.
-//  3. Tear down personal runtime state the database transaction cannot reach:
-//     personal chat sessions and desktops, personal projects (tasks, web
-//     services, artifacts), personal repositories, organizations the user is
-//     the only member of, and the user's and their personal agents' files.
-//  4. Delete the remaining rows in one transaction (store.DeleteUser).
+//  4. Tear down personal runtime state the database transaction cannot reach:
+//     personal chat sessions and desktops, the user's Sandboxes-API
+//     sandboxes, personal projects (tasks, web services, artifacts), personal
+//     repositories, organizations the user is the only member of, and the
+//     user's and their personal agents' files.
+//  5. Delete the remaining rows in one transaction (store.DeleteUser).
 //
 // Resources owned by an organization the user still shares with others are
 // kept; removing the user's memberships and grants revokes their access.
@@ -34,12 +39,20 @@ func (apiServer *HelixAPIServer) deleteUserAccount(ctx context.Context, user *ty
 		return httpErr
 	}
 
+	if httpErr := apiServer.cancelAccountSubscriptions(ctx, user.ID, soleMemberOrgs); httpErr != nil {
+		return httpErr
+	}
+
 	if err := apiServer.Store.RevokeUserAPIKeys(ctx, user.ID); err != nil {
 		return system.NewHTTPError500("failed to revoke API keys: " + err.Error())
 	}
 
 	if err := apiServer.deletePersonalSessions(ctx, user.ID); err != nil {
 		return system.NewHTTPError500(err.Error())
+	}
+
+	if err := apiServer.deleteSandboxes(ctx, &store.ListSandboxesQuery{Owner: user.ID}); err != nil {
+		return system.NewHTTPError500("failed to delete the user's sandboxes: " + err.Error())
 	}
 
 	projects, err := apiServer.Store.ListProjects(ctx, &store.ListProjectsQuery{UserID: user.ID})
@@ -79,6 +92,55 @@ func (apiServer *HelixAPIServer) deleteUserAccount(ctx context.Context, user *ty
 		return system.NewHTTPError500("failed to delete user: " + err.Error())
 	}
 	return nil
+}
+
+// cancelAccountSubscriptions cancels the live Stripe subscriptions of the
+// user's wallet and of the wallets of orgIDs.
+func (apiServer *HelixAPIServer) cancelAccountSubscriptions(ctx context.Context, userID string, orgIDs []string) *system.HTTPError {
+	var wallets []*types.Wallet
+	wallet, err := apiServer.Store.GetWalletByUser(ctx, userID)
+	switch {
+	case err == nil:
+		wallets = append(wallets, wallet)
+	case !errors.Is(err, store.ErrNotFound):
+		return system.NewHTTPError500("failed to get user wallet: " + err.Error())
+	}
+	for _, orgID := range orgIDs {
+		wallet, err := apiServer.Store.GetWalletByOrg(ctx, orgID)
+		switch {
+		case err == nil:
+			wallets = append(wallets, wallet)
+		case !errors.Is(err, store.ErrNotFound):
+			return system.NewHTTPError500(fmt.Sprintf("failed to get wallet of organization %s: %s", orgID, err))
+		}
+	}
+	for _, wallet := range wallets {
+		if !walletHasLiveSubscription(wallet) {
+			continue
+		}
+		if apiServer.Stripe == nil {
+			return system.NewHTTPError500(fmt.Sprintf("wallet %s has subscription %s but Stripe is not configured", wallet.ID, wallet.StripeSubscriptionID))
+		}
+		if err := apiServer.Stripe.CancelSubscription(ctx, wallet.StripeSubscriptionID); err != nil {
+			return system.NewHTTPError500(fmt.Sprintf("failed to cancel subscription %s of wallet %s: %s", wallet.StripeSubscriptionID, wallet.ID, err))
+		}
+		log.Info().Str("user_id", userID).Str("wallet_id", wallet.ID).Str("subscription_id", wallet.StripeSubscriptionID).
+			Msg("canceled subscription of deleted account")
+	}
+	return nil
+}
+
+// walletHasLiveSubscription reports whether the wallet records a Stripe
+// subscription that can still bill.
+func walletHasLiveSubscription(wallet *types.Wallet) bool {
+	if wallet.StripeSubscriptionID == "" {
+		return false
+	}
+	switch wallet.SubscriptionStatus {
+	case "", stripeapi.SubscriptionStatusCanceled, stripeapi.SubscriptionStatusIncompleteExpired:
+		return false
+	}
+	return true
 }
 
 // userOrganizationsToDelete returns the organizations the user is the only

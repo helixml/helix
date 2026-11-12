@@ -480,7 +480,7 @@ func (apiServer *HelixAPIServer) adminRevokeTrial(_ http.ResponseWriter, req *ht
 
 	cancelledOrgID := ""
 	if selectedWallet != nil {
-		if err := apiServer.Stripe.CancelTrialSubscription(ctx, selectedWallet.StripeSubscriptionID); err != nil {
+		if err := apiServer.Stripe.CancelSubscription(ctx, selectedWallet.StripeSubscriptionID); err != nil {
 			return nil, system.NewHTTPError500("failed to cancel stripe subscription: " + err.Error())
 		}
 		// Mirror the cancellation onto the wallet synchronously so the admin UI

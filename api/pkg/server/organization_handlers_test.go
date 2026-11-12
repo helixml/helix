@@ -258,6 +258,7 @@ func TestDeleteOrganization_DeletesRepositoriesBeforeOrganization(t *testing.T) 
 		Store:                mockStore,
 		gitRepositoryService: gitRepositoryService,
 		webServiceController: webservice.New(mockStore, sandbox.New(mockStore, nil, nil, "", "")),
+		sandboxController:    sandbox.New(mockStore, nil, nil, "", ""),
 	}
 
 	orgID := "org_123"
@@ -295,6 +296,8 @@ func TestDeleteOrganization_DeletesRepositoriesBeforeOrganization(t *testing.T) 
 		}).Return([]*types.Session{}, int64(0), nil),
 		mockStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{OrganizationID: orgID}).
 			Return([]*types.Project{}, nil),
+		mockStore.EXPECT().ListSandboxes(gomock.Any(), &store.ListSandboxesQuery{OrganizationID: orgID}).
+			Return([]*types.Sandbox{}, nil),
 		mockStore.EXPECT().ListArtifacts(gomock.Any(), &store.ListArtifactsQuery{
 			OrganizationID: orgID,
 		}).Return([]*types.Artifact{}, nil),
@@ -320,6 +323,7 @@ func orgDeleteServer(t *testing.T, mockStore *store.MockStore) *HelixAPIServer {
 		gitRepositoryService: services.NewGitRepositoryService(
 			mockStore, t.TempDir(), "http://localhost:8080", "test", "test@example.com"),
 		webServiceController: webservice.New(mockStore, sandbox.New(mockStore, nil, nil, "", "")),
+		sandboxController:    sandbox.New(mockStore, nil, nil, "", ""),
 	}
 }
 
@@ -368,6 +372,11 @@ func TestDeleteOrganization_TearsDownProjectWebServices(t *testing.T) {
 				return nil
 			}),
 		mockStore.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_plain").Return(nil, store.ErrNotFound),
+		// Sandboxes-API sandboxes go too; a session-backed row is left to its
+		// desktop's teardown.
+		mockStore.EXPECT().ListSandboxes(gomock.Any(), &store.ListSandboxesQuery{OrganizationID: orgID}).
+			Return([]*types.Sandbox{{ID: "sbx_api"}, {ID: "sbx_desktop", SessionID: "ses_desktop"}}, nil),
+		mockStore.EXPECT().GetSandbox(gomock.Any(), "sbx_api").Return(nil, store.ErrNotFound),
 		mockStore.EXPECT().ListArtifacts(gomock.Any(), &store.ListArtifactsQuery{OrganizationID: orgID}).
 			Return([]*types.Artifact{}, nil),
 		mockStore.EXPECT().DeleteOrganization(gomock.Any(), orgID).Return(nil),

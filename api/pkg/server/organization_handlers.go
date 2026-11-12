@@ -483,6 +483,10 @@ func (apiServer *HelixAPIServer) purgeOrganization(ctx context.Context, orgID st
 		return fmt.Errorf("tear down organization web services: %w", err)
 	}
 
+	if err := apiServer.deleteSandboxes(ctx, &store.ListSandboxesQuery{OrganizationID: orgID}); err != nil {
+		return fmt.Errorf("delete organization sandboxes: %w", err)
+	}
+
 	// Public artifacts remain independently addressable, so deleting only the
 	// project rows would orphan live content. Remove every artifact route and
 	// blob owned by the organization before deleting its database graph.
@@ -498,6 +502,25 @@ func (apiServer *HelixAPIServer) purgeOrganization(ctx context.Context, orgID st
 
 	if err := apiServer.Store.DeleteOrganization(ctx, orgID); err != nil {
 		return fmt.Errorf("delete organization rows: %w", err)
+	}
+	return nil
+}
+
+// deleteSandboxes deletes the Sandboxes-API sandboxes matching q: container,
+// workspace and row, with final billing. Session-backed rows belong to desktops
+// whose sessions are torn down separately (stopOrgDesktops, purgeProject).
+func (apiServer *HelixAPIServer) deleteSandboxes(ctx context.Context, q *store.ListSandboxesQuery) error {
+	sandboxes, err := apiServer.Store.ListSandboxes(ctx, q)
+	if err != nil {
+		return fmt.Errorf("list sandboxes: %w", err)
+	}
+	for _, sandbox := range sandboxes {
+		if sandbox.SessionBacked() {
+			continue
+		}
+		if err := apiServer.sandboxController.Delete(ctx, sandbox.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("delete sandbox %s: %w", sandbox.ID, err)
+		}
 	}
 	return nil
 }
@@ -533,7 +556,8 @@ func (apiServer *HelixAPIServer) stopOrgDesktops(ctx context.Context, orgID stri
 		if session.Metadata.DevContainerID == "" {
 			continue
 		}
-		if err := apiServer.externalAgentExecutor.StopDesktop(ctx, session.ID); err != nil {
+		// A desktop whose sandbox host is gone has nothing left to stop.
+		if err := apiServer.externalAgentExecutor.StopDesktop(ctx, session.ID); err != nil && !sandboxHostGone(err, session.ID) {
 			return fmt.Errorf("stop desktop %s: %w", session.ID, err)
 		}
 		if _, err := apiServer.Store.DeleteSession(ctx, session.ID); err != nil {

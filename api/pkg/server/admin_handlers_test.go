@@ -401,10 +401,12 @@ func expectEmptyUserPurge(mockStore *store.MockStore, userID string) {
 	gomock.InOrder(
 		mockStore.EXPECT().ListOrganizationMemberships(gomock.Any(), &store.ListOrganizationMembershipsQuery{UserID: userID}).
 			Return(nil, nil),
+		mockStore.EXPECT().GetWalletByUser(gomock.Any(), userID).Return(nil, store.ErrNotFound),
 		mockStore.EXPECT().RevokeUserAPIKeys(gomock.Any(), userID).Return(nil),
 		mockStore.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
 			Owner: userID, OwnerType: types.OwnerTypeUser, IncludeExternalAgents: true,
 		}).Return(nil, int64(0), nil),
+		mockStore.EXPECT().ListSandboxes(gomock.Any(), &store.ListSandboxesQuery{Owner: userID}).Return(nil, nil),
 		mockStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{UserID: userID}).Return(nil, nil),
 		mockStore.EXPECT().ListGitRepositories(gomock.Any(), &types.ListGitRepositoriesRequest{OwnerID: userID}).Return(nil, nil),
 		mockStore.EXPECT().ListApps(gomock.Any(), &store.ListAppsQuery{Owner: userID, OwnerType: types.OwnerTypeUser}).Return(nil, nil),

@@ -195,8 +195,13 @@ func (s *PostgresStore) UpdateUser(ctx context.Context, user *types.User) (*type
 
 // DeleteUser deletes a user by ID
 // RevokeUserAPIKeys deletes every API key the user owns, including org-,
-// project- and session-scoped keys. Authentication looks keys up on every
-// request, so they stop working as soon as this returns.
+// project- and session-scoped keys, and keys the user created for an
+// organization's agent. Those last ones are deleted rather than kept because
+// a key always authenticates as its owner, and authentication refuses a key
+// whose owner is gone: kept, they would be dead credentials that look live in
+// the agent's key list. The agent itself is kept; an org member mints a new
+// key. Authentication looks keys up on every request, so they stop working as
+// soon as this returns.
 func (s *PostgresStore) RevokeUserAPIKeys(ctx context.Context, userID string) error {
 	if userID == "" {
 		return fmt.Errorf("userID cannot be empty")

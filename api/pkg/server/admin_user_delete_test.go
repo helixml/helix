@@ -1,10 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -14,10 +17,13 @@ import (
 	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
+	helixstripe "github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/webservice"
 	"github.com/stretchr/testify/require"
+	stripeapi "github.com/stripe/stripe-go/v76"
+	"github.com/stripe/stripe-go/v76/form"
 	"go.uber.org/mock/gomock"
 )
 
@@ -90,6 +96,13 @@ func TestAdminDeleteUser_RevokesAccessAndRemovesPersonalDataIntegration(t *testi
 	sharedProject, err := st.CreateProject(ctx, &types.Project{ID: "prj_s_" + suffix, Name: "s-" + suffix, UserID: userID, OrganizationID: sharedOrg})
 	require.NoError(t, err)
 
+	userSandbox, err := st.CreateSandbox(ctx, &types.Sandbox{
+		ID: "sbx_del_" + suffix, OrganizationID: sharedOrg, Owner: userID, Runtime: types.SandboxRuntimeHeadlessUbuntu,
+	})
+	require.NoError(t, err)
+	_, err = st.CreateWallet(ctx, &types.Wallet{UserID: userID})
+	require.NoError(t, err)
+
 	personalKey := "hl-del-" + suffix
 	orgKey := "hl-del-org-" + suffix
 	for _, key := range []*types.ApiKey{
@@ -114,6 +127,7 @@ func TestAdminDeleteUser_RevokesAccessAndRemovesPersonalDataIntegration(t *testi
 		Store:                st,
 		gitRepositoryService: services.NewGitRepositoryService(st, t.TempDir(), "http://localhost:8080", "test", "test@example.com"),
 		webServiceController: webservice.New(st, sandbox.New(st, nil, nil, "", "")),
+		sandboxController:    sandbox.New(st, nil, nil, "", ""),
 		Controller: &controller.Controller{Options: controller.Options{
 			Config:    &config.ServerConfig{},
 			Filestore: filestore.NewFileSystemStorage(filestoreDir, "http://localhost:8080/files", "secret"),
@@ -136,6 +150,8 @@ func TestAdminDeleteUser_RevokesAccessAndRemovesPersonalDataIntegration(t *testi
 	require.ErrorIs(t, err, store.ErrNotFound)
 	_, err = st.GetOrganization(ctx, &store.GetOrganizationQuery{ID: soloOrg})
 	require.ErrorIs(t, err, store.ErrNotFound)
+	_, err = st.GetSandbox(ctx, userSandbox.ID)
+	require.ErrorIs(t, err, store.ErrNotFound, "the user's sandbox must be deleted")
 	_, err = os.Stat(filestoreDir + "/users/" + userID)
 	require.True(t, os.IsNotExist(err), "user files must be removed")
 
@@ -160,6 +176,7 @@ func TestAdminDeleteUser_RevokesKeysBeforeTeardown(t *testing.T) {
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "usr_1"}).Return(&types.User{ID: "usr_1"}, nil)
 	gomock.InOrder(
 		mockStore.EXPECT().ListOrganizationMemberships(gomock.Any(), &store.ListOrganizationMembershipsQuery{UserID: "usr_1"}).Return(nil, nil),
+		mockStore.EXPECT().GetWalletByUser(gomock.Any(), "usr_1").Return(&types.Wallet{ID: "wal_1"}, nil),
 		mockStore.EXPECT().RevokeUserAPIKeys(gomock.Any(), "usr_1").Return(nil),
 		mockStore.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return(nil, int64(0), context.DeadlineExceeded),
 	)
@@ -168,4 +185,88 @@ func TestAdminDeleteUser_RevokesKeysBeforeTeardown(t *testing.T) {
 	httpErr, ok := err.(*system.HTTPError)
 	require.True(t, ok, "%v", err)
 	require.Equal(t, http.StatusInternalServerError, httpErr.StatusCode)
+}
+
+// cancelRecordingStripeBackend records subscription cancellations and fails
+// the one named by failID.
+type cancelRecordingStripeBackend struct {
+	canceled []string
+	failID   string
+}
+
+func (b *cancelRecordingStripeBackend) Call(method, path, _ string, _ stripeapi.ParamsContainer, _ stripeapi.LastResponseSetter) error {
+	id, ok := strings.CutPrefix(path, "/v1/subscriptions/")
+	if method != http.MethodDelete || !ok {
+		return fmt.Errorf("unexpected call: %s %s", method, path)
+	}
+	if id == b.failID {
+		return fmt.Errorf("stripe unavailable")
+	}
+	b.canceled = append(b.canceled, id)
+	return nil
+}
+func (*cancelRecordingStripeBackend) CallStreaming(string, string, string, stripeapi.ParamsContainer, stripeapi.StreamingLastResponseSetter) error {
+	return fmt.Errorf("unexpected streaming call")
+}
+func (*cancelRecordingStripeBackend) CallRaw(string, string, string, *form.Values, *stripeapi.Params, stripeapi.LastResponseSetter) error {
+	return fmt.Errorf("unexpected raw call")
+}
+func (*cancelRecordingStripeBackend) CallMultipart(string, string, string, string, *bytes.Buffer, *stripeapi.Params, stripeapi.LastResponseSetter) error {
+	return fmt.Errorf("unexpected multipart call")
+}
+func (*cancelRecordingStripeBackend) SetMaxNetworkRetries(int64) {}
+
+// The user's live subscriptions, and those of organizations deleted with
+// them, are cancelled before anything else changes; a failed cancellation
+// aborts the delete with the account untouched.
+func TestAdminDeleteUser_CancelsSubscriptionsFirst(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		failID   string
+		canceled []string
+	}{
+		{"all cancelled, delete proceeds", "", []string{"sub_user", "sub_org"}},
+		{"org cancellation fails, delete aborts", "sub_org", []string{"sub_user"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &cancelRecordingStripeBackend{failID: tc.failID}
+			original := stripeapi.GetBackend(stripeapi.APIBackend)
+			stripeapi.SetBackend(stripeapi.APIBackend, backend)
+			t.Cleanup(func() { stripeapi.SetBackend(stripeapi.APIBackend, original) })
+
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			stripeCfg := config.Stripe{SecretKey: "sk_test", WebhookSigningSecret: "whsec_test"}
+			server := &HelixAPIServer{Store: mockStore, Stripe: helixstripe.NewStripe(stripeCfg, mockStore)}
+
+			mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "usr_1"}).Return(&types.User{ID: "usr_1"}, nil)
+			mockStore.EXPECT().ListOrganizationMemberships(gomock.Any(), &store.ListOrganizationMembershipsQuery{UserID: "usr_1"}).
+				Return([]*types.OrganizationMembership{{OrganizationID: "org_solo", UserID: "usr_1", Role: types.OrganizationRoleOwner}}, nil)
+			mockStore.EXPECT().ListOrganizationMemberships(gomock.Any(), &store.ListOrganizationMembershipsQuery{OrganizationID: "org_solo"}).
+				Return([]*types.OrganizationMembership{{OrganizationID: "org_solo", UserID: "usr_1", Role: types.OrganizationRoleOwner}}, nil)
+			mockStore.EXPECT().GetWalletByUser(gomock.Any(), "usr_1").Return(&types.Wallet{
+				ID: "wal_user", StripeSubscriptionID: "sub_user", SubscriptionStatus: stripeapi.SubscriptionStatusPastDue,
+			}, nil)
+			mockStore.EXPECT().GetWalletByOrg(gomock.Any(), "org_solo").Return(&types.Wallet{
+				ID: "wal_org", StripeSubscriptionID: "sub_org", SubscriptionStatus: stripeapi.SubscriptionStatusTrialing,
+			}, nil)
+			if tc.failID == "" {
+				// Stop right after the cancellations; the rest is covered elsewhere.
+				mockStore.EXPECT().RevokeUserAPIKeys(gomock.Any(), "usr_1").Return(context.DeadlineExceeded)
+			}
+
+			_, err := server.adminDeleteUser(httptest.NewRecorder(), adminDeleteUserRequest("usr_1"))
+			require.Error(t, err)
+			require.Equal(t, tc.canceled, backend.canceled)
+		})
+	}
+}
+
+// A canceled or never-started subscription is not touched.
+func TestWalletHasLiveSubscription(t *testing.T) {
+	require.False(t, walletHasLiveSubscription(&types.Wallet{}))
+	require.False(t, walletHasLiveSubscription(&types.Wallet{StripeSubscriptionID: "sub", SubscriptionStatus: stripeapi.SubscriptionStatusCanceled}))
+	require.False(t, walletHasLiveSubscription(&types.Wallet{StripeSubscriptionID: "sub", SubscriptionStatus: stripeapi.SubscriptionStatusIncompleteExpired}))
+	require.True(t, walletHasLiveSubscription(&types.Wallet{StripeSubscriptionID: "sub", SubscriptionStatus: stripeapi.SubscriptionStatusActive}))
+	require.True(t, walletHasLiveSubscription(&types.Wallet{StripeSubscriptionID: "sub", SubscriptionStatus: stripeapi.SubscriptionStatusUnpaid}))
 }

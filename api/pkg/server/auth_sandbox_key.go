@@ -20,11 +20,14 @@ import (
 // project is confined here, by route, to what the container itself needs:
 //
 //   - the LLM proxy;
-//   - its own sandbox and session plumbing (/api/v1/sandboxes/{id}/...,
-//     /api/v1/sessions/{id}/..., the user websocket for its id);
-//   - the desktop bridge's RevDial tunnel for its id;
-//   - the session-bound MCP backends (session, desktop, visualization) for its
-//     id.
+//   - reading its own sandbox and using its files, commands, screenshot and
+//     terminal (/api/v1/organizations/{key org}/sandboxes/{id}/...); it may
+//     not update or delete itself, and it never sees another sandbox;
+//   - its own session plumbing (/api/v1/sessions/{id}/..., the user websocket
+//     for its id) and the desktop bridge's RevDial tunnel for its id;
+//   - the desktop and visualization MCP backends, with session_id naming its
+//     own id. The session MCP backend is refused: its tools take a
+//     session_id argument that would reach the owner's other sessions.
 //
 // It has no repositories of its own, so git is refused (GitHTTPServer).
 // FAIL CLOSED: anything not matched is denied and logged.
@@ -52,11 +55,25 @@ var sandboxKeyLLMPaths = map[string]string{
 }
 
 // sandboxKeyMCPBackends are the MCP gateway backends that act only on the
-// session (here: the sandbox) named by the request.
+// session (here: the sandbox) named by the request's session_id.
 var sandboxKeyMCPBackends = map[string]bool{
-	"session":                     true,
 	"desktop":                     true,
 	types.MCPBackendVisualization: true,
+}
+
+// sandboxKeyOwnSandboxRoutes are the sub-routes of
+// /organizations/{org}/sandboxes/{id} a sandbox may call on itself, by method.
+// The sandbox row itself is read-only to its own key: PATCH and DELETE stay
+// with people.
+var sandboxKeyOwnSandboxRoutes = []struct {
+	prefix  string
+	methods []string
+}{
+	{"", []string{http.MethodGet}},
+	{"/files", []string{http.MethodGet, http.MethodPut, http.MethodDelete}},
+	{"/commands", []string{http.MethodGet, http.MethodPost}},
+	{"/screenshot", []string{http.MethodGet}},
+	{"/terminal", []string{http.MethodGet}},
 }
 
 // sandboxKeyAllows reports whether a non-project sandbox key may make this
@@ -66,7 +83,7 @@ func sandboxKeyAllows(user *types.User, r *http.Request) bool {
 	if sandboxID == "" {
 		return true
 	}
-	if sandboxKeyAllowsPath(sandboxID, r) {
+	if sandboxKeyAllowsPath(sandboxID, user.OrganizationID, r) {
 		return true
 	}
 	log.Warn().
@@ -77,7 +94,7 @@ func sandboxKeyAllows(user *types.User, r *http.Request) bool {
 	return false
 }
 
-func sandboxKeyAllowsPath(sandboxID string, r *http.Request) bool {
+func sandboxKeyAllowsPath(sandboxID, orgID string, r *http.Request) bool {
 	path := strings.TrimSuffix(r.URL.Path, "/")
 	query := r.URL.Query()
 
@@ -85,10 +102,13 @@ func sandboxKeyAllowsPath(sandboxID string, r *http.Request) bool {
 		return r.Method == method || r.Method == http.MethodOptions
 	}
 
-	for _, prefix := range []string{"/api/v1/sandboxes/", "/api/v1/sessions/"} {
-		if rest, ok := strings.CutPrefix(path, prefix+sandboxID); ok {
-			return rest == "" || strings.HasPrefix(rest, "/")
+	if orgID != "" {
+		if rest, ok := strings.CutPrefix(path, "/api/v1/organizations/"+orgID+"/sandboxes/"+sandboxID); ok {
+			return ownSandboxRouteAllows(rest, r.Method)
 		}
+	}
+	if rest, ok := strings.CutPrefix(path, "/api/v1/sessions/"+sandboxID); ok {
+		return rest == "" || strings.HasPrefix(rest, "/")
 	}
 
 	switch path {
@@ -105,8 +125,26 @@ func sandboxKeyAllowsPath(sandboxID string, r *http.Request) bool {
 
 	if server, ok := strings.CutPrefix(path, "/api/v1/mcp/"); ok {
 		backend, _, _ := strings.Cut(server, "/")
-		querySessionID := query.Get("session_id")
-		return sandboxKeyMCPBackends[backend] && (querySessionID == "" || querySessionID == sandboxID)
+		return sandboxKeyMCPBackends[backend] && query.Get("session_id") == sandboxID
+	}
+	return false
+}
+
+func ownSandboxRouteAllows(rest, method string) bool {
+	for _, route := range sandboxKeyOwnSandboxRoutes {
+		if route.prefix == "" {
+			if rest != "" {
+				continue
+			}
+		} else if rest != route.prefix && !strings.HasPrefix(rest, route.prefix+"/") {
+			continue
+		}
+		for _, m := range route.methods {
+			if method == m {
+				return true
+			}
+		}
+		return false
 	}
 	return false
 }
