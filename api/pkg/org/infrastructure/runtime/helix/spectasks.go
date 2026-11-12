@@ -56,10 +56,18 @@ type SpecTaskWorkflow interface {
 // sidecar (the same mechanism ProjectConfig uses), enforces that every
 // referenced task belongs to that project, and delegates to the Helix
 // store + workflow service. No existing helix code is modified.
+// ProjectAuthorizer answers whether userID may act on projectID. The host
+// wires it from its project RBAC so a Bot's project allowlist can widen the
+// Bot's reach only to projects its hiring user can already reach.
+type ProjectAuthorizer interface {
+	AuthorizeProject(ctx context.Context, userID, projectID string) error
+}
+
 type SpecTasks struct {
 	orgStore *store.Store
 	tasks    SpecTaskStore
 	workflow SpecTaskWorkflow
+	projects ProjectAuthorizer
 }
 
 // NewSpecTasks builds the impl. All three collaborators are required —
@@ -78,6 +86,15 @@ func NewSpecTasks(orgStore *store.Store, tasks SpecTaskStore, workflow SpecTaskW
 }
 
 var _ runtime.SpecTasks = (*SpecTasks)(nil)
+
+// WithProjectAuthorizer makes every call that names a project other than the
+// Worker's own one check that the Worker's hiring user may access it. Without
+// an authorizer the allowlist alone decides (tests, hosts without project
+// RBAC).
+func (s *SpecTasks) WithProjectAuthorizer(auth ProjectAuthorizer) *SpecTasks {
+	s.projects = auth
+	return s
+}
 
 // OwnProjectID exposes the runtime-owned project pointer to project discovery.
 func (s *SpecTasks) OwnProjectID(ctx context.Context, orgID string, workerID orgchart.NodeID) (string, error) {
@@ -149,6 +166,17 @@ func (s *SpecTasks) resolveProject(ctx context.Context, orgID string, workerID o
 	}
 	if project.OrganizationID != orgID {
 		return "", "", fmt.Errorf("project %s does not belong to this worker's organization", requestedProjectID)
+	}
+	// The allowlist is edited by whoever may edit the Bot; it must not reach
+	// further than the user the Bot acts as. The Bot's own project is exempt:
+	// the runtime created it for this Bot.
+	if requestedProjectID != state.ProjectID && s.projects != nil {
+		if state.HiringUserID == "" {
+			return "", "", fmt.Errorf("bot %s has no hiring user to act as in project %s", workerID, requestedProjectID)
+		}
+		if err := s.projects.AuthorizeProject(ctx, state.HiringUserID, requestedProjectID); err != nil {
+			return "", "", fmt.Errorf("bot %s may not act in project %s: %w", workerID, requestedProjectID, err)
+		}
 	}
 	return requestedProjectID, state.HiringUserID, nil
 }

@@ -772,6 +772,9 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	if err != nil {
 		return nil, fmt.Errorf("init spec tasks: %w", err)
 	}
+	// A Bot's project allowlist reaches only projects its hiring user may
+	// access; the same RBAC the REST spec-task routes apply.
+	specTasks = specTasks.WithProjectAuthorizer(inProcClient)
 	deps.SpecTasks = specTasks
 	deps.ProjectAccess = specTasks
 
@@ -1549,7 +1552,16 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 
 	// The Chief of Staff seeder reuses the same lifecycle service as REST bot
 	// creation; botStore backs idempotency checks.
-	seeder := &orgGraphSeeder{lifecycle: lifecycleSvc, bots: svc.Nodes, botStore: st.Nodes}
+	seeder := &orgGraphSeeder{lifecycle: lifecycleSvc, bots: svc.Nodes, botStore: st.Nodes, owner: func(ctx context.Context, orgID string) (*types.User, error) {
+		org, err := helixStore.GetOrganization(ctx, &helixstore.GetOrganizationQuery{ID: orgID})
+		if err != nil {
+			return nil, fmt.Errorf("get organization: %w", err)
+		}
+		if org == nil || org.Owner == "" {
+			return nil, fmt.Errorf("organization %s has no owner", orgID)
+		}
+		return helixStore.GetUser(ctx, &helixstore.GetUserQuery{ID: org.Owner})
+	}}
 	// Bootstrap-time reconcile re-seeds / tool-backfills Chief of Staff (idempotent — unions any
 	// new OwnerBotTools entries onto existing CoS). Runs once per org per
 	// process via ensureBootstrap.

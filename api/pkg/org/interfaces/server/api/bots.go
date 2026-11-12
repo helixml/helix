@@ -286,6 +286,9 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errStatus(err), fmt.Errorf("get bot for update: %w", err))
 		return
 	}
+	if !a.authorizeBotEdit(w, r, orgID, id, "configuration") {
+		return
+	}
 	var toolsPatch *[]tool.Name
 	if req.Tools != nil {
 		t := toToolNames(req.Tools)
@@ -423,6 +426,9 @@ func (a *apiHandler) deleteBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
 	}
+	if !a.authorizeBotEdit(w, r, orgID, id, "deletion") {
+		return
+	}
 	switch err := a.deps.Lifecycle.Delete(r.Context(), orgID, id); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
@@ -476,6 +482,9 @@ func (a *apiHandler) addBotParent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("parent_id is required"))
 		return
 	}
+	if !a.authorizeBotEdit(w, r, orgID, id, "reporting lines") {
+		return
+	}
 	// The service validates both endpoints, guards the DAG against
 	// cycles, wires the line, and reconciles the transcript/team channels
 	// the new edge implies — one place, shared invariants.
@@ -515,6 +524,9 @@ func (a *apiHandler) removeBotParent(w http.ResponseWriter, r *http.Request) {
 	managerID := orgchart.NodeID(r.PathValue("parent_id"))
 	if id == "" || managerID == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id and parent_id are required"))
+		return
+	}
+	if !a.authorizeBotEdit(w, r, orgID, id, "reporting lines") {
 		return
 	}
 	// The service drops the line and reconciles the channels the dropped
@@ -938,6 +950,41 @@ func applySandboxInfo(dto *BotDTO, info BotRuntimeInfo) {
 // restGrantor is the tool-grant authority of a REST caller: organization
 // owners and administrators have no ceiling; other members may change only
 // the standard worker set (nodes.AuthorizeTools).
+// authorizeBotEdit allows org owners and platform admins, and any member who
+// may update the Bot's agent app, to change the Bot itself: its configuration
+// (tools, projects, sandbox, instance profile, content), its reporting lines,
+// its trigger attachments, and its deletion. Everything a Bot does, and where,
+// is decided by these, so they are edits of the agent. `what` names the part
+// being changed for the error message. It writes the error response and
+// returns false when the caller may not.
+func (a *apiHandler) authorizeBotEdit(w http.ResponseWriter, r *http.Request, orgID string, botID orgchart.NodeID, what string) bool {
+	ctx := r.Context()
+	if helixorgserver.CanManageOrganization(ctx) {
+		return true
+	}
+	denied := "Only organization owners, administrators, or people who can edit this bot's agent can change its " + what
+	if a.deps.AgentEditAuthorizer == nil || a.deps.Queries == nil {
+		writeAPIError(w, http.StatusForbidden, "forbidden", denied)
+		return false
+	}
+	bot, err := a.deps.Queries.GetBot(ctx, orgID, botID)
+	if err != nil {
+		writeAPIError(w, errStatus(err), "not_found", "Bot not found")
+		return false
+	}
+	agentID := bot.AgentID
+	if agentID == "" && a.deps.BotRuntime != nil {
+		if info, err := a.deps.BotRuntime.State(ctx, orgID, botID); err == nil {
+			agentID = info.AgentID
+		}
+	}
+	if agentID == "" || a.deps.AgentEditAuthorizer.AuthorizeAgentUpdate(ctx, agentID) != nil {
+		writeAPIError(w, http.StatusForbidden, "forbidden", denied)
+		return false
+	}
+	return true
+}
+
 func restGrantor(ctx context.Context) nodes.Grantor {
 	return nodes.Grantor{Admin: helixorgserver.CanManageOrganization(ctx)}
 }

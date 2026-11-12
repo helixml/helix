@@ -209,6 +209,22 @@ func applyResolvedAgentDefaults(assistant *types.AssistantConfig, defaults types
 	assistant.ReasoningEffort = defaults.ReasoningEffort
 }
 
+// AuthorizeProject reports whether userID may read projectID — the floor for
+// an org Bot acting in a project other than its own on that user's behalf.
+func (c *inProcHelixClient) AuthorizeProject(ctx context.Context, userID, projectID string) error {
+	if userID == "" {
+		return errors.New("user id is required")
+	}
+	user, err := c.server.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	if err != nil {
+		return fmt.Errorf("get user %s: %w", userID, err)
+	}
+	if user == nil {
+		return fmt.Errorf("user %s not found", userID)
+	}
+	return c.server.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet)
+}
+
 // AuthorizeAgentUpdate reports whether the request's user may update appID.
 func (c *inProcHelixClient) AuthorizeAgentUpdate(ctx context.Context, appID string) error {
 	user, err := c.resolveUser(ctx)
