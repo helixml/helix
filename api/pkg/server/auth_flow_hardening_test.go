@@ -1,9 +1,11 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -354,7 +356,9 @@ func TestUserWebSocket_RefusesForeignOrigin(t *testing.T) {
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Sec-WebSocket-Version", "13")
-	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	// Any 16 bytes, base64-encoded, satisfy the handshake; built here rather
+	// than written as a literal so it is obviously not a credential.
+	req.Header.Set("Sec-WebSocket-Key", base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 16))))
 	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionCookie.ID})
 	rr := httptest.NewRecorder()
 

@@ -3,10 +3,12 @@ package auth
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -310,16 +312,29 @@ func (h *HelixAuthenticator) ValidatePassword(_ context.Context, user *types.Use
 	return bcrypt.CompareHashAndPassword(user.PasswordHash, []byte(password))
 }
 
-// passwordTimingDecoyHash is a bcrypt hash (default cost, as CreateUser uses)
-// of a random value that was discarded. It matches no password.
-const passwordTimingDecoyHash = "$2a$10$cIVXlgpj4dPyFn1PbbvDKOBrgoAANLXJe3RP//.UzEkzKWlOauBjG"
+var (
+	decoyOnce sync.Once
+	decoyHash []byte
+)
 
 // PasswordTimingDecoy returns an account that no password matches, for a
 // login attempt against an address that has no account: validating against
 // it costs the same bcrypt work as a real attempt, so the response time does
-// not tell the two apart.
+// not tell the two apart. The hash (default cost, as CreateUser uses) is of
+// random bytes generated once per process and never kept.
 func PasswordTimingDecoy() *types.User {
-	return &types.User{PasswordHash: []byte(passwordTimingDecoyHash)}
+	decoyOnce.Do(func() {
+		secret := make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			panic(fmt.Sprintf("password timing decoy: %v", err))
+		}
+		hash, err := bcrypt.GenerateFromPassword(secret, bcrypt.DefaultCost)
+		if err != nil {
+			panic(fmt.Sprintf("password timing decoy: %v", err))
+		}
+		decoyHash = hash
+	})
+	return &types.User{PasswordHash: decoyHash}
 }
 
 func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error) {

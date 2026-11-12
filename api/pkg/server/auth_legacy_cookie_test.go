@@ -143,7 +143,7 @@ func TestCallback_DoesNotLogAuthorizationCode(t *testing.T) {
 	cfg.Auth.Provider = types.AuthProviderOIDC
 	oidcClient := auth.NewMockOIDC(ctrl)
 	s := &HelixAPIServer{Cfg: cfg, Store: store.NewMockStore(ctrl), oidcClient: oidcClient}
-	const code = "secret-authorization-code-9f8e7d"
+	const code = "authorization-code-for-this-test-only"
 	oidcClient.EXPECT().Exchange(gomock.Any(), code).Return(nil, errors.New("exchange failure"))
 
 	var logs bytes.Buffer
