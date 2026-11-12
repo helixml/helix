@@ -165,7 +165,7 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 
 	var req types.ServiceConnectionCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request: %s", err.Error()), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -384,7 +384,7 @@ func (s *HelixAPIServer) updateServiceConnection(w http.ResponseWriter, r *http.
 
 	var req types.ServiceConnectionUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request: %s", err.Error()), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 

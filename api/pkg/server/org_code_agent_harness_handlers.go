@@ -72,7 +72,7 @@ func (apiServer *HelixAPIServer) updateOrgCodeAgentHarnesses(_ http.ResponseWrit
 
 	var request types.OrgCodeAgentHarnessesUpdateRequest
 	if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
-		return nil, system.NewHTTPError400("failed to decode request body: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 	for idx, update := range request.Harnesses {
 		if !types.IsSelectableCodeAgentRuntime(update.Runtime) {

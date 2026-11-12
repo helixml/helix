@@ -134,12 +134,12 @@ func (c *Client) GetSite(ctx context.Context, siteID string) (*Site, error) {
 // URL format: https://tenant.sharepoint.com/sites/sitename
 // Also handles URLs with extra paths like /SitePages/Home.aspx
 func (c *Client) GetSiteByURL(ctx context.Context, siteURL string) (*Site, error) {
-	parsedURL, err := url.Parse(siteURL)
+	parsedURL, err := ParseSiteURL(siteURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid site URL: %w", err)
+		return nil, err
 	}
 
-	hostname := parsedURL.Hostname()
+	hostname := strings.ToLower(parsedURL.Hostname())
 	path := strings.TrimPrefix(parsedURL.Path, "/")
 
 	// Extract just the site path (e.g., "sites/sitename" from "sites/sitename/SitePages/Home.aspx")

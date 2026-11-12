@@ -361,7 +361,7 @@ func (apiServer *HelixAPIServer) updateGitRepositoryPull(w http.ResponseWriter, 
 	}
 	var update types.GitPullRequestUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		writeErrResponse(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+		writeErrResponse(w, jsonDecodeHTTPError(err), http.StatusBadRequest)
 		return
 	}
 	pr, err := apiServer.updateInternalPR(r.Context(), repo, number, &update)
@@ -401,7 +401,7 @@ func (apiServer *HelixAPIServer) mergeGitRepositoryPull(w http.ResponseWriter, r
 	var req types.GitPullRequestMergeRequest
 	if r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeErrResponse(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+			writeErrResponse(w, jsonDecodeHTTPError(err), http.StatusBadRequest)
 			return
 		}
 	}

@@ -74,7 +74,7 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 	var body SwitchAgentRequest
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 		if !errors.Is(err, io.EOF) {
-			return nil, system.NewHTTPError400(fmt.Sprintf("invalid request body: %v", err))
+			return nil, jsonDecodeHTTPError(err)
 		}
 	}
 

@@ -119,7 +119,7 @@ func (apiServer *HelixAPIServer) assignRunnerProfile(rw http.ResponseWriter, r *
 	runnerID := mux.Vars(r)["runner_id"]
 	var body runnerProfileAssignRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	if body.ProfileID == "" {

@@ -71,7 +71,7 @@ func (s *HelixAPIServer) createGitProviderConnection(w http.ResponseWriter, r *h
 
 	var req types.GitProviderConnectionCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request: %s", err.Error()), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
