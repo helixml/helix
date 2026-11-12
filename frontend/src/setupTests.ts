@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { createElement } from 'react'
-import { vi } from 'vitest'
+import { afterEach, vi } from 'vitest'
 
 // Stub global window objects used in components
 global.window.scrollTo = vi.fn();
@@ -26,6 +26,25 @@ if (typeof Blob.prototype.arrayBuffer !== 'function') {
     })
   }
 }
+
+// jsdom performs real HTTP, so an unmocked request depends on whatever happens
+// to listen on localhost:3000 (in CI: nothing, refused after a variable delay).
+// Refuse it without touching the network and fail the test that made it.
+const unmockedRequests: string[] = []
+const refuseRequest = (request: string): never => {
+  unmockedRequests.push(request)
+  throw new Error(`Unmocked network request in a test: ${request}`)
+}
+XMLHttpRequest.prototype.open = function open(method: string, url: string | URL) {
+  refuseRequest(`${method} ${url}`)
+}
+globalThis.fetch = (input: RequestInfo | URL) =>
+  Promise.reject(refuseRequest(`fetch ${input instanceof Request ? input.url : String(input)}`))
+afterEach(() => {
+  if (unmockedRequests.length === 0) return
+  const requests = unmockedRequests.splice(0)
+  throw new Error(`Unmocked network request(s): ${requests.join(', ')}. Mock the service hook or API client.`)
+})
 
 // Stub localStorage if not fully provided by jsdom
 if (!global.localStorage || typeof global.localStorage.clear !== 'function') {
