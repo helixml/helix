@@ -209,20 +209,30 @@ func applyResolvedAgentDefaults(assistant *types.AssistantConfig, defaults types
 	assistant.ReasoningEffort = defaults.ReasoningEffort
 }
 
-// AuthorizeProject reports whether userID may read projectID — the floor for
-// an org Bot acting in a project other than its own on that user's behalf.
-func (c *inProcHelixClient) AuthorizeProject(ctx context.Context, userID, projectID string) error {
+// AuthorizeProject reports whether userID may perform action on projectID
+// — what an org Bot acting in a project other than its own may do on that
+// user's behalf. An empty userID is a Bot hired before hiring users were
+// recorded; such a Bot acts as the organization owner, the same identity
+// its activations run under.
+func (c *inProcHelixClient) AuthorizeProject(ctx context.Context, orgID, userID, projectID string, action types.Action) error {
+	var user *types.User
 	if userID == "" {
-		return errors.New("user id is required")
+		owner, err := resolveOrgOwner(ctx, c.server.Store, orgID)
+		if err != nil {
+			return err
+		}
+		user = owner
+	} else {
+		u, err := c.server.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+		if err != nil {
+			return fmt.Errorf("get user %s: %w", userID, err)
+		}
+		if u == nil {
+			return fmt.Errorf("user %s not found", userID)
+		}
+		user = u
 	}
-	user, err := c.server.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
-	if err != nil {
-		return fmt.Errorf("get user %s: %w", userID, err)
-	}
-	if user == nil {
-		return fmt.Errorf("user %s not found", userID)
-	}
-	return c.server.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet)
+	return c.server.authorizeUserToProjectByID(ctx, user, projectID, action)
 }
 
 // AuthorizeAgentUpdate reports whether the request's user may update appID.

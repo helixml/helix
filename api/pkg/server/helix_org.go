@@ -1390,8 +1390,12 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		AgentReader:         inProcClient,
 		AgentDefaultApplier: inProcClient,
 		AgentEditAuthorizer: inProcClient,
-		Tools:               reg,
-		ProjectEnsurer:      projectApplier,
+		// The project allowlist is checked at write time against the Bot's
+		// hiring user (organization owner for a Bot without one), the same
+		// identity the spec-task runtime authorizes per call.
+		BotProjectAuthorizer: botProjectAuthorizer{orgStore: st, authorize: inProcClient.AuthorizeProject},
+		Tools:                reg,
+		ProjectEnsurer:       projectApplier,
 		// Production: the github topic transport's Token() falls
 		// back to whatever GitHub OAuth connection the org members
 		// have already authorised, so operators don't have to paste a
@@ -1553,14 +1557,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// The Chief of Staff seeder reuses the same lifecycle service as REST bot
 	// creation; botStore backs idempotency checks.
 	seeder := &orgGraphSeeder{lifecycle: lifecycleSvc, bots: svc.Nodes, botStore: st.Nodes, owner: func(ctx context.Context, orgID string) (*types.User, error) {
-		org, err := helixStore.GetOrganization(ctx, &helixstore.GetOrganizationQuery{ID: orgID})
-		if err != nil {
-			return nil, fmt.Errorf("get organization: %w", err)
-		}
-		if org == nil || org.Owner == "" {
-			return nil, fmt.Errorf("organization %s has no owner", orgID)
-		}
-		return helixStore.GetUser(ctx, &helixstore.GetUserQuery{ID: org.Owner})
+		return resolveOrgOwner(ctx, helixStore, orgID)
 	}}
 	// Bootstrap-time reconcile re-seeds / tool-backfills Chief of Staff (idempotent — unions any
 	// new OwnerBotTools entries onto existing CoS). Runs once per org per

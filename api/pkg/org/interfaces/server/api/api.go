@@ -161,9 +161,17 @@ type Deps struct {
 	AgentReader         AgentReader
 	AgentDefaultApplier AgentDefaultApplier
 	// AgentEditAuthorizer decides whether a caller who cannot manage the
-	// org may still change a Bot's trigger attachments: they may when they
-	// can update the Bot's agent app. nil → only owners/admins may.
+	// org may still edit a Bot (configuration, reporting lines, trigger
+	// attachments, secrets, asset links, instances, stop/restart, delete):
+	// they may when they can update the Bot's agent app. nil → only
+	// owners/admins may. A Bot with no agent app (hired before agents were
+	// linked and not yet reconciled) is editable by owners/admins only.
 	AgentEditAuthorizer AgentEditAuthorizer
+	// BotProjectAuthorizer decides whether a project may be added to a
+	// Bot's project allowlist: the Bot's hiring user (or the organization
+	// owner for a Bot without one) must be able to access it. nil → the
+	// allowlist is not validated at write time (tests).
+	BotProjectAuthorizer BotProjectAuthorizer
 
 	// GitHubTokenResolver is the production hook for "reinstate the
 	// GitHub topic + reuse the existing GitHub integration for
@@ -226,6 +234,12 @@ type AgentUpdater interface {
 // agent app appID; nil means allowed.
 type AgentEditAuthorizer interface {
 	AuthorizeAgentUpdate(ctx context.Context, appID string) error
+}
+
+// BotProjectAuthorizer reports whether botID may be given access to
+// projectID; nil means allowed.
+type BotProjectAuthorizer interface {
+	AuthorizeBotProject(ctx context.Context, orgID string, botID orgchart.NodeID, projectID string) error
 }
 
 type AgentReader interface {

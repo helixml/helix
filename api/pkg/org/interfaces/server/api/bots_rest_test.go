@@ -13,6 +13,8 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
+	"github.com/helixml/helix/api/pkg/org/domain/asset"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
@@ -855,7 +857,8 @@ func TestRESTBotMutationsRequireAgentEditForMembers(t *testing.T) {
 	seedLinkedBot(t, st, ctx, "w-mine", "app-mine")
 	seedLinkedBot(t, st, ctx, "w-theirs", "app-theirs")
 	seedLinkedBot(t, st, ctx, "w-manager", "app-manager")
-	deps.AgentEditAuthorizer = fakeAgentEditAuthorizer{allowed: map[string]bool{"app-mine": true}}
+	seedLinkedBot(t, st, ctx, "w-their-manager", "app-their-manager")
+	deps.AgentEditAuthorizer = fakeAgentEditAuthorizer{allowed: map[string]bool{"app-mine": true, "app-manager": true}}
 	h := orgapi.Handler(deps)
 
 	patch := orgapi.UpdateBotRequest{ProjectIDs: []string{"prj_secret"}}
@@ -879,6 +882,16 @@ func TestRESTBotMutationsRequireAgentEditForMembers(t *testing.T) {
 	parent := map[string]any{"parent_id": "w-manager"}
 	if rec := doAsRole(t, h, http.MethodPost, "/bots/w-theirs/parents", parent, types.OrganizationRoleMember, false); rec.Code != http.StatusForbidden {
 		t.Fatalf("member re-homing another's bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	// Both ends of a reporting line are edits: the manager gains a report.
+	if rec := doAsRole(t, h, http.MethodPost, "/bots/w-mine/parents", map[string]any{"parent_id": "w-their-manager"}, types.OrganizationRoleMember, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("member reporting own bot to another's manager: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if rec := doAsRole(t, h, http.MethodPost, "/bots", orgapi.CreateBotRequest{ID: "w-new", Content: "# New", ParentID: "w-their-manager"}, types.OrganizationRoleMember, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("member creating a report for another's manager: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if _, err := st.Nodes.Get(ctx, "org-test", "w-new"); err == nil {
+		t.Fatal("rejected create persisted the bot")
 	}
 	if rec := doAsRole(t, h, http.MethodPost, "/bots/w-mine/parents", parent, types.OrganizationRoleMember, false); rec.Code != http.StatusNoContent {
 		t.Fatalf("member re-homing editable bot: status=%d body=%s", rec.Code, rec.Body)
@@ -911,5 +924,157 @@ func TestRESTBotMutationsRequireAgentEditForMembers(t *testing.T) {
 	}
 	if rec := doAsRole(t, h, http.MethodPatch, "/bots/w-manager", patch, types.OrganizationRoleMember, true); rec.Code != http.StatusOK {
 		t.Fatalf("platform admin patch: status=%d body=%s", rec.Code, rec.Body)
+	}
+}
+
+type fakeBotProjectAuthorizer struct {
+	allowed map[string]bool // "bot/project"
+	calls   []string
+}
+
+func (f *fakeBotProjectAuthorizer) AuthorizeBotProject(_ context.Context, _ string, botID orgchart.NodeID, projectID string) error {
+	key := string(botID) + "/" + projectID
+	f.calls = append(f.calls, key)
+	if f.allowed[key] {
+		return nil
+	}
+	return errors.New("hiring user has no access")
+}
+
+// A project is added to a bot's allowlist only when the bot's hiring user
+// may access it, whoever edits the bot; ids already on the bot are kept
+// without re-checking.
+func TestRESTUpdateBot_ProjectIDsValidatedAgainstHiringUser(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	b, err := orgchart.NewNode("w-pm", "# PM", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Create(ctx, b.WithAgentID("app-pm").WithProjectIDs([]string{"prj_old"})); err != nil {
+		t.Fatal(err)
+	}
+	auth := &fakeBotProjectAuthorizer{allowed: map[string]bool{"w-pm/prj_ok": true}}
+	deps.BotProjectAuthorizer = auth
+	deps.AgentEditAuthorizer = fakeAgentEditAuthorizer{allowed: map[string]bool{"app-pm": true}}
+	h := orgapi.Handler(deps)
+
+	for _, role := range []types.OrganizationRole{types.OrganizationRoleOwner, types.OrganizationRoleMember} {
+		rec := doAsRole(t, h, http.MethodPatch, "/bots/w-pm", orgapi.UpdateBotRequest{ProjectIDs: []string{"prj_old", "prj_secret"}}, role, false)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s adding inaccessible project: status=%d body=%s", role, rec.Code, rec.Body)
+		}
+		if !strings.Contains(rec.Body.String(), "prj_secret") || !strings.Contains(rec.Body.String(), "hiring user has no access") {
+			t.Fatalf("%s: rejection does not name the project and reason: %s", role, rec.Body)
+		}
+	}
+	got, err := st.Nodes.Get(ctx, "org-test", "w-pm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.ProjectIDs, []string{"prj_old"}) {
+		t.Fatalf("rejected patch changed project_ids: %v", got.ProjectIDs)
+	}
+	rec := doAsRole(t, h, http.MethodPatch, "/bots/w-pm", orgapi.UpdateBotRequest{ProjectIDs: []string{"prj_old", "prj_ok"}}, types.OrganizationRoleMember, false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("accessible project: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if slices.Contains(auth.calls, "w-pm/prj_old") {
+		t.Fatalf("existing project id was re-authorized: %v", auth.calls)
+	}
+}
+
+// Every per-bot mutation follows the agent-edit rule; chat and activate stay
+// open to members because talking to a bot is using it, not changing it.
+func TestRESTBotRoutesFollowAgentEditRule(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedLinkedBot(t, st, ctx, "w-mine", "app-mine")
+	seedLinkedBot(t, st, ctx, "w-theirs", "app-theirs")
+	deps.AgentEditAuthorizer = fakeAgentEditAuthorizer{allowed: map[string]bool{"app-mine": true}}
+	deps.BotConfigApplier = &fakeBotConfigApplier{}
+	deps.BotInstances = &fakeInstances{}
+	secrets, err := workersecrets.New(st.WorkerSecretBindings, st.Nodes, liveSourceResolver{}, time.Now, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps.WorkerSecrets = secrets
+	h := orgapi.Handler(deps)
+
+	routes := []struct{ method, path string }{
+		{http.MethodPost, "/bots/%s/stop"},
+		{http.MethodPost, "/bots/%s/restart"},
+		{http.MethodPost, "/bots/%s/apply-config"},
+		{http.MethodPost, "/bots/%s/instances"},
+		{http.MethodDelete, "/bots/%s/instances/ses_1"},
+		{http.MethodPut, "/bots/%s/secrets/TOKEN"},
+		{http.MethodDelete, "/bots/%s/secrets/TOKEN"},
+	}
+	for _, rt := range routes {
+		rec := doAsRole(t, h, rt.method, fmt.Sprintf(rt.path, "w-theirs"), map[string]any{}, types.OrganizationRoleMember, false)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s %s on another's bot as member: status=%d body=%s", rt.method, rt.path, rec.Code, rec.Body)
+		}
+		rec = doAsRole(t, h, rt.method, fmt.Sprintf(rt.path, "w-mine"), map[string]any{}, types.OrganizationRoleMember, false)
+		if rec.Code == http.StatusForbidden {
+			t.Errorf("%s %s on editable bot as member: status=%d body=%s", rt.method, rt.path, rec.Code, rec.Body)
+		}
+	}
+	var created orgapi.AssetDTO
+	decode(t, do(t, h, http.MethodPost, "/assets", orgapi.CreateAssetRequest{
+		Name: "db-1", Kind: asset.KindServer,
+		Server: &orgapi.ServerAssetWriteRequest{Address: "10.0.0.8", Port: 22, User: "ops", AuthType: asset.AuthSSHKey},
+	}), &created)
+	if rec := doAsRole(t, h, http.MethodPost, "/assets/"+created.ID+"/links", map[string]any{"bot_id": "w-theirs"}, types.OrganizationRoleMember, false); rec.Code != http.StatusForbidden {
+		t.Errorf("member linking asset to another's bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if rec := doAsRole(t, h, http.MethodPost, "/assets/"+created.ID+"/links", map[string]any{"bot_id": "w-mine"}, types.OrganizationRoleMember, false); rec.Code != http.StatusCreated {
+		t.Errorf("member linking asset to editable bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if rec := doAsRole(t, h, http.MethodDelete, "/assets/"+created.ID+"/links/w-theirs", nil, types.OrganizationRoleMember, false); rec.Code != http.StatusForbidden {
+		t.Errorf("member unlinking asset from another's bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if rec := doAsRole(t, h, http.MethodDelete, "/assets/"+created.ID+"/links/w-mine", nil, types.OrganizationRoleMember, false); rec.Code != http.StatusNoContent {
+		t.Errorf("member unlinking asset from editable bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	for _, path := range []string{"/bots/w-theirs/chat", "/bots/w-theirs/activate"} {
+		rec := doAsRole(t, h, http.MethodPost, path, map[string]any{}, types.OrganizationRoleMember, false)
+		if rec.Code == http.StatusForbidden {
+			t.Errorf("POST %s as member must stay open: status=%d body=%s", path, rec.Code, rec.Body)
+		}
+	}
+}
+
+// can_edit tells the UI which controls to show, computed by the same rule the
+// mutations enforce.
+func TestRESTBotDTOCanEdit(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedLinkedBot(t, st, ctx, "w-mine", "app-mine")
+	seedLinkedBot(t, st, ctx, "w-theirs", "app-theirs")
+	seedBot(t, st, ctx, "w-legacy", "# No agent")
+	deps.AgentEditAuthorizer = fakeAgentEditAuthorizer{allowed: map[string]bool{"app-mine": true}}
+	h := orgapi.Handler(deps)
+
+	var list []orgapi.BotDTO
+	decode(t, doAsRole(t, h, http.MethodGet, "/bots", nil, types.OrganizationRoleMember, false), &list)
+	got := map[string]bool{}
+	for _, b := range list {
+		got[b.ID] = b.CanEdit
+	}
+	want := map[string]bool{"w-mine": true, "w-theirs": false, "w-legacy": false}
+	for id, canEdit := range want {
+		if got[id] != canEdit {
+			t.Errorf("member list can_edit[%s] = %v, want %v", id, got[id], canEdit)
+		}
+	}
+	var detail orgapi.BotDetailDTO
+	decode(t, doAsRole(t, h, http.MethodGet, "/bots/w-theirs", nil, types.OrganizationRoleMember, false), &detail)
+	if detail.Bot.CanEdit {
+		t.Error("member detail of another's bot reports can_edit")
+	}
+	decode(t, doAsRole(t, h, http.MethodGet, "/bots/w-legacy", nil, types.OrganizationRoleOwner, false), &detail)
+	if !detail.Bot.CanEdit {
+		t.Error("owner detail of an agentless bot must report can_edit")
 	}
 }

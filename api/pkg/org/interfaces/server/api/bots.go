@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -62,6 +63,7 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 	out := make([]BotDTO, 0, len(bs))
 	for _, b := range bs {
 		dto := botDTO(b, managersByReport[b.ID])
+		dto.CanEdit = a.botEditAllowed(ctx, orgID, b)
 		a.applyCanonicalAgentProfile(ctx, b, &dto, "list org bots")
 		dto.Status = "stopped"
 		if a.deps.BotRuntime != nil {
@@ -130,6 +132,9 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 	if req.Owner {
 		tools = mcptools.OwnerBotTools()
 	}
+	if parentID := strings.TrimSpace(req.ParentID); parentID != "" && !a.authorizeBotEdit(w, r, orgID, orgchart.NodeID(parentID), "reports") {
+		return
+	}
 	deferActivation := a.deps.Configs != nil && !a.deps.Configs.IsDefaultAgentConfigured(ctx, orgID)
 	// REST and chat-driven creates share lifecycle.Create — one
 	// implementation.
@@ -194,6 +199,7 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dto := botDTO(b, a.managerIDs(ctx, orgID, id))
+	dto.CanEdit = a.botEditAllowed(ctx, orgID, b)
 	a.applyCanonicalAgentProfile(ctx, b, &dto, "get org bot")
 	if a.deps.Activations != nil {
 		dto.ActivationError, err = a.deps.Activations.LatestError(ctx, orgID, id)
@@ -287,6 +293,9 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !a.authorizeBotEdit(w, r, orgID, id, "configuration") {
+		return
+	}
+	if req.ProjectIDs != nil && !a.authorizeBotProjects(w, r, orgID, existing, req.ProjectIDs) {
 		return
 	}
 	var toolsPatch *[]tool.Name
@@ -393,6 +402,7 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 	// The write already succeeded, so an unreadable App must not turn
 	// into a 500 the client reads as "the update failed".
 	dto := botDTO(updated, a.managerIDs(ctx, orgID, id))
+	dto.CanEdit = true
 	a.applyCanonicalAgentProfile(ctx, updated, &dto, "update org bot")
 	writeJSON(w, http.StatusOK, dto)
 }
@@ -482,7 +492,7 @@ func (a *apiHandler) addBotParent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("parent_id is required"))
 		return
 	}
-	if !a.authorizeBotEdit(w, r, orgID, id, "reporting lines") {
+	if !a.authorizeBotEdit(w, r, orgID, id, "reporting lines") || !a.authorizeBotEdit(w, r, orgID, managerID, "reports") {
 		return
 	}
 	// The service validates both endpoints, guards the DAG against
@@ -526,7 +536,7 @@ func (a *apiHandler) removeBotParent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("bot id and parent_id are required"))
 		return
 	}
-	if !a.authorizeBotEdit(w, r, orgID, id, "reporting lines") {
+	if !a.authorizeBotEdit(w, r, orgID, id, "reporting lines") || !a.authorizeBotEdit(w, r, orgID, managerID, "reports") {
 		return
 	}
 	// The service drops the line and reconciles the channels the dropped
@@ -674,6 +684,9 @@ func (a *apiHandler) stopBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
 		return
 	}
+	if !a.authorizeBotEdit(w, r, orgID, id, "sandbox") {
+		return
+	}
 	if _, err := a.deps.Activations.Stop(ctx, orgID, id); err != nil {
 		if errors.Is(err, activations.ErrStopUnavailable) {
 			writeError(w, http.StatusNotImplemented, err)
@@ -715,6 +728,9 @@ func (a *apiHandler) restartBot(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := a.deps.Queries.GetBot(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
+		return
+	}
+	if !a.authorizeBotEdit(w, r, orgID, id, "sandbox") {
 		return
 	}
 	res, err := a.deps.Activations.Restart(ctx, orgID, id)
@@ -764,6 +780,9 @@ func (a *apiHandler) applyBotConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := a.deps.Queries.GetBot(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
+		return
+	}
+	if !a.authorizeBotEdit(w, r, orgID, id, "sandbox") {
 		return
 	}
 	if err := a.deps.BotConfigApplier.ApplyConfig(ctx, orgID, id); err != nil {
@@ -950,12 +969,31 @@ func applySandboxInfo(dto *BotDTO, info BotRuntimeInfo) {
 // restGrantor is the tool-grant authority of a REST caller: organization
 // owners and administrators have no ceiling; other members may change only
 // the standard worker set (nodes.AuthorizeTools).
-// authorizeBotEdit allows org owners and platform admins, and any member who
-// may update the Bot's agent app, to change the Bot itself: its configuration
-// (tools, projects, sandbox, instance profile, content), its reporting lines,
-// its trigger attachments, and its deletion. Everything a Bot does, and where,
-// is decided by these, so they are edits of the agent. `what` names the part
-// being changed for the error message. It writes the error response and
+// botEditAllowed reports whether the caller may change bot: organization
+// owners and platform admins, or a member who may update the Bot's agent
+// app. Everything a Bot does, and where, is decided by its configuration,
+// reporting lines, attachments, secrets, asset links and instances, so all
+// of those are edits of the agent. A Bot with no agent app (hired before
+// agents were linked, and not yet reconciled) has nothing a member could be
+// authorized against, so only owners and admins may edit it.
+func (a *apiHandler) botEditAllowed(ctx context.Context, orgID string, bot orgchart.Node) bool {
+	if helixorgserver.CanManageOrganization(ctx) {
+		return true
+	}
+	if a.deps.AgentEditAuthorizer == nil {
+		return false
+	}
+	agentID := bot.AgentID
+	if agentID == "" && a.deps.BotRuntime != nil {
+		if info, err := a.deps.BotRuntime.State(ctx, orgID, bot.ID); err == nil {
+			agentID = info.AgentID
+		}
+	}
+	return agentID != "" && a.deps.AgentEditAuthorizer.AuthorizeAgentUpdate(ctx, agentID) == nil
+}
+
+// authorizeBotEdit applies botEditAllowed to a request. `what` names the
+// part being changed for the error message. It writes the error response and
 // returns false when the caller may not.
 func (a *apiHandler) authorizeBotEdit(w http.ResponseWriter, r *http.Request, orgID string, botID orgchart.NodeID, what string) bool {
 	ctx := r.Context()
@@ -963,7 +1001,7 @@ func (a *apiHandler) authorizeBotEdit(w http.ResponseWriter, r *http.Request, or
 		return true
 	}
 	denied := "Only organization owners, administrators, or people who can edit this bot's agent can change its " + what
-	if a.deps.AgentEditAuthorizer == nil || a.deps.Queries == nil {
+	if a.deps.Queries == nil {
 		writeAPIError(w, http.StatusForbidden, "forbidden", denied)
 		return false
 	}
@@ -972,15 +1010,29 @@ func (a *apiHandler) authorizeBotEdit(w http.ResponseWriter, r *http.Request, or
 		writeAPIError(w, errStatus(err), "not_found", "Bot not found")
 		return false
 	}
-	agentID := bot.AgentID
-	if agentID == "" && a.deps.BotRuntime != nil {
-		if info, err := a.deps.BotRuntime.State(ctx, orgID, botID); err == nil {
-			agentID = info.AgentID
-		}
-	}
-	if agentID == "" || a.deps.AgentEditAuthorizer.AuthorizeAgentUpdate(ctx, agentID) != nil {
+	if !a.botEditAllowed(ctx, orgID, bot) {
 		writeAPIError(w, http.StatusForbidden, "forbidden", denied)
 		return false
+	}
+	return true
+}
+
+// authorizeBotProjects refuses project ids being added to a Bot's allowlist
+// that the Bot's hiring user may not access. Ids already on the Bot are not
+// re-checked, so a later revocation does not block unrelated edits.
+func (a *apiHandler) authorizeBotProjects(w http.ResponseWriter, r *http.Request, orgID string, bot orgchart.Node, requested []string) bool {
+	if a.deps.BotProjectAuthorizer == nil {
+		return true
+	}
+	for _, projectID := range requested {
+		projectID = strings.TrimSpace(projectID)
+		if projectID == "" || slices.Contains(bot.ProjectIDs, projectID) {
+			continue
+		}
+		if err := a.deps.BotProjectAuthorizer.AuthorizeBotProject(r.Context(), orgID, bot.ID, projectID); err != nil {
+			writeAPIError(w, http.StatusForbidden, "forbidden", fmt.Sprintf("This bot cannot be given project %s: %v", projectID, err))
+			return false
+		}
 	}
 	return true
 }
