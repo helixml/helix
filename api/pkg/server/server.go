@@ -248,6 +248,9 @@ type HelixAPIServer struct {
 	// sharedRunnerTokenWarnCount how many there are (the set is capped).
 	sharedRunnerTokenWarned    sync.Map
 	sharedRunnerTokenWarnCount atomic.Int64
+	// runnerTokenTunnels maps a RevDial key to the per-runner token that
+	// registered its current tunnel (closeRunnerTokenTunnels).
+	runnerTokenTunnels sync.Map
 }
 
 func NewServer(
@@ -2903,6 +2906,7 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 				Str("displaced_remote_addr", displaced.Origin).
 				Msg("RevDial registration displaced an existing tunnel")
 		}
+		apiServer.trackRunnerTokenTunnel(runnerID, conn, user)
 		log.Trace().Str("runner_id", runnerID).Msg("Registered reverse dial connection in connman")
 
 		// If this is a Hydra connection (hydra-{sandbox_id}), discover running containers.

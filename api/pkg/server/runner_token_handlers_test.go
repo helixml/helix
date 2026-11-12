@@ -21,7 +21,10 @@ import (
 // runnerTokenAdminRouter serves the runner-token admin routes behind
 // requireAdmin, with the caller identity fixed as the auth middleware would.
 func runnerTokenAdminRouter(st store.Store, caller types.User) http.Handler {
-	apiServer := &HelixAPIServer{Store: st}
+	return runnerTokenAdminRouterFor(&HelixAPIServer{Store: st}, caller)
+}
+
+func runnerTokenAdminRouterFor(apiServer *HelixAPIServer, caller types.User) http.Handler {
 	router := mux.NewRouter()
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -126,8 +129,8 @@ func TestRevokeRunnerToken(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	st := store.NewMockStore(ctrl)
 	now := time.Now()
-	st.EXPECT().RevokeRunnerToken(gomock.Any(), "rtok_1").Return(&types.RunnerToken{ID: "rtok_1", RunnerID: "host1", RevokedAt: &now}, nil)
-	st.EXPECT().RevokeRunnerToken(gomock.Any(), "rtok_missing").Return(nil, store.ErrNotFound)
+	st.EXPECT().RevokeRunnerToken(gomock.Any(), "rtok_1", "usr_admin").Return(&types.RunnerToken{ID: "rtok_1", RunnerID: "host1", RevokedAt: &now}, nil)
+	st.EXPECT().RevokeRunnerToken(gomock.Any(), "rtok_missing", "usr_admin").Return(nil, store.ErrNotFound)
 	h := runnerTokenAdminRouter(st, testAdmin)
 
 	rr := serveJSON(h, http.MethodDelete, "/admin/runner-tokens/rtok_1", nil)

@@ -165,6 +165,17 @@ func (apiServer *HelixAPIServer) listSandboxes(rw http.ResponseWriter, req *http
 		http.Error(rw, "Failed to list sandboxes", http.StatusInternalServerError)
 		return
 	}
+	// A per-runner token sees only its own host's row, not the fleet's
+	// addresses and hardware. Admins and the shared token see every host.
+	if user := getRequestUser(req); isRunner(user) && user.RunnerID != "" {
+		own := []*types.SandboxInstance{}
+		for _, instance := range instances {
+			if types.RunnerIDsMatch(user.RunnerID, instance.ID) {
+				own = append(own, instance)
+			}
+		}
+		instances = own
+	}
 
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(instances)

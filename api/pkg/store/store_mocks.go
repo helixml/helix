@@ -6836,18 +6836,18 @@ func (mr *MockStoreMockRecorder) RevertPromptToPending(ctx, promptID any) *gomoc
 }
 
 // RevokeRunnerToken mocks base method.
-func (m *MockStore) RevokeRunnerToken(ctx context.Context, id string) (*types.RunnerToken, error) {
+func (m *MockStore) RevokeRunnerToken(ctx context.Context, id, revokedBy string) (*types.RunnerToken, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RevokeRunnerToken", ctx, id)
+	ret := m.ctrl.Call(m, "RevokeRunnerToken", ctx, id, revokedBy)
 	ret0, _ := ret[0].(*types.RunnerToken)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // RevokeRunnerToken indicates an expected call of RevokeRunnerToken.
-func (mr *MockStoreMockRecorder) RevokeRunnerToken(ctx, id any) *gomock.Call {
+func (mr *MockStoreMockRecorder) RevokeRunnerToken(ctx, id, revokedBy any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeRunnerToken", reflect.TypeOf((*MockStore)(nil).RevokeRunnerToken), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeRunnerToken", reflect.TypeOf((*MockStore)(nil).RevokeRunnerToken), ctx, id, revokedBy)
 }
 
 // RevokeSecretIntake mocks base method.

@@ -501,3 +501,63 @@ func TestSet_AfterDisconnectIsNotADisplacement(t *testing.T) {
 		t.Fatalf("reconnect after disconnect reported a displacement: %+v", displaced)
 	}
 }
+
+// CloseIfCurrent cuts a tunnel immediately: the connection is closed, no
+// grace period starts, and Dial fails until the client registers again.
+func TestCloseIfCurrent_ClosesWithoutGracePeriod(t *testing.T) {
+	m := New()
+	defer m.Stop()
+
+	conn := newMockConn()
+	m.Set("hydra-host1", conn, "10.0.0.1:1111")
+
+	if m.CloseIfCurrent("hydra-host1", newMockConn()) {
+		t.Fatal("closed a key for a connection that is not current")
+	}
+	if !m.CloseIfCurrent("hydra-host1", conn) {
+		t.Fatal("did not close the current connection")
+	}
+	select {
+	case <-conn.closeChan:
+	case <-time.After(2 * time.Second):
+		t.Fatal("connection was not closed")
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	m.lock.RLock()
+	_, inGrace := m.disconnectedAt["hydra-host1"]
+	m.lock.RUnlock()
+	if inGrace {
+		t.Fatal("closing started a grace period")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := m.Dial(ctx, "hydra-host1"); err != ErrNoConnection {
+		t.Fatalf("Dial after close = %v, want ErrNoConnection", err)
+	}
+	if m.CloseIfCurrent("hydra-host1", conn) {
+		t.Fatal("closed an already closed key")
+	}
+}
+
+// A newer registration under the same key is left alone.
+func TestCloseIfCurrent_LeavesNewerRegistration(t *testing.T) {
+	m := New()
+	defer m.Stop()
+
+	old := newMockConn()
+	m.Set("hydra-host1", old, "a")
+	newer := newMockConn()
+	defer newer.Close()
+	m.Set("hydra-host1", newer, "b")
+
+	if m.CloseIfCurrent("hydra-host1", old) {
+		t.Fatal("closed the newer registration")
+	}
+	m.lock.RLock()
+	current := m.deviceConnections["hydra-host1"]
+	m.lock.RUnlock()
+	if current != newer {
+		t.Fatal("the newer registration was removed")
+	}
+}

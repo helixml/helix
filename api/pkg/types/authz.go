@@ -273,6 +273,9 @@ type User struct {
 	// RunnerID is the runner a per-runner token is bound to. Empty for the
 	// shared runner token and for every non-runner credential.
 	RunnerID string `json:"runner_id,omitempty" gorm:"-"`
+	// RunnerTokenID is the id of the per-runner token the request used, so
+	// what it opened (RevDial tunnels) can be cut when it is revoked.
+	RunnerTokenID string `json:"-" gorm:"-"`
 	// these are set by the keycloak user based on the token
 	// if it's an app token - the keycloak user is loaded from the owner of the app
 	// if it's a runner token - these values will be empty

@@ -11,7 +11,8 @@ A **per-runner token** is bound to one runner id, the host's
 - register its own RevDial tunnels (`hydra-<id>`, `sandbox-<id>`);
 - open the runner websockets as `<id>`;
 - register, heartbeat, deregister and read disk history for sandbox `<id>`;
-- read runner `<id>`'s profile assignment, and only the profile assigned to it.
+- read runner `<id>`'s profile assignment, and only the profile assigned to it;
+- list sandboxes: it sees only its own host's row.
 - read agent credentials and sandbox configuration only for sessions running
   on sandbox `<id>`.
 
@@ -88,10 +89,14 @@ helix runner token list --runner-id gpu-host-1
 helix runner token revoke rtok_...
 ```
 
-New requests with a revoked token are refused immediately. A tunnel it already
-opened stays up until it is replaced: give the host a new token and restart its
-sandbox container, and its new registration displaces the old tunnel (the
-latest registration for an id wins, and each displacement is logged at Warn).
+New requests with a revoked token are refused immediately, and the RevDial
+tunnels it registered are closed at once: the control plane stops dispatching
+to that host until it registers again with a valid token. A tunnel the host
+has since re-registered with another credential is left alone. Websocket
+sessions already open with the token end when they next reconnect.
+
+The token row keeps who created and who revoked it, and when; every mint and
+revoke request is also in the request audit log.
 
 ## NATS proxy
 

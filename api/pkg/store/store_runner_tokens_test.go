@@ -51,19 +51,25 @@ func (s *RunnerTokenStoreSuite) TestCreateLookupRevoke() {
 	_, err = s.db.GetActiveRunnerTokenByHash(s.ctx, types.HashRunnerToken(secret+"x"))
 	s.ErrorIs(err, ErrNotFound)
 
-	revoked, err := s.db.RevokeRunnerToken(s.ctx, created.ID)
+	revoked, err := s.db.RevokeRunnerToken(s.ctx, created.ID, "usr_admin")
 	s.Require().NoError(err)
 	s.Require().NotNil(revoked.RevokedAt)
+	s.Equal("usr_admin", revoked.RevokedBy)
 
 	_, err = s.db.GetActiveRunnerTokenByHash(s.ctx, types.HashRunnerToken(secret))
 	s.ErrorIs(err, ErrNotFound, "a revoked token must not authenticate")
 
 	// Revoking again keeps the first revocation time.
-	again, err := s.db.RevokeRunnerToken(s.ctx, created.ID)
+	again, err := s.db.RevokeRunnerToken(s.ctx, created.ID, "usr_other")
 	s.Require().NoError(err)
 	s.True(again.RevokedAt.Equal(*revoked.RevokedAt))
+	s.Equal("usr_admin", again.RevokedBy, "a second revoke keeps the first revoker")
 
-	_, err = s.db.RevokeRunnerToken(s.ctx, "rtok_missing")
+	var stored types.RunnerToken
+	s.Require().NoError(s.db.gdb.Where("id = ?", created.ID).First(&stored).Error)
+	s.Equal("usr_admin", stored.RevokedBy)
+
+	_, err = s.db.RevokeRunnerToken(s.ctx, "rtok_missing", "usr_admin")
 	s.ErrorIs(err, ErrNotFound)
 }
 
@@ -73,7 +79,7 @@ func (s *RunnerTokenStoreSuite) TestListFiltersByRunner() {
 	a1, _ := s.newToken(runnerA)
 	a2, _ := s.newToken(runnerA)
 	_, _ = s.newToken(runnerB)
-	_, err := s.db.RevokeRunnerToken(s.ctx, a1.ID)
+	_, err := s.db.RevokeRunnerToken(s.ctx, a1.ID, "usr_admin")
 	s.Require().NoError(err)
 
 	tokens, err := s.db.ListRunnerTokens(s.ctx, runnerA)

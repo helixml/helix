@@ -122,7 +122,7 @@ func (apiServer *HelixAPIServer) listRunnerTokens(rw http.ResponseWriter, r *htt
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) revokeRunnerToken(rw http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	revoked, err := apiServer.Store.RevokeRunnerToken(r.Context(), id)
+	revoked, err := apiServer.Store.RevokeRunnerToken(r.Context(), id, getRequestUserID(r))
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(rw, "runner token not found", http.StatusNotFound)
 		return
@@ -133,10 +133,15 @@ func (apiServer *HelixAPIServer) revokeRunnerToken(rw http.ResponseWriter, r *ht
 		return
 	}
 
+	// Revoking on compromise must cut traffic now, not when the host next
+	// reconnects: close the tunnels this token registered.
+	closed := apiServer.closeRunnerTokenTunnels(revoked.ID)
+
 	log.Info().
 		Str("runner_token_id", revoked.ID).
 		Str("runner_id", revoked.RunnerID).
 		Str("revoked_by", getRequestUserID(r)).
+		Int("tunnels_closed", closed).
 		Msg("Runner token revoked")
 
 	writeResponse(rw, revoked, http.StatusOK)

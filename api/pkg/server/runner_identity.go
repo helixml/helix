@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -65,11 +66,12 @@ func runnerUserFromToken(ctx context.Context, st store.Store, sharedToken, token
 		return nil, true, errRunnerTokenInvalid
 	}
 	return &types.User{
-		ID:        "runner-system",
-		Type:      types.OwnerTypeUser,
-		Token:     token,
-		TokenType: types.TokenTypeRunner,
-		RunnerID:  rt.RunnerID,
+		ID:            "runner-system",
+		Type:          types.OwnerTypeUser,
+		Token:         token,
+		TokenType:     types.TokenTypeRunner,
+		RunnerID:      rt.RunnerID,
+		RunnerTokenID: rt.ID,
 	}, true, nil
 }
 
@@ -175,4 +177,43 @@ func canRunnerReadSession(user *types.User, session *types.Session) bool {
 		return true
 	}
 	return types.RunnerIDsMatch(user.RunnerID, session.SandboxID)
+}
+
+// runnerTokenTunnel is a RevDial tunnel registered with a per-runner token.
+type runnerTokenTunnel struct {
+	tokenID string
+	conn    net.Conn
+}
+
+// trackRunnerTokenTunnel records which per-runner token registered the tunnel
+// now current under key, so revoking that token can cut it. A registration
+// with any other credential clears the record.
+func (apiServer *HelixAPIServer) trackRunnerTokenTunnel(key string, conn net.Conn, user *types.User) {
+	if user.RunnerTokenID == "" {
+		apiServer.runnerTokenTunnels.Delete(key)
+		return
+	}
+	apiServer.runnerTokenTunnels.Store(key, runnerTokenTunnel{tokenID: user.RunnerTokenID, conn: conn})
+}
+
+// closeRunnerTokenTunnels closes the RevDial tunnels a revoked per-runner
+// token registered and that are still current. Dials to them then fail until
+// the host registers again, which the revoked token can no longer do.
+func (apiServer *HelixAPIServer) closeRunnerTokenTunnels(tokenID string) int {
+	if apiServer.connman == nil {
+		return 0
+	}
+	closed := 0
+	apiServer.runnerTokenTunnels.Range(func(k, v any) bool {
+		key, tunnel := k.(string), v.(runnerTokenTunnel)
+		if tunnel.tokenID != tokenID {
+			return true
+		}
+		apiServer.runnerTokenTunnels.CompareAndDelete(key, v)
+		if apiServer.connman.CloseIfCurrent(key, tunnel.conn) {
+			closed++
+		}
+		return true
+	})
+	return closed
 }

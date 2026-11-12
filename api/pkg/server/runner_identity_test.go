@@ -475,3 +475,115 @@ func TestGetSessionClaudeCredentials_PerRunnerTokenOtherHostRefused(t *testing.T
 	require.NotNil(t, httpErr)
 	require.Equal(t, http.StatusForbidden, httpErr.StatusCode)
 }
+
+// dialRevDialConn opens a RevDial control connection and returns a channel
+// closed when the server ends it.
+func (f *runnerAuthFixture) dialRevDialConn(t *testing.T, token, runnerID string) <-chan struct{} {
+	t.Helper()
+	url := "ws" + strings.TrimPrefix(f.srv.URL, "http") + "/api/v1/revdial?runnerid=" + runnerID
+	conn, _, err := websocket.DefaultDialer.Dial(url, http.Header{"Authorization": []string{"Bearer " + token}})
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	closed := make(chan struct{})
+	go func() {
+		defer close(closed)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+	return closed
+}
+
+// Revoking a per-runner token cuts the tunnels it registered at once; other
+// hosts' tunnels, and a tunnel since re-registered with another credential,
+// stay up.
+func TestRevokeRunnerToken_ClosesItsLiveTunnels(t *testing.T) {
+	f := newRunnerAuthFixture(t, false)
+	f.store.EXPECT().RevokeRunnerToken(gomock.Any(), "rtok_1", "usr_admin").
+		Return(&types.RunnerToken{ID: "rtok_1", RunnerID: "host1"}, nil).AnyTimes()
+
+	hydra1 := f.dialRevDialConn(t, testHost1Token, "hydra-host1")
+	sandbox1 := f.dialRevDialConn(t, testHost1Token, "sandbox-host1")
+	other := f.dialRevDialConn(t, testSharedRunnerToken, "hydra-host2")
+	waitFor(t, func() bool {
+		return f.registered("hydra-host1") && f.registered("sandbox-host1") && f.registered("hydra-host2")
+	})
+
+	admin := runnerTokenAdminRouterFor(f.apiServer, testAdmin)
+	require.Equal(t, http.StatusOK, serveJSON(admin, http.MethodDelete, "/admin/runner-tokens/rtok_1", nil).Code)
+
+	for name, closed := range map[string]<-chan struct{}{"hydra-host1": hydra1, "sandbox-host1": sandbox1} {
+		select {
+		case <-closed:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s tunnel was not closed on revoke", name)
+		}
+		require.False(t, f.registered(name), "%s is still dialable after revoke", name)
+	}
+	_, err := f.connman.Dial(context.Background(), "hydra-host1")
+	require.ErrorIs(t, err, connman.ErrNoConnection)
+
+	select {
+	case <-other:
+		t.Fatal("another host's tunnel was closed")
+	default:
+	}
+	require.True(t, f.registered("hydra-host2"))
+}
+
+func TestRevokeRunnerToken_LeavesTunnelReRegisteredWithOtherCredential(t *testing.T) {
+	f := newRunnerAuthFixture(t, false)
+	f.store.EXPECT().RevokeRunnerToken(gomock.Any(), "rtok_1", "usr_admin").
+		Return(&types.RunnerToken{ID: "rtok_1", RunnerID: "host1"}, nil)
+
+	f.dialRevDialConn(t, testHost1Token, "hydra-host1")
+	waitFor(t, func() bool { return f.registered("hydra-host1") })
+	replacement := f.dialRevDialConn(t, testSharedRunnerToken, "hydra-host1")
+	time.Sleep(100 * time.Millisecond) // let the displacement settle
+
+	admin := runnerTokenAdminRouterFor(f.apiServer, testAdmin)
+	require.Equal(t, http.StatusOK, serveJSON(admin, http.MethodDelete, "/admin/runner-tokens/rtok_1", nil).Code)
+
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case <-replacement:
+		t.Fatal("revoke closed a tunnel registered with another credential")
+	default:
+	}
+	require.True(t, f.registered("hydra-host1"))
+}
+
+// GET /sandboxes with a per-runner token lists only that host's row.
+func TestListSandboxes_PerRunnerTokenSeesOnlyItsHost(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	fleet := []*types.SandboxInstance{
+		{ID: "host1", Hostname: "h1", IPAddress: "10.0.0.1"},
+		{ID: "host2", Hostname: "h2", IPAddress: "10.0.0.2"},
+	}
+	st.EXPECT().ListSandboxInstances(gomock.Any()).Return(fleet, nil).AnyTimes()
+	apiServer := &HelixAPIServer{Store: st}
+
+	list := func(user types.User) []*types.SandboxInstance {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/sandboxes", nil)
+		req = req.WithContext(setRequestUser(req.Context(), user))
+		rr := httptest.NewRecorder()
+		apiServer.listSandboxes(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code)
+		var got []*types.SandboxInstance
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+		return got
+	}
+
+	bound := list(types.User{ID: "runner-system", TokenType: types.TokenTypeRunner, Token: testHost1Token, RunnerID: "host1"})
+	require.Len(t, bound, 1)
+	require.Equal(t, "host1", bound[0].ID)
+
+	require.Len(t, list(types.User{ID: "runner-system", TokenType: types.TokenTypeRunner, Token: testSharedRunnerToken}), 2)
+	require.Len(t, list(testAdmin), 2)
+
+	none := list(types.User{ID: "runner-system", TokenType: types.TokenTypeRunner, Token: testHost1Token, RunnerID: "host9"})
+	require.Empty(t, none)
+}

@@ -32,6 +32,10 @@ type RunnerToken struct {
 	CreatedBy   string     `json:"created_by"`
 	CreatedAt   time.Time  `json:"created_at"`
 	RevokedAt   *time.Time `json:"revoked_at,omitempty" gorm:"index"`
+	// RevokedBy is the user who revoked the token. With CreatedBy and the
+	// timestamps, the row is the token's durable audit record; the request
+	// audit log has the full requests.
+	RevokedBy string `json:"revoked_by,omitempty"`
 }
 
 // Revoked reports whether the token has been revoked.

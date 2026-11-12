@@ -63,9 +63,9 @@ func (s *PostgresStore) ListRunnerTokens(ctx context.Context, runnerID string) (
 	return tokens, nil
 }
 
-// RevokeRunnerToken marks a token revoked. Revoking an already revoked token
-// keeps its original revocation time. Returns ErrNotFound for an unknown id.
-func (s *PostgresStore) RevokeRunnerToken(ctx context.Context, id string) (*types.RunnerToken, error) {
+// RevokeRunnerToken marks a token revoked by revokedBy. Revoking an already
+// revoked token keeps its original revocation time and revoker. Returns ErrNotFound for an unknown id.
+func (s *PostgresStore) RevokeRunnerToken(ctx context.Context, id, revokedBy string) (*types.RunnerToken, error) {
 	if id == "" {
 		return nil, errors.New("runner token ID is required")
 	}
@@ -80,10 +80,11 @@ func (s *PostgresStore) RevokeRunnerToken(ctx context.Context, id string) (*type
 		// Postgres keeps microseconds; truncate so the returned value matches
 		// what a later read sees.
 		now := time.Now().Truncate(time.Microsecond)
-		if err := tx.Model(&t).Update("revoked_at", now).Error; err != nil {
+		if err := tx.Model(&t).Updates(map[string]any{"revoked_at": now, "revoked_by": revokedBy}).Error; err != nil {
 			return err
 		}
 		t.RevokedAt = &now
+		t.RevokedBy = revokedBy
 		return nil
 	})
 	if err != nil {
