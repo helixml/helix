@@ -2174,10 +2174,12 @@ steps:
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      # Untag by name: the image ID can be shared with other tags.
+      # Untag by name: the image ID can be shared with other tags. -f on a
+      # tag only drops the tag; a container still exiting from the --rm runs
+      # above would otherwise block it.
       - |
         if docker image inspect zed-ws-e2e:build-${DRONE_BUILD_NUMBER} >/dev/null 2>&1; then
-          docker rmi zed-ws-e2e:build-${DRONE_BUILD_NUMBER}
+          docker rmi -f zed-ws-e2e:build-${DRONE_BUILD_NUMBER}
         fi
     volumes:
       - name: dockersocket
