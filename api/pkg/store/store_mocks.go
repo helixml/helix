@@ -5182,6 +5182,21 @@ func (mr *MockStoreMockRecorder) ListGitRepositories(ctx, request any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGitRepositories", reflect.TypeOf((*MockStore)(nil).ListGitRepositories), ctx, request)
 }
 
+// ListGitRepositoriesByKoditRepoID mocks base method.
+func (m *MockStore) ListGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64) ([]*types.GitRepository, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListGitRepositoriesByKoditRepoID", ctx, koditRepoID)
+	ret0, _ := ret[0].([]*types.GitRepository)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListGitRepositoriesByKoditRepoID indicates an expected call of ListGitRepositoriesByKoditRepoID.
+func (mr *MockStoreMockRecorder) ListGitRepositoriesByKoditRepoID(ctx, koditRepoID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGitRepositoriesByKoditRepoID", reflect.TypeOf((*MockStore)(nil).ListGitRepositoriesByKoditRepoID), ctx, koditRepoID)
+}
+
 // ListGoldenBuilds mocks base method.
 func (m *MockStore) ListGoldenBuilds(ctx context.Context, q *ListGoldenBuildsQuery) ([]*types.SandboxCacheState, error) {
 	m.ctrl.T.Helper()

@@ -189,6 +189,9 @@ func (p Policy) resolve(ctx context.Context, host string) ([]net.IP, error) {
 		}
 		return []net.IP{ip}, nil
 	}
+	if isNonCanonicalIPv4Literal(host) {
+		return nil, fmt.Errorf("%w: non-canonical numeric host %q", ErrBlockedDestination, host)
+	}
 	if !p.AllowPrivate && isLocalhostName(host) {
 		return nil, fmt.Errorf("%w (host %s)", errPrivate, host)
 	}
@@ -207,6 +210,51 @@ func (p Policy) resolve(ctx context.Context, host string) ([]net.IP, error) {
 		ips = append(ips, a.IP)
 	}
 	return ips, nil
+}
+
+// isNonCanonicalIPv4Literal reports whether host is a numeric IPv4 address
+// in one of the legacy inet_aton spellings that net.ParseIP does not accept:
+// a bare integer (2130706433), hex (0x7f000001), octal or zero-padded parts
+// (0177.0.0.1) or a shortened form (127.1). Some resolvers and tools read
+// these as addresses, so they are refused instead of being treated as names.
+// A real hostname always ends in a non-numeric label, so none match.
+func isNonCanonicalIPv4Literal(host string) bool {
+	h := strings.TrimSuffix(host, ".")
+	if h == "" {
+		return false
+	}
+	parts := strings.Split(h, ".")
+	if len(parts) > 4 {
+		return false
+	}
+	for _, part := range parts {
+		if !isNumericAddressPart(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func isNumericAddressPart(part string) bool {
+	if part == "" {
+		return false
+	}
+	digits, hex := part, false
+	if len(part) >= 2 && part[0] == '0' && (part[1] == 'x' || part[1] == 'X') {
+		digits, hex = part[2:], true
+		if digits == "" {
+			return true // "0x" alone is read as zero by inet_aton
+		}
+	}
+	for _, c := range digits {
+		switch {
+		case c >= '0' && c <= '9':
+		case hex && (c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func isLocalhostName(host string) bool {

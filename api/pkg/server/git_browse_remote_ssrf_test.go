@@ -100,3 +100,33 @@ func listenerPort(t *testing.T, srv *httptest.Server) string {
 	}
 	return port
 }
+
+// Integer, hex, octal and shortened IPv4 spellings of an internal address are
+// refused like their dotted-quad form, for every provider type.
+func TestBrowseRemoteRejectsNonCanonicalIPv4Literals(t *testing.T) {
+	var hits atomic.Int32
+	listener := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer listener.Close()
+	port := listenerPort(t, listener)
+
+	srv := &HelixAPIServer{Cfg: &config.ServerConfig{}}
+	for _, host := range []string{"2130706433", "0x7f000001", "0177.0.0.1", "127.1", "2852039166"} {
+		base := "http://" + host + ":" + port
+		for _, req := range []types.BrowseRemoteRepositoriesRequest{
+			{ProviderType: types.ExternalRepositoryTypeGitHub, BaseURL: base + "/api/v3/", Token: "dummy"},
+			{ProviderType: types.ExternalRepositoryTypeGitLab, BaseURL: base, Token: "dummy"},
+			{ProviderType: types.ExternalRepositoryTypeADO, OrganizationURL: "https://" + host + ":" + port + "/org", Token: "dummy"},
+		} {
+			rec := postBrowseRemote(t, srv, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("%s %s: expected 400, got %d: %s", req.ProviderType, host, rec.Code, rec.Body.String())
+			}
+		}
+	}
+	if n := hits.Load(); n != 0 {
+		t.Fatalf("internal listener received %d requests", n)
+	}
+}

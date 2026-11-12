@@ -755,6 +755,7 @@ type Store interface {
 	DeleteGitRepository(ctx context.Context, id string) error
 	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
 	CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error)
+	ListGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64) ([]*types.GitRepository, error)
 
 	// Git pull request methods (Helix-hosted repositories)
 	CreateGitPullRequest(ctx context.Context, pr *types.GitPullRequest) error
