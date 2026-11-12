@@ -33,10 +33,13 @@ const OrgAgentSettings: FC<{
   onCanonicalUpdate?: () => Promise<unknown> | void
   embedded?: boolean
   detail?: BotDetailDTO
-}> = ({ agentID, section, readOnly, onCanonicalUpdate, embedded = false, detail }) => {
+}> = ({ agentID, section, readOnly: readOnlyProp, onCanonicalUpdate, embedded = false, detail }) => {
   const snackbar = useSnackbar()
   const updateAgent = useUpdateBot()
   const agent = detail?.bot
+  // The server decides who may change a bot; a member who cannot gets the
+  // read-only form whatever the caller passed.
+  const readOnly = readOnlyProp || agent?.can_edit === false
   const { data: projects = [] } = useListProjects(agent?.organization_id, { enabled: section === 'access' && !!agent?.organization_id })
   const { data: catalogue = [] } = useListHelixOrgTools({ enabled: section === 'tools' && !!agent })
   const { data: triggers = [], isLoading: triggersLoading } = useTriggers()

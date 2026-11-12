@@ -99,6 +99,12 @@ export interface ApiBotDTO {
    * when a newer activation starts or succeeds.
    */
   activation_error?: string;
+  /**
+   * CanEdit is true when the caller may change this Bot: organization
+   * owners and platform admins, or a member who may update the Bot's
+   * agent app. The UI hides edit, delete and re-parent controls when false.
+   */
+  can_edit?: boolean;
   agent_model?: string;
   agent_runtime?: string;
   /**
