@@ -228,9 +228,15 @@ func TestPendingCustomDomainVerificationOverPort80(t *testing.T) {
 	router.HandleFunc("/.well-known/helix-domain-verify/{token}", apiServer.domainVerificationResponse).Methods(http.MethodGet)
 	cfg := parseVHostConfig("meta.helix.ml", "https://meta.helix.ml")
 	port80 := httpToHTTPSRedirect(NewVHostMiddleware(cfg, apiServer, router))
+	mockStore.EXPECT().GetVHostRouteByHostname(gomock.Any(), "expressionstreet.com").Return(&types.VHostRoute{
+		Hostname:          "expressionstreet.com",
+		TargetKind:        types.VHostTargetProjectWebService,
+		TargetID:          "prj_web",
+		VerificationToken: "tok123",
+	}, nil).AnyTimes()
 
 	// The verifier's request must reach the token echo even though the
-	// route is unverified; the store is never consulted for it.
+	// route is unverified; the echo answers with the pending route's own token.
 	response := httptest.NewRecorder()
 	port80.ServeHTTP(response, httptest.NewRequest(http.MethodGet,
 		"http://expressionstreet.com/.well-known/helix-domain-verify/tok123", nil))
@@ -244,12 +250,6 @@ func TestPendingCustomDomainVerificationOverPort80(t *testing.T) {
 	require.Equal(t, "https://expressionstreet.com/about?x=1", response.Header().Get("Location"))
 
 	// Over HTTPS the unverified route still refuses to serve the app.
-	mockStore.EXPECT().GetVHostRouteByHostname(gomock.Any(), "expressionstreet.com").Return(&types.VHostRoute{
-		Hostname:          "expressionstreet.com",
-		TargetKind:        types.VHostTargetProjectWebService,
-		TargetID:          "prj_web",
-		VerificationToken: "tok123",
-	}, nil)
 	response = httptest.NewRecorder()
 	NewVHostMiddleware(cfg, apiServer, router).ServeHTTP(response,
 		httptest.NewRequest(http.MethodGet, "https://expressionstreet.com/", nil))

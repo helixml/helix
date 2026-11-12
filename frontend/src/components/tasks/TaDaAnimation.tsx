@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Box, keyframes } from "@mui/material";
+import Box from "@mui/material/Box";
+import { keyframes } from "@mui/material/styles";
 
 const CONFETTI_COUNT = 60;
 const COLORS = [

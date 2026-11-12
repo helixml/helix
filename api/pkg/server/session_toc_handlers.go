@@ -82,11 +82,8 @@ func (apiServer *HelixAPIServer) getSessionTOC(_ http.ResponseWriter, req *http.
 		return nil, system.NewHTTPError404("session not found")
 	}
 
-	// Check authorization
-	if user.ID != "runner-system" {
-		if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet); err != nil {
-			return nil, system.NewHTTPError403("you don't have access to this session")
-		}
+	if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403("you don't have access to this session")
 	}
 
 	// Get all interactions for this session
@@ -178,16 +175,8 @@ func (apiServer *HelixAPIServer) getInteractionByTurn(_ http.ResponseWriter, req
 		return nil, system.NewHTTPError404("session not found")
 	}
 
-	// Check authorization
-
-	switch {
-	case user.ID == "runner-system":
-		// OK
-	default:
-		err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
-		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
-		}
+	if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Get all interactions for this session
@@ -293,15 +282,8 @@ func (apiServer *HelixAPIServer) searchSessionInteractions(_ http.ResponseWriter
 		return nil, system.NewHTTPError404("session not found")
 	}
 
-	// Check authorization
-	switch {
-	case user.ID == "runner-system":
-		// OK
-	default:
-		err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
-		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
-		}
+	if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Get all interactions and filter by search query

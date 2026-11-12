@@ -166,6 +166,44 @@ func (suite *PostgresStoreTestSuite) TestClaimSessionAutoRestartHonorsGracePerio
 	suite.WithinDuration(firstRestart.Add(6*time.Minute), stored.Metadata.LastAutoRestartAt, time.Microsecond)
 }
 
+func (suite *PostgresStoreTestSuite) TestRecordSessionAgentConfigAppliedPreservesConcurrentRecovery() {
+	ctx := context.Background()
+	session := types.Session{
+		ID: system.GenerateSessionID(), Owner: "user_id", Created: time.Now(), Updated: time.Now(),
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus: "running",
+			Recovery:            &types.ProviderRecovery{PromptID: "prompt-old", InteractionID: "interaction-old"},
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	cleared, err := suite.db.ClearSessionProviderRecovery(ctx, session.ID, "prompt-old", "interaction-old")
+	suite.Require().NoError(err)
+	suite.True(cleared)
+	newRecovery := &types.ProviderRecovery{PromptID: "prompt-new", InteractionID: "interaction-new"}
+	suite.Require().NoError(suite.db.SetSessionProviderRecovery(ctx, session.ID, newRecovery))
+
+	appliedAt := time.Now().UTC().Truncate(time.Microsecond)
+	suite.Require().NoError(suite.db.RecordSessionAgentConfigApplied(ctx, session.ID, appliedAt, true))
+	stored, err := suite.db.GetSession(ctx, session.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(stored.Metadata.Recovery)
+	suite.Equal(newRecovery.PromptID, stored.Metadata.Recovery.PromptID)
+	suite.Equal(newRecovery.InteractionID, stored.Metadata.Recovery.InteractionID)
+	suite.Equal("running", stored.Metadata.ExternalAgentStatus)
+	suite.WithinDuration(appliedAt, stored.Metadata.AgentConfigAppliedAt, time.Microsecond)
+	suite.WithinDuration(appliedAt, stored.Metadata.AgentHandoffDeliveredAt, time.Microsecond)
+
+	secondAppliedAt := appliedAt.Add(time.Second)
+	suite.Require().NoError(suite.db.RecordSessionAgentConfigApplied(ctx, session.ID, secondAppliedAt, false))
+	stored, err = suite.db.GetSession(ctx, session.ID)
+	suite.Require().NoError(err)
+	suite.WithinDuration(secondAppliedAt, stored.Metadata.AgentConfigAppliedAt, time.Microsecond)
+	suite.WithinDuration(appliedAt, stored.Metadata.AgentHandoffDeliveredAt, time.Microsecond)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession() {
 
 	// Create a sample session

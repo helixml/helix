@@ -1,13 +1,11 @@
 import React, { FC, useMemo, useState } from 'react';
-import {
-  Box,
-  Button,
-  Chip,
-  IconButton,
-  TablePagination,
-  Tooltip,
-  Typography,
-} from '@mui/material';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
+import TablePagination from '@mui/material/TablePagination';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 import { RefreshCw, Copy } from 'lucide-react';
 import { TypesLLMCall } from '../../api/api';
 import { useGetConfig } from '../../services/userService';

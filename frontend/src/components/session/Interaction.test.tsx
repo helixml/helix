@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { TypesInteractionState } from "../../api/api";
-import { Interaction } from "./Interaction";
+import MemoizedInteraction, { Interaction } from "./Interaction";
 
 vi.mock("./InteractionContainer", () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -61,6 +61,95 @@ const baseProps = {
 };
 
 describe("Interaction", () => {
+  it("identifies replies in a bot conversation", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        assistantName="Chief of Staff"
+        assistantPortraitIndex={5}
+        interaction={{
+          id: "int_bot",
+          prompt_message: "Question",
+          response_message: "Answer",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Chief of Staff")).toBeInTheDocument();
+    expect(document.querySelector('img[aria-hidden="true"]')).toBeInTheDocument();
+    expect(screen.getByTestId("agent-reply")).toHaveTextContent("Answer");
+  });
+
+  it("adds a bot name when identity loads after the reply", () => {
+    const interaction = {
+      id: "int_bot",
+      prompt_message: "Question",
+      response_message: "Answer",
+    };
+    const view = render(
+      <MemoizedInteraction {...baseProps} interaction={interaction} />,
+    );
+
+    expect(screen.queryByText("Chief of Staff")).not.toBeInTheDocument();
+    view.rerender(
+      <MemoizedInteraction {...baseProps} interaction={interaction} assistantName="Chief of Staff" />,
+    );
+
+    expect(screen.getByText("Chief of Staff")).toBeInTheDocument();
+  });
+
+  it("adds the portrait when its persisted assignment loads", () => {
+    const interaction = {
+      id: "int_bot",
+      prompt_message: "Question",
+      response_message: "Answer",
+    };
+    const view = render(
+      <MemoizedInteraction {...baseProps} interaction={interaction} assistantName="Chief of Staff" />,
+    );
+
+    expect(document.querySelector('img[aria-hidden="true"]')).not.toBeInTheDocument();
+    view.rerender(
+      <MemoizedInteraction
+        {...baseProps}
+        interaction={interaction}
+        assistantName="Chief of Staff"
+        assistantPortraitIndex={5}
+      />,
+    );
+
+    expect(document.querySelector('img[aria-hidden="true"]')).toBeInTheDocument();
+  });
+
+  it("updates a memoized reply when its persisted portrait assignment loads", () => {
+    const interaction = {
+      id: "int_bot",
+      prompt_message: "Question",
+      response_message: "Answer",
+    };
+    const view = render(
+      <MemoizedInteraction
+        {...baseProps}
+        interaction={interaction}
+        assistantName="Joke Writer"
+        assistantPortraitIndex={5}
+      />,
+    );
+    const portrait = document.querySelector('img[aria-hidden="true"]');
+    const initialSrc = portrait?.getAttribute("src");
+
+    view.rerender(
+      <MemoizedInteraction
+        {...baseProps}
+        interaction={interaction}
+        assistantName="Joke Writer"
+        assistantPortraitIndex={0}
+      />,
+    );
+
+    expect(document.querySelector('img[aria-hidden="true"]')).not.toHaveAttribute("src", initialSrc);
+  });
+
   it("shows debug copy only on the agent side after a reply", () => {
     render(
       <Interaction

@@ -229,3 +229,19 @@ func (suite *FilestoreSuite) TestIsFilestoreRouteAuthorized_UserPath_Unauthorize
 	suite.NoError(err)
 	suite.False(authorized)
 }
+
+// TestIsFilestoreRouteAuthorized_RunnerRefused tests that the runner token
+// reads no files, not even its own "runner-system" folder.
+func (suite *FilestoreSuite) TestIsFilestoreRouteAuthorized_RunnerRefused() {
+	runnerCtx := setRequestUser(context.Background(), types.User{
+		ID:        "runner-system",
+		Token:     "runner-token",
+		TokenType: types.TokenTypeRunner,
+	})
+	for _, path := range []string{"/dev/users/user_id_test/file.pdf", "/dev/users/runner-system/file.pdf", "/dev/apps/app_123/file.pdf"} {
+		req := httptest.NewRequest("GET", path, nil).WithContext(runnerCtx)
+		authorized, err := suite.server.isFilestoreRouteAuthorized(req)
+		suite.ErrorIs(err, errRunnerTokenRefused, path)
+		suite.False(authorized, path)
+	}
+}

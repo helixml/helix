@@ -24,6 +24,10 @@ type Workspace struct {
 	OrgID    string
 	TeamID   string
 	BotToken string
+	// AppConnectionID is the global Slack app (service connection) this
+	// workspace was installed from; "" for a manual token connect that
+	// did not name one.
+	AppConnectionID string
 }
 
 // ErrNoWorkspace is returned by Workspaces lookups when no install
