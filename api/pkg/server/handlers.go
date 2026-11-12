@@ -832,6 +832,14 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 		return nil, system.NewHTTPError400("failed to update password: " + err.Error())
 	}
 
+	// An admin resets a password to lock out whoever held the old one; the
+	// user's existing sessions go with it.
+	if apiServer.sessionManager != nil {
+		if err := apiServer.sessionManager.RevokeUserSessions(ctx, targetUserID, ""); err != nil {
+			return nil, system.NewHTTPError500("password updated but failed to revoke the user's sessions: " + err.Error())
+		}
+	}
+
 	log.Info().
 		Str("admin_id", adminUser.ID).
 		Str("admin_email", adminUser.Email).

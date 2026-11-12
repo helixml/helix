@@ -344,19 +344,57 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		s.adminAlerter.SendWaitlistSignupAlert(createdUser)
 	}
 
-	token, err := s.authenticator.GenerateUserToken(ctx, createdUser)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to generate user token")
-		http.Error(w, "Failed to generate user token: "+err.Error(), http.StatusInternalServerError)
+	// Sign the new account in the way a password login does.
+	if !s.startRegularSession(w, r, createdUser) {
 		return
 	}
+	writeResponse(w, userResponse(createdUser, ""), http.StatusOK)
+}
 
-	cookieManager := NewCookieManager(s.Cfg)
-	cookieManager.Set(w, accessTokenCookie, token)
-	cookieManager.Set(w, refreshTokenCookie, token)
+// startRegularSession signs user in with a server-side session and its
+// cookies, as a password login does, and reports whether it did. Password
+// sign-ups and resets used to set a bare JWT cookie instead: that cookie
+// bypassed the CSRF check, which only knew the session cookie, and could not
+// be revoked by logout or by a later password change.
+func (s *HelixAPIServer) startRegularSession(w http.ResponseWriter, r *http.Request, user *types.User) bool {
+	if s.sessionManager == nil {
+		log.Error().Msg("session manager is not configured")
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return false
+	}
+	_, err := s.sessionManager.CreateSession(r.Context(), w, r, user.ID, types.AuthProviderRegular, "", "", "", time.Time{})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create session")
+		http.Error(w, "Failed to create session: "+err.Error(), http.StatusInternalServerError)
+		return false
+	}
+	return true
+}
 
-	response := userResponse(createdUser, token)
-	writeResponse(w, response, http.StatusOK)
+// refuseScopedKeyAccountChange writes a 403 and returns true when the caller
+// authenticated with a scoped API key. Such a key (org, project, session, app
+// or embed; minted for sandboxes and agents) grants less than the account it
+// belongs to, so it must not be able to change that account's password or
+// profile and then sign in as its owner with everything the scope withheld.
+func refuseScopedKeyAccountChange(w http.ResponseWriter, user *types.User) bool {
+	if !isScopedAPIKeyCaller(user) {
+		return false
+	}
+	http.Error(w, "a scoped API key cannot change the account; use a personal API key or sign in", http.StatusForbidden)
+	return true
+}
+
+// currentSessionID returns the ID of the session cookie that authenticated r,
+// or "" when it was authenticated some other way.
+func (s *HelixAPIServer) currentSessionID(r *http.Request) string {
+	if s.sessionManager == nil {
+		return ""
+	}
+	session, err := s.sessionManager.GetSessionFromRequest(r.Context(), r)
+	if err != nil || session == nil {
+		return ""
+	}
+	return session.ID
 }
 
 // accountUpdate godoc
@@ -377,6 +415,9 @@ func (s *HelixAPIServer) accountUpdate(w http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	if user == nil || user.ID == "" {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if refuseScopedKeyAccountChange(w, user) {
 		return
 	}
 
@@ -486,14 +527,17 @@ func (s *HelixAPIServer) passwordReset(w http.ResponseWriter, r *http.Request) {
 	user, err := s.Store.GetUser(r.Context(), &store.GetUserQuery{
 		Email: passwordResetRequest.Email,
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Error().Err(err).Msg("Failed to get user")
 		http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if user == nil {
-		log.Error().Str("email", passwordResetRequest.Email).Msg("User not found")
-		http.Error(w, "User not found", http.StatusUnauthorized)
+		// Answer as for a known address: this endpoint is unauthenticated,
+		// and a different answer would tell anyone which addresses have an
+		// account. The mail simply is not sent.
+		log.Debug().Msg("password reset requested for an unknown email")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 
@@ -548,26 +592,27 @@ func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// A reset is how an account is recovered from whoever holds the old
+	// password, so every session that password opened is closed.
+	if s.sessionManager != nil {
+		if err := s.sessionManager.RevokeUserSessions(ctx, user.ID, ""); err != nil {
+			log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to revoke sessions after password reset")
+			http.Error(w, "Password changed, but failed to sign out existing sessions: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	// The password is changed, but an inactive account does not get a session.
 	if accessErr := user.AccountAccessError(); accessErr != nil {
 		http.Error(w, accessErr.Error(), http.StatusForbidden)
 		return
 	}
 
-	// The reset token is not a session; issue a fresh session token.
-	token, err := s.authenticator.GenerateUserToken(ctx, user)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to generate user token")
-		http.Error(w, "Failed to generate user token: "+err.Error(), http.StatusInternalServerError)
+	// The reset token is not a session; sign in as a password login does.
+	if !s.startRegularSession(w, r, user) {
 		return
 	}
-
-	cookieManager := NewCookieManager(s.Cfg)
-	cookieManager.Set(w, accessTokenCookie, token)
-	cookieManager.Set(w, refreshTokenCookie, token)
-
-	response := userResponse(user, token)
-	writeResponse(w, response, http.StatusOK)
+	writeResponse(w, userResponse(user, ""), http.StatusOK)
 }
 
 // passwordUpdate godoc
@@ -593,6 +638,9 @@ func (s *HelixAPIServer) passwordUpdate(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if refuseScopedKeyAccountChange(w, user) {
+		return
+	}
 
 	var passwordUpdateRequest types.PasswordUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&passwordUpdateRequest); err != nil {
@@ -611,6 +659,17 @@ func (s *HelixAPIServer) passwordUpdate(w http.ResponseWriter, r *http.Request) 
 		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to update password")
 		http.Error(w, "Failed to update password: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	// A new password signs out every other session: the browser that set it
+	// keeps its own, anything else (a stolen cookie, a shared machine) has
+	// to present the new password.
+	if s.sessionManager != nil {
+		if err := s.sessionManager.RevokeUserSessions(ctx, user.ID, s.currentSessionID(r)); err != nil {
+			log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to revoke other sessions after password update")
+			http.Error(w, "Password changed, but failed to sign out other sessions: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -674,29 +733,28 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		if s.refusePasswordAuth(w) {
 			return
 		}
+		// An unknown address and a wrong password get the same answer, so
+		// the login form cannot be used to find out which addresses have an
+		// account.
+		const invalidCredentials = "Invalid email or password"
 		user, err := s.Store.GetUser(r.Context(), &store.GetUserQuery{
 			Email: loginRequest.Email,
 		})
-		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				log.Error().Str("email", loginRequest.Email).Msg("User not found")
-				http.Error(w, "User with this email does not exist", http.StatusUnauthorized)
-				return
-			}
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			log.Error().Err(err).Msg("Failed to get user")
 			http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		if user == nil {
-			log.Error().Str("email", loginRequest.Email).Msg("User not found")
-			http.Error(w, "User not found", http.StatusUnauthorized)
+			log.Debug().Msg("login attempt for an unknown email")
+			http.Error(w, invalidCredentials, http.StatusUnauthorized)
 			return
 		}
 
 		err = s.authenticator.ValidatePassword(r.Context(), user, loginRequest.Password)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to validate password")
-			http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+			log.Debug().Err(err).Str("user_id", user.ID).Msg("Failed to validate password")
+			http.Error(w, invalidCredentials, http.StatusUnauthorized)
 			return
 		}
 
