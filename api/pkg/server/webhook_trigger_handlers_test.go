@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -70,32 +73,96 @@ func TestWebhookTriggerHandler_RejectsUnauthenticatedDelivery(t *testing.T) {
 }
 
 func TestEnsureWebhookTriggerSecret(t *testing.T) {
-	// Generates a secret without touching the caller's shared struct.
-	shared := &types.AzureDevOpsTrigger{Enabled: true}
-	trigger := types.Trigger{AzureDevOps: shared}
-	changed, err := ensureWebhookTriggerSecret(&trigger, nil)
+	// New trigger: a client-supplied secret is ignored and one is generated,
+	// without touching the caller's shared struct.
+	shared := &types.AzureDevOpsTrigger{Enabled: true, WebhookSecret: "chosen-by-client"}
+	created := types.Trigger{AzureDevOps: shared}
+	changed, err := ensureWebhookTriggerSecret(&created, nil)
 	require.NoError(t, err)
 	assert.True(t, changed)
-	assert.Len(t, trigger.AzureDevOps.WebhookSecret, 64)
-	assert.Empty(t, shared.WebhookSecret)
+	assert.Len(t, created.AzureDevOps.WebhookSecret, 64)
+	assert.NotEqual(t, "chosen-by-client", created.AzureDevOps.WebhookSecret)
+	assert.Equal(t, "chosen-by-client", shared.WebhookSecret, "shared app config struct untouched")
+	secret := created.AzureDevOps.WebhookSecret
 
-	// Keeps the previous secret on edit.
-	edited := types.Trigger{AzureDevOps: &types.AzureDevOpsTrigger{Enabled: true}}
-	changed, err = ensureWebhookTriggerSecret(&edited, &trigger)
+	// Edit: the previous secret wins over anything the client sends.
+	edited := types.Trigger{AzureDevOps: &types.AzureDevOpsTrigger{Enabled: true, WebhookSecret: "attacker-chosen"}}
+	changed, err = ensureWebhookTriggerSecret(&edited, &created)
 	require.NoError(t, err)
-	assert.True(t, changed)
-	assert.Equal(t, trigger.AzureDevOps.WebhookSecret, edited.AzureDevOps.WebhookSecret)
+	assert.False(t, changed)
+	assert.Equal(t, secret, edited.AzureDevOps.WebhookSecret)
 
-	// Leaves non-webhook and disabled triggers alone.
+	// Disable keeps the secret, and re-enabling keeps it too.
+	disabled := types.Trigger{AzureDevOps: &types.AzureDevOpsTrigger{Enabled: false}}
+	_, err = ensureWebhookTriggerSecret(&disabled, &edited)
+	require.NoError(t, err)
+	assert.Equal(t, secret, disabled.AzureDevOps.WebhookSecret)
+	reenabled := types.Trigger{AzureDevOps: &types.AzureDevOpsTrigger{Enabled: true}}
+	_, err = ensureWebhookTriggerSecret(&reenabled, &disabled)
+	require.NoError(t, err)
+	assert.Equal(t, secret, reenabled.AzureDevOps.WebhookSecret)
+
+	// A disabled trigger with no history gets no secret; non-webhook triggers
+	// are left alone.
+	fresh := types.Trigger{AzureDevOps: &types.AzureDevOpsTrigger{WebhookSecret: "x"}}
+	changed, err = ensureWebhookTriggerSecret(&fresh, nil)
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.Empty(t, fresh.AzureDevOps.WebhookSecret)
 	cron := types.Trigger{Cron: &types.CronTrigger{}}
 	changed, err = ensureWebhookTriggerSecret(&cron, nil)
 	require.NoError(t, err)
 	assert.False(t, changed)
-	disabled := types.Trigger{AzureDevOps: &types.AzureDevOpsTrigger{}}
-	changed, err = ensureWebhookTriggerSecret(&disabled, nil)
-	require.NoError(t, err)
-	assert.False(t, changed)
-	assert.Empty(t, disabled.AzureDevOps.WebhookSecret)
+}
+
+// A delivery with the right secret gets past the check and is handed to the
+// trigger manager (which loads the app — the first thing ADO processing does).
+func TestWebhookTriggerHandler_AuthorizedDeliveryReachesProcessWebhook(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetTriggerConfiguration(gomock.Any(), &store.GetTriggerConfigurationQuery{ID: "trg-1"}).
+		Return(adoTriggerConfig("s3cret"), nil)
+	mockStore.EXPECT().GetApp(gomock.Any(), "app-1").Return(nil, errors.New("stop here"))
+
+	server := &HelixAPIServer{
+		Store:   mockStore,
+		trigger: trigger.NewTriggerManager(&config.ServerConfig{}, mockStore, nil, nil),
+	}
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/webhooks/trg-1?token=s3cret", strings.NewReader(`{"eventType":"build.complete"}`))
+	r = mux.SetURLVars(r, map[string]string{"id": "trg-1"})
+	rec := httptest.NewRecorder()
+
+	server.webhookTriggerHandler(rec, r)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "stop here")
+}
+
+func TestWebhookTriggerRequestAuthorized_DisabledTriggerAcceptsNothing(t *testing.T) {
+	triggerConfig := adoTriggerConfig("s3cret")
+	triggerConfig.Trigger.AzureDevOps.Enabled = false
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/webhooks/trg-1?token=s3cret", nil)
+	assert.False(t, webhookTriggerRequestAuthorized(triggerConfig, r))
+}
+
+func TestBackfillWebhookTriggerSecrets(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	legacy := &types.TriggerConfiguration{ID: "trg-legacy", Trigger: types.Trigger{AzureDevOps: &types.AzureDevOpsTrigger{Enabled: true}}}
+	mockStore.EXPECT().ListTriggerConfigurations(gomock.Any(), &store.ListTriggerConfigurationsQuery{}).
+		Return([]*types.TriggerConfiguration{
+			legacy,
+			adoTriggerConfig("already"),
+			{ID: "trg-cron", Trigger: types.Trigger{Cron: &types.CronTrigger{}}},
+		}, nil)
+	mockStore.EXPECT().UpdateTriggerConfiguration(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, tc *types.TriggerConfiguration) (*types.TriggerConfiguration, error) {
+			assert.Equal(t, "trg-legacy", tc.ID)
+			assert.Len(t, tc.Trigger.AzureDevOps.WebhookSecret, 64)
+			return tc, nil
+		})
+
+	(&HelixAPIServer{Store: mockStore}).backfillWebhookTriggerSecrets(context.Background())
 }
 
 func TestPopulateWebhookTriggerURL(t *testing.T) {

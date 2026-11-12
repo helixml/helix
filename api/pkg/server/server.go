@@ -495,6 +495,7 @@ func NewServer(
 		"/data/workspaces/sandboxes",
 	)
 	apiServer.webServiceController = webservice.New(store, apiServer.sandboxController)
+	go apiServer.backfillWebhookTriggerSecrets(context.Background())
 	go webservice.NewDomainVerifier(store,
 		netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks}).Start(context.Background())
 

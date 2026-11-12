@@ -70,9 +70,10 @@ func (s *HelixAPIServer) webhookTriggerHandler(w http.ResponseWriter, r *http.Re
 }
 
 // webhookTriggerSecret returns the configured webhook secret, or "" when the
-// trigger type does not accept webhook deliveries or has no secret yet.
+// trigger does not accept webhook deliveries (wrong type or disabled) or has
+// no secret yet.
 func webhookTriggerSecret(triggerConfig *types.TriggerConfiguration) string {
-	if triggerConfig.Trigger.AzureDevOps != nil {
+	if triggerConfig.Trigger.AzureDevOps != nil && triggerConfig.Trigger.AzureDevOps.Enabled {
 		return triggerConfig.Trigger.AzureDevOps.WebhookSecret
 	}
 	return ""
@@ -108,27 +109,34 @@ func generateWebhookTriggerSecret() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-// ensureWebhookTriggerSecret gives an enabled Azure DevOps trigger a webhook
-// secret, keeping previous's secret when the incoming trigger omits it so an
-// edit does not invalidate the URL already configured upstream. It reports
-// whether trigger was changed.
+// ensureWebhookTriggerSecret sets an Azure DevOps trigger's webhook secret
+// server-side. Any secret in trigger itself is client input and is ignored:
+// previous's secret is kept when it has one (so an edit, or a disable and
+// re-enable, never invalidates the URL already configured upstream), and an
+// enabled trigger without one gets a new secret. Pass previous == nil for a
+// new trigger. It reports whether the secret changed from previous.
 func ensureWebhookTriggerSecret(trigger *types.Trigger, previous *types.Trigger) (bool, error) {
-	if trigger.AzureDevOps == nil || !trigger.AzureDevOps.Enabled || trigger.AzureDevOps.WebhookSecret != "" {
+	if trigger.AzureDevOps == nil {
 		return false, nil
 	}
 	// Copy before writing: the caller's AzureDevOps may be shared with an app
 	// config, which must not carry the secret.
 	azureDevOps := *trigger.AzureDevOps
 	trigger.AzureDevOps = &azureDevOps
-	if previous != nil && previous.AzureDevOps != nil && previous.AzureDevOps.WebhookSecret != "" {
-		trigger.AzureDevOps.WebhookSecret = previous.AzureDevOps.WebhookSecret
-		return true, nil
+
+	previousSecret := ""
+	if previous != nil && previous.AzureDevOps != nil {
+		previousSecret = previous.AzureDevOps.WebhookSecret
+	}
+	azureDevOps.WebhookSecret = previousSecret
+	if previousSecret != "" || !azureDevOps.Enabled {
+		return false, nil
 	}
 	secret, err := generateWebhookTriggerSecret()
 	if err != nil {
 		return false, err
 	}
-	trigger.AzureDevOps.WebhookSecret = secret
+	azureDevOps.WebhookSecret = secret
 	return true, nil
 }
 
@@ -148,7 +156,8 @@ func (s *HelixAPIServer) populateWebhookTriggerURL(triggerConfig *types.TriggerC
 // backfillWebhookTriggerSecret persists a secret on an enabled webhook trigger
 // saved before secrets were required, so its owner can see a working URL.
 func (s *HelixAPIServer) backfillWebhookTriggerSecret(ctx context.Context, triggerConfig *types.TriggerConfiguration) *types.TriggerConfiguration {
-	changed, err := ensureWebhookTriggerSecret(&triggerConfig.Trigger, nil)
+	current := triggerConfig.Trigger
+	changed, err := ensureWebhookTriggerSecret(&triggerConfig.Trigger, &current)
 	if err != nil || !changed {
 		return triggerConfig
 	}
@@ -159,4 +168,30 @@ func (s *HelixAPIServer) backfillWebhookTriggerSecret(ctx context.Context, trigg
 		return triggerConfig
 	}
 	return updated
+}
+
+// backfillWebhookTriggerSecrets gives every enabled Azure DevOps trigger a
+// webhook secret, so triggers saved before secrets were required (by the
+// API or from an agent's config) get one without waiting for someone to
+// list them. Run once at startup; failures are logged and retried by the
+// per-request backfill.
+func (s *HelixAPIServer) backfillWebhookTriggerSecrets(ctx context.Context) {
+	triggers, err := s.Store.ListTriggerConfigurations(ctx, &store.ListTriggerConfigurationsQuery{})
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to list triggers for webhook secret backfill")
+		return
+	}
+	backfilled := 0
+	for _, triggerConfig := range triggers {
+		if triggerConfig.Trigger.AzureDevOps == nil || !triggerConfig.Trigger.AzureDevOps.Enabled ||
+			triggerConfig.Trigger.AzureDevOps.WebhookSecret != "" {
+			continue
+		}
+		if updated := s.backfillWebhookTriggerSecret(ctx, triggerConfig); webhookTriggerSecret(updated) != "" {
+			backfilled++
+		}
+	}
+	if backfilled > 0 {
+		log.Info().Int("count", backfilled).Msg("generated webhook secrets for existing triggers")
+	}
 }

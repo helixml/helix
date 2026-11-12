@@ -86,8 +86,12 @@ func (s *HelixAPIServer) listTriggers(_ http.ResponseWriter, r *http.Request) ([
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// For cron triggers populate next run information
+	// For cron triggers populate next run information; webhook triggers get
+	// their URL (and a secret, if they predate secrets).
 	for idx, trigger := range triggers {
+		triggers[idx] = s.backfillWebhookTriggerSecret(ctx, trigger)
+		s.populateWebhookTriggerURL(triggers[idx])
+		trigger = triggers[idx]
 		if trigger.Trigger.Cron != nil {
 			triggers[idx].OK = true
 			triggers[idx].Status = cron.NextRunFormatted(trigger.Trigger.Cron)
