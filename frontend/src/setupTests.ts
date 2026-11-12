@@ -1,6 +1,12 @@
 import '@testing-library/jest-dom'
+import { configure } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, vi } from 'vitest'
+
+// vitest.config.ts gives CI tests a 30s timeout because the runner shares its
+// CPUs; give findBy*/waitFor the same headroom, or a single slow role query
+// under load exhausts their 1s default first.
+if (process.env.CI) configure({ asyncUtilTimeout: 10_000 })
 
 // Stub global window objects used in components
 global.window.scrollTo = vi.fn();
