@@ -166,15 +166,12 @@ func TestStartServiceLogTailers_PicksUpFileAppearingAfterStart(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	StartServiceLogTailers(ctx, buf, dir)
+	startServiceLogTailers(ctx, buf, dir, 50*time.Millisecond)
 
-	// No log file exists yet. Wait briefly so the initial scan completes
-	// without finding anything.
+	// No log file exists yet. Wait for the initial scan (synchronous) and a
+	// few rescans to come up empty before the file appears.
 	time.Sleep(250 * time.Millisecond)
 
-	// Now create the file. Rescan interval is 10s; the test waits up to
-	// 15s for the new file to be noticed. CI-friendly but slow if the
-	// rescan path is broken.
 	logPath := filepath.Join(dir, "inference-proxy.log")
 	f, err := os.Create(logPath)
 	if err != nil {
@@ -183,7 +180,7 @@ func TestStartServiceLogTailers_PicksUpFileAppearingAfterStart(t *testing.T) {
 	defer f.Close()
 
 	want := "late-arriving service line"
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := fmt.Fprintln(f, want); err != nil {
 			t.Fatalf("write: %v", err)
@@ -195,7 +192,7 @@ func TestStartServiceLogTailers_PicksUpFileAppearingAfterStart(t *testing.T) {
 				return // pass
 			}
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("expected line with prefix [inference-proxy] not found in buffer; snapshot: %+v", buf.Snapshot(1024))
 }
