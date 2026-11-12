@@ -541,6 +541,12 @@ the image tag in `/opt/HelixML/prod-app-runner/run.sh`. The CD key must be autho
 three hosts. See `design/2026-06-25-prod-version-bump-runbook.md`. Watch the build with
 `gh pr checks` / the Drone MCP tools and confirm all three deploy steps go green.
 
+**A failed tag build keeps its tag.** `release-rollback` deletes the GitHub release, helm
+charts and R2 assets, but not the git tag. If the failure was flaky, retry the same version:
+recreate the release with `gh release create <tag> --verify-tag --generate-notes` (this does not
+trigger a new build), then restart the tag's Drone build. Never delete and re-push a tag. If
+the release needs a code fix, cut the next patch version instead.
+
 ## CI (Drone)
 **ALWAYS check CI yourself after pushing a PR.** Don't make the user discover the failure and tell you. As soon as a push is up, use `gh pr checks <num>` (or the Drone MCP tools / fallback below) to confirm green or surface failures. If failing, drill into the logs, fix, push the fix, and re-check — all without being asked.
 
