@@ -981,9 +981,11 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 
 	// Bearer / API key / access_token query param. Same reason as in
 	// authenticated() above — this endpoint isn't behind extractMiddleware,
-	// so we resolve the token ourselves to support embed pages.
+	// so we resolve the token ourselves to support embed pages. A credential
+	// the browser sends by itself (the legacy access_token cookie) is left to
+	// the cookie paths below, which move it onto a session.
 	if s.authMiddleware != nil {
-		if token := getRequestToken(r); token != "" {
+		if token, source := getRequestTokenWithSource(r); token != "" && source != "cookie" {
 			user, err := s.authMiddleware.getUserFromToken(ctx, token)
 			if err == nil && hasUser(user) {
 				if isDelegatedAPIKey(user.APIKeyType) {
@@ -1080,6 +1082,10 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// If still failing after refresh attempt, return error
+			if errors.Is(err, authpkg.ErrOIDCEmailCollision) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to validate user token after refresh attempt")
 				errStr := strings.ToLower(err.Error())
@@ -1252,9 +1258,11 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 	// Bearer / API key / access_token query param. This endpoint lives on
 	// the insecureRouter (no extractMiddleware), so we have to validate
 	// the token ourselves. Lets embed pages authenticate via
-	// ?access_token=... in the URL when no session cookie is present.
+	// ?access_token=... in the URL when no session cookie is present. The
+	// legacy access_token cookie is not taken here: the cookie path below
+	// moves it onto a session.
 	if s.authMiddleware != nil {
-		if token := getRequestToken(r); token != "" {
+		if token, source := getRequestTokenWithSource(r); token != "" && source != "cookie" {
 			user, err := s.authMiddleware.getUserFromToken(ctx, token)
 			if err == nil && hasUser(user) {
 				writeResponse(w, types.AuthenticatedResponse{

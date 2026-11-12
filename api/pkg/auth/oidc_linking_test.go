@@ -42,12 +42,8 @@ func TestValidateUserToken_LinksVerifiedEmailToExistingAccount(t *testing.T) {
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "idp-sub-1"}).Return(nil, store.ErrNotFound)
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{OIDCSubject: "idp-sub-1"}).Return(nil, store.ErrNotFound)
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{Email: "person@example.com"}).Return(existing, nil)
-	mockStore.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, u *types.User) (*types.User, error) {
-		require.Equal(t, existing.ID, u.ID)
-		require.True(t, u.EmailVerified, "the IdP's assertion verifies the address")
-		require.Equal(t, "idp-sub-1", u.OIDCSubject, "the link is persisted")
-		return u, nil
-	})
+	// The link is persisted by a column update, never a whole-row save.
+	mockStore.EXPECT().UpdateUserEmailVerification(gomock.Any(), existing.ID, true, "idp-sub-1").Return(nil)
 	mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
 	// No CreateUser, no ConsumePendingInvitations: this is not a new account.
 
@@ -107,7 +103,7 @@ func TestValidateUserToken_LinkedAccountResolvesBySubject(t *testing.T) {
 	linked := &types.User{ID: "usr_password", Email: "person@example.com", EmailVerified: true, OIDCSubject: "idp-sub-1"}
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "idp-sub-1"}).Return(nil, store.ErrNotFound)
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{OIDCSubject: "idp-sub-1"}).Return(linked, nil)
-	// No lookup by email, no UpdateUser, no CreateUser.
+	// No lookup by email, no update, no CreateUser.
 
 	user, err := client.ValidateUserToken(context.Background(), "tok")
 	require.NoError(t, err)
@@ -149,6 +145,31 @@ func TestValidateUserToken_RefusesTokenAfterPasswordChange(t *testing.T) {
 		_, err = authn.ValidateUserToken(context.Background(), legacy)
 		require.NoError(t, err)
 	})
+}
+
+// ADMIN_USER_IDS entries keyed by the IdP subject keep working for an
+// account that was linked by email and so has a different ID.
+func TestValidateUserToken_LinkedAccountAdminBySubject(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	oidcServer := NewMockOIDCServer()
+	t.Cleanup(oidcServer.Close)
+	oidcServer.userInfo = map[string]interface{}{"sub": "idp-sub-1", "email": "person@example.com", "email_verified": true}
+	client, err := NewOIDCClient(context.Background(), OIDCConfig{
+		ProviderURL: oidcServer.URL(), ClientID: "api", ClientSecret: "secret",
+		RedirectURL: "http://localhost:8080/callback", Audience: "test-aud", Store: mockStore,
+		AdminUserIDs: []string{"idp-sub-1"},
+	})
+	require.NoError(t, err)
+
+	linked := &types.User{ID: "usr_password", Email: "person@example.com", EmailVerified: true, OIDCSubject: "idp-sub-1"}
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "idp-sub-1"}).Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{OIDCSubject: "idp-sub-1"}).Return(linked, nil)
+	mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
+
+	user, err := client.ValidateUserToken(context.Background(), "tok")
+	require.NoError(t, err)
+	require.True(t, user.Admin)
 }
 
 // Completing a password reset shows control of the mailbox the link went to.

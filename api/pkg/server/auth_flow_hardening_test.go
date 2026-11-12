@@ -312,6 +312,8 @@ func TestWebsocketOriginAllowed(t *testing.T) {
 		{"foreign origin", "https://evil.example.net", "app.example.com", "https://app.example.com", false},
 		{"null origin", "null", "app.example.com", "https://app.example.com", false},
 		{"different port", "http://app.example.com:3000", "app.example.com", "https://app.example.com", false},
+		{"http page on an https deployment (same host)", "http://app.example.com", "app.example.com", "https://app.example.com", false},
+		{"https origin, TLS terminated upstream", "https://app.example.com", "app.example.com", "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -320,6 +322,9 @@ func TestWebsocketOriginAllowed(t *testing.T) {
 			if tc.origin != "" {
 				req.Header.Set("Origin", tc.origin)
 			}
+			// The request itself arrived over https at a proxy, as in every
+			// deployment this policy protects.
+			req.Header.Set("X-Forwarded-Proto", "https")
 			assert.Equal(t, tc.want, websocketOriginAllowed(req, tc.serverURL))
 		})
 	}

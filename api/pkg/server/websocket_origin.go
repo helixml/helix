@@ -43,18 +43,19 @@ func (apiServer *HelixAPIServer) allowBrowserWebsocketOrigin(w http.ResponseWrit
 }
 
 // websocketOriginAllowed reports whether r's Origin header, if any, names
-// this deployment: the host the request was sent to, or the host of
-// serverURL.
+// this deployment: the same scheme and host the request was sent to, or the
+// scheme and host of serverURL. The scheme matters as much as the host: a
+// page served over plain http on the same name is a different origin.
 func websocketOriginAllowed(r *http.Request, serverURL string) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true
 	}
 	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Host == "" {
+	if err != nil || parsed.Host == "" || parsed.Scheme == "" {
 		return false
 	}
-	if strings.EqualFold(parsed.Host, r.Host) {
+	if strings.EqualFold(parsed.Scheme, requestScheme(r)) && strings.EqualFold(parsed.Host, r.Host) {
 		return true
 	}
 	if serverURL == "" {
@@ -64,5 +65,20 @@ func websocketOriginAllowed(r *http.Request, serverURL string) bool {
 	if err != nil || server.Host == "" {
 		return false
 	}
-	return strings.EqualFold(parsed.Host, server.Host)
+	return strings.EqualFold(parsed.Scheme, server.Scheme) && strings.EqualFold(parsed.Host, server.Host)
+}
+
+// requestScheme is the scheme the browser used for r: https when TLS
+// terminated here or at the proxy in front (X-Forwarded-Proto), else http.
+func requestScheme(r *http.Request) string {
+	if r.TLS != nil {
+		return "https"
+	}
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		if i := strings.IndexByte(proto, ','); i >= 0 {
+			proto = proto[:i]
+		}
+		return strings.ToLower(strings.TrimSpace(proto))
+	}
+	return "http"
 }

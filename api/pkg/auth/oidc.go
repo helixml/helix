@@ -384,11 +384,11 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 			}
 			log.Info().Str("subject", userInfo.Subject).Str("user_id", existing.ID).
 				Msg("Linking OIDC sign-in to the existing account with its verified email")
-			existing.EmailVerified = true
-			existing.OIDCSubject = userInfo.Subject
-			if _, err := c.store.UpdateUser(ctx, existing); err != nil {
+			if err := c.store.UpdateUserEmailVerification(ctx, existing.ID, true, userInfo.Subject); err != nil {
 				return nil, fmt.Errorf("failed to update user: %w", err)
 			}
+			existing.EmailVerified = true
+			existing.OIDCSubject = userInfo.Subject
 			user = existing
 		}
 	}
@@ -396,10 +396,10 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 	// A fresh assertion from the IdP verifies an account created before the
 	// flag existed.
 	if user != nil && !user.EmailVerified && userInfo.EmailVerified {
-		user.EmailVerified = true
-		if _, err := c.store.UpdateUser(ctx, user); err != nil {
+		if err := c.store.UpdateUserEmailVerification(ctx, user.ID, true, ""); err != nil {
 			return nil, fmt.Errorf("failed to update user: %w", err)
 		}
+		user.EmailVerified = true
 	}
 
 	// If user doesn't exist, create them (first login after OIDC registration)
@@ -438,7 +438,7 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 			user.OnboardingCompleted = true
 			user.OnboardingCompletedAt = time.Now()
 			user.Waitlisted = false
-			if _, err := c.store.UpdateUser(ctx, user); err != nil {
+			if err := c.store.MarkUserOnboarded(ctx, user.ID); err != nil {
 				log.Warn().Err(err).Str("user_id", user.ID).Msg("failed to mark OIDC-invited user as onboarded")
 			}
 		}
@@ -458,7 +458,9 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 	// Determine admin status:
 	// - If user ID is in ADMIN_USER_IDS list (or "all" is set): admin
 	// - Otherwise use the database admin field
-	isAdmin := c.adminConfig.IsUserInAdminList(user.ID) || user.Admin
+	// ADMIN_USER_IDS may name the account by its ID or, for an account linked
+	// by email, by the IdP subject it signs in with.
+	isAdmin := c.adminConfig.IsUserInAdminList(user.ID) || c.adminConfig.IsUserInAdminList(userInfo.Subject) || user.Admin
 
 	// user.ID is the subject, except for an account linked by email above.
 	username := user.Username
