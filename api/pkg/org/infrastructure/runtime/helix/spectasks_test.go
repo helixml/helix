@@ -669,3 +669,76 @@ func TestSpecTasks_CreatePullRequestsDelegatesAndMapsPRs(t *testing.T) {
 		t.Errorf("view PRs = %d, want 1", len(view.PullRequests))
 	}
 }
+
+type fakeProjectAuthorizer struct {
+	allowed map[string]bool
+	calls   []string
+}
+
+func (f *fakeProjectAuthorizer) AuthorizeProject(_ context.Context, userID, projectID string) error {
+	f.calls = append(f.calls, userID+"/"+projectID)
+	if f.allowed[userID+"/"+projectID] {
+		return nil
+	}
+	return errors.New("no access")
+}
+
+// An allowlisted project is reachable only when the Bot's hiring user may
+// access it; the Bot's own project never consults the authorizer.
+func TestSpecTasks_CrossProjectRequiresHiringUserAccess(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.NodeID("w-pm")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+	if err := (&Hire{Store: &wrap.Store}).OnHire(context.Background(), "org-test", wid, "u-hirer"); err != nil {
+		t.Fatalf("OnHire: %v", err)
+	}
+	bot, err := orgchart.NewNode(wid, "# PM", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	if err := wrap.Store.Nodes.Create(context.Background(), bot.WithProjectIDs([]string{"prj_other"})); err != nil {
+		t.Fatalf("create bot: %v", err)
+	}
+
+	fs := newFakeSpecTaskStore()
+	fs.projects["prj_mine"] = &types.Project{ID: "prj_mine", OrganizationID: "org-test"}
+	fs.projects["prj_other"] = &types.Project{ID: "prj_other", OrganizationID: "org-test"}
+	fs.tasks["task_o"] = &types.SpecTask{ID: "task_o", ProjectID: "prj_other", Status: types.TaskStatusBacklog}
+	auth := &fakeProjectAuthorizer{allowed: map[string]bool{}}
+	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	st = st.WithProjectAuthorizer(auth)
+
+	if _, err := st.Get(context.Background(), "org-test", wid, "prj_other", "task_o"); err == nil {
+		t.Fatal("allowlisted project the hiring user cannot access must be rejected")
+	}
+	if _, err := st.Create(context.Background(), "org-test", wid, "prj_other", runtime.CreateSpecTaskInput{Name: "x", Description: "y"}); err == nil {
+		t.Fatal("create in a project the hiring user cannot access must be rejected")
+	}
+	if len(fs.created) != 0 {
+		t.Fatalf("created %d tasks after access rejection", len(fs.created))
+	}
+	if len(auth.calls) == 0 || auth.calls[0] != "u-hirer/prj_other" {
+		t.Fatalf("authorizer calls = %v, want hiring user against prj_other", auth.calls)
+	}
+
+	auth.allowed["u-hirer/prj_other"] = true
+	if _, err := st.Get(context.Background(), "org-test", wid, "prj_other", "task_o"); err != nil {
+		t.Fatalf("hiring user with access: %v", err)
+	}
+
+	// Own project: no authorizer round-trip.
+	before := len(auth.calls)
+	if _, err := st.List(context.Background(), "org-test", wid, "", runtime.ListSpecTasksFilter{}); err != nil {
+		t.Fatalf("own project list: %v", err)
+	}
+	if _, err := st.List(context.Background(), "org-test", wid, "prj_mine", runtime.ListSpecTasksFilter{}); err != nil {
+		t.Fatalf("own project list by id: %v", err)
+	}
+	if len(auth.calls) != before {
+		t.Fatalf("own project consulted the authorizer: %v", auth.calls[before:])
+	}
+}

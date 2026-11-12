@@ -506,7 +506,11 @@ func TestRESTCreateBot_MemberCannotGrantManagerTools(t *testing.T) {
 func TestRESTUpdateBot_MemberCannotGrantManagerTools(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
-	seedBot(t, st, ctx, "b-member-worker", "# Worker")
+	seedLinkedBot(t, st, ctx, "b-member-worker", "app-member-worker")
+	// The member may edit both bots' agents; the tool-grant ceiling must
+	// still refuse them.
+	deps.AgentEditAuthorizer = fakeAgentEditAuthorizer{allowed: map[string]bool{"app-member-worker": true, "app-manager": true}}
+	deps.AgentUpdater = &recordingAgentPort{}
 	h := orgapi.Handler(deps)
 
 	updatedContent := "# Updated worker"
@@ -536,7 +540,7 @@ func TestRESTUpdateBot_MemberCannotGrantManagerTools(t *testing.T) {
 		}
 	}
 
-	seedBot(t, st, ctx, "b-manager", "# Manager")
+	seedLinkedBot(t, st, ctx, "b-manager", "app-manager")
 	managerTools := mcptools.OwnerBotTools()
 	if _, err := deps.Nodes.Update(ctx, "org-test", "b-manager", nodes.UpdateParams{Tools: &managerTools, Grantor: nodes.Grantor{Admin: true}}); err != nil {
 		t.Fatalf("seed manager tools: %v", err)
@@ -827,5 +831,85 @@ func TestRESTUpdateBot_RejectsUnknownTool(t *testing.T) {
 	}
 	if !sameNames(got.Tools, []tool.Name{mcptools.ChatName}) {
 		t.Fatalf("rejected patch mutated the row: %v", got.Tools)
+	}
+}
+
+func seedLinkedBot(t *testing.T, st *store.Store, ctx context.Context, id, appID string) {
+	t.Helper()
+	b, err := orgchart.NewNode(orgchart.NodeID(id), "# Worker", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatalf("NewNode %s: %v", id, err)
+	}
+	if err := st.Nodes.Create(ctx, b.WithAgentID(appID)); err != nil {
+		t.Fatalf("create bot %s: %v", id, err)
+	}
+}
+
+// A member may reconfigure, re-home or delete a bot only when they can edit
+// that bot's agent app — the rule trigger attachments already follow. A
+// project_ids / sandbox / instance-profile patch is not a canonical agent
+// edit, so without this check it skipped authorization entirely.
+func TestRESTBotMutationsRequireAgentEditForMembers(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedLinkedBot(t, st, ctx, "w-mine", "app-mine")
+	seedLinkedBot(t, st, ctx, "w-theirs", "app-theirs")
+	seedLinkedBot(t, st, ctx, "w-manager", "app-manager")
+	deps.AgentEditAuthorizer = fakeAgentEditAuthorizer{allowed: map[string]bool{"app-mine": true}}
+	h := orgapi.Handler(deps)
+
+	patch := orgapi.UpdateBotRequest{ProjectIDs: []string{"prj_secret"}}
+	if rec := doAsRole(t, h, http.MethodPatch, "/bots/w-theirs", patch, types.OrganizationRoleMember, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("member patch of another's bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	theirs, err := st.Nodes.Get(ctx, "org-test", "w-theirs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(theirs.ProjectIDs) != 0 {
+		t.Fatalf("rejected patch was persisted: project_ids=%v", theirs.ProjectIDs)
+	}
+	if rec := doAsRole(t, h, http.MethodPatch, "/bots/w-mine", patch, types.OrganizationRoleMember, false); rec.Code != http.StatusOK {
+		t.Fatalf("member patch of editable bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if rec := doAsRole(t, h, http.MethodPatch, "/bots/w-theirs", patch, types.OrganizationRoleOwner, false); rec.Code != http.StatusOK {
+		t.Fatalf("owner patch: status=%d body=%s", rec.Code, rec.Body)
+	}
+
+	parent := map[string]any{"parent_id": "w-manager"}
+	if rec := doAsRole(t, h, http.MethodPost, "/bots/w-theirs/parents", parent, types.OrganizationRoleMember, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("member re-homing another's bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if rec := doAsRole(t, h, http.MethodPost, "/bots/w-mine/parents", parent, types.OrganizationRoleMember, false); rec.Code != http.StatusNoContent {
+		t.Fatalf("member re-homing editable bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if rec := doAsRole(t, h, http.MethodDelete, "/bots/w-theirs/parents/w-manager", nil, types.OrganizationRoleMember, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("member removing another's reporting line: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if rec := doAsRole(t, h, http.MethodDelete, "/bots/w-mine/parents/w-manager", nil, types.OrganizationRoleMember, false); rec.Code != http.StatusNoContent {
+		t.Fatalf("member removing own reporting line: status=%d body=%s", rec.Code, rec.Body)
+	}
+
+	if rec := doAsRole(t, h, http.MethodDelete, "/bots/w-theirs", nil, types.OrganizationRoleMember, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("member delete of another's bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if _, err := st.Nodes.Get(ctx, "org-test", "w-theirs"); err != nil {
+		t.Fatalf("rejected delete removed the bot: %v", err)
+	}
+	if rec := doAsRole(t, h, http.MethodDelete, "/bots/w-mine", nil, types.OrganizationRoleMember, false); rec.Code != http.StatusNoContent {
+		t.Fatalf("member delete of editable bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if rec := doAsRole(t, h, http.MethodDelete, "/bots/w-theirs", nil, types.OrganizationRoleOwner, false); rec.Code != http.StatusNoContent {
+		t.Fatalf("owner delete: status=%d body=%s", rec.Code, rec.Body)
+	}
+
+	// Without an authorizer wired, only owners and admins may.
+	deps.AgentEditAuthorizer = nil
+	h = orgapi.Handler(deps)
+	if rec := doAsRole(t, h, http.MethodPatch, "/bots/w-manager", patch, types.OrganizationRoleMember, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("member patch without authorizer: status=%d body=%s", rec.Code, rec.Body)
+	}
+	if rec := doAsRole(t, h, http.MethodPatch, "/bots/w-manager", patch, types.OrganizationRoleMember, true); rec.Code != http.StatusOK {
+		t.Fatalf("platform admin patch: status=%d body=%s", rec.Code, rec.Body)
 	}
 }
