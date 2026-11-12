@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/agent/prompts"
 	mcpclient "github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -41,8 +42,9 @@ import (
 // - Can adapt between different MCP transports (SSE vs Streamable HTTP)
 // - Provides better error handling and logging
 type ExternalMCPBackend struct {
-	store        store.Store
-	clientGetter mcpclient.ClientGetter
+	store          store.Store
+	clientGetter   mcpclient.ClientGetter
+	connectTimeout time.Duration
 
 	// Cache of HTTP servers per session+mcp combination
 	servers      map[string]*externalMCPServer
@@ -53,6 +55,8 @@ type ExternalMCPBackend struct {
 	cleanupCtx    context.Context
 	cleanupCancel context.CancelFunc
 }
+
+const externalMCPConnectTimeout = 3 * time.Second
 
 // externalMCPServer holds the MCP server for a specific external MCP
 type externalMCPServer struct {
@@ -341,16 +345,28 @@ func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *ty
 	// is the only path Zed's tool calls take, so omitting it left every such
 	// server unable to identify the caller — Find AI's tools failed with "this
 	// tool requires a signed-in session" for exactly this reason.
+	connectTimeout := b.connectTimeout
+	if connectTimeout == 0 {
+		connectTimeout = externalMCPConnectTimeout
+	}
+	connectTimer := time.AfterFunc(connectTimeout, clientCancel)
 	externalClient, err := b.clientGetter.NewClient(clientCtx, proxyMeta(user, sessionID), nil, mcpConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to external MCP server: %w", err)
+		connectTimer.Stop()
+		clientCancel()
+		return b.degradedServer(sessionID, mcpName, mcpConfig.Name, err), nil
 	}
 
 	// List tools from the external server
 	toolsResp, err := externalClient.ListTools(clientCtx, mcp.ListToolsRequest{})
 	if err != nil {
+		connectTimer.Stop()
 		clientCancel()
-		return nil, fmt.Errorf("failed to list tools from external MCP server: %w", err)
+		return b.degradedServer(sessionID, mcpName, mcpConfig.Name, err), nil
+	}
+	if !connectTimer.Stop() || clientCtx.Err() != nil {
+		clientCancel()
+		return b.degradedServer(sessionID, mcpName, mcpConfig.Name, context.DeadlineExceeded), nil
 	}
 
 	// Create our MCP server that proxies to the external server
@@ -373,6 +389,7 @@ func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *ty
 			Str("tool", tool.Name).
 			Msg("registered external MCP tool")
 	}
+	b.addConnectionStatusTool(mcpServer, mcpConfig.Name, externalClient, nil)
 
 	// Create Streamable HTTP server (modern MCP protocol)
 	// Use stateless mode so each request is independent
@@ -395,6 +412,55 @@ func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *ty
 	b.serversMu.Unlock()
 
 	return httpServer, nil
+}
+
+func (b *ExternalMCPBackend) degradedServer(sessionID, mcpName, displayName string, cause error) *server.StreamableHTTPServer {
+	if displayName == "" {
+		displayName = mcpName
+	}
+	log.Error().Err(cause).
+		Str("session_id", sessionID).
+		Str("mcp_name", mcpName).
+		Msg("external MCP unavailable; serving connection status")
+	instructions := prompts.MCPConnectionUnavailable(displayName, isExternalMCPAuthenticationError(cause))
+	mcpServer := server.NewMCPServer("helix-external-proxy-"+mcpName, "1.0.0", server.WithLogging(), server.WithInstructions(instructions))
+	b.addConnectionStatusTool(mcpServer, displayName, nil, cause)
+	return server.NewStreamableHTTPServer(mcpServer, server.WithStateLess(true))
+}
+
+func (b *ExternalMCPBackend) addConnectionStatusTool(mcpServer *server.MCPServer, displayName string, client mcpclient.Client, cause error) {
+	if mcpServer.GetTool("helix_connection_status") != nil {
+		return
+	}
+	if displayName == "" {
+		displayName = "External MCP"
+	}
+	description := prompts.MCPConnectionAvailableToolDescription(displayName)
+	if cause != nil {
+		description = prompts.MCPConnectionUnavailableToolDescription(displayName) + " " +
+			prompts.MCPConnectionUnavailable(displayName, isExternalMCPAuthenticationError(cause))
+	}
+	mcpServer.AddTool(mcp.NewTool("helix_connection_status",
+		mcp.WithDescription(description)),
+		func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if cause != nil {
+				return mcp.NewToolResultText(prompts.MCPConnectionUnavailable(displayName, isExternalMCPAuthenticationError(cause))), nil
+			}
+			probeCtx, cancel := context.WithTimeout(ctx, externalMCPConnectTimeout)
+			defer cancel()
+			if _, err := client.ListTools(probeCtx, mcp.ListToolsRequest{}); err != nil {
+				log.Error().Err(err).Str("mcp_name", displayName).Msg("external MCP connection check failed")
+				return mcp.NewToolResultText(prompts.MCPConnectionUnavailable(displayName, isExternalMCPAuthenticationError(err))), nil
+			}
+			return mcp.NewToolResultText(prompts.MCPConnectionRestored(displayName)), nil
+		})
+}
+
+func isExternalMCPAuthenticationError(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "unauthorized") || strings.Contains(message, "forbidden") ||
+		strings.Contains(message, "status 401") || strings.Contains(message, "status code: 401") ||
+		strings.Contains(message, "status 403") || strings.Contains(message, "status code: 403")
 }
 
 // findMCPConfig searches project MCPs before app MCPs to match Zed config precedence.
