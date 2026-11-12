@@ -440,21 +440,29 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
-	// Remove all repositories
-	repositories, err := apiServer.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+	if err := apiServer.purgeOrganization(r.Context(), orgID); err != nil {
+		log.Err(err).Str("org_id", orgID).Msg("error deleting organization")
+		http.Error(rw, "Could not delete organization: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rw.WriteHeader(http.StatusOK)
+}
+
+// purgeOrganization deletes an organization and everything it owns:
+// repositories, running desktops, project web services, artifacts, then the
+// organization's rows. Callers authorize first. It stops at the first error
+// so a retry can finish the job.
+func (apiServer *HelixAPIServer) purgeOrganization(ctx context.Context, orgID string) error {
+	repositories, err := apiServer.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 		OrganizationID: orgID,
 	})
 	if err != nil {
-		log.Err(err).Msg("error listing repositories")
-		http.Error(rw, "Could not list repositories: "+err.Error(), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("list repositories: %w", err)
 	}
 	for _, repository := range repositories {
-		err := apiServer.gitRepositoryService.DeleteRepository(r.Context(), repository.ID)
-		if err != nil {
-			log.Err(err).Msg("error deleting repository")
-			http.Error(rw, "Could not delete repository: "+err.Error(), http.StatusInternalServerError)
-			return
+		if err := apiServer.gitRepositoryService.DeleteRepository(ctx, repository.ID); err != nil {
+			return fmt.Errorf("delete repository %s: %w", repository.ID, err)
 		}
 	}
 
@@ -463,43 +471,35 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	// containers are owned by the sessions (which it does not delete), so
 	// without this they linger until the desktop idle reaper stops them
 	// (HELIX_DESKTOP_IDLE_TIMEOUT, default 1h).
-	if err := apiServer.stopOrgDesktops(r.Context(), orgID); err != nil {
-		http.Error(rw, "Could not stop organization desktops: "+err.Error(), http.StatusInternalServerError)
-		return
+	if err := apiServer.stopOrgDesktops(ctx, orgID); err != nil {
+		return fmt.Errorf("stop organization desktops: %w", err)
 	}
 
 	// Project web services run in their own sandboxes behind public
 	// hostnames (default subdomains and custom domains). Deleting the project
 	// rows would leave them serving, so tear each one down as project delete
 	// does.
-	if err := apiServer.teardownOrgWebServices(r.Context(), orgID); err != nil {
-		http.Error(rw, "Could not tear down organization web services: "+err.Error(), http.StatusInternalServerError)
-		return
+	if err := apiServer.teardownOrgWebServices(ctx, orgID); err != nil {
+		return fmt.Errorf("tear down organization web services: %w", err)
 	}
 
 	// Public artifacts remain independently addressable, so deleting only the
 	// project rows would orphan live content. Remove every artifact route and
 	// blob owned by the organization before deleting its database graph.
-	artifacts, err := apiServer.Store.ListArtifacts(r.Context(), &store.ListArtifactsQuery{OrganizationID: orgID})
+	artifacts, err := apiServer.Store.ListArtifacts(ctx, &store.ListArtifactsQuery{OrganizationID: orgID})
 	if err != nil {
-		http.Error(rw, "Could not list organization artifacts: "+err.Error(), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("list organization artifacts: %w", err)
 	}
 	for _, artifact := range artifacts {
-		if err := apiServer.deleteArtifactResources(r.Context(), artifact); err != nil {
-			http.Error(rw, "Could not delete organization artifact: "+err.Error(), http.StatusInternalServerError)
-			return
+		if err := apiServer.deleteArtifactResources(ctx, artifact); err != nil {
+			return fmt.Errorf("delete organization artifact: %w", err)
 		}
 	}
 
-	err = apiServer.Store.DeleteOrganization(r.Context(), orgID)
-	if err != nil {
-		log.Err(err).Msg("error deleting organization")
-		http.Error(rw, "Could not delete organization: "+err.Error(), http.StatusInternalServerError)
-		return
+	if err := apiServer.Store.DeleteOrganization(ctx, orgID); err != nil {
+		return fmt.Errorf("delete organization rows: %w", err)
 	}
-
-	rw.WriteHeader(http.StatusOK)
+	return nil
 }
 
 // teardownOrgWebServices removes the web service (sandbox, public routes and

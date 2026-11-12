@@ -1017,90 +1017,13 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	// CRITICAL: Stop all active sessions BEFORE deleting the project
-	// Otherwise sessions become orphaned and can't be stopped via UI
-
-	// 1. Stop exploratory session if exists
-	exploratorySession, err := s.Store.GetProjectExploratorySession(r.Context(), projectID)
-	if err == nil && exploratorySession != nil {
-		log.Info().
-			Str("project_id", projectID).
-			Str("session_id", exploratorySession.ID).
-			Msg("Stopping exploratory session before project deletion")
-
-		stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), exploratorySession.ID)
-		if stopErr != nil && !sandboxHostGone(stopErr, exploratorySession.ID) {
-			return nil, system.NewHTTPError500(fmt.Sprintf("stop exploratory session before project deletion: %s", stopErr))
-		}
-	}
-
-	// 2. Stop all SpecTask planning sessions for this project, then delete the
-	// tasks themselves — including archived ones. Tasks that outlive their
-	// project stay in whatever status they had forever: the orchestrator
-	// re-drives the active ones every tick and nothing else reconciles them
-	// (102 such orphans had accumulated in prod by 2026-10). A failure to list
-	// or delete a task aborts the project deletion so no orphan can be created;
-	// the caller can simply retry.
-	tasks, err := s.Store.ListSpecTasks(r.Context(), &types.SpecTaskFilters{
-		ProjectID:       projectID,
-		IncludeArchived: true,
-	})
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("list project tasks before deletion: %s", err))
-	}
-	for _, task := range tasks {
-		if task.PlanningSessionID != "" {
-			log.Info().
-				Str("project_id", projectID).
-				Str("task_id", task.ID).
-				Str("session_id", task.PlanningSessionID).
-				Msg("Stopping SpecTask session before project deletion")
-
-			stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
-			if stopErr != nil && !sandboxHostGone(stopErr, task.PlanningSessionID) {
-				return nil, system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
-			}
-			if _, delErr := s.Store.DeleteSession(r.Context(), task.PlanningSessionID); delErr != nil && !errors.Is(delErr, store.ErrNotFound) {
-				return nil, system.NewHTTPError500(fmt.Sprintf("delete session %s before project deletion: %s", task.PlanningSessionID, delErr))
-			}
-		}
-
-		if delErr := s.deleteSpecTaskCascade(r.Context(), task.ID); delErr != nil {
-			return nil, system.NewHTTPError500(fmt.Sprintf("delete task %s before project deletion: %s", task.ID, delErr))
-		}
-		log.Info().
-			Str("project_id", projectID).
-			Str("task_id", task.ID).
-			Msg("Deleted SpecTask before project deletion")
-	}
-
-	// Static artifacts inherit project ownership, so project deletion must
-	// remove their routes, blobs, and metadata before archiving the project.
-	artifacts, err := s.Store.ListArtifacts(r.Context(), &store.ListArtifactsQuery{ProjectID: projectID})
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("list project artifacts: %s", err))
-	}
-	for _, artifact := range artifacts {
-		if err := s.deleteArtifactResources(r.Context(), artifact); err != nil {
-			return nil, system.NewHTTPError500(err.Error())
-		}
-	}
-
-	// The web service runs in its own sandbox with a public hostname; it must
-	// not outlive the project.
-	if err := s.webServiceController.Teardown(r.Context(), projectID); err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("tear down project web service: %s", err))
-	}
-
-	// Now soft delete the project
-	err = s.Store.DeleteProject(r.Context(), projectID)
-	if err != nil {
+	if httpErr := s.purgeProject(r.Context(), projectID); httpErr != nil {
 		log.Error().
-			Err(err).
 			Str("user_id", user.ID).
 			Str("project_id", projectID).
+			Str("error", httpErr.Message).
 			Msg("failed to delete project")
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, httpErr
 	}
 
 	log.Info().
@@ -1114,6 +1037,91 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	return map[string]string{"message": "project deleted successfully"}, nil
+}
+
+// purgeProject stops a project's desktops, deletes its spec tasks, artifacts
+// and web service, then soft-deletes the project. Callers authorize first.
+func (s *HelixAPIServer) purgeProject(ctx context.Context, projectID string) *system.HTTPError {
+	// CRITICAL: Stop all active sessions BEFORE deleting the project
+	// Otherwise sessions become orphaned and can't be stopped via UI
+
+	// 1. Stop exploratory session if exists
+	exploratorySession, err := s.Store.GetProjectExploratorySession(ctx, projectID)
+	if err == nil && exploratorySession != nil {
+		log.Info().
+			Str("project_id", projectID).
+			Str("session_id", exploratorySession.ID).
+			Msg("Stopping exploratory session before project deletion")
+
+		stopErr := s.externalAgentExecutor.StopDesktop(ctx, exploratorySession.ID)
+		if stopErr != nil && !sandboxHostGone(stopErr, exploratorySession.ID) {
+			return system.NewHTTPError500(fmt.Sprintf("stop exploratory session before project deletion: %s", stopErr))
+		}
+	}
+
+	// 2. Stop all SpecTask planning sessions for this project, then delete the
+	// tasks themselves — including archived ones. Tasks that outlive their
+	// project stay in whatever status they had forever: the orchestrator
+	// re-drives the active ones every tick and nothing else reconciles them
+	// (102 such orphans had accumulated in prod by 2026-10). A failure to list
+	// or delete a task aborts the project deletion so no orphan can be created;
+	// the caller can simply retry.
+	tasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:       projectID,
+		IncludeArchived: true,
+	})
+	if err != nil {
+		return system.NewHTTPError500(fmt.Sprintf("list project tasks before deletion: %s", err))
+	}
+	for _, task := range tasks {
+		if task.PlanningSessionID != "" {
+			log.Info().
+				Str("project_id", projectID).
+				Str("task_id", task.ID).
+				Str("session_id", task.PlanningSessionID).
+				Msg("Stopping SpecTask session before project deletion")
+
+			stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.PlanningSessionID)
+			if stopErr != nil && !sandboxHostGone(stopErr, task.PlanningSessionID) {
+				return system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
+			}
+			if _, delErr := s.Store.DeleteSession(ctx, task.PlanningSessionID); delErr != nil && !errors.Is(delErr, store.ErrNotFound) {
+				return system.NewHTTPError500(fmt.Sprintf("delete session %s before project deletion: %s", task.PlanningSessionID, delErr))
+			}
+		}
+
+		if delErr := s.deleteSpecTaskCascade(ctx, task.ID); delErr != nil {
+			return system.NewHTTPError500(fmt.Sprintf("delete task %s before project deletion: %s", task.ID, delErr))
+		}
+		log.Info().
+			Str("project_id", projectID).
+			Str("task_id", task.ID).
+			Msg("Deleted SpecTask before project deletion")
+	}
+
+	// Static artifacts inherit project ownership, so project deletion must
+	// remove their routes, blobs, and metadata before archiving the project.
+	artifacts, err := s.Store.ListArtifacts(ctx, &store.ListArtifactsQuery{ProjectID: projectID})
+	if err != nil {
+		return system.NewHTTPError500(fmt.Sprintf("list project artifacts: %s", err))
+	}
+	for _, artifact := range artifacts {
+		if err := s.deleteArtifactResources(ctx, artifact); err != nil {
+			return system.NewHTTPError500(err.Error())
+		}
+	}
+
+	// The web service runs in its own sandbox with a public hostname; it must
+	// not outlive the project.
+	if err := s.webServiceController.Teardown(ctx, projectID); err != nil {
+		return system.NewHTTPError500(fmt.Sprintf("tear down project web service: %s", err))
+	}
+
+	// Now soft delete the project
+	if err := s.Store.DeleteProject(ctx, projectID); err != nil {
+		return system.NewHTTPError500(err.Error())
+	}
+	return nil
 }
 
 // getProjectRepositories godoc
