@@ -227,6 +227,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 	if err != nil {
 		if ns != nil {
 			ns.Shutdown()
+			ns.WaitForShutdown()
 		}
 		return nil, fmt.Errorf("failed to connect to nats: %w", err)
 	}
@@ -236,6 +237,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		nc.Close()
 		if ns != nil {
 			ns.Shutdown()
+			ns.WaitForShutdown()
 		}
 		return nil, fmt.Errorf("failed to create jetstream: %w", err)
 	}
@@ -693,7 +695,7 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 // StreamConsume delivers messages from a JetStream stream to handler. All
 // subscribers of a stream share one consumer, so each message reaches one of
 // them. The subscription stops on Unsubscribe, when ctx ends, or when the
-// consumer is gone (its iterator only fails terminally).
+// iterator fails terminally (e.g. the consumer is deleted).
 func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, handler func(msg *Message) error) (Subscription, error) {
 	n.consumerMu.Lock()
 	defer n.consumerMu.Unlock()
@@ -763,7 +765,9 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, handle
 		activeConsumer = consumer
 	}
 
-	mc, err := activeConsumer.Messages()
+	// Missing heartbeats are transient (a stalled link); the iterator recovers
+	// on its own, so only terminal errors may end the loop.
+	mc, err := activeConsumer.Messages(jetstream.WithMessagesErrOnMissingHeartbeat(false))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get messages context: %w", err)
 	}

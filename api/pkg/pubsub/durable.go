@@ -48,7 +48,8 @@ func (n *Nats) ConsumeDurable(ctx context.Context, streamName, consumerName, sub
 	if err != nil {
 		return nil, fmt.Errorf("ensure durable consumer %q: %w", consumerName, err)
 	}
-	messages, err := consumer.Messages(jetstream.PullMaxMessages(1))
+	// Missing heartbeats are transient; only terminal errors end the loop.
+	messages, err := consumer.Messages(jetstream.PullMaxMessages(1), jetstream.WithMessagesErrOnMissingHeartbeat(false))
 	if err != nil {
 		return nil, fmt.Errorf("open durable consumer %q: %w", consumerName, err)
 	}
