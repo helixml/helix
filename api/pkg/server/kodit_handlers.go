@@ -475,7 +475,7 @@ func (apiServer *HelixAPIServer) reRegisterWithKodit(r *http.Request, repository
 
 	log.Debug().
 		Str("repo_id", repository.ID).
-		Str("clone_url", koditCloneURL).
+		Str("clone_url", services.RedactURLCredentials(koditCloneURL)).
 		Msg("Attempting to re-register repository with Kodit")
 
 	koditRepoID, _, err := apiServer.koditService.RegisterRepository(r.Context(), &services.RegisterRepositoryParams{

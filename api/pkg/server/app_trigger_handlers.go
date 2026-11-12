@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger/cron"
@@ -62,6 +64,23 @@ func (s *HelixAPIServer) authorizeUserToTrigger(ctx context.Context, user *types
 // @Param trigger_type query string false "Trigger type, defaults to 'cron'"
 // @Router /api/v1/triggers [get]
 // @Security BearerAuth
+// checkTriggerRecipients rejects a cron trigger whose notification emails
+// include addresses Helix would not deliver to: each must belong to the
+// trigger owner or a member of the app's organization (the same rule
+// notification.CheckRecipients applies when sending).
+func (s *HelixAPIServer) checkTriggerRecipients(ctx context.Context, ownerID, orgID string, trigger *types.Trigger) *system.HTTPError {
+	if trigger.Cron == nil || len(trigger.Cron.Emails) == 0 {
+		return nil
+	}
+	_, rejected := notification.CheckRecipients(ctx, s.Store, ownerID, orgID, trigger.Cron.Emails)
+	if len(rejected) == 0 {
+		return nil
+	}
+	return system.NewHTTPError400(fmt.Sprintf(
+		"Notification emails must belong to you or to members of the agent's organization. Not allowed: %s",
+		strings.Join(rejected, ", ")))
+}
+
 func (s *HelixAPIServer) listTriggers(_ http.ResponseWriter, r *http.Request) ([]*types.TriggerConfiguration, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -223,6 +242,10 @@ func (s *HelixAPIServer) createAppTrigger(_ http.ResponseWriter, r *http.Request
 	triggerConfig.Owner = user.ID
 	triggerConfig.OwnerType = types.OwnerTypeUser
 
+	if httpErr := s.checkTriggerRecipients(ctx, triggerConfig.Owner, triggerConfig.OrganizationID, &triggerConfig.Trigger); httpErr != nil {
+		return nil, httpErr
+	}
+
 	if _, err := ensureWebhookTriggerSecret(&triggerConfig.Trigger, nil); err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
@@ -331,6 +354,11 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 
 	if err := s.authorizeUserToTrigger(ctx, user, existingTrigger); err != nil {
 		return nil, system.NewHTTPError404("Trigger configuration not found")
+	}
+
+	// The trigger keeps its owner; its organization follows the target app.
+	if httpErr := s.checkTriggerRecipients(ctx, existingTrigger.Owner, app.OrganizationID, &updatedTrigger.Trigger); httpErr != nil {
+		return nil, httpErr
 	}
 
 	if _, err := ensureWebhookTriggerSecret(&updatedTrigger.Trigger, &existingTrigger.Trigger); err != nil {
