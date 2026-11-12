@@ -1012,6 +1012,12 @@ func (apiServer *HelixAPIServer) unifiedSearch(_ http.ResponseWriter, req *http.
 	if user == nil {
 		return nil, system.NewHTTPError401("user not found")
 	}
+	// The search spans everything its owner has, across organizations and
+	// projects; an org-, project- or session-scoped key would read past its
+	// scope.
+	if isScopedAPIKeyCaller(user) {
+		return nil, system.NewHTTPError403("search is not available to scoped API keys")
+	}
 
 	query := req.URL.Query()
 	searchQuery := query.Get("q")

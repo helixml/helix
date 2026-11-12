@@ -71,3 +71,40 @@ func TestAuthorizeOrgMember_UnscopedUserUnaffected(t *testing.T) {
 		t.Fatalf("unscoped user should authorize as before: %v", err)
 	}
 }
+
+// org-2 seeds user-1 as owner, so without enforceKeyNotAgentScoped every
+// scoped case below would be authorized.
+func TestAuthorizeOrgOwner_AgentScopedKeysRefused(t *testing.T) {
+	a := NewAuthorizer(newFakeQueryer())
+	for name, user := range map[string]*types.User{
+		"project key": {ID: "user-1", OrganizationID: "org-2", ProjectID: "prj-1", SessionID: "ses-1", SpecTaskID: "spt-1"},
+		"session key": {ID: "user-1", SessionID: "ses-1"},
+		"worker key":  {ID: "user-1", OrganizationID: "org-2", SessionID: "ses-2"},
+	} {
+		if _, err := a.AuthorizeOrgOwner(context.Background(), user, "org-2"); err == nil {
+			t.Errorf("%s: expected org-owner authority to be refused", name)
+		}
+	}
+}
+
+func TestAuthorizeOrgOwner_OrgKeyAndPersonalKeyKeepOwnerRole(t *testing.T) {
+	a := NewAuthorizer(newFakeQueryer())
+	for name, user := range map[string]*types.User{
+		"personal key": {ID: "user-1"},
+		"org key":      {ID: "user-1", OrganizationID: "org-2"},
+	} {
+		if _, err := a.AuthorizeOrgOwner(context.Background(), user, "org-2"); err != nil {
+			t.Errorf("%s: expected owner authority, got %v", name, err)
+		}
+	}
+}
+
+// Membership (read) checks are unchanged for scoped keys: an agent still
+// works inside its organization.
+func TestAuthorizeOrgMember_AgentScopedKeyKeepsMembership(t *testing.T) {
+	a := NewAuthorizer(newFakeQueryer())
+	user := &types.User{ID: "user-1", OrganizationID: "org-2", ProjectID: "prj-1", SessionID: "ses-1"}
+	if _, err := a.AuthorizeOrgMember(context.Background(), user, "org-2"); err != nil {
+		t.Fatalf("expected membership, got %v", err)
+	}
+}

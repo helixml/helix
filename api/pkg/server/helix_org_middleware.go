@@ -281,7 +281,10 @@ func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
-		if isHelixOrgPrivilegedMutation(r) && !isAdmin(user) && membership.Role != types.OrganizationRoleOwner {
+		// A project- or session-scoped key carries its owner's role into the
+		// org graph, but org-wide configuration is not its to change.
+		if isHelixOrgPrivilegedMutation(r) && !isAdmin(user) &&
+			(membership.Role != types.OrganizationRoleOwner || isAgentScopedKey(user)) {
 			http.Error(w, "only organization owners and administrators can modify this resource", http.StatusForbidden)
 			return
 		}

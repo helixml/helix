@@ -2760,9 +2760,13 @@ func (s *HelixAPIServer) pinProject(_ http.ResponseWriter, r *http.Request) (*Pi
 	user := getRequestUser(r)
 	projectID := getID(r)
 
-	// Verify project exists
-	_, err := s.Store.GetProject(r.Context(), projectID)
+	// Pin only a project the caller can see; anything else answers like a
+	// missing project.
+	project, err := s.Store.GetProject(r.Context(), projectID)
 	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+	if err := s.authorizeUserToProject(r.Context(), user, project, types.ActionGet); err != nil {
 		return nil, system.NewHTTPError404("project not found")
 	}
 

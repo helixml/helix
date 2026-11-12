@@ -88,6 +88,42 @@ func TestDirectAPIAuthRejectsWaitlistedUser(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, response.Code)
 }
 
+// The OpenAI/Anthropic-compatible routes are wrapped by auth() alone; a
+// request without a credential must not reach them as an empty user.
+func TestDirectAPIAuthRejectsAnonymousRequest(t *testing.T) {
+	for _, path := range []string{"/v1/messages", "/v1/models", "/v1/responses", "/v1/chat/completions"} {
+		t.Run(path, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			auth := newAuthMiddleware(nil, nil, store.NewMockStore(ctrl), authMiddlewareConfig{}, nil, nil)
+			request := httptest.NewRequest(http.MethodPost, path, nil)
+			response := httptest.NewRecorder()
+			reached := false
+
+			auth.auth(func(w http.ResponseWriter, _ *http.Request) {
+				reached = true
+				w.WriteHeader(http.StatusNoContent)
+			})(response, request)
+
+			assert.Equal(t, http.StatusUnauthorized, response.Code)
+			assert.False(t, reached, "handler must not run without a credential")
+		})
+	}
+}
+
+// A CORS preflight carries no credential; the handler answers it.
+func TestDirectAPIAuthPassesPreflightToHandler(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	auth := newAuthMiddleware(nil, nil, store.NewMockStore(ctrl), authMiddlewareConfig{}, nil, nil)
+	request := httptest.NewRequest(http.MethodOptions, "/v1/chat/completions", nil)
+	response := httptest.NewRecorder()
+
+	auth.auth(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})(response, request)
+
+	assert.Equal(t, http.StatusNoContent, response.Code)
+}
+
 func TestExtractMiddlewareRejectsWaitlistedPersonalAPIKey(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)

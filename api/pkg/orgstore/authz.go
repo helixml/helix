@@ -36,6 +36,19 @@ func enforceKeyOrgScope(user *types.User, orgID string) error {
 	return fmt.Errorf("credentials are scoped to organization %s", user.OrganizationID)
 }
 
+// enforceKeyNotAgentScoped refuses org-owner authority to a credential minted
+// for a project or a session (sandbox agents, chat sessions, helix-org
+// workers). Such a key belongs to a human who may own the organization, but
+// it is handed to an agent for one piece of work: it must not change who is
+// in the organization, its settings, keys or billing, or delete it. Org API
+// keys carry neither field and keep their owner's role.
+func enforceKeyNotAgentScoped(user *types.User) error {
+	if user == nil || (user.ProjectID == "" && user.SessionID == "") {
+		return nil
+	}
+	return fmt.Errorf("project- and session-scoped credentials cannot act as organization owner")
+}
+
 // Authorizer returns an Authorizer bound to this store.
 func (s *Store) Authorizer() *Authorizer { return &Authorizer{store: s} }
 
@@ -46,6 +59,9 @@ func (a *Authorizer) AuthorizeOrgOwner(ctx context.Context, user *types.User, or
 	// keys) authorize only within their own organization, no matter which
 	// other organizations or privileges the owning user has.
 	if err := enforceKeyOrgScope(user, orgID); err != nil {
+		return nil, err
+	}
+	if err := enforceKeyNotAgentScoped(user); err != nil {
 		return nil, err
 	}
 	if user.Admin {

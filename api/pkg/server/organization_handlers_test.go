@@ -234,7 +234,7 @@ func TestDeleteOrganization_OnlyOwnerCanDelete(t *testing.T) {
 	rr := httptest.NewRecorder()
 	server.deleteOrganization(rr, req)
 
-	require.Equal(t, http.StatusInternalServerError, rr.Code)
+	require.Equal(t, http.StatusForbidden, rr.Code)
 	require.Contains(t, rr.Body.String(), "Could not authorize org owner")
 }
 

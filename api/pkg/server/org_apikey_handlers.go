@@ -126,6 +126,13 @@ func (apiServer *HelixAPIServer) createOrgAPIKey(rw http.ResponseWriter, r *http
 		http.Error(rw, "Not a member of this organization: "+err.Error(), http.StatusForbidden)
 		return
 	}
+	// A key minted here is scoped only to the organization. A project,
+	// session or app key minting one would shed its own, narrower scope
+	// (and outlive the session it was issued for).
+	if isScopedAPIKeyCaller(user) && !isOrgAPIKeyCaller(user) {
+		http.Error(rw, "a project-, session- or app-scoped API key cannot create organization API keys", http.StatusForbidden)
+		return
+	}
 
 	var req struct {
 		Name string `json:"name"`
@@ -245,4 +252,12 @@ func (apiServer *HelixAPIServer) findOrgAPIKey(ctx context.Context, orgID, keyID
 		}
 	}
 	return nil, store.ErrNotFound
+}
+
+// isOrgAPIKeyCaller reports whether the request came with a plain org API key:
+// scoped to an organization and nothing narrower.
+func isOrgAPIKeyCaller(user *types.User) bool {
+	return user.TokenType == types.TokenTypeAPIKey && user.APIKeyType == types.APIkeytypeAPI &&
+		user.OrganizationID != "" && user.ProjectID == "" && user.SpecTaskID == "" &&
+		user.SessionID == "" && user.AppID == ""
 }

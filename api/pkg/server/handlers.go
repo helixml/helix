@@ -223,7 +223,7 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 	if path == "apps" {
 		isAdmin := apiServer.isAdmin(req)
 		if !isAdmin {
-			return nil, fmt.Errorf("access denied: only administrators can list all apps")
+			return nil, system.NewHTTPError403("access denied: only administrators can list all apps")
 		}
 	}
 
@@ -240,7 +240,7 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 			return nil, err
 		}
 		if !hasAccess {
-			return nil, fmt.Errorf("access denied to app filestore path: %s", path)
+			return nil, system.NewHTTPError403("access denied to app filestore path: " + path)
 		}
 
 		// Extract the relative path within the app
@@ -281,7 +281,7 @@ func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.R
 			return filestore.Item{}, err
 		}
 		if !hasAccess {
-			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", path)
+			return filestore.Item{}, system.NewHTTPError403("access denied to app filestore path: " + path)
 		}
 
 		// Extract the relative path within the app
@@ -327,7 +327,7 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 			return filestore.Item{}, err
 		}
 		if !hasAccess {
-			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", request.Path)
+			return filestore.Item{}, system.NewHTTPError403("access denied to app filestore path: " + request.Path)
 		}
 
 		// Extract the relative path within the app
@@ -391,7 +391,7 @@ func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *htt
 			return filestore.Item{}, err
 		}
 		if !hasAccess {
-			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", path)
+			return filestore.Item{}, system.NewHTTPError403("access denied to app filestore path: " + path)
 		}
 	}
 
@@ -425,7 +425,7 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 			return "", err
 		}
 		if !hasAccess {
-			return "", fmt.Errorf("access denied to app filestore path: %s", path)
+			return "", system.NewHTTPError403("access denied to app filestore path: " + path)
 		}
 
 		// Extract the relative path within the app
@@ -473,7 +473,7 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		}
 		if !hasAccess {
 			log.Error().Str("path", path).Msg("access denied to app filestore path")
-			return false, fmt.Errorf("access denied to app filestore path: %s", path)
+			return false, system.NewHTTPError403("access denied to app filestore path: " + path)
 		}
 
 		// Parse and handle file upload
@@ -1164,6 +1164,23 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 	// them for bots.
 	if isScopedAPIKeyCaller(user) && newAPIKey.Type != types.APIkeytypeApp {
 		return "", system.NewHTTPError403("a scoped API key cannot create API keys; use a personal API key or sign in")
+	}
+	// An app key acts for one agent, so the caller must be allowed to use
+	// that agent (and a project-scoped caller only an agent of its project).
+	if newAPIKey.Type == types.APIkeytypeApp {
+		if newAPIKey.AppID == nil || newAPIKey.AppID.String == "" {
+			return "", system.NewHTTPError400("app_id is required for an app key")
+		}
+		app, err := apiServer.Store.GetApp(ctx, newAPIKey.AppID.String)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return "", system.NewHTTPError404("app not found")
+			}
+			return "", err
+		}
+		if err := apiServer.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
+			return "", system.NewHTTPError404("app not found")
+		}
 	}
 
 	createdKey, err := apiServer.Controller.CreateAPIKey(ctx, user, newAPIKey)
