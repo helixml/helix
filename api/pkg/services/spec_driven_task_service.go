@@ -1408,7 +1408,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 					return fmt.Errorf("%s", FormatDivergenceErrorForUser(divergeErr, repo.Name))
 				}
 				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", effectiveBaseBranch).Msg("Failed to sync from remote")
-				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", repo.ExternalURL, err)
+				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", RedactURLCredentials(repo.ExternalURL), redactURLSecretInError(err, repo.ExternalURL))
 			}
 		}
 
