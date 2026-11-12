@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -65,9 +66,11 @@ func (n *Nats) OnConnectionStatus(handler ConnectionStatusHandler) {
 }
 
 func (n *Nats) notifyStatusChange(status ConnectionStatus) {
+	// Call handlers outside the lock: one may register another handler.
 	n.statusMu.RLock()
-	defer n.statusMu.RUnlock()
-	for _, handler := range n.statusHandlers {
+	handlers := slices.Clone(n.statusHandlers)
+	n.statusMu.RUnlock()
+	for _, handler := range handlers {
 		handler(status)
 	}
 }
@@ -260,9 +263,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		MaxAge:    5 * time.Minute, // Discard messages older than 5 minutes
 	})
 	if err != nil {
-		if n.embeddedServer != nil {
-			n.embeddedServer.Shutdown()
-		}
+		n.Close()
 		return nil, fmt.Errorf("failed to create zed agent stream: %w", err)
 	}
 
@@ -275,9 +276,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		MaxAge:    5 * time.Minute,
 	})
 	if err != nil {
-		if n.embeddedServer != nil {
-			n.embeddedServer.Shutdown()
-		}
+		n.Close()
 		return nil, fmt.Errorf("failed to create script runner stream: %w", err)
 	}
 
@@ -338,6 +337,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 			ReplayPolicy:   jetstream.ReplayInstantPolicy,
 		})
 		if err != nil {
+			n.Close()
 			return nil, fmt.Errorf("failed to create consumer: %w", err)
 		}
 
