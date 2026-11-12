@@ -96,7 +96,8 @@ func (s *PRProposalService) RequestCompletion(ctx context.Context, taskID, summa
 
 // DecideCompletion applies the user's decision. Approving marks the task done
 // (stopping its desktop) whether or not the agent asked — the user may finish a
-// task at any time. Rejecting a pending request clears it and passes the
+// task at any point while it is being worked on, but not one still waiting in
+// the backlog or a queue. Rejecting a pending request clears it and passes the
 // user's feedback to the agent.
 func (s *PRProposalService) DecideCompletion(ctx context.Context, user *types.User, taskID string, req *types.CompletionDecisionRequest) (*types.SpecTask, error) {
 	switch req.Decision {
@@ -137,7 +138,8 @@ func (s *PRProposalService) DecideCompletion(ctx context.Context, user *types.Us
 }
 
 // CompleteTask marks a task done on a person's or org Bot's say-so, with or
-// without a pending request from the agent.
+// without a pending request from the agent, provided the task is being worked
+// on (completableStatuses).
 func (s *PRProposalService) CompleteTask(ctx context.Context, taskID string) (*types.SpecTask, error) {
 	var task *types.SpecTask
 	err := s.git.WithRepoLock("task:"+taskID, func() error {
@@ -150,6 +152,12 @@ func (s *PRProposalService) CompleteTask(ctx context.Context, taskID string) (*t
 		}
 		if task.Archived {
 			return conflictingProposal("the task is archived")
+		}
+		// Done is the exit of the pipeline: a task that has not reached
+		// planning or implementation (backlog, queued, failed) cannot skip
+		// straight to it.
+		if !completableStatuses[task.Status] {
+			return conflictingProposal("the task is in %q; only a task that is being worked on can be marked done", task.Status)
 		}
 		completeTask(task, time.Now())
 		return s.store.UpdateSpecTask(ctx, task)
