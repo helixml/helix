@@ -54,6 +54,10 @@ func (apiServer *HelixAPIServer) registerSandbox(rw http.ResponseWriter, req *ht
 		http.Error(rw, "Sandbox ID is required", http.StatusBadRequest)
 		return
 	}
+	if err := apiServer.authorizeRunnerIdentity(getRequestUser(req), instance.ID); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	// Set defaults
 	if instance.Status == "" {
@@ -104,6 +108,10 @@ func (apiServer *HelixAPIServer) registerSandbox(rw http.ResponseWriter, req *ht
 func (apiServer *HelixAPIServer) sandboxHeartbeat(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	sandboxID := vars["id"]
+	if err := apiServer.authorizeRunnerIdentity(getRequestUser(req), sandboxID); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	var heartbeat types.SandboxHeartbeatRequest
 	if err := json.NewDecoder(req.Body).Decode(&heartbeat); err != nil {
@@ -158,6 +166,17 @@ func (apiServer *HelixAPIServer) listSandboxes(rw http.ResponseWriter, req *http
 		http.Error(rw, "Failed to list sandboxes", http.StatusInternalServerError)
 		return
 	}
+	// A per-runner token sees only its own host's row, not the fleet's
+	// addresses and hardware. Admins and the shared token see every host.
+	if user := getRequestUser(req); isRunner(user) && user.RunnerID != "" {
+		own := []*types.SandboxInstance{}
+		for _, instance := range instances {
+			if types.RunnerIDsMatch(user.RunnerID, instance.ID) {
+				own = append(own, instance)
+			}
+		}
+		instances = own
+	}
 
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(instances)
@@ -173,6 +192,11 @@ func (apiServer *HelixAPIServer) listSandboxes(rw http.ResponseWriter, req *http
 func (apiServer *HelixAPIServer) deregisterSandbox(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	sandboxID := vars["id"]
+	// Admins deregister any host; a runner only itself.
+	if err := apiServer.authorizeRunnerIdentity(getRequestUser(req), sandboxID); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	if err := apiServer.Store.DeregisterSandboxInstance(req.Context(), sandboxID); err != nil {
 		log.Error().Err(err).Str("sandbox_id", sandboxID).Msg("Failed to deregister sandbox")
@@ -198,6 +222,10 @@ func (apiServer *HelixAPIServer) deregisterSandbox(rw http.ResponseWriter, req *
 func (apiServer *HelixAPIServer) getDiskUsageHistory(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	sandboxID := vars["id"]
+	if err := apiServer.authorizeRunnerIdentity(getRequestUser(req), sandboxID); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	// Default to last 24 hours
 	since := time.Now().Add(-24 * time.Hour)
@@ -232,9 +260,14 @@ func (apiServer *HelixAPIServer) getContainerBlkioStats(rw http.ResponseWriter, 
 	sandboxID := vars["id"]
 	sessionID := vars["session_id"]
 
-	// Admins and sandbox hosts may read any container. Anyone else must be
-	// authorised on the session, and only for the sandbox it is running on.
+	// Admins and the shared runner token may read any container, a
+	// per-runner token only its own host's. Anyone else must be authorised on
+	// the session, and only for the sandbox it is running on.
 	user := getRequestUser(req)
+	if isRunner(user) && user.RunnerID != "" && !types.RunnerIDsMatch(user.RunnerID, sandboxID) {
+		http.Error(rw, "Forbidden", http.StatusForbidden)
+		return
+	}
 	if !isAdmin(user) && !isRunner(user) {
 		session, err := apiServer.Store.GetSession(req.Context(), sessionID)
 		if err != nil || session.SandboxID != sandboxID ||

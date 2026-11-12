@@ -195,14 +195,9 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		return nil, nil
 	}
 
-	if token == auth.cfg.runnerToken {
-		// if the api key is our runner token then we are in runner mode
-		return &types.User{
-			ID:        "runner-system", // Add a system user ID for runner tokens
-			Type:      types.OwnerTypeUser,
-			Token:     token,
-			TokenType: types.TokenTypeRunner,
-		}, nil
+	// The shared runner token or a per-runner token: runner mode.
+	if runner, ok, err := runnerUserFromToken(ctx, auth.store, auth.cfg.runnerToken, token); ok {
+		return runner, err
 	}
 
 	if strings.HasPrefix(token, types.APIKeyPrefix) {

@@ -415,6 +415,12 @@ type Store interface {
 	DeleteRunnerProfile(ctx context.Context, id string) error
 	ListRunnerProfiles(ctx context.Context) ([]*types.RunnerProfile, error)
 
+	// Per-runner tokens
+	CreateRunnerToken(ctx context.Context, t *types.RunnerToken) (*types.RunnerToken, error)
+	GetActiveRunnerTokenByHash(ctx context.Context, tokenHash string) (*types.RunnerToken, error)
+	ListRunnerTokens(ctx context.Context, runnerID string) ([]*types.RunnerToken, error)
+	RevokeRunnerToken(ctx context.Context, id, revokedBy string) (*types.RunnerToken, error)
+
 	// runner-to-profile assignments
 	GetRunnerAssignment(ctx context.Context, runnerID string) (*types.RunnerAssignment, error)
 	SetRunnerAssignment(ctx context.Context, a *types.RunnerAssignment) (*types.RunnerAssignment, error)

@@ -198,6 +198,11 @@ func (apiServer *HelixAPIServer) clearRunnerProfile(rw http.ResponseWriter, r *h
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getRunnerAssignment(rw http.ResponseWriter, r *http.Request) {
 	runnerID := mux.Vars(r)["runner_id"]
+	// Admins read any runner's assignment; a runner only its own.
+	if err := apiServer.authorizeRunnerIdentity(getRequestUser(r), runnerID); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 	a, err := apiServer.Store.GetRunnerAssignment(r.Context(), runnerID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {

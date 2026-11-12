@@ -49,14 +49,21 @@ func (apiServer *HelixAPIServer) startRunnerWebSocketServer(
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		user, err := apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
 		if err != nil {
-			log.Error().Msgf("Error getting user: %s", err.Error())
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Warn().Err(err).Msg("Error authenticating runner websocket")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
 		if user == nil || !isRunner(user) {
 			log.Error().Msgf("Error authorizing runner websocket")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// extract the runner ID from the query parameter
+		runnerID := r.URL.Query().Get("runnerid")
+		if err := apiServer.authorizeRunnerIdentity(user, runnerID); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 
@@ -70,8 +77,6 @@ func (apiServer *HelixAPIServer) startRunnerWebSocketServer(
 		defer conn.Close()
 		defer removeConnection(conn)
 
-		// extract the runner ID from the query parameter
-		runnerID := r.URL.Query().Get("runnerid")
 		addConnection(conn, runnerID)
 
 		log.Debug().
