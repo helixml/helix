@@ -20,6 +20,7 @@ func TestGitHubCompat_RejectsRestrictedKeyTypes(t *testing.T) {
 	for name, key := range map[string]*types.ApiKey{
 		"embed":        {Key: "hl-embed", Owner: "usr_alice", OwnerType: types.OwnerTypeUser, Type: types.APIkeytypeEmbed},
 		"bot instance": {Key: "hl-bot", Owner: "usr_alice", OwnerType: types.OwnerTypeUser, Type: types.APIkeytypeBotInstance},
+		"sandbox":      {Key: "hl-sbx", Owner: "usr_alice", OwnerType: types.OwnerTypeUser, Type: types.APIkeytypeAPI, SessionID: "sbx_A", OrganizationID: "org_1"},
 		"app":          {Key: "hl-app", Owner: "usr_alice", OwnerType: types.OwnerTypeUser, Type: types.APIkeytypeApp, AppID: &sql.NullString{String: "app_1", Valid: true}},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -16,12 +16,16 @@ import (
 
 func authUserWithKey(t *testing.T, keyType types.APIKeyType) types.UserResponse {
 	t.Helper()
+	return authUserWithAPIKey(t, &types.ApiKey{Type: keyType})
+}
+
+func authUserWithAPIKey(t *testing.T, key *types.ApiKey) types.UserResponse {
+	t.Helper()
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	owner := &types.User{ID: "usr_owner", Email: "owner@example.com", FullName: "Owner Person", Admin: true}
-	mockStore.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(&types.ApiKey{
-		Key: "hl-key", Owner: owner.ID, OwnerType: types.OwnerTypeUser, Type: keyType,
-	}, nil)
+	key.Key, key.Owner, key.OwnerType = "hl-key", owner.ID, types.OwnerTypeUser
+	mockStore.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(key, nil)
 	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ any, _ *store.GetUserQuery) (*types.User, error) { u := *owner; return &u, nil }).AnyTimes()
 	mockStore.EXPECT().EnsureUserMeta(gomock.Any(), gomock.Any()).Return(&types.UserMeta{ID: owner.ID}, nil).AnyTimes()
@@ -58,4 +62,22 @@ func TestAuthUser_DelegatedKeysGetOnlyTheOwnerID(t *testing.T) {
 func TestAuthUser_PersonalKeyGetsFullProfile(t *testing.T) {
 	resp := authUserWithKey(t, types.APIkeytypeAPI)
 	require.Equal(t, "owner@example.com", resp.Email)
+}
+
+// A sandbox key outside a project is held by code in the container, so it
+// gets the owner's ID only, like a delegated key. Project sandbox keys and
+// chat-session keys keep the full profile.
+func TestAuthUser_SandboxKeyGetsOnlyTheOwnerID(t *testing.T) {
+	resp := authUserWithAPIKey(t, &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "sbx_A", OrganizationID: "org_1"})
+	require.Equal(t, "usr_owner", resp.ID)
+	require.Empty(t, resp.Email)
+	require.Empty(t, resp.Name)
+	require.False(t, resp.Admin)
+
+	for _, key := range []*types.ApiKey{
+		{Type: types.APIkeytypeAPI, SessionID: "sbx_A", ProjectID: "prj_1"},
+		{Type: types.APIkeytypeAPI, SessionID: "ses_A"},
+	} {
+		require.Equal(t, "owner@example.com", authUserWithAPIKey(t, key).Email)
+	}
 }

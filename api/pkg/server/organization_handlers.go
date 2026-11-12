@@ -506,19 +506,27 @@ func (apiServer *HelixAPIServer) purgeOrganization(ctx context.Context, orgID st
 	return nil
 }
 
-// deleteSandboxes deletes the Sandboxes-API sandboxes matching q: container,
-// workspace and row, with final billing. Session-backed rows belong to desktops
-// whose sessions are torn down separately (stopOrgDesktops, purgeProject).
+// deleteSandboxes deletes every live sandbox row matching q through the
+// sandbox controller: final billing, key revocation, container (for a
+// Sandboxes-API sandbox) and row. Callers run it after their desktop teardown
+// (stopOrgDesktops, purgeProject), so a session-backed row normally only has
+// its already closed meter left; one whose desktop is still running is
+// stopped through the session, and when that desktop's host is gone the row
+// is deleted anyway, as the session teardown does.
 func (apiServer *HelixAPIServer) deleteSandboxes(ctx context.Context, q *store.ListSandboxesQuery) error {
 	sandboxes, err := apiServer.Store.ListSandboxes(ctx, q)
 	if err != nil {
 		return fmt.Errorf("list sandboxes: %w", err)
 	}
 	for _, sandbox := range sandboxes {
-		if sandbox.SessionBacked() {
-			continue
-		}
-		if err := apiServer.sandboxController.Delete(ctx, sandbox.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+		err := apiServer.sandboxController.Delete(ctx, sandbox.ID)
+		switch {
+		case err == nil, errors.Is(err, store.ErrNotFound):
+		case sandbox.SessionBacked() && sandboxHostGone(err, sandbox.SessionID):
+			if err := apiServer.Store.DeleteSandbox(ctx, sandbox.ID); err != nil {
+				return fmt.Errorf("delete sandbox %s: %w", sandbox.ID, err)
+			}
+		default:
 			return fmt.Errorf("delete sandbox %s: %w", sandbox.ID, err)
 		}
 	}

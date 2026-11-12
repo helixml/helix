@@ -9,9 +9,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/sandbox"
@@ -103,6 +105,26 @@ func TestAdminDeleteUser_RevokesAccessAndRemovesPersonalDataIntegration(t *testi
 	_, err = st.CreateWallet(ctx, &types.Wallet{UserID: userID})
 	require.NoError(t, err)
 
+	// A desktop the user ran in the shared org: its meter row is still
+	// "running" and its sandbox host is gone.
+	desktopSandbox, err := st.CreateSandbox(ctx, &types.Sandbox{
+		ID: "sbx_desk_" + suffix, OrganizationID: sharedOrg, Owner: userID, Runtime: types.SandboxRuntimeUbuntuDesktop,
+		SessionID: "ses_desk_" + suffix, Status: types.SandboxStatusRunning,
+	})
+	require.NoError(t, err)
+
+	// Chat sessions: the personal one goes with the user, the one in the
+	// shared org is the org's and stays.
+	personalSession, err := st.CreateSession(ctx, types.Session{
+		ID: "ses_p_" + suffix, Owner: userID, OwnerType: types.OwnerTypeUser, Created: time.Now(), Updated: time.Now(),
+	})
+	require.NoError(t, err)
+	orgSession, err := st.CreateSession(ctx, types.Session{
+		ID: "ses_o_" + suffix, Owner: userID, OwnerType: types.OwnerTypeUser, OrganizationID: sharedOrg,
+		Created: time.Now(), Updated: time.Now(),
+	})
+	require.NoError(t, err)
+
 	personalKey := "hl-del-" + suffix
 	orgKey := "hl-del-org-" + suffix
 	for _, key := range []*types.ApiKey{
@@ -123,11 +145,15 @@ func TestAdminDeleteUser_RevokesAccessAndRemovesPersonalDataIntegration(t *testi
 	filestoreDir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filestoreDir+"/users/"+userID, 0o755))
 	require.NoError(t, os.WriteFile(filestoreDir+"/users/"+userID+"/notes.txt", []byte("x"), 0o600))
+	sandboxController := sandbox.New(st, nil, nil, "", "")
+	sandboxController.SetDesktopStopper(func(context.Context, string) error {
+		return fmt.Errorf("dial hydra: %w", connman.ErrNoConnection)
+	})
 	server := &HelixAPIServer{
 		Store:                st,
 		gitRepositoryService: services.NewGitRepositoryService(st, t.TempDir(), "http://localhost:8080", "test", "test@example.com"),
 		webServiceController: webservice.New(st, sandbox.New(st, nil, nil, "", "")),
-		sandboxController:    sandbox.New(st, nil, nil, "", ""),
+		sandboxController:    sandboxController,
 		Controller: &controller.Controller{Options: controller.Options{
 			Config:    &config.ServerConfig{},
 			Filestore: filestore.NewFileSystemStorage(filestoreDir, "http://localhost:8080/files", "secret"),
@@ -150,8 +176,15 @@ func TestAdminDeleteUser_RevokesAccessAndRemovesPersonalDataIntegration(t *testi
 	require.ErrorIs(t, err, store.ErrNotFound)
 	_, err = st.GetOrganization(ctx, &store.GetOrganizationQuery{ID: soloOrg})
 	require.ErrorIs(t, err, store.ErrNotFound)
-	_, err = st.GetSandbox(ctx, userSandbox.ID)
-	require.ErrorIs(t, err, store.ErrNotFound, "the user's sandbox must be deleted")
+	for _, id := range []string{userSandbox.ID, desktopSandbox.ID} {
+		_, err = st.GetSandbox(ctx, id)
+		require.ErrorIs(t, err, store.ErrNotFound, "sandbox %s must be deleted", id)
+	}
+	_, err = st.GetSession(ctx, personalSession.ID)
+	require.ErrorIs(t, err, store.ErrNotFound, "the personal session must be deleted")
+	kept, err := st.GetSession(ctx, orgSession.ID)
+	require.NoError(t, err, "the shared org's session must be kept")
+	require.Equal(t, sharedOrg, kept.OrganizationID)
 	_, err = os.Stat(filestoreDir + "/users/" + userID)
 	require.True(t, os.IsNotExist(err), "user files must be removed")
 

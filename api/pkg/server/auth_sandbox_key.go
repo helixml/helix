@@ -23,8 +23,9 @@ import (
 //   - reading its own sandbox and using its files, commands, screenshot and
 //     terminal (/api/v1/organizations/{key org}/sandboxes/{id}/...); it may
 //     not update or delete itself, and it never sees another sandbox;
-//   - its own session plumbing (/api/v1/sessions/{id}/..., the user websocket
-//     for its id) and the desktop bridge's RevDial tunnel for its id;
+//   - its own session plumbing (the zed-config and agent startup reports under
+//     /api/v1/sessions/{id}, the user websocket for its id) and the desktop
+//     bridge's RevDial tunnel for its id;
 //   - the desktop and visualization MCP backends, with session_id naming its
 //     own id. The session MCP backend is refused: its tools take a
 //     session_id argument that would reach the owner's other sessions.
@@ -108,7 +109,14 @@ func sandboxKeyAllowsPath(sandboxID, orgID string, r *http.Request) bool {
 		}
 	}
 	if rest, ok := strings.CutPrefix(path, "/api/v1/sessions/"+sandboxID); ok {
-		return rest == "" || strings.HasPrefix(rest, "/")
+		// The desktop's own session plumbing, the same set a bot instance's
+		// sandbox calls; never the session's chat or lifecycle routes.
+		for _, route := range botInstanceSessionPaths {
+			if rest == route.suffix && r.Method == route.method {
+				return true
+			}
+		}
+		return false
 	}
 
 	switch path {

@@ -373,11 +373,12 @@ func TestDeleteOrganization_TearsDownProjectWebServices(t *testing.T) {
 				return nil
 			}),
 		mockStore.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_plain").Return(nil, store.ErrNotFound),
-		// Sandboxes-API sandboxes go too; a session-backed row is left to its
-		// desktop's teardown.
+		// Every sandbox row in the org goes through the sandbox controller,
+		// Sandboxes-API and session-backed alike.
 		mockStore.EXPECT().ListSandboxes(gomock.Any(), &store.ListSandboxesQuery{OrganizationID: orgID}).
 			Return([]*types.Sandbox{{ID: "sbx_api"}, {ID: "sbx_desktop", SessionID: "ses_desktop"}}, nil),
 		mockStore.EXPECT().GetSandbox(gomock.Any(), "sbx_api").Return(nil, store.ErrNotFound),
+		mockStore.EXPECT().GetSandbox(gomock.Any(), "sbx_desktop").Return(nil, store.ErrNotFound),
 		mockStore.EXPECT().ListArtifacts(gomock.Any(), &store.ListArtifactsQuery{OrganizationID: orgID}).
 			Return([]*types.Artifact{}, nil),
 		mockStore.EXPECT().DeleteOrganization(gomock.Any(), orgID).Return(nil),

@@ -172,13 +172,16 @@ func (apiServer *HelixAPIServer) compatRequest(r *http.Request, action types.Act
 // /api/v1 to a credential presented to this API, which authenticates on its
 // own. App keys are confined to the chat endpoints, embed keys live on an
 // untrusted page and bot instance keys in a sandbox reading untrusted input:
-// none of them may act on repositories as the key's owner.
+// none of them may act on repositories as the key's owner. Nor may the key of
+// a sandbox outside any project, which owns no repositories.
 func compatCredentialRejection(user *types.User) string {
 	switch {
 	case user.AppID != "":
 		return "App API keys cannot use the GitHub API"
 	case user.APIKeyType == types.APIkeytypeEmbed, user.APIKeyType == types.APIkeytypeBotInstance:
 		return "This API key type cannot use the GitHub API"
+	case sandboxSessionKeyID(user) != "":
+		return "This sandbox key cannot use the GitHub API"
 	}
 	return ""
 }
