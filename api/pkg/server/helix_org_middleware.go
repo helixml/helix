@@ -323,16 +323,30 @@ func isHelixOrgPrivilegedMutation(r *http.Request) bool {
 	if r.URL.Path == strings.TrimRight(APIPrefix, "/")+"/orgs/"+orgSegment+"/github/app-manifest" {
 		return true
 	}
-	assetsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/assets"
-	if r.URL.Path == assetsPath || strings.HasPrefix(r.URL.Path, assetsPath+"/") {
-		return true
+	// Assets, triggers (including their webhook installs) and processors are
+	// org-wide wiring: they decide what wakes which bot and with what data.
+	orgPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment
+	for _, collection := range []string{"/assets", "/triggers", "/processors"} {
+		if r.URL.Path == orgPath+collection || strings.HasPrefix(r.URL.Path, orgPath+collection+"/") {
+			return true
+		}
 	}
-	botsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/bots/"
+	botsPath := orgPath + "/bots/"
 	if !strings.HasPrefix(r.URL.Path, botsPath) {
 		return false
 	}
+	// Per-bot secrets and trigger attachments.
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, botsPath), "/")
-	return len(parts) >= 3 && parts[0] != "" && parts[1] == "secrets" && parts[2] != ""
+	if len(parts) < 2 || parts[0] == "" {
+		return false
+	}
+	switch parts[1] {
+	case "secrets":
+		return len(parts) >= 3 && parts[2] != ""
+	case "attachments":
+		return true
+	}
+	return false
 }
 
 // stripOrgScopedPrefix strips "/api/v1/orgs/{org}" off the request
