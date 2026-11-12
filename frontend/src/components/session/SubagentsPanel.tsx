@@ -1,11 +1,9 @@
 import { useMemo, useState } from "react";
-import {
-  Box,
-  ButtonBase,
-  Collapse,
-  Divider,
-  Typography,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import ButtonBase from "@mui/material/ButtonBase";
+import Collapse from "@mui/material/Collapse";
+import Divider from "@mui/material/Divider";
+import Typography from "@mui/material/Typography";
 import { Bot, Check, ChevronDown, ChevronRight, X } from "lucide-react";
 
 import type { TypesInteraction } from "../../api/api";

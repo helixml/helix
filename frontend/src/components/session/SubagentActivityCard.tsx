@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { Box, ButtonBase, Collapse, Typography } from "@mui/material";
+import Box from "@mui/material/Box";
+import ButtonBase from "@mui/material/ButtonBase";
+import Collapse from "@mui/material/Collapse";
+import Typography from "@mui/material/Typography";
 import { Bot, Check, ChevronDown, ChevronRight, X } from "lucide-react";
 
 import {

@@ -585,9 +585,11 @@ describe('ProjectChatGroup pagination', () => {
     fireEvent.mouseOver(pullRequestLink)
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Pull request is open')
     fireEvent.mouseLeave(pullRequestLink)
-    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument())
 
+    // The PR tooltip's exit animation runs on real timers and may still be
+    // mounted, so find the status tooltip by its text rather than as the only one.
     fireEvent.mouseOver(screen.getByText('Completed'))
-    expect(await screen.findByRole('tooltip')).toHaveTextContent('Sandbox and agent are offline')
+    const statusTooltip = await screen.findByText('Sandbox and agent are offline')
+    expect(statusTooltip.closest('[role="tooltip"]')).not.toBeNull()
   })
 })

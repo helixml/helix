@@ -1,5 +1,14 @@
 import React, { FC, useCallback, useEffect, useRef, useState } from "react";
-import { Box, Divider, IconButton, Menu, MenuItem, Select, Tab, Tabs, Tooltip, Typography } from "@mui/material";
+import Box from "@mui/material/Box";
+import Divider from "@mui/material/Divider";
+import IconButton from "@mui/material/IconButton";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import { Code2, X } from "lucide-react";
 import useLightTheme from "../../hooks/useLightTheme";
 import useRouter from "../../hooks/useRouter";

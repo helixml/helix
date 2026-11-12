@@ -1,18 +1,16 @@
 import React from 'react';
-import {
-  DialogTitle,
-  DialogContent,
-  IconButton,
-  Typography,
-  Box,
-  Chip,
-  Divider,
-  Paper,
-  useTheme,
-  Tabs,
-  Tab,
-  Grid,
-} from '@mui/material';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import IconButton from '@mui/material/IconButton';
+import Typography from '@mui/material/Typography';
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Divider from '@mui/material/Divider';
+import Paper from '@mui/material/Paper';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
+import Grid from '@mui/material/Grid';
+import { useTheme } from '@mui/material/styles';
 import CloseIcon from '@mui/icons-material/Close';
 import DarkDialog from '../dialog/DarkDialog';
 import CopyButton from '../common/CopyButton';

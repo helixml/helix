@@ -1,13 +1,11 @@
 import React, { FC } from 'react'
-import {
-  Box,
-  Typography,
-  CircularProgress,
-  IconButton,
-  Tooltip,
-  Paper,
-  Pagination,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import Paper from '@mui/material/Paper';
+import Pagination from '@mui/material/Pagination';
 import {
   GitCommit,
   Copy,
