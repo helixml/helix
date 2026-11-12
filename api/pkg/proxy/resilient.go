@@ -38,6 +38,10 @@ const (
 
 	// reconnectPollInterval is how often to check if reconnection completed
 	reconnectPollInterval = 10 * time.Millisecond
+
+	// reconnectBackoffStep is the linear backoff between failed dials:
+	// attempt N waits N steps.
+	reconnectBackoffStep = time.Second
 )
 
 // DialFunc is a function that creates a new connection to the server
@@ -100,6 +104,7 @@ type ResilientProxy struct {
 	reconnectDone chan struct{} // Signals reconnection completed
 	reconnectMu   sync.Mutex    // Protects reconnection initiation
 	serverError   chan error    // Channel to signal server errors for reconnection
+	backoffStep   time.Duration // reconnectBackoffStep except in tests
 
 	// Stats
 	reconnectCount      atomic.Int64
@@ -150,6 +155,7 @@ func NewResilientProxy(cfg ResilientProxyConfig) *ResilientProxy {
 		done:          make(chan struct{}),
 		reconnectDone: make(chan struct{}),
 		serverError:   make(chan error, 2), // Buffered for both directions
+		backoffStep:   reconnectBackoffStep,
 	}
 }
 
@@ -541,7 +547,7 @@ func (p *ResilientProxy) reconnect(ctx context.Context) error {
 			select {
 			case <-reconnectCtx.Done():
 				return reconnectCtx.Err()
-			case <-time.After(time.Duration(attempt) * time.Second):
+			case <-time.After(time.Duration(attempt) * p.backoffStep):
 				continue
 			}
 		}

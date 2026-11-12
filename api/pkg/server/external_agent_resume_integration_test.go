@@ -28,6 +28,9 @@ type resumeTestAgent struct {
 	t      *testing.T
 	conn   *websocket.Conn
 	server *httptest.Server
+	// processed receives the event type of every sync message Helix has
+	// finished handling, so a test can wait for a decision instead of a timer.
+	processed chan string
 }
 
 func (a *resumeTestAgent) close() {
@@ -39,6 +42,24 @@ func (a *resumeTestAgent) close() {
 func (a *resumeTestAgent) send(eventType string, data map[string]interface{}) {
 	a.t.Helper()
 	require.NoError(a.t, a.conn.WriteJSON(types.SyncMessage{EventType: eventType, Data: data}))
+}
+
+// sendAndAwaitProcessed emits a sync event and returns once Helix has finished
+// handling it, so a following "nothing was sent" check needs only a short drain.
+func (a *resumeTestAgent) sendAndAwaitProcessed(eventType string, data map[string]interface{}) {
+	a.t.Helper()
+	a.send(eventType, data)
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case got := <-a.processed:
+			if got == eventType {
+				return
+			}
+		case <-deadline:
+			a.t.Fatalf("Helix did not finish handling %s", eventType)
+		}
+	}
 }
 
 // awaitCommand reads commands until it sees one of cmdType, or the deadline
@@ -80,6 +101,13 @@ func startResumeTest(t *testing.T) (*HelixAPIServer, *memorystore.MemoryStore, *
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 	srv := NewTestServer(mem, ps)
+	processed := make(chan string, 64)
+	srv.SetSyncEventHook(func(_ string, msg *types.SyncMessage) {
+		select {
+		case processed <- msg.EventType:
+		default:
+		}
+	})
 
 	ctx := context.Background()
 	sessionID := "ses_resume_" + randSuffix()
@@ -120,7 +148,7 @@ func startResumeTest(t *testing.T) (*HelixAPIServer, *memorystore.MemoryStore, *
 	})
 	require.NoError(t, err)
 
-	agent := &resumeTestAgent{t: t, conn: conn, server: httpSrv}
+	agent := &resumeTestAgent{t: t, conn: conn, server: httpSrv, processed: processed}
 	t.Cleanup(agent.close)
 
 	// open_thread is written on connect, before the readiness gate. Drain it so
@@ -136,7 +164,7 @@ func TestResumeOnReconnect_AgentOwnsTurn_DoesNotResend(t *testing.T) {
 
 	// The agent reports it is still running this turn. Re-sending would push a
 	// second prompt into the live ACP session — the incident.
-	agent.send("agent_ready", map[string]interface{}{
+	agent.sendAndAwaitProcessed("agent_ready", map[string]interface{}{
 		"agent_name": "claude",
 		"active_turns": []interface{}{
 			map[string]interface{}{
@@ -147,7 +175,7 @@ func TestResumeOnReconnect_AgentOwnsTurn_DoesNotResend(t *testing.T) {
 		},
 	})
 
-	require.Nil(t, agent.awaitCommand("chat_message", 2*time.Second),
+	require.Nil(t, agent.awaitCommand("chat_message", 500*time.Millisecond),
 		"a turn the agent reports running must never be re-sent")
 
 	reloaded, err := mem.GetInteraction(context.Background(), interaction.ID)
@@ -181,9 +209,9 @@ func TestResumeOnReconnect_LegacyAgentCannotReport_DoesNotResend(t *testing.T) {
 	// Helix cannot tell, so it attaches and lets verifyResumedTurn correct it
 	// later rather than risking a duplicate now.
 	// (Remove with https://github.com/helixml/helix/issues/3047.)
-	agent.send("agent_ready", map[string]interface{}{"agent_name": "claude"})
+	agent.sendAndAwaitProcessed("agent_ready", map[string]interface{}{"agent_name": "claude"})
 
-	require.Nil(t, agent.awaitCommand("chat_message", 2*time.Second),
+	require.Nil(t, agent.awaitCommand("chat_message", 500*time.Millisecond),
 		"without a report, an already-dispatched turn must not be re-sent immediately")
 
 	reloaded, err := mem.GetInteraction(context.Background(), interaction.ID)

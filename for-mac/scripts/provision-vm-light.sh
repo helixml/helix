@@ -38,7 +38,11 @@ HELIX_VERSION=""
 # Ubuntu 26.04 LTS (Resolute)
 UBUNTU_URL="https://cloud-images.ubuntu.com/releases/resolute/release-20260713/ubuntu-26.04-server-cloudimg-arm64.img"
 UBUNTU_SHA256="b95c8625a2d524f7fa6e2b4583e5b56d92ed7212178b0c2c150a4f68e45830f2"
-UBUNTU_IMG="ubuntu-cloud.img"
+# Pinned and checksummed, so cached outside VM_DIR: CI deletes VM_DIR after
+# every run, and re-downloading made each release depend on reaching
+# cloud-images.ubuntu.com from the Mac runner.
+UBUNTU_IMG_CACHE_DIR="${HELIX_VM_CACHE_DIR:-$(dirname "$VM_DIR")/cache}"
+UBUNTU_IMG="${UBUNTU_IMG_CACHE_DIR}/ubuntu-cloud-${UBUNTU_SHA256}.img"
 
 # UEFI firmware (from Homebrew QEMU)
 EFI_CODE="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
@@ -171,19 +175,25 @@ boot_provisioning_vm() {
 # =============================================================================
 
 if ! step_done "download"; then
-    if [ ! -f "${VM_DIR}/${UBUNTU_IMG}" ]; then
+    if [ ! -f "$UBUNTU_IMG" ]; then
         log "Downloading Ubuntu 26.04 LTS ARM64 cloud image..."
-        curl -L -o "${VM_DIR}/${UBUNTU_IMG}" "$UBUNTU_URL"
+        mkdir -p "$UBUNTU_IMG_CACHE_DIR"
+        curl -fL --retry 5 --retry-all-errors --connect-timeout 30 \
+            -o "${UBUNTU_IMG}.part" "$UBUNTU_URL"
+        mv "${UBUNTU_IMG}.part" "$UBUNTU_IMG"
     else
-        log "Ubuntu cloud image already downloaded"
+        log "Using cached Ubuntu cloud image: $UBUNTU_IMG"
     fi
-    ACTUAL_SHA256=$(shasum -a 256 "${VM_DIR}/${UBUNTU_IMG}" | awk '{print $1}') || ACTUAL_SHA256=""
+    ACTUAL_SHA256=$(shasum -a 256 "$UBUNTU_IMG" | awk '{print $1}') || ACTUAL_SHA256=""
     if [ "$ACTUAL_SHA256" != "$UBUNTU_SHA256" ]; then
         log "ERROR: Ubuntu cloud image checksum mismatch"
-        rm -f "${VM_DIR}/${UBUNTU_IMG}"
+        rm -f "$UBUNTU_IMG"
         exit 1
     fi
     log "Ubuntu cloud image checksum verified"
+    # Drop images left behind by an earlier UBUNTU_SHA256 pin.
+    find "$UBUNTU_IMG_CACHE_DIR" -maxdepth 1 -name 'ubuntu-cloud-*.img*' \
+        ! -name "$(basename "$UBUNTU_IMG")" -delete
     mark_step "download"
 fi
 
@@ -193,7 +203,7 @@ fi
 
 if ! step_done "disk"; then
     log "Creating root disk (${DISK_SIZE})..."
-    cp "${VM_DIR}/${UBUNTU_IMG}" "${VM_DIR}/disk.qcow2.tmp"
+    cp "$UBUNTU_IMG" "${VM_DIR}/disk.qcow2.tmp"
     qemu-img resize "${VM_DIR}/disk.qcow2.tmp" "$DISK_SIZE"
     mv "${VM_DIR}/disk.qcow2.tmp" "${VM_DIR}/disk.qcow2"
 

@@ -1,21 +1,19 @@
 import React, { FC, useState } from "react";
-import {
-  Box,
-  Card,
-  CardActions,
-  CardContent,
-  Chip,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  Grid,
-  IconButton,
-  LinearProgress,
-  Stack,
-  Tab,
-  Tabs,
-  Typography,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardActions from "@mui/material/CardActions";
+import CardContent from "@mui/material/CardContent";
+import Chip from "@mui/material/Chip";
+import Dialog from "@mui/material/Dialog";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import Grid from "@mui/material/Grid";
+import IconButton from "@mui/material/IconButton";
+import LinearProgress from "@mui/material/LinearProgress";
+import Stack from "@mui/material/Stack";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
+import Typography from "@mui/material/Typography";
 import CheckCircleIcon from "@mui/icons-material/CheckCircleOutline";
 import WarningIcon from "@mui/icons-material/WarningAmberOutlined";
 import CloseIcon from "@mui/icons-material/Close";

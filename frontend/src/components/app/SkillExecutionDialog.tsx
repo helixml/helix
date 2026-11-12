@@ -1,16 +1,14 @@
 import React, { useState } from 'react';
-import {
-  DialogTitle,
-  DialogContent,
-  IconButton,
-  Typography,
-  Box,
-  Chip,
-  Paper,
-  useTheme,
-  Checkbox,
-  FormControlLabel,
-} from '@mui/material';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import IconButton from '@mui/material/IconButton';
+import Typography from '@mui/material/Typography';
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Paper from '@mui/material/Paper';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import { useTheme } from '@mui/material/styles';
 
 import CloseIcon from '@mui/icons-material/Close';
 import { TypesStepInfo } from '../../api/api';

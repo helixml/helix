@@ -1,16 +1,14 @@
 import React, { FC, useMemo } from 'react'
-import {
-  Box,
-  Card,
-  CardContent,
-  Grid,
-  Typography,
-  IconButton,
-  Alert,
-  Pagination,
-  Skeleton,
-  Tooltip,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import Grid from '@mui/material/Grid';
+import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import Alert from '@mui/material/Alert';
+import Pagination from '@mui/material/Pagination';
+import Skeleton from '@mui/material/Skeleton';
+import Tooltip from '@mui/material/Tooltip';
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import TrendingDownIcon from '@mui/icons-material/TrendingDown'
