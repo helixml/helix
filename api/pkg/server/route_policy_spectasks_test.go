@@ -6,6 +6,8 @@ func init() {
 	declareRoutePolicies(map[string]routePolicy{
 		"POST /api/v1/spec-tasks/from-prompt":                                                             object("createTaskFromPromptWithMaxRequestBytes"),
 		"GET /api/v1/spec-tasks":                                                                          object("authorizeOrgMember", "authorizeUserToProjectByID"),
+		"GET /api/v1/spec-tasks/board-settings":                                                           object("loadBoardSettingsProject"),
+		"PUT /api/v1/spec-tasks/board-settings":                                                           object("loadBoardSettingsProject"),
 		"GET /api/v1/spec-tasks/{taskId}":                                                                 object("authorizeUserToProjectByID"),
 		"POST /api/v1/spec-tasks/{taskId}/refresh-pull-request":                                           object("authorizeUserToProjectByID"),
 		"PUT /api/v1/spec-tasks/{taskId}":                                                                 object("authorizeUserToProjectByID"),

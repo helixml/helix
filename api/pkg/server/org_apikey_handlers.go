@@ -139,7 +139,7 @@ func (apiServer *HelixAPIServer) createOrgAPIKey(rw http.ResponseWriter, r *http
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 

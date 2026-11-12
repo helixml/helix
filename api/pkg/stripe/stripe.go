@@ -166,20 +166,15 @@ func (s *Stripe) SyncSubscription(ctx context.Context, wallet *types.Wallet, dis
 		return
 	}
 
-	wallet.StripeSubscriptionID = sub.ID
-	wallet.SubscriptionStatus = sub.Status
-	wallet.SubscriptionCurrentPeriodStart = sub.CurrentPeriodStart
-	wallet.SubscriptionCurrentPeriodEnd = sub.CurrentPeriodEnd
-	wallet.SubscriptionCreated = sub.Created
-	wallet.SubscriptionCancelAtPeriodEnd = sub.CancelAtPeriodEnd
-
-	_, err = s.store.UpdateWallet(context.Background(), wallet)
+	updated, err := s.store.UpdateWalletSubscription(ctx, wallet.ID, types.SubscriptionStateFromStripe(sub))
 	if err != nil {
 		log.Warn().Err(err).
-			Str("subscription_id", wallet.StripeSubscriptionID).
+			Str("subscription_id", sub.ID).
 			Str("wallet_id", wallet.ID).
 			Msg("failed to persist synced subscription to wallet")
+		return
 	}
+	*wallet = *updated
 }
 
 var eventMap = map[stripe.EventType]types.SubscriptionEventType{
@@ -217,9 +212,12 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 		}
 		return
 	case stripe.EventTypeInvoicePaid:
+		// Like top-ups, a failed credit returns non-2xx so Stripe retries;
+		// the invoice id deduplicates the retry.
 		err := s.handleInvoicePaymentPaidEvent(event)
 		if err != nil {
 			log.Error().Msgf("Error handling invoice payment paid event: %s", err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 		return
 	case stripe.EventTypeCheckoutSessionCompleted:

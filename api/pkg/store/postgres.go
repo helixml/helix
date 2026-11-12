@@ -205,6 +205,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.StepInfo{},
 		&types.RunnerProfile{},
 		&types.RunnerAssignment{},
+		&types.RunnerToken{},
 		&types.SlackThread{},
 		&types.TeamsThread{},
 		&types.CrispThread{},
@@ -214,6 +215,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.Wallet{},
 		&types.Transaction{},
 		&types.TopUp{},
+		&types.SubscriptionInvoiceCredit{},
 		&types.Project{},
 		&types.Artifact{},
 		&types.ArtifactVersion{},
@@ -300,6 +302,9 @@ func (s *PostgresStore) runMigrations() error {
 		return fmt.Errorf("failed to create sessions provider recovery index: %w", err)
 	}
 	if err := s.backfillAgentKinds(context.Background()); err != nil {
+		return err
+	}
+	if err := s.backfillEmailVerified(context.Background()); err != nil {
 		return err
 	}
 

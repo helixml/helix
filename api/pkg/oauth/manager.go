@@ -20,6 +20,7 @@ import (
 
 var (
 	ErrProviderNotFound         = errors.New("provider not found")
+	ErrProviderDisabled         = errors.New("provider is disabled")
 	ErrProviderAlreadyExists    = errors.New("provider already exists")
 	ErrConnectionNotFound       = errors.New("connection not found")
 	ErrNotImplemented           = errors.New("not implemented")
@@ -191,7 +192,7 @@ func (m *Manager) GetProvider(id string) (Provider, error) {
 
 	if !config.Enabled {
 		log.Warn().Str("provider_id", id).Msg("Provider found in database but is disabled")
-		return nil, errors.New("provider is disabled")
+		return nil, ErrProviderDisabled
 	}
 
 	// Initialize and add the provider

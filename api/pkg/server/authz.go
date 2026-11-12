@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // orgAuthorizer builds an org authorizer over the server's store. The org
@@ -345,6 +347,26 @@ func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, use
 	return apiServer.authorizeUserToResource(ctx, user, project.OrganizationID, project.ID, types.ResourceProject, action)
 }
 
+// errNotRepositoryOwner refuses a personal (org-less) repository to anyone but
+// its owner.
+var errNotRepositoryOwner = errors.New("user is not the owner of the repository")
+
+// writeRepositoryAuthzError answers a failed authorizeUserToRepository: a
+// caller outside the repository's tenant (not a member of its org, a key
+// scoped to another org or project, or not the owner of a personal repository)
+// gets the same 404 as for a repository that does not exist; an org member
+// without a grant gets 403. Neither carries the internal error text.
+func writeRepositoryAuthzError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, orgstore.ErrKeyOrgScope),
+		errors.Is(err, errProjectScopedKey), errors.Is(err, errNotRepositoryOwner):
+		http.Error(w, "repository not found", http.StatusNotFound)
+	default:
+		log.Debug().Err(err).Msg("repository access refused")
+		http.Error(w, "not authorized to access this repository", http.StatusForbidden)
+	}
+}
+
 func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, user *types.User, repository *types.GitRepository, action types.Action) error {
 	// Scope check first: the owner and org-owner shortcuts below would
 	// otherwise let a project-scoped key reach any repository its owner can.
@@ -357,7 +379,7 @@ func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, 
 		if user.ID == repository.OwnerID {
 			return nil
 		}
-		return fmt.Errorf("user is not the owner of the repository")
+		return errNotRepositoryOwner
 	}
 
 	// If organization ID is set, authorize the user against the organization

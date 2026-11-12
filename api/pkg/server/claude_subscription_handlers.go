@@ -41,7 +41,7 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 
 	var createReq types.CreateClaudeSubscriptionRequest
 	if err := json.NewDecoder(req.Body).Decode(&createReq); err != nil {
-		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 	return apiServer.createClaudeSubscriptionFrom(req.Context(), user, createReq)
 }
@@ -593,7 +593,7 @@ func (apiServer *HelixAPIServer) updateClaudeSubscriptionDelegation(_ http.Respo
 
 	var body UpdateClaudeSubscriptionDelegationRequest
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	// You can only delegate to an org you actually belong to.
@@ -872,7 +872,7 @@ func (apiServer *HelixAPIServer) updateSessionClaudeCredentials(_ http.ResponseW
 	// Parse the refreshed credentials from the request body
 	var creds types.ClaudeOAuthCredentials
 	if err := json.NewDecoder(req.Body).Decode(&creds); err != nil {
-		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 	if creds.AccessToken == "" || creds.RefreshToken == "" {
 		return nil, system.NewHTTPError400("accessToken and refreshToken are required")
@@ -1057,7 +1057,7 @@ func (apiServer *HelixAPIServer) completeClaudeOAuthLogin(_ http.ResponseWriter,
 	}
 	var loginReq CompleteClaudeLoginRequest
 	if err := json.NewDecoder(req.Body).Decode(&loginReq); err != nil {
-		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	// Anthropic's callback page hands back "<code>#<state>"; accept either form.

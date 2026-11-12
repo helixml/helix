@@ -88,7 +88,7 @@ func (s *HelixAPIServer) createSecret(_ http.ResponseWriter, r *http.Request) (*
 
 	var secretReq types.CreateSecretRequest
 	if err := json.NewDecoder(r.Body).Decode(&secretReq); err != nil {
-		return nil, system.NewHTTPError400(err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 	if secretReq.ProjectID == "" {
 		if err := enforceKeyProjectScope(user, ""); err != nil {
@@ -195,7 +195,7 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 
 	var secret types.Secret
 	if err := json.NewDecoder(r.Body).Decode(&secret); err != nil {
-		return nil, system.NewHTTPError400(err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	// Encrypt the secret value if provided
@@ -406,7 +406,7 @@ func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Requ
 
 	var secretReq types.CreateSecretRequest
 	if err := json.NewDecoder(r.Body).Decode(&secretReq); err != nil {
-		return nil, system.NewHTTPError400(err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	// Resolve and validate the environment scope. Defaults to "dev" — Helix is

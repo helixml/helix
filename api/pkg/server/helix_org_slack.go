@@ -734,7 +734,7 @@ func (s *HelixAPIServer) connectSlackWorkspace(w http.ResponseWriter, r *http.Re
 
 	var req connectSlackWorkspaceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	if req.BotToken == "" {

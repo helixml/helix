@@ -52,6 +52,9 @@ func (s *PostgresStore) CreateOAuthProvider(ctx context.Context, provider *types
 
 // GetOAuthProvider gets an OAuth provider by ID
 func (s *PostgresStore) GetOAuthProvider(ctx context.Context, id string) (*types.OAuthProvider, error) {
+	if !isUUID(id) {
+		return nil, ErrNotFound
+	}
 	var provider types.OAuthProvider
 
 	err := s.gdb.WithContext(ctx).
@@ -82,6 +85,9 @@ func (s *PostgresStore) UpdateOAuthProvider(ctx context.Context, provider *types
 
 // DeleteOAuthProvider deletes an OAuth provider by ID
 func (s *PostgresStore) DeleteOAuthProvider(ctx context.Context, id string) error {
+	if !isUUID(id) {
+		return nil // nothing can match a malformed id
+	}
 	err := s.gdb.WithContext(ctx).
 		Where("id = ?", id).
 		Delete(&types.OAuthProvider{}).Error
@@ -173,6 +179,9 @@ func (s *PostgresStore) CreateOAuthConnection(ctx context.Context, connection *t
 
 // GetOAuthConnection gets an OAuth connection by ID
 func (s *PostgresStore) GetOAuthConnection(ctx context.Context, id string) (*types.OAuthConnection, error) {
+	if !isUUID(id) {
+		return nil, ErrNotFound
+	}
 	var connection types.OAuthConnection
 
 	err := s.gdb.WithContext(ctx).
@@ -196,6 +205,9 @@ func (s *PostgresStore) GetOAuthConnection(ctx context.Context, id string) (*typ
 // token — i.e. the one whose org-level access matches what the
 // operator just approved on GitHub.
 func (s *PostgresStore) GetOAuthConnectionByUserAndProvider(ctx context.Context, userID, providerID string) (*types.OAuthConnection, error) {
+	if !isUUID(providerID) {
+		return nil, ErrNotFound
+	}
 	var connection types.OAuthConnection
 
 	err := s.gdb.WithContext(ctx).
@@ -228,6 +240,9 @@ func (s *PostgresStore) UpdateOAuthConnection(ctx context.Context, connection *t
 
 // DeleteOAuthConnection deletes an OAuth connection by ID
 func (s *PostgresStore) DeleteOAuthConnection(ctx context.Context, id string) error {
+	if !isUUID(id) {
+		return nil // nothing can match a malformed id
+	}
 	err := s.gdb.WithContext(ctx).
 		Where("id = ?", id).
 		Delete(&types.OAuthConnection{}).Error
@@ -355,4 +370,12 @@ func (s *PostgresStore) GenerateRandomState(_ context.Context) (string, error) {
 	}
 
 	return base64.URLEncoding.EncodeToString(b), nil
+}
+
+// isUUID reports whether id can be compared against a uuid column. Postgres
+// rejects any other string with SQLSTATE 22P02, so a malformed id is answered
+// as not found instead of surfacing a database error.
+func isUUID(id string) bool {
+	_, err := uuid.Parse(id)
+	return err == nil
 }

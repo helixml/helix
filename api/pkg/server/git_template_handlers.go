@@ -408,7 +408,7 @@ func (s *HelixAPIServer) listGitLabOwners(ctx context.Context, cred *gitHostCred
 func (s *HelixAPIServer) createGitRepositoryFromTemplate(w http.ResponseWriter, r *http.Request) {
 	var req types.CreateRepoFromTemplateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrResponse(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+		writeErrResponse(w, jsonDecodeHTTPError(err), http.StatusBadRequest)
 		return
 	}
 	if err := normalizeCreateRepoFromTemplate(&req); err != nil {

@@ -277,6 +277,29 @@ func (sm *SessionManager) DeleteAllUserSessions(ctx context.Context, w http.Resp
 	return nil
 }
 
+// RevokeUserSessions deletes the user's sessions after a credential change,
+// keeping only keepSessionID (the session that made the change) when it is
+// set. Unlike DeleteAllUserSessions it writes no cookies, so callers decide
+// what the current browser keeps.
+func (sm *SessionManager) RevokeUserSessions(ctx context.Context, userID, keepSessionID string) error {
+	if keepSessionID == "" {
+		return sm.store.DeleteUserSessionsByUser(ctx, userID)
+	}
+	sessions, err := sm.store.GetUserSessionsByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, session := range sessions {
+		if session.ID == keepSessionID {
+			continue
+		}
+		if err := sm.store.DeleteUserSession(ctx, session.ID); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+	}
+	return nil
+}
+
 // setSessionCookie sets the session cookie with proper security settings
 // It also sets a companion CSRF token cookie (readable by JS)
 func (sm *SessionManager) setSessionCookie(w http.ResponseWriter, sessionID string, expiresAt time.Time) {

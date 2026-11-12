@@ -47,7 +47,7 @@ func TestAddOrganizationMember_ExistingWaitlistedUser_JoinsAndIsApproved(t *test
 	server := newTestServerWithNotifier(mockStore, notifier)
 
 	orgID, ownerID := "org_vouch", "user_owner"
-	waitlisted := &types.User{ID: "fake-pal-gmail-com", Email: "pal@gmail.com", FullName: "Pal Person", Waitlisted: true}
+	waitlisted := &types.User{ID: "fake-pal-gmail-com", Email: "pal@gmail.com", EmailVerified: true, FullName: "Pal Person", Waitlisted: true}
 
 	expectResolveOrganizationByID(mockStore, orgID)
 	expectOrgOwner(mockStore, orgID, ownerID)
@@ -95,7 +95,7 @@ func TestAddOrganizationMember_ExistingWaitlistedUser_KeepsOnboardingTimestamp(t
 
 	orgID, ownerID := "org_vouch", "user_owner"
 	onboardedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	waitlisted := &types.User{ID: "u1", Email: "pal@gmail.com", Waitlisted: true, OnboardingCompleted: true, OnboardingCompletedAt: onboardedAt}
+	waitlisted := &types.User{ID: "u1", Email: "pal@gmail.com", EmailVerified: true, Waitlisted: true, OnboardingCompleted: true, OnboardingCompletedAt: onboardedAt}
 
 	expectResolveOrganizationByID(mockStore, orgID)
 	expectOrgOwner(mockStore, orgID, ownerID)
@@ -128,7 +128,7 @@ func TestAddOrganizationMember_ExistingApprovedUser_Unchanged(t *testing.T) {
 	expectResolveOrganizationByID(mockStore, orgID)
 	expectOrgOwner(mockStore, orgID, ownerID)
 	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
-		Return(&types.User{ID: "u1", Email: "dev@helix.ml", Waitlisted: false}, nil)
+		Return(&types.User{ID: "u1", Email: "dev@helix.ml", EmailVerified: true, Waitlisted: false}, nil)
 	mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, m *types.OrganizationMembership) (*types.OrganizationMembership, error) {
 			return m, nil
@@ -172,7 +172,7 @@ func TestAddOrganizationMember_MembershipFails_DoesNotApprove(t *testing.T) {
 	expectResolveOrganizationByID(mockStore, orgID)
 	expectOrgOwner(mockStore, orgID, ownerID)
 	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
-		Return(&types.User{ID: "u1", Email: "pal@gmail.com", Waitlisted: true}, nil)
+		Return(&types.User{ID: "u1", Email: "pal@gmail.com", EmailVerified: true, Waitlisted: true}, nil)
 	mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).Return(nil, errors.New("boom"))
 	mockStore.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Times(0)
 
@@ -217,7 +217,7 @@ func TestAddOrganizationMember_ApprovalFails_RollsBackMembership(t *testing.T) {
 	expectResolveOrganizationByID(mockStore, orgID)
 	expectOrgOwner(mockStore, orgID, ownerID)
 	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
-		Return(&types.User{ID: "u1", Email: "pal@gmail.com", Waitlisted: true}, nil)
+		Return(&types.User{ID: "u1", Email: "pal@gmail.com", EmailVerified: true, Waitlisted: true}, nil)
 	gomock.InOrder(
 		mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, m *types.OrganizationMembership) (*types.OrganizationMembership, error) {

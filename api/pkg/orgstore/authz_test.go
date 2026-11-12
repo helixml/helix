@@ -2,6 +2,7 @@ package orgstore
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -81,8 +82,9 @@ func TestAuthorizeOrgOwner_AgentScopedKeysRefused(t *testing.T) {
 		"session key": {ID: "user-1", SessionID: "ses-1"},
 		"worker key":  {ID: "user-1", OrganizationID: "org-2", SessionID: "ses-2"},
 	} {
-		if _, err := a.AuthorizeOrgOwner(context.Background(), user, "org-2"); err == nil {
-			t.Errorf("%s: expected org-owner authority to be refused", name)
+		// ErrNotOrgOwner, so handlers answer 403 rather than 500.
+		if _, err := a.AuthorizeOrgOwner(context.Background(), user, "org-2"); !errors.Is(err, ErrNotOrgOwner) {
+			t.Errorf("%s: expected ErrNotOrgOwner, got %v", name, err)
 		}
 	}
 }

@@ -245,7 +245,7 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgentHandler(res http.Resp
 	var command types.ExternalAgentCommand
 	err = json.NewDecoder(req.Body).Decode(&command)
 	if err != nil {
-		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
+		http.Error(res, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -1119,7 +1119,7 @@ func (apiServer *HelixAPIServer) configurePendingSession(res http.ResponseWriter
 	// Parse request body (for compatibility)
 	var configReq ConfigurePendingSessionRequest
 	if err := json.NewDecoder(req.Body).Decode(&configReq); err != nil {
-		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
+		http.Error(res, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -1157,6 +1157,9 @@ func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, re
 	// Accept either a Helix session id or a sandbox id. Input drives the
 	// desktop, so it needs the same access as other writes to the session.
 	if !apiServer.authorizeDesktopID(res, req, sessionID, types.ActionUpdate) {
+		return
+	}
+	if !apiServer.allowBrowserWebsocketOrigin(res, req) {
 		return
 	}
 
@@ -1334,6 +1337,9 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	// desktop-bridge under `desktop-{id}` via RevDial, so once authz passes the
 	// proxy logic below is uniform.
 	if !apiServer.authorizeDesktopID(res, req, sessionID, types.ActionGet) {
+		return
+	}
+	if !apiServer.allowBrowserWebsocketOrigin(res, req) {
 		return
 	}
 

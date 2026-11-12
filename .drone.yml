@@ -343,7 +343,11 @@ steps:
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      - mkdir -p $GOPATH/bin && cp ./helix-bin $GOPATH/bin/helix
+      # A step-local copy of the binary: $GOPATH/bin is on the workspace
+      # volume shared with api-integration-test, which runs its own copy
+      # there at the same time ("Text file busy").
+      - mkdir -p /opt/authz-bin && cp ./helix-bin /opt/authz-bin/helix && export PATH=/opt/authz-bin:$PATH
+      - which helix
       - helix serve --migrate-only
       - ./scripts/run-tests-with-timeout.sh 600 -tags ORT -timeout 8m -v -run '^TestAuthzMatrix$' ./integration-test/api/
     when:
