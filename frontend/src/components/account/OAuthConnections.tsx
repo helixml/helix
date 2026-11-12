@@ -328,19 +328,30 @@ const OAuthConnections: React.FC<{}> = () => {
         return;
       }
       
-      // Add a listener to reload connections when the popup completes
-      window.addEventListener('message', function handleOAuthMessage(event) {
+      // Connections are reloaded by the useListOAuthConnections polling; this
+      // only reports completion and cleans up.
+      const handleOAuthMessage = (event: MessageEvent) => {
         // Only accept the success message from the popup we opened, on our origin
         if (isOAuthPopupMessage(event, popup)) {
-          console.log('🍅 TOMATO: Received OAuth success message:', event.data);
-          // Clean up the event listener
-          window.removeEventListener('message', handleOAuthMessage);
-          // Reload the connections data
-          // Note: This is handled by the useListOAuthConnections hook
-          // Show success message
+          cleanup();
           success('Successfully connected to provider!');
         }
-      });
+      };
+
+      // Fallback: if the popup closes without a message (user closed it, or
+      // the message could not be delivered), stop listening.
+      const pollInterval = window.setInterval(() => {
+        if (popup.closed) {
+          cleanup();
+        }
+      }, 500);
+
+      const cleanup = () => {
+        window.removeEventListener('message', handleOAuthMessage);
+        window.clearInterval(pollInterval);
+      };
+
+      window.addEventListener('message', handleOAuthMessage);
     } catch (err: any) {
       error('Failed to start OAuth flow')
       console.error('🍅 TOMATO: OAuth flow error:', err)

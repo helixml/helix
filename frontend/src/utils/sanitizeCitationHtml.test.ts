@@ -10,8 +10,8 @@ function mount(markup: string): HTMLElement {
 
 describe('sanitizeCitationHtml', () => {
   it('keeps plain text and inline formatting', () => {
-    const clean = sanitizeCitationHtml('A <b>bold</b> and <em>emphasised</em><br><mark class="hit">match</mark>')
-    expect(clean).toBe('A <b>bold</b> and <em>emphasised</em><br><mark class="hit">match</mark>')
+    const clean = sanitizeCitationHtml('A <b>bold</b> and <em>emphasised</em><br><mark>match</mark>')
+    expect(clean).toBe('A <b>bold</b> and <em>emphasised</em><br><mark>match</mark>')
   })
 
   it('removes img elements and their event handlers', () => {
@@ -31,9 +31,13 @@ describe('sanitizeCitationHtml', () => {
     expect(clean).not.toMatch(/javascript:/i)
   })
 
-  it('drops event handler and style attributes from allowed tags', () => {
-    const clean = sanitizeCitationHtml('<span onclick="alert(1)" style="position:fixed" class="x">t</span>')
-    expect(clean).toBe('<span class="x">t</span>')
+  it('drops all attributes from allowed tags', () => {
+    const clean = sanitizeCitationHtml('<span onclick="alert(1)" style="position:fixed" class="x" id="y">t</span>')
+    expect(clean).toBe('<span>t</span>')
+  })
+
+  it('unwraps block elements such as p, keeping their text', () => {
+    expect(sanitizeCitationHtml('<p>one</p><div>two</div>')).toBe('onetwo')
   })
 
   it('drops svg, iframe and form markup', () => {

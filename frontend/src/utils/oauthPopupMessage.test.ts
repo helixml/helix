@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isOAuthPopupMessage } from './oauthPopupMessage'
+import { callbackUrlOriginDiffers, isOAuthPopupMessage } from './oauthPopupMessage'
 
 const ORIGIN = 'https://app.example.test'
 
@@ -34,5 +34,22 @@ describe('isOAuthPopupMessage', () => {
 
   it('defaults the expected origin to the current page origin', () => {
     expect(isOAuthPopupMessage(messageEvent({ type: 'oauth-success' }, window.location.origin, popup), popup)).toBe(true)
+  })
+})
+
+describe('callbackUrlOriginDiffers', () => {
+  it('is false for a callback on the page origin', () => {
+    expect(callbackUrlOriginDiffers(`${ORIGIN}/api/v1/oauth/flow/callback`, ORIGIN)).toBe(false)
+  })
+
+  it('is true for a callback on another origin', () => {
+    expect(callbackUrlOriginDiffers('https://api.example.test/api/v1/oauth/flow/callback', ORIGIN)).toBe(true)
+    expect(callbackUrlOriginDiffers('http://app.example.test/api/v1/oauth/flow/callback', ORIGIN)).toBe(true)
+  })
+
+  it('is false for empty or unparsable input', () => {
+    expect(callbackUrlOriginDiffers('', ORIGIN)).toBe(false)
+    expect(callbackUrlOriginDiffers(undefined, ORIGIN)).toBe(false)
+    expect(callbackUrlOriginDiffers('not a url', ORIGIN)).toBe(false)
   })
 })

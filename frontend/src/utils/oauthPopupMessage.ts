@@ -18,3 +18,22 @@ export function isOAuthPopupMessage(
   const data = event.data
   return typeof data === 'object' && data !== null && data.type === expectedType
 }
+
+/**
+ * True when an OAuth provider's callback URL is on a different origin from the
+ * page the admin is using. The callback page reports completion only to its
+ * own origin, so popups opened from this UI would then not be notified (the
+ * connection still completes; the UI falls back to noticing the popup closed).
+ * Returns false for empty or unparsable input — that is validated elsewhere.
+ */
+export function callbackUrlOriginDiffers(
+  callbackUrl: string | null | undefined,
+  pageOrigin: string = window.location.origin,
+): boolean {
+  if (!callbackUrl) return false
+  try {
+    return new URL(callbackUrl).origin !== pageOrigin
+  } catch {
+    return false
+  }
+}
