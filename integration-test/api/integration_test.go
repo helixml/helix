@@ -161,6 +161,9 @@ func startAPIServer() *serverLogBuffer {
 		"FILESTORE_LOCALFS_PATH=/tmp",
 		"FRONTEND_URL=/tmp", // No frontend here but doesn't matter for API integration tests
 		"FILESTORE_AVATARS_PATH=/tmp/avatars",
+		// Tenants manage their own provider endpoints, so the authorization
+		// matrix can exercise those routes as their owners.
+		"ENABLE_CUSTOM_USER_PROVIDERS=true",
 	)
 
 	fmt.Printf("Starting API server on port %s\n", integrationServerPort())

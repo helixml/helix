@@ -1026,6 +1026,69 @@ steps:
         path: /var/run/docker.sock
 
 ---
+# Cross-tenant authorization matrix on pull requests, including ones from
+# forks. It needs no secrets and no LLM: just the API binary, Postgres, and the
+# browser launcher the server refuses to start without. The full API
+# integration suite still runs on push in the default pipeline.
+# See integration-test/api/README.md ("Authorization matrix").
+kind: pipeline
+type: docker
+name: api-authz-pr
+
+workspace:
+  base: /go
+  path: src/github.com/helix-ml/helix
+
+trigger:
+  event:
+    - pull_request
+
+steps:
+  - name: api-authz-test
+    image: golang:1.25-bookworm
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      LOG_LEVEL: "warn"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DATABASE: postgres
+      RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+      ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+      START_HELIX_TEST_SERVER: "true"
+      DEV_SUBDOMAIN: "dev"
+    commands:
+      - apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+      - git config --global user.email "ci@helix.ml"
+      - git config --global user.name "CI"
+      - mkdir -p $GOPATH/bin && CGO_ENABLED=0 go build -o $GOPATH/bin/helix ./api
+      - helix serve --migrate-only
+      - go test -timeout 8m -count=1 -run '^TestAuthzMatrix$' ./integration-test/api/
+
+services:
+  - name: postgres
+    image: postgres:12.13-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+  - name: chrome
+    image: ghcr.io/go-rod/rod:v0.115.0
+
+volumes:
+  - name: go-build-cache
+    host:
+      path: /var/cache/drone/go-build
+  - name: go-mod-cache
+    host:
+      path: /var/cache/drone/go-mod
+
+---
 # See integration-test/smoke/README.md
 kind: pipeline
 type: docker
