@@ -273,3 +273,58 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteExpiredUserSessions
 	_, err = suite.db.GetUserSession(suite.ctx, created.ID)
 	suite.Error(err)
 }
+
+func (suite *PostgresStoreTestSuite) createOIDCSession(refreshToken string) *types.UserSession {
+	created, err := suite.db.CreateUserSession(suite.ctx, &types.UserSession{
+		UserID:           system.GenerateUserID(),
+		AuthProvider:     types.AuthProviderOIDC,
+		ExpiresAt:        time.Now().Add(24 * time.Hour),
+		OIDCRefreshToken: refreshToken,
+		OIDCAccessToken:  "access_token",
+		OIDCTokenExpiry:  time.Now().Add(2 * time.Minute),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _ = suite.db.DeleteUserSession(suite.ctx, created.ID) })
+	return created
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_MarkUserSessionOIDCRefreshDead() {
+	session := suite.createOIDCSession("refresh_token")
+
+	marked, err := suite.db.MarkUserSessionOIDCRefreshDead(suite.ctx, session.ID, "rotated_elsewhere")
+	suite.NoError(err)
+	suite.False(marked, "a session whose refresh token changed is left alone")
+	stored, err := suite.db.GetUserSession(suite.ctx, session.ID)
+	suite.Require().NoError(err)
+	suite.False(stored.OIDCRefreshDead)
+
+	marked, err = suite.db.MarkUserSessionOIDCRefreshDead(suite.ctx, session.ID, "refresh_token")
+	suite.NoError(err)
+	suite.True(marked)
+	stored, err = suite.db.GetUserSession(suite.ctx, session.ID)
+	suite.Require().NoError(err)
+	suite.True(stored.OIDCRefreshDead)
+
+	// The background refresher no longer picks it up.
+	sessions, err := suite.db.GetUserSessionsNearOIDCExpiry(suite.ctx, time.Now().Add(5*time.Minute))
+	suite.NoError(err)
+	for _, s := range sessions {
+		suite.NotEqual(session.ID, s.ID)
+	}
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteUserSessionWithRefreshToken() {
+	session := suite.createOIDCSession("refresh_token")
+
+	deleted, err := suite.db.DeleteUserSessionWithRefreshToken(suite.ctx, session.ID, "rotated_elsewhere")
+	suite.NoError(err)
+	suite.False(deleted)
+	_, err = suite.db.GetUserSession(suite.ctx, session.ID)
+	suite.NoError(err)
+
+	deleted, err = suite.db.DeleteUserSessionWithRefreshToken(suite.ctx, session.ID, "refresh_token")
+	suite.NoError(err)
+	suite.True(deleted)
+	_, err = suite.db.GetUserSession(suite.ctx, session.ID)
+	suite.Error(err)
+}

@@ -368,9 +368,11 @@ func (s *SessionManagerSuite) TestGetSessionFromRequest_OIDCRefreshNeeded_Refres
 		OIDCTokenExpiry:  time.Now().Add(-time.Minute), // Token expired
 	}
 
+	// Read once for the request and once more under the refresh lock.
 	s.mockStore.EXPECT().
 		GetUserSession(gomock.Any(), sessionID).
-		Return(oidcSession, nil)
+		Return(oidcSession, nil).
+		Times(2)
 
 	// Mock successful token refresh
 	newExpiry := time.Now().Add(time.Hour)
@@ -416,9 +418,11 @@ func (s *SessionManagerSuite) TestGetSessionFromRequest_OIDCRefreshNeeded_Refres
 		OIDCTokenExpiry:  time.Now().Add(-time.Minute), // Token expired
 	}
 
+	// Read once for the request and once more under the refresh lock.
 	s.mockStore.EXPECT().
 		GetUserSession(gomock.Any(), sessionID).
-		Return(oidcSession, nil)
+		Return(oidcSession, nil).
+		Times(2)
 
 	// Mock failed token refresh
 	s.mockOIDC.EXPECT().

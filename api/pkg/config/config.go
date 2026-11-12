@@ -752,6 +752,13 @@ type OIDC struct {
 	// This is especially useful with Google OIDC + OIDC_OFFLINE_ACCESS=true, as the refresh token
 	// will be preserved and can obtain new access tokens even after the browser is closed.
 	CookieMaxAge int `envconfig:"OIDC_COOKIE_MAX_AGE" default:"0"`
+	// EndSessionWhenIdPSessionEnds deletes a Helix browser session once the
+	// identity provider rejects its refresh token (invalid_grant), so the
+	// browser has to sign in again. Enabling it caps Helix sessions at the
+	// provider's session lifetime (Keycloak: SSO Session Max / Idle). When
+	// false (the default) the session is kept for its normal duration and
+	// simply stops trying to refresh.
+	EndSessionWhenIdPSessionEnds bool `envconfig:"OIDC_END_SESSION_WHEN_IDP_SESSION_ENDS" default:"false"`
 	// AllowedEmailDomains restricts OIDC login/registration to these email domains
 	// (comma-separated, e.g. "helix.ml"). When empty (the default) there is no
 	// restriction — any verified account may sign in, preserving multi-tenant and
