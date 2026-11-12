@@ -2826,10 +2826,12 @@ steps:
 # Runs ONLY on tag events when any release pipeline fails.
 # Cleans up partially-published user-visible artifacts:
 #   - GitHub release and uploaded assets
-#   - Remote git tag
 #   - Helm chart packages from GCS bucket
 #   - macOS DMG and VM disk from R2/Cloudflare
 #   - latest.json pointer (reverted to previous good release)
+#
+# The git tag is kept so a flaky release is retried by restarting the build
+# (see CLAUDE.md, Releases).
 #
 # Docker images are NOT cleaned up (harmless — nobody pulls a failed
 # version tag unless explicitly referencing it).

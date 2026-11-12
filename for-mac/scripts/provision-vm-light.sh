@@ -191,6 +191,9 @@ if ! step_done "download"; then
         exit 1
     fi
     log "Ubuntu cloud image checksum verified"
+    # Drop images left behind by an earlier UBUNTU_SHA256 pin.
+    find "$UBUNTU_IMG_CACHE_DIR" -maxdepth 1 -name 'ubuntu-cloud-*.img*' \
+        ! -name "$(basename "$UBUNTU_IMG")" -delete
     mark_step "download"
 fi
 

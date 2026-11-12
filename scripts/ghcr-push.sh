@@ -19,13 +19,14 @@
 #   up to ~7.5min). A rejected token is not retried: it fails immediately.
 set -e
 
+LOG_TAG=ghcr-push
+. "$(dirname "$0")/lib/image-publish.sh"
+require_images ghcr-push.sh "$@"
+
 if [ -z "$GITHUB_TOKEN" ]; then
   echo "GITHUB_TOKEN not set, skipping GHCR push"
   exit 0
 fi
-
-LOG_TAG=ghcr-push
-. "$(dirname "$0")/lib/image-publish.sh"
 
 ghcr_login
 

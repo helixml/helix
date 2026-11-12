@@ -10,6 +10,7 @@ set -e
 
 LOG_TAG=publish-image
 . "$(dirname "$0")/lib/image-publish.sh"
+require_images publish-image.sh "$@"
 
 for IMAGE in "$@"; do
   if ! retry 4 20 docker push "$IMAGE"; then

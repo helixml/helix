@@ -8,25 +8,25 @@ GHCR_PERMANENT=99
 # retry <max-attempts> <sleep-secs-base> <cmd...>
 # Linear backoff (base, base*2, ...). Returns the command's final exit code.
 retry() {
-  max="$1"; base="$2"; shift 2
-  attempt=1
+  _retry_max="$1"; _retry_base="$2"; shift 2
+  _retry_attempt=1
   while :; do
     "$@" && return 0
-    rc=$?
-    if [ "$rc" -eq "$GHCR_PERMANENT" ] || [ "$attempt" -ge "$max" ]; then
-      return "$rc"
+    _retry_rc=$?
+    if [ "$_retry_rc" -eq "$GHCR_PERMANENT" ] || [ "$_retry_attempt" -ge "$_retry_max" ]; then
+      return "$_retry_rc"
     fi
-    delay=$((base * attempt))
-    echo "[$LOG_TAG] attempt $attempt/$max failed (rc=$rc), retrying in ${delay}s: $*" >&2
-    sleep "$delay"
-    attempt=$((attempt + 1))
+    _retry_delay=$((_retry_base * _retry_attempt))
+    echo "[$LOG_TAG] attempt $_retry_attempt/$_retry_max failed (rc=$_retry_rc), retrying in ${_retry_delay}s: $*" >&2
+    sleep "$_retry_delay"
+    _retry_attempt=$((_retry_attempt + 1))
   done
 }
 
 ghcr_login_once() {
-  out=$(echo "$GITHUB_TOKEN" | docker login ghcr.io -u helixml --password-stdin 2>&1) && return 0
-  echo "$out" >&2
-  case "$out" in
+  _login_out=$(echo "$GITHUB_TOKEN" | docker login ghcr.io -u helixml --password-stdin 2>&1) && return 0
+  echo "$_login_out" >&2
+  case "$_login_out" in
     *denied*|*nauthorized*)
       echo "[$LOG_TAG] ERROR: ghcr.io rejected GITHUB_TOKEN; rotate the github_token Drone secret (needs write:packages)" >&2
       return "$GHCR_PERMANENT" ;;
@@ -38,6 +38,16 @@ ghcr_login_once() {
 ghcr_login() {
   if ! retry 6 30 ghcr_login_once; then
     echo "[$LOG_TAG] ERROR: ghcr.io login failed; ghcr.io/helixml is the customer-facing registry, cannot continue" >&2
+    exit 1
+  fi
+}
+
+# require_images <script-name> "$@": an empty image list is a caller bug, not
+# a successful publish.
+require_images() {
+  _name="$1"; shift
+  if [ "$#" -eq 0 ]; then
+    echo "usage: $_name <image>..." >&2
     exit 1
   fi
 }
