@@ -11,10 +11,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -185,6 +189,9 @@ func (p Policy) resolve(ctx context.Context, host string) ([]net.IP, error) {
 		}
 		return []net.IP{ip}, nil
 	}
+	if isNonCanonicalIPv4Literal(host) {
+		return nil, fmt.Errorf("%w: non-canonical numeric host %q", ErrBlockedDestination, host)
+	}
 	if !p.AllowPrivate && isLocalhostName(host) {
 		return nil, fmt.Errorf("%w (host %s)", errPrivate, host)
 	}
@@ -203,6 +210,51 @@ func (p Policy) resolve(ctx context.Context, host string) ([]net.IP, error) {
 		ips = append(ips, a.IP)
 	}
 	return ips, nil
+}
+
+// isNonCanonicalIPv4Literal reports whether host is a numeric IPv4 address
+// in one of the legacy inet_aton spellings that net.ParseIP does not accept:
+// a bare integer (2130706433), hex (0x7f000001), octal or zero-padded parts
+// (0177.0.0.1) or a shortened form (127.1). Some resolvers and tools read
+// these as addresses, so they are refused instead of being treated as names.
+// A real hostname always ends in a non-numeric label, so none match.
+func isNonCanonicalIPv4Literal(host string) bool {
+	h := strings.TrimSuffix(host, ".")
+	if h == "" {
+		return false
+	}
+	parts := strings.Split(h, ".")
+	if len(parts) > 4 {
+		return false
+	}
+	for _, part := range parts {
+		if !isNumericAddressPart(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func isNumericAddressPart(part string) bool {
+	if part == "" {
+		return false
+	}
+	digits, hex := part, false
+	if len(part) >= 2 && part[0] == '0' && (part[1] == 'x' || part[1] == 'X') {
+		digits, hex = part[2:], true
+		if digits == "" {
+			return true // "0x" alone is read as zero by inet_aton
+		}
+	}
+	for _, c := range digits {
+		switch {
+		case c >= '0' && c <= '9':
+		case hex && (c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func isLocalhostName(host string) bool {
@@ -301,4 +353,114 @@ func (p Policy) NewClient(timeout time.Duration) *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	p.GuardTransport(t)
 	return &http.Client{Timeout: timeout, Transport: t, CheckRedirect: NoRedirects}
+}
+
+// MaxRedirects is the most redirects a NewRedirectingClient follows.
+const MaxRedirects = 10
+
+// NewRedirectingClient is NewClient that follows up to MaxRedirects
+// redirects. Each hop's URL is checked against p before it is requested
+// (http/https only, and any locally resolvable host must pass CheckIP), and
+// the guarded transport re-checks every address it dials, so a redirect
+// cannot lead the client somewhere a direct request could not go. Go's
+// client drops credentials (Authorization, cookies) on redirects to another
+// host.
+func (p Policy) NewRedirectingClient(timeout time.Duration) *http.Client {
+	client := p.NewClient(timeout)
+	client.CheckRedirect = p.checkRedirect
+	return client
+}
+
+func (p Policy) checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= MaxRedirects {
+		return fmt.Errorf("stopped after %d redirects", MaxRedirects)
+	}
+	if err := p.ValidateURL(req.Context(), req.URL.String()); err != nil {
+		return fmt.Errorf("redirect: %w", err)
+	}
+	return nil
+}
+
+// ResolveHost resolves host (a name or IP literal) and checks every address
+// against the policy, for callers that hand the vetted addresses to another
+// program (e.g. git's http.curloptResolve) so it cannot re-resolve. A host
+// with any blocked address is rejected; a lookup failure is returned as is.
+func (p Policy) ResolveHost(ctx context.Context, host string) ([]net.IP, error) {
+	return p.resolve(ctx, host)
+}
+
+// GuardContext returns a context that applies the policy to every connection
+// an HTTP request made with it dials, for third-party clients that build
+// their own http.Client and accept no transport (e.g. SDKs). When a dial
+// targets a blocked address (after DNS resolution, so rebinding is covered)
+// the context is cancelled with an error wrapping ErrBlockedDestination
+// before any request bytes are sent; context.Cause reports it. Prefer
+// GuardTransport wherever the transport can be set.
+//
+// Connections to an operator-configured HTTP(S)_PROXY are allowed.
+func (p Policy) GuardContext(ctx context.Context) context.Context {
+	ctx, cancel := context.WithCancelCause(ctx)
+	proxies := environmentProxyAddrs()
+	refuse := func(addr string) bool {
+		if proxies[addr] {
+			return false
+		}
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			cancel(fmt.Errorf("%w: unparseable address", ErrBlockedDestination))
+			return true
+		}
+		if err := p.CheckIP(net.ParseIP(host)); err != nil {
+			log.Warn().Err(err).Msg("outbound connection refused by policy")
+			cancel(err)
+			return true
+		}
+		return false
+	}
+	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		// A new connection: refuse before the dial completes.
+		ConnectStart: func(_, addr string) { refuse(addr) },
+		// Any connection, including one reused from a shared pool: close
+		// it before the request is written.
+		GotConn: func(info httptrace.GotConnInfo) {
+			if refuse(info.Conn.RemoteAddr().String()) {
+				_ = info.Conn.Close()
+			}
+		},
+	})
+}
+
+// BlockedCause returns the policy rejection recorded on a GuardContext
+// context, or nil.
+func BlockedCause(ctx context.Context) error {
+	if cause := context.Cause(ctx); errors.Is(cause, ErrBlockedDestination) {
+		return cause
+	}
+	return nil
+}
+
+// environmentProxyAddrs returns the ip:port addresses of the HTTP(S)_PROXY
+// servers configured in the environment.
+func environmentProxyAddrs() map[string]bool {
+	addrs := map[string]bool{}
+	for _, key := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
+		raw := os.Getenv(key)
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			continue
+		}
+		hostPort := canonicalProxyAddr(u)
+		host, port, _ := net.SplitHostPort(hostPort)
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			continue
+		}
+		for _, ip := range ips {
+			addrs[net.JoinHostPort(ip.String(), port)] = true
+		}
+	}
+	return addrs
 }

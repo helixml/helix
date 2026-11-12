@@ -81,6 +81,18 @@ func (s *PRProposalSuite) TestAutoApprovingTaskCompletesAtOnce() {
 	s.Nil(task.CompletionRequestedAt)
 }
 
+// Auto-completion acts as the stored approver, so it re-checks that they can
+// still update the project; otherwise the user is asked.
+func (s *PRProposalSuite) TestAutoCompletionRechecksApproverAccess() {
+	s.enableAutoApprove("usr_former")
+	out, err := s.svc.RequestCompletion(s.ctx, "spt_1", "Finished")
+	s.Require().NoError(err)
+	s.False(out.Done)
+	task := s.task("spt_1")
+	s.NotEqual(types.TaskStatusDone, task.Status)
+	s.NotNil(task.CompletionRequestedAt)
+}
+
 func (s *PRProposalSuite) TestCompletionRequestRules() {
 	_, err := s.svc.RequestCompletion(s.ctx, "spt_1", "  ")
 	s.ErrorIs(err, ErrPRProposalInvalid, "a summary is required")
@@ -118,6 +130,44 @@ func (s *PRProposalSuite) TestBotCanCompleteWithoutARequest() {
 	s.Equal(types.TaskStatusDone, done.Status)
 	_, err = s.svc.CompleteTask(s.ctx, "spt_1")
 	s.ErrorIs(err, ErrPRProposalConflict)
+}
+
+// Approving completion is only open while the task is being worked on; a task
+// still in the backlog, queued, or failed cannot jump straight to done.
+func (s *PRProposalSuite) TestApproveRefusedOutsideWorkingStatuses() {
+	for _, status := range []types.SpecTaskStatus{
+		types.TaskStatusBacklog,
+		types.TaskStatusQueuedSpecGeneration,
+		types.TaskStatusQueuedImplementation,
+		types.TaskStatusImplementationQueued,
+		types.TaskStatusPreparing,
+		types.TaskStatusSpecApproved,
+		types.TaskStatusSpecFailed,
+		types.TaskStatusImplementationFailed,
+	} {
+		task := s.task("spt_2")
+		task.Status = status
+		s.Require().NoError(s.store.UpdateSpecTask(s.ctx, task))
+
+		_, err := s.svc.DecideCompletion(s.ctx, s.user, "spt_2", &types.CompletionDecisionRequest{Decision: types.CompletionDecisionApprove})
+		s.ErrorIs(err, ErrPRProposalConflict, "status %s", status)
+		_, err = s.svc.CompleteTask(s.ctx, "spt_2")
+		s.ErrorIs(err, ErrPRProposalConflict, "status %s", status)
+
+		after := s.task("spt_2")
+		s.Equal(status, after.Status, "status %s is left alone", status)
+		s.Nil(after.CompletedAt)
+	}
+
+	for status := range completableStatuses {
+		task := s.task("spt_2")
+		task.Status = status
+		task.CompletedAt = nil
+		s.Require().NoError(s.store.UpdateSpecTask(s.ctx, task))
+		done, err := s.svc.DecideCompletion(s.ctx, s.user, "spt_2", &types.CompletionDecisionRequest{Decision: types.CompletionDecisionApprove})
+		s.Require().NoError(err, "status %s", status)
+		s.Equal(types.TaskStatusDone, done.Status)
+	}
 }
 
 func (s *PRProposalSuite) TestPRSettledMessage() {

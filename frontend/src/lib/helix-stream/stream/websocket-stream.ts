@@ -437,12 +437,18 @@ export class WebSocketStream {
 
     // Clean up old WebSocket if it exists
     if (this.ws) {
+      this.input.forgetHeldKeys()
+      this.connected = false
+      this.stopHeartbeat()
+      this.stopPingInterval()
+      this.stopEventLoopTracking()
+      const oldWs = this.ws
+      this.ws = null
       try {
-        this.ws.close()
+        oldWs.close()
       } catch (e) {
         // Ignore
       }
-      this.ws = null
     }
 
     // Clean up decoders for fresh start
@@ -459,27 +465,35 @@ export class WebSocketStream {
     const wsUrl = `${protocol}//${window.location.host}/api/v1/external-agents/${encodeURIComponent(this.sessionId || '')}/ws/stream${clientIdParam}`
 
     console.log("[WebSocketStream] Connecting to:", wsUrl)
-    this.ws = new WebSocket(wsUrl)
-    this.ws.binaryType = "arraybuffer"
+    const ws = new WebSocket(wsUrl)
+    this.ws = ws
+    ws.binaryType = "arraybuffer"
 
-    this.ws.addEventListener("open", this.onOpen.bind(this))
-    this.ws.addEventListener("close", this.onClose.bind(this))
-    this.ws.addEventListener("error", this.onError.bind(this))
-    this.ws.addEventListener("message", this.onMessage.bind(this))
+    ws.addEventListener("open", () => {
+      if (this.ws === ws) this.onOpen()
+    })
+    ws.addEventListener("close", (event) => {
+      if (this.ws === ws) this.onClose(event)
+    })
+    ws.addEventListener("error", (event) => {
+      if (this.ws === ws) this.onError(event)
+    })
+    ws.addEventListener("message", (event) => {
+      if (this.ws === ws) this.onMessage(event)
+    })
 
     // Start connection timeout - if onOpen doesn't fire, force reconnect
     this.clearConnectionTimeout()
     this.connectionTimeoutId = setTimeout(() => {
+      if (this.ws !== ws) return
       console.warn(`[WebSocketStream] Connection timeout (${this.CONNECTION_TIMEOUT_MS}ms), forcing reconnect`)
       this.dispatchInfoEvent({ type: "connectionTimeout", timeoutMs: this.CONNECTION_TIMEOUT_MS })
       this.dispatchInfoEvent({ type: "error", message: "Connection timeout" })
       // Close the stuck WebSocket and trigger reconnection
-      if (this.ws) {
-        try {
-          this.ws.close()
-        } catch (e) {
-          // Ignore
-        }
+      try {
+        ws.close()
+      } catch (e) {
+        // Ignore
       }
       // onClose will handle reconnection
     }, this.CONNECTION_TIMEOUT_MS)
@@ -2631,16 +2645,7 @@ export class WebSocketStream {
       this.reconnectTimeoutId = null
     }
 
-    // Close current connection and reconnect
-    if (this.ws) {
-      try {
-        this.ws.close()
-      } catch (e) {
-        // Ignore
-      }
-    }
-
-    // Connect immediately
+    // Connect immediately; connect() owns teardown of the previous socket.
     this.connect()
   }
 

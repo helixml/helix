@@ -3,27 +3,46 @@ package crawler
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"strings"
 
 	"github.com/mendableai/firecrawl-go"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-func NewFirecrawl(k *types.Knowledge) (*Firecrawl, error) {
+// NewFirecrawl returns a Firecrawl crawler for k. A knowledge source may name
+// its own Firecrawl API URL; requests to it are sent through transport (the
+// outbound policy), and it must come with its own API key so the server's
+// FIRECRAWL_API_KEY is never sent to a user-chosen host.
+func NewFirecrawl(k *types.Knowledge, transport http.RoundTripper) (*Firecrawl, error) {
 	if k.Source.Web == nil || k.Source.Web.Crawler == nil || k.Source.Web.Crawler.Firecrawl == nil {
 		return nil, fmt.Errorf("firecrawl is not configured for this knowledge")
 	}
 
 	var (
 		apiKey = k.Source.Web.Crawler.Firecrawl.APIKey
-		apiURL = k.Source.Web.Crawler.Firecrawl.APIURL
+		apiURL = strings.TrimSpace(k.Source.Web.Crawler.Firecrawl.APIURL)
 	)
+
+	if apiURL != "" {
+		if _, err := netguard.ValidateHTTPURL(apiURL); err != nil {
+			return nil, fmt.Errorf("firecrawl api_url: %w", err)
+		}
+		if apiKey == "" {
+			return nil, fmt.Errorf("firecrawl api_key is required when api_url is set")
+		}
+	}
 
 	app, err := firecrawl.NewFirecrawlApp(apiKey, apiURL)
 	if err != nil {
 		return nil, err
+	}
+	if apiURL != "" && transport != nil {
+		app.Client.Transport = transport
 	}
 
 	return &Firecrawl{

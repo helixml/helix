@@ -70,7 +70,7 @@ func TestConnectionManager_GracePeriod(t *testing.T) {
 
 	// Set a connection
 	conn := newMockConn()
-	m.Set(key, conn)
+	m.Set(key, conn, "")
 
 	// Verify connection is listed
 	keys := m.List()
@@ -107,7 +107,7 @@ func TestConnectionManager_GracePeriod(t *testing.T) {
 
 	// Reconnect
 	conn2 := newMockConn()
-	m.Set(key, conn2)
+	m.Set(key, conn2, "")
 
 	// The queued dial should now complete (though it will fail because our mock dialer doesn't work)
 	select {
@@ -130,7 +130,7 @@ func TestConnectionManager_GracePeriodExpires(t *testing.T) {
 
 	// Set and disconnect
 	conn := newMockConn()
-	m.Set(key, conn)
+	m.Set(key, conn, "")
 	m.OnDisconnect(key)
 
 	// Verify in grace period
@@ -160,7 +160,7 @@ func TestConnectionManager_ReconnectionClearsGracePeriod(t *testing.T) {
 
 	// Set, disconnect, then reconnect
 	conn1 := newMockConn()
-	m.Set(key, conn1)
+	m.Set(key, conn1, "")
 	m.OnDisconnect(key)
 
 	// Verify in grace period
@@ -170,7 +170,7 @@ func TestConnectionManager_ReconnectionClearsGracePeriod(t *testing.T) {
 
 	// Reconnect
 	conn2 := newMockConn()
-	m.Set(key, conn2)
+	m.Set(key, conn2, "")
 
 	// Should no longer be in grace period
 	if len(m.ListWithGracePeriod()) != 0 {
@@ -195,7 +195,7 @@ func TestConnectionManager_Stats(t *testing.T) {
 
 	// Add connection
 	conn := newMockConn()
-	m.Set("test", conn)
+	m.Set("test", conn, "")
 
 	stats = m.Stats()
 	if stats.ActiveConnections != 1 {
@@ -220,7 +220,7 @@ func TestConnectionManager_MaxPendingDials(t *testing.T) {
 
 	// Set and disconnect to enter grace period
 	conn := newMockConn()
-	m.Set(key, conn)
+	m.Set(key, conn, "")
 	m.OnDisconnect(key)
 
 	// Start MaxPendingDials goroutines waiting
@@ -247,7 +247,7 @@ func TestConnectionManager_MaxPendingDials(t *testing.T) {
 
 	// Clean up - reconnect to wake waiting goroutines
 	conn2 := newMockConn()
-	m.Set(key, conn2)
+	m.Set(key, conn2, "")
 	wg.Wait()
 }
 
@@ -260,7 +260,7 @@ func TestConnectionManager_ContextCancellation(t *testing.T) {
 
 	// Set and disconnect to enter grace period
 	conn := newMockConn()
-	m.Set(key, conn)
+	m.Set(key, conn, "")
 	m.OnDisconnect(key)
 
 	// Start a dial with short timeout
@@ -307,7 +307,7 @@ func TestConnectionManager_OnGracePeriodExpiredCallback(t *testing.T) {
 
 	// Set and disconnect to enter grace period
 	conn := newMockConn()
-	m.Set(key, conn)
+	m.Set(key, conn, "")
 	m.OnDisconnect(key)
 
 	// Verify in grace period
@@ -359,7 +359,7 @@ func TestConnectionManager_OnGracePeriodExpiredCallback_MultipleKeys(t *testing.
 	keys := []string{"hydra-sandbox1", "hydra-sandbox2", "hydra-sandbox3"}
 	for _, key := range keys {
 		conn := newMockConn()
-		m.Set(key, conn)
+		m.Set(key, conn, "")
 		m.OnDisconnect(key)
 	}
 
@@ -405,13 +405,13 @@ func TestConnectionManager_OnGracePeriodExpiredCallback_ReconnectPreventsCallbac
 
 	// Set, disconnect, then reconnect before grace period expires
 	conn1 := newMockConn()
-	m.Set(key, conn1)
+	m.Set(key, conn1, "")
 	m.OnDisconnect(key)
 
 	// Reconnect before grace period expires
 	time.Sleep(50 * time.Millisecond)
 	conn2 := newMockConn()
-	m.Set(key, conn2)
+	m.Set(key, conn2, "")
 
 	// Wait past original grace period and several cleanup passes
 	time.Sleep(gracePeriod + 5*testCleanupInterval)
@@ -434,5 +434,70 @@ func waitFor(t *testing.T, cond func() bool, msg string) {
 			t.Fatal(msg)
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestSet_LastRegistrationWinsAndClosesDisplacedConnection(t *testing.T) {
+	m := New()
+	defer m.Stop()
+
+	first := newMockConn()
+	if displaced := m.Set("hydra-host1", first, "10.0.0.1:1111"); displaced != nil {
+		t.Fatalf("first registration reported a displacement: %+v", displaced)
+	}
+
+	second := newMockConn()
+	defer second.Close()
+	displaced := m.Set("hydra-host1", second, "10.0.0.2:2222")
+	if displaced == nil || displaced.Origin != "10.0.0.1:1111" {
+		t.Fatalf("displaced = %+v, want origin 10.0.0.1:1111", displaced)
+	}
+
+	// The displaced connection is closed so a client still holding it
+	// reconnects rather than silently losing its traffic.
+	select {
+	case <-first.closeChan:
+	case <-time.After(2 * time.Second):
+		t.Fatal("displaced connection was not closed")
+	}
+
+	// Closing the displaced dialer must not put the key into a grace period
+	// or remove the new registration.
+	time.Sleep(50 * time.Millisecond)
+	m.lock.RLock()
+	current := m.deviceConnections["hydra-host1"]
+	_, inGrace := m.disconnectedAt["hydra-host1"]
+	origin := m.origins["hydra-host1"]
+	m.lock.RUnlock()
+	if current != second {
+		t.Fatal("the new registration is not current")
+	}
+	if inGrace {
+		t.Fatal("closing the displaced connection started a grace period")
+	}
+	if origin != "10.0.0.2:2222" {
+		t.Fatalf("origin = %q, want the new registrant's", origin)
+	}
+}
+
+func TestSet_AfterDisconnectIsNotADisplacement(t *testing.T) {
+	m := New()
+	defer m.Stop()
+
+	first := newMockConn()
+	m.Set("hydra-host1", first, "10.0.0.1:1111")
+	first.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for len(m.List()) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("closed connection was not removed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	second := newMockConn()
+	defer second.Close()
+	if displaced := m.Set("hydra-host1", second, "10.0.0.1:1112"); displaced != nil {
+		t.Fatalf("reconnect after disconnect reported a displacement: %+v", displaced)
 	}
 }

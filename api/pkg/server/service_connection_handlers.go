@@ -234,6 +234,10 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 		return
 	}
 
+	if s.rejectDisallowedServiceConnectionURLs(r.Context(), w, req.BaseURL, req.ADOOrganizationURL) {
+		return
+	}
+
 	// Test the connection before saving.
 	testErr := s.testServiceConnection(r.Context(), req)
 	var lastError string
@@ -381,6 +385,17 @@ func (s *HelixAPIServer) updateServiceConnection(w http.ResponseWriter, r *http.
 	var req types.ServiceConnectionUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, fmt.Sprintf("Invalid request: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	newBaseURL, newADOOrganizationURL := "", ""
+	if req.BaseURL != nil {
+		newBaseURL = *req.BaseURL
+	}
+	if req.ADOOrganizationURL != nil {
+		newADOOrganizationURL = *req.ADOOrganizationURL
+	}
+	if s.rejectDisallowedServiceConnectionURLs(r.Context(), w, newBaseURL, newADOOrganizationURL) {
 		return
 	}
 
@@ -666,16 +681,48 @@ func (s *HelixAPIServer) testServiceConnectionEndpoint(w http.ResponseWriter, r 
 	})
 }
 
+// errDisallowedServiceConnectionURL is returned when a connection's base or
+// organization URL is not an allowed outbound destination. It never says why,
+// so the result cannot be used to probe the internal network.
+var errDisallowedServiceConnectionURL = errors.New("the connection URL is not an allowed destination. Private network addresses must be allowed by the Helix administrator")
+
+// rejectDisallowedServiceConnectionURLs writes a 400 and returns true when a
+// GitHub base URL or Azure DevOps organization URL about to be saved is not
+// an allowed outbound destination.
+func (s *HelixAPIServer) rejectDisallowedServiceConnectionURLs(ctx context.Context, w http.ResponseWriter, baseURL, adoOrganizationURL string) bool {
+	policy := s.gitProviderURLPolicy()
+	if baseURL != "" && rejectDisallowedOutboundURL(ctx, w, policy, "base_url", baseURL) {
+		return true
+	}
+	if adoOrganizationURL != "" {
+		if err := azuredevops.CheckOrganizationURL(ctx, policy, adoOrganizationURL); err != nil {
+			log.Warn().Err(err).Str("field", "ado_organization_url").Msg("rejected outbound URL")
+			http.Error(w, "The Azure DevOps organization URL must be an https URL to an allowed destination.", http.StatusBadRequest)
+			return true
+		}
+	}
+	return false
+}
+
 // testServiceConnection tests a service connection by attempting to authenticate
 func (s *HelixAPIServer) testServiceConnection(ctx context.Context, req types.ServiceConnectionCreateRequest) error {
 	switch req.Type {
 	case types.ServiceConnectionTypeGitHubApp:
-		// Create GitHub App client and try to get authenticated user
-		client, err := github.NewClientWithGitHubApp(
+		// A GitHub Enterprise base URL is operator input: check it, and send
+		// both the token exchange and the API call through the guarded client.
+		policy := s.gitProviderURLPolicy()
+		if req.BaseURL != "" {
+			if err := policy.ValidateURL(ctx, req.BaseURL); err != nil {
+				log.Warn().Err(err).Str("field", "base_url").Msg("rejected outbound URL")
+				return errDisallowedServiceConnectionURL
+			}
+		}
+		client, err := github.NewClientWithGitHubAppAndHTTPClient(
 			req.GitHubAppID,
 			req.GitHubInstallationID,
 			req.GitHubPrivateKey,
 			req.BaseURL,
+			gitProviderHTTPClient(policy, req.BaseURL),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create GitHub App client: %w", err)
@@ -689,6 +736,10 @@ func (s *HelixAPIServer) testServiceConnection(ctx context.Context, req types.Se
 		return nil
 
 	case types.ServiceConnectionTypeADOServicePrincipal:
+		if err := azuredevops.CheckOrganizationURL(ctx, s.gitProviderURLPolicy(), req.ADOOrganizationURL); err != nil {
+			log.Warn().Err(err).Str("field", "ado_organization_url").Msg("rejected outbound URL")
+			return errDisallowedServiceConnectionURL
+		}
 		// Create ADO client with Service Principal and try to authenticate
 		client, err := azuredevops.NewAzureDevOpsClientWithServicePrincipal(
 			ctx,
@@ -702,7 +753,7 @@ func (s *HelixAPIServer) testServiceConnection(ctx context.Context, req types.Se
 		}
 
 		// Try to list projects to verify the connection works
-		_, err = client.ListProjects(ctx)
+		_, err = client.WithOutboundPolicy(s.gitProviderURLPolicy()).ListProjects(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to authenticate with ADO Service Principal: %w", err)
 		}

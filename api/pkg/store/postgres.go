@@ -221,8 +221,9 @@ func (s *PostgresStore) runMigrations() error {
 		&types.WebhookEndpoint{},
 		&types.WebhookEvent{},
 		&types.WebhookDelivery{},
-		&types.ProjectAuditLog{}, // Audit trail for project activity
-		&types.OrgAuditLog{},     // Audit trail for Helix org activity
+		&types.ProjectAuditLog{},   // Audit trail for project activity
+		&types.OrgAuditLog{},       // Audit trail for Helix org activity
+		&types.RequestAuditEvent{}, // Audit trail for API requests (incident forensics)
 		&types.SampleProject{},
 		&types.SpecTask{},
 		&types.SpecTaskWorkSession{},
@@ -261,6 +262,16 @@ func (s *PostgresStore) runMigrations() error {
 	)
 	if err != nil {
 		return err
+	}
+	// users.token held whatever bearer token a request carried when the row
+	// was last saved. User.Token is no longer persisted; clear stored values.
+	// A no-op once cleared, and skipped where the column never existed.
+	if s.gdb.Migrator().HasColumn("users", "token") {
+		if err := s.gdb.WithContext(context.Background()).Exec(
+			"UPDATE users SET token = '' WHERE token IS NOT NULL AND token <> ''",
+		).Error; err != nil {
+			return fmt.Errorf("failed to clear stored user tokens: %w", err)
+		}
 	}
 	if err := s.gdb.WithContext(context.Background()).Exec(
 		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_llm_calls_request_id ON llm_calls (request_id)",

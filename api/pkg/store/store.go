@@ -254,6 +254,8 @@ type Store interface {
 	ListOrganizationInvitations(ctx context.Context, query *ListOrganizationInvitationsQuery) ([]*types.OrganizationInvitation, error)
 	DeleteOrganizationInvitation(ctx context.Context, id string) error
 	ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error)
+	ConsumeInvitation(ctx context.Context, user *types.User, invitationID, token string) ([]*types.OrganizationMembership, error)
+	RotateOrganizationInvitationToken(ctx context.Context, id string) (*types.OrganizationInvitation, error)
 
 	CreateTeam(ctx context.Context, team *types.Team) (*types.Team, error)
 	GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Team, error)
@@ -626,6 +628,10 @@ type Store interface {
 	GetSystemSettings(ctx context.Context) (*types.SystemSettings, error)
 	GetEffectiveSystemSettings(ctx context.Context) (*types.SystemSettings, error)
 	UpdateSystemSettings(ctx context.Context, req *types.SystemSettingsRequest) (*types.SystemSettings, error)
+	// EnsureJWTSigningSecret stores candidate as the JWT signing secret unless
+	// one is already stored, and returns the stored value. Concurrent callers
+	// with different candidates all receive the same, first-written secret.
+	EnsureJWTSigningSecret(ctx context.Context, candidate string) (string, error)
 
 	// model seeding
 	SeedModelsFromEnvironment(ctx context.Context) error
@@ -863,6 +869,11 @@ type Store interface {
 	// Org Audit Log methods - append-only audit trail for Helix org activity
 	CreateOrgAuditLog(ctx context.Context, log *types.OrgAuditLog) error
 	ListOrgAuditLogs(ctx context.Context, filters *types.OrgAuditLogFilters) (*types.OrgAuditLogResponse, error)
+
+	// Request Audit Event methods - append-only forensic record of API requests
+	InsertRequestAuditEvents(ctx context.Context, events []*types.RequestAuditEvent) error
+	ListRequestAuditEvents(ctx context.Context, filters *types.RequestAuditEventFilters) (*types.RequestAuditEventResponse, error)
+	PruneRequestAuditEvents(ctx context.Context, before time.Time, batchSize int) (int64, error)
 
 	// Sample Project methods
 	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)

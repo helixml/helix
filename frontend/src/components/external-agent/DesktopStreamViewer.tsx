@@ -1062,9 +1062,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       // Listen for stream events
       stream.addInfoListener((event: any) => {
+        if (stream !== streamRef.current) return;
         const data = event.detail;
 
         if (data.type === "connected") {
+          // A reconnect gets a new server-side client ID and cannot receive the
+          // old connection's leave event while it is offline.
+          setRemoteUsers(new Map());
+          setRemoteCursors(new Map());
+          setRemoteTouches(new Map());
+          setSelfUser(null);
+          setSelfClientId(null);
+          selfClientIdRef.current = null;
           // WebSocket opened - show initializing status (still waiting for connectionComplete)
           addConnectionLog("WebSocket opened");
           setStatus("Initializing stream...");

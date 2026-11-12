@@ -22,17 +22,23 @@ import (
 // This allows AI agents to navigate their own conversation history.
 type SessionMCPBackend struct {
 	store      store.Store
+	authorize  SessionAuthorizer
 	notifier   notification.Notifier
 	proposals  *services.PRProposalService
 	mcpServer  *server.MCPServer
 	httpServer *server.StreamableHTTPServer
 }
 
-// NewSessionMCPBackend creates a new session MCP backend
-func NewSessionMCPBackend(s store.Store, notifier notification.Notifier) *SessionMCPBackend {
+// SessionAuthorizer decides whether user may perform action on session.
+type SessionAuthorizer func(ctx context.Context, user *types.User, session *types.Session, action types.Action) error
+
+// NewSessionMCPBackend creates a new session MCP backend. authorize applies the
+// same session RBAC as the REST API to the read tools.
+func NewSessionMCPBackend(s store.Store, notifier notification.Notifier, authorize SessionAuthorizer) *SessionMCPBackend {
 	backend := &SessionMCPBackend{
-		store:    s,
-		notifier: notifier,
+		store:     s,
+		notifier:  notifier,
+		authorize: authorize,
 	}
 
 	// Create MCP server
@@ -175,6 +181,26 @@ func (b *SessionMCPBackend) getSessionID(ctx context.Context, requestedID string
 	return ""
 }
 
+// readableSession loads a session the caller may read. Every tool that
+// returns session content goes through here: the session_id is caller-chosen.
+func (b *SessionMCPBackend) readableSession(ctx context.Context, sessionID string) (*types.Session, error) {
+	user, ok := ctx.Value("user").(*types.User)
+	if !ok || user == nil {
+		return nil, errors.New("not authorized for this session")
+	}
+	session, err := b.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session: %w", err)
+	}
+	if b.authorize == nil {
+		return nil, errors.New("not authorized for this session")
+	}
+	if err := b.authorize(ctx, user, session, types.ActionGet); err != nil {
+		return nil, errors.New("not authorized for this session")
+	}
+	return session, nil
+}
+
 // specTaskForCall resolves the spec task of the calling session, verifying the
 // caller owns that session.
 func (b *SessionMCPBackend) specTaskForCall(ctx context.Context) (*types.Session, *types.SpecTask, error) {
@@ -187,7 +213,7 @@ func (b *SessionMCPBackend) specTaskForCall(ctx context.Context) (*types.Session
 		return nil, nil, fmt.Errorf("failed to get session: %w", err)
 	}
 	user, ok := ctx.Value("user").(*types.User)
-	if !ok || user == nil || session.Owner != user.ID {
+	if !ok || user == nil || session.Owner != user.ID || enforceKeySessionScope(user, session) != nil {
 		return nil, nil, errors.New("not authorized for this session")
 	}
 	if session.Metadata.SpecTaskID == "" {
@@ -310,7 +336,7 @@ func (b *SessionMCPBackend) handleTaskCompleted(ctx context.Context, request mcp
 		return mcp.NewToolResultError("failed to get session: " + err.Error()), nil
 	}
 	user, ok := ctx.Value("user").(*types.User)
-	if !ok || user == nil || session.Owner != user.ID {
+	if !ok || user == nil || session.Owner != user.ID || enforceKeySessionScope(user, session) != nil {
 		return mcp.NewToolResultError("not authorized to complete this task"), nil
 	}
 	if session.Metadata.SessionRole != "job" {
@@ -367,9 +393,9 @@ func (b *SessionMCPBackend) handleCurrentSession(ctx context.Context, request mc
 		return mcp.NewToolResultError("session_id is required"), nil
 	}
 
-	session, err := b.store.GetSession(ctx, sessionID)
+	session, err := b.readableSession(ctx, sessionID)
 	if err != nil {
-		return mcp.NewToolResultError("failed to get session: " + err.Error()), nil
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	// Count interactions
@@ -402,9 +428,9 @@ func (b *SessionMCPBackend) handleSessionTOC(ctx context.Context, request mcp.Ca
 		return mcp.NewToolResultError("session_id is required"), nil
 	}
 
-	session, err := b.store.GetSession(ctx, sessionID)
+	session, err := b.readableSession(ctx, sessionID)
 	if err != nil {
-		return mcp.NewToolResultError("failed to get session: " + err.Error()), nil
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	// Get all interactions
@@ -459,6 +485,10 @@ func (b *SessionMCPBackend) handleGetTurn(ctx context.Context, request mcp.CallT
 		return mcp.NewToolResultError("session_id is required"), nil
 	}
 
+	if _, err := b.readableSession(ctx, sessionID); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
 	// Get interactions and find the one at this turn
 	interactions, _, err := b.store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID: sessionID,
@@ -495,9 +525,9 @@ func (b *SessionMCPBackend) handleTitleHistory(ctx context.Context, request mcp.
 		return mcp.NewToolResultError("session_id is required"), nil
 	}
 
-	session, err := b.store.GetSession(ctx, sessionID)
+	session, err := b.readableSession(ctx, sessionID)
 	if err != nil {
-		return mcp.NewToolResultError("failed to get session: " + err.Error()), nil
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	result := map[string]interface{}{
@@ -521,6 +551,10 @@ func (b *SessionMCPBackend) handleSearchSession(ctx context.Context, request mcp
 	sessionID := b.getSessionID(ctx, requestedID)
 	if sessionID == "" {
 		return mcp.NewToolResultError("session_id is required"), nil
+	}
+
+	if _, err := b.readableSession(ctx, sessionID); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	// Get all interactions and search

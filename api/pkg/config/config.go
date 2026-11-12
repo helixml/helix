@@ -40,6 +40,7 @@ type ServerConfig struct {
 	Webhooks           Webhooks
 	GitProviders       GitProviders
 	ConnectPortal      ConnectPortalConfig
+	AuditLog           AuditLog
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
 	// Inactivity is measured as the time since the last interaction was created or updated
@@ -679,6 +680,14 @@ type Tools struct {
 
 	TLSSkipVerify bool `envconfig:"TOOLS_TLS_SKIP_VERIFY" default:"false"`
 
+	// AllowPrivateNetworks lets user-configured URLs that the API server
+	// fetches itself (knowledge web sources and crawls, API tools, MCP
+	// servers) target loopback, RFC1918, unique-local and CGNAT addresses,
+	// for self-hosted deployments whose tools live on the internal network.
+	// Link-local and cloud metadata addresses stay blocked. Same netguard
+	// policy as PROVIDER_ENDPOINTS_ALLOW_PRIVATE_NETWORKS.
+	AllowPrivateNetworks bool `envconfig:"TOOLS_ALLOW_PRIVATE_NETWORKS" default:"false"`
+
 	// Suggestions based on provider (now set by INFERENCE_PROVIDER):
 	// - OpenAI: gpt-4-1106-preview
 	// - Together AI: openai/gpt-oss-20b
@@ -707,7 +716,10 @@ type Auth struct {
 type Regular struct {
 	Enabled       bool          `envconfig:"REGULAR_AUTH_ENABLED" default:"true"`
 	TokenValidity time.Duration `envconfig:"REGULAR_AUTH_TOKEN_VALIDITY" default:"168h"` // 7 days
-	JWTSecret     string        `envconfig:"REGULAR_AUTH_JWT_SECRET" default:"helix-default-jwt-secret"`
+	// JWTSecret signs session and password-reset tokens. When unset, the
+	// server generates a random secret on first boot and persists it in the
+	// database (see auth.ResolveJWTSecret).
+	JWTSecret string `envconfig:"REGULAR_AUTH_JWT_SECRET"`
 }
 
 type OIDC struct {
@@ -984,6 +996,11 @@ type WebServer struct {
 	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081" description:"URL to proxy to or filesystem path to serve from"`
 
 	RunnerToken string `envconfig:"RUNNER_TOKEN" description:"The token for runner auth."`
+	// RunnerNATSProxyEnabled exposes the embedded NATS bus to runner-token
+	// holders over GET /api/v1/runner/{id}/ws. No current component uses it
+	// (the NATS-based model runner was removed), and the NATS token grants
+	// every subject, so it is off unless a deployment still needs it.
+	RunnerNATSProxyEnabled bool `envconfig:"RUNNER_NATS_PROXY_ENABLED" default:"false" description:"Expose the embedded NATS bus to runners over /api/v1/runner/{id}/ws (legacy model runners only)."`
 	// Comma-separated list of user IDs that should be admins, or "all" for dev mode.
 	// If empty, admin status is determined by the user's admin field in the database.
 	// Examples: "all", "user-123,user-456", ""
@@ -1008,7 +1025,7 @@ type WebServer struct {
 	// Path to UNIX socket for serving embeddings without auth
 	// TODO: naming
 	EmbeddingsSocket       string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
-	EmbeddingsSocketUserID string `envconfig:"HELIX_EMBEDDINGS_SOCKET_USER_ID" description:"The user ID to use for the UNIX socket server."`
+	EmbeddingsSocketUserID string `envconfig:"HELIX_EMBEDDINGS_SOCKET_USER_ID" description:"The user ID that requests on the UNIX socket run as. If unset, they run as the fixed 'socket' identity. The socket is created mode 0660, so clients must run as the API server's user or group."`
 
 	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
 
@@ -1243,4 +1260,50 @@ type SSL struct {
 
 type Organizations struct {
 	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"true"`
+
+	// JSProcessorTimeout is the wall-clock limit for one run of an org JS
+	// processor script (loading it plus one process call, including its
+	// http.* calls). A run that exceeds it is stopped and reported as failed.
+	JSProcessorTimeout time.Duration `envconfig:"ORG_JS_PROCESSOR_TIMEOUT" default:"30s"`
+}
+
+// AuditLog configures the request audit trail: one durable record per API
+// request (who, from where, what, and the outcome) for incident forensics.
+//
+// It is deliberately independent of LOG_LEVEL. The API normally runs at warn
+// and records nothing about successful requests, which is why an incident on
+// Nov 10 had to be reconstructed from leftover database rows.
+type AuditLog struct {
+	// Enabled turns the whole trail on or off.
+	Enabled bool `envconfig:"HELIX_AUDIT_LOG_ENABLED" default:"true"`
+
+	// Stdout writes one JSON line per request to stdout.
+	Stdout bool `envconfig:"HELIX_AUDIT_LOG_STDOUT" default:"true"`
+
+	// Database persists events to the request_audit_events table.
+	Database bool `envconfig:"HELIX_AUDIT_LOG_DB" default:"true"`
+
+	// RetentionDays is how long events are kept. A daily pruner deletes older
+	// rows in chunks.
+	//
+	// Volume: one row per request (minus skipped machine polling). A busy
+	// deployment sustains thousands of requests per minute, so 180 days can mean
+	// hundreds of millions of rows. Lower it, or disable Stdout, if the database
+	// is size-constrained.
+	RetentionDays int `envconfig:"HELIX_AUDIT_LOG_RETENTION_DAYS" default:"180"`
+
+	// BufferSize is how many events can be queued for the database writer
+	// before new ones are dropped. The recorder never blocks a request.
+	BufferSize int `envconfig:"HELIX_AUDIT_LOG_BUFFER_SIZE" default:"8192"`
+
+	// SkipRunnerReads omits GET/HEAD requests authenticated with the runner or
+	// sandbox token, which are machine polling rather than user actions.
+	SkipRunnerReads bool `envconfig:"HELIX_AUDIT_LOG_SKIP_RUNNER_READS" default:"true"`
+
+	// TrustedProxies is a comma-separated list of CIDRs (e.g.
+	// "10.0.0.0/8,172.16.0.0/12") whose CF-Connecting-IP and X-Forwarded-For
+	// headers are believed. When the TCP peer is inside this list, client_ip is
+	// derived from those headers; otherwise they are recorded as sent and
+	// remain untrusted. Empty by default: no proxy header is ever trusted.
+	TrustedProxies []string `envconfig:"HELIX_AUDIT_LOG_TRUSTED_PROXIES"`
 }

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/netguard"
+
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/types"
@@ -39,8 +41,8 @@ var createThreadParameters = jsonschema.Definition{
 
 // NewCreateThreadSkill - creates a skill that allows the agent to create a thread in a pull request. This is a dedicated skill
 // that expects the agent to be told what comment to write
-func NewCreateThreadSkill(organizationURL string, personalAccessToken string) agent.Skill {
-	client := NewAzureDevOpsClient(organizationURL, personalAccessToken)
+func NewCreateThreadSkill(organizationURL string, personalAccessToken string, outbound netguard.Policy) agent.Skill {
+	client := NewAzureDevOpsClient(organizationURL, personalAccessToken).WithOutboundPolicy(outbound)
 	return agent.Skill{
 		Name:        "AzureDevOpsCreateThread",
 		Description: createThreadSkillDescription,
@@ -93,6 +95,7 @@ func (t *AzureDevOpsPullRequestCreateThreadTool) OpenAI() []openai.Tool {
 }
 
 func (t *AzureDevOpsPullRequestCreateThreadTool) Execute(ctx context.Context, _ agent.Meta, args map[string]interface{}) (string, error) {
+	ctx = t.client.guard(ctx)
 	content, ok := args["content"].(string)
 	if !ok {
 		return "", fmt.Errorf("content is required")

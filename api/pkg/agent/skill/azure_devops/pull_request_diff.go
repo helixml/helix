@@ -3,6 +3,10 @@ package azuredevops
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
+
+	"github.com/helixml/helix/api/pkg/netguard"
 
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/git"
@@ -25,7 +29,7 @@ var pullRequestDiffParameters = jsonschema.Definition{
 	Required:   []string{},
 }
 
-func NewPullRequestDiffSkill(organizationURL string, personalAccessToken string) agent.Skill {
+func NewPullRequestDiffSkill(organizationURL string, personalAccessToken string, outbound netguard.Policy) agent.Skill {
 
 	return agent.Skill{
 		Name:        "AzureDevOpsPullRequestDiff",
@@ -34,8 +38,9 @@ func NewPullRequestDiffSkill(organizationURL string, personalAccessToken string)
 		Direct:      true,
 		Tools: []agent.Tool{
 			&AzureDevOpsPullRequestDiffTool{
-				orgURL: organizationURL,
-				token:  personalAccessToken,
+				orgURL:   organizationURL,
+				token:    personalAccessToken,
+				outbound: outbound,
 			},
 		},
 	}
@@ -44,8 +49,9 @@ func NewPullRequestDiffSkill(organizationURL string, personalAccessToken string)
 // AzureDevOpsPullRequestDiffTool - allows the agent to get pull request diffs
 type AzureDevOpsPullRequestDiffTool struct { //nolint:revive
 	// client *AzureDevOpsClient
-	orgURL string
-	token  string
+	orgURL   string
+	token    string
+	outbound netguard.Policy
 }
 
 func (t *AzureDevOpsPullRequestDiffTool) Name() string {
@@ -88,7 +94,7 @@ func (t *AzureDevOpsPullRequestDiffTool) Execute(ctx context.Context, _ agent.Me
 	}
 
 	// Get pull request details and diffs
-	diffResult, err := GetPullRequestDiff(ctx, t.orgURL, t.token, azureCtx)
+	diffResult, err := GetPullRequestDiff(ctx, t.orgURL, t.token, azureCtx, t.outbound)
 	if err != nil {
 		return "", fmt.Errorf("failed to get pull request diff: %w", err)
 	}
@@ -108,14 +114,23 @@ func (t *AzureDevOpsPullRequestDiffTool) Execute(ctx context.Context, _ agent.Me
 
 // GetPullRequestDiff is a reusable function that gets pull request diffs and can be used
 // by other functions for reviews, analysis, etc.
-func GetPullRequestDiff(ctx context.Context, orgURL, token string, azureCtx types.AzureDevopsRepositoryContext) (*git.PullRequestDiffResult, error) {
+// The organization URL is user-supplied and the remote URL comes from the
+// webhook payload: every connection, the SDK's and git's, is held to outbound.
+func GetPullRequestDiff(ctx context.Context, orgURL, token string, azureCtx types.AzureDevopsRepositoryContext, outbound netguard.Policy) (*git.PullRequestDiffResult, error) {
 	logger := log.Ctx(ctx)
+	ctx = outbound.GuardContext(ctx)
 
 	logger.Debug().
 		Str("repository_id", azureCtx.RepositoryID).
 		Str("project_id", azureCtx.ProjectID).
 		Int("pull_request_id", azureCtx.PullRequestID).
 		Msg("Getting pull request diff")
+
+	// The remote URL comes from the webhook payload and is cloned with the
+	// configured token, so it must point at the configured organization's host.
+	if err := checkRemoteURLMatchesOrg(azureCtx.RemoteURL, orgURL); err != nil {
+		return nil, err
+	}
 
 	// The VCS provider. Cannot be changed.
 	vcsProvider := vcsutils.AzureRepos
@@ -142,6 +157,7 @@ func GetPullRequestDiff(ctx context.Context, orgURL, token string, azureCtx type
 		SourceCommitID: azureCtx.LastMergeSourceCommitID,
 		Owner:          azureCtx.ProjectID,
 		Repository:     azureCtx.RepositoryID,
+		Outbound:       &outbound,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pull request changes: %w", err)
@@ -151,4 +167,33 @@ func GetPullRequestDiff(ctx context.Context, orgURL, token string, azureCtx type
 		Changes:     changes,
 		PullRequest: pr,
 	}, nil
+}
+
+// checkRemoteURLMatchesOrg requires remoteURL to be an https URL on the same
+// host and port as the configured Azure DevOps organization URL (default
+// ports normalised, so https://host and https://host:443 match).
+func checkRemoteURLMatchesOrg(remoteURL, orgURL string) error {
+	remote, err := url.Parse(remoteURL)
+	if err != nil || remote.Scheme != "https" || remote.Hostname() == "" {
+		return fmt.Errorf("repository remote URL %q is not an https URL", remoteURL)
+	}
+	org, err := url.Parse(orgURL)
+	if err != nil || org.Hostname() == "" {
+		return fmt.Errorf("invalid organization URL %q", orgURL)
+	}
+	if !strings.EqualFold(remote.Hostname(), org.Hostname()) || effectivePort(remote) != effectivePort(org) {
+		return fmt.Errorf("repository remote URL host %q does not match organization host %q", remote.Host, org.Host)
+	}
+	return nil
+}
+
+// effectivePort returns u's port, or the scheme's default port.
+func effectivePort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(u.Scheme, "http") {
+		return "80"
+	}
+	return "443"
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -214,6 +215,14 @@ func (h *HelixCodeReviewTrigger) runReviewSession(ctx context.Context, project *
 	return nil
 }
 
+// adoPolicy is the outbound policy for user-supplied Azure DevOps URLs.
+func (h *HelixCodeReviewTrigger) adoPolicy() netguard.Policy {
+	if h.cfg == nil {
+		return netguard.Policy{}
+	}
+	return netguard.Policy{AllowPrivate: h.cfg.GitProviders.AllowPrivateNetworks}
+}
+
 func (h *HelixCodeReviewTrigger) getAzureDevOpsClient(ctx context.Context, repo *types.GitRepository) (*azuredevops.AzureDevOpsClient, error) {
 	if repo.AzureDevOps == nil {
 		return nil, fmt.Errorf("azure devops configuration not found")
@@ -234,11 +243,11 @@ func (h *HelixCodeReviewTrigger) getAzureDevOpsClient(ctx context.Context, repo 
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Service Principal client: %w", err)
 		}
-		return client, nil
+		return client.WithOutboundPolicy(h.adoPolicy()), nil
 	}
 
 	if repo.AzureDevOps.PersonalAccessToken != "" {
-		return azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, repo.AzureDevOps.PersonalAccessToken), nil
+		return azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, repo.AzureDevOps.PersonalAccessToken).WithOutboundPolicy(h.adoPolicy()), nil
 	}
 
 	return nil, fmt.Errorf("no Azure DevOps authentication configured")

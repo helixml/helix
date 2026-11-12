@@ -296,3 +296,22 @@ func TestEnableSkillRouteToKoditBackend(t *testing.T) {
 	srv.kodit.mcpBackend.ServeHTTP(koditRec, koditReq, &types.User{ID: userID})
 	assert.Equal(t, http.StatusNotImplemented, koditRec.Code, "Kodit backend should return 501 when disabled, not 404")
 }
+
+// The Kodit repository scope is resolved from a caller-chosen session_id, so
+// the caller must be able to read that session.
+func TestKoditMCPBackend_AuthorizesSession(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	backend := &KoditMCPBackend{store: st}
+	backend.SetSessionAuthorizer((&HelixAPIServer{Store: st}).authorizeUserToSession)
+	session := &types.Session{ID: "ses_b", Owner: "usr_owner", ProjectID: "prj_b"}
+	st.EXPECT().GetSession(gomock.Any(), "ses_b").Return(session, nil).Times(3)
+
+	ctx := context.Background()
+	assert.Error(t, backend.authorizeSession(ctx, "ses_b", &types.User{ID: "usr_stranger"}))
+	assert.Error(t, backend.authorizeSession(ctx, "ses_b", &types.User{ID: "usr_owner", ProjectID: "prj_a"}))
+	assert.NoError(t, backend.authorizeSession(ctx, "ses_b", &types.User{ID: "usr_owner"}))
+
+	unwired := &KoditMCPBackend{store: st}
+	assert.Error(t, unwired.authorizeSession(ctx, "ses_b", &types.User{ID: "usr_owner"}), "fails closed without an authorizer")
+}

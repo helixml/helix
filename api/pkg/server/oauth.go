@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"strings"
 
@@ -154,6 +155,15 @@ func (s *HelixAPIServer) handleCreateOAuthProvider(_ http.ResponseWriter, r *htt
 	return result, nil
 }
 
+// redactOAuthConnection strips the connection's tokens and the client secret
+// of its preloaded provider. The provider row is shared by every user of that
+// provider; its secret belongs to the operator who configured it.
+func redactOAuthConnection(connection *types.OAuthConnection) {
+	connection.AccessToken = ""
+	connection.RefreshToken = ""
+	connection.Provider.ClientSecret = ""
+}
+
 // handleListOAuthConnections returns the list of OAuth connections for the current user
 // listOAuthConnections godoc
 // @Summary List OAuth connections
@@ -175,8 +185,7 @@ func (s *HelixAPIServer) handleListOAuthConnections(_ http.ResponseWriter, r *ht
 
 	// Remove sensitive information for all connections
 	for _, connection := range connections {
-		connection.AccessToken = ""
-		connection.RefreshToken = ""
+		redactOAuthConnection(connection)
 	}
 
 	return connections, nil
@@ -372,8 +381,7 @@ func (s *HelixAPIServer) handleGetOAuthConnection(_ http.ResponseWriter, r *http
 
 	// Remove sensitive information for non-admin users
 	if !user.Admin {
-		connection.AccessToken = ""
-		connection.RefreshToken = ""
+		redactOAuthConnection(connection)
 	}
 
 	return connection, nil
@@ -455,8 +463,7 @@ func (s *HelixAPIServer) handleRefreshOAuthConnection(_ http.ResponseWriter, r *
 
 	// Remove sensitive information for non-admin users
 	if !user.Admin {
-		connection.AccessToken = ""
-		connection.RefreshToken = ""
+		redactOAuthConnection(connection)
 	}
 
 	return connection, nil
@@ -557,6 +564,22 @@ func sanitizeOAuthError(errInput interface{}) oauthErrorInfo {
 	}
 }
 
+// oauthPopupNotifyScript returns the JavaScript the OAuth callback page runs
+// to tell the window that opened the popup how the flow ended. The message is
+// delivered only to a same-origin opener (the Helix UI that started the flow):
+// targetOrigin is the callback page's own origin, never "*", so a cross-origin
+// page that opened the authorize URL cannot read connection details. The
+// payload is JSON-encoded, which escapes <, > and & so it cannot break out of
+// the surrounding <script> element.
+func oauthPopupNotifyScript(payload map[string]string) string {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		// A map[string]string always marshals; keep the page working regardless.
+		encoded = []byte("{}")
+	}
+	return fmt.Sprintf("window.opener && window.opener.postMessage(%s, window.location.origin);", encoded)
+}
+
 // handleOAuthCallback handles the OAuth callback
 func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// Get the OAuth parameters from the query
@@ -564,7 +587,9 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	state := r.URL.Query().Get("state")
 	errorMsg := r.URL.Query().Get("error")
 
-	log.Error().Str("code", code).Str("state", state).Str("error", errorMsg).Msg("OAuth callback failed")
+	if errorMsg != "" {
+		log.Warn().Str("error", errorMsg).Msg("OAuth provider returned an error to the callback")
+	}
 
 	// Check for errors
 	if errorMsg != "" {
@@ -636,14 +661,12 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		<p>%s</p>
 		<button class="close-button" onclick="window.close()">Close Window</button>
 	</div>
-	<script>
-		window.opener && window.opener.postMessage({
-			type: 'oauth-failure',
-			error: '%s'
-		}, '*');
-	</script>
+	<script>%s</script>
 </body>
-</html>`, errInfo.Title, errInfo.Color, errInfo.Color, errInfo.Title, errInfo.Message, errInfo.Message)
+</html>`, html.EscapeString(errInfo.Title), errInfo.Color, errInfo.Color, html.EscapeString(errInfo.Title), html.EscapeString(errInfo.Message), oauthPopupNotifyScript(map[string]string{
+			"type":  "oauth-failure",
+			"error": errInfo.Message,
+		}))
 
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusBadRequest)
@@ -663,10 +686,15 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	// Use the most recent request token
 	requestToken := requestTokens[0]
 
-	// Check if the user exists (we don't need the user object)
-	_, err = s.Store.GetUser(r.Context(), &store.GetUserQuery{ID: requestToken.UserID})
+	// The flow was started by an authenticated user, but the callback is
+	// public: re-check the account so an inactive user can't finish linking.
+	flowUser, err := s.Store.GetUser(r.Context(), &store.GetUserQuery{ID: requestToken.UserID})
 	if err != nil {
 		http.Error(w, "User not found", http.StatusInternalServerError)
+		return
+	}
+	if accessErr := flowUser.AccountAccessError(); accessErr != nil {
+		http.Error(w, accessErr.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -677,8 +705,6 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 			Err(err).
 			Str("provider_id", requestToken.ProviderID).
 			Str("user_id", requestToken.UserID).
-			Str("code", code).
-			Str("state", state).
 			Msg("OAuth callback failed")
 		// Sanitize error to prevent leaking internal details
 		errInfo := sanitizeOAuthError(err)
@@ -748,14 +774,12 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		<p>%s</p>
 		<button class="close-button" onclick="window.close()">Close Window</button>
 	</div>
-	<script>
-		window.opener && window.opener.postMessage({
-			type: 'oauth-failure',
-			error: '%s'
-		}, '*');
-	</script>
+	<script>%s</script>
 </body>
-</html>`, errInfo.Title, errInfo.Color, errInfo.Color, errInfo.Title, errInfo.Message, errInfo.Message)
+</html>`, html.EscapeString(errInfo.Title), errInfo.Color, errInfo.Color, html.EscapeString(errInfo.Title), html.EscapeString(errInfo.Message), oauthPopupNotifyScript(map[string]string{
+			"type":  "oauth-failure",
+			"error": errInfo.Message,
+		}))
 
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusBadRequest)
@@ -868,15 +892,15 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		<button class="close-button" onclick="window.close()">Close Window</button>
 	</div>
 	<script>
-		window.opener && window.opener.postMessage({
-			type: 'oauth-success',
-			connectionId: '%s',
-			providerId: '%s'
-		}, '*');
+		%s
 		setTimeout(function() { window.close(); }, 3000);
 	</script>
 </body>
-</html>`, providerName, connection.ID, requestToken.ProviderID)
+</html>`, html.EscapeString(providerName), oauthPopupNotifyScript(map[string]string{
+		"type":         "oauth-success",
+		"connectionId": connection.ID,
+		"providerId":   requestToken.ProviderID,
+	}))
 
 	w.Header().Set("Content-Type", "text/html")
 	// Use http.Error for any write errors - even though we've already set the header
@@ -1155,7 +1179,7 @@ func (s *HelixAPIServer) handleListOAuthConnectionRepositories(_ http.ResponseWr
 		}
 
 		// Create ADO client with OAuth token
-		adoClient := azuredevops.NewAzureDevOpsClient(orgURL, connection.AccessToken)
+		adoClient := azuredevops.NewAzureDevOpsClient(orgURL, connection.AccessToken).WithOutboundPolicy(s.gitProviderURLPolicy())
 
 		adoRepos, err := adoClient.ListRepositories(ctx, "") // Empty string = all projects
 		if err != nil {

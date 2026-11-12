@@ -135,6 +135,15 @@ type OrganizationInvitation struct {
 	// invitations are unique per (organization, email, app_id).
 	AppID      string         `json:"app_id,omitempty" gorm:"index"`
 	GrantRoles pq.StringArray `json:"grant_roles,omitempty" gorm:"type:text[];default:'{}'"`
+
+	// TokenHash is the SHA-256 of the invitation's secret token. The token
+	// itself is only ever put in the invite link (sent to Email, or handed
+	// to an org owner) and is what proves the holder received it; the ID
+	// alone, which org members can see, is not enough to accept.
+	TokenHash string `json:"-"`
+	// Token is the plaintext token, set only on the value returned when it
+	// is (re)generated. Never persisted or serialised.
+	Token string `json:"-" gorm:"-"`
 }
 
 // AddOrganizationMemberResponse covers both the immediate-membership and
@@ -239,8 +248,12 @@ type User struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
-	// the actual token used and its type
-	Token string `json:"token"`
+	// Token is the credential the current request authenticated with. It is
+	// request state only: never stored on the user row and never serialized,
+	// because user records are embedded in responses other users read (team
+	// members, grants, project and agent owners). /auth/user returns the
+	// caller's own token through UserResponse.
+	Token string `json:"-" gorm:"-"`
 	// none, runner. keycloak, api_key
 	TokenType TokenType `json:"token_type"`
 	// if the ID of the user is contained in the env setting
@@ -282,6 +295,11 @@ type User struct {
 	SB          bool `json:"sb"`
 	Deactivated bool `json:"deactivated"`
 
+	// DesktopIdentity marks the single account that Helix Desktop's
+	// auto-login (DESKTOP_AUTO_LOGIN_SECRET) signs in as. The desktop flow
+	// never signs in as, or promotes, any other account.
+	DesktopIdentity bool `json:"desktop_identity,omitempty" gorm:"index"`
+
 	OnboardingCompleted   bool      `json:"onboarding_completed"`
 	OnboardingCompletedAt time.Time `json:"onboarding_completed_at"`
 
@@ -319,6 +337,37 @@ type User struct {
 	// AlphaFeatures lists feature flags granted to this user.
 	// Granted per-user via SQL (no deploy).
 	AlphaFeatures pq.StringArray `gorm:"type:text[];default:'{}'" json:"alpha_features"`
+}
+
+// AccountAccessDenied says why an account may not use the API. Its text is
+// shown to the caller as is.
+type AccountAccessDenied string
+
+func (e AccountAccessDenied) Error() string { return string(e) }
+
+const (
+	ErrAccountWaitlisted  AccountAccessDenied = "Account is waiting for approval"
+	ErrAccountDeactivated AccountAccessDenied = "Account is deactivated"
+	ErrAccountDeleted     AccountAccessDenied = "Account has been deleted"
+)
+
+// AccountAccessError reports why this account may not use the API, or nil
+// when it may. It is the single account-state policy for every credential
+// that acts as a user: session cookies, user tokens and API keys of any type
+// (the key carries its owner's state). Runner and other system identities
+// have none of these flags set and pass.
+func (u *User) AccountAccessError() error {
+	switch {
+	case u == nil:
+		return nil
+	case u.DeletedAt.Valid:
+		return ErrAccountDeleted
+	case u.Deactivated:
+		return ErrAccountDeactivated
+	case u.Waitlisted:
+		return ErrAccountWaitlisted
+	}
+	return nil
 }
 
 type UserSearchResponse struct {

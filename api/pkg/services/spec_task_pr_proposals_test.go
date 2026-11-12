@@ -190,6 +190,8 @@ type PRProposalSuite struct {
 	repoPath string
 	base     string
 	user     *types.User
+	// projectMembers maps a project to the users who may approve in it.
+	projectMembers map[string][]string
 }
 
 func TestPRProposalSuite(t *testing.T) { suite.Run(t, new(PRProposalSuite)) }
@@ -229,6 +231,15 @@ func (s *PRProposalSuite) SetupTest() {
 		return nil
 	})
 	s.user = &types.User{ID: "usr_reviewer", Email: "reviewer@example.com"}
+	s.projectMembers = map[string][]string{"prj_1": {"usr_owner", "usr_reviewer"}}
+	s.svc.SetApproverAuthorizer(func(_ context.Context, user *types.User, projectID string) error {
+		for _, id := range s.projectMembers[projectID] {
+			if id == user.ID {
+				return nil
+			}
+		}
+		return errors.New("no access to project")
+	})
 }
 
 func (s *PRProposalSuite) git(args ...string) {
@@ -560,6 +571,26 @@ func (s *PRProposalSuite) TestAutoApproveWithoutConnectionWaitsForHuman() {
 	s.Equal(types.PRProposalStatusPending, p.Status)
 	s.False(p.AutoApproved)
 	s.Empty(s.provider.pushed)
+}
+
+// The approver is stored when auto-approval is enabled; losing project access
+// afterwards must stop proposals being approved in their name.
+func (s *PRProposalSuite) TestAutoApproveRechecksApproverProjectAccess() {
+	s.enableAutoApprove("usr_former")
+	p, err := s.propose(ProposePRInput{})
+	s.Require().NoError(err)
+	s.Equal(types.PRProposalStatusPending, p.Status, "a stranger to the project cannot auto-approve")
+	s.False(p.AutoApproved)
+	s.Empty(s.provider.pushed)
+}
+
+func (s *PRProposalSuite) TestAutoApproveWithoutAuthorizerWaitsForHuman() {
+	s.enableAutoApprove("usr_owner")
+	s.svc.SetApproverAuthorizer(nil)
+	p, err := s.propose(ProposePRInput{})
+	s.Require().NoError(err)
+	s.Equal(types.PRProposalStatusPending, p.Status)
+	s.False(p.AutoApproved)
 }
 
 func (s *PRProposalSuite) TestApprovingWithAutoApproveFutureEnablesIt() {

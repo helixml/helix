@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -281,6 +282,7 @@ func (s *HelixAPIServer) listAgents(_ http.ResponseWriter, r *http.Request) ([]*
 		}
 
 		orgApps = s.populateAppOwner(ctx, orgApps)
+		s.redactAppsForUser(ctx, user, orgApps)
 
 		return orgApps, nil
 	}
@@ -294,11 +296,23 @@ func (s *HelixAPIServer) listAgents(_ http.ResponseWriter, r *http.Request) ([]*
 	}
 
 	// remove global apps from the list in case this is the admin user who created the global app
+	// A project-scoped key sees only its project's agents.
+	var keyProject *types.Project
+	if user.ProjectID != "" {
+		keyProject, err = s.Store.GetProject(ctx, user.ProjectID)
+		if err != nil {
+			return nil, system.NewHTTPError403(errProjectScopedKey.Error())
+		}
+	}
 	nonGlobalUserApps := []*types.Agent{}
 	for _, app := range userApps {
-		if !app.Global {
-			nonGlobalUserApps = append(nonGlobalUserApps, app)
+		if app.Global {
+			continue
 		}
+		if keyProject != nil && s.keyProjectAppScope(ctx, user, keyProject, app, types.ActionGet) != nil {
+			continue
+		}
+		nonGlobalUserApps = append(nonGlobalUserApps, app)
 	}
 
 	globalApps, err := s.Store.ListApps(r.Context(), &store.ListAppsQuery{
@@ -311,8 +325,17 @@ func (s *HelixAPIServer) listAgents(_ http.ResponseWriter, r *http.Request) ([]*
 	allApps := append(nonGlobalUserApps, globalApps...)
 
 	filteredApps := s.populateAppOwner(ctx, allApps)
+	s.redactAppsForUser(ctx, user, filteredApps)
 
 	return filteredApps, nil
+}
+
+// redactAppsForUser masks credentials in every listed agent the caller may
+// not edit.
+func (s *HelixAPIServer) redactAppsForUser(ctx context.Context, user *types.User, apps []*types.Agent) {
+	for _, app := range apps {
+		s.redactAppForUser(ctx, user, app)
+	}
 }
 
 func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.Agent) []*types.Agent {
@@ -339,6 +362,7 @@ func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.Age
 		}
 
 		app.User = *user
+		scrubUserCredentials(&app.User)
 	}
 
 	return apps
@@ -358,8 +382,8 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Org owners see all apps
-	if orgMembership.Role == types.OrganizationRoleOwner {
+	// Org owners see all apps, unless their key is confined to one project
+	if orgMembership.Role == types.OrganizationRoleOwner && user.ProjectID == "" {
 		return apps, nil
 	}
 
@@ -447,6 +471,12 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 		}
 	}
 
+	// A global agent is listed to, readable by and runnable by every user of
+	// the deployment, so publishing one is an admin decision.
+	if app.Global && !isAdmin(user) {
+		return nil, system.NewHTTPError403("only admins can create global agents")
+	}
+
 	// If organization ID is set, authorize the user to the organization,
 	// must be a member to create it
 	if app.OrganizationID != "" {
@@ -469,6 +499,9 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 	app.Owner = user.ID
 	app.OwnerType = user.Type
 	app.Updated = time.Now()
+	// A new agent has no stored avatar yet; its content type is set by the
+	// upload route, never by the request body.
+	app.Config.Helix.AvatarContentType = ""
 
 	// Apply model substitutions BEFORE validation if provided
 	var modelSubstitutions []ModelSubstitution
@@ -986,6 +1019,10 @@ func (s *HelixAPIServer) ensureAzureDevOpsTrigger(ctx context.Context, existingT
 		}
 	}
 
+	if _, err := ensureWebhookTriggerSecret(&trigger, nil); err != nil {
+		return err
+	}
+
 	// Create a new trigger configuration
 	triggerConfig := &types.TriggerConfiguration{
 		AppID:          app.ID,
@@ -1026,6 +1063,18 @@ func determineInitialState(source types.KnowledgeSource) types.KnowledgeState {
 // @Router /api/v1/agents/{id} [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getAgent(_ http.ResponseWriter, r *http.Request) (*types.Agent, *system.HTTPError) {
+	app, herr := s.loadReadableAgent(r)
+	if herr != nil {
+		return nil, herr
+	}
+	s.redactAppForUser(r.Context(), getRequestUser(r), app)
+	return app, nil
+}
+
+// loadReadableAgent loads the agent named in the request and checks the
+// caller may read it. The result still holds its credentials: callers that
+// write it to a response must redact it first.
+func (s *HelixAPIServer) loadReadableAgent(r *http.Request) (*types.Agent, *system.HTTPError) {
 	user := getRequestUser(r)
 	id := getID(r)
 
@@ -1102,11 +1151,20 @@ func appAgentRuntimeConfig(app *types.App) agentRuntimeConfig {
 func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*types.Agent, *system.HTTPError) {
 	user := getRequestUser(r)
 
-	var update types.Agent
-	err := json.NewDecoder(r.Body).Decode(&update)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		return nil, system.NewHTTPError400(fmt.Sprintf("failed to read request body, error: %s", err))
+	}
+	var update types.Agent
+	if err := json.Unmarshal(body, &update); err != nil {
 		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 2, error: %s", err))
 	}
+	// An update that omits "global" keeps the stored value; only an explicit
+	// value is a request to change it.
+	var fields struct {
+		Global *bool `json:"global"`
+	}
+	_ = json.Unmarshal(body, &fields)
 
 	id := getID(r)
 	if update.ID != "" && update.ID != id {
@@ -1133,10 +1191,24 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	update.OwnerType = existing.OwnerType
 	update.Created = existing.Created
 	update.AgentKind = existing.AgentKind
+	// The avatar's content type is derived by the upload route from the
+	// bytes it stored; the config API cannot relabel it.
+	update.Config.Helix.AvatarContentType = existing.Config.Helix.AvatarContentType
 
 	err = s.authorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// A client that round-trips a redacted agent sends masked placeholders
+	// back: they mean "keep the stored credential".
+	restoreMaskedAgentSecrets(existing.Config, &update.Config)
+
+	if fields.Global == nil {
+		update.Global = existing.Global
+	}
+	if update.Global != existing.Global && !isAdmin(user) {
+		return nil, system.NewHTTPError403("only admins can change whether an agent is global")
 	}
 
 	if s.helixOrg != nil && s.helixOrg.store != nil && existing.OrganizationID != "" {
@@ -1734,7 +1806,9 @@ func (s *HelixAPIServer) getAppUsersDailyUsage(_ http.ResponseWriter, r *http.Re
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
+	// Per-user usage is other users' activity, so it needs management access
+	// to the app, not just the read access every user has to a global app.
+	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
@@ -1746,7 +1820,7 @@ func (s *HelixAPIServer) getAppUsersDailyUsage(_ http.ResponseWriter, r *http.Re
 
 	// TODO: get pricing info for days
 
-	return metrics, nil
+	return redactUsageUsers(metrics), nil
 }
 
 // getAppUserAccess godoc
@@ -2062,15 +2136,41 @@ func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set content type and serve the image
-	contentType := app.Config.Helix.AvatarContentType
-	if contentType == "" {
-		contentType = http.DetectContentType(data)
-	}
-
-	rw.Header().Set("Content-Type", contentType)
+	rw.Header().Set("Content-Type", avatarContentType(app.Config.Helix.AvatarContentType, data))
 	rw.Header().Set("Cache-Control", "no-cache")
+	// The avatar is user-supplied and this route is public on the app
+	// origin: never sniff it, and send SVG (which can carry script) as a
+	// sandboxed download — <img> rendering is unaffected.
+	applyServedFilePolicy(rw.Header(), "avatar")
 	_, _ = rw.Write(data)
+}
+
+// avatarContentType is the type an avatar is served with. The stored value
+// is only trusted when it is an image type the upload route could have
+// derived; anything else (including a value written through the agent
+// config API) is replaced by what the bytes actually are.
+func avatarContentType(stored string, data []byte) string {
+	if normalized := normalizeAvatarContentType(stored); normalized != "" {
+		return normalized
+	}
+	if detected := normalizeAvatarContentType(http.DetectContentType(data)); detected != "" {
+		return detected
+	}
+	return "application/octet-stream"
+}
+
+// normalizeAvatarContentType returns the lowercase media type when it is an
+// image type, "" otherwise.
+func normalizeAvatarContentType(contentType string) string {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return ""
+	}
+	mediaType = strings.ToLower(mediaType)
+	if !strings.HasPrefix(mediaType, "image/") {
+		return ""
+	}
+	return mediaType
 }
 
 func getAvatarKey(id string) string {
@@ -2193,8 +2293,12 @@ func (s *HelixAPIServer) extractZipFile(ctx context.Context, file *zip.File, bas
 	}
 	defer fileReader.Close()
 
-	// Create the destination path
-	destPath := filepath.Join(basePath, file.Name)
+	// Entry names come from a user-supplied archive: keep them inside basePath
+	// (no "../" into other apps' or users' filestore folders).
+	destPath, err := filestore.JoinScopedPath(basePath, file.Name)
+	if err != nil {
+		return fmt.Errorf("zip entry %q: %w", file.Name, err)
+	}
 
 	// Ensure the destination directory exists
 	destDir := filepath.Dir(destPath)
@@ -2249,6 +2353,15 @@ func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*
 	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// A reader who may not edit the agent may not see its credentials, so
+	// the copy they get must not carry them either: an API tool's URL can be
+	// pointed anywhere and would send the copied headers there. The copy gets
+	// the same masked values a read returns, so it keeps the shape of every
+	// header, query parameter and setting for its new owner to fill in.
+	if !s.canUpdateApp(r.Context(), user, app) {
+		app.Config = maskedAgentConfig(app.Config)
 	}
 
 	app.ID = system.GenerateAppID()

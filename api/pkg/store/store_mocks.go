@@ -294,6 +294,21 @@ func (mr *MockStoreMockRecorder) CompleteWebhookDelivery(ctx, update any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteWebhookDelivery", reflect.TypeOf((*MockStore)(nil).CompleteWebhookDelivery), ctx, update)
 }
 
+// ConsumeInvitation mocks base method.
+func (m *MockStore) ConsumeInvitation(ctx context.Context, user *types.User, invitationID, token string) ([]*types.OrganizationMembership, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsumeInvitation", ctx, user, invitationID, token)
+	ret0, _ := ret[0].([]*types.OrganizationMembership)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConsumeInvitation indicates an expected call of ConsumeInvitation.
+func (mr *MockStoreMockRecorder) ConsumeInvitation(ctx, user, invitationID, token any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumeInvitation", reflect.TypeOf((*MockStore)(nil).ConsumeInvitation), ctx, user, invitationID, token)
+}
+
 // ConsumePendingInvitations mocks base method.
 func (m *MockStore) ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error) {
 	m.ctrl.T.Helper()
@@ -2510,6 +2525,21 @@ func (m *MockStore) EnqueueWebhookEvent(ctx context.Context, eventType, organiza
 func (mr *MockStoreMockRecorder) EnqueueWebhookEvent(ctx, eventType, organizationID, projectID, data any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueWebhookEvent", reflect.TypeOf((*MockStore)(nil).EnqueueWebhookEvent), ctx, eventType, organizationID, projectID, data)
+}
+
+// EnsureJWTSigningSecret mocks base method.
+func (m *MockStore) EnsureJWTSigningSecret(ctx context.Context, candidate string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnsureJWTSigningSecret", ctx, candidate)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EnsureJWTSigningSecret indicates an expected call of EnsureJWTSigningSecret.
+func (mr *MockStoreMockRecorder) EnsureJWTSigningSecret(ctx, candidate any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureJWTSigningSecret", reflect.TypeOf((*MockStore)(nil).EnsureJWTSigningSecret), ctx, candidate)
 }
 
 // EnsureUserMeta mocks base method.
@@ -4747,6 +4777,20 @@ func (mr *MockStoreMockRecorder) IncrementSandboxContainerCount(ctx, id any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementSandboxContainerCount", reflect.TypeOf((*MockStore)(nil).IncrementSandboxContainerCount), ctx, id)
 }
 
+// InsertRequestAuditEvents mocks base method.
+func (m *MockStore) InsertRequestAuditEvents(ctx context.Context, events []*types.RequestAuditEvent) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertRequestAuditEvents", ctx, events)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertRequestAuditEvents indicates an expected call of InsertRequestAuditEvents.
+func (mr *MockStoreMockRecorder) InsertRequestAuditEvents(ctx, events any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertRequestAuditEvents", reflect.TypeOf((*MockStore)(nil).InsertRequestAuditEvents), ctx, events)
+}
+
 // IsCommentBeingProcessedForSession mocks base method.
 func (m *MockStore) IsCommentBeingProcessedForSession(ctx context.Context, planningSessionID string) (bool, error) {
 	m.ctrl.T.Helper()
@@ -5513,6 +5557,21 @@ func (m *MockStore) ListReposWithoutProjects(ctx context.Context, organizationID
 func (mr *MockStoreMockRecorder) ListReposWithoutProjects(ctx, organizationID, ownerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListReposWithoutProjects", reflect.TypeOf((*MockStore)(nil).ListReposWithoutProjects), ctx, organizationID, ownerID)
+}
+
+// ListRequestAuditEvents mocks base method.
+func (m *MockStore) ListRequestAuditEvents(ctx context.Context, filters *types.RequestAuditEventFilters) (*types.RequestAuditEventResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRequestAuditEvents", ctx, filters)
+	ret0, _ := ret[0].(*types.RequestAuditEventResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRequestAuditEvents indicates an expected call of ListRequestAuditEvents.
+func (mr *MockStoreMockRecorder) ListRequestAuditEvents(ctx, filters any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRequestAuditEvents", reflect.TypeOf((*MockStore)(nil).ListRequestAuditEvents), ctx, filters)
 }
 
 // ListRoles mocks base method.
@@ -6394,6 +6453,21 @@ func (mr *MockStoreMockRecorder) ParseAndCreateImplementationTasks(ctx, specTask
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ParseAndCreateImplementationTasks", reflect.TypeOf((*MockStore)(nil).ParseAndCreateImplementationTasks), ctx, specTaskID, implementationPlan)
 }
 
+// PruneRequestAuditEvents mocks base method.
+func (m *MockStore) PruneRequestAuditEvents(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PruneRequestAuditEvents", ctx, before, batchSize)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PruneRequestAuditEvents indicates an expected call of PruneRequestAuditEvents.
+func (mr *MockStoreMockRecorder) PruneRequestAuditEvents(ctx, before, batchSize any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PruneRequestAuditEvents", reflect.TypeOf((*MockStore)(nil).PruneRequestAuditEvents), ctx, before, batchSize)
+}
+
 // ReapExpiredSecretIntakes mocks base method.
 func (m *MockStore) ReapExpiredSecretIntakes(arg0 context.Context, arg1 time.Time) error {
 	m.ctrl.T.Helper()
@@ -6654,6 +6728,21 @@ func (m *MockStore) RevokeSecretIntake(arg0 context.Context, arg1, arg2 string) 
 func (mr *MockStoreMockRecorder) RevokeSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeSecretIntake", reflect.TypeOf((*MockStore)(nil).RevokeSecretIntake), arg0, arg1, arg2)
+}
+
+// RotateOrganizationInvitationToken mocks base method.
+func (m *MockStore) RotateOrganizationInvitationToken(ctx context.Context, id string) (*types.OrganizationInvitation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RotateOrganizationInvitationToken", ctx, id)
+	ret0, _ := ret[0].(*types.OrganizationInvitation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RotateOrganizationInvitationToken indicates an expected call of RotateOrganizationInvitationToken.
+func (mr *MockStoreMockRecorder) RotateOrganizationInvitationToken(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateOrganizationInvitationToken", reflect.TypeOf((*MockStore)(nil).RotateOrganizationInvitationToken), ctx, id)
 }
 
 // RotateVHostRouteHostname mocks base method.

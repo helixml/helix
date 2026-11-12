@@ -827,15 +827,10 @@ function TaskCardInner({
           }}
         >
           <Tooltip
-            title={
-              <span style={{ whiteSpace: "pre-wrap" }}>
-                {(() => {
-                  const created = formatCreatedAt(task.created_at);
-                  const body = task.original_prompt || task.description || task.name;
-                  return created ? `Created ${created}\n\n${body}` : body;
-                })()}
-              </span>
-            }
+            title={(() => {
+              const created = formatCreatedAt(task.created_at);
+              return created ? `Created ${created}` : "";
+            })()}
             placement="top"
             enterDelay={500}
             arrow

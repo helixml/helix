@@ -17,6 +17,13 @@ type SystemSettings struct {
 	// Future: This will be the lowest priority in token resolution hierarchy
 	HuggingFaceToken string `json:"huggingface_token,omitempty" gorm:"column:huggingface_token"`
 
+	// JWTSigningSecret is the HMAC key the regular auth provider uses to sign
+	// session and password-reset tokens when REGULAR_AUTH_JWT_SECRET is not
+	// set. It is generated once, on first boot, and shared by every API
+	// replica. It is never serialized and never changed through the settings
+	// API; see store.EnsureJWTSigningSecret.
+	JWTSigningSecret string `json:"-" gorm:"column:jwt_signing_secret"`
+
 	// Kodit enrichment model configuration
 	// Used when Kodit sends requests with model "kodit-model" - Helix substitutes with these values
 	KoditEnrichmentProvider string `json:"kodit_enrichment_provider,omitempty" gorm:"column:kodit_enrichment_provider"` // e.g., "together_ai", "openai", "helix"

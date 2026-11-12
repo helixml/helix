@@ -157,6 +157,7 @@ func TestAdminResetPassword(t *testing.T) {
 			tt.setupMocks(mockStore, mockAuth)
 
 			server := &HelixAPIServer{
+				Cfg:           authModeConfig(types.AuthProviderRegular),
 				Store:         mockStore,
 				authenticator: mockAuth,
 			}
@@ -201,6 +202,7 @@ func TestAdminResetPassword_InvalidJSON(t *testing.T) {
 	mockAuth := auth.NewMockAuthenticator(ctrl)
 
 	server := &HelixAPIServer{
+		Cfg:           authModeConfig(types.AuthProviderRegular),
 		Store:         mockStore,
 		authenticator: mockAuth,
 	}

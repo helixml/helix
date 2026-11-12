@@ -39,7 +39,7 @@ const Providers: React.FC = () => {
   const [localModelsEndpointId, setLocalModelsEndpointId] = useState<string | null>(null);
   const [connectingDetected, setConnectingDetected] = useState<string>("");
   const isMacDesktop = account.serverConfig?.edition === "mac-desktop";
-  const { data: detectedProviders } = useDetectLocalProviders(true);
+  const { data: detectedProviders } = useDetectLocalProviders(account.admin);
   const createProvider = useCreateProviderEndpoint();
 
   const orgName = router.params.org_id

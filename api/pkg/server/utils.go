@@ -2,21 +2,19 @@ package server
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/crypto"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
 type LoggingResponseWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode   int
+	bytesWritten int64
 }
 
 func NewLoggingResponseWriter(w http.ResponseWriter) *LoggingResponseWriter {
@@ -27,6 +25,26 @@ func (lrw *LoggingResponseWriter) WriteHeader(code int) {
 	lrw.statusCode = code
 	lrw.ResponseWriter.WriteHeader(code)
 }
+
+func (lrw *LoggingResponseWriter) Write(b []byte) (int, error) {
+	written, err := lrw.ResponseWriter.Write(b)
+	lrw.bytesWritten += int64(written)
+	return written, err
+}
+
+func (lrw *LoggingResponseWriter) StatusCode() int { return lrw.statusCode }
+
+func (lrw *LoggingResponseWriter) BytesWritten() int64 { return lrw.bytesWritten }
+
+// Flush lets streaming handlers (SSE, video) keep flushing through the wrapper.
+func (lrw *LoggingResponseWriter) Flush() {
+	if flusher, ok := lrw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+// Unwrap exposes the underlying writer to http.ResponseController.
+func (lrw *LoggingResponseWriter) Unwrap() http.ResponseWriter { return lrw.ResponseWriter }
 
 // Hijack lets the caller take over the connection.
 // Implement this method to support websockets.
@@ -70,33 +88,6 @@ func (frw *flushResponseWriter) Flush() {
 	if f, ok := frw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
-}
-
-func (apiServer *HelixAPIServer) convertFilestorePath(ctx context.Context, sessionID string, filePath string) (string, types.OwnerContext, error) {
-	session, err := apiServer.Store.GetSession(ctx, sessionID)
-	if err != nil {
-		return "", types.OwnerContext{}, err
-	}
-
-	if session == nil {
-		return "", types.OwnerContext{}, fmt.Errorf("no session found with id %v", sessionID)
-	}
-
-	ownerContext := types.OwnerContext{
-		Owner:     session.Owner,
-		OwnerType: session.OwnerType,
-	}
-	// let's remove the /dev/users/XXX part of the path if it's there
-	userPath, err := apiServer.Controller.GetFilestoreUserPath(ownerContext, "")
-	if err != nil {
-		return "", types.OwnerContext{}, err
-	}
-
-	// NOTE(milosgajdos): no need for if check
-	// https://pkg.go.dev/strings#TrimPrefix
-	filePath = strings.TrimPrefix(filePath, userPath)
-
-	return filePath, ownerContext, nil
 }
 
 // getEncryptionKey retrieves the encryption key from environment or generates a default one
