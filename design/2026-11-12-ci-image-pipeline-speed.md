@@ -82,7 +82,7 @@ zed e2e steps (~3 min each) take longer. The real outliers are full cache misses
   builder) would fix this. NOT measured yet; it is the next step after the GHCR
   token is fixed.
 
-## Changes in this PR (no `.drone.yml`)
+## Changes in this PR
 
 - `scripts/lib/image-publish.sh`: shared `retry` (correct exit code) and
   `ghcr_login`, which fails immediately when ghcr.io rejects the token. A bad
@@ -90,7 +90,7 @@ zed e2e steps (~3 min each) take longer. The real outliers are full cache misses
 - `scripts/ghcr-push.sh`, `scripts/ghcr-manifest.sh`: use the shared helpers.
   Dropped the stale "(amd64-only)" wording.
 - `scripts/publish-image.sh`: retried push to registry.helixml.tech, then the
-  GHCR mirror. Unused until the `.drone.yml` change below lands.
+  GHCR mirror. `.drone.yml` now calls it at all 8 push sites.
 - `scripts/test-image-publish.sh`: fake-docker tests, run under dash and busybox
   ash.
 - `for-mac/scripts/provision-vm-light.sh`: the pinned, checksummed Ubuntu cloud
@@ -98,18 +98,33 @@ zed e2e steps (~3 min each) take longer. The real outliers are full cache misses
   `rm -rf …/ci-provision` does not delete. Downloads use `curl -f --retry 5`.
   Tag builds no longer need cloud-images.ubuntu.com.
 
-## Proposed `.drone.yml` changes (owned by ci/parallel-pipeline-graph)
+## `.drone.yml` changes
 
-1. Replace each `docker push X` + `scripts/ghcr-push.sh X` pair with
+1. Each `docker push X` + `scripts/ghcr-push.sh X` pair is now
    `scripts/publish-image.sh X` (8 sites).
-2. Run `sh scripts/test-image-publish.sh` in `shell-script-tests`.
-3. `clone: retries: 3` on `deploy-prod`.
+2. `shell-script-tests` runs `sh scripts/test-image-publish.sh`.
+3. `deploy-prod` clones with `retries: 3`.
 
-Not proposed here, but worth deciding:
-- Have `release-rollback` keep the git tag and delete only the release, so a
-  retry is a Drone restart. Re-cutting the same tag raced the rollback (5400/5401).
-- Quarantine or fix the 5 s-timeout vitest tests. They fail the `default`
-  stage, which gates the release.
+These merge without conflict with ci/parallel-pipeline-graph (checked with
+`git merge-tree`).
+
+## Release rollback keeps the git tag
+
+`scripts/release-rollback.sh` no longer deletes the tag. To retry a release
+that failed on a flaky step, run `gh release create <tag> --verify-tag
+--generate-notes`, then restart the Drone build (see CLAUDE.md, Releases).
+
+## Frontend test failures
+
+Of 51 failed `build-frontend` runs, 47 ran on node03, which was degraded
+(yarn and tsc took 290 s instead of 38 s; the summed vitest collect time was
+10 750 s instead of 205 s). The other 4 were real flakes: two "Worker exited
+unexpectedly" crashes, the RobustPromptInput grace-window race, and a
+HelixOrgBotDetail timeout. On 2026-11-12, luke-node04 (16 cores, runner
+capacity 16) reached a load average of 91, and build-frontend took
+1000–1300 s. https://github.com/helixml/helix/pull/3571 handles suite speed and
+the known flakes. The runner's capacity relative to its core count is an infra
+issue: capacity 16 on 16 cores lets concurrent builds starve each other.
 
 ## Reproducing
 
