@@ -8,7 +8,10 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
-    environment: 'jsdom',
+    // happy-dom builds a document several times faster than jsdom. Files that
+    // depend on jsdom's fidelity (computed styles, img roles, keyboard events,
+    // custom elements) opt back in with a `// @vitest-environment jsdom` docblock.
+    environment: 'happy-dom',
     setupFiles: ['./src/setupTests.ts'],
     // The CI runner shares CPUs with the Go test steps; under that load the
     // slower jsdom component tests exceed the 5s default and fail at random.
