@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -41,6 +42,35 @@ func TestGitHubCompat_RejectsRestrictedKeyTypes(t *testing.T) {
 			router.ServeHTTP(rr, req)
 
 			require.Equal(t, http.StatusForbidden, rr.Code, rr.Body.String())
+		})
+	}
+}
+
+// The runner token authenticates sandbox hosts, not a person: it may not act
+// on repositories through the GitHub-compatible API, under either scheme.
+func TestGitHubCompat_RejectsRunnerToken(t *testing.T) {
+	cases := []struct{ method, path, auth string }{
+		{http.MethodGet, "/repos/alice/app", "token runner-secret"},
+		{http.MethodGet, "/repos/alice/app/pulls", "Bearer runner-secret"},
+		{http.MethodPost, "/repos/alice/app/pulls", "token runner-secret"},
+		{http.MethodPatch, "/repos/alice/app/pulls/1", "Bearer runner-secret"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl) // no store call is expected
+
+			server := &HelixAPIServer{Store: mockStore, authMiddleware: newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{runnerToken: "runner-secret"}, nil, nil)}
+			router := mux.NewRouter()
+			server.registerGitHubCompatRoutes(router)
+
+			req := httptest.NewRequest(tc.method, githubCompatPrefix+tc.path, strings.NewReader(`{}`))
+			req.Header.Set("Authorization", tc.auth)
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			require.Equal(t, http.StatusForbidden, rr.Code, rr.Body.String())
+			require.Contains(t, rr.Body.String(), errRunnerTokenNotAccepted)
 		})
 	}
 }
