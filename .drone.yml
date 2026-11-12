@@ -30,8 +30,9 @@ steps:
         - tag
     depends_on: []
 
-  # Frontend: one install, then typecheck, sharded vitest and the bundle
-  # build run in parallel against the node_modules left in the workspace.
+  # Frontend: one install, then the two vitest shards run alongside
+  # typecheck + bundle build, sharing the node_modules left in the workspace.
+  # tsc and vite build stay serial: in parallel each ran ~2x slower.
   - name: frontend-install
     image: node:23-alpine
     volumes:
@@ -41,13 +42,6 @@ steps:
       - cd frontend
       - yarn install --frozen-lockfile --check-files
     depends_on: []
-
-  - name: frontend-typecheck
-    image: node:23-alpine
-    commands:
-      - cd frontend
-      - npx tsc --noEmit -p tsconfig.json
-    depends_on: [frontend-install]
 
   - name: frontend-test-1
     image: node:23-alpine
@@ -67,6 +61,7 @@ steps:
     image: node:23-alpine
     commands:
       - cd frontend
+      - npx tsc --noEmit -p tsconfig.json
       - yarn build
     depends_on: [frontend-install]
 
@@ -224,6 +219,8 @@ steps:
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
+      # Commit mtimes, so packages reading testdata can hit the go test cache.
+      - sh ./scripts/restore-mtime.sh
       # Run tests excluding GStreamer-dependent packages (tested separately with CGO disabled).
       # First arg "600" sets the script's wall-clock timeout — it parses
       # the first numeric arg. Without it the script defaults to 300s,
@@ -841,7 +838,7 @@ steps:
         else
           echo "No tag present, skipping release upload"
         fi
-    depends_on: [build-backend, build-frontend, frontend-typecheck, frontend-test-1, frontend-test-2]
+    depends_on: [build-backend, build-frontend, frontend-test-1, frontend-test-2]
 
   - name: build-operator
     image: golang:1.25-alpine
