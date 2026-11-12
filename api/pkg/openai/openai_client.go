@@ -121,6 +121,7 @@ func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts Cli
 		apiKey:         apiKey,
 		models:         models,
 		billingEnabled: billingEnabled,
+		retryDelay:     delayBetweenRetries,
 	}
 }
 
@@ -132,7 +133,10 @@ type RetryableClient struct {
 	apiKey         string
 	models         []string
 	billingEnabled bool
-	isAnthropic    bool // true if this client is for an Anthropic-compatible provider
+	// retryDelay is the base of retry-go's exponential backoff between chat
+	// completion attempts. Always delayBetweenRetries outside tests.
+	retryDelay  time.Duration
+	isAnthropic bool // true if this client is for an Anthropic-compatible provider
 }
 
 // SetIsAnthropic marks this client as an Anthropic-compatible provider.
@@ -212,7 +216,7 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 		return nil
 	},
 		retry.Attempts(retries),
-		retry.Delay(delayBetweenRetries),
+		retry.Delay(c.retryDelay),
 		retry.LastErrorOnly(true),
 		retry.Context(ctx),
 	)
@@ -343,7 +347,7 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 		return nil
 	},
 		retry.Attempts(retries),
-		retry.Delay(delayBetweenRetries),
+		retry.Delay(c.retryDelay),
 		retry.LastErrorOnly(true),
 		retry.Context(ctx),
 	)
