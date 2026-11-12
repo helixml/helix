@@ -139,6 +139,8 @@ func (s *PRProposalSuite) TestApproveRefusedOutsideWorkingStatuses() {
 		types.TaskStatusBacklog,
 		types.TaskStatusQueuedSpecGeneration,
 		types.TaskStatusQueuedImplementation,
+		types.TaskStatusImplementationQueued,
+		types.TaskStatusPreparing,
 		types.TaskStatusSpecApproved,
 		types.TaskStatusSpecFailed,
 		types.TaskStatusImplementationFailed,
