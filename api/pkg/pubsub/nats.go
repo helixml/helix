@@ -399,7 +399,7 @@ func NewInMemoryNats() (*Nats, error) {
 
 	cfg := &config.ServerConfig{}
 	cfg.PubSub.StoreDir = tmpDir
-	cfg.PubSub.Server.Host = "0.0.0.0"
+	cfg.PubSub.Server.Host = "127.0.0.1" // no token: never reachable off-host
 	// Let the kernel assign both ports at bind time. Probing for a free port
 	// first (and assuming port+1 is free too) races with every other
 	// in-process server; a lost race costs ReadyForConnections' full 4s.
@@ -475,11 +475,11 @@ func (n *Nats) Subscribe(_ context.Context, topic string, handler func(payload [
 	sub, err := n.conn.Subscribe(topic, func(msg *nats.Msg) {
 		err := handler(msg.Data)
 		if err != nil {
-			log.Err(err).Msg("error handling message")
+			log.Err(err).Str("subject", msg.Subject).Msg("error handling message")
 		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("subscribe %q: %w", topic, err)
 	}
 
 	return sub, nil
@@ -489,11 +489,11 @@ func (n *Nats) SubscribeWithCtx(_ context.Context, topic string, handler func(ct
 	sub, err := n.conn.Subscribe(topic, func(msg *nats.Msg) {
 		err := handler(context.Background(), msg)
 		if err != nil {
-			log.Err(err).Msg("error handling message")
+			log.Err(err).Str("subject", msg.Subject).Msg("error handling message")
 		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("subscribe %q: %w", topic, err)
 	}
 
 	return sub, nil
@@ -554,7 +554,7 @@ func (n *Nats) QueueRequest(ctx context.Context, _, subject string, payload []by
 		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("subscribe reply inbox: %w", err)
 	}
 	defer func() {
 		if err := sub.Unsubscribe(); err != nil {
@@ -601,17 +601,17 @@ func (n *Nats) QueueSubscribe(_ context.Context, queue, subject string, handler 
 			msg:    &natsMsgWrapper{msg},
 		})
 		if err != nil {
-			log.Err(err).Msg("error handling message")
+			log.Err(err).Str("subject", msg.Subject).Str("queue", queue).Msg("error handling message")
 		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("queue subscribe %q on %q: %w", queue, subject, err)
 	}
 
 	return sub, nil
 }
 
-// Request publish a message to the given subject and creates an inbox to receive the response. If response is not
+// StreamRequest publishes a message to the stream and creates an inbox to receive the response. If response is not
 // received within the timeout, an error is returned.
 func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payload []byte, header map[string]string, timeout time.Duration) ([]byte, error) {
 	replyInbox := nats.NewInbox()
@@ -626,7 +626,7 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("subscribe reply inbox: %w", err)
 	}
 	defer func() {
 		if err := sub.Unsubscribe(); err != nil {
