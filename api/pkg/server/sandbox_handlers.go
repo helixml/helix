@@ -260,9 +260,14 @@ func (apiServer *HelixAPIServer) getContainerBlkioStats(rw http.ResponseWriter, 
 	sandboxID := vars["id"]
 	sessionID := vars["session_id"]
 
-	// Admins and sandbox hosts may read any container. Anyone else must be
-	// authorised on the session, and only for the sandbox it is running on.
+	// Admins and the shared runner token may read any container, a
+	// per-runner token only its own host's. Anyone else must be authorised on
+	// the session, and only for the sandbox it is running on.
 	user := getRequestUser(req)
+	if isRunner(user) && user.RunnerID != "" && !types.RunnerIDsMatch(user.RunnerID, sandboxID) {
+		http.Error(rw, "Forbidden", http.StatusForbidden)
+		return
+	}
 	if !isAdmin(user) && !isRunner(user) {
 		session, err := apiServer.Store.GetSession(req.Context(), sessionID)
 		if err != nil || session.SandboxID != sandboxID ||

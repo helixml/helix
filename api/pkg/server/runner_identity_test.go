@@ -73,9 +73,11 @@ func newRunnerAuthFixture(t *testing.T, requirePerHost bool) *runnerAuthFixture 
 	runnerRouter.Use(requireRunner)
 	adminOrRunnerRouter := sub.MatcherFunc(matchAllRoutes).Subrouter()
 	adminOrRunnerRouter.Use(requireAdminOrRunner)
+	userOrRunnerRouter := sub.MatcherFunc(matchAllRoutes).Subrouter()
+	userOrRunnerRouter.Use(requireUserOrRunner)
 
-	authRouter.Handle("/revdial", apiServer.handleRevDial()).Methods(http.MethodGet)
-	apiServer.registerSandboxRegistryRoutes(authRouter, runnerRouter, adminOrRunnerRouter)
+	userOrRunnerRouter.Handle("/revdial", apiServer.handleRevDial()).Methods(http.MethodGet)
+	apiServer.registerSandboxRegistryRoutes(authRouter, runnerRouter, adminOrRunnerRouter, userOrRunnerRouter)
 	runnerRouter.HandleFunc("/runner/{runner_id}/assignment", apiServer.getRunnerAssignment).Methods(http.MethodGet)
 	runnerRouter.HandleFunc("/runner/profiles/{id}", apiServer.getRunnerProfile).Methods(http.MethodGet)
 	apiServer.startRunnerWebSocketServer(context.Background(), router.PathPrefix(APIPrefix).Subrouter(), "/ws/runner")
@@ -293,6 +295,7 @@ func TestRunnerToken_RunnerScopedRoutesBinding(t *testing.T) {
 		{"deregister another sandbox", http.MethodDelete, "/api/v1/sandboxes/host2", nil},
 		{"another sandbox's disk history", http.MethodGet, "/api/v1/sandboxes/host2/disk-history", nil},
 		{"another runner's assignment", http.MethodGet, "/api/v1/runner/host2/assignment", nil},
+		{"another host's container blkio", http.MethodGet, "/api/v1/sandboxes/host2/containers/ses_1/blkio", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := f.do(t, tc.method, tc.path, testHost1Token, tc.body)
