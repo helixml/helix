@@ -272,28 +272,12 @@ export const useAccountContext = (): IAccountContext => {
     clearSelectedOrg()
 
     try {
-      // Use redirect: 'manual' to prevent fetch from following cross-origin redirects
-      // which would fail due to CORS when redirecting to Keycloak
-      const response = await fetch(`/api/v1/auth/logout`, {
-        method: 'POST',
-        redirect: 'manual',
-      });
-
-      // With redirect: 'manual', a 302 response becomes type: 'opaqueredirect'
-      // We can't read the Location header, so we make another request to get the redirect URL as JSON
-      if (response.type === 'opaqueredirect') {
-        const redirectUri = encodeURIComponent(window.location.origin);
-        const urlResponse = await fetch(`/api/v1/auth/logout?get_url=true&redirect_uri=${redirectUri}`, {
-          method: 'POST',
-        });
-        if (urlResponse.ok) {
-          const data = await urlResponse.json();
-          if (data.url) {
-            window.location.href = data.url;
-          }
-        }
-      } else if (response.redirected) {
-        window.location.href = response.url;
+      const response = await api.getApiClient().v1AuthLogoutCreate({
+        get_url: true,
+        redirect_uri: window.location.origin,
+      })
+      if (response.data.url) {
+        window.location.href = response.data.url
       }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)

@@ -127,6 +127,8 @@ describe('HelixOrgChatPanel query selection', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '32 bot activations are already running for this organization; stop another bot and try again.',
     )
+    fireEvent.click(screen.getByRole('button', { name: 'Start bot' }))
+    await waitFor(() => expect(mocks.activate).toHaveBeenCalledWith('b-one'))
   })
 
   it('leaves insufficient-balance errors to the resolved session chat', async () => {

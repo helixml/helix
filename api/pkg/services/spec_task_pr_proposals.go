@@ -46,16 +46,27 @@ type prProposalGit interface {
 	ValidateUserOAuth(ctx context.Context, repo *types.GitRepository, userID string) error
 }
 
+// PRApproverAuthorizer reports whether user may currently approve pull
+// requests in projectID.
+type PRApproverAuthorizer func(ctx context.Context, user *types.User, projectID string) error
+
 type PRProposalService struct {
-	store         store.Store
-	git           prProposalGit
-	attention     *AttentionService
-	enqueue       SpecTaskMessageEnqueuer
-	serverBaseURL string
+	store             store.Store
+	authorizeApprover PRApproverAuthorizer
+	git               prProposalGit
+	attention         *AttentionService
+	enqueue           SpecTaskMessageEnqueuer
+	serverBaseURL     string
 }
 
 func NewPRProposalService(s store.Store, git prProposalGit, attention *AttentionService, serverBaseURL string) *PRProposalService {
 	return &PRProposalService{store: s, git: git, attention: attention, serverBaseURL: serverBaseURL}
+}
+
+// SetApproverAuthorizer wires the project access check that auto-approval
+// applies to the stored approver. Without it, auto-approval waits for a human.
+func (s *PRProposalService) SetApproverAuthorizer(fn PRApproverAuthorizer) {
+	s.authorizeApprover = fn
 }
 
 // SetMessageEnqueuer wires delivery of decision outcomes to the task's agent.
@@ -204,13 +215,8 @@ func (s *PRProposalService) Decide(ctx context.Context, user *types.User, propos
 // the user who enabled it. It returns nil, leaving the proposal pending for a
 // human, when that user cannot approve (e.g. no provider connection).
 func (s *PRProposalService) autoApprove(ctx context.Context, task *types.SpecTask, p *types.SpecTaskPRProposal) *types.SpecTaskPRProposal {
-	actorID := task.AutoApprovePullRequestsBy
-	if actorID == "" {
-		actorID = task.CreatedBy
-	}
-	user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: actorID})
-	if err != nil {
-		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver not found; waiting for a human")
+	user := s.currentAutoApprover(ctx, task)
+	if user == nil {
 		return nil
 	}
 	decided, err := s.decide(ctx, user, task, p, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove}, true)
@@ -219,6 +225,35 @@ func (s *PRProposalService) autoApprove(ctx context.Context, task *types.SpecTas
 		return nil
 	}
 	return decided
+}
+
+// currentAutoApprover returns the user whose identity a task's auto-approval
+// acts as, or nil (wait for a human) when that user cannot approve right now.
+// The approver was recorded when auto-approval was turned on; they may since
+// have been deactivated or lost access to the project, so check it each time.
+func (s *PRProposalService) currentAutoApprover(ctx context.Context, task *types.SpecTask) *types.User {
+	actorID := task.AutoApprovePullRequestsBy
+	if actorID == "" {
+		actorID = task.CreatedBy
+	}
+	user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: actorID})
+	if err != nil || user == nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver not found; waiting for a human")
+		return nil
+	}
+	if err := user.AccountAccessError(); err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver account inactive; waiting for a human")
+		return nil
+	}
+	if s.authorizeApprover == nil {
+		log.Warn().Str("task_id", task.ID).Msg("pr proposal: no approver authorizer configured; waiting for a human")
+		return nil
+	}
+	if err := s.authorizeApprover(ctx, user, task.ProjectID); err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver no longer has project access; waiting for a human")
+		return nil
+	}
+	return user
 }
 
 // decide applies a decision by user. auto marks an approval made on the
@@ -502,8 +537,12 @@ func (s *PRProposalService) tryOpen(ctx context.Context, proposalID string) (*ty
 func (s *PRProposalService) openOnProvider(ctx context.Context, p *types.SpecTaskPRProposal, task *types.SpecTask, repo *types.GitRepository) (*types.PullRequest, error) {
 	var pr *types.PullRequest
 	err := s.git.WithRepoLock(repo.ID, func() error {
-		if err := s.git.PushBranchToRemote(ctx, repo.ID, p.HeadBranch, false, p.DecidedBy); err != nil {
-			return fmt.Errorf("push %s to %s: %w", p.HeadBranch, repo.Name, err)
+		// Helix-hosted repos keep the branch in the same bare repo as the
+		// base — there is no remote to push to.
+		if !internalPRRouting(repo) {
+			if err := s.git.PushBranchToRemote(ctx, repo.ID, p.HeadBranch, false, p.DecidedBy); err != nil {
+				return fmt.Errorf("push %s to %s: %w", p.HeadBranch, repo.Name, err)
+			}
 		}
 		if existing := s.findOpenPR(ctx, repo.ID, p.HeadBranch, p.BaseBranch); existing != nil {
 			pr = existing
@@ -614,9 +653,9 @@ func (s *PRProposalService) resolveRepository(ctx context.Context, task *types.S
 	var names []string
 	for _, r := range repos {
 		if r.ID == ref || r.Name == ref {
-			if r.ExternalURL == "" {
-				return nil, invalidProposal("repository %q is hosted by Helix and has no pull requests; its work lands when the user accepts the task", r.Name)
-			}
+			// Helix-hosted repositories now have lightweight pull requests
+			// served through the GitHub-compat API, so they are proposable
+			// exactly like external ones.
 			return r, nil
 		}
 		names = append(names, r.Name)

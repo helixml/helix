@@ -645,10 +645,8 @@ func (s *AgentInstructionService) BuildApprovalInstruction(
 			ProjectID: task.ProjectID,
 		})
 		if err == nil {
+			hasPullRequests = ProjectUsesPullRequests(project, projectRepos)
 			for _, repo := range projectRepos {
-				if repo.ExternalURL != "" {
-					hasPullRequests = true
-				}
 				if repo.Name == primaryRepoName && repo.ExternalURL != "" {
 					screenshotBaseURL = GetRawScreenshotBaseURL(repo, taskDirName)
 				} else if repo.Name != primaryRepoName && repo.ExternalURL != "" {

@@ -151,3 +151,25 @@ func (suite *ListKnowledgeSuite) TestPersonalScoped_NoAppID() {
 	suite.Equal(types.OwnerTypeUser, captured.OwnerType)
 	suite.Empty(captured.AppID)
 }
+
+// A reader of a global agent lists its knowledge but must not receive the
+// crawler credentials the author configured.
+func (suite *ListKnowledgeSuite) TestAppScoped_ReaderGetsMaskedCrawlerCredentials() {
+	app := &types.App{ID: "app_id_test", Owner: "some_other_owner", Global: true}
+	suite.store.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+	suite.store.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return([]*types.Knowledge{{
+		ID: "kno_test", AppID: app.ID, Owner: app.Owner,
+		Source: types.KnowledgeSource{Web: &types.KnowledgeSourceWeb{
+			Auth:    types.KnowledgeSourceWebAuth{Username: "crawler", Password: "web-password-value"},
+			Crawler: &types.WebsiteCrawler{Firecrawl: &types.Firecrawl{APIKey: "firecrawl-key-value"}},
+		}},
+	}}, nil)
+
+	knowledge, httpErr := suite.server.listKnowledge(httptest.NewRecorder(), suite.newRequest("?app_id=app_id_test"))
+	suite.Nil(httpErr)
+	suite.Require().Len(knowledge, 1)
+	web := knowledge[0].Source.Web
+	suite.Equal("crawler", web.Auth.Username)
+	suite.Equal(maskedSecret, web.Auth.Password)
+	suite.Equal(maskedSecret, web.Crawler.Firecrawl.APIKey)
+}

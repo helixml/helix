@@ -116,7 +116,15 @@ func (apiServer *HelixAPIServer) commitTurnError(ctx context.Context, interactio
 	// Still generic? Then the cause was not a subscription problem. The most
 	// common remaining cause is the model provider itself failing, which Helix
 	// recorded in llm_calls even though Zed could not tell us about it.
-	errorMsg = apiServer.maybeExplainProviderFailure(ctx, interaction.SessionID, errorMsg)
+	var providerFailure *types.LLMCall
+	errorMsg, providerFailure = apiServer.maybeExplainProviderFailure(ctx, interaction.SessionID, errorMsg)
+	if providerFailure != nil {
+		if apiServer.recordProviderRecovery(ctx, interaction, providerFailure) {
+			errorMsg += " The bot will try again automatically when the model is available."
+		} else {
+			errorMsg += " Try again later."
+		}
+	}
 	if updated, _, err := apiServer.settlePendingQuestionAsCancelled(ctx, interaction); err != nil {
 		log.Error().Err(err).
 			Str("interaction_id", interaction.ID).

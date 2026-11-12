@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
+	"github.com/helixml/helix/api/pkg/secret"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -520,7 +521,7 @@ func isAnthropicAPIEndpoint(endpoint *types.ProviderEndpoint) bool {
 func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) (openai.Client, error) {
 	apiKey := endpoint.APIKey
 	if endpoint.APIKeyFromFile != "" {
-		bts, err := os.ReadFile(endpoint.APIKeyFromFile)
+		bts, err := secret.ReadProviderAPIKeyFile(endpoint.APIKeyFromFile)
 		if err != nil {
 			return nil, fmt.Errorf("error reading API key file '%s': %w", endpoint.APIKeyFromFile, err)
 		}
@@ -539,6 +540,7 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 
 	openaiClient := openai.NewWithOptions(apiKey, endpoint.BaseURL, endpoint.BillingEnabled, openai.ClientOptions{
 		TLSSkipVerify: m.cfg.Tools.TLSSkipVerify,
+		Outbound:      endpoint.OutboundPolicy(m.cfg.Providers.AllowPrivateNetworks),
 	}, endpoint.Models...)
 
 	// DB/UI-configured Anthropic providers must use x-api-key auth (not Bearer) for

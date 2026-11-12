@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
 	adobuild "github.com/microsoft/azure-devops-go-api/azuredevops/v7/build"
@@ -21,6 +22,56 @@ type AzureDevOpsClient struct { //nolint:revive
 	connection          *azuredevops.Connection
 	organizationURL     string
 	personalAccessToken string
+
+	// outbound restricts the addresses the client may connect to. The
+	// organization URL is user-supplied, and the SDK also follows URLs the
+	// server returns (resource area locations), so it applies to every
+	// connection. Strict unless relaxed with WithOutboundPolicy.
+	outbound netguard.Policy
+}
+
+// WithOutboundPolicy sets the outbound policy for the client's connections
+// (e.g. to allow an Azure DevOps Server on a private network).
+func (c *AzureDevOpsClient) WithOutboundPolicy(policy netguard.Policy) *AzureDevOpsClient {
+	c.outbound = policy
+	return c
+}
+
+// guard applies the outbound policy to requests made with ctx. The Azure
+// DevOps SDK builds its own HTTP clients and accepts no transport, so the
+// policy is enforced through the request context.
+//
+// The organization URL must be https: the SDK shares http.DefaultTransport,
+// and over plain http a connection the policy refused after it was dialled
+// could otherwise be left in that shared pool. Over https such a connection
+// cannot complete a handshake for the organization's name.
+func (c *AzureDevOpsClient) guard(ctx context.Context) context.Context {
+	if err := requireHTTPS(c.organizationURL); err != nil {
+		ctx, cancel := context.WithCancelCause(ctx)
+		cancel(err)
+		return ctx
+	}
+	return c.outbound.GuardContext(ctx)
+}
+
+func requireHTTPS(organizationURL string) error {
+	u, err := url.Parse(organizationURL)
+	if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Host == "" {
+		return fmt.Errorf("%w: azure devops organization URL must be an https URL", netguard.ErrBlockedDestination)
+	}
+	return nil
+}
+
+// CheckOrganizationURL checks a user-supplied organization URL against the
+// outbound policy when it is saved.
+func CheckOrganizationURL(ctx context.Context, policy netguard.Policy, organizationURL string) error {
+	if err := requireHTTPS(organizationURL); err != nil {
+		return err
+	}
+	if err := policy.ValidateURL(ctx, organizationURL); err != nil {
+		return fmt.Errorf("azure devops organization URL: %w", err)
+	}
+	return nil
 }
 
 // ADOUserProfile represents the user profile response from Azure DevOps
@@ -139,6 +190,7 @@ func getAzureADAccessToken(ctx context.Context, tenantID, clientID, clientSecret
 
 // GetUserProfile fetches the authenticated user's profile from Azure DevOps
 func (c *AzureDevOpsClient) GetUserProfile(ctx context.Context) (*ADOUserProfile, error) {
+	ctx = c.guard(ctx)
 	// Determine the profile API URL based on organization URL
 	// For Azure DevOps Services (cloud): use vssps.visualstudio.com
 	// For Azure DevOps Server (self-hosted): use the organization URL with connection data API
@@ -205,6 +257,7 @@ func (c *AzureDevOpsClient) GetUserProfile(ctx context.Context) (*ADOUserProfile
 }
 
 func (c *AzureDevOpsClient) GetComments(ctx context.Context, repositoryID string, pullRequestID int, threadID int) ([]git.Comment, error) {
+	ctx = c.guard(ctx)
 	gitClient, err := git.NewClient(ctx, c.connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure DevOps client: %w", err)
@@ -224,6 +277,7 @@ func (c *AzureDevOpsClient) GetComments(ctx context.Context, repositoryID string
 
 // ListRepositories lists all repositories accessible in the Azure DevOps organization
 func (c *AzureDevOpsClient) ListRepositories(ctx context.Context, project string) ([]git.GitRepository, error) {
+	ctx = c.guard(ctx)
 	gitClient, err := git.NewClient(ctx, c.connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure DevOps git client: %w", err)
@@ -251,6 +305,7 @@ func (c *AzureDevOpsClient) ListRepositories(ctx context.Context, project string
 
 // ListProjects lists all projects in the Azure DevOps organization by extracting from repositories
 func (c *AzureDevOpsClient) ListProjects(ctx context.Context) ([]string, error) {
+	ctx = c.guard(ctx)
 	gitClient, err := git.NewClient(ctx, c.connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure DevOps git client: %w", err)
@@ -302,6 +357,7 @@ var ErrCIScopeMissing = errors.New("azure devops: build read scope (vso.build) m
 // repository name (we resolve it to a UUID internally because the Build
 // API's RepositoryId filter requires the GUID for TfsGit).
 func (c *AzureDevOpsClient) GetCIStatus(ctx context.Context, project, repositoryName, commitID string) (*CIStatusResult, error) {
+	ctx = c.guard(ctx)
 	gitClient, err := git.NewClient(ctx, c.connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create azure devops git client: %w", err)

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -53,7 +54,11 @@ func (s *prTestStore) GetOAuthConnection(_ context.Context, id string) (*types.O
 }
 
 func newPRTestService(s *prTestStore) *GitRepositoryService {
-	return &GitRepositoryService{store: s}
+	svc := &GitRepositoryService{store: s}
+	// These tests stand the provider up on a loopback httptest server; the
+	// outbound policy itself is covered by TestProviderAPIClientsApplyOutboundPolicy.
+	svc.SetOutboundPolicy(netguard.Policy{AllowPrivate: true})
+	return svc
 }
 
 func TestGetGitHubClient_UserOAuthTakesPrecedence(t *testing.T) {
@@ -429,5 +434,24 @@ func TestValidateUserOAuth_AcceptsCustomGitLabProvider(t *testing.T) {
 
 	if err := newPRTestService(fs).ValidateUserOAuth(context.Background(), repo, "user-x"); err != nil {
 		t.Fatalf("expected custom GitLab provider to match, got: %v", err)
+	}
+}
+
+// External GitHub repos must resolve to the provider client and the owner/repo
+// parsed from the external URL (a self-call here once recursed forever).
+func TestGitHubClientForRepo_ExternalGitHub(t *testing.T) {
+	svc := newPRTestService(&prTestStore{})
+	repo := &types.GitRepository{
+		ExternalURL:  "https://github.com/org/repo",
+		ExternalType: types.ExternalRepositoryTypeGitHub,
+		Password:     "repo-pat",
+	}
+
+	client, owner, name, err := svc.githubClientForRepo(context.Background(), repo, "")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if client == nil || owner != "org" || name != "repo" {
+		t.Fatalf("got client=%v owner=%q repo=%q, want org/repo", client, owner, name)
 	}
 }

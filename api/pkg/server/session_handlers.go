@@ -266,6 +266,25 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		query.OrganizationID = ""
 	}
 
+	// A project-scoped key lists only its own project's sessions.
+	if user.ProjectID != "" {
+		if projectID != "" && projectID != user.ProjectID {
+			return nil, system.NewHTTPError403(errProjectScopedKey.Error())
+		}
+		allowed := []string{user.ProjectID}
+		if query.RestrictToProjects {
+			// Already bounded (e.g. owner_id): keep only the key's project.
+			allowed = allowed[:0]
+			for _, id := range query.ProjectIDs {
+				if id == user.ProjectID {
+					allowed = append(allowed, id)
+				}
+			}
+		}
+		query.RestrictToProjects = true
+		query.ProjectIDs = allowed
+	}
+
 	// Parse query parameters
 	page, err := strconv.Atoi(req.URL.Query().Get("page"))
 	if err != nil || page < 1 {
@@ -2252,7 +2271,7 @@ func (s *HelixAPIServer) getSessionRDPConnection(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	if session.Owner != user.ID {
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
 		http.Error(rw, "you are not allowed to access this session", http.StatusForbidden)
 		return
 	}

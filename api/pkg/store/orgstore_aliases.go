@@ -25,3 +25,10 @@ type (
 
 // ErrInvitationAlreadyExists is re-exported from orgstore for existing callers.
 var ErrInvitationAlreadyExists = orgstore.ErrInvitationAlreadyExists
+
+// NormalizeEmail is the canonical form used to match accounts and
+// invitations by email (trimmed, lowercased).
+var NormalizeEmail = orgstore.NormalizeEmail
+
+// InvitationTokenMatches reports whether token is the invitation's secret.
+var InvitationTokenMatches = orgstore.InvitationTokenMatches

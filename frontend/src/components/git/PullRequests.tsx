@@ -9,10 +9,10 @@ import {
 import {
   GitPullRequest,
   ExternalLink,
-  Link as LinkIcon,
 } from 'lucide-react'
 import { useListRepositoryPullRequests } from '../../services/gitRepositoryService'
 import type { TypesGitRepository } from '../../api/api'
+import HelixPullRequests from './HelixPullRequests'
 
 interface PullRequestsProps {
   repository: TypesGitRepository  
@@ -40,21 +40,7 @@ const PullRequests: FC<PullRequestsProps> = ({
   }
 
   if (!hasExternalUrl) {
-    return (
-      <Box>
-        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
-          <Box sx={{ textAlign: 'center', py: 8 }}>
-            <LinkIcon size={48} color="#656d76" style={{ marginBottom: 16 }} />
-            <Typography variant="h6" sx={{ mb: 1, fontWeight: 500 }}>
-              No external repository
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 500, mx: 'auto' }}>
-              This repository does not have an external repository configured. Pull requests cannot be managed.
-            </Typography>           
-          </Box>
-        </Paper>
-      </Box>
-    )
+    return <HelixPullRequests repository={repository} />
   }
 
   return (

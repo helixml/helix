@@ -2452,14 +2452,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindEmail = "email",
-  KindWebhook = "webhook",
-  KindLocal = "local",
-  KindSlack = "slack",
-  KindCron = "cron",
-  KindGitLab = "gitlab",
   KindGitHub = "github",
   KindHelixEvents = "helix_events",
+  KindWebhook = "webhook",
+  KindCron = "cron",
+  KindSlack = "slack",
+  KindGitLab = "gitlab",
+  KindEmail = "email",
+  KindLocal = "local",
 }
 
 export interface TransportResolvedActivation {
@@ -3677,6 +3677,12 @@ export interface TypesCompletionDecisionRequest {
   decision?: string;
 }
 
+export interface TypesConnectRequiredError {
+  code?: string;
+  connect_url?: string;
+  provider?: TypesExternalRepositoryType;
+}
+
 export interface TypesContainerDiskUsage {
   container_id?: string;
   container_name?: string;
@@ -3801,6 +3807,25 @@ export interface TypesCreatePullRequestRequest {
 export interface TypesCreatePullRequestResponse {
   id?: string;
   message?: string;
+}
+
+export interface TypesCreateRepoFromTemplateRequest {
+  description?: string;
+  name?: string;
+  owner?: string;
+  /** Private defaults to true when omitted. */
+  private?: boolean;
+  provider?: TypesExternalRepositoryType;
+  /** Template is the github.com template repository as "owner/repo". */
+  template?: string;
+}
+
+export interface TypesCreateRepoFromTemplateResponse {
+  clone_url?: string;
+  default_branch?: string;
+  full_name?: string;
+  html_url?: string;
+  provider?: TypesExternalRepositoryType;
 }
 
 export interface TypesCreateSampleRepositoryRequest {
@@ -4338,6 +4363,24 @@ export interface TypesGitLab {
   personal_access_token?: string;
 }
 
+export interface TypesGitOwner {
+  avatar_url?: string;
+  /** ID is the GitHub account id, or the GitLab namespace id. */
+  id?: number;
+  kind?: TypesGitOwnerKind;
+  /**
+   * Login is the owner to pass to CreateRepoFromTemplateRequest.Owner: the
+   * GitHub login/org name, or the GitLab user path / group full path.
+   */
+  login?: string;
+}
+
+export enum TypesGitOwnerKind {
+  GitOwnerKindUser = "user",
+  GitOwnerKindOrg = "org",
+  GitOwnerKindGroup = "group",
+}
+
 export interface TypesGitProviderConnection {
   avatar_url?: string;
   /** For GitHub Enterprise or GitLab Enterprise: base URL (empty = github.com/gitlab.com) */
@@ -4369,6 +4412,58 @@ export interface TypesGitProviderConnectionCreateRequest {
   organization_url?: string;
   provider_type?: TypesExternalRepositoryType;
   token?: string;
+}
+
+export interface TypesGitPullRequest {
+  author_id?: string;
+  author_login?: string;
+  base_branch?: string;
+  base_sha?: string;
+  body?: string;
+  closed_at?: string;
+  created_at?: string;
+  head_branch?: string;
+  head_sha?: string;
+  id?: string;
+  merge_commit_sha?: string;
+  merged?: boolean;
+  merged_at?: string;
+  merged_by?: string;
+  number?: number;
+  repository_id?: string;
+  state?: TypesGitPullRequestState;
+  title?: string;
+  updated_at?: string;
+}
+
+export interface TypesGitPullRequestDetail {
+  files?: TypesInternalPRFile[];
+  html_url?: string;
+  mergeable?: boolean;
+  pull_request?: TypesGitPullRequest;
+  /** The spec task whose work this pull request carries, if any. */
+  spec_task_id?: string;
+  spec_task_name?: string;
+  spec_task_project_id?: string;
+}
+
+export interface TypesGitPullRequestMergeRequest {
+  commit_message?: string;
+  commit_title?: string;
+  /** merge (the only supported method) */
+  merge_method?: string;
+}
+
+export enum TypesGitPullRequestState {
+  GitPullRequestStateOpen = "open",
+  GitPullRequestStateClosed = "closed",
+}
+
+export interface TypesGitPullRequestUpdate {
+  body?: string;
+  /** open | closed */
+  state?: string;
+  title?: string;
 }
 
 export interface TypesGitRepository {
@@ -4694,6 +4789,17 @@ export interface TypesInteractiveEmbedModelResponse {
 
 export interface TypesInteractiveEmbedModelUpdateRequest {
   model?: string;
+}
+
+export interface TypesInternalPRFile {
+  additions?: number;
+  changes?: number;
+  deletions?: number;
+  filename?: string;
+  patch?: string;
+  previous_filename?: string;
+  /** added | modified | removed | renamed */
+  status?: string;
 }
 
 export interface TypesItem {
@@ -5631,6 +5737,13 @@ export interface TypesProject {
   guidelines_updated_by?: string;
   /** Incremented on each update */
   guidelines_version?: number;
+  /**
+   * HelixRepoPullRequests: agents deliver work on the project's Helix-hosted
+   * repositories as pull requests (propose_pull_request, reviewed and merged
+   * on the Helix PR page) instead of Accept landing their branch. External
+   * repositories always use pull requests.
+   */
+  helix_repo_pull_requests?: boolean;
   id?: string;
   implementation_limit?: number;
   kodit_enabled?: boolean;
@@ -5879,6 +5992,8 @@ export interface TypesProjectUpdateRequest {
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
   guidelines?: string;
+  /** Agents deliver work on Helix-hosted repos as pull requests */
+  helix_repo_pull_requests?: boolean;
   /** Whether Kodit code intelligence is enabled */
   kodit_enabled?: boolean;
   metadata?: TypesProjectMetadataUpdate;
@@ -6077,6 +6192,16 @@ export enum TypesProviderEndpointType {
   ProviderEndpointTypeTeam = "team",
 }
 
+export interface TypesProviderRecovery {
+  attempts?: number;
+  failed_at?: string;
+  interaction_id?: string;
+  model?: string;
+  next_check_at?: string;
+  prompt_id?: string;
+  provider?: string;
+}
+
 export interface TypesPublicInvitationInfo {
   email?: string;
   id?: string;
@@ -6245,9 +6370,26 @@ export interface TypesReasoningEffortProfile {
   verified_at?: string;
 }
 
+export interface TypesAcceptInvitationRequest {
+  /** Token is the invitation's secret token from the invite link. */
+  token?: string;
+}
+
+export interface TypesInvitationLinkResponse {
+  url?: string;
+}
+
 export interface TypesRegisterRequest {
   email?: string;
   full_name?: string;
+  /**
+   * InvitationID and InvitationToken come from the invite link
+   * (/login?invitation=<id>&token=<token>). Password sign-up does not
+   * verify the email address, so only the invitation presented here is
+   * accepted, and only with its secret token and when it was sent to Email.
+   */
+  invitation_id?: string;
+  invitation_token?: string;
   password?: string;
   password_confirm?: string;
 }
@@ -7324,6 +7466,7 @@ export interface TypesSessionMetadata {
   priority?: boolean;
   /** ID of associated Project (for exploratory sessions) */
   project_id?: string;
+  provider_recovery?: TypesProviderRecovery;
   /**
    * these settings control which features of a session we want to use
    * even if we have a Lora file and RAG indexed prepared
@@ -11156,10 +11299,19 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Logout
      * @request POST:/api/v1/auth/logout
      */
-    v1AuthLogoutCreate: (params: RequestParams = {}) =>
-      this.request<void, any>({
+    v1AuthLogoutCreate: (
+      query?: {
+        /** Return the logout URL instead of redirecting */
+        get_url?: boolean;
+        /** Post-logout redirect URI */
+        redirect_uri?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, any>({
         path: `/api/v1/auth/logout`,
         method: "POST",
+        query: query,
         ...params,
       }),
 
@@ -12357,6 +12509,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Lists the acting user's own account plus the GitHub organizations or GitLab groups (Developer access or above) they belong to. Credentials: the user's OAuth connection for the provider (GitHub needs the repo scope, GitLab api), otherwise their personal access token connection. Returns 409 connect_required when neither exists.
+     *
+     * @tags git-repositories
+     * @name V1GitOwnersList
+     * @summary List accounts a repository can be created under
+     * @request GET:/api/v1/git/owners
+     * @secure
+     */
+    v1GitOwnersList: (
+      query: {
+        /** Git provider */
+        provider: "github" | "gitlab";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesGitOwner[], SystemHTTPError | TypesConnectRequiredError>({
+        path: `/api/v1/git/owners`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all git repositories, optionally filtered by owner, type, and project
      *
      * @tags git-repositories
@@ -12981,6 +13158,118 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List the pull requests of a Helix-hosted repository
+     *
+     * @tags git-repositories
+     * @name ListGitRepositoryPulls
+     * @summary List Helix pull requests
+     * @request GET:/api/v1/git/repositories/{id}/pulls
+     * @secure
+     */
+    listGitRepositoryPulls: (
+      id: string,
+      query?: {
+        /** open (default), closed or all */
+        state?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesGitPullRequest[], TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pulls`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a pull request of a Helix-hosted repository with its changed files and mergeability
+     *
+     * @tags git-repositories
+     * @name GetGitRepositoryPull
+     * @summary Get a Helix pull request
+     * @request GET:/api/v1/git/repositories/{id}/pulls/{number}
+     * @secure
+     */
+    getGitRepositoryPull: (id: string, number: number, params: RequestParams = {}) =>
+      this.request<TypesGitPullRequestDetail, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pulls/${number}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Edit the title or body of a Helix pull request, or close or reopen it
+     *
+     * @tags git-repositories
+     * @name UpdateGitRepositoryPull
+     * @summary Update a Helix pull request
+     * @request PATCH:/api/v1/git/repositories/{id}/pulls/{number}
+     * @secure
+     */
+    updateGitRepositoryPull: (
+      id: string,
+      number: number,
+      request: TypesGitPullRequestUpdate,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesGitPullRequest, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pulls/${number}`,
+        method: "PATCH",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Merge a Helix pull request: fast-forward when possible, otherwise a merge commit. 405 when it conflicts.
+     *
+     * @tags git-repositories
+     * @name MergeGitRepositoryPull
+     * @summary Merge a Helix pull request
+     * @request POST:/api/v1/git/repositories/{id}/pulls/{number}/merge
+     * @secure
+     */
+    mergeGitRepositoryPull: (
+      id: string,
+      number: number,
+      request: TypesGitPullRequestMergeRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesGitPullRequest, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pulls/${number}/merge`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Sends the spec task that owns the pull request an instruction to rebase its head branch onto the base branch
+     *
+     * @tags git-repositories
+     * @name RequestGitRepositoryPullRebase
+     * @summary Ask the agent to rebase a Helix pull request
+     * @request POST:/api/v1/git/repositories/{id}/pulls/{number}/request-rebase
+     * @secure
+     */
+    requestGitRepositoryPullRebase: (id: string, number: number, params: RequestParams = {}) =>
+      this.request<TypesGitPullRequestDetail, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pulls/${number}/request-rebase`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Pushes the local branch to the remote repository
      *
      * @tags git-repositories
@@ -13217,6 +13506,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Creates a repository under owner using the acting user's own credentials. GitHub generates it from the template repository (the template must have the template flag); GitLab imports https://github.com/<template>.git and the call waits for the import to finish. private defaults to true. Credentials: the user's OAuth connection for the provider (GitHub needs the repo scope, GitLab api), otherwise their personal access token connection. Returns 409 connect_required when neither exists, and 422 with the provider's message when the provider rejects the request (for example, the name is already taken).
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesFromTemplateCreate
+     * @summary Create a repository from a template in the user's GitHub/GitLab account
+     * @request POST:/api/v1/git/repositories/from-template
+     * @secure
+     */
+    v1GitRepositoriesFromTemplateCreate: (request: TypesCreateRepoFromTemplateRequest, params: RequestParams = {}) =>
+      this.request<TypesCreateRepoFromTemplateResponse, SystemHTTPError | TypesConnectRequiredError>({
+        path: `/api/v1/git/repositories/from-template`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all available Helix models, optionally filtering by type, name, or runtime.
      *
      * @tags models
@@ -13350,10 +13659,36 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Look up basic info for an invitation by id
      * @request GET:/api/v1/invitations/{id}/info
      */
-    v1InvitationsInfoDetail: (id: string, params: RequestParams = {}) =>
+    v1InvitationsInfoDetail: (
+      id: string,
+      query: {
+        /** Secret token from the invite link */
+        token: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesPublicInvitationInfo, any>({
         path: `/api/v1/invitations/${id}/info`,
         method: "GET",
+        query: query,
+        ...params,
+      }),
+
+    /**
+     * @description Accept the invitation from an invite link as the signed-in user. Requires the invitation's secret token from the link, and the account's email must be the invited address. Works for waitlisted accounts (an invitation lifts the waitlist).
+     *
+     * @tags organizations
+     * @name V1InvitationsAcceptCreate
+     * @summary Accept an organization invitation
+     * @request POST:/api/v1/invitations/{id}/accept
+     */
+    v1InvitationsAcceptCreate: (id: string, request: TypesAcceptInvitationRequest, params: RequestParams = {}) =>
+      this.request<TypesUserResponse, any>({
+        path: `/api/v1/invitations/${id}/accept`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -14045,6 +14380,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/organizations/${id}/invitations/${invitationId}`,
         method: "DELETE",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Owners only. Generates a new secret token for the invitation and returns its invite link, for sending outside email. Links issued earlier (including the emailed one) stop working.
+     *
+     * @tags organizations
+     * @name V1OrganizationsInvitationsLinkCreate
+     * @summary Issue a new invite link for a pending invitation
+     * @request POST:/api/v1/organizations/{id}/invitations/{invitation_id}/link
+     * @secure
+     */
+    v1OrganizationsInvitationsLinkCreate: (id: string, invitationId: string, params: RequestParams = {}) =>
+      this.request<TypesInvitationLinkResponse, any>({
+        path: `/api/v1/organizations/${id}/invitations/${invitationId}/link`,
+        method: "POST",
+        secure: true,
+        format: "json",
         ...params,
       }),
 

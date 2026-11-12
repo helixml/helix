@@ -426,6 +426,7 @@ func (s *ApplyProjectSuite) TestExternalRepositoryTypeForURL() {
 func (s *ApplyProjectSuite) TestApply_ExistingIncompleteRepoIsRepaired() {
 	existingRepo := &types.GitRepository{
 		ID:           "repo-incomplete-123",
+		OwnerID:      s.userID,
 		ExternalURL:  "https://github.com/org/my-repo",
 		CloneURL:     "https://github.com/org/my-repo",
 		IsExternal:   true,
@@ -473,6 +474,7 @@ func (s *ApplyProjectSuite) TestApply_ExistingIncompleteRepoIsRepaired() {
 func (s *ApplyProjectSuite) TestApply_RepoAttachedWhenAlreadyExists() {
 	existingRepo := &types.GitRepository{
 		ID:          "repo-already-123",
+		OwnerID:     s.userID,
 		ExternalURL: "https://github.com/org/my-repo",
 		CloneURL:    "http://helix.test/git/repo-already-123",
 		LocalPath:   "/tmp/git-repositories/repo-already-123",
@@ -530,12 +532,14 @@ func (s *ApplyProjectSuite) TestApply_MultiRepo_PrimarySetCorrectly() {
 
 	frontendRepo := &types.GitRepository{
 		ID:          "repo-frontend",
+		OwnerID:     s.userID,
 		ExternalURL: "https://github.com/org/frontend",
 		CloneURL:    "http://helix.test/git/repo-frontend",
 		LocalPath:   "/tmp/git-repositories/repo-frontend",
 	}
 	backendRepo := &types.GitRepository{
 		ID:          "repo-backend",
+		OwnerID:     s.userID,
 		ExternalURL: "https://github.com/org/backend",
 		CloneURL:    "http://helix.test/git/repo-backend",
 		LocalPath:   "/tmp/git-repositories/repo-backend",
@@ -903,4 +907,134 @@ func (s *ApplyProjectSuite) TestApply_ValidationError_NoPrimaryInMultiRepo() {
 	resp, httpErr := s.server.applyProject(rec, s.applyRequest(req))
 	s.Nil(resp)
 	s.NotNil(httpErr)
+}
+
+// TestApply_RejectsUpdateOfOrgProjectWithoutAccess: a same-org project matched
+// by name is only updated when the caller may update that project.
+func (s *ApplyProjectSuite) TestApply_RejectsUpdateOfOrgProjectWithoutAccess() {
+	existing := &types.Project{
+		ID:             "proj-other",
+		Name:           "shared-name",
+		UserID:         "someone-else",
+		OrganizationID: "org-1",
+	}
+	req := types.ProjectApplyRequest{
+		Name:           "shared-name",
+		OrganizationID: "org-1",
+		Spec:           types.ProjectSpec{Description: "overwritten"},
+	}
+
+	s.store.EXPECT().
+		GetOrganizationMembership(gomock.Any(), gomock.Any()).
+		Return(&types.OrganizationMembership{
+			OrganizationID: "org-1",
+			UserID:         s.userID,
+			Role:           types.OrganizationRoleMember,
+		}, nil).
+		AnyTimes()
+	s.store.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).
+		Return(&types.Organization{ID: "org-1", Name: "org-1"}, nil).AnyTimes()
+	s.store.EXPECT().
+		ListProjects(gomock.Any(), &store.ListProjectsQuery{OrganizationID: "org-1"}).
+		Return([]*types.Project{existing}, nil)
+	s.store.EXPECT().ListTeams(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().ListAccessGrants(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	// UpdateProject must NOT be called.
+
+	rec := httptest.NewRecorder()
+	resp, httpErr := s.server.applyProject(rec, s.applyRequest(req))
+	s.Nil(resp)
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusForbidden, httpErr.StatusCode)
+}
+
+// TestApply_CreatesOwnRepoWhenURLBelongsToAnotherUser: a repository row for the
+// URL owned by someone else is never attached; the caller gets their own row.
+func (s *ApplyProjectSuite) TestApply_CreatesOwnRepoWhenURLBelongsToAnotherUser() {
+	otherRepo := &types.GitRepository{
+		ID:          "repo-other",
+		OwnerID:     "someone-else",
+		IsExternal:  true,
+		ExternalURL: "https://github.com/org/shared",
+	}
+	req := types.ProjectApplyRequest{
+		Name: "repo-project",
+		Spec: types.ProjectSpec{
+			Repository: &types.ProjectRepositorySpec{URL: "https://github.com/org/shared"},
+		},
+	}
+
+	s.store.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return([]*types.Project{}, nil)
+	s.store.EXPECT().
+		GetGitRepositoryByExternalURL(gomock.Any(), "", "https://github.com/org/shared").
+		Return(otherRepo, nil)
+	s.store.EXPECT().
+		ListGitRepositories(gomock.Any(), &types.ListGitRepositoriesRequest{OwnerID: s.userID}).
+		Return([]*types.GitRepository{otherRepo}, nil)
+	s.store.EXPECT().CreateProject(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, p *types.Project) (*types.Project, error) { return p, nil })
+	s.server.gitRepositoryService = &applyProjectGitRepositoryService{
+		createRepository: func(_ context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
+			s.Equal(s.userID, request.OwnerID)
+			return &types.GitRepository{
+				ID:          "repo-mine",
+				OwnerID:     s.userID,
+				ExternalURL: request.ExternalURL,
+				CloneURL:    "http://helix.test/git/repo-mine",
+				LocalPath:   "/tmp/git-repositories/repo-mine",
+			}, nil
+		},
+	}
+	// The other user's repo-other must NOT be attached.
+	s.store.EXPECT().AttachRepositoryToProject(gomock.Any(), gomock.Any(), "repo-mine").Return(nil)
+	s.store.EXPECT().SetProjectPrimaryRepository(gomock.Any(), gomock.Any(), "repo-mine").Return(nil)
+
+	rec := httptest.NewRecorder()
+	_, httpErr := s.server.applyProject(rec, s.applyRequest(req))
+	s.Nil(httpErr)
+}
+
+// TestApply_ReusesOwnRepoWhenFirstURLMatchBelongsToAnotherUser: once the caller
+// has their own row for the URL, later applies reuse it instead of creating
+// another.
+func (s *ApplyProjectSuite) TestApply_ReusesOwnRepoWhenFirstURLMatchBelongsToAnotherUser() {
+	otherRepo := &types.GitRepository{ID: "repo-other", OwnerID: "someone-else", IsExternal: true, ExternalURL: "https://github.com/org/shared"}
+	mine := &types.GitRepository{
+		ID: "repo-mine", OwnerID: s.userID, IsExternal: true, ExternalURL: "https://github.com/org/shared",
+		CloneURL: "http://helix.test/git/repo-mine", LocalPath: "/tmp/git-repositories/repo-mine",
+	}
+	req := types.ProjectApplyRequest{
+		Name: "repo-project",
+		Spec: types.ProjectSpec{Repository: &types.ProjectRepositorySpec{URL: "https://github.com/org/shared"}},
+	}
+
+	s.store.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return([]*types.Project{}, nil)
+	s.store.EXPECT().GetGitRepositoryByExternalURL(gomock.Any(), "", "https://github.com/org/shared").Return(otherRepo, nil)
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{mine}, nil)
+	s.store.EXPECT().CreateProject(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, p *types.Project) (*types.Project, error) { return p, nil })
+	s.store.EXPECT().AttachRepositoryToProject(gomock.Any(), gomock.Any(), "repo-mine").Return(nil)
+	s.store.EXPECT().SetProjectPrimaryRepository(gomock.Any(), gomock.Any(), "repo-mine").Return(nil)
+
+	rec := httptest.NewRecorder()
+	_, httpErr := s.server.applyProject(rec, s.applyRequest(req))
+	s.Nil(httpErr)
+}
+
+// TestApply_RejectedRepoLeavesNoProject: a repository rejected during
+// resolution fails the request before any project is created.
+func (s *ApplyProjectSuite) TestApply_RejectedRepoLeavesNoProject() {
+	req := types.ProjectApplyRequest{
+		Name: "repo-project",
+		Spec: types.ProjectSpec{Repository: &types.ProjectRepositorySpec{URL: "http://127.0.0.1/org/repo"}},
+	}
+	s.store.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return([]*types.Project{}, nil)
+	s.store.EXPECT().GetGitRepositoryByExternalURL(gomock.Any(), "", "http://127.0.0.1/org/repo").Return(nil, store.ErrNotFound)
+	s.server.gitRepositoryService = &applyProjectGitRepositoryService{}
+	// CreateProject / UpdateProject must NOT be called.
+
+	rec := httptest.NewRecorder()
+	_, httpErr := s.server.applyProject(rec, s.applyRequest(req))
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusBadRequest, httpErr.StatusCode)
 }

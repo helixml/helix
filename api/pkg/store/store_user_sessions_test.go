@@ -49,8 +49,9 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_CreateUserSession_Require
 func (suite *PostgresStoreTestSuite) TestPostgresStore_GetUserSession() {
 	session := &types.UserSession{
 		UserID:       system.GenerateUserID(),
-		AuthProvider: types.AuthProviderRegular,
+		AuthProvider: types.AuthProviderOIDC,
 		ExpiresAt:    time.Now().Add(24 * time.Hour),
+		OIDCIDToken:  "id_token",
 	}
 
 	created, err := suite.db.CreateUserSession(suite.ctx, session)
@@ -66,6 +67,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetUserSession() {
 	suite.NotNil(retrieved)
 	suite.Equal(created.ID, retrieved.ID)
 	suite.Equal(created.UserID, retrieved.UserID)
+	suite.Equal("id_token", retrieved.OIDCIDToken)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_GetUserSession_RequiresID() {

@@ -91,6 +91,7 @@ describe('OrgAgentSessionWorkspace', () => {
   })
 
   it('shows the latest activation error above the workspace', () => {
+    const onStart = vi.fn()
     render(
       <OrgAgentSessionWorkspace
         sessionId="session-error"
@@ -100,6 +101,7 @@ describe('OrgAgentSessionWorkspace', () => {
           status: 'stopped',
           activation_error: 'This organization is already running 32 agents. Stop one and try again.',
         } as any}
+        onStart={onStart}
       >
         <div>Session chat</div>
       </OrgAgentSessionWorkspace>,
@@ -108,6 +110,8 @@ describe('OrgAgentSessionWorkspace', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'This organization is already running 32 agents. Stop one and try again.',
     )
+    fireEvent.click(screen.getByRole('button', { name: 'Start bot' }))
+    expect(onStart).toHaveBeenCalledOnce()
   })
 
   it('leaves insufficient-balance errors to the resolved session chat on desktop and mobile', () => {

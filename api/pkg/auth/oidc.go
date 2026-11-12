@@ -373,7 +373,7 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 			Email:      userInfo.Email,
 			FullName:   fullName,
 			CreatedAt:  time.Now(),
-			Waitlisted: c.newUserWaitlisted(outsideAllowedDomains),
+			Waitlisted: c.newUserWaitlisted(userInfo.Subject, outsideAllowedDomains),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create user: %w", err)
@@ -382,7 +382,12 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		// Auto-accept pending org invitations for this email. Best-effort.
 		// If any were accepted, skip the onboarding wizard AND bypass the
 		// waitlist — an invitation is an implicit vouch from an org owner.
-		if consumed, invErr := c.store.ConsumePendingInvitations(ctx, user); invErr != nil {
+		// Only for a verified email: the invitation was addressed to the
+		// owner of that mailbox, and an IdP that lets users set an arbitrary
+		// unverified email must not let them claim someone else's invitation.
+		if !userInfo.EmailVerified {
+			log.Info().Str("user_id", user.ID).Msg("OIDC email not verified - not auto-accepting pending invitations")
+		} else if consumed, invErr := c.store.ConsumePendingInvitations(ctx, user); invErr != nil {
 			log.Warn().Err(invErr).Str("user_id", user.ID).Msg("failed to consume pending invitations for OIDC user")
 		} else if len(consumed) > 0 {
 			user.OnboardingCompleted = true
@@ -517,10 +522,16 @@ func classifyEmailDomain(email string, verified bool, allowed []string, waitlist
 }
 
 // newUserWaitlisted decides the initial Waitlisted flag for a user created on
-// first OIDC login. In waitlist-outside-domains mode the domain list is the
-// waitlist policy: outside → waitlisted, allowed → not. Otherwise the global
+// first OIDC login. A user named in ADMIN_USER_IDS is never waitlisted (as for
+// password signups in HelixAuthenticator.CreateUser): the waitlist blocks the
+// whole API, so it would lock the configured admin out. In
+// waitlist-outside-domains mode the domain list is the waitlist policy:
+// outside → waitlisted, allowed → not. Otherwise the global
 // AUTH_WAITLIST_ENABLED setting applies.
-func (c *OIDCClient) newUserWaitlisted(outsideAllowedDomains bool) bool {
+func (c *OIDCClient) newUserWaitlisted(userID string, outsideAllowedDomains bool) bool {
+	if c.adminConfig != nil && c.adminConfig.IsUserInAdminList(userID) {
+		return false
+	}
 	if c.cfg.WaitlistOutsideAllowedDomains && len(c.cfg.AllowedEmailDomains) > 0 {
 		return outsideAllowedDomains
 	}

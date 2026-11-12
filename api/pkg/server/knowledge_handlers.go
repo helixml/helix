@@ -36,6 +36,8 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 	query := &store.ListKnowledgeQuery{
 		AppID: appID,
 	}
+	// Set when the caller may edit the app the listed knowledge belongs to.
+	canEditApp := false
 
 	switch {
 	case appID != "":
@@ -58,6 +60,7 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 		if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
+		canEditApp = s.canUpdateApp(ctx, user, app)
 		// No owner filter — app authorization is the gate.
 	case orgID != "":
 		org, err := s.lookupOrg(ctx, orgID)
@@ -83,6 +86,11 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	for idx, knowledge := range knowledges {
+		// Crawler credentials are visible to the knowledge owner and to
+		// whoever may edit the app; other readers get them masked.
+		if knowledge.Owner != user.ID && !canEditApp {
+			maskKnowledgeSourceCredentials(&knowledge.Source)
+		}
 		knowledge.Progress = s.knowledgeManager.GetStatus(knowledge.ID)
 
 		if knowledge.RefreshEnabled && knowledge.RefreshSchedule != "" {

@@ -3,7 +3,6 @@ package tools
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -144,7 +143,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 						Str("provider", tool.Config.API.OAuthProvider).
 						Str("session_id", sessionID).
 						Str("tool_name", tool.Name).
-						Str("token_prefix", token[:5]+"...").
+						Int("token_length", len(token)).
 						Msg("Retrieved OAuth token for provider")
 				}
 			}
@@ -294,7 +293,7 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 						Str("provider", tool.Config.API.OAuthProvider).
 						Str("session_id", sessionID).
 						Str("tool_name", tool.Name).
-						Str("token_prefix", token[:5]+"...").
+						Int("token_length", len(token)).
 						Msg("Retrieved OAuth token for provider in stream")
 				}
 			}
@@ -398,15 +397,8 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 
 	// Make API call
 	httpClient := &http.Client{
-		Timeout: 120 * time.Second,
-	}
-
-	if c.cfg.Tools.TLSSkipVerify {
-		// Clone the default transport to preserve all default settings (timeouts, connection pooling, etc.)
-		// then add InsecureSkipVerify
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-		httpClient.Transport = transport
+		Timeout:   120 * time.Second,
+		Transport: apiToolTransport(c.cfg),
 	}
 
 	resp, err := httpClient.Do(req)
@@ -510,7 +502,7 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 				log.Debug().
 					Str("provider", toolProviderName).
 					Bool("token_present", token != "").
-					Str("token_prefix", token[:5]+"...").
+					Int("token_length", len(token)).
 					Msg("Found matching OAuth token")
 
 				// Add the token to headers if not already in headers
@@ -558,18 +550,16 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 	}
 
 	// Log the request details to debug OAuth headers
+	// Header values carry the tool's credentials: log names only.
+	headerNames := make([]string, 0, len(httpRequest.Header))
+	for name := range httpRequest.Header {
+		headerNames = append(headerNames, name)
+	}
 	log.Debug().
 		Str("url", httpRequest.URL.String()).
 		Str("method", httpRequest.Method).
-		Interface("headers", httpRequest.Header).
+		Strs("header_names", headerNames).
 		Bool("has_auth_header", httpRequest.Header.Get("Authorization") != "").
-		Str("auth_value", func() string {
-			auth := httpRequest.Header.Get("Authorization")
-			if auth != "" && len(auth) > 15 {
-				return auth[:15] + "..."
-			}
-			return auth
-		}()).
 		Msg("Prepared API request with headers")
 
 	// Log before making HTTP request (agent mode)

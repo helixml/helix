@@ -111,8 +111,24 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Owner ID is required", http.StatusBadRequest)
 		return
 	}
+	// A repository falls back to its owner's stored credentials, so a caller
+	// may only create repositories they own.
+	if request.OwnerID != user.ID && !user.Admin {
+		http.Error(w, "Owner ID must be the authenticated user", http.StatusForbidden)
+		return
+	}
 	if request.RepoType == "" {
 		request.RepoType = types.GitRepositoryTypeCode
+	}
+	if request.ExternalURL != "" && rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "external_url", request.ExternalURL) {
+		return
+	}
+	if request.AzureDevOps != nil && request.AzureDevOps.OrganizationURL != "" {
+		if err := azuredevops.CheckOrganizationURL(r.Context(), s.gitProviderURLPolicy(), request.AzureDevOps.OrganizationURL); err != nil {
+			log.Warn().Err(err).Str("field", "azure_devops.organization_url").Msg("rejected outbound URL")
+			http.Error(w, "azure_devops.organization_url must be an https URL of an allowed destination", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Pass API key for Kodit to clone repos via Helix's internal git server
@@ -129,6 +145,20 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 	// Enterprise ADO deployments reject commits with non-corporate email addresses
 	request.CreatorName = user.FullName
 	request.CreatorEmail = user.Email
+
+	// A pinned OAuth connection's token is sent to the repository's external
+	// URL, which the caller chooses. Only the connection's own user may pin it.
+	if request.OAuthConnectionID != "" {
+		connection, err := s.Store.GetOAuthConnection(r.Context(), request.OAuthConnectionID)
+		if err != nil {
+			http.Error(w, "Referenced OAuth connection not found", http.StatusBadRequest)
+			return
+		}
+		if connection.UserID != user.ID {
+			http.Error(w, "OAuth connection does not belong to this user", http.StatusForbidden)
+			return
+		}
+	}
 
 	// If a saved PAT connection is referenced, look up the connection, decrypt the
 	// token, and populate the provider-specific settings so the service layer can
@@ -209,6 +239,22 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 	json.NewEncoder(w).Encode(redactGitRepository(repository))
 }
 
+// redirectsRepositoryUpstream reports whether an update changes where the
+// repository's stored credentials are sent.
+func redirectsRepositoryUpstream(existing *types.GitRepository, request *types.GitRepositoryUpdateRequest) bool {
+	if request.ExternalURL != "" && request.ExternalURL != existing.ExternalURL {
+		return true
+	}
+	if request.ExternalType != "" && request.ExternalType != existing.ExternalType {
+		return true
+	}
+	if request.AzureDevOps != nil && request.AzureDevOps.OrganizationURL != "" &&
+		(existing.AzureDevOps == nil || request.AzureDevOps.OrganizationURL != existing.AzureDevOps.OrganizationURL) {
+		return true
+	}
+	return false
+}
+
 // getGitRepository retrieves repository information by ID
 // @Summary Get git repository
 // @Description Get information about a specific git repository
@@ -286,6 +332,26 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
 		writeErrResponse(w, err, http.StatusForbidden)
+		return
+	}
+	if request.ExternalURL != "" && rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "external_url", request.ExternalURL) {
+		return
+	}
+	if request.AzureDevOps != nil && request.AzureDevOps.OrganizationURL != "" {
+		if err := azuredevops.CheckOrganizationURL(r.Context(), s.gitProviderURLPolicy(), request.AzureDevOps.OrganizationURL); err != nil {
+			log.Warn().Err(err).Str("field", "azure_devops.organization_url").Msg("rejected outbound URL")
+			http.Error(w, "azure_devops.organization_url must be an https URL of an allowed destination", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// The stored credentials (password, PATs, the pinned OAuth connection)
+	// belong to the repository owner and are sent to the external URL on every
+	// sync. A collaborator with update access must not be able to point them at
+	// another host; the owner, an owner of the repository's org and a system
+	// admin may.
+	if redirectsRepositoryUpstream(existing, &request) && !s.canRedirectRepositoryUpstream(r.Context(), user, existing) {
+		http.Error(w, "Only the repository owner or an organization owner can change its external URL or type", http.StatusForbidden)
 		return
 	}
 
@@ -447,7 +513,8 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 
 	// Org owners see every repository in their org. Owner-scoped lists are
 	// filtered too, so repositories in orgs the caller has left drop out.
-	isOrgOwner := orgMembership != nil && orgMembership.Role == types.OrganizationRoleOwner
+	// A project-scoped key is filtered even for an org owner.
+	isOrgOwner := orgMembership != nil && orgMembership.Role == types.OrganizationRoleOwner && user.ProjectID == ""
 	if !isAdmin(user) && !isOrgOwner && (orgID != "" || projectID == "") {
 		repositories = s.filterReadableRepositories(ctx, user, repositories)
 	}
@@ -498,6 +565,12 @@ func (s *HelixAPIServer) createSampleRepository(w http.ResponseWriter, r *http.R
 	}
 	if request.OwnerID == "" {
 		http.Error(w, "Owner ID is required", http.StatusBadRequest)
+		return
+	}
+	// A repository falls back to its owner's stored credentials, so a caller
+	// may only create repositories they own.
+	if request.OwnerID != user.ID && !user.Admin {
+		http.Error(w, "Owner ID must be the authenticated user", http.StatusForbidden)
 		return
 	}
 
@@ -609,6 +682,12 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 
 	if request.OwnerID == "" {
 		http.Error(w, "Owner ID is required", http.StatusBadRequest)
+		return
+	}
+	// A repository falls back to its owner's stored credentials, so a caller
+	// may only create repositories they own.
+	if request.OwnerID != user.ID && !user.Admin {
+		http.Error(w, "Owner ID must be the authenticated user", http.StatusForbidden)
 		return
 	}
 
@@ -1846,11 +1925,17 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 		return
 	}
 
+	policy := s.gitProviderURLPolicy()
+	httpClient := gitProviderHTTPClient(policy, request.BaseURL)
+
 	var repos []types.RepositoryInfo
 
 	switch request.ProviderType {
 	case types.ExternalRepositoryTypeGitHub:
-		ghClient := github.NewClientWithPATAndBaseURL(request.Token, request.BaseURL)
+		if request.BaseURL != "" && rejectDisallowedOutboundURL(ctx, w, policy, "base_url", request.BaseURL) {
+			return
+		}
+		ghClient := github.NewClientWithPATBaseURLAndHTTPClient(request.Token, request.BaseURL, httpClient)
 
 		// Validate token scopes before listing repos. Classic PATs with no scopes
 		// or missing scopes can still list public repos, but Helix needs write access.
@@ -1898,7 +1983,10 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 		}
 
 	case types.ExternalRepositoryTypeGitLab:
-		glClient, err := gitlab.NewClientWithPAT(request.BaseURL, request.Token)
+		if request.BaseURL != "" && rejectDisallowedOutboundURL(ctx, w, policy, "base_url", request.BaseURL) {
+			return
+		}
+		glClient, err := gitlab.NewClientWithPATAndHTTPClient(request.BaseURL, request.Token, httpClient)
 		if err != nil {
 			if isAuthenticationError(err) {
 				http.Error(w, "Invalid GitLab token. Please check your token and try again.", http.StatusBadRequest)
@@ -1938,8 +2026,13 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 			http.Error(w, "Organization URL is required for Azure DevOps", http.StatusBadRequest)
 			return
 		}
+		// The ADO SDK builds its own http.Client, so this is a pre-flight
+		// check only (no dial-time enforcement).
+		if rejectDisallowedOutboundURL(ctx, w, policy, "organization_url", request.OrganizationURL) {
+			return
+		}
 
-		adoClient := azuredevops.NewAzureDevOpsClient(request.OrganizationURL, request.Token)
+		adoClient := azuredevops.NewAzureDevOpsClient(request.OrganizationURL, request.Token).WithOutboundPolicy(policy)
 		adoRepos, err := adoClient.ListRepositories(ctx, "") // Empty string = all projects
 		if err != nil {
 			if isAuthenticationError(err) {
@@ -2005,4 +2098,22 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Error().Err(err).Msg("Failed to encode response")
 	}
+}
+
+// canRedirectRepositoryUpstream reports whether the caller may change where a
+// repository's stored credentials are sent.
+func (s *HelixAPIServer) canRedirectRepositoryUpstream(ctx context.Context, user *types.User, repo *types.GitRepository) bool {
+	// Like access grants, this decides where credentials go: never for a
+	// project- or session-scoped key.
+	if isAgentScopedKey(user) {
+		return false
+	}
+	if user.ID == repo.OwnerID || user.Admin {
+		return true
+	}
+	if repo.OrganizationID == "" {
+		return false
+	}
+	_, err := s.authorizeOrgOwner(ctx, user, repo.OrganizationID)
+	return err == nil
 }

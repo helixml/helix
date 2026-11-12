@@ -33,6 +33,32 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_CreateSession() {
 	suite.Equal(session, *createdSession)
 }
 
+func (suite *PostgresStoreTestSuite) TestListSessionsFindsProviderRecoveryAcrossOrganizations() {
+	ctx := context.Background()
+	provider := "pe-" + system.GenerateUUID()
+	session := types.Session{
+		ID: system.GenerateSessionID(), Owner: "user_id", OwnerType: types.OwnerTypeUser,
+		OrganizationID: "org-test", Created: time.Now(), Updated: time.Now(), ModelName: "external_agent",
+		Metadata: types.SessionMetadata{Recovery: &types.ProviderRecovery{Provider: provider}},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	personal, _, err := suite.db.ListSessions(ctx, ListSessionsQuery{
+		AnyOwner: true, IncludeExternalAgents: true, ProviderRecoveryProviders: []string{provider},
+	})
+	suite.Require().NoError(err)
+	suite.Empty(personal)
+
+	sessions, _, err := suite.db.ListSessions(ctx, ListSessionsQuery{
+		AnyOwner: true, AnyOrganization: true, IncludeExternalAgents: true, ProviderRecoveryProviders: []string{provider},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(sessions, 1)
+	suite.Equal(session.ID, sessions[0].ID)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSession() {
 	session := types.Session{
 		ID:      system.GenerateSessionID(),

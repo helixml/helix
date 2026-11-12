@@ -56,6 +56,9 @@ interface AgentChatProps {
   welcomeSubheading?: string
 }
 
+// Inside an iframe (an embedded task) the host page owns focus.
+const isFramed = typeof window !== "undefined" && window.self !== window.top
+
 /** Shared org/spec-task conversation surface. */
 const AgentChat: FC<AgentChatProps> = ({
   sessionId,
@@ -146,7 +149,6 @@ const AgentChat: FC<AgentChatProps> = ({
     && dismissedPlanInteractionId !== latestInteractionId
 
   const handleSend = useCallback(async (message: string, interrupt?: boolean) => {
-    setHasSentInWelcome(true)
     setComposerPlanExpanded(false)
     setDismissedPlanInteractionId(null)
     await streaming.NewInference({
@@ -155,6 +157,7 @@ const AgentChat: FC<AgentChatProps> = ({
       sessionId,
       interrupt: interrupt ?? true,
     })
+    setHasSentInWelcome(true)
     void refreshSpecTaskStatus()
     // Provider state remains mounted; primitive route state selects the current
     // session and task whose queries need refreshing.
@@ -215,7 +218,9 @@ const AgentChat: FC<AgentChatProps> = ({
       isCancelling={isCancelling}
       leadingActions={leadingActions}
       showContextUsage={!minimal}
-      autoFocus
+      // Focusing inside an iframe scrolls the embedding page to the composer;
+      // a host page (HelixOS, Gatewaze) decides where focus goes.
+      autoFocus={!isFramed}
       placeholder={placeholder}
       disabled={disabled}
       enableSandboxCompletions

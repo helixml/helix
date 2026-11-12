@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -200,6 +201,7 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, fmt.Errorf("get bot %s activation status: %w", id, err))
 			return
 		}
+		dto.ActivationError = displayActivationError(dto.ActivationError)
 	}
 	// Seeded nodes carry their built-in prompt so the UI can offer a
 	// reset to it; operator-created nodes have none and the field stays
@@ -237,6 +239,16 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto, LegacyAppID: b.AgentID})
+}
+
+func displayActivationError(err string) string {
+	if strings.Contains(err, "activation prompt ") && strings.Contains(err, " was deleted") {
+		return "The previous task was cancelled before the bot could run. Start the bot, then send it again."
+	}
+	if strings.Contains(err, "agent turn aborted") && system.Has5xxStatusCode(err) {
+		return "The AI model was temporarily unavailable, so this task did not run. The bot will try again automatically when the model is available."
+	}
+	return err
 }
 
 // updateBot rewrites a Bot's content / tools. A nil field is

@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // GetSystemSettings retrieves the global system settings
@@ -161,11 +162,54 @@ func (s *PostgresStore) UpdateSystemSettings(ctx context.Context, req *types.Sys
 
 	settings.Updated = time.Now()
 
-	// Save changes
-	err = s.gdb.WithContext(ctx).Save(settings).Error
+	// Save changes. The JWT signing secret is owned by EnsureJWTSigningSecret
+	// and is never written back from a (possibly stale) settings read.
+	err = s.gdb.WithContext(ctx).Omit("jwt_signing_secret").Save(settings).Error
 	if err != nil {
 		return nil, err
 	}
 
 	return settings, nil
+}
+
+// EnsureJWTSigningSecret stores candidate as the JWT signing secret if none is
+// stored yet and returns the stored secret. The write is insert-if-absent
+// followed by a re-read, so API replicas racing on first boot converge on a
+// single value.
+func (s *PostgresStore) EnsureJWTSigningSecret(ctx context.Context, candidate string) (string, error) {
+	if candidate == "" {
+		return "", fmt.Errorf("candidate JWT signing secret must not be empty")
+	}
+
+	db := s.gdb.WithContext(ctx)
+	now := time.Now()
+
+	// Create the settings row with the candidate if it does not exist yet.
+	err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&types.SystemSettings{
+		ID:               types.SystemSettingsID,
+		Created:          now,
+		Updated:          now,
+		JWTSigningSecret: candidate,
+	}).Error
+	if err != nil {
+		return "", fmt.Errorf("failed to create system settings: %w", err)
+	}
+
+	// The row may have existed without a secret; fill it only if still empty.
+	err = db.Model(&types.SystemSettings{}).
+		Where("id = ? AND (jwt_signing_secret IS NULL OR jwt_signing_secret = '')", types.SystemSettingsID).
+		UpdateColumn("jwt_signing_secret", candidate).Error
+	if err != nil {
+		return "", fmt.Errorf("failed to store JWT signing secret: %w", err)
+	}
+
+	var settings types.SystemSettings
+	err = db.Select("jwt_signing_secret").Where("id = ?", types.SystemSettingsID).First(&settings).Error
+	if err != nil {
+		return "", fmt.Errorf("failed to read JWT signing secret: %w", err)
+	}
+	if settings.JWTSigningSecret == "" {
+		return "", fmt.Errorf("JWT signing secret was not persisted")
+	}
+	return settings.JWTSigningSecret, nil
 }

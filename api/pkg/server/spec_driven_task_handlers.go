@@ -1485,6 +1485,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.KeepAlive != nil {
 		task.KeepAlive = *updateReq.KeepAlive
 	}
+	if updateReq.AutoApprovePullRequests != nil && isAgentScopedKey(user) {
+		http.Error(w, errAgentKeyDecision.Error(), http.StatusForbidden)
+		return
+	}
 	if updateReq.AutoApprovePullRequests != nil {
 		// Proposals are auto-approved with the provider credentials of
 		// whoever turned this on.

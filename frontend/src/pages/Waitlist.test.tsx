@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import Waitlist from './Waitlist'
 
 const mockNavigateReplace = vi.fn()
@@ -79,5 +79,23 @@ describe('Waitlist — auto-redirect off the page', () => {
     render(<Waitlist />)
     expect(mockNavigateReplace).not.toHaveBeenCalled()
     expect(screen.getByText("You're on the waitlist!")).toBeInTheDocument()
+  })
+
+  it('asks for confirmation before signing out', () => {
+    mockAccountValue = {
+      initialized: true,
+      user: { email: 'still@waitlisted.com', waitlisted: true },
+      onLogout: mockOnLogout,
+    }
+    render(<Waitlist />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+
+    expect(mockOnLogout).not.toHaveBeenCalled()
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('Sign out of Helix?')).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out' }))
+    expect(mockOnLogout).toHaveBeenCalledOnce()
   })
 })

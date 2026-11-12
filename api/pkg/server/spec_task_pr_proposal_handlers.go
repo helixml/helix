@@ -54,6 +54,10 @@ func (s *HelixAPIServer) listSpecTaskPRProposals(w http.ResponseWriter, r *http.
 // @Router /api/v1/spec-tasks/{spec_task_id}/pr-proposals/{proposal_id}/decide [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) decideSpecTaskPRProposal(w http.ResponseWriter, r *http.Request) {
+	if isAgentScopedKey(getRequestUser(r)) {
+		writeErrResponse(w, errAgentKeyDecision, http.StatusForbidden)
+		return
+	}
 	task, ok := s.authorizedSpecTaskForProposals(w, r, types.ActionUpdate)
 	if !ok {
 		return
@@ -144,6 +148,10 @@ func (s *HelixAPIServer) reopenDoneTaskForAgentStart(ctx context.Context, specTa
 // @Router /api/v1/spec-tasks/{spec_task_id}/completion/decide [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) decideSpecTaskCompletion(w http.ResponseWriter, r *http.Request) {
+	if isAgentScopedKey(getRequestUser(r)) {
+		writeErrResponse(w, errAgentKeyDecision, http.StatusForbidden)
+		return
+	}
 	task, ok := s.authorizedSpecTaskForProposals(w, r, types.ActionUpdate)
 	if !ok {
 		return

@@ -414,7 +414,16 @@ const HelixOrgChatPanel: FC = () => {
       >
         {botDetail?.bot?.activation_error
           && (!chatSessionId || view !== 'chat' || !/insufficient balance/i.test(botDetail.bot.activation_error)) && (
-          <Alert severity="error" role="alert" sx={{ flexShrink: 0 }}>
+          <Alert
+            severity="error"
+            role="alert"
+            sx={{ flexShrink: 0 }}
+            action={selectedBot?.status === 'stopped' ? (
+              <Button color="inherit" size="small" onClick={() => void handleStart()} disabled={busy || botStarting}>
+                Start bot
+              </Button>
+            ) : undefined}
+          >
             {botDetail.bot.activation_error}
           </Alert>
         )}

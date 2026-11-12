@@ -18,6 +18,7 @@ import (
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/netguard"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
@@ -1068,27 +1069,42 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 	return assistant, nil
 }
 
+// evaluateSecrets substitutes ${NAME} references in the app config with
+// secrets of the app's owner. The references can appear anywhere in the
+// config (system prompt, tool URLs, headers), and anyone who may edit the app
+// can write them, so which secrets resolve depends on who is calling:
+//
+//   - secrets the owner scoped to this app resolve for every caller: the
+//     owner put them there for the app to use;
+//   - the owner's unscoped personal secrets resolve only when the owner is
+//     the caller, or any editor could reference them and read them back;
+//   - the caller's own secrets are never used for someone else's app, or the
+//     app's author could receive every caller's secrets.
 func (c *Controller) evaluateSecrets(ctx context.Context, user *types.User, app *types.App) (*types.App, error) {
+	if app.Owner == "" {
+		return app, nil
+	}
 	secrets, err := c.Options.Store.ListSecrets(ctx, &store.ListSecretsQuery{
-		Owner: user.ID,
+		Owner: app.Owner,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list secrets: %w", err)
 	}
 
-	var filteredSecrets []*types.Secret
+	callerIsOwner := user != nil && user.ID != "" && user.ID == app.Owner
 
-	// Keep only secrets relevant to this app's inference:
-	//   - user-level secrets (no project, no app scope)
-	//   - secrets explicitly scoped to this app
 	// Project-scoped secrets are injected via project sessions, not inference,
 	// and including them here would let same-named secrets from other projects
 	// collide on env-var name (the env map keys on secret.Name).
+	var filteredSecrets []*types.Secret
 	for _, secret := range secrets {
 		if secret.ProjectID != "" {
 			continue
 		}
-		if secret.AppID != "" && secret.AppID != app.ID {
+		switch {
+		case secret.AppID == app.ID:
+		case secret.AppID == "" && callerIsOwner:
+		default:
 			continue
 		}
 		filteredSecrets = append(filteredSecrets, secret)
@@ -1618,7 +1634,7 @@ func setSystemPrompt(req *openai.ChatCompletionRequest, systemPrompt string) ope
 func (c *Controller) GetRagClient(_ context.Context, knowledge *types.Knowledge) (rag.RAG, error) {
 	// TODO: remove this
 	if knowledge.RAGSettings.IndexURL != "" && knowledge.RAGSettings.QueryURL != "" {
-		return rag.NewLlamaindex(&knowledge.RAGSettings), nil
+		return rag.NewLlamaindex(&knowledge.RAGSettings, netguard.Policy{AllowPrivate: c.Options.Config.Tools.AllowPrivateNetworks}), nil
 	}
 
 	return c.Options.RAG, nil

@@ -109,7 +109,7 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 	// Wrap with thinking-type retry: Vertex AI's global LB fronts inconsistent
 	// backends — some accept thinking.type=adaptive, others require =enabled.
 	// On a 400 that matches either schema-mismatch error, swap the type and retry.
-	p.anthropicReverseProxy.Transport = &thinkingRetryTransport{base: baseTransport}
+	p.anthropicReverseProxy.Transport = &thinkingRetryTransport{base: newEndpointGuardTransport(baseTransport, cfg.Providers.AllowPrivateNetworks)}
 
 	p.anthropicReverseProxy.ModifyResponse = p.anthropicAPIProxyModifyResponse
 	p.anthropicReverseProxy.Director = p.anthropicAPIProxyDirector
@@ -173,7 +173,7 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 	// Exception: /v1/models goes to the direct Anthropic API since Vertex has no
 	// model listing endpoint. This requires an API key to be configured alongside Vertex.
 	if endpoint.VertexProjectID != "" && r.URL.Path != "/v1/models" {
-		tokenSource, err := s.getVertexTokenSource(r.Context(), endpoint.VertexCredentialsJSON, endpoint.VertexCredentialsFile)
+		tokenSource, err := s.getVertexTokenSource(r.Context(), endpoint)
 		if err != nil {
 			log.Error().Err(err).
 				Str("vertex_project_id", endpoint.VertexProjectID).
@@ -227,7 +227,19 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 // For the built-in provider (matching env var config), it returns the default token source
 // initialized at startup. For DB-configured endpoints, it lazily creates and caches a
 // token source per credentials material.
-func (s *Proxy) getVertexTokenSource(ctx context.Context, credentialsJSON, credentialsFile string) (oauth2.TokenSource, error) {
+//
+// User and org endpoints may only authenticate with their own inline service
+// account key: never a server-side credentials file, the server's default
+// token source or Application Default Credentials.
+func (s *Proxy) getVertexTokenSource(ctx context.Context, endpoint *types.ProviderEndpoint) (oauth2.TokenSource, error) {
+	credentialsJSON, credentialsFile := endpoint.VertexCredentialsJSON, endpoint.VertexCredentialsFile
+	if endpoint.OutboundPolicy(s.cfg.Providers.AllowPrivateNetworks) != nil {
+		if err := ValidateTenantVertexCredentials(credentialsJSON); err != nil {
+			return nil, err
+		}
+		return s.vertexTokenSources.getOrCreate(ctx, credentialsJSON, "")
+	}
+
 	// If this matches the built-in provider's credentials, use the default token source
 	if s.defaultTokenSource != nil &&
 		credentialsJSON == s.cfg.Providers.Anthropic.VertexCredentialsJSON &&

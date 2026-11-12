@@ -1912,6 +1912,11 @@ EOF
         RUNNER_TOKEN=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | sed 's/^RUNNER_TOKEN=//' || generate_password)
         PGVECTOR_PASSWORD=$(grep '^PGVECTOR_PASSWORD=' "$ENV_FILE" | sed 's/^PGVECTOR_PASSWORD=//' || generate_password)
         HELIX_ENCRYPTION_KEY=$(grep '^HELIX_ENCRYPTION_KEY=' "$ENV_FILE" | sed 's/^HELIX_ENCRYPTION_KEY=//' || generate_encryption_key)
+        REGULAR_AUTH_JWT_SECRET=$(grep '^REGULAR_AUTH_JWT_SECRET=' "$ENV_FILE" | sed 's/^REGULAR_AUTH_JWT_SECRET=//')
+        case "$REGULAR_AUTH_JWT_SECRET" in
+            ""|helix-default-jwt-secret|helix-default-secret-change-in-production)
+                REGULAR_AUTH_JWT_SECRET=$(generate_encryption_key) ;;
+        esac
 
         # Preserve API keys if not provided as command line arguments
         if [ -z "$ANTHROPIC_API_KEY" ]; then
@@ -1926,6 +1931,7 @@ EOF
         RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
         PGVECTOR_PASSWORD=$(generate_password)
         HELIX_ENCRYPTION_KEY=$(generate_encryption_key)
+        REGULAR_AUTH_JWT_SECRET=$(generate_encryption_key)
     fi
 
     # On upgrades, write to a temp file so we can merge user customizations
@@ -1951,6 +1957,10 @@ PGVECTOR_PASSWORD=$PGVECTOR_PASSWORD
 # Encryption key for secrets at rest (SSH keys, PATs, etc.)
 # 64-character hex string (32 bytes for AES-256-GCM)
 HELIX_ENCRYPTION_KEY=$HELIX_ENCRYPTION_KEY
+
+# Signing key for login sessions and password-reset links
+# 64-character hex string (32 bytes). Changing it signs everyone out.
+REGULAR_AUTH_JWT_SECRET=$REGULAR_AUTH_JWT_SECRET
 
 # URLs
 KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/

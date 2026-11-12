@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -325,6 +327,53 @@ func (s *PostgresStore) MarkPromptAsPending(ctx context.Context, promptID string
 		Where("id = ?", promptID).
 		Update("status", "pending").
 		Error
+}
+
+func (s *PostgresStore) RecoverProviderPrompt(ctx context.Context, sessionID, promptID string, now, nextCheckAt time.Time, maxAttempts int) (bool, error) {
+	recovered := false
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var session types.Session
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", sessionID).First(&session).Error; err != nil {
+			return err
+		}
+		state := session.Metadata.Recovery
+		if state == nil || state.PromptID != promptID || state.Attempts >= maxAttempts || state.NextCheckAt.After(now) {
+			return nil
+		}
+		var interaction types.Interaction
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND session_id = ?", state.InteractionID, sessionID).
+			First(&interaction).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		if interaction.State != types.InteractionStateError {
+			return nil
+		}
+		result := tx.Model(&types.PromptHistoryEntry{}).
+			Where("id = ? AND session_id = ? AND status = 'sent'", promptID, sessionID).
+			Updates(map[string]any{"status": "pending", "next_retry_at": nil, "error_message": ""})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		state.Attempts++
+		state.NextCheckAt = nextCheckAt
+		payload, err := json.Marshal(state)
+		if err != nil {
+			return err
+		}
+		if err := tx.Model(&types.Session{}).Where("id = ?", sessionID).
+			Update("config", gorm.Expr("jsonb_set(config, '{provider_recovery}', ?::jsonb)", string(payload))).Error; err != nil {
+			return err
+		}
+		recovered = true
+		return nil
+	})
+	return recovered, err
 }
 
 // MarkPromptAsSent marks a prompt as sent

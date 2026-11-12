@@ -53,6 +53,10 @@ func (f *fakeStore) GetGitRepository(_ context.Context, _ string) (*types.GitRep
 	return f.repo, nil
 }
 
+func (f *fakeStore) DeleteGitPullRequestsForRepository(_ context.Context, _ string) error {
+	return nil
+}
+
 func (f *fakeStore) DeleteGitRepository(_ context.Context, _ string) error {
 	f.deleted = true
 	return nil

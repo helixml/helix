@@ -59,6 +59,10 @@ func (suite *ActionTestSuite) SetupTest() {
 		apiClient = openai.NewMockClient(suite.ctrl)
 	}
 
+	// API tool tests serve their APIs from local listeners; the default
+	// (blocked) policy is covered by TestAPIToolsRejectInternalDestinations.
+	cfg.Tools.AllowPrivateNetworks = true
+
 	strategy, err := NewChainStrategy(&cfg, suite.store, apiClient)
 	suite.NoError(err)
 

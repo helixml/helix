@@ -150,6 +150,47 @@ func (s *HasReadAccessSuite) TestNonOwner_AuthorizeFnDenies() {
 	s.False(result)
 }
 
+// A project-scoped key held by the repository owner must not take the owner
+// shortcut: the authorizer, which knows the key's project, decides.
+func (s *HasReadAccessSuite) TestScopedKeyOwner_DefersToAuthorizeFn() {
+	repoPath := s.createBareRepo("repo4")
+
+	var called int
+	authFn := func(ctx context.Context, user *types.User, repo *types.GitRepository, action types.Action) error {
+		called++
+		return fmt.Errorf("repository is outside the key's project")
+	}
+	server := s.newServer(authFn)
+
+	repo := &types.GitRepository{
+		ID:        "repo4",
+		OwnerID:   "user1",
+		LocalPath: repoPath,
+	}
+	s.mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo4").Return(repo, nil).Times(2)
+
+	user := &types.User{ID: "user1", ProjectID: "prj_other"}
+	s.False(server.hasReadAccess(context.Background(), user, "repo4"))
+	s.False(server.hasWriteAccess(context.Background(), user, "repo4"))
+	s.Equal(2, called)
+}
+
+// The git server authenticates keys itself; it must carry the key's scope
+// onto the user so repository authorization can confine it.
+func (s *HasReadAccessSuite) TestValidateAPIKeyCarriesKeyScope() {
+	server := s.newServer(nil)
+	s.mockStore.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hl-task"}).Return(&types.ApiKey{
+		Key: "hl-task", Owner: "user1", ProjectID: "prj_a", SpecTaskID: "spt_1", SessionID: "ses_1",
+	}, nil)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user1"}, nil)
+
+	user, _, err := server.validateAPIKeyAndGetUser(context.Background(), "Bearer hl-task")
+	s.Require().NoError(err)
+	s.Equal("prj_a", user.ProjectID)
+	s.Equal("spt_1", user.SpecTaskID)
+	s.Equal("ses_1", user.SessionID)
+}
+
 // TestParsePullRequestMarkdown tests the parsePullRequestMarkdown function
 func TestParsePullRequestMarkdown(t *testing.T) {
 	tests := []struct {

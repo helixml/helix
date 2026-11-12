@@ -39,6 +39,11 @@ const (
 var (
 	ErrSessionNotFound = errors.New("session not found")
 	ErrSessionExpired  = errors.New("session expired")
+	// ErrSessionProviderMismatch is returned for a session created under a
+	// different AUTH_PROVIDER than the one now configured, e.g. a password
+	// session on a deployment that has since moved to OIDC. Such a session
+	// skipped the current provider's sign-in checks, so it is discarded.
+	ErrSessionProviderMismatch = errors.New("session was created by a different auth provider")
 )
 
 // SessionManager handles user session lifecycle in the BFF pattern
@@ -66,10 +71,10 @@ func (sm *SessionManager) CreateSession(
 	r *http.Request,
 	userID string,
 	authProvider types.AuthProvider,
-	oidcAccessToken, oidcRefreshToken string,
+	oidcAccessToken, oidcRefreshToken, oidcIDToken string,
 	oidcTokenExpiry time.Time,
 ) (*types.UserSession, error) {
-	return sm.createSessionWithDuration(ctx, w, r, userID, authProvider, oidcAccessToken, oidcRefreshToken, oidcTokenExpiry, DefaultSessionDuration)
+	return sm.createSessionWithDuration(ctx, w, r, userID, authProvider, oidcAccessToken, oidcRefreshToken, oidcIDToken, oidcTokenExpiry, DefaultSessionDuration)
 }
 
 // CreateDesktopSession creates a user session with a very long expiry
@@ -115,7 +120,7 @@ func (sm *SessionManager) createSessionWithDuration(
 	r *http.Request,
 	userID string,
 	authProvider types.AuthProvider,
-	oidcAccessToken, oidcRefreshToken string,
+	oidcAccessToken, oidcRefreshToken, oidcIDToken string,
 	oidcTokenExpiry time.Time,
 	duration time.Duration,
 ) (*types.UserSession, error) {
@@ -126,6 +131,7 @@ func (sm *SessionManager) createSessionWithDuration(
 		ExpiresAt:        time.Now().Add(duration),
 		OIDCAccessToken:  oidcAccessToken,
 		OIDCRefreshToken: oidcRefreshToken,
+		OIDCIDToken:      oidcIDToken,
 		OIDCTokenExpiry:  oidcTokenExpiry,
 		UserAgent:        r.UserAgent(),
 		IPAddress:        getClientIP(r),
@@ -184,6 +190,16 @@ func (sm *SessionManager) GetSessionFromRequest(ctx context.Context, r *http.Req
 		// Clean up expired session
 		_ = sm.store.DeleteUserSession(ctx, session.ID)
 		return nil, ErrSessionExpired
+	}
+
+	if sm.cfg != nil && session.AuthProvider != sm.cfg.Auth.Provider {
+		log.Warn().
+			Str("session_id", session.ID).
+			Str("session_auth_provider", string(session.AuthProvider)).
+			Str("configured_auth_provider", string(sm.cfg.Auth.Provider)).
+			Msg("Rejecting session created by a different auth provider")
+		_ = sm.store.DeleteUserSession(ctx, session.ID)
+		return nil, ErrSessionProviderMismatch
 	}
 
 	// For OIDC sessions, check if access token needs refresh
