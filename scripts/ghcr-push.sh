@@ -4,7 +4,7 @@
 # Example: scripts/ghcr-push.sh registry.helixml.tech/helix/controlplane:v1.0-linux-amd64
 #
 # Requires GITHUB_TOKEN environment variable for authentication.
-# Skips silently if GITHUB_TOKEN is not set (allows gradual rollout).
+# Fails if it is not set.
 #
 # Adds org.opencontainers.image.source label so GHCR links the package
 # to the helix repository automatically.
@@ -22,11 +22,6 @@ set -e
 LOG_TAG=ghcr-push
 . "$(dirname "$0")/lib/image-publish.sh"
 require_images ghcr-push.sh "$@"
-
-if [ -z "$GITHUB_TOKEN" ]; then
-  echo "GITHUB_TOKEN not set, skipping GHCR push"
-  exit 0
-fi
 
 ghcr_login
 
