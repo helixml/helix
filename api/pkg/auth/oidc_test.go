@@ -142,6 +142,8 @@ func (s *OIDCSuite) TestAutoJoinOrganization_VerifiedEmail() {
 		Email:    "test@example.com",
 		FullName: "Test User",
 	}, nil)
+	// A verified IdP assertion marks a pre-existing account verified.
+	s.mockStore.EXPECT().UpdateUserEmailVerification(gomock.Any(), gomock.Any(), true, "").Return(nil).AnyTimes()
 
 	// GetOrganizationByDomain should find an org
 	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(&types.Organization{
@@ -193,6 +195,8 @@ func (s *OIDCSuite) TestAutoJoinOrganization_UnverifiedEmail() {
 		Email:    "test@example.com",
 		FullName: "Test User",
 	}, nil)
+	// A verified IdP assertion marks a pre-existing account verified.
+	s.mockStore.EXPECT().UpdateUserEmailVerification(gomock.Any(), gomock.Any(), true, "").Return(nil).AnyTimes()
 
 	// GetOrganizationByDomain should NOT be called because email is not verified
 
@@ -211,6 +215,8 @@ func (s *OIDCSuite) TestAutoJoinOrganization_NoMatchingDomain() {
 		Email:    "test@example.com",
 		FullName: "Test User",
 	}, nil)
+	// A verified IdP assertion marks a pre-existing account verified.
+	s.mockStore.EXPECT().UpdateUserEmailVerification(gomock.Any(), gomock.Any(), true, "").Return(nil).AnyTimes()
 
 	// No org with this domain
 	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
@@ -230,6 +236,8 @@ func (s *OIDCSuite) TestAutoJoinOrganization_AlreadyMember() {
 		Email:    "test@example.com",
 		FullName: "Test User",
 	}, nil)
+	// A verified IdP assertion marks a pre-existing account verified.
+	s.mockStore.EXPECT().UpdateUserEmailVerification(gomock.Any(), gomock.Any(), true, "").Return(nil).AnyTimes()
 
 	// Org exists with matching domain
 	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(&types.Organization{
@@ -297,6 +305,8 @@ func (s *OIDCSuite) TestUserOperations() {
 				Email:    "test@example.com",
 				FullName: "Test User",
 			}, nil)
+			// A verified IdP assertion marks a pre-existing account verified.
+			s.mockStore.EXPECT().UpdateUserEmailVerification(gomock.Any(), gomock.Any(), true, "").Return(nil).AnyTimes()
 			// Auto-join lookup (no matching domain)
 			s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
 
@@ -333,7 +343,7 @@ func (s *OIDCSuite) TestValidateUserToken_WaitlistedNewUser_CallsOnNewUser() {
 	s.NoError(err)
 
 	// User does not exist — triggers creation
-	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, u *types.User) (*types.User, error) {
 			s.True(u.Waitlisted)
@@ -374,7 +384,7 @@ func (s *OIDCSuite) TestValidateUserToken_NotWaitlisted_DoesNotCallOnNewUser() {
 	s.NoError(err)
 
 	// User does not exist — triggers creation
-	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, u *types.User) (*types.User, error) {
 			s.False(u.Waitlisted)
@@ -418,6 +428,8 @@ func (s *OIDCSuite) TestValidateUserToken_ExistingUser_DoesNotCallOnNewUser() {
 		Email:    "test@example.com",
 		FullName: "Test User",
 	}, nil)
+	// A verified IdP assertion marks a pre-existing account verified.
+	s.mockStore.EXPECT().UpdateUserEmailVerification(gomock.Any(), gomock.Any(), true, "").Return(nil).AnyTimes()
 	// Auto-join lookup
 	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
 
@@ -462,7 +474,7 @@ func (s *OIDCSuite) TestValidateUserToken_NewUser_ConsumesInvitation_BypassesWai
 	s.NoError(err)
 
 	// New user — not in DB.
-	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 
 	// CreateUser is called with Waitlisted=true (global setting). The OIDC
 	// handler flips it back to false in-memory and persists via UpdateUser.
@@ -487,13 +499,7 @@ func (s *OIDCSuite) TestValidateUserToken_NewUser_ConsumesInvitation_BypassesWai
 	// UpdateUser must be called to persist the cleared waitlist + onboarded
 	// flag — without it the user would re-land on /waitlist after their first
 	// session refresh.
-	s.mockStore.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, u *types.User) (*types.User, error) {
-			s.False(u.Waitlisted, "waitlist must be cleared after consuming invitation")
-			s.True(u.OnboardingCompleted, "onboarding must be marked complete")
-			s.False(u.OnboardingCompletedAt.IsZero(), "onboarding completion timestamp must be set")
-			return u, nil
-		})
+	s.mockStore.EXPECT().MarkUserOnboarded(gomock.Any(), gomock.Any()).Return(nil)
 
 	// Auto-join domain lookup runs after.
 	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
@@ -528,7 +534,7 @@ func (s *OIDCSuite) TestValidateUserToken_NewUser_NoInvitation_StaysWaitlisted()
 	})
 	s.NoError(err)
 
-	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, u *types.User) (*types.User, error) { return u, nil })
 	// No invitations match.
@@ -558,7 +564,7 @@ func (s *OIDCSuite) TestValidateUserToken_NewUser_InvitationError_DoesNotFailReg
 	})
 	s.NoError(err)
 
-	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, u *types.User) (*types.User, error) { return u, nil })
 	s.mockStore.EXPECT().ConsumePendingInvitations(gomock.Any(), gomock.Any()).
@@ -589,6 +595,8 @@ func (s *OIDCSuite) TestValidateUserToken_ExistingUser_DoesNotConsumeInvitations
 		ID:    "test-user-id",
 		Email: "test@example.com",
 	}, nil)
+	// A verified IdP assertion marks a pre-existing account verified.
+	s.mockStore.EXPECT().UpdateUserEmailVerification(gomock.Any(), gomock.Any(), true, "").Return(nil).AnyTimes()
 	// ConsumePendingInvitations must NOT be called — gomock will fail the
 	// test if it is, since we haven't set an expectation.
 	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)

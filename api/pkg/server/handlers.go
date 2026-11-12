@@ -757,15 +757,17 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 
 	userID := system.GenerateUserID()
 	newUser := &types.User{
-		ID:           userID,
-		Email:        request.Email,
-		FullName:     request.FullName,
-		Username:     request.Email,
-		Password:     request.Password,
-		Admin:        request.Admin,
-		Type:         types.OwnerTypeUser,
-		AuthProvider: types.AuthProviderRegular,
-		CreatedAt:    time.Now(),
+		ID:       userID,
+		Email:    request.Email,
+		FullName: request.FullName,
+		Username: request.Email,
+		Password: request.Password,
+		Admin:    request.Admin,
+		// An admin creating the account vouches for the address.
+		EmailVerified: true,
+		Type:          types.OwnerTypeUser,
+		AuthProvider:  types.AuthProviderRegular,
+		CreatedAt:     time.Now(),
 	}
 
 	createdUser, err := apiServer.authenticator.CreateUser(ctx, newUser)
@@ -830,6 +832,14 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 	err = apiServer.authenticator.UpdatePassword(ctx, targetUserID, request.NewPassword)
 	if err != nil {
 		return nil, system.NewHTTPError400("failed to update password: " + err.Error())
+	}
+
+	// An admin resets a password to lock out whoever held the old one; the
+	// user's existing sessions go with it.
+	if apiServer.sessionManager != nil {
+		if err := apiServer.sessionManager.RevokeUserSessions(ctx, targetUserID, ""); err != nil {
+			return nil, system.NewHTTPError500("password updated but failed to revoke the user's sessions: " + err.Error())
+		}
 	}
 
 	log.Info().
