@@ -1,14 +1,12 @@
 import React, { FC, useMemo } from "react";
-import {
-  Box,
-  Typography,
-  CircularProgress,
-  IconButton,
-  Tooltip,
-  Paper,
-  useTheme,
-  Button,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import Paper from "@mui/material/Paper";
+import Button from "@mui/material/Button";
+import { useTheme } from "@mui/material/styles";
 import { Copy, ArrowLeft } from "lucide-react";
 import { FileDiff } from "../../hooks/useLiveFileDiff";
 import useThemeConfig from "../../hooks/useThemeConfig";

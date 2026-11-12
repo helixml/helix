@@ -1,27 +1,25 @@
 import React, { useState, useCallback, useEffect } from "react";
-import {
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    Button,
-    TextField,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
-    Alert,
-    Stack,
-    SelectChangeEvent,
-    CircularProgress,
-    Switch,
-    FormControlLabel,
-    FormHelperText,
-    Link,
-    Box,
-    Typography,
-    Slider,
-} from "@mui/material";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import FormControl from "@mui/material/FormControl";
+import InputLabel from "@mui/material/InputLabel";
+import Select from "@mui/material/Select";
+import MenuItem from "@mui/material/MenuItem";
+import Alert from "@mui/material/Alert";
+import Stack from "@mui/material/Stack";
+import CircularProgress from "@mui/material/CircularProgress";
+import Switch from "@mui/material/Switch";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import FormHelperText from "@mui/material/FormHelperText";
+import Link from "@mui/material/Link";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Slider from "@mui/material/Slider";
+import type { SelectChangeEvent } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 // Use actual types from the API definition
 import {

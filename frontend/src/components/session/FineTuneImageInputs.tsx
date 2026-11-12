@@ -15,7 +15,12 @@ import CropOriginalIcon from '@mui/icons-material/CropOriginal';
 import {
   BUTTON_STATES,
 } from '../../types'
-import { Drawer, List, ListItem, IconButton, ListItemIcon, ListItemText } from '@mui/material'
+import Drawer from '@mui/material/Drawer';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import IconButton from '@mui/material/IconButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
 
 interface FineTuneImageInputsProps {
   initialFiles?: File[];

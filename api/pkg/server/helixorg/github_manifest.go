@@ -43,6 +43,9 @@ const githubManifestStateTTL = time.Hour
 type githubManifestState struct {
 	OrgID     string `json:"o"`
 	GitHubOrg string `json:"g"`
+	// UserID is the helix user who started the flow. The callback only
+	// completes for that user's browser session.
+	UserID    string `json:"u"`
 	ExpiresAt int64  `json:"e"`
 }
 
@@ -88,6 +91,9 @@ func decodeGitHubManifestState(state string, key []byte) (githubManifestState, e
 	if time.Now().Unix() > s.ExpiresAt {
 		return githubManifestState{}, fmt.Errorf("manifest state expired")
 	}
+	if s.OrgID == "" || s.UserID == "" {
+		return githubManifestState{}, fmt.Errorf("manifest state is missing its org or user")
+	}
 	return s, nil
 }
 
@@ -109,12 +115,21 @@ func normalizeOrigin(origin string) (string, error) {
 // Deps. It returns the GitHub POST URL, the manifest JSON to submit, and an
 // encrypted state. getKey provides the server encryption key (for the state).
 // webURL is the GitHub web origin (https://github.com or a GHES origin) the
-// app create/install links are built against.
-func NewGitHubManifestStart(getKey func() ([]byte, error), webURL string) func(ctx context.Context, orgID, githubOrg, origin string) (helixorgapi.GitHubManifestStartResponse, error) {
-	return func(_ context.Context, orgID, githubOrg, origin string) (helixorgapi.GitHubManifestStartResponse, error) {
+// app create/install links are built against. callerID resolves the helix
+// user making the request from ctx; it is sealed into the state so the
+// callback can require the same user to finish the flow.
+func NewGitHubManifestStart(getKey func() ([]byte, error), webURL string, callerID func(ctx context.Context) string) func(ctx context.Context, orgID, githubOrg, origin string) (helixorgapi.GitHubManifestStartResponse, error) {
+	return func(ctx context.Context, orgID, githubOrg, origin string) (helixorgapi.GitHubManifestStartResponse, error) {
 		githubOrg = strings.TrimSpace(githubOrg)
 		if githubOrg == "" {
 			return helixorgapi.GitHubManifestStartResponse{}, fmt.Errorf("github organization is required")
+		}
+		userID := ""
+		if callerID != nil {
+			userID = callerID(ctx)
+		}
+		if userID == "" {
+			return helixorgapi.GitHubManifestStartResponse{}, fmt.Errorf("an authenticated user is required to start the GitHub App flow")
 		}
 		base, err := normalizeOrigin(origin)
 		if err != nil {
@@ -127,6 +142,7 @@ func NewGitHubManifestStart(getKey func() ([]byte, error), webURL string) func(c
 		state, err := encodeGitHubManifestState(githubManifestState{
 			OrgID:     orgID,
 			GitHubOrg: githubOrg,
+			UserID:    userID,
 			ExpiresAt: time.Now().Add(githubManifestStateTTL).Unix(),
 		}, key)
 		if err != nil {
@@ -171,12 +187,15 @@ func NewGitHubManifestStart(getKey func() ([]byte, error), webURL string) func(c
 // webURL is the GitHub web origin for the install redirect; apiBaseURL is the
 // API origin passed to the github client (empty for github.com) and stored on
 // the created ServiceConnection so later calls target the right host (GHES).
+// callerID resolves the browser session's helix user; the app is only stored
+// when it matches the user sealed into the state.
 func NewGitHubManifestCallbackHandler(
 	getKey func() ([]byte, error),
 	st helixstore.Store,
 	newID func() string,
 	webURL string,
 	apiBaseURL string,
+	callerID func(r *http.Request) string,
 ) http.HandlerFunc {
 	safeWebURL := sanitizeGitHubWebURL(webURL)
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -195,6 +214,15 @@ func NewGitHubManifestCallbackHandler(
 		parsed, err := decodeGitHubManifestState(state, key)
 		if err != nil {
 			http.Error(w, "invalid or expired state", http.StatusBadRequest)
+			return
+		}
+		caller := ""
+		if callerID != nil {
+			caller = callerID(r)
+		}
+		if caller == "" || caller != parsed.UserID {
+			log.Warn().Str("org_id", parsed.OrgID).Str("starter_user_id", parsed.UserID).Msg("github app manifest callback identity does not match the flow starter")
+			http.Error(w, "GitHub App setup must be completed from the signed-in session that started it", http.StatusForbidden)
 			return
 		}
 

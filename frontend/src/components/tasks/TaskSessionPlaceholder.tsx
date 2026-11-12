@@ -1,5 +1,8 @@
 import React, { FC, ReactNode } from "react";
-import { Box, Button, CircularProgress, Typography } from "@mui/material";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import Typography from "@mui/material/Typography";
 import { CircleCheck, CircleSlash, LogIn, MonitorPlay, Play } from "lucide-react";
 
 export type TaskSessionPlaceholderTone =

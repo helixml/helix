@@ -3,18 +3,16 @@
 // tabbed JSON views of request / response / original request / error.
 
 import React, { FC, useMemo, useState, useEffect } from 'react'
-import {
-  Box,
-  Chip,
-  Divider,
-  Drawer,
-  IconButton,
-  Stack,
-  Tab,
-  Tabs,
-  Tooltip,
-  Typography,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Divider from '@mui/material/Divider';
+import Drawer from '@mui/material/Drawer';
+import IconButton from '@mui/material/IconButton';
+import Stack from '@mui/material/Stack';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 import { X, Copy } from 'lucide-react'
 import { TypesLLMCall } from '../../api/api'
 import JsonView from '../widgets/JsonView'

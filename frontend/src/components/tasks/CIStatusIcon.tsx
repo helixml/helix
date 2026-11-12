@@ -1,5 +1,9 @@
 import React from "react";
-import { Box, IconButton, Tooltip, Typography, keyframes } from "@mui/material";
+import Box from "@mui/material/Box";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
+import { keyframes } from "@mui/material/styles";
 import {
   CircleCheck as PassedIcon,
   CircleX as FailedIcon,

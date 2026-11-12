@@ -3,673 +3,312 @@ package pubsub
 import (
 	"context"
 	"fmt"
-	"os"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func setupTestNats(t *testing.T) (*Nats, func()) {
-	tmpDir, err := os.MkdirTemp(os.TempDir(), "helix-nats-test")
+const testWait = 5 * time.Second
+
+func newTestNats(t *testing.T) *Nats {
+	t.Helper()
+	n, err := NewInMemoryNats()
 	require.NoError(t, err)
-
-	nats, err := NewInMemoryNats()
-	require.NoError(t, err)
-
-	cleanup := func() {
-		if nats.embeddedServer != nil {
-			nats.embeddedServer.Shutdown()
-		}
-		if nats.conn != nil {
-			nats.conn.Close()
-		}
-		os.RemoveAll(tmpDir)
-	}
-
-	return nats, cleanup
+	t.Cleanup(n.Close)
+	return n
 }
 
-func setupAuthTestNats(t *testing.T) (*Nats, func()) {
-	tmpDir, err := os.MkdirTemp(os.TempDir(), "helix-nats-test")
-	require.NoError(t, err)
-
-	nats, err := NewInMemoryNats()
-	require.NoError(t, err)
-
-	cleanup := func() {
-		if nats.embeddedServer != nil {
-			nats.embeddedServer.Shutdown()
-		}
-		if nats.conn != nil {
-			nats.conn.Close()
-		}
-		os.RemoveAll(tmpDir)
+func receive[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(testWait):
+		t.Fatal("timed out waiting for a message")
+		var zero T
+		return zero
 	}
-
-	return nats, cleanup
 }
 
-func TestNatsPubsub(t *testing.T) {
-	t.Run("Subscribe", func(t *testing.T) {
-		pubsub, cleanup := setupTestNats(t)
-		defer cleanup()
-
-		ctx := context.Background()
-
-		receivedCh := make(chan string, 1)
-
-		consumer, err := pubsub.Subscribe(ctx, "test", func(payload []byte) error {
-			receivedCh <- string(payload)
-			return nil
-		})
-		require.NoError(t, err)
-		defer func() {
-			err := consumer.Unsubscribe()
-			require.NoError(t, err)
-		}()
-
-		// Wait for subscription to be established
-		time.Sleep(1 * time.Second)
-
-		err = pubsub.Publish(ctx, "test", []byte("hello"))
-		require.NoError(t, err)
-
-		select {
-		case result := <-receivedCh:
-			require.Equal(t, "hello", result)
-		case <-time.After(2 * time.Second):
-			t.Fatal("timeout waiting for message")
-		}
+// subscribe registers a core subscription and waits for the server to have
+// processed it, so a publish straight after cannot race the SUB.
+func subscribe(t *testing.T, n *Nats, topic string) <-chan string {
+	t.Helper()
+	received := make(chan string, 1)
+	sub, err := n.Subscribe(context.Background(), topic, func(payload []byte) error {
+		received <- string(payload)
+		return nil
 	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
+	require.NoError(t, n.conn.Flush())
+	return received
+}
 
-	t.Run("Subscribe_Wildcard", func(t *testing.T) {
-		pubsub, cleanup := setupTestNats(t)
-		defer cleanup()
+func TestSubscribe(t *testing.T) {
+	cases := []struct {
+		name, topic, publishTo string
+	}{
+		{name: "exact", topic: "test", publishTo: "test"},
+		{name: "wildcard", topic: "test.*", publishTo: "test.123"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := newTestNats(t)
+			received := subscribe(t, n, tc.topic)
 
-		ctx := context.Background()
-
-		receivedCh := make(chan string, 1)
-
-		consumer, err := pubsub.Subscribe(ctx, "test.*", func(payload []byte) error {
-			receivedCh <- string(payload)
-			return nil
+			require.NoError(t, n.Publish(context.Background(), tc.publishTo, []byte("hello")))
+			assert.Equal(t, "hello", receive(t, received))
 		})
-		require.NoError(t, err)
-		defer func() {
-			err := consumer.Unsubscribe()
-			require.NoError(t, err)
-		}()
+	}
+}
 
-		// Wait for subscription to be established
-		time.Sleep(1 * time.Second)
+func TestSubscribeAfterUnsubscribe(t *testing.T) {
+	n := newTestNats(t)
+	ctx := context.Background()
 
-		err = pubsub.Publish(ctx, "test.123", []byte("hello"))
-		require.NoError(t, err)
-
-		select {
-		case result := <-receivedCh:
-			require.Equal(t, "hello", result)
-		case <-time.After(2 * time.Second):
-			t.Fatal("timeout waiting for message")
-		}
+	first := make(chan string, 1)
+	sub, err := n.Subscribe(ctx, "test", func(payload []byte) error {
+		first <- string(payload)
+		return nil
 	})
+	require.NoError(t, err)
+	require.NoError(t, n.conn.Flush())
+	require.NoError(t, n.Publish(ctx, "test", []byte("one")))
+	assert.Equal(t, "one", receive(t, first))
+	require.NoError(t, sub.Unsubscribe())
 
-	t.Run("Subscribe_Resubscribe", func(t *testing.T) {
-		pubsub, cleanup := setupTestNats(t)
-		defer cleanup()
+	second := subscribe(t, n, "test")
+	require.NoError(t, n.Publish(ctx, "test", []byte("two")))
+	assert.Equal(t, "two", receive(t, second))
+	assert.Empty(t, first, "an unsubscribed handler must not receive")
+}
 
-		ctx := context.Background()
+// The embedded server enforces the token: a client without it is refused.
+func TestEmbeddedServerRequiresToken(t *testing.T) {
+	cfg := durableTestConfig(t.TempDir(), server.RANDOM_PORT, server.RANDOM_PORT)
+	cfg.PubSub.Server.Token = "secret"
+	n, err := NewNats(cfg)
+	require.NoError(t, err)
+	t.Cleanup(n.Close)
 
-		receivedCh := make(chan string, 1)
+	_, err = nats.Connect(n.embeddedServer.ClientURL())
+	require.ErrorIs(t, err, nats.ErrAuthorization)
 
-		consumer, err := pubsub.Subscribe(ctx, "test", func(payload []byte) error {
-			receivedCh <- string(payload)
-			return nil
-		})
-		require.NoError(t, err)
-
-		// Wait for subscription to be established
-		time.Sleep(1 * time.Second)
-
-		err = pubsub.Publish(ctx, "test", []byte("hello"))
-		require.NoError(t, err)
-
-		select {
-		case result := <-receivedCh:
-			require.Equal(t, "hello", result)
-		case <-time.After(2 * time.Second):
-			t.Fatal("timeout waiting for message")
-		}
-
-		// Unsubscribe
-		err = consumer.Unsubscribe()
-		require.NoError(t, err)
-
-		// Subscribe again
-		receivedCh2 := make(chan string, 1)
-		consumer, err = pubsub.Subscribe(ctx, "test", func(payload []byte) error {
-			receivedCh2 <- string(payload)
-			return nil
-		})
-		require.NoError(t, err)
-		defer func() {
-			err := consumer.Unsubscribe()
-			require.NoError(t, err)
-		}()
-
-		// Wait for subscription to be established
-		time.Sleep(1 * time.Second)
-
-		err = pubsub.Publish(ctx, "test", []byte("hello"))
-		require.NoError(t, err)
-
-		select {
-		case result := <-receivedCh2:
-			require.Equal(t, "hello", result)
-		case <-time.After(2 * time.Second):
-			t.Fatal("timeout waiting for message")
-		}
-	})
-
-	t.Run("Auth_Token", func(t *testing.T) {
-		pubsub, cleanup := setupAuthTestNats(t)
-		defer cleanup()
-
-		ctx := context.Background()
-
-		receivedCh := make(chan string, 1)
-
-		consumer, err := pubsub.Subscribe(ctx, "test", func(payload []byte) error {
-			receivedCh <- string(payload)
-			return nil
-		})
-		require.NoError(t, err)
-		defer func() {
-			err := consumer.Unsubscribe()
-			require.NoError(t, err)
-		}()
-
-		// Wait for subscription to be established
-		time.Sleep(1 * time.Second)
-
-		err = pubsub.Publish(ctx, "test", []byte("hello"))
-		require.NoError(t, err)
-
-		select {
-		case result := <-receivedCh:
-			require.Equal(t, "hello", result)
-		case <-time.After(2 * time.Second):
-			t.Fatal("timeout waiting for message")
-		}
-	})
+	authed, err := nats.Connect(n.embeddedServer.ClientURL(), nats.Token("secret"))
+	require.NoError(t, err)
+	authed.Close()
 }
 
 func TestQueueMultipleSubs(t *testing.T) {
-	pubsub, cleanup := setupTestNats(t)
-	defer cleanup()
-
+	n := newTestNats(t)
 	ctx := context.Background()
 
-	messageCounter := 0
-
-	// Wait a bit before starting the work
-	time.Sleep(1 * time.Second)
-
-	// Start two workers
-	var (
-		worker1 int
-		worker2 int
-	)
-
-	sub1, err := pubsub.QueueSubscribe(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
-		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
+	var workers [2]atomic.Int32
+	for i := range workers {
+		sub, err := n.QueueSubscribe(ctx, "workers", "jobs", func(msg *Message) error {
+			// Count before replying: the requester returns on the reply.
+			workers[i].Add(1)
+			return n.Publish(ctx, msg.Reply, []byte("world"))
+		})
 		require.NoError(t, err)
+		t.Cleanup(func() { _ = sub.Unsubscribe() })
+	}
+	require.NoError(t, n.conn.Flush())
 
-		if ackErr := msg.Ack(); ackErr != nil {
-			t.Logf("failed to ack message: %v", ackErr)
-		}
-
-		worker1++
-
-		return nil
-	})
-	require.NoError(t, err)
-	defer func() {
-		err := sub1.Unsubscribe()
+	const requests = 100
+	for i := range requests {
+		data, err := n.QueueRequest(ctx, "workers", "jobs", fmt.Appendf(nil, "hello-%d", i), map[string]string{}, testWait)
 		require.NoError(t, err)
-	}()
-
-	sub2, err := pubsub.QueueSubscribe(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
-		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
-		require.NoError(t, err)
-		if ackErr := msg.Ack(); ackErr != nil {
-			t.Logf("failed to ack message: %v", ackErr)
-		}
-
-		worker2++
-
-		return nil
-	})
-	require.NoError(t, err)
-	defer func() {
-		err := sub2.Unsubscribe()
-		require.NoError(t, err)
-	}()
-
-	for i := 0; i < 100; i++ {
-		data, err := pubsub.QueueRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
-		require.NoError(t, err)
-
 		require.Equal(t, "world", string(data))
-
-		messageCounter++
 	}
 
-	assert.True(t, worker1 > 0)
-	assert.True(t, worker2 > 0)
-
-	assert.True(t, worker1 < 100)
-	assert.True(t, worker2 < 100)
-
-	assert.Equal(t, worker1+worker2, messageCounter, "should have the total 100 messages")
-
-	t.Logf("worker1: %d", worker1)
-	t.Logf("worker2: %d", worker2)
+	w1, w2 := workers[0].Load(), workers[1].Load()
+	t.Logf("worker1: %d, worker2: %d", w1, w2)
+	assert.Positive(t, w1)
+	assert.Positive(t, w2)
+	assert.EqualValues(t, requests, w1+w2, "each request is handled by exactly one worker")
 }
 
-func TestNatsStreaming(t *testing.T) {
-	t.Run("SubscribeLater", func(t *testing.T) {
-		pubsub, cleanup := setupTestNats(t)
-		defer cleanup()
-
-		ctx := context.Background()
-
-		messageCounter := 0
-
+// streamRequests sends one StreamRequest per payload concurrently and returns
+// a channel with each request's outcome.
+func streamRequests(n *Nats, timeout time.Duration, payloads ...string) <-chan error {
+	results := make(chan error, len(payloads))
+	for _, payload := range payloads {
 		go func() {
-			// Wait for consumers to be ready before publishing
-			time.Sleep(2 * time.Second)
-			for i := 0; i < 100; i++ {
-				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), map[string]string{
-					"foo": "bar",
-				}, 10*time.Second)
-				require.NoError(t, err)
-
-				require.Equal(t, "world", string(data))
-
-				messageCounter++
+			data, err := n.StreamRequest(context.Background(), ScriptRunnerStream, AppQueue, []byte(payload), map[string]string{"foo": "bar"}, timeout)
+			if err == nil && string(data) != "world" {
+				err = fmt.Errorf("%s: reply %q, want world", payload, data)
 			}
-		}()
-
-		// Wait a bit before starting the work
-		time.Sleep(1 * time.Second)
-
-		sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
-			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
-			require.NoError(t, err)
-
-			assert.Equal(t, "bar", msg.Header.Get("foo"))
-
-			return nil
-		})
-		require.NoError(t, err)
-		defer func() {
-			err := sub.Unsubscribe()
-			require.NoError(t, err)
-		}()
-
-		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
-			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
-			require.NoError(t, err)
-
-			assert.Equal(t, "bar", msg.Header.Get("foo"))
-
-			return nil
-		})
-		require.NoError(t, err)
-		defer func() {
-			err := sub2.Unsubscribe()
-			require.NoError(t, err)
-		}()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		for {
-			select {
-			case <-ctx.Done():
-				require.Fail(t, "timeout")
-			default:
-				if messageCounter < 100 {
-					time.Sleep(1 * time.Second)
-					t.Logf("waiting for messages %d/%d\n", messageCounter, 100)
-				} else {
-					return
-				}
+			if err != nil {
+				err = fmt.Errorf("%s: %w", payload, err)
 			}
-		}
-	})
+			results <- err
+		}()
+	}
+	return results
 }
 
-func TestStreamRetries(t *testing.T) {
-	pubsub, cleanup := setupTestNats(t)
-	defer cleanup()
+func payloads(prefix string, count int) []string {
+	out := make([]string, count)
+	for i := range out {
+		out[i] = fmt.Sprintf("%s-%d", prefix, i)
+	}
+	return out
+}
 
+// waitForStreamMessages blocks until the stream holds want unconsumed messages.
+func waitForStreamMessages(t *testing.T, n *Nats, want uint64) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		info, err := n.streams[ScriptRunnerStream].Info(context.Background())
+		return err == nil && info.State.Msgs == want
+	}, testWait, 10*time.Millisecond)
+}
+
+func reply(n *Nats, msg *Message) error {
+	if err := n.Publish(context.Background(), msg.Reply, []byte("world")); err != nil {
+		return err
+	}
+	return msg.Ack()
+}
+
+// Requests published before anyone consumes the stream are delivered once
+// consumers subscribe, each to exactly one of them.
+func TestStreamConsumeAfterPublish(t *testing.T) {
+	n := newTestNats(t)
 	ctx := context.Background()
 
-	var messageCounter atomic.Int32
+	const requests = 20
+	results := streamRequests(n, testWait, payloads("hello", requests)...)
+	waitForStreamMessages(t, n, requests)
 
-	go func() {
-		wg := conc.NewWaitGroup()
+	var handled atomic.Int32
+	var badHeader atomic.Value
+	for range 2 {
+		sub, err := n.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
+			if got := msg.Header.Get("foo"); got != "bar" {
+				badHeader.Store(got)
+			}
+			handled.Add(1)
+			return reply(n, msg)
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = sub.Unsubscribe() })
+	}
 
-		for i := 0; i < 10; i++ {
-			i := i
-			wg.Go(func() {
-				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("data-%d", i)), map[string]string{}, 10*time.Second)
-				require.NoError(t, err)
+	for range requests {
+		require.NoError(t, receive(t, results))
+	}
+	assert.Nil(t, badHeader.Load(), "headers must reach the consumer")
+	assert.EqualValues(t, requests, handled.Load())
+}
 
-				require.Equal(t, "world", string(data))
+// A NAKed message is redelivered until a consumer replies to it.
+func TestStreamConsumeRedeliversNak(t *testing.T) {
+	n := newTestNats(t)
 
-				messageCounter.Add(1)
-			})
-		}
+	const requests, naks = 10, 5
+	results := streamRequests(n, testWait, payloads("data", requests)...)
+	waitForStreamMessages(t, n, requests)
 
-		wg.Wait()
-	}()
-
-	// Wait a bit before starting the work
-	time.Sleep(1 * time.Second)
-
-	var nacks int
-
-	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
-		t.Log("consume", string(msg.Data))
-		// Nack 5 messages and don't reply anything, they should be retried
-		if nacks < 5 {
-			nacks++
-
-			t.Logf("Nack %d", nacks)
+	var nacked atomic.Int32
+	sub, err := n.StreamConsume(context.Background(), ScriptRunnerStream, AppQueue, func(msg *Message) error {
+		if nacked.Add(1) <= naks {
 			return msg.Nak()
 		}
-
-		t.Logf("Ack %d", nacks)
-
-		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
-		require.NoError(t, err)
-
-		if ackErr := msg.Ack(); ackErr != nil {
-			t.Logf("failed to ack message: %v", ackErr)
-		}
-
-		return nil
+		return reply(n, msg)
 	})
 	require.NoError(t, err)
-	defer func() {
-		err := sub.Unsubscribe()
-		require.NoError(t, err)
-	}()
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	for {
-		select {
-		case <-ctx.Done():
-			require.Fail(t, "timeout")
-		default:
-			val := messageCounter.Load()
-
-			if val < 10 {
-				time.Sleep(1 * time.Second)
-				t.Logf("waiting for messages %d/%d", val, 10)
-			} else {
-				return
-			}
-		}
+	for range requests {
+		require.NoError(t, receive(t, results))
 	}
+	assert.EqualValues(t, requests+naks, nacked.Load(), "every NAK costs exactly one redelivery")
 }
 
 func TestStreamMultipleSubs(t *testing.T) {
-	pubsub, cleanup := setupTestNats(t)
-	defer cleanup()
-
+	n := newTestNats(t)
 	ctx := context.Background()
 
-	messageCounter := 0
-
-	// Start two workers
-	var (
-		worker1 int
-		worker2 int
-	)
-
-	sub1, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
-		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
+	var workers [2]atomic.Int32
+	for i := range workers {
+		sub, err := n.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
+			workers[i].Add(1)
+			return reply(n, msg)
+		})
 		require.NoError(t, err)
+		t.Cleanup(func() { _ = sub.Unsubscribe() })
+	}
 
-		if ackErr := msg.Ack(); ackErr != nil {
-			t.Logf("failed to ack message: %v", ackErr)
-		}
-
-		worker1++
-
-		return nil
-	})
-	require.NoError(t, err)
-	defer func() {
-		err := sub1.Unsubscribe()
+	const requests = 100
+	for i := range requests {
+		data, err := n.StreamRequest(ctx, ScriptRunnerStream, AppQueue, fmt.Appendf(nil, "hello-%d", i), map[string]string{}, testWait)
 		require.NoError(t, err)
-	}()
-
-	sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
-		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
-		require.NoError(t, err)
-
-		if ackErr := msg.Ack(); ackErr != nil {
-			t.Logf("failed to ack message: %v", ackErr)
-		}
-
-		worker2++
-
-		return nil
-	})
-	require.NoError(t, err)
-	defer func() {
-		err := sub2.Unsubscribe()
-		require.NoError(t, err)
-	}()
-
-	// Wait for subscriptions to be established
-	time.Sleep(1 * time.Second)
-
-	for i := 0; i < 100; i++ {
-		data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
-		require.NoError(t, err)
-
 		require.Equal(t, "world", string(data))
-
-		messageCounter++
 	}
 
-	assert.True(t, worker1 > 0)
-	assert.True(t, worker2 > 0)
-
-	assert.True(t, worker1 < 100)
-	assert.True(t, worker2 < 100)
-
-	assert.Equal(t, worker1+worker2, messageCounter, "should have the total 100 messages")
-
-	t.Logf("worker1: %d", worker1)
-	t.Logf("worker2: %d", worker2)
+	w1, w2 := workers[0].Load(), workers[1].Load()
+	t.Logf("worker1: %d, worker2: %d", w1, w2)
+	assert.Positive(t, w1)
+	assert.Positive(t, w2)
+	assert.EqualValues(t, requests, w1+w2, "each request is handled by exactly one worker")
 }
 
-func TestStreamAfterDelay(t *testing.T) {
-	pubsub, cleanup := setupTestNats(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	var messageCounter atomic.Int32
-
-	go func() {
-		wg := conc.NewWaitGroup()
-
-		for i := 0; i < 10; i++ {
-			i := i
-			wg.Go(func() {
-				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
-				require.NoError(t, err)
-
-				require.Equal(t, "world", string(data))
-
-				t.Log("received", string(data))
-
-				messageCounter.Add(1)
-			})
-		}
-
-		wg.Wait()
-	}()
-
-	// Wait a bit before starting the work
-	time.Sleep(3 * time.Second)
-
-	var (
-		nacks   int
-		nacksMu sync.Mutex
-	)
-
-	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
-		nacksMu.Lock()
-		defer nacksMu.Unlock()
-
-		// Ignore some messages
-		if nacks < 5 {
-			nacks++
-			t.Logf("Message '%s', do nothing on %d\n", string(msg.Data), nacks)
-			return msg.Nak()
-		}
-
-		t.Logf("Ack %d", nacks)
-
-		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
-		require.NoError(t, err)
-
-		if ackErr := msg.Ack(); ackErr != nil {
-			t.Logf("failed to ack message: %v", ackErr)
-		}
-
-		return nil
-	})
-	require.NoError(t, err)
-	defer func() {
-		err := sub.Unsubscribe()
-		require.NoError(t, err)
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	for {
-		select {
-		case <-ctx.Done():
-			require.Fail(t, "timeout")
-		default:
-			val := messageCounter.Load()
-
-			if val < 10 {
-				time.Sleep(1 * time.Second)
-				t.Logf("waiting for messages %d/%d\n", val, 10)
-			} else {
-				return
-			}
-		}
-	}
-}
-
+// A message the consumer never acks or answers fails its request at the
+// timeout, without holding up the others.
 func TestStreamFailOne(t *testing.T) {
-	pubsub, cleanup := setupTestNats(t)
-	defer cleanup()
+	n := newTestNats(t)
 
-	ctx := context.Background()
-
-	var messageCounter atomic.Int32
-
-	go func() {
-		wg := conc.NewWaitGroup()
-
-		for i := 0; i < 10; i++ {
-			i := i
-			// Dispatch 10 requests
-			wg.Go(func() {
-				if i == 0 {
-					// This one will fail on purpose
-					_, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("work-%d", i)), map[string]string{}, 10*time.Second)
-					require.Error(t, err)
-					return
-				}
-				// Others should succeed
-				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("work-%d", i)), map[string]string{}, 10*time.Second)
-				require.NoError(t, err)
-
-				require.Equal(t, "world", string(data))
-
-				messageCounter.Add(1)
-			})
-
-			time.Sleep(50 * time.Millisecond)
-		}
-
-		wg.Wait()
-	}()
-
-	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
+	sub, err := n.StreamConsume(context.Background(), ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		if string(msg.Data) == "work-0" {
-			// Don't ack or nack - let it timeout and use BackOff delays
-			t.Log("will not process this message")
 			return fmt.Errorf("failed to process")
 		}
-
-		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
-		require.NoError(t, err)
-
-		if ackErr := msg.Ack(); ackErr != nil {
-			t.Logf("failed to ack message: %v", ackErr)
-		}
-
-		return nil
+		return reply(n, msg)
 	})
 	require.NoError(t, err)
-	defer func() {
-		err := sub.Unsubscribe()
-		require.NoError(t, err)
-	}()
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	failed := streamRequests(n, 500*time.Millisecond, "work-0")
+	succeeded := streamRequests(n, testWait, payloads("work", 10)[1:]...)
+
+	for range 9 {
+		require.NoError(t, receive(t, succeeded))
+	}
+	require.ErrorContains(t, receive(t, failed), "timed out")
+}
+
+// Unsubscribe stops delivery even though the subscription's context is live.
+func TestStreamConsumeUnsubscribeStopsDelivery(t *testing.T) {
+	n := newTestNats(t)
+
+	var handled atomic.Int32
+	sub, err := n.StreamConsume(context.Background(), ScriptRunnerStream, AppQueue, func(msg *Message) error {
+		handled.Add(1)
+		return reply(n, msg)
+	})
+	require.NoError(t, err)
+	require.NoError(t, receive(t, streamRequests(n, testWait, "before")))
+	require.NoError(t, sub.Unsubscribe())
+
+	results := streamRequests(n, 300*time.Millisecond, "after")
+	require.ErrorContains(t, receive(t, results), "timed out")
+	assert.EqualValues(t, 1, handled.Load())
+}
+
+// With nobody consuming the requested stream, a cancelled request says so,
+// even though the ZED_AGENTS stream has its startup consumer.
+func TestStreamRequestReportsMissingConsumers(t *testing.T) {
+	n := newTestNats(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	for {
-		select {
-		case <-ctx.Done():
-			require.Fail(t, "timeout")
-		default:
-			val := messageCounter.Load()
-
-			if val == 10 {
-				t.Fatalf("should not have received all messages")
-			}
-
-			if val < 9 {
-				time.Sleep(500 * time.Millisecond)
-				t.Logf("waiting for messages %d/%d\n", val, 9)
-			} else {
-				return
-			}
-		}
-	}
+	_, err := n.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), map[string]string{}, testWait)
+	require.ErrorContains(t, err, "no consumers available")
 }

@@ -1,5 +1,5 @@
 import React from 'react'
-import { SvgIcon } from '@mui/material'
+import SvgIcon from '@mui/material/SvgIcon';
 import GitHubIcon from '@mui/icons-material/GitHub'
 import GoogleIcon from '@mui/icons-material/Google'
 import AppleIcon from '@mui/icons-material/Apple'
