@@ -533,7 +533,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		// This ensures the repo exists in Helix before Kodit tries to index it
 		log.Info().
 			Str("repo_id", repoID).
-			Str("external_url", gitRepo.ExternalURL).
+			Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 			Str("oauth_connection_id", gitRepo.OAuthConnectionID).
 			Msg("Cloning external repository using native git...")
 
@@ -568,7 +568,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 
 		log.Info().
 			Str("repo_id", repoID).
-			Str("external_url", gitRepo.ExternalURL).
+			Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 			Int("branches", len(gitRepo.Branches)).
 			Msg("Successfully cloned external repository")
 	}
@@ -596,7 +596,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		Str("repo_id", repoID).
 		Str("repo_path", repoPath).
 		Str("repo_type", string(gitRepo.RepoType)).
-		Str("external_url", gitRepo.ExternalURL).
+		Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 		Msg("Created git repository")
 
 	// Register with Kodit if kodit_indexing is enabled
@@ -721,7 +721,7 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 			repoPath := filepath.Join(s.gitRepoBase, gitRepo.ID)
 			log.Info().
 				Str("repo_id", gitRepo.ID).
-				Str("external_url", gitRepo.ExternalURL).
+				Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 				Str("repo_path", repoPath).
 				Msg("Starting async clone using native git")
 
@@ -759,7 +759,7 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 
 			log.Info().
 				Str("repo_id", gitRepo.ID).
-				Str("external_url", gitRepo.ExternalURL).
+				Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 				Int("branches", len(gitRepo.Branches)).
 				Msg("Async clone completed successfully")
 			return nil
@@ -1520,7 +1520,7 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 
 		log.Info().
 			Str("repo_id", gitRepo.ID).
-			Str("external_url", gitRepo.ExternalURL).
+			Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 			Msg("Cloned external repository as bare repo")
 	}
 
