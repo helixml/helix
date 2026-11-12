@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -88,7 +90,10 @@ func (f *fakeTokenEndpoint) client() *OIDCClient {
 type sessionTable struct {
 	mu       sync.Mutex
 	sessions map[string]types.UserSession
-	deleted  []string
+	// readErr, when set, fails every GetUserSession after the first n reads.
+	readErr        error
+	readsBeforeErr int
+	reads          int
 }
 
 func newSessionTable(st *store.MockStore, sessions ...types.UserSession) *sessionTable {
@@ -99,6 +104,10 @@ func newSessionTable(st *store.MockStore, sessions ...types.UserSession) *sessio
 	st.EXPECT().GetUserSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id string) (*types.UserSession, error) {
 		tbl.mu.Lock()
 		defer tbl.mu.Unlock()
+		tbl.reads++
+		if tbl.readErr != nil && tbl.reads > tbl.readsBeforeErr {
+			return nil, tbl.readErr
+		}
 		s, ok := tbl.sessions[id]
 		if !ok {
 			return nil, gorm.ErrRecordNotFound
@@ -111,12 +120,26 @@ func newSessionTable(st *store.MockStore, sessions ...types.UserSession) *sessio
 		tbl.sessions[s.ID] = *s
 		return s, nil
 	}).AnyTimes()
-	st.EXPECT().DeleteUserSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id string) error {
+	st.EXPECT().MarkUserSessionOIDCRefreshDead(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id, refreshToken string) (bool, error) {
 		tbl.mu.Lock()
 		defer tbl.mu.Unlock()
+		s, ok := tbl.sessions[id]
+		if !ok || s.OIDCRefreshToken != refreshToken {
+			return false, nil
+		}
+		s.OIDCRefreshDead = true
+		tbl.sessions[id] = s
+		return true, nil
+	}).AnyTimes()
+	st.EXPECT().DeleteUserSessionWithRefreshToken(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id, refreshToken string) (bool, error) {
+		tbl.mu.Lock()
+		defer tbl.mu.Unlock()
+		s, ok := tbl.sessions[id]
+		if !ok || s.OIDCRefreshToken != refreshToken {
+			return false, nil
+		}
 		delete(tbl.sessions, id)
-		tbl.deleted = append(tbl.deleted, id)
-		return nil
+		return true, nil
 	}).AnyTimes()
 	return tbl
 }
@@ -141,13 +164,14 @@ func expiredOIDCSession(id string) types.UserSession {
 	}
 }
 
-func newRefreshTestManager(t *testing.T, provider *fakeTokenEndpoint, sessions ...types.UserSession) (*SessionManager, *sessionTable) {
+func newRefreshTestManager(t *testing.T, provider *fakeTokenEndpoint, endSession bool, sessions ...types.UserSession) (*SessionManager, *sessionTable, *store.MockStore) {
 	st := store.NewMockStore(gomock.NewController(t))
 	tbl := newSessionTable(st, sessions...)
 	cfg := &config.ServerConfig{}
 	cfg.Auth.Provider = types.AuthProviderOIDC
+	cfg.Auth.OIDC.EndSessionWhenIdPSessionEnds = endSession
 	cfg.WebServer.URL = "https://example.com"
-	return NewSessionManager(st, provider.client(), cfg), tbl
+	return NewSessionManager(st, provider.client(), cfg), tbl, st
 }
 
 func requestWithSession(id string) *http.Request {
@@ -156,12 +180,48 @@ func requestWithSession(id string) *http.Request {
 	return r
 }
 
-// An identity-provider session that has ended can never be refreshed: the
-// BFF session is deleted, so the next request does not ask the provider again.
-func TestGetSessionFromRequest_InvalidGrantDeletesSession(t *testing.T) {
+var sessionNotActive = map[string]any{"error": "invalid_grant", "error_description": "Session not active"}
+
+func okTokenResponse(expiresIn int) map[string]any {
+	return map[string]any{
+		"access_token": "new_access_token", "refresh_token": "new_refresh_token",
+		"token_type": "Bearer", "expires_in": expiresIn,
+	}
+}
+
+// Default: when the identity-provider session ends, the Helix session lives
+// out its normal duration but is never refreshed again.
+func TestGetSessionFromRequest_InvalidGrantMarksSessionDead(t *testing.T) {
 	provider := newFakeTokenEndpoint(t)
-	provider.respond(http.StatusBadRequest, map[string]any{"error": "invalid_grant", "error_description": "Session not active"})
-	sm, tbl := newRefreshTestManager(t, provider, expiredOIDCSession("uss_ended"))
+	provider.respond(http.StatusBadRequest, sessionNotActive)
+	sm, tbl, _ := newRefreshTestManager(t, provider, false, expiredOIDCSession("uss_ended"))
+
+	for range 5 {
+		session, err := sm.GetSessionFromRequest(context.Background(), requestWithSession("uss_ended"))
+		require.NoError(t, err)
+		require.NotNil(t, session)
+		assert.Equal(t, "uss_ended", session.ID)
+	}
+	assert.Equal(t, int32(1), provider.calls.Load(), "a dead session must not be refreshed again")
+
+	stored, ok := tbl.get("uss_ended")
+	require.True(t, ok, "the session is kept")
+	assert.True(t, stored.OIDCRefreshDead)
+	assert.False(t, stored.NeedsOIDCRefresh())
+
+	// The background refresher skips it as well.
+	sm.refreshRetry.succeeded("uss_ended")
+	_, err := sm.refreshSessionOIDC(context.Background(), &stored)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), provider.calls.Load())
+}
+
+// OIDC_END_SESSION_WHEN_IDP_SESSION_ENDS: the session is deleted, so the
+// next request is unauthenticated and does not ask the provider again.
+func TestGetSessionFromRequest_InvalidGrantDeletesSessionWhenConfigured(t *testing.T) {
+	provider := newFakeTokenEndpoint(t)
+	provider.respond(http.StatusBadRequest, sessionNotActive)
+	sm, tbl, _ := newRefreshTestManager(t, provider, true, expiredOIDCSession("uss_ended"))
 
 	session, err := sm.GetSessionFromRequest(context.Background(), requestWithSession("uss_ended"))
 	require.ErrorIs(t, err, ErrSessionRevoked)
@@ -172,21 +232,30 @@ func TestGetSessionFromRequest_InvalidGrantDeletesSession(t *testing.T) {
 
 	_, err = sm.GetSessionFromRequest(context.Background(), requestWithSession("uss_ended"))
 	require.ErrorIs(t, err, ErrSessionNotFound)
-	assert.Equal(t, int32(1), provider.calls.Load(), "a deleted session must not be refreshed again")
+	assert.Equal(t, int32(1), provider.calls.Load())
 }
 
-func TestGetSessionFromRequest_RejectedClientDeletesSession(t *testing.T) {
+// Rejected client credentials are a deployment-wide misconfiguration, not a
+// fact about this session: no session is retired, the refresh backs off.
+func TestGetSessionFromRequest_RejectedClientIsNotTerminal(t *testing.T) {
 	for _, code := range []string{"invalid_client", "unauthorized_client"} {
-		t.Run(code, func(t *testing.T) {
-			provider := newFakeTokenEndpoint(t)
-			provider.respond(http.StatusUnauthorized, map[string]any{"error": code})
-			sm, tbl := newRefreshTestManager(t, provider, expiredOIDCSession("uss_client"))
+		for _, endSession := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/end_session=%v", code, endSession), func(t *testing.T) {
+				provider := newFakeTokenEndpoint(t)
+				provider.respond(http.StatusUnauthorized, map[string]any{"error": code})
+				sm, tbl, _ := newRefreshTestManager(t, provider, endSession, expiredOIDCSession("uss_client"))
 
-			_, err := sm.GetSessionFromRequest(context.Background(), requestWithSession("uss_client"))
-			require.ErrorIs(t, err, ErrSessionRevoked)
-			_, ok := tbl.get("uss_client")
-			assert.False(t, ok)
-		})
+				for range 3 {
+					session, err := sm.GetSessionFromRequest(context.Background(), requestWithSession("uss_client"))
+					require.NoError(t, err)
+					require.NotNil(t, session)
+				}
+				assert.Equal(t, int32(1), provider.calls.Load(), "the retry gate applies")
+				stored, ok := tbl.get("uss_client")
+				require.True(t, ok)
+				assert.False(t, stored.OIDCRefreshDead)
+			})
+		}
 	}
 }
 
@@ -195,26 +264,24 @@ func TestGetSessionFromRequest_RejectedClientDeletesSession(t *testing.T) {
 func TestGetSessionFromRequest_TransientRefreshErrorKeepsSessionAndBacksOff(t *testing.T) {
 	provider := newFakeTokenEndpoint(t)
 	provider.respond(http.StatusServiceUnavailable, map[string]any{"error": "temporarily_unavailable"})
-	sm, tbl := newRefreshTestManager(t, provider, expiredOIDCSession("uss_outage"))
+	sm, tbl, _ := newRefreshTestManager(t, provider, true, expiredOIDCSession("uss_outage"))
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		session, err := sm.GetSessionFromRequest(context.Background(), requestWithSession("uss_outage"))
 		require.NoError(t, err)
 		require.NotNil(t, session)
 		assert.Equal(t, "expired_access_token", session.OIDCAccessToken)
 	}
 	assert.Equal(t, int32(1), provider.calls.Load(), "requests inside the retry interval must not call the provider")
-	_, ok := tbl.get("uss_outage")
+	stored, ok := tbl.get("uss_outage")
 	assert.True(t, ok, "a transient failure must not delete the session")
+	assert.False(t, stored.OIDCRefreshDead)
 
 	// Once the retry interval has passed, the next request tries again.
 	sm.refreshRetry.mu.Lock()
 	sm.refreshRetry.until["uss_outage"] = time.Now().Add(-time.Second)
 	sm.refreshRetry.mu.Unlock()
-	provider.respond(http.StatusOK, map[string]any{
-		"access_token": "new_access_token", "refresh_token": "new_refresh_token",
-		"token_type": "Bearer", "expires_in": 300,
-	})
+	provider.respond(http.StatusOK, okTokenResponse(300))
 	session, err := sm.GetSessionFromRequest(context.Background(), requestWithSession("uss_outage"))
 	require.NoError(t, err)
 	assert.Equal(t, "new_access_token", session.OIDCAccessToken)
@@ -226,11 +293,8 @@ func TestGetSessionFromRequest_TransientRefreshErrorKeepsSessionAndBacksOff(t *t
 func TestGetSessionFromRequest_ConcurrentRequestsShareOneRefresh(t *testing.T) {
 	provider := newFakeTokenEndpoint(t)
 	provider.delay = 100 * time.Millisecond
-	provider.respond(http.StatusOK, map[string]any{
-		"access_token": "new_access_token", "refresh_token": "new_refresh_token",
-		"token_type": "Bearer", "expires_in": 3600,
-	})
-	sm, tbl := newRefreshTestManager(t, provider, expiredOIDCSession("uss_burst"))
+	provider.respond(http.StatusOK, okTokenResponse(3600))
+	sm, tbl, _ := newRefreshTestManager(t, provider, false, expiredOIDCSession("uss_burst"))
 
 	const requests = 20
 	start := make(chan struct{})
@@ -259,27 +323,114 @@ func TestGetSessionFromRequest_ConcurrentRequestsShareOneRefresh(t *testing.T) {
 }
 
 // When another API replica rotated the refresh token first, the provider
-// rejects the stale one; that must not log the user out.
+// rejects the stale one; the session must be neither retired nor deleted.
 func TestGetSessionFromRequest_InvalidGrantAfterRotationElsewhereKeepsSession(t *testing.T) {
-	provider := newFakeTokenEndpoint(t)
-	provider.respond(http.StatusBadRequest, map[string]any{"error": "invalid_grant", "error_description": "Stale token"})
-	sm, tbl := newRefreshTestManager(t, provider, expiredOIDCSession("uss_rotated"))
+	for _, endSession := range []bool{false, true} {
+		t.Run(fmt.Sprintf("end_session=%v", endSession), func(t *testing.T) {
+			provider := newFakeTokenEndpoint(t)
+			provider.respond(http.StatusBadRequest, map[string]any{"error": "invalid_grant", "error_description": "Stale token"})
+			sm, tbl, _ := newRefreshTestManager(t, provider, endSession, expiredOIDCSession("uss_rotated"))
 
-	// The other replica stores its refreshed tokens while this one's call
-	// to the provider is in flight.
-	rotated := expiredOIDCSession("uss_rotated")
-	rotated.OIDCRefreshToken = "rotated_refresh_token"
-	rotated.OIDCAccessToken = "rotated_access_token"
-	rotated.OIDCTokenExpiry = time.Now().Add(time.Hour)
+			// The other replica stores its refreshed tokens while this one's
+			// call to the provider is in flight.
+			rotated := expiredOIDCSession("uss_rotated")
+			rotated.OIDCRefreshToken = "rotated_refresh_token"
+			rotated.OIDCAccessToken = "rotated_access_token"
+			rotated.OIDCTokenExpiry = time.Now().Add(time.Hour)
+			provider.beforeAnswer = func() {
+				tbl.mu.Lock()
+				tbl.sessions["uss_rotated"] = rotated
+				tbl.mu.Unlock()
+			}
+
+			session, err := sm.GetSessionFromRequest(context.Background(), requestWithSession("uss_rotated"))
+			require.NoError(t, err)
+			assert.Equal(t, "rotated_access_token", session.OIDCAccessToken)
+			stored, ok := tbl.get("uss_rotated")
+			require.True(t, ok)
+			assert.False(t, stored.OIDCRefreshDead)
+		})
+	}
+}
+
+// If the session cannot be re-read after losing the rotation race, the
+// failure is treated as transient: nothing is retired and the refresh backs off.
+func TestGetSessionFromRequest_RereadFailureAfterRotationIsTransient(t *testing.T) {
+	provider := newFakeTokenEndpoint(t)
+	provider.respond(http.StatusBadRequest, sessionNotActive)
+	sm, tbl, _ := newRefreshTestManager(t, provider, true, expiredOIDCSession("uss_reread"))
 	provider.beforeAnswer = func() {
 		tbl.mu.Lock()
-		tbl.sessions["uss_rotated"] = rotated
-		tbl.mu.Unlock()
+		defer tbl.mu.Unlock()
+		s := tbl.sessions["uss_reread"]
+		s.OIDCRefreshToken = "rotated_refresh_token"
+		tbl.sessions["uss_reread"] = s
+		tbl.readErr = errors.New("connection reset")
+		tbl.readsBeforeErr = tbl.reads
 	}
 
-	session, err := sm.GetSessionFromRequest(context.Background(), requestWithSession("uss_rotated"))
-	require.NoError(t, err)
-	assert.Equal(t, "rotated_access_token", session.OIDCAccessToken)
-	_, ok := tbl.get("uss_rotated")
+	session, err := sm.GetSessionFromRequest(context.Background(), requestWithSession("uss_reread"))
+	require.NoError(t, err, "a transient failure leaves the request authenticated")
+	require.NotNil(t, session)
+	_, ok := tbl.get("uss_reread")
 	assert.True(t, ok)
+	assert.True(t, sm.refreshRetry.blocked("uss_reread", time.Now()))
+}
+
+// A realm-wide event must not retire every session: past the limit per
+// minute, further ended sessions are left alone and retried later.
+func TestGetSessionFromRequest_EndedSessionLimit(t *testing.T) {
+	for _, endSession := range []bool{false, true} {
+		t.Run(fmt.Sprintf("end_session=%v", endSession), func(t *testing.T) {
+			provider := newFakeTokenEndpoint(t)
+			provider.respond(http.StatusBadRequest, sessionNotActive)
+			var sessions []types.UserSession
+			for i := range endedSessionLimit + 5 {
+				sessions = append(sessions, expiredOIDCSession(fmt.Sprintf("uss_%02d", i)))
+			}
+			sm, tbl, _ := newRefreshTestManager(t, provider, endSession, sessions...)
+
+			for _, s := range sessions {
+				_, _ = sm.GetSessionFromRequest(context.Background(), requestWithSession(s.ID))
+			}
+
+			retired := 0
+			for _, s := range sessions {
+				stored, ok := tbl.get(s.ID)
+				if !ok || stored.OIDCRefreshDead {
+					retired++
+				} else {
+					assert.True(t, sm.refreshRetry.blocked(s.ID, time.Now()), "a session past the limit backs off")
+				}
+			}
+			assert.Equal(t, endedSessionLimit, retired)
+		})
+	}
+}
+
+// The background refresher retires ended sessions too, and then leaves them alone.
+func TestRefreshExpiredSessions_SkipsDeadSessions(t *testing.T) {
+	provider := newFakeTokenEndpoint(t)
+	provider.respond(http.StatusBadRequest, sessionNotActive)
+	live := expiredOIDCSession("uss_live")
+	dead := expiredOIDCSession("uss_dead")
+	dead.OIDCRefreshDead = true
+	sm, tbl, st := newRefreshTestManager(t, provider, false, live, dead)
+	st.EXPECT().GetUserSessionsNearOIDCExpiry(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, time.Time) ([]*types.UserSession, error) {
+		var out []*types.UserSession
+		for _, id := range []string{"uss_live", "uss_dead"} {
+			s, _ := tbl.get(id)
+			out = append(out, &s)
+		}
+		return out, nil
+	}).Times(2)
+
+	sm.refreshExpiredSessions(context.Background())
+	assert.Equal(t, int32(1), provider.calls.Load(), "only the live session is refreshed")
+	stored, _ := tbl.get("uss_live")
+	assert.True(t, stored.OIDCRefreshDead)
+
+	sm.refreshRetry.succeeded("uss_live")
+	sm.refreshExpiredSessions(context.Background())
+	assert.Equal(t, int32(1), provider.calls.Load(), "dead sessions are not refreshed")
 }

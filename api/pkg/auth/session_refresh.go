@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
@@ -22,12 +24,30 @@ const (
 	// every request waiting on it, so it does not inherit any one request's
 	// cancellation.
 	oidcRefreshTimeout = 15 * time.Second
+
+	// endedSessionLimit caps how many sessions may be retired (marked dead or
+	// deleted) per endedSessionWindow. A realm-wide event such as a provider
+	// restore or key rotation then cannot retire every session at once.
+	endedSessionLimit  = 20
+	endedSessionWindow = time.Minute
 )
 
 // ErrSessionRevoked is returned for a session whose identity-provider
-// session has ended: its refresh token was rejected, so the session can
-// never get a valid access token again. The session has been deleted.
+// session has ended when OIDC_END_SESSION_WHEN_IDP_SESSION_ENDS is enabled.
+// The session has been deleted.
 var ErrSessionRevoked = errors.New("identity provider session has ended")
+
+var oidcRefreshFailures = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "helix_oidc_session_refresh_failures_total",
+	Help: "Failed OIDC token refreshes for browser sessions, by outcome.",
+}, []string{"reason"})
+
+const (
+	refreshFailureTransient      = "transient"
+	refreshFailureClientRejected = "client_rejected"
+	refreshFailureSessionEnded   = "idp_session_ended"
+	refreshFailureLimitReached   = "ended_session_limit"
+)
 
 // IsSessionDiscarded reports whether err means the request's session cookie
 // names a session that no longer exists, so the cookie should be cleared.
@@ -37,18 +57,23 @@ func IsSessionDiscarded(err error) bool {
 		errors.Is(err, ErrSessionRevoked)
 }
 
-// isTerminalRefreshError reports whether the token endpoint rejected the
-// refresh in a way no retry can fix (RFC 6749 §5.2).
-func isTerminalRefreshError(err error) bool {
+// refreshErrorReason classifies a token-endpoint failure (RFC 6749 §5.2).
+// invalid_grant concerns this session's refresh token alone. invalid_client
+// and unauthorized_client mean Helix's own client credentials are rejected:
+// that affects every session and is fixed by configuration, so it is
+// handled like any other transient failure.
+func refreshErrorReason(err error) string {
 	var retrieveErr *oauth2.RetrieveError
 	if !errors.As(err, &retrieveErr) {
-		return false
+		return refreshFailureTransient
 	}
 	switch retrieveErr.ErrorCode {
-	case "invalid_grant", "invalid_client", "unauthorized_client":
-		return true
+	case "invalid_grant":
+		return refreshFailureSessionEnded
+	case "invalid_client", "unauthorized_client":
+		return refreshFailureClientRejected
 	}
-	return false
+	return refreshFailureTransient
 }
 
 // refreshRetryGate remembers sessions whose last refresh failed, so they are
@@ -93,12 +118,41 @@ func (g *refreshRetryGate) succeeded(sessionID string) {
 	delete(g.until, sessionID)
 }
 
+// rateLimiter counts events in a sliding window.
+type rateLimiter struct {
+	mu     sync.Mutex
+	limit  int
+	window time.Duration
+	events []time.Time
+}
+
+func (l *rateLimiter) full(now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	cutoff := now.Add(-l.window)
+	kept := l.events[:0]
+	for _, t := range l.events {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	l.events = kept
+	return len(l.events) >= l.limit
+}
+
+func (l *rateLimiter) record(now time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = append(l.events, now)
+}
+
 // refreshSessionOIDC gets the session a fresh OIDC access token. Concurrent
 // callers for one session share a single token-endpoint call, and a session
 // whose refresh recently failed is returned unchanged until the retry
-// interval passes. When the provider rejects the refresh token the session
-// is deleted and ErrSessionRevoked is returned. Any other error leaves the
-// session in place; the caller may carry on with its current token.
+// interval passes. When the provider reports that the user's session has
+// ended, the session is either marked so it is never refreshed again
+// (default) or deleted, returning ErrSessionRevoked. Any other error leaves
+// the session in place.
 func (sm *SessionManager) refreshSessionOIDC(ctx context.Context, session *types.UserSession) (*types.UserSession, error) {
 	if sm.refreshRetry.blocked(session.ID, time.Now()) {
 		return session, nil
@@ -118,11 +172,8 @@ func (sm *SessionManager) refreshSessionOIDC(ctx context.Context, session *types
 // refreshStoredSession refreshes the session as currently stored, which may
 // already carry tokens from a refresh that finished after the caller read it.
 func (sm *SessionManager) refreshStoredSession(ctx context.Context, sessionID string) (*types.UserSession, error) {
-	session, err := sm.store.GetUserSession(ctx, sessionID)
+	session, err := sm.loadSession(ctx, sessionID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrSessionNotFound
-		}
 		return nil, err
 	}
 	if !session.NeedsOIDCRefresh() {
@@ -131,8 +182,15 @@ func (sm *SessionManager) refreshStoredSession(ctx context.Context, sessionID st
 
 	token, err := sm.oidcClient.RefreshAccessToken(ctx, session.OIDCRefreshToken)
 	if err != nil {
-		if isTerminalRefreshError(err) {
-			return sm.discardRevokedSession(ctx, session, err)
+		switch reason := refreshErrorReason(err); reason {
+		case refreshFailureSessionEnded:
+			return sm.retireEndedSession(ctx, session, err)
+		case refreshFailureClientRejected:
+			oidcRefreshFailures.WithLabelValues(reason).Inc()
+			log.Error().Err(err).Str("session_id", sessionID).
+				Msg("Identity provider rejected Helix's OIDC client credentials while refreshing a session; check OIDC_CLIENT_ID / OIDC_CLIENT_SECRET")
+		default:
+			oidcRefreshFailures.WithLabelValues(reason).Inc()
 		}
 		sm.refreshRetry.failed(sessionID, time.Now())
 		return nil, err
@@ -152,25 +210,67 @@ func (sm *SessionManager) refreshStoredSession(ctx context.Context, sessionID st
 	return session, nil
 }
 
-// discardRevokedSession deletes a session whose refresh token the provider
-// rejected, unless another API replica has meanwhile stored a newer one.
-func (sm *SessionManager) discardRevokedSession(ctx context.Context, session *types.UserSession, refreshErr error) (*types.UserSession, error) {
-	if latest, err := sm.store.GetUserSession(ctx, session.ID); err == nil &&
-		latest.OIDCRefreshToken != session.OIDCRefreshToken {
-		return latest, nil
+func (sm *SessionManager) loadSession(ctx context.Context, sessionID string) (*types.UserSession, error) {
+	session, err := sm.store.GetUserSession(ctx, sessionID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrSessionNotFound
+	}
+	return session, err
+}
+
+func (sm *SessionManager) endSessionWhenIdPSessionEnds() bool {
+	return sm.cfg != nil && sm.cfg.Auth.OIDC.EndSessionWhenIdPSessionEnds
+}
+
+// retireEndedSession handles a refresh token the provider rejected because
+// the user's session there has ended. Both the mark and the delete apply
+// only while the session still holds that refresh token, so a session that
+// another API replica refreshed in the meantime is left alone.
+func (sm *SessionManager) retireEndedSession(ctx context.Context, session *types.UserSession, refreshErr error) (*types.UserSession, error) {
+	now := time.Now()
+	if sm.endedSessions.full(now) {
+		oidcRefreshFailures.WithLabelValues(refreshFailureLimitReached).Inc()
+		log.Error().Err(refreshErr).Str("session_id", session.ID).
+			Int("limit", endedSessionLimit).Dur("window", endedSessionWindow).
+			Msg("Too many sessions ended by the identity provider; leaving this one in place and retrying later")
+		sm.refreshRetry.failed(session.ID, now)
+		return nil, refreshErr
 	}
 
-	if err := sm.store.DeleteUserSession(ctx, session.ID); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to delete session after its refresh token was rejected")
-		sm.refreshRetry.failed(session.ID, time.Now())
+	var (
+		applied bool
+		err     error
+	)
+	if sm.endSessionWhenIdPSessionEnds() {
+		applied, err = sm.store.DeleteUserSessionWithRefreshToken(ctx, session.ID, session.OIDCRefreshToken)
 	} else {
-		sm.refreshRetry.succeeded(session.ID)
+		applied, err = sm.store.MarkUserSessionOIDCRefreshDead(ctx, session.ID, session.OIDCRefreshToken)
+	}
+	if err != nil {
+		sm.refreshRetry.failed(session.ID, now)
+		return nil, err
+	}
+	if !applied {
+		// The stored refresh token changed (or the session went away) while
+		// this refresh was in flight: use what is stored now.
+		latest, err := sm.loadSession(ctx, session.ID)
+		if err != nil && !errors.Is(err, ErrSessionNotFound) {
+			sm.refreshRetry.failed(session.ID, now)
+		}
+		return latest, err
 	}
 
-	log.Info().
-		Err(refreshErr).
-		Str("session_id", session.ID).
-		Str("user_id", session.UserID).
-		Msg("Identity provider rejected the session's refresh token; session deleted")
-	return nil, fmt.Errorf("%w: %v", ErrSessionRevoked, refreshErr)
+	sm.endedSessions.record(now)
+	sm.refreshRetry.succeeded(session.ID)
+	oidcRefreshFailures.WithLabelValues(refreshFailureSessionEnded).Inc()
+
+	if sm.endSessionWhenIdPSessionEnds() {
+		log.Info().Err(refreshErr).Str("session_id", session.ID).Str("user_id", session.UserID).
+			Msg("Identity provider session ended; Helix session deleted")
+		return nil, fmt.Errorf("%w: %v", ErrSessionRevoked, refreshErr)
+	}
+	log.Info().Err(refreshErr).Str("session_id", session.ID).Str("user_id", session.UserID).
+		Msg("Identity provider session ended; the Helix session will no longer refresh its OIDC token")
+	session.OIDCRefreshDead = true
+	return session, nil
 }

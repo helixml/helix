@@ -16,7 +16,7 @@ import {
 } from '../types'
 import { TypesFrontendLicenseInfo, TypesServerConfigForFrontend } from '../api/api'
 import { clearSelectedOrg } from '../utils/localStorage'
-import { sessionExpiry } from '../utils/sessionExpiry'
+import { isSignInExemptRoute, sessionExpiry } from '../utils/sessionExpiry'
 import { isEmbedRouteName } from '../utils/organizations'
 
 // Embed routes are fullscreen, single-purpose views of one task or session,
@@ -410,6 +410,10 @@ export const useAccountContext = (): IAccountContext => {
     // Server config is loaded via React Query (useGetConfig) automatically
   }, [user])
 
+  useEffect(() => {
+    sessionExpiry.setRouteName(router.name)
+  }, [router.name])
+
   // Redirect to login page if not authenticated
   useEffect(() => {
     if (!initialized) return
@@ -417,9 +421,7 @@ export const useAccountContext = (): IAccountContext => {
     // Embed routes authenticate with a task/session-scoped API key rather than
     // an account cookie. The embed UI can load its bound resource even though
     // account initialization intentionally produces no normal signed-in user.
-    if (isEmbedRoute(router.name)) return
-    const publicRoutes = ['login', 'password-reset', 'password-reset-complete', 'artifact_viewer']
-    if (publicRoutes.includes(router.name)) return
+    if (isSignInExemptRoute(router.name)) return
 
     // Save current URL for post-login redirect
     const currentPath = window.location.pathname + window.location.search

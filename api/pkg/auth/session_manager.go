@@ -54,17 +54,19 @@ type SessionManager struct {
 	oidcClient OIDC
 	cfg        *config.ServerConfig
 
-	refreshGroup singleflight.Group
-	refreshRetry refreshRetryGate
+	refreshGroup  singleflight.Group
+	refreshRetry  refreshRetryGate
+	endedSessions rateLimiter
 }
 
 // NewSessionManager creates a new session manager
 func NewSessionManager(store store.Store, oidcClient OIDC, cfg *config.ServerConfig) *SessionManager {
 	return &SessionManager{
-		store:        store,
-		oidcClient:   oidcClient,
-		cfg:          cfg,
-		refreshRetry: refreshRetryGate{interval: oidcRefreshRetryInterval},
+		store:         store,
+		oidcClient:    oidcClient,
+		cfg:           cfg,
+		refreshRetry:  refreshRetryGate{interval: oidcRefreshRetryInterval},
+		endedSessions: rateLimiter{limit: endedSessionLimit, window: endedSessionWindow},
 	}
 }
 
@@ -214,8 +216,10 @@ func (sm *SessionManager) GetSessionFromRequest(ctx context.Context, r *http.Req
 		case errors.Is(err, ErrSessionRevoked), errors.Is(err, ErrSessionNotFound):
 			return nil, err
 		case err != nil:
-			// Transient failure: carry on with the current token; the retry
-			// gate stops the next requests from asking the provider again.
+			// The session stays valid: session auth does not validate the OIDC
+			// access token on each request, so a stale one does not lock the
+			// user out. The retry gate keeps the next requests from asking the
+			// provider again straight away.
 			log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to refresh OIDC token")
 		default:
 			session = refreshed

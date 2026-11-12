@@ -5,7 +5,17 @@
 //
 // A 401 alone is not proof the session is gone, so the first one triggers a
 // single check of /api/v1/auth/authenticated; only a definite "false" leads
-// to the login page, and the redirect happens at most once.
+// to the login page, and the redirect happens at most once. Routes that work
+// without a signed-in account (embeds, login, password reset, shared
+// artifacts) are never redirected.
+
+import { isEmbedRouteName } from './organizations'
+
+// Routes that render without a signed-in account.
+export const PUBLIC_ROUTES = ['login', 'password-reset', 'password-reset-complete', 'artifact_viewer']
+
+export const isSignInExemptRoute = (routeName?: string): boolean =>
+  isEmbedRouteName(routeName) || PUBLIC_ROUTES.includes(routeName ?? '')
 
 export interface SessionExpiryDeps {
   // Resolves true/false for a definite answer, null when it is unknown
@@ -27,6 +37,7 @@ export function createSessionExpiryHandler(deps: SessionExpiryDeps, origin = '')
   const recheckAfterMs = deps.recheckAfterMs ?? 30_000
   const now = deps.now ?? Date.now
   let signedIn = false
+  let routeName: string | undefined
   let checking = false
   let redirected = false
   let quietUntil = 0
@@ -35,7 +46,7 @@ export function createSessionExpiryHandler(deps: SessionExpiryDeps, origin = '')
     checking = true
     try {
       const authenticated = await deps.checkAuthenticated()
-      if (authenticated === false && signedIn && !redirected) {
+      if (authenticated === false && signedIn && !redirected && !isSignInExemptRoute(routeName)) {
         redirected = true
         deps.redirectToLogin()
       } else if (authenticated === true) {
@@ -52,12 +63,16 @@ export function createSessionExpiryHandler(deps: SessionExpiryDeps, origin = '')
     setSignedIn(value: boolean) {
       signedIn = value
     },
+    setRouteName(name: string | undefined) {
+      routeName = name
+    },
     // Axios response error interceptor.
     onResponseError(error: any) {
       if (
         signedIn &&
         !redirected &&
         !checking &&
+        !isSignInExemptRoute(routeName) &&
         now() >= quietUntil &&
         error?.response?.status === 401 &&
         isApiRequest(error?.config?.url, origin)

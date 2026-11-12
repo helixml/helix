@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createSessionExpiryHandler } from './sessionExpiry'
+import { createSessionExpiryHandler, isSignInExemptRoute } from './sessionExpiry'
 
 const unauthorized = (url = '/api/v1/sessions') => ({ response: { status: 401 }, config: { url } })
 
@@ -80,5 +80,42 @@ describe('session expiry handler', () => {
     await fail(handler, unauthorized('https://app.example.test/api/v1/x'))
     await flush()
     expect(checkAuthenticated).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['embed_session', 'embed_spec_task', 'login', 'password-reset', 'password-reset-complete', 'artifact_viewer'])(
+    'never redirects from the %s route',
+    async (routeName) => {
+      const { handler, checkAuthenticated, redirectToLogin } = setup(false)
+      handler.setSignedIn(true)
+      handler.setRouteName(routeName)
+      await fail(handler, unauthorized())
+      await flush()
+      expect(checkAuthenticated).not.toHaveBeenCalled()
+      expect(redirectToLogin).not.toHaveBeenCalled()
+    },
+  )
+
+  it('does not redirect if the user moved to an exempt route while the check was running', async () => {
+    let resolve: (v: boolean) => void = () => {}
+    const checkAuthenticated = vi.fn(() => new Promise<boolean>(r => { resolve = r }))
+    const redirectToLogin = vi.fn()
+    const handler = createSessionExpiryHandler({ checkAuthenticated, redirectToLogin }, '')
+    handler.setSignedIn(true)
+    handler.setRouteName('org_projects')
+    await fail(handler, unauthorized())
+    handler.setRouteName('login')
+    resolve(false)
+    await flush()
+    expect(checkAuthenticated).toHaveBeenCalledTimes(1)
+    expect(redirectToLogin).not.toHaveBeenCalled()
+  })
+})
+
+describe('isSignInExemptRoute', () => {
+  it('matches the routes that render without an account', () => {
+    expect(isSignInExemptRoute('embed_anything')).toBe(true)
+    expect(isSignInExemptRoute('artifact_viewer')).toBe(true)
+    expect(isSignInExemptRoute('org_projects')).toBe(false)
+    expect(isSignInExemptRoute(undefined)).toBe(false)
   })
 })
