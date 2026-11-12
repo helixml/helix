@@ -400,6 +400,9 @@ func (s *HelixAPIServer) addProjectWebServiceDomain(_ http.ResponseWriter, r *ht
 	if hostname == "" {
 		return nil, system.NewHTTPError400("hostname is required")
 	}
+	if err := webservice.ValidateHostname(hostname); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 
 	opts := s.vhostReserveOpts()
 	opts.Hostname = hostname
