@@ -1,15 +1,13 @@
 import React from 'react';
-import {
-  Box,
-  FormControl,
-  FormControlLabel,
-  Radio,
-  RadioGroup,
-  Typography,
-  Card,
-  CardContent,
-  Tooltip,
-} from '@mui/material';
+import Box from '@mui/material/Box';
+import FormControl from '@mui/material/FormControl';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Radio from '@mui/material/Radio';
+import RadioGroup from '@mui/material/RadioGroup';
+import Typography from '@mui/material/Typography';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import Tooltip from '@mui/material/Tooltip';
 import CodeIcon from '@mui/icons-material/Code';
 import ComputerIcon from '@mui/icons-material/Computer';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';

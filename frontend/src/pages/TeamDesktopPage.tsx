@@ -1,14 +1,12 @@
 import React, { FC, useRef } from 'react'
 import { useRoute } from 'react-router5'
-import {
-  Box,
-  IconButton,
-  Typography,
-  Tooltip,
-  Breadcrumbs,
-  Link,
-  CircularProgress,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import IconButton from '@mui/material/IconButton';
+import Typography from '@mui/material/Typography';
+import Tooltip from '@mui/material/Tooltip';
+import Breadcrumbs from '@mui/material/Breadcrumbs';
+import Link from '@mui/material/Link';
+import CircularProgress from '@mui/material/CircularProgress';
 import BackIcon from '@mui/icons-material/ArrowBack';
 import WorkspaceIcon from '@mui/icons-material/ViewModule';
 

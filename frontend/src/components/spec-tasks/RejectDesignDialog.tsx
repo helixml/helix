@@ -1,14 +1,12 @@
 import React from 'react'
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  TextField,
-  Button,
-  Box,
-  Alert,
-  CircularProgress,
-} from '@mui/material'
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import TextField from '@mui/material/TextField';
+import Button from '@mui/material/Button';
+import Box from '@mui/material/Box';
+import Alert from '@mui/material/Alert';
+import CircularProgress from '@mui/material/CircularProgress';
 
 interface RejectDesignDialogProps {
   open: boolean

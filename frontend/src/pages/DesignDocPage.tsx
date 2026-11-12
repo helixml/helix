@@ -1,19 +1,17 @@
 import React, { useState } from 'react'
 import { useRoute } from 'react-router5'
-import {
-  Box,
-  Typography,
-  Tabs,
-  Tab,
-  Paper,
-  CircularProgress,
-  Alert,
-  Container,
-  Divider,
-  Chip,
-  IconButton,
-  Tooltip,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
+import Paper from '@mui/material/Paper';
+import CircularProgress from '@mui/material/CircularProgress';
+import Alert from '@mui/material/Alert';
+import Container from '@mui/material/Container';
+import Divider from '@mui/material/Divider';
+import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import CopyIcon from '@mui/icons-material/ContentCopy';
 import CheckIcon from '@mui/icons-material/Check';
 import BackIcon from '@mui/icons-material/ArrowBack';

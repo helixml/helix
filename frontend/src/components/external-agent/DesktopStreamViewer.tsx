@@ -1,16 +1,14 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { v4 as uuidv4 } from "uuid";
-import {
-  Box,
-  Typography,
-  Alert,
-  CircularProgress,
-  IconButton,
-  Button,
-  Tooltip,
-  Menu,
-  MenuItem,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Alert from "@mui/material/Alert";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import Button from "@mui/material/Button";
+import Tooltip from "@mui/material/Tooltip";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
 import Fullscreen from "@mui/icons-material/Fullscreen";
 import FullscreenExit from "@mui/icons-material/FullscreenExit";
 import Refresh from "@mui/icons-material/Refresh";

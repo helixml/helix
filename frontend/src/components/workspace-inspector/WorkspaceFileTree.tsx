@@ -1,18 +1,16 @@
 import React, { FC, useEffect, useMemo, useRef, useState } from "react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import type { ContextMenuItem, ContextMenuOpenContext, GitStatusEntry } from "@pierre/trees";
-import {
-  Box,
-  CircularProgress,
-  IconButton,
-  InputAdornment,
-  ListItemIcon,
-  Menu,
-  MenuItem,
-  TextField,
-  Tooltip,
-  Typography,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import { ClipboardCopy, Copy, Download, RefreshCw, Search, X } from "lucide-react";
 import axios from "axios";
 import type { TypesInteractionCodeChangeFile, TypesWorkspaceFileEntry } from "../../api/api";

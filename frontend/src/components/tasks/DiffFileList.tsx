@@ -1,14 +1,12 @@
 import React, { FC } from "react";
-import {
-  Box,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Typography,
-  Chip,
-  Tooltip,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import List from "@mui/material/List";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import ListItemText from "@mui/material/ListItemText";
+import Typography from "@mui/material/Typography";
+import Chip from "@mui/material/Chip";
+import Tooltip from "@mui/material/Tooltip";
 import {
   Plus,
   Minus,

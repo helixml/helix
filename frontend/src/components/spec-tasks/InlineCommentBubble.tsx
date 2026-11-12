@@ -1,13 +1,11 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import {
-  Paper,
-  Box,
-  Chip,
-  Typography,
-  CircularProgress,
-  Button,
-  Tooltip,
-} from "@mui/material";
+import Paper from "@mui/material/Paper";
+import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import Typography from "@mui/material/Typography";
+import CircularProgress from "@mui/material/CircularProgress";
+import Button from "@mui/material/Button";
+import Tooltip from "@mui/material/Tooltip";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";

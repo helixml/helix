@@ -1,18 +1,16 @@
 import React, { FC, useState, useEffect } from 'react'
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  Stack,
-  FormControlLabel,
-  Switch,
-  Box,
-  Typography,
-  CircularProgress,
-  Tooltip,
-} from '@mui/material'
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import Stack from '@mui/material/Stack';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Switch from '@mui/material/Switch';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import CircularProgress from '@mui/material/CircularProgress';
+import Tooltip from '@mui/material/Tooltip';
 import { Brain } from 'lucide-react'
 import { TypesExternalRepositoryType } from '../../api/api'
 import ExternalRepoForm from './forms/ExternalRepoForm'

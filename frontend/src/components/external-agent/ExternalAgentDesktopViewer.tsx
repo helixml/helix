@@ -1,13 +1,11 @@
 import React, { FC, useState, useEffect, useCallback, useRef, useMemo } from "react";
-import {
-  Box,
-  Button,
-  Typography,
-  CircularProgress,
-  IconButton,
-  Tooltip,
-  Collapse,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import Collapse from "@mui/material/Collapse";
 import PlayArrow from "@mui/icons-material/PlayArrow";
 import TaskSessionPlaceholder from "../tasks/TaskSessionPlaceholder";
 import ChatIcon from "@mui/icons-material/Chat";

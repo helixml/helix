@@ -1,18 +1,16 @@
 import React from 'react';
-import {
-  Box,
-  TextField,
-  InputAdornment,
-  Select,
-  MenuItem,
-  Chip,
-  Button,
-  FormControl,
-  InputLabel,
-  OutlinedInput,
-  Checkbox,
-  ListItemText,
-} from '@mui/material';
+import Box from '@mui/material/Box';
+import TextField from '@mui/material/TextField';
+import InputAdornment from '@mui/material/InputAdornment';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import Chip from '@mui/material/Chip';
+import Button from '@mui/material/Button';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import OutlinedInput from '@mui/material/OutlinedInput';
+import Checkbox from '@mui/material/Checkbox';
+import ListItemText from '@mui/material/ListItemText';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
 

@@ -1,16 +1,17 @@
 import React, { FC, useState, useEffect } from 'react'
-import {
-  Paper,
-  Box,
-  Typography,
-  IconButton,
-} from '@mui/material'
+import Paper from '@mui/material/Paper';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
 import CloseIcon from '@mui/icons-material/Close';
 import DragIcon from '@mui/icons-material/DragIndicator';
 import MinimizeIcon from '@mui/icons-material/Minimize';
 import MaximizeIcon from '@mui/icons-material/Maximize';
 import TileIcon from '@mui/icons-material/GridViewOutlined';
-import { Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material'
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
 import { useFloatingModal } from '../../contexts/floatingModal'
 import { useResize } from '../../hooks/useResize'
 import ScreenshotViewer from '../external-agent/ScreenshotViewer'

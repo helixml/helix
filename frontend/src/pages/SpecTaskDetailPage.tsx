@@ -1,12 +1,10 @@
 import React, { FC, useCallback, useEffect, useState } from "react";
 import { useRoute } from "react-router5";
-import {
-  Box,
-  IconButton,
-  Tooltip,
-  CircularProgress,
-  Stack,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import CircularProgress from "@mui/material/CircularProgress";
+import Stack from "@mui/material/Stack";
 import TiledIcon from "@mui/icons-material/ViewModule";
 import AddIcon from "@mui/icons-material/Add";
 import NewSpecTaskForm from "../components/tasks/NewSpecTaskForm";

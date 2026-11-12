@@ -5,36 +5,34 @@ import {
   saveKanbanHorizontalScroll,
   saveKanbanColumnScroll,
 } from "./kanbanScrollMemory";
-import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  CardHeader,
-  Grid,
-  Button,
-  Chip,
-  LinearProgress,
-  CircularProgress,
-  Alert,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  IconButton,
-  Collapse,
-  Stack,
-  Divider,
-  Badge,
-  Tooltip,
-  Select,
-  FormControl,
-  InputLabel,
-  Avatar,
-  InputAdornment,
-  Autocomplete,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Card from "@mui/material/Card";
+import CardContent from "@mui/material/CardContent";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
+import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
+import LinearProgress from "@mui/material/LinearProgress";
+import CircularProgress from "@mui/material/CircularProgress";
+import Alert from "@mui/material/Alert";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import TextField from "@mui/material/TextField";
+import IconButton from "@mui/material/IconButton";
+import Collapse from "@mui/material/Collapse";
+import Stack from "@mui/material/Stack";
+import Divider from "@mui/material/Divider";
+import Badge from "@mui/material/Badge";
+import Tooltip from "@mui/material/Tooltip";
+import Select from "@mui/material/Select";
+import FormControl from "@mui/material/FormControl";
+import InputLabel from "@mui/material/InputLabel";
+import Avatar from "@mui/material/Avatar";
+import InputAdornment from "@mui/material/InputAdornment";
+import Autocomplete from "@mui/material/Autocomplete";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { getCSRFToken } from "../../utils/csrf";
