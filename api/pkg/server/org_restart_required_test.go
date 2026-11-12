@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/store/memorystore"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 )
@@ -34,6 +36,19 @@ func (f fakeSessionReader) GetLatestInteractionsForSessions(_ context.Context, s
 		return map[string]*types.Interaction{}, nil
 	}
 	return map[string]*types.Interaction{sessionIDs[0]: f.interaction}, nil
+}
+func (f fakeSessionReader) ListInteractions(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
+	if f.interaction == nil || f.interaction.SessionID != query.SessionID {
+		return nil, 0, nil
+	}
+	if query.State != "" && f.interaction.State != query.State {
+		return nil, 0, nil
+	}
+	if query.CompletedSuccessfully &&
+		(f.interaction.State != types.InteractionStateComplete || f.interaction.Completed.IsZero() || f.interaction.Error != "") {
+		return nil, 0, nil
+	}
+	return []*types.Interaction{f.interaction}, 1, nil
 }
 
 func runtimeFor(t *testing.T, stamp, containerID, agentStatus string) helixorgapi.BotRuntimeInfo {
@@ -114,6 +129,51 @@ func TestState_WorkingOnlyForRunningSessionWithWaitingLatestInteraction(t *testi
 			require.Equal(t, tc.want, info.AgentWorkState)
 		})
 	}
+}
+
+func TestLatestSuccessfulTurnStartedAtUsesCurrentSessionCompleteTurn(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	require.NoError(t, runtimehelix.SaveSession(ctx, st, "org-progress", "b-progress", "ses-current"))
+	want := time.Date(2026, 11, 10, 13, 24, 1, 0, time.UTC)
+	sessions := memorystore.New()
+	for _, interaction := range []*types.Interaction{
+		{ID: "complete", SessionID: "ses-current", State: types.InteractionStateComplete, Created: want, Completed: want.Add(time.Second)},
+		{ID: "newer-error", SessionID: "ses-current", State: types.InteractionStateError, Created: want.Add(time.Minute), Completed: want.Add(2 * time.Minute), Error: "service failure"},
+		{ID: "synthetic", SessionID: "ses-current", State: types.InteractionStateComplete, Created: want.Add(3 * time.Minute)},
+		{ID: "waiting", SessionID: "ses-current", State: types.InteractionStateWaiting, Created: want.Add(4 * time.Minute)},
+		{ID: "failed-complete", SessionID: "ses-current", State: types.InteractionStateComplete, Created: want.Add(5 * time.Minute), Completed: want.Add(6 * time.Minute), Error: "failed"},
+		{ID: "other-session", SessionID: "ses-other", State: types.InteractionStateComplete, Created: want.Add(7 * time.Minute), Completed: want.Add(8 * time.Minute)},
+	} {
+		_, err := sessions.CreateInteraction(ctx, interaction)
+		require.NoError(t, err)
+	}
+
+	got, err := (orgWorkerRuntime{
+		st:       st,
+		sessions: sessions,
+	}).LatestSuccessfulTurnStartedAt(ctx, "org-progress", "b-progress")
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
+func TestLatestSuccessfulTurnStartedAtReturnsZeroWithoutSuccessfulTurn(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	require.NoError(t, runtimehelix.SaveSession(ctx, st, "org-progress", "b-progress", "ses-current"))
+	sessions := memorystore.New()
+	_, err := sessions.CreateInteraction(ctx, &types.Interaction{
+		ID: "synthetic", SessionID: "ses-current", State: types.InteractionStateComplete,
+		Created: time.Date(2026, 11, 10, 13, 24, 1, 0, time.UTC),
+	})
+	require.NoError(t, err)
+
+	got, err := (orgWorkerRuntime{
+		st:       st,
+		sessions: sessions,
+	}).LatestSuccessfulTurnStartedAt(ctx, "org-progress", "b-progress")
+	require.NoError(t, err)
+	require.True(t, got.IsZero())
 }
 
 // fakeSessionGetter satisfies restartStampSessions with a configurable

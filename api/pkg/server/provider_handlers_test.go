@@ -638,10 +638,9 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_SynthesizesFromStaticListO
 	s.Equal("hermes", result.Models[0].OwnedBy)
 }
 
-// Upstream returning an empty list with a static Models list configured should
-// also fall back to the synthesized list (some endpoints answer /v1/models with
-// `{"data":[]}`).
-func (s *ProviderHandlersSuite) TestGetProviderModels_SynthesizesFromStaticListOnEmptyUpstream() {
+// A successful empty discovery response is authoritative. Configured models
+// must not be offered when the upstream says none are available.
+func (s *ProviderHandlersSuite) TestGetProviderModels_EmptyUpstreamExcludesStaticList() {
 	endpoint := &types.ProviderEndpoint{
 		Name:    "hermes",
 		Owner:   "user_id_2",
@@ -651,18 +650,11 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_SynthesizesFromStaticListO
 
 	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
 	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{}, nil)
-	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found")).Times(2)
 
 	result, err := s.server.getProviderModels(context.Background(), endpoint)
 	s.Require().NoError(err)
 	s.NoError(result.Degraded)
-	s.Require().Len(result.Models, 2)
-	s.Equal("hermes-agent", result.Models[0].ID)
-	s.Equal("hermes-mini", result.Models[1].ID)
-	for _, m := range result.Models {
-		s.Equal("chat", m.Type)
-		s.True(m.Enabled)
-	}
+	s.Empty(result.Models)
 }
 
 // When upstream errors AND no static Models list is set AND no cache entry
@@ -744,10 +736,8 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_GetClientErrorIsHardFailur
 		"config errors must not be tagged as upstream-unreachable")
 }
 
-// Static Models list takes precedence over both the upstream call AND a stale
-// cache entry — if the operator explicitly configured a model list, that's the
-// declared source of truth. Captures the priority for the cross-axis case the
-// previous tests didn't cover.
+// Without any prior successful discovery, a static Models list is the source
+// of truth for an endpoint that does not implement /v1/models.
 func (s *ProviderHandlersSuite) TestGetProviderModels_StaticListBeatsCacheOnUpstreamError() {
 	endpoint := &types.ProviderEndpoint{
 		Name:    "static-wins",
@@ -774,6 +764,37 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_StaticListBeatsCacheOnUpst
 	s.Require().Len(result.Models, 1)
 	s.Equal("explicit-model", result.Models[0].ID,
 		"static list must win over stale cache when upstream errors")
+}
+
+func (s *ProviderHandlersSuite) TestGetProviderModels_OutageDoesNotResurrectModelMissingFromPriorDiscovery() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "bunker",
+		Owner:   "org_birding",
+		BaseURL: "https://bunker.local",
+		Models:  []string{"glm-5.3-flash", "qwen3.8-flash-next"},
+	}
+	fetchedAt := time.Now().Add(-10 * time.Minute)
+	effective, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "glm-5.3-flash", Enabled: true}},
+		FetchedAt: fetchedAt,
+	})
+	catalogue, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "glm-5.3-flash", Enabled: true}},
+		FetchedAt: fetchedAt,
+	})
+	s.server.cache.SetWithTTL(modelCacheKey(endpoint.Name, endpoint.Owner), string(effective), 1, time.Hour)
+	s.server.cache.SetWithTTL(catalogueCacheKey(endpoint.Name, endpoint.Owner), string(catalogue), 1, time.Hour)
+	s.server.cache.Wait()
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return(nil, errors.New("connection refused"))
+
+	result, err := s.server.getProviderModels(context.Background(), endpoint)
+
+	s.Require().NoError(err)
+	s.Require().Error(result.Degraded)
+	s.Require().Len(result.Models, 1)
+	s.Equal("glm-5.3-flash", result.Models[0].ID)
 }
 
 // A successful fresh fetch must persist to the cache so future refreshes can
@@ -1562,7 +1583,7 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_EnabledListFiltersCatalogu
 		Name:    "openrouter",
 		Owner:   "user_wl",
 		BaseURL: "https://openrouter.ai/api/v1",
-		Models:  []string{"anthropic/claude-opus-5", "pinned/not-upstream"},
+		Models:  []string{"anthropic/claude-opus-5", "qwen3.8-flash-next"},
 	}
 
 	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
@@ -1575,14 +1596,10 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_EnabledListFiltersCatalogu
 
 	result, err := s.server.getProviderModels(context.Background(), endpoint)
 	s.Require().NoError(err)
-	s.Require().Len(result.Models, 2)
-	// Upstream metadata is kept for models that exist upstream...
+	s.Require().Len(result.Models, 1)
+	// Upstream metadata is kept for models that exist upstream.
 	s.Equal("anthropic/claude-opus-5", result.Models[0].ID)
 	s.Equal(200000, result.Models[0].ContextLength)
-	// ...and an enabled id the upstream doesn't advertise is still offered, so
-	// pinning a model an aggregator temporarily drops keeps working.
-	s.Equal("pinned/not-upstream", result.Models[1].ID)
-	s.True(result.Models[1].Enabled)
 }
 
 // The catalogue read powers the model picker itself, so it must NOT apply the
