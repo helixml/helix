@@ -492,6 +492,35 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListInteractionsFiltersSt
 	suite.Equal(waiting.ID, interactions[0].ID)
 }
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListInteractionsFiltersCompletedSuccessfully() {
+	ctx := context.Background()
+	userID := "user-success-filter-test"
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: userID, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	now := time.Now()
+	for _, interaction := range []*types.Interaction{
+		{ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID, GenerationID: 1, State: types.InteractionStateComplete, Created: now, Completed: now.Add(time.Second)},
+		{ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID, State: types.InteractionStateComplete, Created: now.Add(time.Minute)},
+		{ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID, State: types.InteractionStateError, Created: now.Add(2 * time.Minute), Completed: now.Add(3 * time.Minute), Error: "failed"},
+		{ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID, State: types.InteractionStateComplete, Created: now.Add(4 * time.Minute), Completed: now.Add(5 * time.Minute), Error: "failed"},
+	} {
+		_, err = suite.db.CreateInteraction(ctx, interaction)
+		suite.Require().NoError(err)
+	}
+
+	interactions, total, err := suite.db.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: session.ID, GenerationID: -1, PerPage: 1,
+		CompletedSuccessfully: true, Order: "created DESC, id DESC",
+	})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(interactions, 1)
+	suite.Equal(now.Unix(), interactions[0].Created.Unix())
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ListInteractionsFiltersPendingQuestionsBeforeLimit() {
 	ctx := context.Background()
 	userID := "user-pending-question-filter-test"
