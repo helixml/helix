@@ -580,7 +580,10 @@ func resolveImage(host *types.SandboxInstance, imageName, versionKey string) (st
 // existing GORM filters Just Work — sandbox IDs are globally unique and don't
 // collide with real session IDs. The token grants the desktop-bridge enough
 // auth to register a RevDial connection back to the API; it's revoked when
-// the sandbox is deleted.
+// the sandbox is deleted. The key never carries the owner's full authority:
+// in a project it is confined to the project, and outside one the API auth
+// middleware confines it by route to the sandbox's own needs
+// (server.sandboxKeyAllows) and git refuses it.
 func (c *Controller) ensureSandboxAPIToken(ctx context.Context, sandbox *types.Sandbox) (string, error) {
 	existing, err := c.store.GetAPIKey(ctx, &types.ApiKey{
 		OrganizationID: sandbox.OrganizationID,

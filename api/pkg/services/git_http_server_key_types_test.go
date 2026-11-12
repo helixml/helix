@@ -41,6 +41,9 @@ func TestGitKeyTypes(t *testing.T) {
 		{"instance cannot read status", instance, gitReq("GET", "/git/repo_bot/status", "repo_bot"), false},
 		{"instance key without a project reads nothing", &types.ApiKey{Type: types.APIkeytypeBotInstance}, gitReq("POST", "/git/repo_bot/git-upload-pack", "repo_bot"), false},
 		{"embed key never reaches git", &types.ApiKey{Type: types.APIkeytypeEmbed}, gitReq("POST", "/git/repo_bot/git-upload-pack", "repo_bot"), false},
+		{"sandbox key outside a project reaches no repository", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "sbx_A"}, gitReq("POST", "/git/repo_other/git-upload-pack", "repo_other"), false},
+		{"project sandbox key is left to project scope", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "sbx_A", ProjectID: "prj_1"}, gitReq("POST", "/git/repo_bot/git-upload-pack", "repo_bot"), true},
+		{"session key is unchanged", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "ses_A"}, gitReq("POST", "/git/repo_other/git-upload-pack", "repo_other"), true},
 		{"ordinary key is unchanged", &types.ApiKey{Type: types.APIkeytypeAPI}, gitReq("POST", "/git/repo_other/git-receive-pack", "repo_other"), true},
 	}
 	for _, c := range cases {
