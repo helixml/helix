@@ -427,7 +427,7 @@ func ShortHash(hash string) string {
 
 // PreReceiveHookVersion is incremented when the hook logic changes.
 // The hook script contains this version and will be updated if it differs.
-const PreReceiveHookVersion = "6"
+const PreReceiveHookVersion = "7"
 
 // preReceiveHookScript is the shell script that:
 // 1. Protects helix-specs branch from force pushes
@@ -466,10 +466,19 @@ while read oldrev newrev refname; do
     # Extract branch name from ref (refs/heads/branch-name -> branch-name)
     branch="${refname#refs/heads/}"
 
-    # Skip if not a branch ref (e.g., tags)
+    # Non-branch refs (tags, notes, other namespaces) are unrestricted for
+    # normal users. A restricted agent key may only update its allowed branches,
+    # so every other ref is refused.
     case "$refname" in
         refs/heads/*) ;;
-        *) continue ;;
+        *)
+            if [ -n "$ALLOWED_BRANCHES" ]; then
+                echo "error: refusing to update $refname" >&2
+                echo "hint: This push is restricted to the branches: $ALLOWED_BRANCHES" >&2
+                exit 1
+            fi
+            continue
+            ;;
     esac
 
     # Check 1: Force-push and deletion protection for helix-specs

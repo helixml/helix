@@ -109,10 +109,18 @@ func namesOwnAPIKey(r *http.Request) bool {
 }
 
 func getRequestToken(r *http.Request) string {
+	token, _ := getRequestTokenWithSource(r)
+	return token
+}
+
+// getRequestTokenWithSource returns the credential the request carries and
+// where it came from. The source is for the request audit log; the token itself
+// is never recorded. The order matches the auth layer's precedence.
+func getRequestTokenWithSource(r *http.Request) (string, string) {
 	// First try to get from Authorization header
 	token := getBearerToken(r)
 	if token != "" {
-		return token
+		return token, "bearer"
 	}
 
 	// Try x-api-key header (used by Anthropic SDK clients like Zed)
@@ -121,29 +129,30 @@ func getRequestToken(r *http.Request) string {
 	token = r.Header.Get("x-api-key")
 	if token != "" {
 		log.Trace().Str("source", "x-api-key").Str("path", r.URL.Path).Msg("token from x-api-key header")
-		return token
+		return token, "api-key"
 	}
 
 	// Try api-key header (used by Azure OpenAI SDK clients)
 	token = r.Header.Get("api-key")
 	if token != "" {
 		log.Debug().Str("source", "api-key").Str("path", r.URL.Path).Msg("token from api-key header")
-		return token
+		return token, "api-key"
 	}
 
 	// Then try to get from cookie
 	cookie, err := r.Cookie("access_token")
 	if err == nil && cookie != nil && cookie.Value != "" {
 		log.Debug().Str("source", "cookie").Str("path", r.URL.Path).Msg("token from access_token cookie")
-		return cookie.Value
+		return cookie.Value, "cookie"
 	}
 
 	// Finally fall back to query parameter
 	queryToken := getQueryToken(r)
 	if queryToken != "" {
 		log.Debug().Str("source", "query").Str("path", r.URL.Path).Msg("token from query parameter")
+		return queryToken, "query"
 	}
-	return queryToken
+	return "", ""
 }
 
 /*
@@ -165,6 +174,9 @@ func detachContext(ctx context.Context, timeout time.Duration) (context.Context,
 }
 
 func setRequestUser(ctx context.Context, user types.User) context.Context {
+	// Write through the request audit holder, if one is installed, so the outer
+	// audit middleware sees the user this inner middleware authenticated.
+	recordRequestAuditUser(ctx, user)
 	return context.WithValue(ctx, userKey, user)
 }
 

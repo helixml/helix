@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -18,6 +21,12 @@ import (
 const (
 	minimumPasswordLength = 8
 	maximumPasswordLength = 128
+
+	// passwordResetTokenValidity bounds how long an emailed reset link works.
+	passwordResetTokenValidity = time.Hour
+	// tokenPurposePasswordReset marks a token that may only complete a
+	// password reset. Session tokens carry no purpose.
+	tokenPurposePasswordReset = "password_reset"
 )
 
 type Notifier interface {
@@ -37,15 +46,28 @@ type helixTokenClaims struct {
 	UserID string `json:"user_id"`
 	Email  string `json:"email"`
 	Admin  bool   `json:"admin"`
+	// Purpose is empty for session tokens and set for single-purpose tokens,
+	// which are never accepted as a session.
+	Purpose string `json:"purpose,omitempty"`
+	// PasswordBinding ties a password-reset token to the password hash it was
+	// issued against, so it stops working once any password change lands.
+	PasswordBinding string `json:"pwb,omitempty"`
 }
 
 var _ Authenticator = &HelixAuthenticator{}
 
+// NewHelixAuthenticator creates an authenticator that signs and verifies
+// tokens with jwtSecret. The secret must be private to this deployment: an
+// empty secret or a value that once shipped as a public default is refused.
+// Servers obtain it from ResolveJWTSecret.
 func NewHelixAuthenticator(cfg *config.ServerConfig, store store.Store, jwtSecret string, notifier Notifier) (*HelixAuthenticator, error) {
-	secret := []byte(jwtSecret)
 	if jwtSecret == "" {
-		secret = []byte("helix-default-secret-change-in-production")
+		return nil, errors.New("JWT secret is required")
 	}
+	if isLegacyPublicJWTSecret(jwtSecret) {
+		return nil, errors.New("JWT secret is a publicly known value; set REGULAR_AUTH_JWT_SECRET to a private random value or leave it unset")
+	}
+	secret := []byte(jwtSecret)
 
 	key := jose.SigningKey{
 		Algorithm: jose.HS256,
@@ -162,10 +184,9 @@ func (h *HelixAuthenticator) RequestPasswordReset(ctx context.Context, email str
 		return fmt.Errorf("user not found")
 	}
 
-	// Generate a JWT token for the password reset
-	accessToken, err := h.GenerateUserToken(ctx, user)
+	accessToken, err := h.generatePasswordResetToken(user, time.Now())
 	if err != nil {
-		return fmt.Errorf("failed to generate user token: %w", err)
+		return fmt.Errorf("failed to generate password reset token: %w", err)
 	}
 
 	callbackURL := fmt.Sprintf("%s/password-reset-complete?token=%s", h.cfg.WebServer.URL, accessToken)
@@ -186,52 +207,100 @@ func (h *HelixAuthenticator) RequestPasswordReset(ctx context.Context, email str
 	return nil
 }
 
-// PasswordResetComplete - called together with the email token which was sent to the user
-func (h *HelixAuthenticator) PasswordResetComplete(ctx context.Context, accessToken, newPassword string) error {
+// passwordBinding derives a value from the user's current password hash that
+// changes whenever the password does. It is keyed with the signing secret so
+// the token reveals nothing about the hash.
+func (h *HelixAuthenticator) passwordBinding(user *types.User) string {
+	mac := hmac.New(sha256.New, h.jwtSecret)
+	mac.Write([]byte("password-reset\x00"))
+	mac.Write([]byte(user.ID))
+	mac.Write([]byte{0})
+	mac.Write(user.PasswordHash)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// generatePasswordResetToken issues a short-lived token that can only
+// complete a password reset, once, for the password it was issued against.
+func (h *HelixAuthenticator) generatePasswordResetToken(user *types.User, now time.Time) (string, error) {
+	claims := helixTokenClaims{
+		Claims: jwt.Claims{
+			Subject:   user.ID,
+			Issuer:    "helix",
+			Expiry:    jwt.NewNumericDate(now.Add(passwordResetTokenValidity)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+		},
+		UserID:          user.ID,
+		Purpose:         tokenPurposePasswordReset,
+		PasswordBinding: h.passwordBinding(user),
+	}
+	token, err := jwt.Signed(h.signer).Claims(claims).CompactSerialize()
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize token: %w", err)
+	}
+	return token, nil
+}
+
+// PasswordResetComplete sets a new password using a token from
+// RequestPasswordReset and returns the updated user. Session tokens are
+// refused, and a reset token stops working once the password has changed.
+func (h *HelixAuthenticator) PasswordResetComplete(ctx context.Context, accessToken, newPassword string) (*types.User, error) {
 	if len(newPassword) < minimumPasswordLength || len(newPassword) > maximumPasswordLength {
-		return fmt.Errorf("password must be between %d and %d characters", minimumPasswordLength, maximumPasswordLength)
+		return nil, fmt.Errorf("password must be between %d and %d characters", minimumPasswordLength, maximumPasswordLength)
 	}
 
 	token, err := jwt.ParseSigned(accessToken)
 	if err != nil {
-		return fmt.Errorf("failed to parse token: %w", err)
+		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
 
 	var claims helixTokenClaims
 	if err := token.Claims(h.jwtSecret, &claims); err != nil {
-		return fmt.Errorf("failed to verify token: %w", err)
+		return nil, fmt.Errorf("failed to verify token: %w", err)
 	}
 
 	if err := claims.Validate(jwt.Expected{
 		Time: time.Now(),
 	}); err != nil {
-		return fmt.Errorf("token validation failed: %w", err)
+		return nil, fmt.Errorf("token validation failed: %w", err)
+	}
+
+	if claims.Purpose != tokenPurposePasswordReset {
+		return nil, errors.New("invalid token: not a password reset token")
 	}
 
 	if claims.UserID == "" {
-		return errors.New("invalid token: user_id claim missing or invalid")
+		return nil, errors.New("invalid token: user_id claim missing or invalid")
 	}
 
 	user, err := h.store.GetUser(ctx, &store.GetUserQuery{ID: claims.UserID})
 	if err != nil {
-		return fmt.Errorf("failed to get user: %w", err)
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if !hmac.Equal([]byte(claims.PasswordBinding), []byte(h.passwordBinding(user))) {
+		return nil, errors.New("invalid token: password reset link has already been used or the password has changed")
 	}
 
 	// Create a new password hash
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
-		return fmt.Errorf("failed to generate password hash: %w", err)
+		return nil, fmt.Errorf("failed to generate password hash: %w", err)
 	}
 
 	user.PasswordHash = hash
 	user.Password = ""
 
-	_, err = h.store.UpdateUser(ctx, user)
+	user, err = h.store.UpdateUser(ctx, user)
 	if err != nil {
-		return fmt.Errorf("failed to update user: %w", err)
+		return nil, fmt.Errorf("failed to update user: %w", err)
 	}
 
-	return nil
+	if h.isUserInAdminList(user.ID) {
+		user.Admin = true
+	}
+
+	return user, nil
 }
 
 func (h *HelixAuthenticator) ValidatePassword(_ context.Context, user *types.User, password string) error {
@@ -257,6 +326,11 @@ func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken 
 		Time: time.Now(),
 	}); err != nil {
 		return nil, fmt.Errorf("token validation failed: %w", err)
+	}
+
+	// Single-purpose tokens (password reset) are never a session.
+	if claims.Purpose != "" {
+		return nil, errors.New("invalid token: not a session token")
 	}
 
 	if claims.UserID == "" {

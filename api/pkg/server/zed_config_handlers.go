@@ -50,8 +50,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// Allow runner token OR session owner
-	if user.TokenType != types.TokenTypeRunner && session.Owner != user.ID {
+	if err := apiServer.authorizeSessionSandboxConfig(ctx, user, session); err != nil {
 		return nil, system.NewHTTPError403("access denied")
 	}
 
@@ -437,8 +436,7 @@ func (apiServer *HelixAPIServer) updateZedUserSettings(_ http.ResponseWriter, re
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// Allow runner token OR session owner
-	if user.TokenType != types.TokenTypeRunner && session.Owner != user.ID {
+	if err := apiServer.authorizeSessionSandboxConfig(ctx, user, session); err != nil {
 		return nil, system.NewHTTPError403("access denied")
 	}
 
@@ -490,7 +488,10 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 	}
 
 	user := getRequestUser(req)
-	if user == nil || session.Owner != user.ID {
+	if user == nil || user.TokenType == types.TokenTypeRunner {
+		return nil, system.NewHTTPError403("access denied")
+	}
+	if err := apiServer.authorizeSessionSandboxConfig(ctx, user, session); err != nil {
 		return nil, system.NewHTTPError403("access denied")
 	}
 

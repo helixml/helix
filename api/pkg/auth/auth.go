@@ -25,7 +25,7 @@ type Authenticator interface {
 	GenerateUserToken(ctx context.Context, user *types.User) (string, error)
 
 	RequestPasswordReset(ctx context.Context, email string) error
-	PasswordResetComplete(ctx context.Context, token, newPassword string) error
+	PasswordResetComplete(ctx context.Context, token, newPassword string) (*types.User, error)
 }
 
 type OIDC interface {

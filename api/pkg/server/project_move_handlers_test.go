@@ -1,11 +1,20 @@
 package server
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/gorilla/mux"
+
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestMoveProject_NotOwner(t *testing.T) {
@@ -253,4 +262,53 @@ func TestMoveProject_ProjectRepositoryOrganizationIDSet(t *testing.T) {
 	pr.OrganizationID = targetOrgID
 
 	assert.Equal(t, targetOrgID, pr.OrganizationID, "ProjectRepository OrganizationID should be set after move")
+}
+
+func TestAuthorizeProjectMoveRepositories(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	ctx := context.Background()
+	mover := &types.User{ID: "mover"}
+
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-own").
+		Return(&types.GitRepository{ID: "repo-own", OwnerID: "mover"}, nil).AnyTimes()
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-other").
+		Return(&types.GitRepository{ID: "repo-other", Name: "other", OwnerID: "someone-else"}, nil).AnyTimes()
+
+	assert.Nil(t, server.authorizeProjectMoveRepositories(ctx, mover, []string{"repo-own"}))
+
+	httpErr := server.authorizeProjectMoveRepositories(ctx, mover, []string{"repo-own", "repo-other"})
+	require.NotNil(t, httpErr)
+	assert.Equal(t, http.StatusForbidden, httpErr.StatusCode)
+
+	assert.Nil(t, server.authorizeProjectMoveRepositories(ctx, &types.User{ID: "admin", Admin: true}, []string{"repo-other"}))
+}
+
+// moveProject refuses before changing anything when an attached repository
+// belongs to someone else: the move would re-home it into the mover's org.
+func TestMoveProjectHandler_RejectsForeignRepository(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	mockStore.EXPECT().GetProject(gomock.Any(), "prj-1").
+		Return(&types.Project{ID: "prj-1", Name: "p", UserID: "mover"}, nil)
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).
+		Return(&types.OrganizationMembership{OrganizationID: "org_1", UserID: "mover", Role: types.OrganizationRoleMember}, nil)
+	mockStore.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockStore.EXPECT().GetRepositoriesForProject(gomock.Any(), "prj-1").Return([]string{"repo-other"}, nil)
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-other").
+		Return(&types.GitRepository{ID: "repo-other", Name: "other", OwnerID: "someone-else"}, nil)
+	// UpdateProject / UpdateGitRepository must NOT be called.
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/projects/prj-1/move", strings.NewReader(`{"organization_id":"org_1"}`))
+	r = mux.SetURLVars(r, map[string]string{"id": "prj-1"})
+	r = r.WithContext(setRequestUser(r.Context(), types.User{ID: "mover"}))
+
+	project, httpErr := server.moveProject(httptest.NewRecorder(), r)
+
+	assert.Nil(t, project)
+	require.NotNil(t, httpErr)
+	assert.Equal(t, http.StatusForbidden, httpErr.StatusCode)
 }

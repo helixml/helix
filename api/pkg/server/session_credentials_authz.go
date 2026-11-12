@@ -1,6 +1,9 @@
 package server
 
 import (
+	"context"
+	"errors"
+
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -27,4 +30,26 @@ func canUseSessionAgentCredential(user *types.User, session *types.Session, owne
 		return user.SessionID == session.ID
 	}
 	return session.Owner == user.ID && ownerType == types.OwnerTypeUser && ownerID == user.ID
+}
+
+// authorizeSessionSandboxConfig gates the endpoints that hand a session's
+// sandbox its configuration, which embeds the session's API key and agent
+// credentials. The runner token may read any session's config. Otherwise the
+// caller must own the session, pass session RBAC (which confines
+// project-scoped keys to their project), and, when calling with a key minted
+// for one session, be calling about that session.
+func (apiServer *HelixAPIServer) authorizeSessionSandboxConfig(ctx context.Context, user *types.User, session *types.Session) error {
+	if user == nil || session == nil {
+		return errors.New("access denied")
+	}
+	if user.TokenType == types.TokenTypeRunner {
+		return nil
+	}
+	if session.Owner != user.ID {
+		return errors.New("access denied")
+	}
+	if user.TokenType == types.TokenTypeAPIKey && user.SessionID != "" && user.SessionID != session.ID {
+		return errors.New("access denied: key is bound to another session")
+	}
+	return apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
 }

@@ -83,8 +83,10 @@ func (apiServer *HelixAPIServer) getSessionTOC(_ http.ResponseWriter, req *http.
 	}
 
 	// Check authorization
-	if session.Owner != user.ID && user.ID != "runner-system" {
-		return nil, system.NewHTTPError403("you don't have access to this session")
+	if user.ID != "runner-system" {
+		if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet); err != nil {
+			return nil, system.NewHTTPError403("you don't have access to this session")
+		}
 	}
 
 	// Get all interactions for this session

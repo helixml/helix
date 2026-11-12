@@ -541,21 +541,20 @@ func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	err := s.authenticator.PasswordResetComplete(ctx, passwordResetCompleteRequest.AccessToken, passwordResetCompleteRequest.NewPassword)
+	user, err := s.authenticator.PasswordResetComplete(ctx, passwordResetCompleteRequest.AccessToken, passwordResetCompleteRequest.NewPassword)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to complete password reset")
 		http.Error(w, "Failed to complete password reset: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	user, err := s.authenticator.ValidateUserToken(ctx, passwordResetCompleteRequest.AccessToken)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to validate user token")
-		http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
+	// The password is changed, but an inactive account does not get a session.
+	if accessErr := user.AccountAccessError(); accessErr != nil {
+		http.Error(w, accessErr.Error(), http.StatusForbidden)
 		return
 	}
 
-	// Generate new token as well
+	// The reset token is not a session; issue a fresh session token.
 	token, err := s.authenticator.GenerateUserToken(ctx, user)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate user token")

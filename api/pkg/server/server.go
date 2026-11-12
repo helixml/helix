@@ -27,11 +27,13 @@ import (
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/anthropic"
+	"github.com/helixml/helix/api/pkg/auditlog"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
+	"github.com/helixml/helix/api/pkg/crypto"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/janitor"
@@ -205,13 +207,17 @@ type HelixAPIServer struct {
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
-	adminAlerter               *notification.AdminAlerter
-	wg                         sync.WaitGroup // Control for goroutines to enable tests
-	summaryService             *SummaryService
-	goldenBuildService         *services.GoldenBuildService
-	syncEventHook              SyncEventHook      // optional test hook, nil in production
-	startTime                  time.Time          // when the server started, for grace periods
-	modelFetchGroup            singleflight.Group // deduplicates concurrent getProviderModels calls per cache key
+	// requestAudit is the durable request audit trail (one record per API
+	// request). Nil when HELIX_AUDIT_LOG_ENABLED=false.
+	requestAudit           *auditlog.Recorder
+	requestAuditMiddleware *requestAuditMiddleware
+	adminAlerter           *notification.AdminAlerter
+	wg                     sync.WaitGroup // Control for goroutines to enable tests
+	summaryService         *SummaryService
+	goldenBuildService     *services.GoldenBuildService
+	syncEventHook          SyncEventHook      // optional test hook, nil in production
+	startTime              time.Time          // when the server started, for grace periods
+	modelFetchGroup        singleflight.Group // deduplicates concurrent getProviderModels calls per cache key
 	// WebSocket proxy deduplication - cancels superseded proxies for same session+client
 	activeStreamProxies   map[string]*activeStreamProxy
 	activeStreamProxiesMu sync.Mutex
@@ -407,6 +413,19 @@ func NewServer(
 
 	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
 
+	// Durable request audit trail (incident forensics). The credential
+	// fingerprint is an HMAC under the deployment's existing encryption key, so
+	// a copy of the audit table cannot be brute-forced offline.
+	requestAuditRecorder := newRequestAuditRecorder(cfg.AuditLog, store)
+	requestAuditFingerprintKey, err := crypto.GetEncryptionKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive request audit fingerprint key: %w", err)
+	}
+	requestAuditOpts, err := newRequestAuditOptions(cfg.AuditLog, requestAuditFingerprintKey)
+	if err != nil {
+		return nil, err
+	}
+
 	apiServer := &HelixAPIServer{
 		Cfg:                        cfg,
 		Store:                      store,
@@ -470,6 +489,9 @@ func NewServer(
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
 		auditLogService:          services.NewAuditLogService(store),
+		// Durable request audit trail (incident forensics). Nil when disabled.
+		requestAudit:           requestAuditRecorder,
+		requestAuditMiddleware: newRequestAuditMiddleware(requestAuditRecorder, requestAuditOpts),
 
 		openAIResponsesLogStores:     responsesLogStores,
 		openAIResponsesBillingLogger: responsesBillingLogger,
@@ -495,7 +517,9 @@ func NewServer(
 		"/data/workspaces/sandboxes",
 	)
 	apiServer.webServiceController = webservice.New(store, apiServer.sandboxController)
-	go webservice.NewDomainVerifier(store).Start(context.Background())
+	go apiServer.backfillWebhookTriggerSecrets(context.Background())
+	go webservice.NewDomainVerifier(store,
+		netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks}).Start(context.Background())
 
 	// Unify compute billing: desktops provisioned by the external-agent
 	// executor (spec tasks, exploratory sessions, subscription desktops) get a
@@ -608,7 +632,8 @@ func NewServer(
 	apiServer.mcpGateway = NewMCPGateway()
 
 	// Register Kodit MCP backend (code intelligence)
-	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend) //nolint:staticcheck // mcpBackend is package-private but accessible within this package
+	kr.mcpBackend.SetSessionAuthorizer(apiServer.authorizeUserToSession) //nolint:staticcheck // mcpBackend is package-private but accessible within this package
+	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend)         //nolint:staticcheck // mcpBackend is package-private but accessible within this package
 
 	// Register Helix native MCP backend (APIs, Knowledge, Zapier).
 	// authorizeUserToApp enforces the same RBAC as the REST handlers so a scoped
@@ -616,7 +641,7 @@ func NewServer(
 	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController, apiServer.authorizeUserToApp))
 
 	// Register Session MCP backend (session navigation and context tools)
-	sessionMCPBackend := NewSessionMCPBackend(store, appController.Options.Notifier)
+	sessionMCPBackend := NewSessionMCPBackend(store, appController.Options.Notifier, apiServer.authorizeUserToSession)
 	apiServer.mcpGateway.RegisterBackend("session", sessionMCPBackend)
 
 	// Register Visualization MCP backend (html_render inline pages). Wired into
@@ -633,7 +658,7 @@ func NewServer(
 	// Register Desktop MCP backend (screenshot, clipboard, input, window management)
 	// Proxies MCP requests via RevDial to desktop-bridge inside sandbox containers
 	// Route: /api/v1/mcp/desktop?session_id={sessionID}
-	apiServer.mcpGateway.RegisterBackend("desktop", NewDesktopMCPBackend(store, connectionManager))
+	apiServer.mcpGateway.RegisterBackend("desktop", NewDesktopMCPBackend(store, connectionManager, apiServer.authorizeUserToSession))
 
 	log.Info().Msg("Initialized MCP Gateway with Kodit, Helix, Session, External, and Desktop backends")
 
@@ -705,6 +730,9 @@ func NewServer(
 	// Every spec-task PR is opened from an agent proposal a user approved.
 	apiServer.prProposals = services.NewPRProposalService(store, gitRepositoryService, apiServer.attentionService, cfg.WebServer.URL)
 	apiServer.prProposals.SetMessageEnqueuer(apiServer.enqueueSpecTaskAgentMessage)
+	apiServer.prProposals.SetApproverAuthorizer(func(ctx context.Context, user *types.User, projectID string) error {
+		return apiServer.authorizeUserToProjectByID(ctx, user, projectID, types.ActionUpdate)
+	})
 	apiServer.gitHTTPServer.SetPRProposals(apiServer.prProposals)
 	sessionMCPBackend.SetPRProposals(apiServer.prProposals)
 
@@ -819,6 +847,12 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	defer apiServer.mcpGateway.Stop()
 	if apiServer.Cfg.ConnectPortal.SecretIntakeEnabled {
 		go apiServer.runSecretIntakeReaper(ctx)
+	}
+
+	// Request audit trail sinks: batched Postgres inserts and daily retention.
+	if apiServer.requestAudit != nil {
+		go apiServer.requestAudit.Run(ctx)
+		go apiServer.requestAudit.RunPruner(ctx)
 	}
 
 	// Close kodit client on shutdown
@@ -947,6 +981,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	}
 	handler = NewVHostMiddleware(vhostCfg, apiServer, apiServer.router)
 
+	// Request audit trail: one durable record per request, wrapped around the
+	// vhost proxy so customer traffic that never reaches the mux is audited
+	// too. Independent of LOG_LEVEL.
+	handler = apiServer.requestAuditMiddleware.Handler(handler)
+
 	// Optional certmagic-based HTTPS on :443 + :80, alongside the plain
 	// HTTP listener below. No-op when HELIX_VHOST_TLS_MODE=off (default).
 	if err := apiServer.startCertMagicListener(ctx, vhostCfg, handler); err != nil {
@@ -984,6 +1023,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	if err != nil {
 		return nil, err
 	}
+
+	// The audit trail itself wraps the whole server (see ListenAndServe), outside
+	// the vhost proxy and outside this mux. This only hands the matched route
+	// template to it, which is all the mux can contribute.
+	router.Use(stampRequestAuditRoute)
 
 	// we do token extraction for all routes
 	// if there is a token we will assign the user if not then oh well no user it's all gravy
@@ -1443,6 +1487,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	adminRouter.HandleFunc("/admin/orgs/{id}/plan", apiServer.adminSetOrgPlan).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/service-accounts", system.Wrapper(apiServer.adminCreateServiceAccount)).Methods(http.MethodPost)
 
+	// Request audit trail reads (incident forensics): newest first, filterable.
+	adminRouter.HandleFunc("/admin/audit-events", apiServer.listRequestAuditEvents).Methods(http.MethodGet)
+
 	// Sandbox-absorbs-runner pivot: /scheduler/heartbeats and /slots
 	// endpoints removed — no scheduler, no slots.
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
@@ -1521,110 +1568,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	adminRouter.HandleFunc("/admin/kodit/queue/{taskId}", apiServer.adminDeleteKoditTask).Methods(http.MethodDelete)
 	adminRouter.HandleFunc("/admin/kodit/queue/{taskId}/priority", apiServer.adminUpdateKoditTaskPriority).Methods(http.MethodPut)
 
-	// all these routes are secured via runner tokens
-	insecureRouter.HandleFunc("/runner/{runner_id}/ws", func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		runnerID := vars["runner_id"]
-		log.Info().
-			Str("runner_id", runnerID).
-			Str("request_path", r.URL.Path).
-			Msg("proxying runner websocket request to NATS")
-
-		defer log.Info().Str("runner_id", runnerID).Msg("websocket proxy to NATS disconnected")
-
-		// Upgrade the incoming HTTP connection to a WebSocket connection.
-		upgrader := websocket.Upgrader{
-			// TODO(Phil): check origin
-			CheckOrigin: func(r *http.Request) bool {
-				log.Debug().Interface("headers", r.Header).Interface("vars", r.RemoteAddr).Msg("nats check origin")
-				return true
-			},
-		}
-
-		clientConn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to upgrade client connection")
-			return
-		}
-		// Ensure the client connection is closed on function exit.
-		defer clientConn.Close()
-
-		// Connect to the backend WebSocket server.
-		backendConn, resp, err := websocket.DefaultDialer.Dial("ws://localhost:8433", nil) // TODO(Phil): make this configurable
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to connect to backend WebSocket server")
-			return
-		}
-		// Ensure the backend connection is closed on function exit.
-		defer backendConn.Close()
-		defer resp.Body.Close()
-
-		// Mutex for thread-safe writes to client WebSocket (ping and backend→client can race)
-		var clientMu sync.Mutex
-
-		// Start three goroutines: client→backend, backend→client, and ping
-		errCh := make(chan error, 3)
-
-		// Start server-initiated ping goroutine to keep client connection alive through proxies/firewalls
-		go func() {
-			ticker := time.NewTicker(15 * time.Second)
-			defer ticker.Stop()
-			for {
-				<-ticker.C
-				clientMu.Lock()
-				err := clientConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
-				clientMu.Unlock()
-				if err != nil {
-					log.Debug().Err(err).Str("runner_id", runnerID).Msg("NATS WebSocket proxy ping failed, connection closing")
-					errCh <- nil
-					return
-				}
-			}
-		}()
-
-		// Copy messages from the client to the backend.
-		go func() {
-			for {
-				messageType, message, err := clientConn.ReadMessage()
-				if err != nil {
-					errCh <- err
-					return
-				}
-				if err := backendConn.WriteMessage(messageType, message); err != nil {
-					errCh <- err
-					return
-				}
-			}
-		}()
-
-		// Copy messages from the backend to the client.
-		go func() {
-			for {
-				messageType, message, err := backendConn.ReadMessage()
-				if err != nil {
-					errCh <- err
-					return
-				}
-				// Mutex protects against concurrent ping writes
-				clientMu.Lock()
-				writeErr := clientConn.WriteMessage(messageType, message)
-				clientMu.Unlock()
-				if writeErr != nil {
-					errCh <- writeErr
-					return
-				}
-			}
-		}()
-
-		// Wait until one side returns an error (or closes the connection).
-		if err := <-errCh; err != nil {
-			log.Printf("WebSocket proxy error: %v", err)
-		}
-	})
-	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods(http.MethodGet)
-	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods(http.MethodGet)
-	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods(http.MethodPost)
-	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods(http.MethodPost)
+	apiServer.registerRunnerNATSProxy(insecureRouter)
 
 	registerDebugRoutes(router, apiServer.authMiddleware.extractMiddleware)
 
@@ -2020,6 +1964,7 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	router := mux.NewRouter()
 
 	router.Use(ErrorLoggingMiddleware)
+	router.Use(stampRequestAuditRoute)
 
 	// If configured, load user from database and set in request context
 	if apiServer.Cfg.WebServer.EmbeddingsSocketUserID != "" {
@@ -2054,7 +1999,7 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 
 	// Create HTTP server
 	srv := &http.Server{
-		Handler:      router,
+		Handler:      apiServer.requestAuditMiddleware.Handler(router),
 		ReadTimeout:  0, // No timeout for long-running operations
 		WriteTimeout: 0, // No timeout for streaming responses
 	}
@@ -2738,6 +2683,13 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 			Str("remote_addr", r.RemoteAddr).
 			Msg("Handling revdial CONTROL connection")
 
+		// Control connections are WebSockets (revdial.Client). The old
+		// hijacked-HTTP form had no client left and is refused.
+		if !websocket.IsWebSocketUpgrade(r) {
+			http.Error(w, "RevDial control connections must be WebSocket upgrades", http.StatusBadRequest)
+			return
+		}
+
 		// Get authenticated user from middleware (accepts both runner and user tokens)
 		user := getRequestUser(r)
 		if user == nil {
@@ -2754,6 +2706,18 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 			return
 		}
 
+		// The runner token is shared by every sandbox host, so it only
+		// registers host tunnels. Desktop tunnels belong to one session and
+		// are registered with that session's own key (checked below).
+		if user.TokenType == types.TokenTypeRunner && !runnerTokenMayRegisterRevDial(runnerID) {
+			log.Warn().
+				Str("runner_id", runnerID).
+				Str("remote_addr", r.RemoteAddr).
+				Msg("Refused RevDial registration: runner token may only register host tunnels")
+			http.Error(w, "runner token may only register hydra- or sandbox- tunnels", http.StatusForbidden)
+			return
+		}
+
 		// If using a user token (not runner token), validate session ownership
 		if user.TokenType != types.TokenTypeRunner {
 			// Extract session ID from runner ID (format: desktop-{session_id})
@@ -2764,6 +2728,20 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 					Str("runner_id", runnerID).
 					Msg("Invalid runner ID format - must be desktop-{session_id}")
 				http.Error(w, "invalid runner ID format", http.StatusBadRequest)
+				return
+			}
+
+			// Ownership of the session is not enough on its own: a key
+			// minted for one session's sandbox must not register another of
+			// the owner's desktops, and keys handed to other people (app
+			// keys) register none.
+			if err := revDialKeyMayRegisterDesktop(user, sessionID); err != nil {
+				log.Warn().
+					Err(err).
+					Str("runner_id", runnerID).
+					Str("remote_addr", r.RemoteAddr).
+					Msg("Refused RevDial registration")
+				http.Error(w, err.Error(), http.StatusForbidden)
 				return
 			}
 
@@ -2822,62 +2800,47 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 
 		log.Trace().Str("runner_id", runnerID).Msg("Establishing reverse dial connection")
 
-		// Handle WebSocket control connection vs non-WebSocket control connection
-		var conn net.Conn
-		if websocket.IsWebSocketUpgrade(r) {
-			// Upgrade WebSocket for control connection
-			log.Trace().Msg("Upgrading WebSocket for RevDial control connection")
-			wsConn, err := upgrader.Upgrade(w, r, nil)
-			if err != nil {
-				log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to upgrade WebSocket")
-				http.Error(w, "WebSocket upgrade failed", http.StatusInternalServerError)
-				return
-			}
-
-			// Start server-initiated ping goroutine to keep connection alive through proxies/firewalls
-			// This runs until the WebSocket is closed (WriteControl fails)
-			go func(ws *websocket.Conn, rID string) {
-				ticker := time.NewTicker(15 * time.Second)
-				defer ticker.Stop()
-				for {
-					<-ticker.C
-					if err := ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
-						log.Debug().
-							Err(err).
-							Str("runner_id", rID).
-							Msg("RevDial WebSocket ping failed, connection closing")
-						return
-					}
-				}
-			}(wsConn, runnerID)
-
-			// Wrap WebSocket as net.Conn using wsconnadapter
-			conn = wsconnadapter.New(wsConn)
-			log.Trace().Str("runner_id", runnerID).Msg("WebSocket control connection established")
-		} else {
-			// HTTP hijack for non-WebSocket control connection
-			hijacker, ok := w.(http.Hijacker)
-			if !ok {
-				log.Error().Msg("HTTP hijacking not supported")
-				http.Error(w, "HTTP hijacking not supported", http.StatusInternalServerError)
-				return
-			}
-
-			// Send HTTP 200 response before hijacking
-			w.WriteHeader(http.StatusOK)
-
-			// Hijack the connection to get raw TCP
-			var err error
-			conn, _, err = hijacker.Hijack()
-			if err != nil {
-				log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to hijack connection")
-				return
-			}
-			log.Debug().Str("runner_id", runnerID).Msg("HTTP control connection hijacked")
+		log.Trace().Msg("Upgrading WebSocket for RevDial control connection")
+		wsConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to upgrade WebSocket")
+			return
 		}
 
-		// Register the reverse dial connection in connman
-		apiServer.connman.Set(runnerID, conn)
+		// Start server-initiated ping goroutine to keep connection alive through proxies/firewalls
+		// This runs until the WebSocket is closed (WriteControl fails)
+		go func(ws *websocket.Conn, rID string) {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				<-ticker.C
+				if err := ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
+					log.Debug().
+						Err(err).
+						Str("runner_id", rID).
+						Msg("RevDial WebSocket ping failed, connection closing")
+					return
+				}
+			}
+		}(wsConn, runnerID)
+
+		conn := wsconnadapter.New(wsConn)
+		log.Trace().Str("runner_id", runnerID).Msg("WebSocket control connection established")
+
+		// Register the reverse dial connection in connman. The last
+		// registration wins, so a host that reconnects always gets its id
+		// back. Until hosts have their own credentials, any runner-token
+		// holder can claim a hydra-/sandbox- id, so every displacement is
+		// logged with both addresses to make that visible.
+		origin := revDialOrigin(r)
+		if displaced := apiServer.connman.Set(runnerID, conn, origin); displaced != nil {
+			log.Warn().
+				Str("runner_id", runnerID).
+				Str("token_type", string(user.TokenType)).
+				Str("new_remote_addr", origin).
+				Str("displaced_remote_addr", displaced.Origin).
+				Msg("RevDial registration displaced an existing tunnel")
+		}
 		log.Trace().Str("runner_id", runnerID).Msg("Registered reverse dial connection in connman")
 
 		// If this is a Hydra connection (hydra-{sandbox_id}), discover running containers.

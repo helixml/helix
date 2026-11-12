@@ -295,11 +295,23 @@ func (s *HelixAPIServer) listAgents(_ http.ResponseWriter, r *http.Request) ([]*
 	}
 
 	// remove global apps from the list in case this is the admin user who created the global app
+	// A project-scoped key sees only its project's agents.
+	var keyProject *types.Project
+	if user.ProjectID != "" {
+		keyProject, err = s.Store.GetProject(ctx, user.ProjectID)
+		if err != nil {
+			return nil, system.NewHTTPError403(errProjectScopedKey.Error())
+		}
+	}
 	nonGlobalUserApps := []*types.Agent{}
 	for _, app := range userApps {
-		if !app.Global {
-			nonGlobalUserApps = append(nonGlobalUserApps, app)
+		if app.Global {
+			continue
 		}
+		if keyProject != nil && s.keyProjectAppScope(ctx, user, keyProject, app, types.ActionGet) != nil {
+			continue
+		}
+		nonGlobalUserApps = append(nonGlobalUserApps, app)
 	}
 
 	globalApps, err := s.Store.ListApps(r.Context(), &store.ListAppsQuery{
@@ -369,8 +381,8 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Org owners see all apps
-	if orgMembership.Role == types.OrganizationRoleOwner {
+	// Org owners see all apps, unless their key is confined to one project
+	if orgMembership.Role == types.OrganizationRoleOwner && user.ProjectID == "" {
 		return apps, nil
 	}
 
@@ -1012,6 +1024,10 @@ func (s *HelixAPIServer) ensureAzureDevOpsTrigger(ctx context.Context, existingT
 			// We already have this config
 			return nil
 		}
+	}
+
+	if _, err := ensureWebhookTriggerSecret(&trigger, nil); err != nil {
+		return err
 	}
 
 	// Create a new trigger configuration

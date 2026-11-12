@@ -40,7 +40,10 @@ import (
 // stream refreshes the session's activity time (see InputActivity).
 const desktopInputActivityInterval = time.Minute
 
-func (apiServer *HelixAPIServer) authorizeDesktopID(res http.ResponseWriter, req *http.Request, id string) bool {
+// action is the access the caller needs on a session: ActionGet to watch a
+// desktop, ActionUpdate to drive it. Sandboxes have no per-resource grants, so
+// org membership is the check for either.
+func (apiServer *HelixAPIServer) authorizeDesktopID(res http.ResponseWriter, req *http.Request, id string, action types.Action) bool {
 	user := getRequestUser(req)
 	if user == nil {
 		http.Error(res, "unauthorized", http.StatusUnauthorized)
@@ -49,7 +52,7 @@ func (apiServer *HelixAPIServer) authorizeDesktopID(res http.ResponseWriter, req
 	// Sessions are the original/default case — try them first so existing
 	// external-agent flows hit the well-trodden path.
 	if session, err := apiServer.Store.GetSession(req.Context(), id); err == nil {
-		if err := apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet); err != nil {
+		if err := apiServer.authorizeUserToSession(req.Context(), user, session, action); err != nil {
 			http.Error(res, err.Error(), http.StatusForbidden)
 			return false
 		}
@@ -227,8 +230,20 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgentHandler(res http.Resp
 		return
 	}
 
+	// The command is written verbatim to the session's agent and can start its
+	// container, so the caller must be allowed to change that session.
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		http.Error(res, "session not found", http.StatusNotFound)
+		return
+	}
+	if err := apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionUpdate); err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
+		return
+	}
+
 	var command types.ExternalAgentCommand
-	err := json.NewDecoder(req.Body).Decode(&command)
+	err = json.NewDecoder(req.Body).Decode(&command)
 	if err != nil {
 		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
 		return
@@ -255,7 +270,7 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 	sessionID := vars["sessionID"]
 
 	// Accept either a Helix session id or a sandbox id.
-	if !apiServer.authorizeDesktopID(res, req, sessionID) {
+	if !apiServer.authorizeDesktopID(res, req, sessionID, types.ActionGet) {
 		return
 	}
 
@@ -714,7 +729,7 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 	}
 
 	// Verify ownership
-	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionUpdate)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusForbidden)
 		return
@@ -1135,8 +1150,9 @@ func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, re
 	vars := mux.Vars(req)
 	sessionID := vars["sessionID"]
 
-	// Accept either a Helix session id or a sandbox id.
-	if !apiServer.authorizeDesktopID(res, req, sessionID) {
+	// Accept either a Helix session id or a sandbox id. Input drives the
+	// desktop, so it needs the same access as other writes to the session.
+	if !apiServer.authorizeDesktopID(res, req, sessionID, types.ActionUpdate) {
 		return
 	}
 
@@ -1313,7 +1329,7 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	// Accept either a Helix session id or a sandbox id — both register their
 	// desktop-bridge under `desktop-{id}` via RevDial, so once authz passes the
 	// proxy logic below is uniform.
-	if !apiServer.authorizeDesktopID(res, req, sessionID) {
+	if !apiServer.authorizeDesktopID(res, req, sessionID, types.ActionGet) {
 		return
 	}
 

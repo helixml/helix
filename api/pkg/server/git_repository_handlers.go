@@ -513,7 +513,8 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 
 	// Org owners see every repository in their org. Owner-scoped lists are
 	// filtered too, so repositories in orgs the caller has left drop out.
-	isOrgOwner := orgMembership != nil && orgMembership.Role == types.OrganizationRoleOwner
+	// A project-scoped key is filtered even for an org owner.
+	isOrgOwner := orgMembership != nil && orgMembership.Role == types.OrganizationRoleOwner && user.ProjectID == ""
 	if !isAdmin(user) && !isOrgOwner && (orgID != "" || projectID == "") {
 		repositories = s.filterReadableRepositories(ctx, user, repositories)
 	}
@@ -2102,6 +2103,11 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 // canRedirectRepositoryUpstream reports whether the caller may change where a
 // repository's stored credentials are sent.
 func (s *HelixAPIServer) canRedirectRepositoryUpstream(ctx context.Context, user *types.User, repo *types.GitRepository) bool {
+	// Like access grants, this decides where credentials go: never for a
+	// project- or session-scoped key.
+	if isAgentScopedKey(user) {
+		return false
+	}
 	if user.ID == repo.OwnerID || user.Admin {
 		return true
 	}

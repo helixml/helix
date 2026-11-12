@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -53,7 +54,11 @@ func (s *prTestStore) GetOAuthConnection(_ context.Context, id string) (*types.O
 }
 
 func newPRTestService(s *prTestStore) *GitRepositoryService {
-	return &GitRepositoryService{store: s}
+	svc := &GitRepositoryService{store: s}
+	// These tests stand the provider up on a loopback httptest server; the
+	// outbound policy itself is covered by TestProviderAPIClientsApplyOutboundPolicy.
+	svc.SetOutboundPolicy(netguard.Policy{AllowPrivate: true})
+	return svc
 }
 
 func TestGetGitHubClient_UserOAuthTakesPrecedence(t *testing.T) {
