@@ -529,7 +529,7 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			defer lock.Unlock()
-			log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before serving pull")
+			log.Info().Str("repo_id", repoID).Str("external_url", RedactURLCredentials(repo.ExternalURL)).Msg("Syncing from upstream before serving pull")
 			syncCtx, cancel := context.WithTimeout(r.Context(), uploadPackSyncTimeout)
 			defer cancel()
 			if err := s.gitRepoService.SyncAllBranches(syncCtx, repoID, true); err != nil {
@@ -657,7 +657,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	// This keeps mirrored branches current; SyncAllBranches deliberately excludes
 	// the local-authoritative helix-specs branch.
 	if repo != nil && repo.ExternalURL != "" && !planningOnlyPush {
-		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before accepting push")
+		log.Info().Str("repo_id", repoID).Str("external_url", RedactURLCredentials(repo.ExternalURL)).Msg("Syncing from upstream before accepting push")
 		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
 			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream - rejecting push")
 			http.Error(w, "Conflict: "+err.Error(), http.StatusConflict)

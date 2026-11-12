@@ -131,23 +131,23 @@ func (s *KoditService) RegisterRepository(ctx context.Context, params *RegisterR
 		Pipeline:    params.Pipeline,
 	})
 	if err != nil {
-		return 0, false, fmt.Errorf("failed to register repository: %w", err)
+		return 0, false, fmt.Errorf("failed to register repository: %w", redactURLSecretInError(err, params.CloneURL))
 	}
 
 	if source.ID() == 0 {
 		log.Error().
-			Str("clone_url", params.CloneURL).
+			Str("clone_url", RedactURLCredentials(params.CloneURL)).
 			Bool("is_new", isNew).
-			Str("remote_url", source.RemoteURL()).
+			Str("remote_url", RedactURLCredentials(source.RemoteURL())).
 			Str("status", source.Status().String()).
-			Str("last_error", source.LastError()).
+			Str("last_error", redactURLSecretInError(errors.New(source.LastError()), params.CloneURL).Error()).
 			Bool("is_cloned", source.IsCloned()).
 			Str("cloned_path", source.ClonedPath()).
 			Msg("Kodit Repositories.Add returned zero ID — this indicates a persistence bug in kodit")
 		return 0, false, fmt.Errorf("kodit returned zero source ID for clone URL (is_new=%v, status=%s)", isNew, source.Status())
 	}
 
-	log.Info().Str("clone_url", params.CloneURL).Int64("kodit_repo_id", source.ID()).Bool("is_new", isNew).Msg("Registered repository with Kodit")
+	log.Info().Str("clone_url", RedactURLCredentials(params.CloneURL)).Int64("kodit_repo_id", source.ID()).Bool("is_new", isNew).Msg("Registered repository with Kodit")
 	return source.ID(), isNew, nil
 }
 

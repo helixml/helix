@@ -307,3 +307,53 @@ func TestRedirectingClientCapsHops(t *testing.T) {
 		t.Fatalf("err = %v, want redirect cap", err)
 	}
 }
+
+// Legacy numeric spellings of an address are refused up front, under either
+// policy, with ErrBlockedDestination rather than a resolver error.
+func TestValidateURLRejectsNonCanonicalIPv4Literals(t *testing.T) {
+	ctx := context.Background()
+	for _, policy := range []Policy{{}, {AllowPrivate: true}} {
+		for _, raw := range []string{
+			"http://2130706433/",
+			"http://0x7f000001/",
+			"http://0X7F.0.0.1/",
+			"http://0177.0.0.1/",
+			"http://127.1/",
+			"http://10.1/",
+			"http://2852039166:8080/",
+			"http://017700000001/",
+			"http://127.0.0.1./",
+			"http://0x/",
+		} {
+			if err := policy.ValidateURL(ctx, raw); !errors.Is(err, ErrBlockedDestination) {
+				t.Errorf("ValidateURL(%q, AllowPrivate=%v) = %v, want ErrBlockedDestination", raw, policy.AllowPrivate, err)
+			}
+			if _, err := policy.NewClient(2 * time.Second).Get(raw); !errors.Is(err, ErrBlockedDestination) {
+				t.Errorf("Get(%q, AllowPrivate=%v) = %v, want ErrBlockedDestination at dial", raw, policy.AllowPrivate, err)
+			}
+		}
+	}
+}
+
+func TestIsNonCanonicalIPv4Literal(t *testing.T) {
+	for host, want := range map[string]bool{
+		"2130706433":   true,
+		"0x7f000001":   true,
+		"0177.0.0.1":   true,
+		"127.1":        true,
+		"1.2.3.4.5":    false,
+		"github.com":   false,
+		"0xdead.com":   false,
+		"git.example":  false,
+		"123.example":  false,
+		"abc":          false,
+		"":             false,
+		"deadbeef":     false,
+		"1a2b.0.0.1":   false,
+		"192.168.0.1.": true,
+	} {
+		if got := isNonCanonicalIPv4Literal(host); got != want {
+			t.Errorf("isNonCanonicalIPv4Literal(%q) = %v, want %v", host, got, want)
+		}
+	}
+}

@@ -519,16 +519,24 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 // the /orgs/{org}/ catch-all on the auth router, the org MCP backend,
 // plus the long-lived stream-cron and Socket Mode goroutines. Every
 // org-shaped route + lifecycle hook lives here.
+//
+// A subsystem already held on s.helixOrg is mounted as is instead of being
+// initialised again; route tests use that to mount the real routes without
+// the Postgres-backed org store.
 func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRouter, authRouter *mux.Router) error {
-	orgHandlers, err := initHelixOrgHandler(ctx, helixOrgConfig{
-		LocalFSPath: s.Cfg.FileStore.LocalFSPath,
-		APIServer:   s,
-	}, s.Store)
-	if err != nil {
-		return fmt.Errorf("initialise helix-org: %w", err)
-	}
+	orgHandlers := s.helixOrg
 	if orgHandlers == nil {
-		return nil
+		var err error
+		orgHandlers, err = initHelixOrgHandler(ctx, helixOrgConfig{
+			LocalFSPath: s.Cfg.FileStore.LocalFSPath,
+			APIServer:   s,
+		}, s.Store)
+		if err != nil {
+			return fmt.Errorf("initialise helix-org: %w", err)
+		}
+		if orgHandlers == nil {
+			return nil
+		}
 	}
 	// Hold the subsystem handle (the Slack handlers reach the per-workspace
 	// Trigger reconciler through it) and register the post-mutation hook so
@@ -674,6 +682,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// JS processors' http.* calls follow the same outbound policy as
 	// user-configured tools.
 	processor.SetJSHTTPPolicy(netguard.Policy{AllowPrivate: cfg.APIServer.Cfg.Tools.AllowPrivateNetworks})
+	processor.SetJSRunTimeout(cfg.APIServer.Cfg.Organizations.JSProcessorTimeout)
 
 	// Convert the retired Topic model into Triggers, Processor inputs and
 	// Worker attachments. Runs once per boot before anything reads the
