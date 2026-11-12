@@ -95,3 +95,30 @@ func TestProviderHTTPClientDefaultsForPublicHosts(t *testing.T) {
 	assert.Nil(t, (&GitRepositoryService{}).providerHTTPClient(""))
 	assert.NotNil(t, (&GitRepositoryService{}).providerHTTPClient("https://git.example.com"))
 }
+
+// Self-hosted providers are often behind a redirect (http→https, old host →
+// new host). The guarded client follows it, re-checking the new location.
+func TestProviderAPIClientFollowsRedirects(t *testing.T) {
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id": 7, "path_with_namespace": "acme/app"}`))
+	}))
+	defer target.Close()
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+r.URL.RequestURI(), http.StatusMovedPermanently)
+	}))
+	defer redirector.Close()
+
+	svc := &GitRepositoryService{}
+	svc.SetOutboundPolicy(netguard.Policy{AllowPrivate: true})
+	client, err := svc.getGitLabClient(context.Background(), &types.GitRepository{
+		ExternalURL: redirector.URL + "/acme/app",
+		GitLab:      &types.GitLab{BaseURL: redirector.URL, PersonalAccessToken: "pat"},
+	}, "")
+	require.NoError(t, err)
+	_, err = client.GetProjectByPath(context.Background(), "acme/app")
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), hits.Load())
+}
