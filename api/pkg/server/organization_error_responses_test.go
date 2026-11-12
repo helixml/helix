@@ -15,7 +15,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func orgRequest(method, ref string, user types.User, body string) *http.Request {
+func orgRouteRequest(method, ref string, user types.User, body string) *http.Request {
 	req := httptest.NewRequest(method, "/api/v1/organizations/"+ref, strings.NewReader(body))
 	req = mux.SetURLVars(req, map[string]string{"id": ref})
 	return req.WithContext(setRequestUser(req.Context(), user))
@@ -87,7 +87,7 @@ func TestGetOrganization_UniformNotFound(t *testing.T) {
 			srv := &HelixAPIServer{Store: m, Cfg: &config.ServerConfig{}}
 
 			rr := httptest.NewRecorder()
-			srv.getOrganization(rr, orgRequest(http.MethodGet, tc.ref, tc.user, ""))
+			srv.getOrganization(rr, orgRouteRequest(http.MethodGet, tc.ref, tc.user, ""))
 
 			require.Equal(t, tc.code, rr.Code)
 			require.Equal(t, tc.body, rr.Body.String())
@@ -109,7 +109,7 @@ func TestUpdateDeleteOrganization_ForeignScopedKeyGets404(t *testing.T) {
 			srv := &HelixAPIServer{Store: m, Cfg: &config.ServerConfig{}}
 
 			rr := httptest.NewRecorder()
-			req := orgRequest(method, "org_victim", attacker, `{"display_name":"pwned"}`)
+			req := orgRouteRequest(method, "org_victim", attacker, `{"display_name":"pwned"}`)
 			if method == http.MethodPut {
 				srv.updateOrganization(rr, req)
 			} else {
@@ -158,7 +158,7 @@ func TestUpdateOrganization_StoreFailuresAreGeneric(t *testing.T) {
 			tc.setup(m)
 			srv := &HelixAPIServer{Store: m, Cfg: &config.ServerConfig{}}
 			rr := httptest.NewRecorder()
-			srv.updateOrganization(rr, orgRequest(http.MethodPut, "org_1", owner, tc.body))
+			srv.updateOrganization(rr, orgRouteRequest(http.MethodPut, "org_1", owner, tc.body))
 			require.Equal(t, http.StatusInternalServerError, rr.Code, rr.Body.String())
 			require.Equal(t, tc.want, rr.Body.String())
 			require.NotContains(t, rr.Body.String(), "pq:")

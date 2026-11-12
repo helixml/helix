@@ -25,14 +25,16 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// terminalUpgrader bridges the user's browser websocket to the hydra-side
-// terminal stream. CheckOrigin allows same-origin and CORS-relaxed for
-// in-page xterm clients; rely on the auth middleware (the route runs through
-// authRouter) for actual authorization.
-var sandboxTerminalUpgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
-	CheckOrigin:     func(r *http.Request) bool { return true },
+// sandboxTerminalUpgrader bridges the user's browser websocket to the
+// hydra-side terminal stream. The auth middleware (the route runs through
+// authRouter) authorizes the caller; the upgrader refuses a foreign Origin so
+// a page elsewhere cannot open a shell with the user's cookies.
+func (s *HelixAPIServer) sandboxTerminalUpgrader() websocket.Upgrader {
+	var serverURL string
+	if s.Cfg != nil {
+		serverURL = s.Cfg.WebServer.URL
+	}
+	return browserWebsocketUpgrader(serverURL, 4096)
 }
 
 // listSandboxRuntimes returns the runtimes the operator has configured on
@@ -534,9 +536,10 @@ func (s *HelixAPIServer) sandboxTerminal(rw http.ResponseWriter, r *http.Request
 // sandboxes and external-agent sessions use this path; only their authorization
 // and Hydra routing differ.
 func (s *HelixAPIServer) openPersistentTerminal(rw http.ResponseWriter, r *http.Request, client *hydra.RevDialClient, targetID, workingDirectory, prompt string) {
-	wsConn, err := sandboxTerminalUpgrader.Upgrade(rw, r, nil)
+	upgrader := s.sandboxTerminalUpgrader()
+	wsConn, err := upgrader.Upgrade(rw, r, nil)
 	if err != nil {
-		log.Error().Err(err).Msg("sandbox terminal upgrade failed")
+		log.Error().Err(err).Str("origin", r.Header.Get("Origin")).Msg("sandbox terminal upgrade failed")
 		return
 	}
 	defer wsConn.Close()

@@ -1159,6 +1159,9 @@ func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, re
 	if !apiServer.authorizeDesktopID(res, req, sessionID, types.ActionUpdate) {
 		return
 	}
+	if !apiServer.allowBrowserWebsocketOrigin(res, req) {
+		return
+	}
 
 	// Sessions can be Sway or Ubuntu — Sway doesn't speak the input WS protocol.
 	// Sandboxes are always ubuntu-desktop (the only non-headless runtime), so we
@@ -1334,6 +1337,9 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	// desktop-bridge under `desktop-{id}` via RevDial, so once authz passes the
 	// proxy logic below is uniform.
 	if !apiServer.authorizeDesktopID(res, req, sessionID, types.ActionGet) {
+		return
+	}
+	if !apiServer.allowBrowserWebsocketOrigin(res, req) {
 		return
 	}
 

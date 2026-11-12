@@ -25093,6 +25093,10 @@
                     "description": "ActivationError is the latest completed activation failure. It clears\nwhen a newer activation starts or succeeds.",
                     "type": "string"
                 },
+                "can_edit": {
+                    "description": "CanEdit is true when the caller may change this Bot: organization\nowners and platform admins, or a member who may update the Bot's\nagent app. The UI hides edit, delete and re-parent controls when false.",
+                    "type": "boolean"
+                },
                 "agent_model": {
                     "type": "string"
                 },

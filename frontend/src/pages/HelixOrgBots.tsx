@@ -218,16 +218,18 @@ const HelixOrgBots: FC = () => {
           <OpenInNewIcon sx={{ mr: 1, fontSize: 20 }} />
           Open
         </MenuItem>
-        <MenuItem
-          onClick={(e) => {
-            e.stopPropagation()
-            handleMenuClose()
-            if (currentBot) setDeleting(currentBot)
-          }}
-        >
-          <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
-          Delete
-        </MenuItem>
+        {currentBot?.can_edit && (
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation()
+              handleMenuClose()
+              if (currentBot) setDeleting(currentBot)
+            }}
+          >
+            <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
+            Delete
+          </MenuItem>
+        )}
       </Menu>
 
       {deleting && (

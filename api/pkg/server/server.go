@@ -183,18 +183,20 @@ type HelixAPIServer struct {
 	oidcClient                auth.OIDC
 	oauthManager              *oauth.Manager
 	sessionManager            *auth.SessionManager
-	fileServerHandler         http.Handler
-	cache                     *ristretto.Cache[string, string]
-	avatarsBucket             *blob.Bucket
-	trigger                   *trigger.Manager
-	specDrivenTaskService     *services.SpecDrivenTaskService
-	sampleProjectCodeService  *services.SampleProjectCodeService
-	gitRepositoryService      gitRepositoryServicer
-	koditService              services.KoditServicer
-	kodit                     *KoditResult
-	mcpGateway                *MCPGateway
-	gitHTTPServer             *services.GitHTTPServer
-	githubCompatRouter        *mux.Router
+	// passwordResetSends tracks reset emails being sent after their response.
+	passwordResetSends       sync.WaitGroup
+	fileServerHandler        http.Handler
+	cache                    *ristretto.Cache[string, string]
+	avatarsBucket            *blob.Bucket
+	trigger                  *trigger.Manager
+	specDrivenTaskService    *services.SpecDrivenTaskService
+	sampleProjectCodeService *services.SampleProjectCodeService
+	gitRepositoryService     gitRepositoryServicer
+	koditService             services.KoditServicer
+	kodit                    *KoditResult
+	mcpGateway               *MCPGateway
+	gitHTTPServer            *services.GitHTTPServer
+	githubCompatRouter       *mux.Router
 	// Streaming context cache - avoids redundant DB queries during token streaming
 	streamingContexts   map[string]*streamingContext // helix_session_id -> cached context
 	streamingContextsMu sync.RWMutex

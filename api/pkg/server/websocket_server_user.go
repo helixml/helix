@@ -30,6 +30,14 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 	r *mux.Router,
 	path string,
 ) {
+	var serverURL string
+	if apiServer.Cfg != nil {
+		serverURL = apiServer.Cfg.WebServer.URL
+	}
+	// Browsers open this socket with the session cookie, so a foreign Origin
+	// is refused (see browserWebsocketUpgrader). userWebsocketUpgrader stays
+	// for the runner sockets, which have no browser on the other end.
+	upgrader := browserWebsocketUpgrader(serverURL, 1024)
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		// Try BFF session authentication first (from helix_session cookie)
@@ -94,10 +102,11 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			ownerID = session.Owner
 		}
 
-		conn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
+		// Upgrade replies itself (403 for a foreign Origin, 400 for a bad
+		// handshake); a second write here would corrupt that reply.
+		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Error().Msgf("Error upgrading websocket: %s", err.Error())
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Warn().Err(err).Str("origin", r.Header.Get("Origin")).Msg("Error upgrading user websocket")
 			return
 		}
 

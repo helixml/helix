@@ -37,7 +37,7 @@ describe('HelixOrgChart server assets', () => {
     const graph = buildGraph(
       [{
         id: 'chief-of-staff', name: 'Chief of Staff', parentIds: [], agentStatus: 'running',
-        agentRuntime: 'zed_external', agentModel: 'test', taskStats: { backlog: 0, inProgress: 0, done: 0 },
+        agentRuntime: 'zed_external', agentModel: 'test', taskStats: { backlog: 0, inProgress: 0, done: 0 }, canEdit: true,
       }],
       handlers,
       true,
@@ -165,7 +165,7 @@ describe('HelixOrgChart processors and people panel', () => {
     const graph = buildGraph(
       [{
         id: 'worker', name: 'Worker', parentIds: [], agentStatus: 'stopped',
-        agentRuntime: 'zed_external', agentModel: 'test', taskStats: { backlog: 0, inProgress: 0, done: 0 },
+        agentRuntime: 'zed_external', agentModel: 'test', taskStats: { backlog: 0, inProgress: 0, done: 0 }, canEdit: true,
       }],
       handlers,
       true,
