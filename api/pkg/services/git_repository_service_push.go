@@ -79,7 +79,7 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 	log.Info().
 		Str("repo_id", gitRepo.ID).
 		Str("branch", branchName).
-		Str("external_url", remote.URL).
+		Str("external_url", RedactURLCredentials(remote.URL)).
 		Str("auth_type", authType).
 		Bool("force", force).
 		Dur("elapsed", time.Since(startTime)).
@@ -96,7 +96,7 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 			Err(err).
 			Str("repo_id", gitRepo.ID).
 			Str("branch", branchName).
-			Str("external_url", remote.URL).
+			Str("external_url", RedactURLCredentials(remote.URL)).
 			Str("auth_type", authType).
 			Dur("push_duration", pushDuration).
 			Dur("total_elapsed", time.Since(startTime)).

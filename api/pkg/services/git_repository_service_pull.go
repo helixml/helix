@@ -407,7 +407,7 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 	log.Info().
 		Str("repo_id", gitRepo.ID).
 		Str("branch", branchName).
-		Str("external_url", gitRepo.ExternalURL).
+		Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 		Bool("force", force).
 		Msg("Fetching changes from external repository")
 
@@ -468,7 +468,7 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 
 	log.Info().
 		Str("repo_id", gitRepo.ID).
-		Str("external_url", gitRepo.ExternalURL).
+		Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 		Bool("force", force).
 		Msg("Syncing mirrored branches from external repository")
 
