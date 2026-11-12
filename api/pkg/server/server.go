@@ -1563,110 +1563,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	adminRouter.HandleFunc("/admin/kodit/queue/{taskId}", apiServer.adminDeleteKoditTask).Methods(http.MethodDelete)
 	adminRouter.HandleFunc("/admin/kodit/queue/{taskId}/priority", apiServer.adminUpdateKoditTaskPriority).Methods(http.MethodPut)
 
-	// all these routes are secured via runner tokens
-	insecureRouter.HandleFunc("/runner/{runner_id}/ws", func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		runnerID := vars["runner_id"]
-		log.Info().
-			Str("runner_id", runnerID).
-			Str("request_path", r.URL.Path).
-			Msg("proxying runner websocket request to NATS")
-
-		defer log.Info().Str("runner_id", runnerID).Msg("websocket proxy to NATS disconnected")
-
-		// Upgrade the incoming HTTP connection to a WebSocket connection.
-		upgrader := websocket.Upgrader{
-			// TODO(Phil): check origin
-			CheckOrigin: func(r *http.Request) bool {
-				log.Debug().Interface("headers", r.Header).Interface("vars", r.RemoteAddr).Msg("nats check origin")
-				return true
-			},
-		}
-
-		clientConn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to upgrade client connection")
-			return
-		}
-		// Ensure the client connection is closed on function exit.
-		defer clientConn.Close()
-
-		// Connect to the backend WebSocket server.
-		backendConn, resp, err := websocket.DefaultDialer.Dial("ws://localhost:8433", nil) // TODO(Phil): make this configurable
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to connect to backend WebSocket server")
-			return
-		}
-		// Ensure the backend connection is closed on function exit.
-		defer backendConn.Close()
-		defer resp.Body.Close()
-
-		// Mutex for thread-safe writes to client WebSocket (ping and backend→client can race)
-		var clientMu sync.Mutex
-
-		// Start three goroutines: client→backend, backend→client, and ping
-		errCh := make(chan error, 3)
-
-		// Start server-initiated ping goroutine to keep client connection alive through proxies/firewalls
-		go func() {
-			ticker := time.NewTicker(15 * time.Second)
-			defer ticker.Stop()
-			for {
-				<-ticker.C
-				clientMu.Lock()
-				err := clientConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
-				clientMu.Unlock()
-				if err != nil {
-					log.Debug().Err(err).Str("runner_id", runnerID).Msg("NATS WebSocket proxy ping failed, connection closing")
-					errCh <- nil
-					return
-				}
-			}
-		}()
-
-		// Copy messages from the client to the backend.
-		go func() {
-			for {
-				messageType, message, err := clientConn.ReadMessage()
-				if err != nil {
-					errCh <- err
-					return
-				}
-				if err := backendConn.WriteMessage(messageType, message); err != nil {
-					errCh <- err
-					return
-				}
-			}
-		}()
-
-		// Copy messages from the backend to the client.
-		go func() {
-			for {
-				messageType, message, err := backendConn.ReadMessage()
-				if err != nil {
-					errCh <- err
-					return
-				}
-				// Mutex protects against concurrent ping writes
-				clientMu.Lock()
-				writeErr := clientConn.WriteMessage(messageType, message)
-				clientMu.Unlock()
-				if writeErr != nil {
-					errCh <- writeErr
-					return
-				}
-			}
-		}()
-
-		// Wait until one side returns an error (or closes the connection).
-		if err := <-errCh; err != nil {
-			log.Printf("WebSocket proxy error: %v", err)
-		}
-	})
-	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods(http.MethodGet)
-	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods(http.MethodGet)
-	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods(http.MethodPost)
-	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods(http.MethodPost)
+	apiServer.registerRunnerNATSProxy(insecureRouter)
 
 	registerDebugRoutes(router, apiServer.authMiddleware.extractMiddleware)
 
@@ -2781,6 +2678,13 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 			Str("remote_addr", r.RemoteAddr).
 			Msg("Handling revdial CONTROL connection")
 
+		// Control connections are WebSockets (revdial.Client). The old
+		// hijacked-HTTP form had no client left and is refused.
+		if !websocket.IsWebSocketUpgrade(r) {
+			http.Error(w, "RevDial control connections must be WebSocket upgrades", http.StatusBadRequest)
+			return
+		}
+
 		// Get authenticated user from middleware (accepts both runner and user tokens)
 		user := getRequestUser(r)
 		if user == nil {
@@ -2797,6 +2701,18 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 			return
 		}
 
+		// The runner token is shared by every sandbox host, so it only
+		// registers host tunnels. Desktop tunnels belong to one session and
+		// are registered with that session's own key (checked below).
+		if user.TokenType == types.TokenTypeRunner && !runnerTokenMayRegisterRevDial(runnerID) {
+			log.Warn().
+				Str("runner_id", runnerID).
+				Str("remote_addr", r.RemoteAddr).
+				Msg("Refused RevDial registration: runner token may only register host tunnels")
+			http.Error(w, "runner token may only register hydra- or sandbox- tunnels", http.StatusForbidden)
+			return
+		}
+
 		// If using a user token (not runner token), validate session ownership
 		if user.TokenType != types.TokenTypeRunner {
 			// Extract session ID from runner ID (format: desktop-{session_id})
@@ -2807,6 +2723,20 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 					Str("runner_id", runnerID).
 					Msg("Invalid runner ID format - must be desktop-{session_id}")
 				http.Error(w, "invalid runner ID format", http.StatusBadRequest)
+				return
+			}
+
+			// Ownership of the session is not enough on its own: a key
+			// minted for one session's sandbox must not register another of
+			// the owner's desktops, and keys handed to other people (app
+			// keys) register none.
+			if err := revDialKeyMayRegisterDesktop(user, sessionID); err != nil {
+				log.Warn().
+					Err(err).
+					Str("runner_id", runnerID).
+					Str("remote_addr", r.RemoteAddr).
+					Msg("Refused RevDial registration")
+				http.Error(w, err.Error(), http.StatusForbidden)
 				return
 			}
 
@@ -2865,62 +2795,47 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 
 		log.Trace().Str("runner_id", runnerID).Msg("Establishing reverse dial connection")
 
-		// Handle WebSocket control connection vs non-WebSocket control connection
-		var conn net.Conn
-		if websocket.IsWebSocketUpgrade(r) {
-			// Upgrade WebSocket for control connection
-			log.Trace().Msg("Upgrading WebSocket for RevDial control connection")
-			wsConn, err := upgrader.Upgrade(w, r, nil)
-			if err != nil {
-				log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to upgrade WebSocket")
-				http.Error(w, "WebSocket upgrade failed", http.StatusInternalServerError)
-				return
-			}
-
-			// Start server-initiated ping goroutine to keep connection alive through proxies/firewalls
-			// This runs until the WebSocket is closed (WriteControl fails)
-			go func(ws *websocket.Conn, rID string) {
-				ticker := time.NewTicker(15 * time.Second)
-				defer ticker.Stop()
-				for {
-					<-ticker.C
-					if err := ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
-						log.Debug().
-							Err(err).
-							Str("runner_id", rID).
-							Msg("RevDial WebSocket ping failed, connection closing")
-						return
-					}
-				}
-			}(wsConn, runnerID)
-
-			// Wrap WebSocket as net.Conn using wsconnadapter
-			conn = wsconnadapter.New(wsConn)
-			log.Trace().Str("runner_id", runnerID).Msg("WebSocket control connection established")
-		} else {
-			// HTTP hijack for non-WebSocket control connection
-			hijacker, ok := w.(http.Hijacker)
-			if !ok {
-				log.Error().Msg("HTTP hijacking not supported")
-				http.Error(w, "HTTP hijacking not supported", http.StatusInternalServerError)
-				return
-			}
-
-			// Send HTTP 200 response before hijacking
-			w.WriteHeader(http.StatusOK)
-
-			// Hijack the connection to get raw TCP
-			var err error
-			conn, _, err = hijacker.Hijack()
-			if err != nil {
-				log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to hijack connection")
-				return
-			}
-			log.Debug().Str("runner_id", runnerID).Msg("HTTP control connection hijacked")
+		log.Trace().Msg("Upgrading WebSocket for RevDial control connection")
+		wsConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to upgrade WebSocket")
+			return
 		}
 
-		// Register the reverse dial connection in connman
-		apiServer.connman.Set(runnerID, conn)
+		// Start server-initiated ping goroutine to keep connection alive through proxies/firewalls
+		// This runs until the WebSocket is closed (WriteControl fails)
+		go func(ws *websocket.Conn, rID string) {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				<-ticker.C
+				if err := ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
+					log.Debug().
+						Err(err).
+						Str("runner_id", rID).
+						Msg("RevDial WebSocket ping failed, connection closing")
+					return
+				}
+			}
+		}(wsConn, runnerID)
+
+		conn := wsconnadapter.New(wsConn)
+		log.Trace().Str("runner_id", runnerID).Msg("WebSocket control connection established")
+
+		// Register the reverse dial connection in connman. The last
+		// registration wins, so a host that reconnects always gets its id
+		// back. Until hosts have their own credentials, any runner-token
+		// holder can claim a hydra-/sandbox- id, so every displacement is
+		// logged with both addresses to make that visible.
+		origin := revDialOrigin(r)
+		if displaced := apiServer.connman.Set(runnerID, conn, origin); displaced != nil {
+			log.Warn().
+				Str("runner_id", runnerID).
+				Str("token_type", string(user.TokenType)).
+				Str("new_remote_addr", origin).
+				Str("displaced_remote_addr", displaced.Origin).
+				Msg("RevDial registration displaced an existing tunnel")
+		}
 		log.Trace().Str("runner_id", runnerID).Msg("Registered reverse dial connection in connman")
 
 		// If this is a Hydra connection (hydra-{sandbox_id}), discover running containers.

@@ -996,6 +996,11 @@ type WebServer struct {
 	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081" description:"URL to proxy to or filesystem path to serve from"`
 
 	RunnerToken string `envconfig:"RUNNER_TOKEN" description:"The token for runner auth."`
+	// RunnerNATSProxyEnabled exposes the embedded NATS bus to runner-token
+	// holders over GET /api/v1/runner/{id}/ws. No current component uses it
+	// (the NATS-based model runner was removed), and the NATS token grants
+	// every subject, so it is off unless a deployment still needs it.
+	RunnerNATSProxyEnabled bool `envconfig:"RUNNER_NATS_PROXY_ENABLED" default:"false" description:"Expose the embedded NATS bus to runners over /api/v1/runner/{id}/ws (legacy model runners only)."`
 	// Comma-separated list of user IDs that should be admins, or "all" for dev mode.
 	// If empty, admin status is determined by the user's admin field in the database.
 	// Examples: "all", "user-123,user-456", ""
