@@ -489,7 +489,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_SessionName_PreservesExac
 }
 
 // Org deletion lists every member's desktop sessions in the org. Without
-// AnyOwner the query also matches owner = '', i.e. nothing.
+// AnyOwner the query also filters on an empty owner and matches nothing.
 func (suite *PostgresStoreTestSuite) TestListSessionsByOrganizationNeedsAnyOwner() {
 	ctx := context.Background()
 	orgID := "org-" + system.GenerateUUID()
