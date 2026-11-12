@@ -28,6 +28,8 @@ export function useGitHubAppActions(onComplete?: () => void) {
 
   const watch = () => {
     const onMessage = (event: MessageEvent) => {
+      // Only our own callback page (same origin) may report the result.
+      if (event.origin !== window.location.origin) return
       if (event.data?.type === 'github-app-installed') {
         window.removeEventListener('message', onMessage)
         window.removeEventListener('focus', onFocus)
