@@ -9,23 +9,26 @@ import (
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_RequestAuditEvents() {
 	userID := "usr_" + system.GenerateUUID()
-	remoteAddr := "203.0.113.9:1234"
+	remoteIP := "203.0.113.9"
 	base := time.Now().UTC().Add(-time.Hour)
 
 	events := []*types.RequestAuditEvent{
 		{
 			ID: "rau_" + system.GenerateUUID(), Created: base, Method: "POST",
-			Path: "/api/v1/sessions", Status: 201, UserID: userID, RemoteAddr: remoteAddr,
+			Path: "/api/v1/sessions", Status: 201, UserID: userID, RemoteAddr: remoteIP + ":1234",
+			RemoteIP: remoteIP, RemotePort: 1234,
 			CredentialSource: "session", CredentialFingerprint: "abcdefabcdef",
 			Body: `{"email":"operator@example.com"}`, BodySize: 29,
 		},
 		{
 			ID: "rau_" + system.GenerateUUID(), Created: base.Add(time.Minute), Method: "GET",
-			Path: "/api/v1/sessions/ses_1", Status: 200, UserID: userID, RemoteAddr: remoteAddr,
+			Path: "/api/v1/sessions/ses_1", Status: 200, UserID: userID, RemoteAddr: remoteIP + ":1234",
+			RemoteIP: remoteIP, RemotePort: 1234,
 		},
 		{
 			ID: "rau_" + system.GenerateUUID(), Created: base.Add(2 * time.Minute), Method: "DELETE",
-			Path: "/api/v1/sessions/ses_1", Status: 403, UserID: userID, RemoteAddr: remoteAddr,
+			Path: "/api/v1/sessions/ses_1", Status: 403, UserID: userID, RemoteAddr: remoteIP + ":1234",
+			RemoteIP: remoteIP, RemotePort: 1234,
 		},
 	}
 	suite.Require().NoError(suite.db.InsertRequestAuditEvents(suite.ctx, events))
@@ -39,10 +42,17 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_RequestAuditEvents() {
 
 	response, err := suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{UserID: userID})
 	suite.Require().NoError(err)
-	suite.Equal(int64(3), response.Total)
+	suite.Nil(response.Total, "total is opt-in")
 	suite.Require().Len(response.Events, 3)
 	suite.Equal("DELETE", response.Events[0].Method, "newest first")
 	suite.Equal(403, response.Events[0].Status)
+	suite.Empty(response.NextCursor, "single page")
+
+	response, err = suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{UserID: userID, IncludeTotal: true})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(response.Total)
+	suite.Equal(int64(3), *response.Total)
+	suite.Require().Len(response.Events, 3, "the count must not replace the page query")
 
 	status := 200
 	response, err = suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{UserID: userID, Status: &status})
@@ -52,20 +62,25 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_RequestAuditEvents() {
 
 	response, err = suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{UserID: userID, PathPrefix: "/api/v1/sessions/"})
 	suite.Require().NoError(err)
-	suite.Equal(int64(2), response.Total, "path is a prefix filter")
+	suite.Require().Len(response.Events, 2, "path is a prefix filter")
 
 	response, err = suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{UserID: userID, PathPrefix: "/api/v1/sess_ons"})
 	suite.Require().NoError(err)
-	suite.Equal(int64(0), response.Total, "underscore in the prefix is escaped, not a wildcard")
+	suite.Empty(response.Events, "underscore in the prefix is escaped, not a wildcard")
 
 	response, err = suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{UserID: userID, Method: "get"})
 	suite.Require().NoError(err)
 	suite.Require().Len(response.Events, 1)
 	suite.Equal("GET", response.Events[0].Method)
 
-	response, err = suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{UserID: userID, RemoteAddr: remoteAddr})
+	// The filter is on the address without the ephemeral port.
+	response, err = suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{UserID: userID, RemoteIP: remoteIP})
 	suite.Require().NoError(err)
-	suite.Equal(int64(3), response.Total)
+	suite.Require().Len(response.Events, 3)
+
+	response, err = suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{UserID: userID, RemoteIP: "198.51.100.7"})
+	suite.Require().NoError(err)
+	suite.Empty(response.Events)
 
 	since := base.Add(90 * time.Second)
 	response, err = suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{UserID: userID, Since: &since})
@@ -73,13 +88,28 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_RequestAuditEvents() {
 	suite.Require().Len(response.Events, 1)
 	suite.Equal("DELETE", response.Events[0].Method)
 
-	response, err = suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{UserID: userID, Limit: 1, Offset: 1})
-	suite.Require().NoError(err)
-	suite.Equal(int64(3), response.Total)
-	suite.Require().Len(response.Events, 1)
-	suite.Equal("GET", response.Events[0].Method)
-	suite.Equal(1, response.Limit)
-	suite.Equal(1, response.Offset)
+	// Keyset pagination: walk the whole set one row at a time.
+	var paged []string
+	cursor := ""
+	for page := 0; page < 5; page++ {
+		response, err = suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{
+			UserID: userID, Limit: 1, Cursor: cursor,
+		})
+		suite.Require().NoError(err)
+		for _, event := range response.Events {
+			paged = append(paged, event.ID)
+		}
+		if response.NextCursor == "" {
+			break
+		}
+		cursor = response.NextCursor
+	}
+	suite.Equal([]string{events[2].ID, events[1].ID, events[0].ID}, paged, "newest first, no duplicates or gaps")
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_RequestAuditEventsRejectsBadCursor() {
+	_, err := suite.db.ListRequestAuditEvents(suite.ctx, &types.RequestAuditEventFilters{Cursor: "not-a-cursor"})
+	suite.Require().Error(err)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_PruneRequestAuditEvents() {

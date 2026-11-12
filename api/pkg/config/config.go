@@ -1289,4 +1289,11 @@ type AuditLog struct {
 	// SkipRunnerReads omits GET/HEAD requests authenticated with the runner or
 	// sandbox token, which are machine polling rather than user actions.
 	SkipRunnerReads bool `envconfig:"HELIX_AUDIT_LOG_SKIP_RUNNER_READS" default:"true"`
+
+	// TrustedProxies is a comma-separated list of CIDRs (e.g.
+	// "10.0.0.0/8,172.16.0.0/12") whose CF-Connecting-IP and X-Forwarded-For
+	// headers are believed. When the TCP peer is inside this list, client_ip is
+	// derived from those headers; otherwise they are recorded as sent and
+	// remain untrusted. Empty by default: no proxy header is ever trusted.
+	TrustedProxies []string `envconfig:"HELIX_AUDIT_LOG_TRUSTED_PROXIES"`
 }

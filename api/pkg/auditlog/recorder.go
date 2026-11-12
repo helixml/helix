@@ -168,6 +168,9 @@ func (r *Recorder) logStdout(event *types.RequestAuditEvent) {
 		Str("credential_source", event.CredentialSource).
 		Str("credential_fingerprint", event.CredentialFingerprint).
 		Str("remote_addr", event.RemoteAddr).
+		Str("remote_ip", event.RemoteIP).
+		Int("remote_port", event.RemotePort).
+		Str("client_ip", event.ClientIP).
 		Str("cf_connecting_ip", event.CFConnectingIP).
 		Str("x_forwarded_for", event.XForwardedFor).
 		Str("x_real_ip", event.XRealIP).
