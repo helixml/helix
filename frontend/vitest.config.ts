@@ -10,8 +10,23 @@ export default defineConfig({
     globals: true,
     // happy-dom builds a document several times faster than jsdom. Files that
     // depend on jsdom's fidelity (computed styles, img roles, keyboard events,
-    // custom elements) opt back in with a `// @vitest-environment jsdom` docblock.
+    // custom elements, HTML sanitization) opt back in with a `// @vitest-environment jsdom` docblock.
     environment: 'happy-dom',
+    // happy-dom fetches scripts, stylesheets and iframe pages by itself, which
+    // would bypass the network guard in setupTests. Tests never load resources.
+    environmentOptions: {
+      happyDOM: {
+        settings: {
+          disableJavaScriptFileLoading: true,
+          disableCSSFileLoading: true,
+          navigation: {
+            disableMainFrameNavigation: true,
+            disableChildFrameNavigation: true,
+            disableChildPageNavigation: true,
+          },
+        },
+      },
+    },
     setupFiles: ['./src/setupTests.ts'],
     // The CI runner shares CPUs with the Go test steps; under that load the
     // slower jsdom component tests exceed the 5s default and fail at random.
