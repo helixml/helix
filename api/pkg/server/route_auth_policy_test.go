@@ -76,6 +76,10 @@ const (
 	classAdminOrRunner routeAuthClass = "admin-or-runner"
 )
 
+// gateUserOrRunner is the requireUserOrRunner gate. It is not a declarable
+// class: a user or user-object route marked alsoRunner() sits behind it.
+const gateUserOrRunner routeAuthClass = "user-or-runner"
+
 type routePolicy struct {
 	Class routeAuthClass
 	// Authz lists authorization helpers the route's handler calls directly.
@@ -83,9 +87,10 @@ type routePolicy struct {
 	Authz []string
 	// Reason documents a public, signed-webhook or handler-auth route.
 	Reason string
-	// RunnerAllowed marks user routes whose handler deliberately serves the
-	// runner token too (sandbox hosts call them), so the wrong-class probe
-	// does not send the runner token there.
+	// RunnerAllowed marks user routes that sandbox hosts call with the runner
+	// token. They must be mounted behind requireUserOrRunner (requireUser
+	// refuses the runner token), and the wrong-class probe does not send the
+	// runner token there.
 	RunnerAllowed bool
 }
 
@@ -114,7 +119,7 @@ func gap(reason string) routePolicy {
 	return routePolicy{Class: classUser, Reason: "KNOWN GAP: " + reason}
 }
 
-// alsoRunner marks a user route that intentionally admits the runner token.
+// alsoRunner marks a user route that sandbox hosts call with the runner token.
 func (p routePolicy) alsoRunner() routePolicy { p.RunnerAllowed = true; return p }
 
 // noAuthzHelper documents a user-router route with a path id whose handler
@@ -374,19 +379,24 @@ func gateFromChain(chain []string) routeAuthClass {
 		return classAdminOrRunner
 	case has("requireRunner"):
 		return classRunner
+	case has("requireUserOrRunner"):
+		return gateUserOrRunner
 	case has("requireUser"):
 		return classUser
 	}
 	return ""
 }
 
-// gateFor reports which router gate a declared class must sit behind.
-func (c routeAuthClass) gate() routeAuthClass {
-	switch c {
+// gate reports which router gate a declared policy must sit behind.
+func (p routePolicy) gate() routeAuthClass {
+	switch p.Class {
 	case classUser, classUserObject:
+		if p.RunnerAllowed {
+			return gateUserOrRunner
+		}
 		return classUser
 	case classAdmin, classRunner, classAdminOrRunner:
-		return c
+		return p.Class
 	}
 	return ""
 }
@@ -412,6 +422,11 @@ func suggestedPolicy(r servedRoute) string {
 		return "runner()"
 	case classAdminOrRunner:
 		return "adminOrRunner()"
+	case gateUserOrRunner:
+		if len(pathVars(r.Template)) > 0 {
+			return `object("authorizeUserToX").alsoRunner()`
+		}
+		return "user().alsoRunner()"
 	case classUser:
 		if len(pathVars(r.Template)) > 0 {
 			return `object("authorizeUserToX")`
@@ -494,7 +509,7 @@ func TestRouteAuthPolicy_DeclaredClassMatchesRouter(t *testing.T) {
 		if !ok {
 			continue // reported by TestRouteAuthPolicy_EveryRouteIsDeclared
 		}
-		if want := p.Class.gate(); want != r.Gate {
+		if want := p.gate(); want != r.Gate {
 			got := string(r.Gate)
 			if got == "" {
 				got = "no auth middleware"
@@ -911,7 +926,7 @@ func TestRouteAuthPolicy_ObjectRoutesCallAuthzHelper(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if r.Gate == classUser && len(pathVars(r.Template)) > 0 && p.Class == classUser && strings.TrimSpace(p.Reason) == "" {
+		if (r.Gate == classUser || r.Gate == gateUserOrRunner) && len(pathVars(r.Template)) > 0 && p.Class == classUser && strings.TrimSpace(p.Reason) == "" {
 			t.Errorf("%s takes an object id in its path but is declared user() with no authorization helper.\n"+
 				"Declare it object(\"<helper>\") naming the authorize* helper the handler calls before touching the object,\n"+
 				"or noAuthzHelper(\"<how the handler scopes the object to the caller>\") in %s.",
