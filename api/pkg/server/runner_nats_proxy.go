@@ -15,9 +15,17 @@ import (
 // (RUNNER_NATS_PROXY_ENABLED). The route sits outside the auth middleware:
 // NATS itself checks the token, and that token is the shared runner token,
 // which grants every subject. Nothing in Helix connects here any more, so the
-// route is not registered by default.
+// route is not registered by default. Per-runner tokens do not work here: the
+// embedded NATS server has a single token and no per-subject permissions.
 func (apiServer *HelixAPIServer) registerRunnerNATSProxy(router *mux.Router) {
 	if apiServer.Cfg == nil || !apiServer.Cfg.WebServer.RunnerNATSProxyEnabled {
+		return
+	}
+	// NATS authenticates with the shared runner token and has no per-runner
+	// subject ACLs, so a deployment that retired the shared token for hosts
+	// does not get this route either.
+	if apiServer.Cfg.WebServer.RunnerRequirePerHostTokens {
+		log.Warn().Msg("RUNNER_NATS_PROXY_ENABLED is ignored while RUNNER_REQUIRE_PER_HOST_TOKENS is set: the NATS bus only accepts the shared runner token")
 		return
 	}
 	router.HandleFunc("/runner/{runner_id}/ws", apiServer.proxyRunnerNATS)

@@ -273,6 +273,12 @@ type User struct {
 	SpecTaskID     string `json:"spec_task_id" gorm:"-"`    // When running in Helix Code sandbox
 	SessionID      string `json:"session_id" gorm:"-"`      // Session this API key is scoped to (ephemeral keys)
 	OrganizationID string `json:"organization_id" gorm:"-"` // Organization this API key is scoped to (ephemeral keys)
+	// RunnerID is the runner a per-runner token is bound to. Empty for the
+	// shared runner token and for every non-runner credential.
+	RunnerID string `json:"runner_id,omitempty" gorm:"-"`
+	// RunnerTokenID is the id of the per-runner token the request used, so
+	// what it opened (RevDial tunnels) can be cut when it is revoked.
+	RunnerTokenID string `json:"-" gorm:"-"`
 	// these are set by the keycloak user based on the token
 	// if it's an app token - the keycloak user is loaded from the owner of the app
 	// if it's a runner token - these values will be empty
