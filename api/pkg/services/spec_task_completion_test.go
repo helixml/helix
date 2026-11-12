@@ -81,6 +81,18 @@ func (s *PRProposalSuite) TestAutoApprovingTaskCompletesAtOnce() {
 	s.Nil(task.CompletionRequestedAt)
 }
 
+// Auto-completion acts as the stored approver, so it re-checks that they can
+// still update the project; otherwise the user is asked.
+func (s *PRProposalSuite) TestAutoCompletionRechecksApproverAccess() {
+	s.enableAutoApprove("usr_former")
+	out, err := s.svc.RequestCompletion(s.ctx, "spt_1", "Finished")
+	s.Require().NoError(err)
+	s.False(out.Done)
+	task := s.task("spt_1")
+	s.NotEqual(types.TaskStatusDone, task.Status)
+	s.NotNil(task.CompletionRequestedAt)
+}
+
 func (s *PRProposalSuite) TestCompletionRequestRules() {
 	_, err := s.svc.RequestCompletion(s.ctx, "spt_1", "  ")
 	s.ErrorIs(err, ErrPRProposalInvalid, "a summary is required")

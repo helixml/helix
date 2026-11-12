@@ -67,6 +67,16 @@ func (s *HelixAPIServer) listProjects(_ http.ResponseWriter, r *http.Request) ([
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	if user.ProjectID != "" {
+		scoped := projects[:0]
+		for _, project := range projects {
+			if project.ID == user.ProjectID {
+				scoped = append(scoped, project)
+			}
+		}
+		projects = scoped
+	}
+
 	s.populateActiveAgentSessions(projects)
 	s.populateProjectOwners(r.Context(), projects)
 
@@ -737,6 +747,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		project.AutoStartBacklogTasks = *req.AutoStartBacklogTasks
 	}
 	if req.AutoApprovePullRequests != nil {
+		if isAgentScopedKey(user) {
+			return nil, system.NewHTTPError403(errAgentKeyDecision.Error())
+		}
 		project.AutoApprovePullRequests = *req.AutoApprovePullRequests
 	}
 	if req.HelixRepoPullRequests != nil {
