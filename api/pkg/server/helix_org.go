@@ -1386,6 +1386,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		AgentUpdater:        inProcClient,
 		AgentReader:         inProcClient,
 		AgentDefaultApplier: inProcClient,
+		AgentEditAuthorizer: inProcClient,
 		Tools:               reg,
 		ProjectEnsurer:      projectApplier,
 		// Production: the github topic transport's Token() falls
