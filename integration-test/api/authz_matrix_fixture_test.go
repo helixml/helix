@@ -132,6 +132,13 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 		t.Fatalf("add member: %v", err)
 	}
 
+	// Provider endpoints first: the agents run on them. Their base URLs do not
+	// resolve, so an LLM proxy row that reaches an agent fails fast instead
+	// of calling a real model.
+	f.vars["providerA"] = f.createProvider(t, "providerA", types.OwnerTypeOrg, orgA.ID)
+	f.vars["providerAName"] = f.markers["providerA"]
+	f.vars["providerPersonal"] = f.createProvider(t, "providerPersonal", types.OwnerTypeUser, f.users[aOwner].ID)
+
 	// Agents.
 	f.vars["appA"] = f.createApp(t, "appA", orgA.ID, types.AgentKindHelix)
 	f.vars["orgAgentA"] = f.createApp(t, "orgAgentA", orgA.ID, types.AgentKindOrg)
@@ -195,9 +202,6 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 		AzureDevOps: &types.AzureDevOpsTrigger{Enabled: true},
 	})
 	f.vars["webhookSecretA"] = f.webhookSecret(t, f.vars["webhookTriggerA"])
-	f.vars["providerA"] = f.createProvider(t, "providerA", types.OwnerTypeOrg, orgA.ID)
-	f.vars["providerAName"] = f.markers["providerA"]
-	f.vars["providerPersonal"] = f.createProvider(t, "providerPersonal", types.OwnerTypeUser, f.users[aOwner].ID)
 	f.vars["artifactA"] = f.createArtifact(t, "artifactA", f.vars["projA"])
 	f.vars["artifactA2"] = f.createArtifact(t, "artifactA2", f.vars["projA2"])
 	f.uploadAppFile(t, f.vars["appA"])
@@ -253,9 +257,13 @@ func (f *authzFixture) createApp(t *testing.T, name, orgID, kind string) string 
 			Helix: types.AppHelixConfig{
 				Name:        f.mark(name),
 				Description: "authz matrix agent",
+				// The fixture's own endpoint (unresolvable base URL): the LLM
+				// proxy rows reach these agents and must fail fast, never
+				// call a real model.
 				Assistants: []types.AssistantConfig{{
-					Name:  "assistant",
-					Model: "openai/gpt-oss-20b",
+					Name:     "assistant",
+					Provider: f.agentProvider(orgID),
+					Model:    "authz-matrix-missing-model",
 				}},
 			},
 		},
@@ -563,4 +571,15 @@ func (f *authzFixture) createBrowserSession(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = f.db.DeleteUserSession(context.Background(), session.ID) })
 	return session.ID
+}
+
+// authzMissingProvider names a provider that no deployment configures.
+const authzMissingProvider = "authz-matrix-missing-provider"
+
+// agentProvider is the fixture endpoint an agent in orgID runs on.
+func (f *authzFixture) agentProvider(orgID string) string {
+	if orgID == "" {
+		return f.markers["providerPersonal"]
+	}
+	return f.markers["providerA"]
 }

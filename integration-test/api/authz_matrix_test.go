@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -198,7 +199,7 @@ func (f *authzFixture) do(t *testing.T, who actor, method, path string, body []b
 	if body != nil {
 		reader = bytes.NewReader(body)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), authzRequestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, method, integrationServerURL()+path, reader)
 	if err != nil {
@@ -228,6 +229,10 @@ func (f *authzFixture) do(t *testing.T, who actor, method, path string, body []b
 	}
 	resp, err := authzHTTPClient.Do(req)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
+			t.Fatalf("%s %s as %s: no answer within %s. A matrix row must not depend on the network (an LLM provider, a sandbox); point it at something that fails fast and assert it with ReachedMarker: %v",
+				method, path, who, authzRequestTimeout, err)
+		}
 		t.Fatalf("%s %s as %s: %v", method, path, who, err)
 	}
 	defer resp.Body.Close()
@@ -244,10 +249,14 @@ func (f *authzFixture) do(t *testing.T, who actor, method, path string, body []b
 // auth password instead of a bearer token, the way git does. It is not sent.
 const basicAuthHeader = "X-Authz-Basic-Auth"
 
+// authzRequestTimeout bounds every matrix request, so a row that reaches a
+// real upstream fails by name instead of eating the suite's time budget.
+const authzRequestTimeout = 10 * time.Second
+
 // authzHTTPClient never follows redirects: a 302 to a login page is an
 // answer in its own right, not a 200.
 var authzHTTPClient = &http.Client{
-	Timeout: 30 * time.Second,
+	Timeout: authzRequestTimeout,
 	CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	},

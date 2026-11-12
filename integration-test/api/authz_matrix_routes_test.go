@@ -1082,25 +1082,28 @@ func mcpRoutes() []route {
 }
 
 func llmProxyRoutes() []route {
-	chat := map[string]any{"model": "authz-matrix-missing-model", "messages": []map[string]string{{"role": "user", "content": "hi"}}, "max_tokens": 1}
+	// "global/helix/..." names a provider outright, so the server does not
+	// list upstream models to resolve it, and the agents run on the
+	// fixture's unresolvable endpoints: no row here waits on a real model.
+	chat := map[string]any{"model": "global/helix/authz-matrix-missing-model", "messages": []map[string]string{{"role": "user", "content": "hi"}}, "max_tokens": 1}
 	return []route{
 		{
 			// Choosing an agent you cannot use must be refused before any
 			// provider is selected.
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={appA}", Body: chat,
 			Expect:        strangers(expect{aOwner: reached, aMember: reached, projKey: deny}),
-			ReachedMarker: "failed to get client",
+			ReachedMarker: "authz-matrix.invalid",
 		},
 		{
 			// orgAgentA is projA's agent, so a projA reader may use it.
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={orgAgentA}", Body: chat,
 			Expect:        strangers(expect{aOwner: reached, projKey: reached, aMember: reached}),
-			ReachedMarker: "failed to get client",
+			ReachedMarker: "authz-matrix.invalid",
 		},
 		{
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={appPersonal}", Body: chat,
 			Expect:        strangers(expect{aOwner: reached, aMember: deny}),
-			ReachedMarker: "failed to get client",
+			ReachedMarker: "authz-matrix.invalid",
 		},
 		{
 			// An app key carries its agent; it cannot be pointed at another.
@@ -1135,14 +1138,18 @@ func llmProxyRoutes() []route {
 			Expect: expect{aOwner: reached, projKey: reached, waitlisted: deny, anonymous: deny},
 		},
 		{
-			Method: http.MethodPost, Path: "/v1/embeddings", Body: map[string]any{"model": "authz-matrix-missing-model", "input": "hi"},
+			// The embeddings provider is server-wide; this placeholder model
+			// is refused before any provider is called.
+			Method: http.MethodPost, Path: "/v1/embeddings", Body: map[string]any{"model": "kodit-text-embedding", "input": "hi"},
 			Expect:        expect{aOwner: reached, waitlisted: deny, anonymous: deny},
-			ReachedMarker: "no client found for provider",
+			ReachedMarker: "Kodit text embedding model not configured",
 		},
 		{
-			// The web app's model picker sends only the session cookie.
-			Method: http.MethodGet, Path: "/v1/models",
-			Expect: expect{aOwner: allow, aOwnerBrowser: allow, waitlisted: deny, anonymous: deny},
+			// The web app's model picker sends only the session cookie. A
+			// provider nobody configures answers without calling upstream.
+			Method: http.MethodGet, Path: "/v1/models?provider=" + authzMissingProvider,
+			Expect:        expect{aOwner: reached, aOwnerBrowser: reached, waitlisted: deny, anonymous: deny},
+			ReachedMarker: authzMissingProvider,
 		},
 		{
 			Method: http.MethodPost, Path: "/v1/responses", Body: chat,
