@@ -102,6 +102,9 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if err := db.AutoMigrate(orgRowTypes...); err != nil {
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
+	if err := backfillBotPortraitIndexes(db); err != nil {
+		return nil, fmt.Errorf("backfill bot portrait indexes: %w", err)
+	}
 	if err := migrateProcessorOutputIDs(db); err != nil {
 		return nil, fmt.Errorf("migrate processor output ids: %w", err)
 	}
@@ -174,6 +177,53 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		RetiredSubscriptions:   newRetiredSubscriptionReader(db),
 		RetiredProcessorInputs: newRetiredProcessorInputReader(db),
 	}, nil
+}
+
+func backfillBotPortraitIndexes(db *gorm.DB) error {
+	var orgIDs []string
+	if err := db.Model(&OrgBot{}).
+		Distinct().
+		Where("portrait_index IS NULL").
+		Order("org_id ASC").
+		Pluck("org_id", &orgIDs).Error; err != nil {
+		return fmt.Errorf("list orgs with unassigned bot portraits: %w", err)
+	}
+	for _, orgID := range orgIDs {
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			if err := lockPortraitAllocation(tx, orgID); err != nil {
+				return err
+			}
+			var bots []OrgBot
+			if err := tx.Where("org_id = ?", orgID).
+				Order("CASE WHEN id = 'chief-of-staff' THEN 0 ELSE 1 END ASC").
+				Order("created_at ASC, id ASC").
+				Find(&bots).Error; err != nil {
+				return fmt.Errorf("list bots for portrait backfill: %w", err)
+			}
+			assigned := make([]int, 0, len(bots))
+			for _, bot := range bots {
+				if bot.PortraitIndex != nil {
+					assigned = append(assigned, *bot.PortraitIndex)
+				}
+			}
+			for _, bot := range bots {
+				if bot.PortraitIndex != nil {
+					continue
+				}
+				index := orgchart.AllocatePortraitIndex(orgchart.NodeID(bot.ID), assigned)
+				if err := tx.Model(&OrgBot{}).
+					Where("org_id = ? AND id = ? AND portrait_index IS NULL", orgID, bot.ID).
+					UpdateColumn("portrait_index", index).Error; err != nil {
+					return fmt.Errorf("assign bot %s portrait: %w", bot.ID, err)
+				}
+				assigned = append(assigned, index)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func installWorkerSecretConstraints(db *gorm.DB) error {

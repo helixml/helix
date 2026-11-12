@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SlackAppSetup from './SlackAppSetup'
 
@@ -13,6 +13,11 @@ describe('SlackAppSetup', () => {
   beforeEach(() => {
     writeText.mockClear()
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   it('opens the base Slack creation flow and copies the complete manifest', async () => {
@@ -38,5 +43,41 @@ describe('SlackAppSetup', () => {
     expect(manifest.oauth_config.redirect_urls).toContain('https://helix.example/api/v1/slack/oauth/callback')
     expect(manifest.settings.event_subscriptions.request_url).toBe('https://helix.example/api/v1/slack/events')
     expect(manifest.settings.event_subscriptions.bot_events.length).toBeGreaterThan(0)
+  })
+
+  it('clears copy feedback after unmount', async () => {
+    vi.useFakeTimers()
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
+    const { unmount } = render(<SlackAppSetup open onClose={vi.fn()} ingressMode="rest" appName="Acme" />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+      await Promise.resolve()
+    })
+
+    const feedbackTimerIndex = setTimeoutSpy.mock.calls.findIndex(([, delay]) => delay === 1500)
+    expect(feedbackTimerIndex).toBeGreaterThanOrEqual(0)
+    const feedbackTimer = setTimeoutSpy.mock.results[feedbackTimerIndex].value
+    unmount()
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(feedbackTimer)
+  })
+
+  it('does not start copy feedback after unmount', async () => {
+    vi.useFakeTimers()
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+    let resolveCopy!: () => void
+    writeText.mockImplementationOnce(() => new Promise<void>((resolve) => { resolveCopy = resolve }))
+    const { unmount } = render(<SlackAppSetup open onClose={vi.fn()} ingressMode="rest" appName="Acme" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+    unmount()
+    const feedbackTimerCount = setTimeoutSpy.mock.calls.filter(([, delay]) => delay === 1500).length
+    await act(async () => {
+      resolveCopy()
+      await Promise.resolve()
+    })
+
+    expect(setTimeoutSpy.mock.calls.filter(([, delay]) => delay === 1500)).toHaveLength(feedbackTimerCount)
   })
 })

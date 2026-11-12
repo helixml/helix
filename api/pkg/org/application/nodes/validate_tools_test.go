@@ -65,6 +65,7 @@ func TestCreate_AcceptsRegisteredTools(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, []tool.Name{"chat", "attach_worker", "managers"}, node.Tools)
+	require.NotNil(t, node.PortraitIndex, "create returns the persisted portrait assignment")
 }
 
 // Same rule the pruning path follows: a runtime that hasn't wired the
