@@ -2561,6 +2561,10 @@ kind: pipeline
 type: docker
 name: deploy-prod
 
+# A corrupt pack on clone failed the 2.12.58 deploy after every image shipped.
+clone:
+  retries: 3
+
 depends_on:
   - publish-helm
 
