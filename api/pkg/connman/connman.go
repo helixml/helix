@@ -208,6 +208,40 @@ func (m *ConnectionManager) Set(key string, conn net.Conn, origin string) *Displ
 	return displaced
 }
 
+// CloseIfCurrent closes and forgets key's connection, but only while conn is
+// still the connection registered under key (a later registration is left
+// alone). It returns whether it closed anything. Unlike a lost connection,
+// no grace period starts: Dial fails with ErrNoConnection until the client
+// registers again, and Dial calls already waiting are woken and fail.
+// Use it to cut a tunnel whose credential was revoked.
+func (m *ConnectionManager) CloseIfCurrent(key string, conn net.Conn) bool {
+	m.lock.Lock()
+	current, ok := m.deviceConnections[key]
+	if !ok || current != conn {
+		m.lock.Unlock()
+		return false
+	}
+	dialer := m.deviceDialers[key]
+	// Removed before the dialer is closed, so watchDialer sees it is no
+	// longer current and does not start a grace period.
+	delete(m.deviceDialers, key)
+	delete(m.deviceConnections, key)
+	delete(m.origins, key)
+	delete(m.disconnectedAt, key)
+	waiters := m.pendingDials[key]
+	delete(m.pendingDials, key)
+	m.lock.Unlock()
+
+	for _, w := range waiters {
+		close(w.ready)
+	}
+	if dialer != nil {
+		dialer.Close()
+	}
+	_ = conn.Close()
+	return true
+}
+
 // Dial creates a new connection to the device identified by key.
 // If the device is temporarily disconnected (within grace period), this will
 // block until the device reconnects or the context is cancelled.

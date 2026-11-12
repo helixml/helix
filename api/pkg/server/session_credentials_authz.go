@@ -24,7 +24,7 @@ func canUseSessionAgentCredential(user *types.User, session *types.Session, owne
 		return false
 	}
 	if user.TokenType == types.TokenTypeRunner {
-		return true
+		return canRunnerReadSession(user, session)
 	}
 	if user.TokenType == types.TokenTypeAPIKey && user.SessionID != "" {
 		return user.SessionID == session.ID
@@ -34,7 +34,8 @@ func canUseSessionAgentCredential(user *types.User, session *types.Session, owne
 
 // authorizeSessionSandboxConfig gates the endpoints that hand a session's
 // sandbox its configuration, which embeds the session's API key and agent
-// credentials. The runner token may read any session's config. Otherwise the
+// credentials. The shared runner token may read any session's config; a
+// per-runner token only that of sessions on its own sandbox host. Otherwise the
 // caller must own the session, pass session RBAC (which confines
 // project-scoped keys to their project), and, when calling with a key minted
 // for one session, be calling about that session.
@@ -43,6 +44,9 @@ func (apiServer *HelixAPIServer) authorizeSessionSandboxConfig(ctx context.Conte
 		return errors.New("access denied")
 	}
 	if user.TokenType == types.TokenTypeRunner {
+		if !canRunnerReadSession(user, session) {
+			return errors.New("access denied: runner token is bound to another sandbox host")
+		}
 		return nil
 	}
 	if session.Owner != user.ID {

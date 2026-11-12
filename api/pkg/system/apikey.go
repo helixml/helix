@@ -22,6 +22,15 @@ func GenerateAPIKey() (string, error) {
 	return types.APIKeyPrefix + base64.URLEncoding.EncodeToString(key), nil
 }
 
+// GenerateRunnerToken returns a new per-runner token secret (256 random bits).
+func GenerateRunnerToken() (string, error) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return "", err
+	}
+	return types.RunnerTokenPrefix + base64.RawURLEncoding.EncodeToString(key), nil
+}
+
 func GenerateEcdsaKeypair() (*types.KeyPair, error) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
 	if err != nil {
