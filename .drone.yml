@@ -2183,7 +2183,11 @@ steps:
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - docker image ls -q zed-ws-e2e:build-${DRONE_BUILD_NUMBER} | xargs -r docker rmi
+      # Untag by name: the image ID can be shared with other tags.
+      - |
+        if docker image inspect zed-ws-e2e:build-${DRONE_BUILD_NUMBER} >/dev/null 2>&1; then
+          docker rmi zed-ws-e2e:build-${DRONE_BUILD_NUMBER}
+        fi
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
