@@ -126,11 +126,12 @@ func (apiServer *HelixAPIServer) createOrgAPIKey(rw http.ResponseWriter, r *http
 		http.Error(rw, "Not a member of this organization: "+err.Error(), http.StatusForbidden)
 		return
 	}
-	// A key minted here is scoped only to the organization. A project,
-	// session or app key minting one would shed its own, narrower scope
-	// (and outlive the session it was issued for).
-	if isScopedAPIKeyCaller(user) && !isOrgAPIKeyCaller(user) {
-		http.Error(rw, "a project-, session- or app-scoped API key cannot create organization API keys", http.StatusForbidden)
+	// An org key is a durable credential. Minting one takes a personal key
+	// or a browser session: a project, session or app key would shed its
+	// narrower scope, and an org key could re-mint itself indefinitely, so
+	// revoking a leaked key would not end the access.
+	if isScopedAPIKeyCaller(user) {
+		http.Error(rw, "a scoped API key cannot create organization API keys; use a personal API key or sign in", http.StatusForbidden)
 		return
 	}
 
@@ -252,12 +253,4 @@ func (apiServer *HelixAPIServer) findOrgAPIKey(ctx context.Context, orgID, keyID
 		}
 	}
 	return nil, store.ErrNotFound
-}
-
-// isOrgAPIKeyCaller reports whether the request came with a plain org API key:
-// scoped to an organization and nothing narrower.
-func isOrgAPIKeyCaller(user *types.User) bool {
-	return user.TokenType == types.TokenTypeAPIKey && user.APIKeyType == types.APIkeytypeAPI &&
-		user.OrganizationID != "" && user.ProjectID == "" && user.SpecTaskID == "" &&
-		user.SessionID == "" && user.AppID == ""
 }

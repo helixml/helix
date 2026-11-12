@@ -281,16 +281,17 @@ func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
-		// A project- or session-scoped key carries its owner's role into the
-		// org graph, but org-wide configuration is not its to change.
-		if isHelixOrgPrivilegedMutation(r) && !isAdmin(user) &&
-			(membership.Role != types.OrganizationRoleOwner || isAgentScopedKey(user)) {
+		// A project- or session-scoped key acts as a member, whatever its
+		// owner's role: org-wide configuration is not its to change. The
+		// scope is checked before the admin exemption, as orgstore does.
+		role, platformAdmin := helixOrgAuthority(user, membership.Role)
+		if isHelixOrgPrivilegedMutation(r) && !platformAdmin && role != types.OrganizationRoleOwner {
 			http.Error(w, "only organization owners and administrators can modify this resource", http.StatusForbidden)
 			return
 		}
 		ctx := helixorgserver.WithOrgID(r.Context(), org.ID)
 		ctx = helixorgserver.WithOrgHandle(ctx, mux.Vars(r)["org"])
-		ctx = helixorgserver.WithOrgAuthorization(ctx, membership.Role, isAdmin(user))
+		ctx = helixorgserver.WithOrgAuthorization(ctx, role, platformAdmin)
 		// Bridge the authenticated caller into the runtime-helix context
 		// so in-process calls retain authorization and lifecycle.Create persists
 		// them as the Bot's hiring user
@@ -382,4 +383,19 @@ func stripOrgScopedPrefix(next http.Handler) http.Handler {
 func isNestedOrgPath(p string) bool {
 	cleaned := path.Clean(p)
 	return cleaned == "/orgs" || strings.HasPrefix(cleaned, "/orgs/")
+}
+
+// helixOrgAuthority is the org role and platform-admin flag a caller brings
+// into the org graph. A project- or session-scoped key (a sandbox agent, a
+// helix-org worker) is capped at member and never admin, so downstream
+// owner checks (CanManageOrganization, tool grants) match the REST routes,
+// where such a key cannot act as organization owner either.
+func helixOrgAuthority(user *types.User, role types.OrganizationRole) (types.OrganizationRole, bool) {
+	if isAgentScopedKey(user) {
+		if role == types.OrganizationRoleOwner {
+			role = types.OrganizationRoleMember
+		}
+		return role, false
+	}
+	return role, isAdmin(user)
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -293,7 +294,8 @@ func sessionRoutes() []route {
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/sessions/{sessA}/terminal/sessions",
-			Expect: strangers(expect{aOwner: reached}),
+			Expect:        strangers(expect{aOwner: reached}),
+			ReachedMarker: "no sandbox host assigned",
 		},
 		{
 			Method: http.MethodPost, Path: "/api/v1/sessions/{sessA}/cancel",
@@ -663,7 +665,8 @@ func triggerRoutes() []route {
 			// The legacy webhook is public; only the trigger's own secret
 			// authenticates it, never a user's API key.
 			Method: http.MethodPost, Path: "/api/v1/webhooks/{webhookTriggerA}?token={webhookSecretA}", Body: map[string]string{},
-			Expect: expect{anonymous: reached},
+			Expect:        expect{anonymous: reached},
+			ReachedMarker: "failed to run app cron job",
 		},
 		{
 			// No user credential stands in for the secret, not even the
@@ -957,11 +960,13 @@ func externalAgentRoutes() []route {
 		{
 			// Viewing is a read: aMember, who may read projA, may watch.
 			Method: http.MethodGet, Path: "/api/v1/external-agents/{sessA}/screenshot",
-			Expect: strangers(expect{aOwner: reached, aMember: reached, projKey: reached}),
+			Expect:        strangers(expect{aOwner: reached, aMember: reached, projKey: reached}),
+			ReachedMarker: "Sandbox not connected",
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/external-agents/{sessA2}/screenshot",
-			Expect: expect{aOwner: reached, projKey: deny},
+			Expect:        expect{aOwner: reached, projKey: deny},
+			ReachedMarker: "Sandbox not connected",
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/external-agents/{sessA}/clipboard",
@@ -976,21 +981,25 @@ func externalAgentRoutes() []route {
 		},
 		{
 			Method: http.MethodPost, Path: "/api/v1/external-agents/{sessA}/exec",
-			Body:   map[string]any{"command": []string{"true"}},
-			Expect: strangers(expect{aOwner: reached, aMember: deny}),
+			Body:          map[string]any{"command": []string{"true"}},
+			Expect:        strangers(expect{aOwner: reached, aMember: deny}),
+			ReachedMarker: "Sandbox not connected",
 		},
 		{
 			Method: http.MethodPost, Path: "/api/v1/external-agents/{sessA2}/exec",
-			Body:   map[string]any{"command": []string{"true"}},
-			Expect: expect{aOwner: reached, projKey: deny},
+			Body:          map[string]any{"command": []string{"true"}},
+			Expect:        expect{aOwner: reached, projKey: deny},
+			ReachedMarker: "Sandbox not connected",
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/external-agents/{sessA}/workspace-files",
-			Expect: strangers(expect{aOwner: reached}),
+			Expect:        strangers(expect{aOwner: reached}),
+			ReachedMarker: "container not ready",
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/external-agents/{sessA}/workspace-file?path=README.md",
-			Expect: strangers(expect{aOwner: reached}),
+			Expect:        strangers(expect{aOwner: reached}),
+			ReachedMarker: "container not ready",
 		},
 		{
 			Method: http.MethodPut, Path: "/api/v1/external-agents/{sessA}/workspace-file?path=authz.txt",
@@ -999,31 +1008,36 @@ func externalAgentRoutes() []route {
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/external-agents/{sessA}/workspaces",
-			Expect: strangers(expect{aOwner: reached}),
+			Expect:        strangers(expect{aOwner: reached}),
+			ReachedMarker: "Sandbox not connected",
 		},
 		{
 			Method: http.MethodPost, Path: "/api/v1/external-agents/{sessA}/command",
-			Body:   map[string]string{"type": "noop"},
-			Expect: strangers(expect{aOwner: reached, aMember: deny}),
+			Body:          map[string]string{"type": "noop"},
+			Expect:        strangers(expect{aOwner: reached, aMember: deny}),
+			ReachedMarker: "no external agent WebSocket connection",
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/external-agents/{sessA}/ws/stream",
-			Header: map[string]string{"Connection": "Upgrade", "Upgrade": "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ=="},
-			Expect: strangers(expect{aOwner: reached, aMember: reached}),
+			Header:        websocketUpgrade(),
+			Expect:        strangers(expect{aOwner: reached, aMember: reached}),
+			ReachedMarker: "Sandbox not connected",
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/external-agents/{sessA}/ws/input",
-			Header: map[string]string{"Connection": "Upgrade", "Upgrade": "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ=="},
-			Expect: strangers(expect{aOwner: reached, aMember: deny}),
+			Header:        websocketUpgrade(),
+			Expect:        strangers(expect{aOwner: reached, aMember: deny}),
+			ReachedMarker: "Sandbox not connected",
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/sessions/{sessA}/terminal",
-			Header: map[string]string{"Connection": "Upgrade", "Upgrade": "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ=="},
-			Expect: strangers(expect{aOwner: reached, aMember: deny}),
+			Header:        websocketUpgrade(),
+			Expect:        strangers(expect{aOwner: reached, aMember: deny}),
+			ReachedMarker: "no sandbox host assigned",
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/external-agents/sync?session_id={sessA}",
-			Header: map[string]string{"Connection": "Upgrade", "Upgrade": "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ=="},
+			Header: websocketUpgrade(),
 			Expect: strangers(expect{aOwner: reached, aMember: deny}),
 		},
 	}
@@ -1074,16 +1088,19 @@ func llmProxyRoutes() []route {
 			// Choosing an agent you cannot use must be refused before any
 			// provider is selected.
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={appA}", Body: chat,
-			Expect: strangers(expect{aOwner: reached, aMember: reached, projKey: deny}),
+			Expect:        strangers(expect{aOwner: reached, aMember: reached, projKey: deny}),
+			ReachedMarker: "failed to get client",
 		},
 		{
 			// orgAgentA is projA's agent, so a projA reader may use it.
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={orgAgentA}", Body: chat,
-			Expect: strangers(expect{aOwner: reached, projKey: reached, aMember: reached}),
+			Expect:        strangers(expect{aOwner: reached, projKey: reached, aMember: reached}),
+			ReachedMarker: "failed to get client",
 		},
 		{
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={appPersonal}", Body: chat,
-			Expect: strangers(expect{aOwner: reached, aMember: deny}),
+			Expect:        strangers(expect{aOwner: reached, aMember: deny}),
+			ReachedMarker: "failed to get client",
 		},
 		{
 			// An app key carries its agent; it cannot be pointed at another.
@@ -1119,7 +1136,8 @@ func llmProxyRoutes() []route {
 		},
 		{
 			Method: http.MethodPost, Path: "/v1/embeddings", Body: map[string]any{"model": "authz-matrix-missing-model", "input": "hi"},
-			Expect: expect{aOwner: reached, waitlisted: deny, anonymous: deny},
+			Expect:        expect{aOwner: reached, waitlisted: deny, anonymous: deny},
+			ReachedMarker: "no client found for provider",
 		},
 		{
 			// The web app's model picker sends only the session cookie.
@@ -1288,4 +1306,15 @@ func errorWithOutput(err error, out string) error {
 		return nil
 	}
 	return fmt.Errorf("%w: %s", err, strings.TrimSpace(out))
+}
+
+// websocketUpgrade is a WebSocket handshake. The key is any 16 bytes, base64
+// encoded (RFC 6455); derived here so it does not read as a credential.
+func websocketUpgrade() map[string]string {
+	return map[string]string{
+		"Connection":            "Upgrade",
+		"Upgrade":               "websocket",
+		"Sec-WebSocket-Version": "13",
+		"Sec-WebSocket-Key":     base64.StdEncoding.EncodeToString([]byte("authz-matrix-key")),
+	}
 }

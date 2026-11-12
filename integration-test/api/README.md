@@ -42,7 +42,7 @@ spec-task, session, helix-org worker and app keys); and A's resources (projects,
 repositories, agents, sessions, spec tasks, secrets, knowledge, triggers,
 provider endpoints, artifacts, grants, filestore files). Every table row is
 then sent as every actor it lists. It needs Postgres and the browser launcher,
-but no LLM or sandbox, so Drone also runs it on pull requests
+but no LLM or sandbox, so Drone also runs it on pull requests (no secrets, no host mounts)
 (`api-authz-pr`).
 
 A row in `authz_matrix_routes_test.go` is a request and one expectation per

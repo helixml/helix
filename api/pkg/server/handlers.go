@@ -1168,6 +1168,11 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 	// An app key acts for one agent, so the caller must be allowed to use
 	// that agent (and a project-scoped caller only an agent of its project).
 	if newAPIKey.Type == types.APIkeytypeApp {
+		// A project or session key is handed to an agent for one piece of
+		// work; an app key it minted would outlive that work.
+		if isAgentScopedKey(user) {
+			return "", system.NewHTTPError403("a project- or session-scoped API key cannot create app keys")
+		}
 		if newAPIKey.AppID == nil || newAPIKey.AppID.String == "" {
 			return "", system.NewHTTPError400("app_id is required for an app key")
 		}

@@ -1822,14 +1822,14 @@ func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
 // owner and to admins. A project- or session-scoped key acts for its owner
 // only inside its scope; the owner's own provider credentials are outside it.
 func authorizePersonalProviderEndpoint(user *types.User, endpoint *types.ProviderEndpoint) error {
+	if isAgentScopedKey(user) {
+		return errors.New("project- and session-scoped credentials cannot change provider endpoints")
+	}
 	if user.Admin {
 		return nil
 	}
 	if endpoint.Owner != user.ID {
 		return errors.New("not authorized to change this provider endpoint")
-	}
-	if isAgentScopedKey(user) {
-		return errors.New("project- and session-scoped credentials cannot change provider endpoints")
 	}
 	return nil
 }

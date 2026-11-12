@@ -1026,10 +1026,12 @@ steps:
         path: /var/run/docker.sock
 
 ---
-# Cross-tenant authorization matrix on pull requests, including ones from
-# forks. It needs no secrets and no LLM: just the API binary, Postgres, and the
-# browser launcher the server refuses to start without. The full API
-# integration suite still runs on push in the default pipeline.
+# Cross-tenant authorization matrix on pull requests. It uses no secrets and
+# no host mounts (pull-request code must not touch the runner's shared
+# caches), so it builds from a cold module cache; it needs no LLM, only the
+# API binary, Postgres, and the browser launcher the server refuses to start
+# without. The full API integration suite still runs on push in the default
+# pipeline.
 # See integration-test/api/README.md ("Authorization matrix").
 kind: pipeline
 type: docker
@@ -1046,11 +1048,6 @@ trigger:
 steps:
   - name: api-authz-test
     image: golang:1.25-bookworm
-    volumes:
-      - name: go-build-cache
-        path: /root/.cache/go-build
-      - name: go-mod-cache
-        path: /go/pkg/mod
     environment:
       LOG_LEVEL: "warn"
       POSTGRES_HOST: postgres
@@ -1079,14 +1076,6 @@ services:
       POSTGRES_DB: postgres
   - name: chrome
     image: ghcr.io/go-rod/rod:v0.115.0
-
-volumes:
-  - name: go-build-cache
-    host:
-      path: /var/cache/drone/go-build
-  - name: go-mod-cache
-    host:
-      path: /var/cache/drone/go-mod
 
 ---
 # See integration-test/smoke/README.md

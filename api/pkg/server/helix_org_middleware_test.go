@@ -459,6 +459,7 @@ func TestHelixOrgAssetRBAC(t *testing.T) {
 		{name: "owner's project key cannot change settings", method: http.MethodPut, path: "/api/v1/orgs/acme/settings/agent.default", role: types.OrganizationRoleOwner, scope: "project", wantStatus: http.StatusForbidden},
 		{name: "owner's session key cannot create trigger", method: http.MethodPost, path: "/api/v1/orgs/acme/triggers", role: types.OrganizationRoleOwner, scope: "session", wantStatus: http.StatusForbidden},
 		{name: "owner's project key keeps reads", method: http.MethodGet, path: "/api/v1/orgs/acme/triggers", role: types.OrganizationRoleOwner, scope: "project", wantStatus: http.StatusNoContent},
+		{name: "admin's session key cannot change settings", method: http.MethodPut, path: "/api/v1/orgs/acme/settings/agent.default", role: types.OrganizationRoleOwner, admin: true, scope: "session", wantStatus: http.StatusForbidden},
 	}
 
 	for _, tt := range tests {

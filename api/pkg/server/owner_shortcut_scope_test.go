@@ -183,3 +183,52 @@ func TestUnifiedSearch_RefusesScopedKeys(t *testing.T) {
 		requireHTTPStatus(t, err, http.StatusForbidden)
 	}
 }
+
+func TestCreateOrgAPIKey_OrgKeyCannotMintOrgKey(t *testing.T) {
+	srv, st := newScopedKeyTestServer(t)
+	st.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(&types.Organization{ID: "org_a"}, nil)
+	st.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{OrganizationID: "org_a", UserID: "usr_owner", Role: types.OrganizationRoleOwner}, nil)
+	orgKey := &types.User{ID: "usr_owner", TokenType: types.TokenTypeAPIKey, APIKeyType: types.APIkeytypeAPI, OrganizationID: "org_a"}
+
+	rec := httptest.NewRecorder()
+	srv.createOrgAPIKey(rec, requestAs(http.MethodPost, "/api/v1/organizations/org_a/api_keys", `{"name":"k"}`, orgKey, map[string]string{"id": "org_a"}))
+
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+}
+
+func TestCreateAPIKey_AgentScopedKeyCannotMintAppKey(t *testing.T) {
+	// No store expectations: refused before the app is even loaded.
+	srv, _ := newScopedKeyTestServer(t)
+	for _, user := range []*types.User{ownerProjectKey(), {ID: "usr_owner", TokenType: types.TokenTypeAPIKey, APIKeyType: types.APIkeytypeAPI, SessionID: "ses_chat"}} {
+		_, err := srv.createAPIKey(nil, requestAs(http.MethodPost, "/api/v1/api_keys", `{"name":"k","type":"app","app_id":"app_in_project"}`, user, nil))
+		var httpErr *system.HTTPError
+		require.ErrorAs(t, err, &httpErr)
+		require.Equal(t, http.StatusForbidden, httpErr.StatusCode)
+	}
+}
+
+// A scoped key is capped at member in the org graph, even when its owner is
+// an owner (or the key somehow carried the admin flag): CanManageOrganization
+// and tool grants downstream must agree with the REST routes.
+func TestHelixOrgAuthority_AgentScopedKeyIsMember(t *testing.T) {
+	role, admin := helixOrgAuthority(&types.User{ID: "u", ProjectID: "prj_a", SessionID: "ses_a", Admin: true}, types.OrganizationRoleOwner)
+	require.Equal(t, types.OrganizationRoleMember, role)
+	require.False(t, admin)
+
+	role, admin = helixOrgAuthority(&types.User{ID: "u", SessionID: "ses_worker"}, types.OrganizationRoleOwner)
+	require.Equal(t, types.OrganizationRoleMember, role)
+	require.False(t, admin)
+
+	role, admin = helixOrgAuthority(&types.User{ID: "u"}, types.OrganizationRoleOwner)
+	require.Equal(t, types.OrganizationRoleOwner, role)
+	require.False(t, admin)
+
+	role, admin = helixOrgAuthority(&types.User{ID: "u", Admin: true}, types.OrganizationRoleMember)
+	require.Equal(t, types.OrganizationRoleMember, role)
+	require.True(t, admin)
+}
+
+func TestAuthorizePersonalProviderEndpoint_ScopeBeforeAdmin(t *testing.T) {
+	endpoint := &types.ProviderEndpoint{ID: "pe_1", Owner: "usr_owner", OwnerType: types.OwnerTypeUser}
+	require.Error(t, authorizePersonalProviderEndpoint(&types.User{ID: "usr_admin", Admin: true, ProjectID: "prj_a"}, endpoint))
+}

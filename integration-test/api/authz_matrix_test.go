@@ -62,8 +62,10 @@ const (
 	// deny: 401, 403 or 404, and the body leaks no fixture marker.
 	deny
 	// reached: the request got past authorization but the handler could not
-	// finish without infrastructure CI does not run (a sandbox, an LLM). Any
-	// status except 401, 403 and 404.
+	// finish without infrastructure CI does not run (a sandbox, an LLM): a
+	// 2xx-4xx other than 401/403/404. A 401/403/404 or a 5xx passes only
+	// when its body carries the row's ReachedMarker, a message the handler
+	// produces after authorization.
 	reached
 )
 
@@ -108,10 +110,10 @@ type route struct {
 	// fixture resource whose marker must still be in the list. Without it
 	// the Check only asserts that no tamper marker appears.
 	CheckMarker string
-	// ReachedMarker lets a "reached" actor pass with a 403/404 whose body
-	// contains this text: a refusal produced after authorization, such as
-	// "no Claude subscription found for session owner". Denied actors must
-	// never see it.
+	// ReachedMarker lets a "reached" actor pass with a 403/404 or a 5xx
+	// whose body contains this text: an answer produced after authorization,
+	// such as "no Claude subscription found for session owner" or "Sandbox
+	// not connected". Denied actors must never see it.
 	ReachedMarker string
 	// PositiveControl, for a row whose every actor is refused, names the
 	// row that shows the same route working. Without it such a row fails.
@@ -351,8 +353,10 @@ func (f *authzFixture) assertOutcome(t *testing.T, who actor, expected want, r r
 			t.Fatalf("expected 2xx; %s", ctx)
 		}
 	case reached:
-		if isRefusal(resp.status) && !pastAuthz {
-			t.Fatalf("expected the request to get past authorization; %s", ctx)
+		// A 5xx is never taken as proof of authorization on its own: a
+		// crash looks the same. It passes only with the row's marker.
+		if (isRefusal(resp.status) || resp.status >= 500) && !pastAuthz {
+			t.Fatalf("expected the request to get past authorization (2xx-4xx other than 401/403/404, or the row's ReachedMarker); %s", ctx)
 		}
 	case deny:
 		if !isRefusal(resp.status) {
