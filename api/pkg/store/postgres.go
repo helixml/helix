@@ -205,6 +205,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.StepInfo{},
 		&types.RunnerProfile{},
 		&types.RunnerAssignment{},
+		&types.RunnerToken{},
 		&types.SlackThread{},
 		&types.TeamsThread{},
 		&types.CrispThread{},

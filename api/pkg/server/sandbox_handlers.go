@@ -53,6 +53,10 @@ func (apiServer *HelixAPIServer) registerSandbox(rw http.ResponseWriter, req *ht
 		http.Error(rw, "Sandbox ID is required", http.StatusBadRequest)
 		return
 	}
+	if err := apiServer.authorizeRunnerIdentity(getRequestUser(req), instance.ID); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	// Set defaults
 	if instance.Status == "" {
@@ -103,6 +107,10 @@ func (apiServer *HelixAPIServer) registerSandbox(rw http.ResponseWriter, req *ht
 func (apiServer *HelixAPIServer) sandboxHeartbeat(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	sandboxID := vars["id"]
+	if err := apiServer.authorizeRunnerIdentity(getRequestUser(req), sandboxID); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	var heartbeat types.SandboxHeartbeatRequest
 	if err := json.NewDecoder(req.Body).Decode(&heartbeat); err != nil {
@@ -172,6 +180,11 @@ func (apiServer *HelixAPIServer) listSandboxes(rw http.ResponseWriter, req *http
 func (apiServer *HelixAPIServer) deregisterSandbox(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	sandboxID := vars["id"]
+	// Admins deregister any host; a runner only itself.
+	if err := apiServer.authorizeRunnerIdentity(getRequestUser(req), sandboxID); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	if err := apiServer.Store.DeregisterSandboxInstance(req.Context(), sandboxID); err != nil {
 		log.Error().Err(err).Str("sandbox_id", sandboxID).Msg("Failed to deregister sandbox")
@@ -197,6 +210,10 @@ func (apiServer *HelixAPIServer) deregisterSandbox(rw http.ResponseWriter, req *
 func (apiServer *HelixAPIServer) getDiskUsageHistory(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	sandboxID := vars["id"]
+	if err := apiServer.authorizeRunnerIdentity(getRequestUser(req), sandboxID); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	// Default to last 24 hours
 	since := time.Now().Add(-24 * time.Hour)

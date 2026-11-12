@@ -1001,6 +1001,12 @@ type WebServer struct {
 	// (the NATS-based model runner was removed), and the NATS token grants
 	// every subject, so it is off unless a deployment still needs it.
 	RunnerNATSProxyEnabled bool `envconfig:"RUNNER_NATS_PROXY_ENABLED" default:"false" description:"Expose the embedded NATS bus to runners over /api/v1/runner/{id}/ws (legacy model runners only)."`
+	// RunnerRequirePerHostTokens refuses the shared RUNNER_TOKEN wherever a
+	// caller acts as a particular runner (RevDial host tunnels, runner
+	// websockets, sandbox register/heartbeat, runner assignment). Hosts must
+	// then present a per-runner token minted with `helix runner token create`.
+	// The shared token keeps working for everything else.
+	RunnerRequirePerHostTokens bool `envconfig:"RUNNER_REQUIRE_PER_HOST_TOKENS" default:"false" description:"Refuse the shared RUNNER_TOKEN for runner identity routes; hosts must use per-runner tokens."`
 	// Comma-separated list of user IDs that should be admins, or "all" for dev mode.
 	// If empty, admin status is determined by the user's admin field in the database.
 	// Examples: "all", "user-123,user-456", ""

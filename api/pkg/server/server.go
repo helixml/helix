@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -139,6 +138,9 @@ type HelixAPIServer struct {
 	pubsub                      pubsub.PubSub
 	mcpClientGetter             mcp.ClientGetter
 	connman                     *connman.ConnectionManager
+	// sharedRunnerTokenWarned holds the runner ids already warned about
+	// using the shared runner token (authorizeRunnerIdentity).
+	sharedRunnerTokenWarned sync.Map
 	providerManager             manager.ProviderManager
 	modelInfoProvider           model.ModelInfoProvider
 	openCodeResolver            *opencode.Resolver
@@ -1515,6 +1517,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// /admin/... convention to match the frontend's URL builder.
 	adminRouter.HandleFunc("/admin/runners/{runner_id}/logs", apiServer.streamAdminRunnerLogs).Methods(http.MethodGet)
 
+	// Per-runner tokens: mint, list, revoke (admin only).
+	apiServer.registerRunnerTokenRoutes(adminRouter)
+
 	// Runner-token-authenticated read paths so the sandbox-side compose-
 	// manager can fetch its own assignment + profile content using the
 	// shared runner token. Distinct paths avoid colliding with the
@@ -2057,13 +2062,19 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			return
 		}
 
-		// Validate the runner token (like GPTScript does)
-		if subtle.ConstantTimeCompare([]byte(accessToken), []byte(apiServer.Cfg.WebServer.RunnerToken)) != 1 {
+		// Validate the runner credential: the shared runner token or this
+		// runner's own per-runner token.
+		runnerUser, isRunnerToken, err := runnerUserFromToken(r.Context(), apiServer.Store, apiServer.Cfg.WebServer.RunnerToken, accessToken)
+		if !isRunnerToken || err != nil {
 			log.Warn().
 				Str("EXTERNAL_AGENT_DEBUG", "invalid_token").
 				Str("runner_id", runnerID).
 				Msg("❌ EXTERNAL_AGENT_DEBUG: Invalid runner token for external agent runner")
 			http.Error(w, "Invalid access token", http.StatusUnauthorized)
+			return
+		}
+		if err := apiServer.authorizeRunnerIdentity(runnerUser, runnerID); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 
@@ -2715,6 +2726,17 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 				Str("remote_addr", r.RemoteAddr).
 				Msg("Refused RevDial registration: runner token may only register host tunnels")
 			http.Error(w, "runner token may only register hydra- or sandbox- tunnels", http.StatusForbidden)
+			return
+		}
+		// A per-runner token registers only its own host's tunnels; the
+		// shared token may be refused outright (RUNNER_REQUIRE_PER_HOST_TOKENS).
+		if err := apiServer.authorizeRunnerIdentity(user, runnerID); err != nil {
+			log.Warn().
+				Err(err).
+				Str("runner_id", runnerID).
+				Str("remote_addr", r.RemoteAddr).
+				Msg("Refused RevDial registration")
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 

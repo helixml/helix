@@ -1008,6 +1008,21 @@ func (mr *MockStoreMockRecorder) CreateRunnerProfile(ctx, p any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRunnerProfile", reflect.TypeOf((*MockStore)(nil).CreateRunnerProfile), ctx, p)
 }
 
+// CreateRunnerToken mocks base method.
+func (m *MockStore) CreateRunnerToken(ctx context.Context, t *types.RunnerToken) (*types.RunnerToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateRunnerToken", ctx, t)
+	ret0, _ := ret[0].(*types.RunnerToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateRunnerToken indicates an expected call of CreateRunnerToken.
+func (mr *MockStoreMockRecorder) CreateRunnerToken(ctx, t any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRunnerToken", reflect.TypeOf((*MockStore)(nil).CreateRunnerToken), ctx, t)
+}
+
 // CreateSampleProject mocks base method.
 func (m *MockStore) CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error) {
 	m.ctrl.T.Helper()
@@ -2645,6 +2660,21 @@ func (m *MockStore) GetAccessGrantRoleBindings(ctx context.Context, q *GetAccess
 func (mr *MockStoreMockRecorder) GetAccessGrantRoleBindings(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccessGrantRoleBindings", reflect.TypeOf((*MockStore)(nil).GetAccessGrantRoleBindings), ctx, q)
+}
+
+// GetActiveRunnerTokenByHash mocks base method.
+func (m *MockStore) GetActiveRunnerTokenByHash(ctx context.Context, tokenHash string) (*types.RunnerToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveRunnerTokenByHash", ctx, tokenHash)
+	ret0, _ := ret[0].(*types.RunnerToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetActiveRunnerTokenByHash indicates an expected call of GetActiveRunnerTokenByHash.
+func (mr *MockStoreMockRecorder) GetActiveRunnerTokenByHash(ctx, tokenHash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveRunnerTokenByHash", reflect.TypeOf((*MockStore)(nil).GetActiveRunnerTokenByHash), ctx, tokenHash)
 }
 
 // GetAgentRunner mocks base method.
@@ -5619,6 +5649,21 @@ func (mr *MockStoreMockRecorder) ListRunnerProfiles(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunnerProfiles", reflect.TypeOf((*MockStore)(nil).ListRunnerProfiles), ctx)
 }
 
+// ListRunnerTokens mocks base method.
+func (m *MockStore) ListRunnerTokens(ctx context.Context, runnerID string) ([]*types.RunnerToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRunnerTokens", ctx, runnerID)
+	ret0, _ := ret[0].([]*types.RunnerToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRunnerTokens indicates an expected call of ListRunnerTokens.
+func (mr *MockStoreMockRecorder) ListRunnerTokens(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunnerTokens", reflect.TypeOf((*MockStore)(nil).ListRunnerTokens), ctx, runnerID)
+}
+
 // ListSampleProjects mocks base method.
 func (m *MockStore) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) {
 	m.ctrl.T.Helper()
@@ -6714,6 +6759,21 @@ func (m *MockStore) RevertPromptToPending(ctx context.Context, promptID string) 
 func (mr *MockStoreMockRecorder) RevertPromptToPending(ctx, promptID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevertPromptToPending", reflect.TypeOf((*MockStore)(nil).RevertPromptToPending), ctx, promptID)
+}
+
+// RevokeRunnerToken mocks base method.
+func (m *MockStore) RevokeRunnerToken(ctx context.Context, id string) (*types.RunnerToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeRunnerToken", ctx, id)
+	ret0, _ := ret[0].(*types.RunnerToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RevokeRunnerToken indicates an expected call of RevokeRunnerToken.
+func (mr *MockStoreMockRecorder) RevokeRunnerToken(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeRunnerToken", reflect.TypeOf((*MockStore)(nil).RevokeRunnerToken), ctx, id)
 }
 
 // RevokeSecretIntake mocks base method.

@@ -61,6 +61,10 @@ func (apiServer *HelixAPIServer) listRunnerProfiles(rw http.ResponseWriter, r *h
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getRunnerProfile(rw http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
+	if err := apiServer.authorizeRunnerProfileRead(r.Context(), getRequestUser(r), id); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 	p, err := apiServer.runnerProfileService().Get(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
