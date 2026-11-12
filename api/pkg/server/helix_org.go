@@ -807,6 +807,9 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	if err != nil {
 		return nil, fmt.Errorf("init spec tasks: %w", err)
 	}
+	// A Bot's project allowlist reaches only projects its hiring user may
+	// access; the same RBAC the REST spec-task routes apply.
+	specTasks = specTasks.WithProjectAuthorizer(inProcClient)
 	deps.SpecTasks = specTasks
 	deps.ProjectAccess = specTasks
 
@@ -1423,8 +1426,12 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		AgentReader:         inProcClient,
 		AgentDefaultApplier: inProcClient,
 		AgentEditAuthorizer: inProcClient,
-		Tools:               reg,
-		ProjectEnsurer:      projectApplier,
+		// The project allowlist is checked at write time against the Bot's
+		// hiring user (organization owner for a Bot without one), the same
+		// identity the spec-task runtime authorizes per call.
+		BotProjectAuthorizer: botProjectAuthorizer{orgStore: st, authorize: inProcClient.AuthorizeProject},
+		Tools:                reg,
+		ProjectEnsurer:       projectApplier,
 		// Production: the github topic transport's Token() falls
 		// back to whatever GitHub OAuth connection the org members
 		// have already authorised, so operators don't have to paste a
@@ -1586,7 +1593,9 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 
 	// The Chief of Staff seeder reuses the same lifecycle service as REST bot
 	// creation; botStore backs idempotency checks.
-	seeder := &orgGraphSeeder{lifecycle: lifecycleSvc, bots: svc.Nodes, botStore: st.Nodes}
+	seeder := &orgGraphSeeder{lifecycle: lifecycleSvc, bots: svc.Nodes, botStore: st.Nodes, owner: func(ctx context.Context, orgID string) (*types.User, error) {
+		return resolveOrgOwner(ctx, helixStore, orgID)
+	}}
 	// Bootstrap-time reconcile re-seeds / tool-backfills Chief of Staff (idempotent — unions any
 	// new OwnerBotTools entries onto existing CoS). Runs once per org per
 	// process via ensureBootstrap.

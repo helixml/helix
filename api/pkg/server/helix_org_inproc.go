@@ -209,6 +209,54 @@ func applyResolvedAgentDefaults(assistant *types.AssistantConfig, defaults types
 	assistant.ReasoningEffort = defaults.ReasoningEffort
 }
 
+// AuthorizeProject reports whether userID may perform action on projectID
+// — what an org Bot acting in a project other than its own may do on that
+// user's behalf. An empty userID is a Bot hired before hiring users were
+// recorded; such a Bot acts as the organization owner, the same identity
+// its activations run under.
+func (c *inProcHelixClient) AuthorizeProject(ctx context.Context, orgID, userID, projectID string, action types.Action) error {
+	var user *types.User
+	if userID == "" {
+		owner, err := resolveOrgOwner(ctx, c.server.Store, orgID)
+		if err != nil {
+			return err
+		}
+		user = owner
+	} else {
+		u, err := c.server.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+		if err != nil {
+			return fmt.Errorf("get user %s: %w", userID, err)
+		}
+		if u == nil {
+			return fmt.Errorf("user %s not found", userID)
+		}
+		user = u
+	}
+	return c.server.authorizeUserToProjectByID(ctx, user, projectID, action)
+}
+
+// EditableAgents resolves the request's user once and reports which of
+// appIDs they may update. Apps that cannot be read are reported false.
+func (c *inProcHelixClient) EditableAgents(ctx context.Context, appIDs []string) (map[string]bool, error) {
+	user, err := c.resolveUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(appIDs))
+	for _, appID := range appIDs {
+		if _, done := out[appID]; done {
+			continue
+		}
+		app, err := c.server.Store.GetApp(ctx, appID)
+		if err != nil {
+			out[appID] = false
+			continue
+		}
+		out[appID] = c.server.authorizeUserToApp(ctx, user, app, types.ActionUpdate) == nil
+	}
+	return out, nil
+}
+
 // AuthorizeAgentUpdate reports whether the request's user may update appID.
 func (c *inProcHelixClient) AuthorizeAgentUpdate(ctx context.Context, appID string) error {
 	user, err := c.resolveUser(ctx)
