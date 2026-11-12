@@ -167,10 +167,9 @@ func (s *HelixAPIServer) listAppTriggers(_ http.ResponseWriter, r *http.Request)
 	}
 
 	// Populate WebhookURL for applicable triggers
-	for idx, trigger := range triggers {
-		if trigger.Trigger.AzureDevOps != nil && trigger.Trigger.AzureDevOps.Enabled {
-			triggers[idx].WebhookURL = fmt.Sprintf("%s/api/v1/webhooks/%s", s.Cfg.WebServer.URL, trigger.ID)
-		}
+	for idx := range triggers {
+		triggers[idx] = s.backfillWebhookTriggerSecret(ctx, triggers[idx])
+		s.populateWebhookTriggerURL(triggers[idx])
 	}
 
 	return triggers, nil
@@ -220,16 +219,17 @@ func (s *HelixAPIServer) createAppTrigger(_ http.ResponseWriter, r *http.Request
 	triggerConfig.Owner = user.ID
 	triggerConfig.OwnerType = types.OwnerTypeUser
 
+	if _, err := ensureWebhookTriggerSecret(&triggerConfig.Trigger, nil); err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
 	// Create the trigger configuration
 	created, err := s.Store.CreateTriggerConfiguration(ctx, triggerConfig)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Populate WebhookURL for applicable triggers
-	if created.Trigger.AzureDevOps != nil && created.Trigger.AzureDevOps.Enabled {
-		created.WebhookURL = fmt.Sprintf("%s/api/v1/webhooks/%s", s.Cfg.WebServer.URL, created.ID)
-	}
+	s.populateWebhookTriggerURL(created)
 
 	return created, nil
 }
@@ -329,6 +329,10 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 		return nil, system.NewHTTPError404("Trigger configuration not found")
 	}
 
+	if _, err := ensureWebhookTriggerSecret(&updatedTrigger.Trigger, &existingTrigger.Trigger); err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
 	// Update the trigger configuration fields
 	existingTrigger.Name = updatedTrigger.Name
 	existingTrigger.Trigger = updatedTrigger.Trigger
@@ -342,10 +346,7 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Populate WebhookURL for applicable triggers
-	if updated.Trigger.AzureDevOps != nil && updated.Trigger.AzureDevOps.Enabled {
-		updated.WebhookURL = fmt.Sprintf("%s/api/v1/webhooks/%s", s.Cfg.WebServer.URL, updated.ID)
-	}
+	s.populateWebhookTriggerURL(updated)
 
 	return updated, nil
 }
