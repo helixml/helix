@@ -32,6 +32,7 @@ import useRouter from '../../hooks/useRouter'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { formatDate } from '../../utils/format'
 import { vcsScopesForProvider } from '../../utils/oauthProviders'
+import { isOAuthPopupMessage } from '../../utils/oauthPopupMessage'
 import { 
   PROVIDER_ICONS,
   PROVIDER_COLORS,
@@ -325,19 +326,30 @@ const OAuthConnections: React.FC<{}> = () => {
         return;
       }
       
-      // Add a listener to reload connections when the popup completes
-      window.addEventListener('message', function handleOAuthMessage(event) {
-        // Check if this is our OAuth success message
-        if (event.data && event.data.type === 'oauth-success') {
-          console.log('🍅 TOMATO: Received OAuth success message:', event.data);
-          // Clean up the event listener
-          window.removeEventListener('message', handleOAuthMessage);
-          // Reload the connections data
-          // Note: This is handled by the useListOAuthConnections hook
-          // Show success message
+      // Connections are reloaded by the useListOAuthConnections polling; this
+      // only reports completion and cleans up.
+      const handleOAuthMessage = (event: MessageEvent) => {
+        // Only accept the success message from the popup we opened, on our origin
+        if (isOAuthPopupMessage(event, popup)) {
+          cleanup();
           success('Successfully connected to provider!');
         }
-      });
+      };
+
+      // Fallback: if the popup closes without a message (user closed it, or
+      // the message could not be delivered), stop listening.
+      const pollInterval = window.setInterval(() => {
+        if (popup.closed) {
+          cleanup();
+        }
+      }, 500);
+
+      const cleanup = () => {
+        window.removeEventListener('message', handleOAuthMessage);
+        window.clearInterval(pollInterval);
+      };
+
+      window.addEventListener('message', handleOAuthMessage);
     } catch (err: any) {
       error('Failed to start OAuth flow')
       console.error('🍅 TOMATO: OAuth flow error:', err)
