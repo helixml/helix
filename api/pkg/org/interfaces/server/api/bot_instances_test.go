@@ -184,8 +184,11 @@ func TestPatchBot_InstanceProfile(t *testing.T) {
 func TestPatchBot_InstanceOrgManagementToolsNeedOwner(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	deps.BotInstances = &fakeInstances{}
+	seedLinkedBot(t, st, context.Background(), "b-broker", "app-broker")
+	// The member may edit the bot's agent; the tool-grant ceiling must still
+	// refuse them.
+	deps.AgentEditAuthorizer = fakeAgentEditAuthorizer{allowed: map[string]bool{"app-broker": true}}
 	h := orgapi.Handler(deps)
-	seedBot(t, st, context.Background(), "b-broker", "# Broker")
 
 	profile := types.BotInstanceProfile{MCPServers: []string{}, Tools: []string{"create_bot"}}
 	rec := doAsRole(t, h, "PATCH", "/bots/b-broker", orgapi.UpdateBotRequest{InstanceProfile: &profile}, types.OrganizationRoleMember, false)

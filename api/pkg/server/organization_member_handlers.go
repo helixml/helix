@@ -16,6 +16,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var errInvalidOrganizationRole = fmt.Errorf("role must be %q or %q", types.OrganizationRoleOwner, types.OrganizationRoleMember)
+
+// isValidOrganizationRole reports whether role is one an organization
+// membership can hold. Any other value would be a membership that is neither
+// owner nor member, outside every authorization rule.
+func isValidOrganizationRole(role types.OrganizationRole) bool {
+	return role == types.OrganizationRoleOwner || role == types.OrganizationRoleMember
+}
+
 // listOrganizationMembers godoc
 // @Summary List organization members
 // @Description List members of an organization, including pending invitations as placeholder rows (user_id starts with "inv_").
@@ -138,6 +147,10 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 	if req.Role == "" {
 		req.Role = types.OrganizationRoleMember
 	}
+	if !isValidOrganizationRole(req.Role) {
+		http.Error(rw, errInvalidOrganizationRole.Error(), http.StatusBadRequest)
+		return
+	}
 
 	isEmail := strings.Contains(req.UserReference, "@")
 
@@ -153,6 +166,15 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 		log.Err(err).Msg("error getting user")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// An email names a mailbox, not an account: an account that merely
+	// registered the address (unverified) is not added. The owner of the
+	// mailbox gets an invitation instead, whose link proves it is theirs.
+	if newMember != nil && isEmail && !newMember.EmailVerified {
+		log.Info().Str("org_id", orgID).Str("user_id", newMember.ID).
+			Msg("account for this email has not verified it; inviting the address instead of adding the account")
+		newMember = nil
 	}
 
 	// No matching user: if the caller gave us an email, create an
@@ -419,6 +441,7 @@ func (apiServer *HelixAPIServer) lookupOrgUser(rw http.ResponseWriter, r *http.R
 	}
 	if existing != nil {
 		resp.Exists = true
+		resp.EmailVerified = existing.EmailVerified
 		resp.UserID = existing.ID
 		resp.FullName = existing.FullName
 
@@ -536,6 +559,10 @@ func (apiServer *HelixAPIServer) createOrganizationInvitationHandler(rw http.Res
 	}
 	if req.Role == "" {
 		req.Role = types.OrganizationRoleMember
+	}
+	if !isValidOrganizationRole(req.Role) {
+		http.Error(rw, errInvalidOrganizationRole.Error(), http.StatusBadRequest)
+		return
 	}
 
 	invitation, err := apiServer.createOrganizationInvitation(r.Context(), orgID, req.UserReference, req.Role, req.AppID, req.GrantRoles, user)
@@ -701,6 +728,10 @@ func (apiServer *HelixAPIServer) updateOrganizationMember(rw http.ResponseWriter
 	if err != nil {
 		log.Err(err).Msg("error decoding request body")
 		http.Error(rw, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if !isValidOrganizationRole(req.Role) {
+		http.Error(rw, errInvalidOrganizationRole.Error(), http.StatusBadRequest)
 		return
 	}
 

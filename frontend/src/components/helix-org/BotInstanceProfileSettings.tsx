@@ -64,7 +64,7 @@ const BotInstanceProfileSettings: FC<{
 
   const mcpServers = profile.mcp_servers ?? []
   const tools = profile.tools ?? []
-  const disabled = readOnly
+  const disabled = readOnly || bot.can_edit === false
   const projectServers = (project?.skills?.mcps ?? [])
     .map((mcp) => mcp.name || '')
     .filter((name) => !!name && !BUILT_IN_SERVERS.some((server) => server.name === name))

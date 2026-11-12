@@ -218,6 +218,9 @@ type FlatBot = {
   agentModel: string
   projectId?: string
   taskStats: BotTaskStats
+  // Whether the viewer may change this bot (server-decided): gates delete,
+  // stop/restart, new-report and re-parenting controls.
+  canEdit: boolean
 }
 
 // ---- Node renderers ----------------------------------------------------
@@ -232,6 +235,7 @@ type BotNodeData = {
   agentModel: string
   projectId: string
   taskStats: BotTaskStats
+  canEdit: boolean
   /** True when the left chat rail is focused on this bot. */
   selected: boolean
   /** Card body click — focus the left chat rail on Chat. */
@@ -703,6 +707,7 @@ export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
             {online ? (
               <>
                 <MenuItem
+                  disabled={!data.canEdit}
                   onClick={() => {
                     closeMenu()
                     data.onStopBot(data.botId)
@@ -712,6 +717,7 @@ export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
                   Stop org bot
                 </MenuItem>
                 <MenuItem
+                  disabled={!data.canEdit}
                   onClick={() => {
                     closeMenu()
                     data.onRestartBot(data.botId)
@@ -733,6 +739,7 @@ export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
               </MenuItem>
             )}
             <MenuItem
+              disabled={!data.canEdit}
               onClick={() => {
                 closeMenu()
                 data.onNewBot(data.botId)
@@ -741,15 +748,17 @@ export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
               <PersonAddOutlinedIcon sx={{ mr: 1, fontSize: 20 }} />
               New org bot reporting here
             </MenuItem>
-            <MenuItem
-              onClick={() => {
-                closeMenu()
-                data.onDeleteBot(data.botId)
-              }}
-            >
-              <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
-              Delete org bot
-            </MenuItem>
+            {data.canEdit && (
+              <MenuItem
+                onClick={() => {
+                  closeMenu()
+                  data.onDeleteBot(data.botId)
+                }}
+              >
+                <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
+                Delete org bot
+              </MenuItem>
+            )}
           </Menu>
         </Stack>
       </Stack>
@@ -1192,6 +1201,7 @@ export const buildGraph = (
         agentModel: b.agentModel,
         projectId: b.projectId ?? '',
         taskStats: b.taskStats,
+        canEdit: b.canEdit,
         selected: selectedBotId !== '' && selectedBotId === b.id,
         onSelectBot: handlers.onSelectBot,
         onOpenBotDetails: handlers.onOpenBotDetails,
@@ -2443,6 +2453,7 @@ const HelixOrgChart: FC = () => {
         agentModel: b.agent_model ?? '',
         projectId: projectIDByBotID.get(b.id ?? '') ?? '',
         taskStats: taskStatsByBotId.get(b.id ?? '') ?? { backlog: 0, inProgress: 0, done: 0 },
+        canEdit: b.can_edit === true,
       })),
     [botsData, projectIDByBotID, taskStatsByBotId],
   )
@@ -2818,8 +2829,19 @@ const HelixOrgChart: FC = () => {
     [onSelectBot, onOpenBotDetails, onViewProject, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor, onSelectAsset, onDeleteAsset],
   )
 
+  // Both ends of a reporting line are edits of the bots involved; the server
+  // refuses either side the viewer cannot change, so say so before the call.
+  const canEditBot = useCallback(
+    (botId: string) => flat.find((bot) => bot.id === botId)?.canEdit === true,
+    [flat],
+  )
+
   const onAddParent = useCallback(
     async (childBotId: string, newParentBotId: string) => {
+      if (!canEditBot(childBotId) || !canEditBot(newParentBotId)) {
+        snackbar.error('Only organization owners, administrators, or people who can edit both bots can change reporting lines')
+        return
+      }
       try {
         await addParent.mutateAsync({ botID: childBotId, parentID: newParentBotId })
         snackbar.success(`${childBotId} now reports to ${newParentBotId}`)
@@ -2827,11 +2849,15 @@ const HelixOrgChart: FC = () => {
         snackbar.error(err?.response?.data?.error ?? err?.message ?? 'add reporting line failed')
       }
     },
-    [addParent, snackbar],
+    [addParent, canEditBot, snackbar],
   )
 
   const onRemoveParent = useCallback(
     async (childBotId: string, parentBotId: string) => {
+      if (!canEditBot(childBotId) || !canEditBot(parentBotId)) {
+        snackbar.error('Only organization owners, administrators, or people who can edit both bots can change reporting lines')
+        return
+      }
       try {
         await removeParent.mutateAsync({ botID: childBotId, parentID: parentBotId })
         snackbar.success(`${childBotId} no longer reports to ${parentBotId}`)
@@ -2839,7 +2865,7 @@ const HelixOrgChart: FC = () => {
         snackbar.error(err?.response?.data?.error ?? err?.message ?? 'remove reporting line failed')
       }
     },
-    [removeParent, snackbar],
+    [canEditBot, removeParent, snackbar],
   )
 
   const onSubscribeBot = useCallback(

@@ -146,8 +146,10 @@ func TestValidateUserToken_DomainWaitlistMatrix(t *testing.T) {
 					mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{
 						ID: "user-sub", Email: tc.email, Waitlisted: tc.existing.waitlisted,
 					}, nil)
+					// A verified IdP assertion marks a pre-existing account verified.
+					mockStore.EXPECT().UpdateUserEmailVerification(gomock.Any(), gomock.Any(), true, "").Return(nil).AnyTimes()
 				} else {
-					mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+					mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 				}
 				if tc.wantCreated {
 					mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -158,11 +160,7 @@ func TestValidateUserToken_DomainWaitlistMatrix(t *testing.T) {
 					var consumed []*types.OrganizationMembership
 					if tc.invitation {
 						consumed = []*types.OrganizationMembership{{OrganizationID: "org-1", UserID: "user-sub"}}
-						mockStore.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).DoAndReturn(
-							func(_ context.Context, u *types.User) (*types.User, error) {
-								require.False(t, u.Waitlisted, "invitation must clear waitlist")
-								return u, nil
-							})
+						mockStore.EXPECT().MarkUserOnboarded(gomock.Any(), gomock.Any()).Return(nil)
 					}
 					mockStore.EXPECT().ConsumePendingInvitations(gomock.Any(), gomock.Any()).Return(consumed, nil)
 				}
@@ -211,6 +209,8 @@ func TestValidateUserToken_OutsideDomainNeverAutoJoins(t *testing.T) {
 	require.NoError(t, err)
 
 	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user-sub", Email: "pal@gmail.com"}, nil)
+	// A verified IdP assertion marks a pre-existing account verified.
+	mockStore.EXPECT().UpdateUserEmailVerification(gomock.Any(), gomock.Any(), true, "").Return(nil).AnyTimes()
 	mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), gomock.Any()).Times(0)
 	mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).Times(0)
 
@@ -238,7 +238,7 @@ func TestValidateUserToken_ConfiguredAdminIsNeverWaitlisted(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 	mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, u *types.User) (*types.User, error) {
 			require.False(t, u.Waitlisted, "configured admin must not be created waitlisted")
@@ -271,11 +271,11 @@ func TestValidateUserToken_UnverifiedEmailDoesNotClaimInvitations(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 	mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, u *types.User) (*types.User, error) { return u, nil })
 	mockStore.EXPECT().ConsumePendingInvitations(gomock.Any(), gomock.Any()).Times(0)
-	mockStore.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Times(0)
+	mockStore.EXPECT().MarkUserOnboarded(gomock.Any(), gomock.Any()).Times(0)
 
 	user, err := client.ValidateUserToken(ctx, "tok")
 	require.NoError(t, err)

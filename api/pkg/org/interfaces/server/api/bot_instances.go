@@ -125,6 +125,9 @@ func (a *apiHandler) createBotInstance(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !a.authorizeBotEdit(w, r, orgID, botID, "instances") {
+		return
+	}
 	var req CreateBotInstanceRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -169,6 +172,9 @@ func (a *apiHandler) deleteBotInstance(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("session_id")
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, errors.New("session id is required"))
+		return
+	}
+	if !a.authorizeBotEdit(w, r, orgID, botID, "instances") {
 		return
 	}
 	if err := manager.Delete(r.Context(), orgID, botID, sessionID); err != nil {

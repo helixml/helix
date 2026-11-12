@@ -6469,6 +6469,20 @@ func (mr *MockStoreMockRecorder) MarkStaleInteractionErrorIfWaiting(ctx, interac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkStaleInteractionErrorIfWaiting", reflect.TypeOf((*MockStore)(nil).MarkStaleInteractionErrorIfWaiting), ctx, interactionID, generationID, observedUpdated, reason)
 }
 
+// MarkUserOnboarded mocks base method.
+func (m *MockStore) MarkUserOnboarded(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkUserOnboarded", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkUserOnboarded indicates an expected call of MarkUserOnboarded.
+func (mr *MockStoreMockRecorder) MarkUserOnboarded(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkUserOnboarded", reflect.TypeOf((*MockStore)(nil).MarkUserOnboarded), ctx, id)
+}
+
 // MarkVHostRouteVerified mocks base method.
 func (m *MockStore) MarkVHostRouteVerified(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -8258,6 +8272,20 @@ func (m *MockStore) UpdateUser(ctx context.Context, user *types.User) (*types.Us
 func (mr *MockStoreMockRecorder) UpdateUser(ctx, user any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUser", reflect.TypeOf((*MockStore)(nil).UpdateUser), ctx, user)
+}
+
+// UpdateUserEmailVerification mocks base method.
+func (m *MockStore) UpdateUserEmailVerification(ctx context.Context, id string, verified bool, oidcSubject string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateUserEmailVerification", ctx, id, verified, oidcSubject)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateUserEmailVerification indicates an expected call of UpdateUserEmailVerification.
+func (mr *MockStoreMockRecorder) UpdateUserEmailVerification(ctx, id, verified, oidcSubject any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserEmailVerification", reflect.TypeOf((*MockStore)(nil).UpdateUserEmailVerification), ctx, id, verified, oidcSubject)
 }
 
 // UpdateUserMeta mocks base method.

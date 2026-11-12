@@ -3010,6 +3010,7 @@ type UserResponse struct {
 	Admin               bool     `json:"admin"`
 	OnboardingCompleted bool     `json:"onboarding_completed"`
 	Waitlisted          bool     `json:"waitlisted"`
+	EmailVerified       bool     `json:"email_verified"`
 	AlphaFeatures       []string `json:"alpha_features"`
 }
 

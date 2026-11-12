@@ -131,6 +131,9 @@ const OrgAgentSettingsPane: FC<OrgAgentSettingsPaneProps> = ({ bot, sessionId, o
   const router = useRouter()
   const lightTheme = useLightTheme()
   const { data: detail, refetch } = useHelixOrgBot(bot.id || undefined, { enabled: !!bot.id })
+  // The server decides who may change this bot; everyone else gets the
+  // read-only forms.
+  const canEdit = detail?.bot?.can_edit === true
   const agentID = bot.legacy_app_id
   const sandboxRuntime = instance ? instance.runtime : bot.effective_sandbox_runtime
   const headless = sandboxRuntime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu
@@ -246,30 +249,35 @@ const OrgAgentSettingsPane: FC<OrgAgentSettingsPaneProps> = ({ bot, sessionId, o
 
       {agentID && detail?.bot?.id && (
         <>
+          {!canEdit && (
+            <Typography variant="body2" color="text.secondary" sx={{ px: 1 }}>
+              You can use this agent but not change it: only organization owners, administrators, or people who can edit its agent app may.
+            </Typography>
+          )}
           <Section sx={panelSx} title="Agent" description="Name, coding harness, model and reasoning effort. Changes save as you make them.">
-            <OrgAgentSettings agentID={agentID} section="basics" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+            <OrgAgentSettings agentID={agentID} section="basics" readOnly={!canEdit} embedded detail={detail} onCanonicalUpdate={onSaved} />
           </Section>
           <Section
             sx={panelSx}
             title="Sandbox"
             description="Environment and compute for this agent's container, and whether its conversation survives between runs. Sandbox changes apply on the next restart."
           >
-            <OrgAgentSettings agentID={agentID} section="runtime" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+            <OrgAgentSettings agentID={agentID} section="runtime" readOnly={!canEdit} embedded detail={detail} onCanonicalUpdate={onSaved} />
           </Section>
           <Section sx={panelSx} title="Instructions" description="Markdown the agent reads on every run.">
-            <OrgAgentSettings agentID={agentID} section="instructions" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+            <OrgAgentSettings agentID={agentID} section="instructions" readOnly={!canEdit} embedded detail={detail} onCanonicalUpdate={onSaved} />
           </Section>
           <Section sx={panelSx} title="Org tools" description="Helix organization capabilities available to this agent.">
-            <OrgAgentSettings agentID={agentID} section="tools" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+            <OrgAgentSettings agentID={agentID} section="tools" readOnly={!canEdit} embedded detail={detail} onCanonicalUpdate={onSaved} />
           </Section>
           <Section sx={panelSx} title="Instances" description="What each instance of this agent gets. Instances start with only a browser; enable more here. Changes apply on each instance's next start.">
-            <BotInstanceProfileSettings detail={detail} readOnly={false} />
+            <BotInstanceProfileSettings detail={detail} readOnly={!canEdit} />
           </Section>
           <Section sx={panelSx} title="Triggers" description="What starts this agent: a Trigger directly, or the output of a Processor.">
-            <OrgAgentSettings agentID={agentID} section="subscriptions" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+            <OrgAgentSettings agentID={agentID} section="subscriptions" readOnly={!canEdit} embedded detail={detail} onCanonicalUpdate={onSaved} />
           </Section>
           <Section sx={panelSx} title="Project access" description="Projects this agent can work in through its organization tools.">
-            <OrgAgentSettings agentID={agentID} section="access" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+            <OrgAgentSettings agentID={agentID} section="access" readOnly={!canEdit} embedded detail={detail} onCanonicalUpdate={onSaved} />
           </Section>
         </>
       )}

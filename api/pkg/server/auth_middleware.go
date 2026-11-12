@@ -531,6 +531,17 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// carriesCookieCredential reports whether the browser could authenticate this
+// request by itself: it holds a session cookie or a legacy access_token cookie.
+func carriesCookieCredential(r *http.Request) bool {
+	for _, name := range []string{authpkg.SessionCookieName, accessTokenCookie.Name} {
+		if c, err := r.Cookie(name); err == nil && c.Value != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // csrfExemptPaths are paths that don't require CSRF protection
 // These are typically auth endpoints or APIs used before/during session creation
 var csrfExemptPaths = map[string]bool{
@@ -560,16 +571,17 @@ func (auth *authMiddleware) csrfMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Check if this request was authenticated via session cookie
-		// If using API key or runner token, skip CSRF validation
-		_, err := r.Cookie(authpkg.SessionCookieName)
-		if err != nil {
-			// No session cookie - this is API key or runner token auth, skip CSRF
+		// Only cookie-authenticated requests need a CSRF token: a browser
+		// attaches cookies on its own, while an API key or runner token in a
+		// header was put there by the caller. The legacy access_token cookie
+		// (a Helix JWT, still accepted by getRequestToken) counts as much as
+		// the session cookie: either one signs the request in by itself.
+		if !carriesCookieCredential(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Session cookie exists - validate CSRF token
+		// Cookie credential present - validate CSRF token
 		if !authpkg.ValidateCSRF(r) {
 			log.Warn().
 				Str("path", r.URL.Path).

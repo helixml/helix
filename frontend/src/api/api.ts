@@ -99,6 +99,12 @@ export interface ApiBotDTO {
    * when a newer activation starts or succeeds.
    */
   activation_error?: string;
+  /**
+   * CanEdit is true when the caller may change this Bot: organization
+   * owners and platform admins, or a member who may update the Bot's
+   * agent app. The UI hides edit, delete and re-parent controls when false.
+   */
+  can_edit?: boolean;
   agent_model?: string;
   agent_runtime?: string;
   /**
@@ -5460,6 +5466,11 @@ export interface TypesOrgUsageSummaryResponse {
 
 export interface TypesOrgUserLookupResponse {
   email?: string;
+  /**
+   * EmailVerified — the existing account has been shown to own the address.
+   * Adding by email only adds such an account; otherwise it is invited.
+   */
+  email_verified?: boolean;
   /** a Helix user account exists with this email */
   exists?: boolean;
   full_name?: string;
@@ -9276,6 +9287,7 @@ export interface TypesUserResponse {
   alpha_features?: string[];
   default_pr_footer?: string;
   email?: string;
+  email_verified?: boolean;
   git_commit_email?: string;
   git_commit_name?: string;
   id?: string;
