@@ -102,7 +102,8 @@ export const LicenseKeyPrompt: React.FC<LicenseKeyPromptProps> = ({
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         From $199/year for individual developer licenses
       </Typography>
-      {account.license && (
+      {/* Licence details are sent to admins only; other users get just the validity flag. */}
+      {account.license?.organization && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           License Expired! Organization:{" "}
           {account.license.organization} | Valid Until:{" "}

@@ -102,8 +102,8 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectDeletesAllTasksIncludingArchi
 	s.sto.EXPECT().ListArtifacts(gomock.Any(), &store.ListArtifactsQuery{ProjectID: "prj_del"}).
 		Return([]*types.Artifact{}, nil)
 	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(nil, store.ErrNotFound)
-	s.expectNoProjectOwnedResources()
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+	s.expectNoProjectOwnedResources()
 
 	resp, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Require().Nil(httpErr)
@@ -162,8 +162,8 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectSkipsDesktopsOnDisconnectedHo
 	s.expectTaskDeleted("t1")
 	s.sto.EXPECT().ListArtifacts(gomock.Any(), gomock.Any()).Return([]*types.Artifact{}, nil)
 	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(nil, store.ErrNotFound)
-	s.expectNoProjectOwnedResources()
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+	s.expectNoProjectOwnedResources()
 
 	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Require().Nil(httpErr)
@@ -189,8 +189,8 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectRetriesAfterSessionWasDeleted
 	s.expectTaskDeleted("t1")
 	s.sto.EXPECT().ListArtifacts(gomock.Any(), gomock.Any()).Return([]*types.Artifact{}, nil)
 	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(nil, store.ErrNotFound)
-	s.expectNoProjectOwnedResources()
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+	s.expectNoProjectOwnedResources()
 
 	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Require().Nil(httpErr)
@@ -233,8 +233,8 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectTearsDownWebService() {
 			s.Empty(st.ActiveSandboxID)
 			return nil
 		})
-	s.expectNoProjectOwnedResources()
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+	s.expectNoProjectOwnedResources()
 
 	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Nil(httpErr)

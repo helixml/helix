@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -10,8 +11,9 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// releaseProjectOwnedResources removes or detaches the rows a project owns so
-// none of them stays reachable once the project is deleted:
+// releaseProjectOwnedResources removes or detaches the rows a deleted project
+// owned so none of them stays reachable. It runs after the project row is
+// deleted and attempts every step, returning the failures joined:
 //
 //   - repositories minted for the project (their id is "<project id>-…", the
 //     convention of project_internal_repo_service and the sample-project
@@ -26,9 +28,8 @@ import (
 // Chat sessions recorded against the project keep their project_id: they are
 // the user's conversation history and stay readable by their owner.
 func (s *HelixAPIServer) releaseProjectOwnedResources(ctx context.Context, project *types.Project) error {
-	if err := s.releaseProjectRepositories(ctx, project); err != nil {
-		return err
-	}
+	var errs []error
+	errs = append(errs, s.releaseProjectRepositories(ctx, project)...)
 
 	if project.OrganizationID != "" {
 		grants, err := s.Store.ListAccessGrants(ctx, &store.ListAccessGrantsQuery{
@@ -36,24 +37,28 @@ func (s *HelixAPIServer) releaseProjectOwnedResources(ctx context.Context, proje
 			ResourceID:     project.ID,
 		})
 		if err != nil {
-			return fmt.Errorf("list project access grants: %w", err)
+			errs = append(errs, fmt.Errorf("list project access grants: %w", err))
 		}
 		for _, grant := range grants {
 			if err := s.Store.DeleteAccessGrant(ctx, grant.ID); err != nil {
-				return fmt.Errorf("delete project access grant %s: %w", grant.ID, err)
+				errs = append(errs, fmt.Errorf("delete project access grant %s: %w", grant.ID, err))
 			}
 		}
 	}
 
-	return s.disableProjectTriggers(ctx, project)
+	if err := s.disableProjectTriggers(ctx, project); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
-func (s *HelixAPIServer) releaseProjectRepositories(ctx context.Context, project *types.Project) error {
+func (s *HelixAPIServer) releaseProjectRepositories(ctx context.Context, project *types.Project) []error {
 	links, err := s.Store.ListProjectRepositories(ctx, &types.ListProjectRepositoriesQuery{ProjectID: project.ID})
 	if err != nil {
-		return fmt.Errorf("list project repositories: %w", err)
+		return []error{fmt.Errorf("list project repositories: %w", err)}
 	}
 
+	var errs []error
 	derivedPrefix := project.ID + "-"
 	for _, link := range links {
 		if !strings.HasPrefix(link.RepositoryID, derivedPrefix) {
@@ -61,7 +66,8 @@ func (s *HelixAPIServer) releaseProjectRepositories(ctx context.Context, project
 		}
 		users, err := s.Store.ListProjectRepositories(ctx, &types.ListProjectRepositoriesQuery{RepositoryID: link.RepositoryID})
 		if err != nil {
-			return fmt.Errorf("list projects using repository %s: %w", link.RepositoryID, err)
+			errs = append(errs, fmt.Errorf("list projects using repository %s: %w", link.RepositoryID, err))
+			continue
 		}
 		sharedWithAnotherProject := false
 		for _, u := range users {
@@ -76,21 +82,19 @@ func (s *HelixAPIServer) releaseProjectRepositories(ctx context.Context, project
 			continue
 		}
 		if err := s.gitRepositoryService.DeleteRepository(ctx, link.RepositoryID); err != nil {
-			return fmt.Errorf("delete project repository %s: %w", link.RepositoryID, err)
+			errs = append(errs, fmt.Errorf("delete project repository %s: %w", link.RepositoryID, err))
+			continue
 		}
 		log.Info().Str("project_id", project.ID).Str("repo_id", link.RepositoryID).
 			Msg("deleted repository created for the deleted project")
 	}
 
 	if err := s.Store.DeleteProjectRepositoriesByProject(ctx, project.ID); err != nil {
-		return fmt.Errorf("detach project repositories: %w", err)
+		errs = append(errs, fmt.Errorf("detach project repositories: %w", err))
 	}
-	return nil
+	return errs
 }
 
-// disableProjectTriggers turns off enabled scheduled triggers whose action
-// creates spec tasks in the project. Run against a deleted project they could
-// only fail on every tick.
 func (s *HelixAPIServer) disableProjectTriggers(ctx context.Context, project *types.Project) error {
 	query := &store.ListTriggerConfigurationsQuery{TriggerType: types.TriggerTypeCron, Enabled: true}
 	if project.OrganizationID != "" {

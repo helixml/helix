@@ -57,5 +57,26 @@ func TestCreateAgent_OrgScopedKeyCannotTargetAnotherOrg(t *testing.T) {
 
 	_, httpErr := srv.createAgent(httptest.NewRecorder(), req)
 	require.NotNil(t, httpErr)
-	require.Equal(t, http.StatusForbidden, httpErr.StatusCode)
+	require.Equal(t, http.StatusNotFound, httpErr.StatusCode)
+	require.Equal(t, "organization not found", httpErr.Message)
+}
+
+// A user who is not a member of the named org gets the same 404 as for an org
+// that does not exist.
+func TestCreateAgent_NonMemberOrgGets404(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	m := store.NewMockStore(ctrl)
+	m.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(&types.Organization{ID: "org_other"}, nil)
+	m.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	m.EXPECT().CreateApp(gomock.Any(), gomock.Any()).Times(0)
+
+	srv := &HelixAPIServer{Cfg: &config.ServerConfig{}, Store: m}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents",
+		strings.NewReader(`{"organization_id":"org_other","config":{"helix":{"name":"x","assistants":[{"name":"a"}]}}}`))
+	req = req.WithContext(setRequestUser(context.Background(), types.User{ID: "usr_bob"}))
+
+	_, httpErr := srv.createAgent(httptest.NewRecorder(), req)
+	require.NotNil(t, httpErr)
+	require.Equal(t, http.StatusNotFound, httpErr.StatusCode)
+	require.Equal(t, "organization not found", httpErr.Message)
 }

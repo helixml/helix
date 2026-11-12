@@ -1367,12 +1367,6 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	// PUT used to accept "archived" and ignore it, answering 200 for a change
-	// it never made. Refuse it so the caller uses the archive endpoint.
-	if updateReq.Archived != nil {
-		http.Error(w, "archived cannot be changed with PUT; use PATCH /api/v1/spec-tasks/{taskId}/archive", http.StatusBadRequest)
-		return
-	}
 	if err := types.ValidateSpecTaskTypeAndPriority("", updateReq.Priority); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1398,6 +1392,13 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
+	// PUT used to accept "archived" and ignore it, answering 200 for a change
+	// it never made. Echoing the stored value back is fine (clients send the
+	// object they read); changing it goes through the archive endpoint.
+	if updateReq.Archived != nil && *updateReq.Archived != task.Archived {
+		http.Error(w, "archived cannot be changed with PUT; use PATCH /api/v1/spec-tasks/{taskId}/archive", http.StatusBadRequest)
 		return
 	}
 	if updateReq.Status == types.TaskStatusPreparing {

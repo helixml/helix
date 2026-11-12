@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/helixml/helix/api/pkg/agent"
@@ -42,17 +44,6 @@ func (c *ChainStrategy) validateAndDefaultAPI(ctx context.Context, tool *types.T
 		}
 	}
 
-	// The API server calls this URL on the agent's behalf. Refuse destinations
-	// the outbound policy would block at call time (loopback, private,
-	// link-local and metadata addresses) when the tool is saved, not when it
-	// is first invoked.
-	if err := c.outboundPolicy().ValidateURL(ctx, tool.Config.API.URL); err != nil {
-		if errors.Is(err, netguard.ErrBlockedDestination) {
-			return nil, fmt.Errorf("API URL is not an allowed destination: %w", err)
-		}
-		return nil, fmt.Errorf("invalid API URL: %w", err)
-	}
-
 	// Validate that all paths have operation IDs set
 	err = c.validateOperationIDs(ctx, tool, schema)
 	if err != nil {
@@ -64,10 +55,29 @@ func (c *ChainStrategy) validateAndDefaultAPI(ctx context.Context, tool *types.T
 	return tool, nil
 }
 
-// outboundPolicy is the policy API tool requests are dialled under (see
-// apiToolTransport).
-func (c *ChainStrategy) outboundPolicy() netguard.Policy {
-	return netguard.Policy{AllowPrivate: c.cfg != nil && c.cfg.Tools.AllowPrivateNetworks}
+// apiToolDestinationTimeout bounds the DNS lookup CheckAPIToolDestination
+// makes while an agent is being saved.
+const apiToolDestinationTimeout = 3 * time.Second
+
+// CheckAPIToolDestination refuses an API tool URL the outbound policy would
+// block when the tool is called (loopback, private, link-local and metadata
+// addresses), so the mistake surfaces when the agent is saved. A relative URL
+// (an OpenAPI servers entry such as "/api") names no host and is left alone,
+// as before; the dial-time guard still applies to whatever it resolves to.
+func CheckAPIToolDestination(ctx context.Context, policy netguard.Policy, rawURL string) error {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err == nil && u.Scheme == "" && u.Host == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, apiToolDestinationTimeout)
+	defer cancel()
+	if err := policy.ValidateURL(ctx, rawURL); err != nil {
+		if errors.Is(err, netguard.ErrBlockedDestination) {
+			return fmt.Errorf("API URL is not an allowed destination: %w", err)
+		}
+		return fmt.Errorf("invalid API URL: %w", err)
+	}
+	return nil
 }
 
 func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, schema *openapi3.T) error {

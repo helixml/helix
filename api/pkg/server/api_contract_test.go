@@ -77,16 +77,28 @@ func TestBoardSettings_Contract(t *testing.T) {
 }
 
 // PUT /spec-tasks/{id} with "archived" used to answer 200 and change nothing.
-// It is refused before any read or write; archiving has its own endpoint.
-func TestUpdateSpecTask_RejectsArchivedField(t *testing.T) {
-	m := store.NewMockStore(gomock.NewController(t)) // no calls expected
+// Changing it is refused (archiving has its own endpoint) and nothing is
+// written; echoing the stored value back, as clients that PUT the object they
+// read do, is accepted.
+func TestUpdateSpecTask_ArchivedField(t *testing.T) {
+	owner := types.User{ID: "usr_owner"}
+	m := store.NewMockStore(gomock.NewController(t))
+	m.EXPECT().GetSpecTask(gomock.Any(), "spt_1").DoAndReturn(func(context.Context, string) (*types.SpecTask, error) {
+		return &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", Archived: true, Status: types.TaskStatusBacklog}, nil
+	}).Times(2)
+	m.EXPECT().GetProject(gomock.Any(), "prj_1").Return(&types.Project{ID: "prj_1", UserID: owner.ID}, nil).Times(2)
 	h := boardSettingsRouter(&HelixAPIServer{Store: m, Cfg: &config.ServerConfig{}})
 
-	for _, body := range []string{`{"archived":false}`, `{"archived":true,"name":"x"}`} {
-		rr := serveAs(h, types.User{ID: "usr_owner"}, http.MethodPut, "/api/v1/spec-tasks/spt_1", body)
-		require.Equal(t, http.StatusBadRequest, rr.Code, body)
-		require.Contains(t, rr.Body.String(), "/archive")
-	}
+	rr := serveAs(h, owner, http.MethodPut, "/api/v1/spec-tasks/spt_1", `{"archived":false}`)
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	require.Contains(t, rr.Body.String(), "/archive")
+
+	m.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, task *types.SpecTask) error {
+		require.True(t, task.Archived)
+		return nil
+	})
+	rr = serveAs(h, owner, http.MethodPut, "/api/v1/spec-tasks/spt_1", `{"archived":true,"name":"renamed"}`)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 }
 
 // An invalid completion decision is a 400 that names the completion request,

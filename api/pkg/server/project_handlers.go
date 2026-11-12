@@ -1092,11 +1092,6 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError500(fmt.Sprintf("tear down project web service: %s", err))
 	}
 
-	if err := s.releaseProjectOwnedResources(r.Context(), project); err != nil {
-		log.Error().Err(err).Str("project_id", projectID).Msg("failed to release project-owned resources")
-		return nil, system.NewHTTPError500("failed to release project resources; retry the delete")
-	}
-
 	// Now soft delete the project
 	err = s.Store.DeleteProject(r.Context(), projectID)
 	if err != nil {
@@ -1116,6 +1111,15 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 	// Log audit event for project deletion
 	if s.auditLogService != nil {
 		s.auditLogService.LogProjectDeleted(r.Context(), project, user.ID, user.Email)
+	}
+
+	// Release what the project owned only once it is deleted, so a failure
+	// here can never leave a live project whose repositories are gone. Each
+	// step runs even if an earlier one failed; what could not be released is
+	// logged with its id.
+	if err := s.releaseProjectOwnedResources(r.Context(), project); err != nil {
+		log.Error().Err(err).Str("project_id", projectID).Msg("project deleted, but some project-owned resources were not released")
+		return nil, system.NewHTTPError500("project deleted, but some of its resources could not be released")
 	}
 
 	return map[string]string{"message": "project deleted successfully"}, nil
