@@ -40,7 +40,7 @@ restore.
    keeps the password it is initialised with from `POSTGRES_ADMIN_PASSWORD`.
 
    ```bash
-   docker compose exec -T postgres pg_dumpall -U postgres --no-role-passwords > helix-pg12.sql
+   docker compose exec -T postgres pg_dumpall -U postgres --no-role-passwords > postgres12-backup.sql
    ```
 
    Check the file is not empty and ends with `PostgreSQL database cluster dump complete`.
@@ -65,7 +65,7 @@ restore.
    docker compose up -d postgres
    # wait until it accepts connections
    until docker compose exec -T postgres pg_isready -U postgres; do sleep 2; done
-   docker compose exec -T postgres psql -U postgres -q -f - < helix-pg12.sql
+   docker compose exec -T postgres psql -U postgres -q -f - < postgres12-backup.sql
    ```
 
    `ERROR: role "postgres" already exists` is expected. Any other error means
@@ -83,7 +83,7 @@ restore.
    ```
 
    Sign in and check your apps, projects and sessions are present. Keep
-   `helix-pg12.sql` and the old volume until you are satisfied.
+   `postgres12-backup.sql` and the old volume until you are satisfied.
 
 Re-running `install.sh` or `install.sh --upgrade` keeps both settings; the
 installer preserves keys it does not manage.
