@@ -67,7 +67,7 @@ func (s *PRProposalService) RequestCompletion(ctx context.Context, taskID, summa
 		// Postgres keeps microseconds; the request's attention key is derived
 		// from this time, so it must survive the round trip unchanged.
 		now := time.Now().Truncate(time.Microsecond)
-		if task.AutoApprovePullRequests {
+		if task.AutoApprovePullRequests && s.currentAutoApprover(ctx, task) != nil {
 			completeTask(task, now)
 			out.Done = true
 		} else {
@@ -268,7 +268,7 @@ func MarkTaskCompleteGuidance(hasPullRequests bool) string {
 	}
 	return "**Finishing the task:** The task is never marked done automatically — not even when your pull requests merge, because work often continues after a merge. " +
 		"When the work is finished (or the user tells you it is), call `mark_task_complete` with a summary of what was delivered. " + confirm + " " +
-		"Do not call it while your pull requests are still open: users merge them on GitHub/GitLab/Azure DevOps themselves, so tell the user which ones are waiting to be merged. " +
+		"Do not call it while your pull requests are still open: users merge them themselves (on GitHub/GitLab/Azure DevOps, or on the pull request page in Helix for Helix-hosted repositories), so tell the user which ones are waiting to be merged. " +
 		"You get a message here when each one is merged or closed; after a merge, check whether follow-up work is needed before you finish. " +
 		"Tasks that need no code changes (research, analysis, docs on the helix-specs branch) finish the same way, with no pull request."
 }

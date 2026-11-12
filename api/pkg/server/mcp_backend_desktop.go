@@ -37,15 +37,18 @@ func desktopUnavailable(w http.ResponseWriter, reason, msg string) {
 // RevDial to the desktop HTTP server (port 9876) inside the sandbox
 // container, which serves MCP at /mcp.
 type DesktopMCPBackend struct {
-	store  store.Store
-	dialer SandboxDialer
+	store     store.Store
+	dialer    SandboxDialer
+	authorize SessionAuthorizer
 }
 
-// NewDesktopMCPBackend creates a new Desktop MCP backend.
-func NewDesktopMCPBackend(s store.Store, dialer SandboxDialer) *DesktopMCPBackend {
+// NewDesktopMCPBackend creates a new Desktop MCP backend. authorize applies
+// session RBAC; driving a desktop needs update access to its session.
+func NewDesktopMCPBackend(s store.Store, dialer SandboxDialer, authorize SessionAuthorizer) *DesktopMCPBackend {
 	return &DesktopMCPBackend{
-		store:  s,
-		dialer: dialer,
+		store:     s,
+		dialer:    dialer,
+		authorize: authorize,
 	}
 }
 
@@ -69,12 +72,11 @@ func (b *DesktopMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, us
 		return
 	}
 
-	if session.Owner != user.ID {
+	if b.authorize == nil || user == nil || b.authorize(ctx, user, session, types.ActionUpdate) != nil {
 		log.Warn().
 			Str("session_id", sessionID).
-			Str("user_id", user.ID).
 			Str("owner", session.Owner).
-			Msg("desktop MCP: user does not own session")
+			Msg("desktop MCP: caller is not authorized for session")
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}

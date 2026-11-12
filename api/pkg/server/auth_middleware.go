@@ -35,6 +35,7 @@ var (
 var (
 	ErrNoAPIKeyFound            = errors.New("no API key found")
 	ErrNoUserIDFound            = errors.New("no user ID found")
+	ErrAPIKeyOwnerNotFound      = errors.New("the owner of this API key no longer exists")
 	ErrAppAPIKeyPathNotAllowed  = errors.New("path not allowed for app API keys, use your personal account key from your /account page instead")
 	ErrEmbedKeyNotAllowed       = errors.New("this embed key is scoped to a single task and may not access this resource")
 	ErrBotInstanceKeyNotAllowed = errors.New("this bot instance key is scoped to its own sandbox and may not access this resource")
@@ -64,11 +65,19 @@ type authMiddleware struct {
 	lastSeenCache sync.Map
 }
 
-func rejectWaitlisted(w http.ResponseWriter, user *types.User) bool {
-	if user == nil || !user.Waitlisted {
+// rejectInactiveAccount answers 403 when the authenticated account may not
+// use the API (waitlisted, deactivated or deleted; see
+// types.User.AccountAccessError) and reports whether it did. Every entry point
+// that authenticates a user calls it before serving anything. The only routes
+// such an account still reaches are the insecure /api/v1/auth/* and /config
+// routes, which resolve the caller themselves: that is all the waitlist page
+// needs to show the account's status and log out.
+func rejectInactiveAccount(w http.ResponseWriter, user *types.User) bool {
+	err := user.AccountAccessError()
+	if err == nil {
 		return false
 	}
-	http.Error(w, "Account is waiting for approval", http.StatusForbidden)
+	http.Error(w, err.Error(), http.StatusForbidden)
 	return true
 }
 
@@ -208,26 +217,17 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 			return nil, fmt.Errorf("error getting API key: %w", ErrNoAPIKeyFound)
 		}
 
-		// Try to get user from local database first, fall back to Keycloak if available
-		var user *types.User
-
-		dbUser, err := auth.store.GetUser(ctx, &store.GetUserQuery{ID: apiKey.Owner})
-		if err == nil && dbUser != nil {
-			// User found in local database
-			user = dbUser
-		} else if auth.authenticator != nil {
-			// Fall back to Keycloak
-			user, err = auth.authenticator.GetUserByID(ctx, apiKey.Owner)
-			if err != nil {
-				return nil, fmt.Errorf("error loading user from keycloak: %s", err.Error())
-			}
-		} else {
-			// No local user and no Keycloak - create minimal user from API key owner
-			// TODO: remove???
-			user = &types.User{
-				ID:   apiKey.Owner,
-				Type: apiKey.OwnerType,
-			}
+		// The key acts as its owner, so it carries the owner's account state
+		// (waitlisted, deactivated) into rejectInactiveAccount. Fail closed:
+		// a key whose owner cannot be loaded authenticates nobody.
+		user, err := auth.store.GetUser(ctx, &store.GetUserQuery{ID: apiKey.Owner})
+		if errors.Is(err, store.ErrNotFound) || (err == nil && user == nil) {
+			// Users are soft-deleted, so a deleted owner's row is invisible
+			// here. A key must never outlive its owner.
+			return nil, ErrAPIKeyOwnerNotFound
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error loading API key owner: %w", err)
 		}
 
 		user.Token = token
@@ -240,7 +240,10 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		// inherit the owner's global admin — otherwise a global admin's org key
 		// would reach every organization and admin endpoint. dbUser carries the
 		// owner's Admin flag, so it must be cleared here, not just not set.
-		user.Admin = apiKey.OrganizationID == "" && auth.isAdminWithContext(ctx, user.ID)
+		// Keys minted for a project or a session (sandbox agents) are
+		// confined the same way: admin would bypass that confinement.
+		user.Admin = apiKey.OrganizationID == "" && apiKey.ProjectID == "" && apiKey.SessionID == "" &&
+			auth.isAdminWithContext(ctx, user.ID)
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}
@@ -283,7 +286,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user, err = auth.authenticator.ValidateUserToken(ctx, token)
 	}
 	if err != nil {
-		log.Error().Err(err).Str("token", token).Msg("error validating user token")
+		log.Error().Err(err).Msg("error validating user token")
 		return nil, err
 	}
 
@@ -355,7 +358,7 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 		if auth.sessionManager != nil && !namesOwnAPIKey(r) {
 			user, err = auth.getUserFromSession(r.Context(), r)
 			if err == nil && user != nil {
-				if rejectWaitlisted(w, user) {
+				if rejectInactiveAccount(w, user) {
 					return
 				}
 				// Successfully authenticated via session
@@ -365,8 +368,8 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 				return
 			}
 
-			// Session expired - clear the session cookie
-			if errors.Is(err, authpkg.ErrSessionExpired) {
+			// Session expired or from another auth provider - clear the cookie
+			if errors.Is(err, authpkg.ErrSessionExpired) || errors.Is(err, authpkg.ErrSessionProviderMismatch) {
 				auth.sessionManager.ClearSessionCookie(w)
 			}
 
@@ -409,7 +412,7 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 		if user == nil {
 			user = &types.User{}
 		}
-		if rejectWaitlisted(w, user) {
+		if rejectInactiveAccount(w, user) {
 			return
 		}
 
@@ -475,7 +478,7 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 		if user == nil {
 			user = &types.User{}
 		}
-		if rejectWaitlisted(w, user) {
+		if rejectInactiveAccount(w, user) {
 			return
 		}
 

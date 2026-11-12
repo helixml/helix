@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Optional `controlplane.regularAuthJWTSecret` (or `controlplane.regularAuthJWTSecretExistingSecret` + `controlplane.regularAuthJWTSecretExistingSecretKey`, default key `jwt-secret`) sets `REGULAR_AUTH_JWT_SECRET`, the signing key for login sessions and password-reset links. When neither is set the chart sets nothing and the API generates a random key on first boot and stores it in its database. See [UPGRADE.md](UPGRADE.md#jwt-signing-key).
+- Install notes warn when `controlplane.encryptionKey` / `controlplane.encryptionKeyExistingSecret` are unset.
+
 ## [2.11.0-rc2]
 
 ### Fixed

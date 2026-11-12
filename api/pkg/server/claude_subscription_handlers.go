@@ -754,7 +754,7 @@ type SessionClaudeCredentialsResponse struct {
 
 // @Summary Get Claude credentials for a session
 // @Description Get decrypted Claude credentials for use inside a desktop container.
-// @Description Only accepts runner/session-scoped tokens.
+// @Description Accepts the session's own API key or a runner token; otherwise only the subscription's owner.
 // @Tags Claude
 // @Produce json
 // @Param id path string true "Session ID"
@@ -779,7 +779,7 @@ func (apiServer *HelixAPIServer) getSessionClaudeCredentials(_ http.ResponseWrit
 	if user == nil {
 		return nil, system.NewHTTPError403("access denied")
 	}
-	if user.TokenType != types.TokenTypeRunner && session.Owner != user.ID {
+	if user.TokenType != types.TokenTypeRunner && session.Owner != user.ID && user.SessionID != session.ID {
 		return nil, system.NewHTTPError403("access denied")
 	}
 
@@ -792,6 +792,9 @@ func (apiServer *HelixAPIServer) getSessionClaudeCredentials(_ http.ResponseWrit
 			return nil, system.NewHTTPError404("no Claude subscription found for session owner")
 		}
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get Claude subscription: %v", err))
+	}
+	if !canUseSessionAgentCredential(user, session, sub.OwnerID, sub.OwnerType) {
+		return nil, system.NewHTTPError403("access denied")
 	}
 
 	encKey, err := crypto.GetEncryptionKey()
@@ -856,12 +859,13 @@ func (apiServer *HelixAPIServer) updateSessionClaudeCredentials(_ http.ResponseW
 		return nil, system.NewHTTPError404("session not found")
 	}
 
-	// Only allow runner token or session owner (same pattern as getSessionClaudeCredentials)
+	// Same rule as getSessionClaudeCredentials; the subscription is checked
+	// once it is resolved below.
 	user := getRequestUser(req)
 	if user == nil {
 		return nil, system.NewHTTPError403("access denied")
 	}
-	if user.TokenType != types.TokenTypeRunner && session.Owner != user.ID {
+	if user.TokenType != types.TokenTypeRunner && session.Owner != user.ID && user.SessionID != session.ID {
 		return nil, system.NewHTTPError403("access denied")
 	}
 
@@ -884,6 +888,9 @@ func (apiServer *HelixAPIServer) updateSessionClaudeCredentials(_ http.ResponseW
 			return nil, system.NewHTTPError404("no Claude subscription found for session owner")
 		}
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get Claude subscription: %v", err))
+	}
+	if !canUseSessionAgentCredential(user, session, sub.OwnerID, sub.OwnerType) {
+		return nil, system.NewHTTPError403("access denied")
 	}
 
 	// Re-encrypt the updated credentials

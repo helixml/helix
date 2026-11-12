@@ -362,20 +362,38 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
-	// If an admin pre-stashed trial intent on this user, apply it to this
-	// first owned org. Best-effort: logs errors but does not block.
-	apiServer.consumeUserTrialIntent(ctx, user, createdOrg.ID)
+	// The consume* helpers save the user row. Give them the stored row, not
+	// the request user: that one carries the caller's bearer token and a
+	// request-scoped admin flag, which a full-row save would persist.
+	if storedUser := apiServer.storedUserForUpdate(ctx, user.ID); storedUser != nil {
+		// If an admin pre-stashed trial intent on this user, apply it to this
+		// first owned org. Best-effort: logs errors but does not block.
+		apiServer.consumeUserTrialIntent(ctx, storedUser, createdOrg.ID)
 
-	// Same for plain admin credit grants (PendingAdminCreditsOnFirstOrg), which
-	// are tracked separately from trial intent so an admin can comp credits
-	// without entangling them with trial-state UI or revocation flows.
-	apiServer.consumeUserAdminCredits(ctx, user, createdOrg.ID)
+		// Same for plain admin credit grants (PendingAdminCreditsOnFirstOrg), which
+		// are tracked separately from trial intent so an admin can comp credits
+		// without entangling them with trial-state UI or revocation flows.
+		apiServer.consumeUserAdminCredits(ctx, storedUser, createdOrg.ID)
 
-	// Apply any admin-stashed paid-plan grant (PlanOnFirstOrg) as a
-	// PlanOverride on this first org's wallet (out-of-band paid customers).
-	apiServer.consumeUserPlanOnFirstOrg(ctx, user, createdOrg.ID)
+		// Apply any admin-stashed paid-plan grant (PlanOnFirstOrg) as a
+		// PlanOverride on this first org's wallet (out-of-band paid customers).
+		apiServer.consumeUserPlanOnFirstOrg(ctx, storedUser, createdOrg.ID)
+	}
 
 	writeResponse(rw, createdOrg, http.StatusCreated)
+}
+
+// storedUserForUpdate loads a user's stored row for a read-modify-write. The
+// users table has token columns only because the request-scoped fields share
+// the struct; they are cleared so a save never keeps a bearer token there.
+func (apiServer *HelixAPIServer) storedUserForUpdate(ctx context.Context, userID string) *types.User {
+	storedUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	if err != nil || storedUser == nil {
+		log.Warn().Err(err).Str("user_id", userID).Msg("could not load user to apply first-org grants")
+		return nil
+	}
+	scrubUserCredentials(storedUser)
+	return storedUser
 }
 
 func (apiServer *HelixAPIServer) seedOrganizationRoles(ctx context.Context, org *types.Organization) error {
@@ -679,12 +697,9 @@ func (apiServer *HelixAPIServer) getOrganizationGuidelinesHistory(rw http.Respon
 		return
 	}
 
-	// Check if user is a member of the organization
-	_, err = apiServer.Store.GetOrganizationMembership(r.Context(), &store.GetOrganizationMembershipQuery{
-		OrganizationID: org.ID,
-		UserID:         user.ID,
-	})
-	if err != nil && !user.Admin {
+	// Members (and platform admins) may read; org-scoped keys stay confined
+	// to their own organization.
+	if _, err := apiServer.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
 		http.Error(rw, "Not authorized to view organization guidelines history", http.StatusForbidden)
 		return
 	}

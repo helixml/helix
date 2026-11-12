@@ -441,6 +441,20 @@ func TestHelixOrgAssetRBAC(t *testing.T) {
 		{name: "owner can create", method: http.MethodPost, path: "/api/v1/orgs/acme/assets", role: types.OrganizationRoleOwner, wantStatus: http.StatusNoContent},
 		{name: "admin can update", method: http.MethodPatch, path: "/api/v1/orgs/acme/assets/a-server", role: types.OrganizationRoleMember, admin: true, wantStatus: http.StatusNoContent},
 		{name: "unrelated route keeps member mutation access", method: http.MethodPost, path: "/api/v1/orgs/acme/workers", role: types.OrganizationRoleMember, wantStatus: http.StatusNoContent},
+		{name: "member can list triggers", method: http.MethodGet, path: "/api/v1/orgs/acme/triggers", role: types.OrganizationRoleMember, wantStatus: http.StatusNoContent},
+		{name: "member cannot create trigger", method: http.MethodPost, path: "/api/v1/orgs/acme/triggers", role: types.OrganizationRoleMember, wantStatus: http.StatusForbidden},
+		{name: "member cannot update trigger", method: http.MethodPut, path: "/api/v1/orgs/acme/triggers/t-1", role: types.OrganizationRoleMember, wantStatus: http.StatusForbidden},
+		{name: "member cannot delete trigger", method: http.MethodDelete, path: "/api/v1/orgs/acme/triggers/t-1", role: types.OrganizationRoleMember, wantStatus: http.StatusForbidden},
+		{name: "member cannot install github webhook", method: http.MethodPost, path: "/api/v1/orgs/acme/triggers/t-1/github/install-webhook", role: types.OrganizationRoleMember, wantStatus: http.StatusForbidden},
+		{name: "member cannot install gitlab webhook", method: http.MethodPost, path: "/api/v1/orgs/acme/triggers/t-1/gitlab/install-webhook", role: types.OrganizationRoleMember, wantStatus: http.StatusForbidden},
+		{name: "member cannot create processor", method: http.MethodPost, path: "/api/v1/orgs/acme/processors", role: types.OrganizationRoleMember, wantStatus: http.StatusForbidden},
+		{name: "member cannot update processor", method: http.MethodPut, path: "/api/v1/orgs/acme/processors/p-1", role: types.OrganizationRoleMember, wantStatus: http.StatusForbidden},
+		{name: "member cannot delete processor", method: http.MethodDelete, path: "/api/v1/orgs/acme/processors/p-1", role: types.OrganizationRoleMember, wantStatus: http.StatusForbidden},
+		{name: "member can list bot attachments", method: http.MethodGet, path: "/api/v1/orgs/acme/bots/b-1/attachments", role: types.OrganizationRoleMember, wantStatus: http.StatusNoContent},
+		{name: "bot attachments are authorized per bot by the handler", method: http.MethodPost, path: "/api/v1/orgs/acme/bots/b-1/attachments", role: types.OrganizationRoleMember, wantStatus: http.StatusNoContent},
+		{name: "owner can create trigger", method: http.MethodPost, path: "/api/v1/orgs/acme/triggers", role: types.OrganizationRoleOwner, wantStatus: http.StatusNoContent},
+		{name: "admin can create processor", method: http.MethodPost, path: "/api/v1/orgs/acme/processors", role: types.OrganizationRoleMember, admin: true, wantStatus: http.StatusNoContent},
+		{name: "member keeps other bot mutations", method: http.MethodPost, path: "/api/v1/orgs/acme/bots/b-1/activate", role: types.OrganizationRoleMember, wantStatus: http.StatusNoContent},
 	}
 
 	for _, tt := range tests {
@@ -867,6 +881,12 @@ func TestHelixOrgPrivilegedMutation(t *testing.T) {
 		{http.MethodPatch, "/api/v1/orgs/test/assets/a-1", true},
 		{http.MethodPatch, "/api/v1/orgs/test/bots/b-1", false},
 		{http.MethodPut, "/api/v1/orgs/test/agents/b-1/secrets/GH_TOKEN", false},
+		{http.MethodPut, "/api/v1/orgs/test/settings/agent.default", true},
+		{http.MethodPut, "/api/v1/orgs/test/settings/helix.api_key", true},
+		{http.MethodPut, "/api/v1/orgs/test/settings/transport.github", true},
+		{http.MethodDelete, "/api/v1/orgs/test/settings/worker.specs_mandate", true},
+		{http.MethodGet, "/api/v1/orgs/test/settings", false},
+		{http.MethodPost, "/api/v1/orgs/test/github/app-manifest", true},
 	}
 	for _, tt := range tests {
 		req := httptest.NewRequest(tt.method, tt.path, nil)

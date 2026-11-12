@@ -34,7 +34,7 @@ func (suite *SessionMCPBackendSuite) SetupTest() {
 	suite.ctrl = gomock.NewController(suite.T())
 	suite.mockStore = store.NewMockStore(suite.ctrl)
 	suite.notifier = notification.NewMockNotifier(suite.ctrl)
-	suite.backend = NewSessionMCPBackend(suite.mockStore, suite.notifier)
+	suite.backend = NewSessionMCPBackend(suite.mockStore, suite.notifier, (&HelixAPIServer{Store: suite.mockStore}).authorizeUserToSession)
 }
 
 func (suite *SessionMCPBackendSuite) TearDownTest() {
@@ -48,6 +48,7 @@ func (suite *SessionMCPBackendSuite) TearDownTest() {
 func (suite *SessionMCPBackendSuite) testSession() *types.Session {
 	return &types.Session{
 		ID:      "session-123",
+		Owner:   "user-123",
 		Name:    "Test Session",
 		Created: time.Now().Add(-1 * time.Hour),
 		Updated: time.Now(),
@@ -97,7 +98,8 @@ func (suite *SessionMCPBackendSuite) testInteractions() []*types.Interaction {
 }
 
 func (suite *SessionMCPBackendSuite) ctxWithSessionID(sessionID string) context.Context {
-	return context.WithValue(suite.ctx, "session_id", sessionID)
+	ctx := context.WithValue(suite.ctx, "session_id", sessionID)
+	return context.WithValue(ctx, "user", &types.User{ID: "user-123"})
 }
 
 func (suite *SessionMCPBackendSuite) recurringTaskContext() context.Context {
@@ -309,6 +311,10 @@ func (suite *SessionMCPBackendSuite) TestHandleGetTurn_Success() {
 	ctx := suite.ctxWithSessionID("session-123")
 
 	suite.mockStore.EXPECT().
+		GetSession(gomock.Any(), "session-123").
+		Return(suite.testSession(), nil)
+
+	suite.mockStore.EXPECT().
 		ListInteractions(gomock.Any(), gomock.Any()).
 		Return(interactions, int64(3), nil)
 
@@ -336,6 +342,10 @@ func (suite *SessionMCPBackendSuite) TestHandleGetTurn_Success() {
 func (suite *SessionMCPBackendSuite) TestHandleGetTurn_TurnNotFound() {
 	interactions := suite.testInteractions()
 	ctx := suite.ctxWithSessionID("session-123")
+
+	suite.mockStore.EXPECT().
+		GetSession(gomock.Any(), "session-123").
+		Return(suite.testSession(), nil)
 
 	suite.mockStore.EXPECT().
 		ListInteractions(gomock.Any(), gomock.Any()).
@@ -402,6 +412,7 @@ func (suite *SessionMCPBackendSuite) TestHandleTitleHistory_Success() {
 func (suite *SessionMCPBackendSuite) TestHandleTitleHistory_EmptyHistory() {
 	session := &types.Session{
 		ID:       "session-123",
+		Owner:    "user-123",
 		Name:     "New Session",
 		Metadata: types.SessionMetadata{},
 	}
@@ -429,6 +440,10 @@ func (suite *SessionMCPBackendSuite) TestHandleTitleHistory_EmptyHistory() {
 func (suite *SessionMCPBackendSuite) TestHandleSearchSession_Success() {
 	interactions := suite.testInteractions()
 	ctx := suite.ctxWithSessionID("session-123")
+
+	suite.mockStore.EXPECT().
+		GetSession(gomock.Any(), "session-123").
+		Return(suite.testSession(), nil)
 
 	suite.mockStore.EXPECT().
 		ListInteractions(gomock.Any(), gomock.Any()).
@@ -461,6 +476,10 @@ func (suite *SessionMCPBackendSuite) TestHandleSearchSession_CaseInsensitive() {
 	ctx := suite.ctxWithSessionID("session-123")
 
 	suite.mockStore.EXPECT().
+		GetSession(gomock.Any(), "session-123").
+		Return(suite.testSession(), nil)
+
+	suite.mockStore.EXPECT().
 		ListInteractions(gomock.Any(), gomock.Any()).
 		Return(interactions, int64(3), nil)
 
@@ -483,6 +502,10 @@ func (suite *SessionMCPBackendSuite) TestHandleSearchSession_CaseInsensitive() {
 func (suite *SessionMCPBackendSuite) TestHandleSearchSession_NoMatches() {
 	interactions := suite.testInteractions()
 	ctx := suite.ctxWithSessionID("session-123")
+
+	suite.mockStore.EXPECT().
+		GetSession(gomock.Any(), "session-123").
+		Return(suite.testSession(), nil)
 
 	suite.mockStore.EXPECT().
 		ListInteractions(gomock.Any(), gomock.Any()).
@@ -517,6 +540,80 @@ func (suite *SessionMCPBackendSuite) TestHandleSearchSession_MissingQuery() {
 
 	content := result.Content[0].(mcp.TextContent)
 	suite.Contains(content.Text, "query is required")
+}
+
+// =============================================================================
+// Session authorization for the read tools
+// =============================================================================
+
+type sessionReadTool struct {
+	name string
+	call func(context.Context) (*mcp.CallToolResult, error)
+}
+
+func (suite *SessionMCPBackendSuite) sessionReadTools() []sessionReadTool {
+	withArgs := func(args map[string]any) mcp.CallToolRequest {
+		return mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: args}}
+	}
+	return []sessionReadTool{
+		{"current_session", func(ctx context.Context) (*mcp.CallToolResult, error) {
+			return suite.backend.handleCurrentSession(ctx, withArgs(nil))
+		}},
+		{"session_toc", func(ctx context.Context) (*mcp.CallToolResult, error) {
+			return suite.backend.handleSessionTOC(ctx, withArgs(nil))
+		}},
+		{"get_turn", func(ctx context.Context) (*mcp.CallToolResult, error) {
+			return suite.backend.handleGetTurn(ctx, withArgs(map[string]any{"turn": float64(1)}))
+		}},
+		{"session_title_history", func(ctx context.Context) (*mcp.CallToolResult, error) {
+			return suite.backend.handleTitleHistory(ctx, withArgs(nil))
+		}},
+		{"search_session", func(ctx context.Context) (*mcp.CallToolResult, error) {
+			return suite.backend.handleSearchSession(ctx, withArgs(map[string]any{"query": "Paris"}))
+		}},
+	}
+}
+
+func (suite *SessionMCPBackendSuite) assertReadToolsDenied(user *types.User, session *types.Session) {
+	for _, tool := range suite.sessionReadTools() {
+		suite.Run(tool.name, func() {
+			suite.mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+			ctx := context.WithValue(context.WithValue(suite.ctx, "session_id", session.ID), "user", user)
+			result, err := tool.call(ctx)
+			suite.NoError(err)
+			suite.True(result.IsError, "%s must refuse an unauthorized caller", tool.name)
+			suite.Contains(result.Content[0].(mcp.TextContent).Text, "not authorized")
+		})
+	}
+}
+
+func (suite *SessionMCPBackendSuite) TestReadToolsRejectStranger() {
+	session := suite.testSession() // owned by user-123, no organization
+	suite.assertReadToolsDenied(&types.User{ID: "user-stranger"}, session)
+}
+
+func (suite *SessionMCPBackendSuite) TestReadToolsRejectScopedKeyOutsideItsProject() {
+	session := suite.testSession()
+	session.ProjectID = "prj_other"
+	suite.assertReadToolsDenied(&types.User{ID: "user-123", ProjectID: "prj_task"}, session)
+}
+
+func (suite *SessionMCPBackendSuite) TestReadToolsAllowScopedKeyInsideItsProject() {
+	session := suite.testSession()
+	session.ProjectID = "prj_task"
+	suite.mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	suite.mockStore.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(suite.testInteractions(), int64(3), nil)
+	ctx := context.WithValue(context.WithValue(suite.ctx, "session_id", session.ID), "user", &types.User{ID: "user-123", ProjectID: "prj_task"})
+	result, err := suite.backend.handleSessionTOC(ctx, mcp.CallToolRequest{})
+	suite.NoError(err)
+	suite.False(result.IsError)
+}
+
+func (suite *SessionMCPBackendSuite) TestReadToolsRejectMissingUser() {
+	suite.mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Times(0)
+	result, err := suite.backend.handleCurrentSession(context.WithValue(suite.ctx, "session_id", "session-123"), mcp.CallToolRequest{})
+	suite.NoError(err)
+	suite.True(result.IsError)
 }
 
 // =============================================================================

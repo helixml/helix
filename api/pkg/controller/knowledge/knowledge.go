@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/services"
@@ -41,8 +42,8 @@ type Reconciler struct {
 	ragClient    rag.RAG                                   // Default server RAG client
 	newRagClient func(settings *types.RAGSettings) rag.RAG // Custom RAG server client constructor
 	newCrawler   func(k *types.Knowledge) (crawler.Crawler, error)
-	oauthManager *oauth.Manager              // OAuth manager for SharePoint and other OAuth-based sources
-	koditService services.KoditServicer      // Optional: set when Kodit is the RAG provider
+	oauthManager *oauth.Manager         // OAuth manager for SharePoint and other OAuth-based sources
+	koditService services.KoditServicer // Optional: set when Kodit is the RAG provider
 	progressMu   *sync.RWMutex
 	progress     map[string]types.KnowledgeProgress
 	cron         gocron.Scheduler
@@ -55,14 +56,15 @@ func New(config *config.ServerConfig, store store.Store, filestore filestore.Fil
 		return nil, fmt.Errorf("failed to create scheduler: %w", err)
 	}
 
-	// Create HTTP client with optional TLS skip verify for enterprise environments
-	httpClient := &http.Client{}
+	// Knowledge web sources are user-supplied URLs fetched by the API server,
+	// so every connection (including redirects) goes through the outbound
+	// policy. Optional TLS skip verify is for enterprise environments.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if config.Tools.TLSSkipVerify {
-		// Clone the default transport to preserve all default settings
-		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-		httpClient.Transport = transport
 	}
+	netguard.Policy{AllowPrivate: config.Tools.AllowPrivateNetworks}.GuardTransport(transport)
+	httpClient := &http.Client{Transport: transport}
 
 	r := &Reconciler{
 		config:       config,
@@ -76,7 +78,7 @@ func New(config *config.ServerConfig, store store.Store, filestore filestore.Fil
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			// this is somewhat confusingly named, but it's only used for custom RAG
 			// servers (not our own llamaindex)
-			return rag.NewLlamaindex(settings)
+			return rag.NewLlamaindex(settings, netguard.Policy{AllowPrivate: config.Tools.AllowPrivateNetworks})
 		},
 		// newCrawler: ,
 		progressMu: &sync.RWMutex{},
@@ -90,7 +92,7 @@ func New(config *config.ServerConfig, store store.Store, filestore filestore.Fil
 		}
 
 		// Construct the crawler
-		return crawler.NewCrawler(b, k, updateProgress)
+		return crawler.NewCrawler(b, k, updateProgress, httpClient.Transport)
 	}
 
 	if len(koditService) > 0 && koditService[0] != nil {

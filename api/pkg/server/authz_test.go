@@ -550,6 +550,47 @@ func (s *AuthzAppSuite) TestWithOrg_NoDirectAccess_AccessViaProject_DefaultApp()
 	s.NoError(err)
 }
 
+// Read access to a project that references an app grants read access to the
+// app, not the right to change or delete it.
+func (s *AuthzAppSuite) TestWithOrg_ProjectReadAccessDoesNotGrantAppUpdate() {
+	app := &types.App{ID: "app1", Owner: "someone_else", OrganizationID: s.orgID}
+	user := &types.User{ID: s.userID}
+
+	s.expectOrgMember(types.OrganizationRoleMember)
+	for _, id := range []string{"app1", "proj1"} {
+		s.mockStore.EXPECT().ListTeams(gomock.Any(), gomock.Any()).Return([]*types.Team{}, nil)
+		s.mockStore.EXPECT().ListAccessGrants(gomock.Any(), &store.ListAccessGrantsQuery{
+			OrganizationID: s.orgID,
+			UserID:         s.userID,
+			ResourceID:     id,
+		}).Return(s.readOnlyGrant(id), nil)
+	}
+	s.mockStore.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return([]*types.Project{{
+		ID:                "proj1",
+		OrganizationID:    s.orgID,
+		UserID:            "someone_else",
+		DefaultHelixAppID: "app1",
+	}}, nil)
+
+	err := s.server.authorizeUserToApp(context.Background(), user, app, types.ActionUpdate)
+	s.Error(err)
+}
+
+func (s *AuthzAppSuite) readOnlyGrant(resourceID string) []*types.AccessGrant {
+	if resourceID != "proj1" {
+		return []*types.AccessGrant{}
+	}
+	return []*types.AccessGrant{{
+		Roles: []types.Role{{
+			Config: types.Config{Rules: []types.Rule{{
+				Resources: []types.Resource{types.ResourceProject},
+				Actions:   []types.Action{types.ActionGet},
+				Effect:    types.EffectAllow,
+			}}},
+		}},
+	}}
+}
+
 // --- With org: no direct access, app is project's ProjectManagerHelixAppID -> allowed ---
 
 func (s *AuthzAppSuite) TestWithOrg_NoDirectAccess_AccessViaProject_ProjectManagerApp() {

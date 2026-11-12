@@ -277,7 +277,7 @@ const Layout: FC<{
   const chatSidebarWidthRef = useRef(chatSidebarWidth);
   const [showVersionBanner, setShowVersionBanner] = useState(true);
   const [showLocalProviderBanner, setShowLocalProviderBanner] = useState(true);
-  const { data: detectedProviders } = useDetectLocalProviders(!!account.user);
+  const { data: detectedProviders } = useDetectLocalProviders(!!account.user && account.admin);
   const { data: allProviders } = useListProviders({ enabled: !!account.user });
   const unconnectedLocal = useMemo(() => {
     if (!detectedProviders || !allProviders) return [];

@@ -58,7 +58,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if rejectWaitlisted(w, user) {
+		if rejectInactiveAccount(w, user) {
 			return
 		}
 
@@ -69,12 +69,24 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			return
 		}
 
-		// Look up the session owner so we subscribe to the correct NATS topic.
-		// The API always publishes to the session owner's queue, so a reviewer
-		// (different user ID) viewing someone else's session must subscribe using
-		// the owner's ID, not their own.
+		// The stream carries the session's full content, so the caller needs
+		// the same access as reading the session.
+		session, err := apiServer.Store.GetSession(r.Context(), sessionID)
+		if err != nil || session == nil {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+		if err := apiServer.authorizeUserToSession(r.Context(), user, session, types.ActionGet); err != nil {
+			log.Warn().Err(err).Str("user_id", user.ID).Str("session_id", sessionID).Msg("WebSocket: not authorized for session")
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		// Subscribe to the session owner's queue: the API always publishes
+		// there, so a reviewer (different user ID) viewing someone else's
+		// session must subscribe using the owner's ID, not their own.
 		ownerID := user.ID
-		if session, err := apiServer.Store.GetSession(r.Context(), sessionID); err == nil && session != nil && session.Owner != "" {
+		if session.Owner != "" {
 			ownerID = session.Owner
 		}
 
