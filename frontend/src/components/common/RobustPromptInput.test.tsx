@@ -370,11 +370,20 @@ describe('RobustPromptInput queue panel only appears for genuinely queued prompt
     expect(screen.getByText('2 queued')).toBeInTheDocument()
   })
 
-  it('reveals an undispatched prompt once the grace window elapses', async () => {
-    pendingPrompts = [mkEntry('a', Date.now() - (QUEUE_DISPATCH_GRACE_MS - 150))]
-    renderQueued()
-    expect(screen.queryByText(/queued/)).not.toBeInTheDocument()
-    await waitFor(() => expect(screen.getByText('1 queued')).toBeInTheDocument())
+  it('reveals an undispatched prompt once the grace window elapses', () => {
+    // A frozen clock: a slow render must not eat into the grace window.
+    vi.useFakeTimers()
+    try {
+      pendingPrompts = [mkEntry('a', Date.now())]
+      renderQueued()
+      expect(screen.queryByText(/queued/)).not.toBeInTheDocument()
+      act(() => {
+        vi.advanceTimersByTime(QUEUE_DISPATCH_GRACE_MS + 100)
+      })
+      expect(screen.getByText('1 queued')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
