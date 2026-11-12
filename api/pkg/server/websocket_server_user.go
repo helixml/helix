@@ -66,6 +66,10 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		if isRunner(user) {
+			http.Error(w, errRunnerTokenNotAccepted, http.StatusForbidden)
+			return
+		}
 		if rejectInactiveAccount(w, user) {
 			return
 		}

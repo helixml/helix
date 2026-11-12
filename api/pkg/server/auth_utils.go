@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -20,6 +21,17 @@ const userKey contextKey = "user"
 Middlewares
 -
 */
+// errRunnerTokenNotAccepted is the answer requireUser gives the runner token.
+const errRunnerTokenNotAccepted = "the runner token is not accepted on this route"
+
+// errRunnerTokenRefused reports a refusal of the runner token from a handler
+// that checks auth itself.
+var errRunnerTokenRefused = errors.New(errRunnerTokenNotAccepted)
+
+// requireUser admits an authenticated user. The runner token is refused: it
+// authenticates sandbox hosts, not a person, and would otherwise act as the
+// pseudo-user "runner-system". The user routes sandbox hosts call sit behind
+// requireUserOrRunner instead.
 func requireUser(next http.Handler) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		// CORS preflight requests must reach the handler to receive
@@ -29,7 +41,30 @@ func requireUser(next http.Handler) http.Handler {
 			return
 		}
 		user := getRequestUser(r)
+		if isRunner(user) {
+			http.Error(w, errRunnerTokenNotAccepted, http.StatusForbidden)
+			return
+		}
 		if !hasUser(user) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
+	return http.HandlerFunc(f)
+}
+
+// requireUserOrRunner admits an authenticated user or the runner token. It
+// gates the user routes that sandbox hosts also call (RevDial registration,
+// a session's sandbox configuration and agent credentials); their handlers
+// decide what the runner token may do there.
+func requireUserOrRunner(next http.Handler) http.Handler {
+	f := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !hasUserOrRunner(getRequestUser(r)) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
