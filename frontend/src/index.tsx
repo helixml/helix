@@ -7,6 +7,7 @@ import ErrorBoundary from './components/system/ErrorBoundary'
 import { isMobileOrTablet } from './utils/isMobileOrTablet'
 import { logErrorToSession, getRecentErrors, clearErrorLog } from './utils/errorSessionLog'
 import { copyTextToClipboard } from './utils/clipboard'
+import { escapeHtml } from './utils/escapeHtml'
 import { isOpaqueScriptError, isResizeObserverLoopError } from './utils/mobileErrorNoise'
 import { installPlainTextPasteFix } from './utils/plainTextPaste'
 
@@ -66,25 +67,27 @@ if (isMobileOrTablet()) {
       ? `<details style="margin-bottom:12px">
           <summary style="cursor:pointer;color:#888">Previous errors (${previousErrors.length})</summary>
           <pre style="white-space:pre-wrap;word-break:break-word;background:#0d0d1a;padding:12px;border-radius:4px;max-height:150px;overflow:auto;font-size:11px;line-height:1.4;margin-top:4px">${
-            previousErrors.map(e => `[${e.timestamp}] ${e.message}`).join('\n')
+            previousErrors.map(e => `[${escapeHtml(e.timestamp)}] ${escapeHtml(e.message)}`).join('\n')
           }</pre>
         </details>`
       : ''
 
-    // GPU-safe: no position:fixed, no filter, no will-change, no opacity animations
+    // message, stack and the logged entries can carry page or server text
+    // (e.g. an error thrown with a response body), so every interpolated value
+    // is escaped. GPU-safe: no position:fixed, no filter, no will-change, no opacity animations
     overlay.innerHTML = `
       <div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:99999;background:#1a1a2e;color:#e0e0e0;font-family:monospace;font-size:13px;overflow:auto;-webkit-overflow-scrolling:touch;padding:16px;box-sizing:border-box">
         <div style="border-bottom:3px solid #e74c3c;padding-bottom:12px;margin-bottom:12px;display:flex;align-items:flex-start;justify-content:space-between">
           <div>
             <h2 style="margin:0;color:#e74c3c;font-size:18px">JavaScript Error</h2>
-            <p style="margin:4px 0 0;color:#888;font-size:11px">${new Date().toISOString()} &mdash; ${window.location.pathname}</p>
+            <p style="margin:4px 0 0;color:#888;font-size:11px">${new Date().toISOString()} &mdash; ${escapeHtml(window.location.pathname)}</p>
           </div>
           <button id="error-dismiss-btn" style="padding:6px 14px;border:1px solid #555;border-radius:4px;background:#2a2a3e;color:#aaa;font-family:monospace;font-size:13px;cursor:pointer;flex-shrink:0;margin-left:12px">✕ Dismiss</button>
         </div>
         <div style="margin-bottom:16px">
-          <strong style="color:#ff6b6b">${message}</strong>
+          <strong style="color:#ff6b6b">${escapeHtml(message)}</strong>
         </div>
-        ${stack ? `<pre style="white-space:pre-wrap;word-break:break-word;background:#0d0d1a;padding:12px;border-radius:4px;max-height:200px;overflow:auto;font-size:11px;line-height:1.4;margin-bottom:12px">${stack}</pre>` : ''}
+        ${stack ? `<pre style="white-space:pre-wrap;word-break:break-word;background:#0d0d1a;padding:12px;border-radius:4px;max-height:200px;overflow:auto;font-size:11px;line-height:1.4;margin-bottom:12px">${escapeHtml(stack)}</pre>` : ''}
         ${previousHtml}
         <div>
           <button id="error-copy-btn" style="padding:10px 20px;margin-right:10px;margin-top:8px;border:1px solid #555;border-radius:4px;background:#2a2a3e;color:#e0e0e0;font-family:monospace;font-size:14px;cursor:pointer">Copy Error</button>
