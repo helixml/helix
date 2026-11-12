@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -144,7 +145,21 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 }
 
 func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {
-	return apiServer.getConfig(req.Context())
+	config, err := apiServer.getConfig(req.Context())
+	if err != nil {
+		return config, err
+	}
+	// The exact build and the deployment's identity are for signed-in users
+	// (update banner, licence gate, support debug context); an anonymous
+	// caller only needs what renders the login and registration pages. The
+	// Sentry DSN and RudderStack write key stay: they are browser-side
+	// ingestion keys the SPA needs before sign-in.
+	if !hasUser(getRequestUser(req)) {
+		config.Version = ""
+		config.LatestVersion = ""
+		config.DeploymentID = ""
+	}
+	return config, nil
 }
 
 // status godoc
@@ -166,27 +181,10 @@ func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request
 	}
 
 	// License info moved here from /config so it is not disclosed
-	// unauthenticated. Self-hosted deployments would otherwise leak the
-	// licence org / expiry / seat limits to anyone hitting /api/v1/config.
+	// unauthenticated.
 	if apiServer.pingService != nil {
 		if decoded, err := apiServer.pingService.GetLicenseInfo(ctx); err == nil && decoded != nil {
-			status.License = &types.FrontendLicenseInfo{
-				Valid:        decoded.Valid && !decoded.Expired(),
-				Organization: decoded.Organization,
-				ValidUntil:   decoded.ValidUntil,
-				Features: struct {
-					Users bool `json:"users"`
-				}{
-					Users: decoded.Features.Users,
-				},
-				Limits: struct {
-					Users    int64 `json:"users"`
-					Machines int64 `json:"machines"`
-				}{
-					Users:    decoded.Limits.Users,
-					Machines: decoded.Limits.Machines,
-				},
-			}
+			status.License = frontendLicenseInfo(decoded, isAdmin(user))
 		}
 	}
 
@@ -311,7 +309,7 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 		Path string `json:"path"`
 	}
 	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
-		return filestore.Item{}, err
+		return filestore.Item{}, jsonDecodeHTTPError(err)
 	}
 
 	// Check if this is an app-scoped path
@@ -734,7 +732,7 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 	var request types.AdminCreateUserRequest
 
 	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
-		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if request.Email == "" {
@@ -812,7 +810,7 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 
 	var request types.AdminResetPasswordRequest
 	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
-		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if request.NewPassword == "" {
@@ -1143,22 +1141,19 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 		var objmap map[string]json.RawMessage
 		err = json.Unmarshal(body, &objmap)
 		if err != nil {
-			return "", err
+			return "", jsonDecodeHTTPError(err)
 		}
-		var nameStr string
-		err = json.Unmarshal(objmap["name"], &nameStr)
-		if err != nil {
-			return "", err
+		nameStr, httpErr := requiredJSONStringField(objmap, "name")
+		if httpErr != nil {
+			return "", httpErr
 		}
-		var typeStr string
-		err = json.Unmarshal(objmap["type"], &typeStr)
-		if err != nil {
-			return "", err
+		typeStr, httpErr := requiredJSONStringField(objmap, "type")
+		if httpErr != nil {
+			return "", httpErr
 		}
-		var apiKeyStr string
-		err = json.Unmarshal(objmap["app_id"], &apiKeyStr)
-		if err != nil {
-			return "", err
+		apiKeyStr, httpErr := requiredJSONStringField(objmap, "app_id")
+		if httpErr != nil {
+			return "", httpErr
 		}
 		newAPIKey.Name = nameStr
 		newAPIKey.Type = types.APIKeyType(typeStr)
@@ -1342,4 +1337,35 @@ func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Re
 		return nil, system.NewHTTPError404("api key not found")
 	}
 	return key, nil
+}
+
+// frontendLicenseInfo is the licence block of /api/v1/status. Everyone needs
+// to know whether the deployment is licensed (the SPA locks itself when it is
+// not); who holds the licence, when it expires and what it allows is for
+// deployment admins, the same audience as /api/v1/license.
+func frontendLicenseInfo(decoded *license.License, admin bool) *types.FrontendLicenseInfo {
+	info := &types.FrontendLicenseInfo{Valid: decoded.Valid && !decoded.Expired()}
+	if !admin {
+		return info
+	}
+	info.Organization = decoded.Organization
+	info.ValidUntil = decoded.ValidUntil
+	info.Features.Users = decoded.Features.Users
+	info.Limits.Users = decoded.Limits.Users
+	info.Limits.Machines = decoded.Limits.Machines
+	return info
+}
+
+// requiredJSONStringField reads a string field from a decoded JSON object,
+// answering 400 with the field's name when it is absent or not a string.
+func requiredJSONStringField(objmap map[string]json.RawMessage, key string) (string, *system.HTTPError) {
+	raw, ok := objmap[key]
+	if !ok {
+		return "", system.NewHTTPError400(key + " is required")
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", system.NewHTTPError400(fmt.Sprintf("Invalid request body: field %q must be a string", key))
+	}
+	return value, nil
 }

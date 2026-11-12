@@ -10,6 +10,10 @@ type WebhookEndpointStatus string
 const (
 	WebhookEndpointStatusActive   WebhookEndpointStatus = "active"
 	WebhookEndpointStatusDisabled WebhookEndpointStatus = "disabled"
+	// WebhookEndpointStatusDeleted marks an endpoint its owner deleted. The
+	// row stays so its delivery history remains attributable, but the store
+	// no longer returns it and nothing can re-enable it.
+	WebhookEndpointStatusDeleted WebhookEndpointStatus = "deleted"
 )
 
 type WebhookDeliveryStatus string

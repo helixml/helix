@@ -196,14 +196,9 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		return nil, nil
 	}
 
-	if token == auth.cfg.runnerToken {
-		// if the api key is our runner token then we are in runner mode
-		return &types.User{
-			ID:        "runner-system", // Add a system user ID for runner tokens
-			Type:      types.OwnerTypeUser,
-			Token:     token,
-			TokenType: types.TokenTypeRunner,
-		}, nil
+	// The shared runner token or a per-runner token: runner mode.
+	if runner, ok, err := runnerUserFromToken(ctx, auth.store, auth.cfg.runnerToken, token); ok {
+		return runner, err
 	}
 
 	if strings.HasPrefix(token, types.APIKeyPrefix) {
@@ -542,6 +537,24 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 		auth.touchUserLastSeen(user)
 		r = r.WithContext(setRequestUser(r.Context(), *user))
 
+		f(w, r)
+	}
+}
+
+// optionalUser puts the caller on the request context when the request carries
+// a valid session or token, and otherwise serves it anonymously. It never
+// refuses a request, so it suits public routes whose response only narrows
+// for anonymous callers; anything that must be authenticated belongs on
+// authRouter instead.
+func (auth *authMiddleware) optionalUser(f http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, err := auth.getUserFromSession(r.Context(), r)
+		if err != nil || user == nil {
+			user, err = auth.getUserFromToken(r.Context(), getRequestToken(r))
+		}
+		if err == nil && hasUser(user) && user.AccountAccessError() == nil {
+			r = r.WithContext(setRequestUser(r.Context(), *user))
+		}
 		f(w, r)
 	}
 }

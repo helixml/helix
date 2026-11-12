@@ -50,6 +50,7 @@ const (
 	SandboxPrefix              = "sbx_"
 	SandboxCommandPrefix       = "sbcmd_"
 	RunnerProfilePrefix        = "rprof_"
+	RunnerTokenIDPrefix        = "rtok_"
 	SpecTaskAttachmentPrefix   = "att_"
 	PRProposalPrefix           = "prp_"
 	OrgInvitationPrefix        = "oin_"
@@ -59,6 +60,11 @@ const (
 	ArtifactPrefix             = "art_"
 	ArtifactVersionPrefix      = "artv_"
 )
+
+// GenerateRunnerTokenID is the non-secret id of a per-runner token.
+func GenerateRunnerTokenID() string {
+	return RunnerTokenIDPrefix + newID()
+}
 
 func GenerateUUID() string {
 	return uuid.New().String()

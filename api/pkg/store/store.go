@@ -415,6 +415,12 @@ type Store interface {
 	DeleteRunnerProfile(ctx context.Context, id string) error
 	ListRunnerProfiles(ctx context.Context) ([]*types.RunnerProfile, error)
 
+	// Per-runner tokens
+	CreateRunnerToken(ctx context.Context, t *types.RunnerToken) (*types.RunnerToken, error)
+	GetActiveRunnerTokenByHash(ctx context.Context, tokenHash string) (*types.RunnerToken, error)
+	ListRunnerTokens(ctx context.Context, runnerID string) ([]*types.RunnerToken, error)
+	RevokeRunnerToken(ctx context.Context, id, revokedBy string) (*types.RunnerToken, error)
+
 	// runner-to-profile assignments
 	GetRunnerAssignment(ctx context.Context, runnerID string) (*types.RunnerAssignment, error)
 	SetRunnerAssignment(ctx context.Context, a *types.RunnerAssignment) (*types.RunnerAssignment, error)
@@ -610,7 +616,8 @@ type Store interface {
 	GetWalletByOrg(ctx context.Context, orgID string) (*types.Wallet, error)
 	ListWallets(ctx context.Context, q *ListWalletsQuery) ([]*types.Wallet, error)
 	GetWalletByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*types.Wallet, error)
-	UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
+	UpdateWalletSubscription(ctx context.Context, walletID string, state types.WalletSubscriptionState) (*types.Wallet, error)
+	SetWalletPlanOverride(ctx context.Context, walletID string, plan string) (*types.Wallet, error)
 	DeleteWallet(ctx context.Context, id string) error
 	UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error)
 

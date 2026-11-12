@@ -237,9 +237,8 @@ func TestDeleteOrganization_OnlyOwnerCanDelete(t *testing.T) {
 	rr := httptest.NewRecorder()
 	server.deleteOrganization(rr, req)
 
-	// A member who is not the owner is refused, not served an internal error.
 	require.Equal(t, http.StatusForbidden, rr.Code)
-	require.Contains(t, rr.Body.String(), "Could not authorize org owner")
+	require.Contains(t, rr.Body.String(), "Only organization owners")
 }
 
 func TestDeleteOrganization_DeletesRepositoriesBeforeOrganization(t *testing.T) {
@@ -408,5 +407,6 @@ func TestDeleteOrganization_WebServiceTeardownFailureKeepsOrganization(t *testin
 	rr := httptest.NewRecorder()
 	server.deleteOrganization(rr, deleteOrgRequest(orgID, userID))
 	require.Equal(t, http.StatusInternalServerError, rr.Code)
-	require.Contains(t, rr.Body.String(), "prj_web")
+	require.Contains(t, rr.Body.String(), "Could not delete organization")
+	require.NotContains(t, rr.Body.String(), "deadline", "internal errors stay in the log")
 }

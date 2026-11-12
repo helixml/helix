@@ -71,7 +71,7 @@ func (s *HelixAPIServer) mintSessionPreviewToken(_ http.ResponseWriter, r *http.
 
 	var req MintPreviewTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 	if req.Port < 1 || req.Port > 65535 {
 		return nil, system.NewHTTPError400("port must be 1..65535")

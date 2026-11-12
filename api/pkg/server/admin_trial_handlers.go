@@ -92,13 +92,7 @@ func (s *HelixAPIServer) consumeUserTrialIntent(ctx context.Context, user *types
 
 	// Synchronously mirror the subscription state onto the wallet so the
 	// frontend sees trialing immediately, without waiting for the webhook.
-	wallet.StripeSubscriptionID = sub.ID
-	wallet.SubscriptionStatus = sub.Status
-	wallet.SubscriptionCurrentPeriodStart = sub.CurrentPeriodStart
-	wallet.SubscriptionCurrentPeriodEnd = sub.CurrentPeriodEnd
-	wallet.SubscriptionCreated = sub.Created
-	wallet.SubscriptionCancelAtPeriodEnd = sub.CancelAtPeriodEnd
-	if _, err := s.Store.UpdateWallet(ctx, wallet); err != nil {
+	if _, err := s.Store.UpdateWalletSubscription(ctx, wallet.ID, types.SubscriptionStateFromStripe(sub)); err != nil {
 		log.Warn().Err(err).
 			Str("wallet_id", wallet.ID).
 			Msg("failed to persist trial subscription state to wallet")
@@ -150,8 +144,7 @@ func (s *HelixAPIServer) consumeUserPlanOnFirstOrg(ctx context.Context, user *ty
 			Msg("failed to get/create wallet for plan-override consumption")
 		return
 	}
-	wallet.PlanOverride = plan
-	if _, err := s.Store.UpdateWallet(ctx, wallet); err != nil {
+	if _, err := s.Store.SetWalletPlanOverride(ctx, wallet.ID, plan); err != nil {
 		log.Warn().Err(err).Str("wallet_id", wallet.ID).
 			Msg("failed to persist plan override to wallet")
 		return
@@ -200,7 +193,7 @@ func (apiServer *HelixAPIServer) adminActivateTrial(_ http.ResponseWriter, req *
 	body := ActivateTrialRequest{}
 	if req.Body != nil && req.ContentLength > 0 {
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+			return nil, jsonDecodeHTTPError(err)
 		}
 	}
 	if body.Days <= 0 {
@@ -277,8 +270,7 @@ func (apiServer *HelixAPIServer) adminActivateTrial(_ http.ResponseWriter, req *
 		if wErr != nil {
 			return nil, system.NewHTTPError500("failed to get wallet for selected org: " + wErr.Error())
 		}
-		wallet.PlanOverride = types.PlanOverridePro
-		if _, wErr := apiServer.Store.UpdateWallet(ctx, wallet); wErr != nil {
+		if _, wErr := apiServer.Store.SetWalletPlanOverride(ctx, wallet.ID, types.PlanOverridePro); wErr != nil {
 			return nil, system.NewHTTPError500("failed to set plan override: " + wErr.Error())
 		}
 		if body.Credits > 0 {
@@ -336,13 +328,7 @@ func (apiServer *HelixAPIServer) adminActivateTrial(_ http.ResponseWriter, req *
 		return nil, system.NewHTTPError500("failed to create stripe trial subscription: " + err.Error())
 	}
 
-	wallet.StripeSubscriptionID = sub.ID
-	wallet.SubscriptionStatus = sub.Status
-	wallet.SubscriptionCurrentPeriodStart = sub.CurrentPeriodStart
-	wallet.SubscriptionCurrentPeriodEnd = sub.CurrentPeriodEnd
-	wallet.SubscriptionCreated = sub.Created
-	wallet.SubscriptionCancelAtPeriodEnd = sub.CancelAtPeriodEnd
-	if _, err := apiServer.Store.UpdateWallet(ctx, wallet); err != nil {
+	if _, err := apiServer.Store.UpdateWalletSubscription(ctx, wallet.ID, types.SubscriptionStateFromStripe(sub)); err != nil {
 		log.Warn().Err(err).Str("wallet_id", wallet.ID).Msg("failed to persist trial subscription state to wallet (webhook will retry)")
 	}
 	if body.Credits > 0 {
@@ -486,9 +472,10 @@ func (apiServer *HelixAPIServer) adminRevokeTrial(_ http.ResponseWriter, req *ht
 		// Mirror the cancellation onto the wallet synchronously so the admin UI
 		// reflects it on the next reload without waiting for the
 		// customer.subscription.deleted webhook (same as the activate path).
-		selectedWallet.SubscriptionStatus = stripeapi.SubscriptionStatusCanceled
-		selectedWallet.SubscriptionCancelAtPeriodEnd = false
-		if _, err := apiServer.Store.UpdateWallet(ctx, selectedWallet); err != nil {
+		state := selectedWallet.SubscriptionState()
+		state.Status = stripeapi.SubscriptionStatusCanceled
+		state.CancelAtPeriodEnd = false
+		if _, err := apiServer.Store.UpdateWalletSubscription(ctx, selectedWallet.ID, state); err != nil {
 			log.Warn().Err(err).Str("wallet_id", selectedWallet.ID).Msg("failed to persist cancelled subscription state to wallet (webhook will retry)")
 		}
 		cancelledOrgID = selectedOrg.ID
