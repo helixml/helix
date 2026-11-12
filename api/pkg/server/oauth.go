@@ -348,10 +348,12 @@ func (s *HelixAPIServer) handleDeleteOAuthProvider(_ http.ResponseWriter, r *htt
 	vars := mux.Vars(r)
 	providerID := vars["id"]
 
-	// Delete the provider
-	err := s.Store.DeleteOAuthProvider(r.Context(), providerID)
-	if err != nil {
-		return nil, fmt.Errorf("error deleting provider: %w", err)
+	if _, err := s.Store.GetOAuthProvider(r.Context(), providerID); err != nil {
+		return nil, oauthStoreError(err, "OAuth provider not found", "error getting OAuth provider")
+	}
+	if err := s.Store.DeleteOAuthProvider(r.Context(), providerID); err != nil {
+		log.Error().Err(err).Str("provider_id", providerID).Msg("error deleting OAuth provider")
+		return nil, system.NewHTTPError500("error deleting OAuth provider")
 	}
 
 	return nil, nil
