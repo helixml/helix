@@ -342,6 +342,29 @@ func (s *PostgresStore) SetSessionProviderRecovery(ctx context.Context, sessionI
 	return s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).Update("config", update).Error
 }
 
+func (s *PostgresStore) ClearSessionProviderRecovery(ctx context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	result := s.gdb.WithContext(ctx).Model(&types.Session{}).
+		Where("id = ? AND config->'provider_recovery'->>'prompt_id' = ? AND config->'provider_recovery'->>'interaction_id' = ?", sessionID, promptID, interactionID).
+		Update("config", gorm.Expr("config - 'provider_recovery'"))
+	return result.RowsAffected > 0, result.Error
+}
+
+func (s *PostgresStore) RecordSessionAgentConfigApplied(ctx context.Context, sessionID string, appliedAt time.Time, handoffDelivered bool) error {
+	if sessionID == "" {
+		return fmt.Errorf("id not specified")
+	}
+	metadata := map[string]time.Time{"agent_config_applied_at": appliedAt}
+	if handoffDelivered {
+		metadata["agent_handoff_delivered_at"] = appliedAt
+	}
+	payload, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("encode agent config applied timestamps: %w", err)
+	}
+	return s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).
+		Update("config", gorm.Expr("config || ?::jsonb", string(payload))).Error
+}
+
 func (s *PostgresStore) ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error) {
 	if sessionID == "" {
 		return false, fmt.Errorf("id not specified")
