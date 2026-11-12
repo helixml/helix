@@ -17,15 +17,22 @@ import (
 )
 
 // DomainVerifier polls vhost_routes rows that are unverified
-// (verified_at IS NULL AND verification_token != ''), and for each one
+// (verified_at IS NULL AND verification_token != ”), and for each one
 // makes an HTTP request to
-//   http://<hostname>/.well-known/helix-domain-verify/<token>
+//
+//	http://<hostname>/.well-known/helix-domain-verify/<token>
+//
 // If the response body contains the token, the row is marked verified.
+// A row with OwnershipProofRequired additionally needs the token published
+// as a TXT record at types.DomainOwnershipTXTName(hostname).
 // Designed to be run on a ticker from the API process.
 type DomainVerifier struct {
 	store    store.Store
 	client   *http.Client
 	interval time.Duration
+	// lookupTXT resolves the ownership TXT record; net.DefaultResolver in
+	// production, replaced by tests.
+	lookupTXT func(ctx context.Context, name string) ([]string, error)
 }
 
 // NewDomainVerifier wires a verifier whose HTTP client applies policy to
@@ -35,9 +42,10 @@ type DomainVerifier struct {
 // into infinite loops or to a third party who happens to echo our token.
 func NewDomainVerifier(s store.Store, policy netguard.Policy) *DomainVerifier {
 	return &DomainVerifier{
-		store:    s,
-		client:   policy.NewClient(10 * time.Second),
-		interval: 60 * time.Second,
+		store:     s,
+		client:    policy.NewClient(10 * time.Second),
+		interval:  60 * time.Second,
+		lookupTXT: net.DefaultResolver.LookupTXT,
 	}
 }
 
@@ -131,7 +139,39 @@ func (v *DomainVerifier) checkRow(ctx context.Context, row *types.VHostRoute) bo
 		return false
 	}
 	url := fmt.Sprintf("http://%s/.well-known/helix-domain-verify/%s", row.Hostname, row.VerificationToken)
-	return v.fetchToken(ctx, url, row.VerificationToken)
+	return v.verifyRow(ctx, row, url)
+}
+
+// verifyRow runs the HTTP echo check against url and, for a row that needs
+// ownership proof, the TXT check. Pointing a hostname at Helix is something
+// a previous holder's stale CNAME already does, so a hostname another
+// project or organization held must also publish the token in DNS.
+func (v *DomainVerifier) verifyRow(ctx context.Context, row *types.VHostRoute, url string) bool {
+	if !v.fetchToken(ctx, url, row.VerificationToken) {
+		return false
+	}
+	if !row.OwnershipProofRequired {
+		return true
+	}
+	return v.hasOwnershipTXT(ctx, row.Hostname, row.VerificationToken)
+}
+
+// hasOwnershipTXT reports whether one TXT record at the hostname's ownership
+// name is exactly token.
+func (v *DomainVerifier) hasOwnershipTXT(ctx context.Context, hostname, token string) bool {
+	if v.lookupTXT == nil || token == "" {
+		return false
+	}
+	records, err := v.lookupTXT(ctx, types.DomainOwnershipTXTName(hostname))
+	if err != nil {
+		return false
+	}
+	for _, record := range records {
+		if strings.TrimSpace(record) == token {
+			return true
+		}
+	}
+	return false
 }
 
 // fetchToken GETs url through the policy-guarded client and reports whether

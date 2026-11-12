@@ -592,6 +592,43 @@ const DomainList: FC<{
                 )}
               </span>
             </Box>
+            {d.ownership_proof_required && d.verification_token && (
+              <>
+                <Typography variant="body2" sx={{ mt: 1.5, mb: 1 }}>
+                  This domain was previously connected to a different project, so
+                  Helix also needs proof that you control its DNS. Add this TXT
+                  record alongside the CNAME; both must be in place before the
+                  domain goes live:
+                </Typography>
+                <Box
+                  sx={{
+                    fontFamily: 'monospace',
+                    fontSize: '0.85rem',
+                    p: 1.5,
+                    borderRadius: 1,
+                    backgroundColor: 'rgba(0,0,0,0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <strong>Name:</strong> {ownershipTXTName(d.hostname)}
+                    <IconButton size="small" onClick={() => onCopy(ownershipTXTName(d.hostname!), 'Record name')}>
+                      <ContentCopyIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                  <span><strong>Type:</strong> TXT</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <strong>Value:</strong> {d.verification_token}
+                    <IconButton size="small" onClick={() => onCopy(d.verification_token!, 'TXT value')}>
+                      <ContentCopyIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Box>
+              </>
+            )}
           </Alert>
         ))}
     </Stack>
@@ -605,6 +642,10 @@ const leftmostLabel = (hostname: string): string => {
   const parts = hostname.split('.')
   return parts[0] || hostname
 }
+
+// ownershipTXTName is the full DNS name of the ownership-proof TXT record
+// the API verifier looks up (types.DomainOwnershipTXTName on the backend).
+const ownershipTXTName = (hostname: string): string => `_helix-challenge.${hostname}`
 
 const ActiveSandboxSummary: FC<{ state?: TypesProjectWebServiceState }> = ({ state }) => {
   if (!state?.active_sandbox_id) {

@@ -9368,6 +9368,14 @@ export interface TypesVHostRoute {
    * User-added custom domains and preview tokens are false.
    */
   is_default?: boolean;
+  /**
+   * OwnershipProofRequired is set on a custom domain that a different
+   * project or organization held before. The HTTP echo check only proves
+   * the hostname points at Helix, which a stale CNAME also does, so such a
+   * claim must additionally publish VerificationToken in a TXT record at
+   * DomainOwnershipTXTName(Hostname).
+   */
+  ownership_proof_required?: boolean;
   /** destination port inside the container; zero for static artifacts */
   port?: number;
   rotated_at?: string;

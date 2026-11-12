@@ -54,6 +54,7 @@ const (
 	PRProposalPrefix           = "prp_"
 	OrgInvitationPrefix        = "oin_"
 	VHostRoutePrefix           = "vhr_"
+	VHostDomainClaimPrefix     = "vdc_"
 	WebServiceDeployPrefix     = "wsd_"
 	PromptHistoryPrefix        = "prompt_"
 	ArtifactPrefix             = "art_"
@@ -288,4 +289,8 @@ func GenerateGitRepositoryID(repoType types.GitRepositoryType, name string) stri
 	sanitizedName := strings.ReplaceAll(strings.ToLower(name), " ", "-")
 	sanitizedName = strings.ReplaceAll(sanitizedName, "_", "-")
 	return fmt.Sprintf("%s-%s-%s", repoType, sanitizedName, newID())
+}
+
+func GenerateVHostDomainClaimID() string {
+	return fmt.Sprintf("%s%s", VHostDomainClaimPrefix, newID())
 }
