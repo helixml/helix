@@ -48,6 +48,14 @@ func (fakeAgentCreator) CreateAgent(context.Context, string, string, string, lif
 	return lifecycle.CreatedAgent{LegacyAppID: "app-test"}, nil
 }
 
+type fakeSessionProgress struct {
+	startedAt time.Time
+}
+
+func (f fakeSessionProgress) LatestSuccessfulTurnStartedAt(context.Context, string, orgchart.NodeID) (time.Time, error) {
+	return f.startedAt, nil
+}
+
 // newDeps builds a fresh store + config registry + hub for one test,
 // with all application services constructed over them (the Phase-D
 // shape: the REST adapter holds services, not the store). The registry
@@ -385,6 +393,37 @@ func TestGetBotSurfacesLatestActivationError(t *testing.T) {
 	var detail orgapi.BotDetailDTO
 	decode(t, rec, &detail)
 	if detail.Bot.ActivationError != "organization capacity reached" {
+		t.Fatalf("activation error = %q", detail.Bot.ActivationError)
+	}
+}
+
+func TestGetBotClearsActivationErrorAfterSuccessfulTurn(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedBot(t, st, ctx, "b-worker", "# Worker")
+	started := time.Date(2026, 11, 5, 16, 0, 0, 0, time.UTC)
+	act, err := activation.New("a-failed", "b-worker", []activation.Trigger{{Kind: activation.TriggerManual}}, started, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Create(ctx, act); err != nil {
+		t.Fatal(err)
+	}
+	endedAt := started.Add(time.Second)
+	if err := st.Activations.Complete(ctx, "org-test", act.ID, activation.Outcome{Status: activation.StatusError, Error: "provider timeout"}, endedAt); err != nil {
+		t.Fatal(err)
+	}
+	deps.Activations = activations.New(activations.Deps{
+		Repo: st.Activations, Progress: fakeSessionProgress{startedAt: endedAt.Add(time.Second)},
+	})
+
+	rec := do(t, orgapi.Handler(deps), "GET", "/bots/b-worker", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var detail orgapi.BotDetailDTO
+	decode(t, rec, &detail)
+	if detail.Bot.ActivationError != "" {
 		t.Fatalf("activation error = %q", detail.Bot.ActivationError)
 	}
 }

@@ -1,5 +1,7 @@
 import React from 'react';
-import { Box, Tooltip, Typography } from '@mui/material';
+import Box from '@mui/material/Box';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 import useLightTheme from '../../hooks/useLightTheme';
 import { TypesAggregatedUsageMetric } from '../../api/api';
 

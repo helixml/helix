@@ -137,6 +137,15 @@ func (t *TeamsBot) HandleActivity(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "Bot not ready", http.StatusServiceUnavailable)
 		return
 	}
+	// The SDK validates the Bot Framework JWT against the configured App ID
+	// and treats an empty App ID as "authentication disabled". Never serve
+	// activities in that mode: without credentials nothing proves the
+	// delivery came from the Bot Framework.
+	if t.trigger == nil || strings.TrimSpace(t.trigger.AppID) == "" || t.trigger.AppPassword == "" {
+		log.Error().Str("app_id", t.app.ID).Msg("Teams bot has no Bot Framework credentials; refusing activity")
+		http.Error(w, "Bot credentials not configured", http.StatusServiceUnavailable)
+		return
+	}
 
 	ctx := req.Context()
 

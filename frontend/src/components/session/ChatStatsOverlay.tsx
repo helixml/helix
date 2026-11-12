@@ -10,7 +10,10 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Box, Typography, IconButton, Tooltip } from '@mui/material';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { copyTextToClipboard } from '../../utils/clipboard';

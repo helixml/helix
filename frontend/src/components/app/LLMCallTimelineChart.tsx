@@ -1,5 +1,8 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { Box, Typography, Tooltip, useTheme } from '@mui/material';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Tooltip from '@mui/material/Tooltip';
+import { useTheme } from '@mui/material/styles';
 import { TypesStepInfo } from '../../api/api';
 import { useListAppSteps } from '../../services/appService';
 import SkillExecutionDialog from './SkillExecutionDialog';

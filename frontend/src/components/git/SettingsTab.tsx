@@ -1,24 +1,22 @@
 import React, { FC } from 'react'
-import {
-  Box,
-  Typography,
-  CircularProgress,
-  Button,
-  TextField,
-  Stack,
-  FormControlLabel,
-  Switch,
-  InputAdornment,
-  Paper,
-  Collapse,
-  Divider,
-  Alert,
-  IconButton,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import CircularProgress from '@mui/material/CircularProgress';
+import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
+import Stack from '@mui/material/Stack';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Switch from '@mui/material/Switch';
+import InputAdornment from '@mui/material/InputAdornment';
+import Paper from '@mui/material/Paper';
+import Collapse from '@mui/material/Collapse';
+import Divider from '@mui/material/Divider';
+import Alert from '@mui/material/Alert';
+import IconButton from '@mui/material/IconButton';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
 import {
   GitBranch,
   ExternalLink,

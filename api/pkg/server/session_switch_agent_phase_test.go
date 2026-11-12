@@ -314,7 +314,9 @@ func TestAgentSwitchRestartFallback_CreditsTheAppliedCallback(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
 	session := newTestParentSession("user_a")
-	switchedAt := time.Now()
+	// Backdate the switch so the 9s live-delivery budget has already expired,
+	// while the callback 2s after it keeps us inside the 60s applied budget.
+	switchedAt := time.Now().Add(-(switchAgentLiveDeliveryTimeout + 2*time.Second))
 	session.Metadata.AgentSwitchedAt = switchedAt
 	session.Metadata.AgentConfigAppliedAt = switchedAt.Add(2 * time.Second)
 	session.Metadata.AgentHandoffDeliveredAt = switchedAt.Add(2 * time.Second)
@@ -322,27 +324,20 @@ func TestAgentSwitchRestartFallback_CreditsTheAppliedCallback(t *testing.T) {
 
 	restarts := captureConfigChanges(t, srv, session)
 
-	fallbackCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	// Two polls past the expired live budget.
+	fallbackCtx, cancel := context.WithTimeout(ctx, 2*switchAgentFallbackPollInterval+500*time.Millisecond)
 	defer cancel()
-	done := make(chan struct{})
-	go func() {
-		srv.agentSwitchRestartFallback(fallbackCtx, session.ID, switchedAt)
-		close(done)
-	}()
+	srv.agentSwitchRestartFallback(fallbackCtx, session.ID, switchedAt)
 
-	// Well past the 9s live-delivery budget, inside the 60s applied budget.
-	time.Sleep(11 * time.Second)
-	cancel()
-	<-done
-
-	assert.Empty(t, restarts(), "a confirmed-applied config must not be restarted at the 9s mark")
+	assert.Empty(t, restarts(), "a confirmed-applied config must not be restarted after the 9s mark")
 }
 
 func TestAgentSwitchRestartFallback_RestartsWithoutTheCallback(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
 	session := newTestParentSession("user_a")
-	switchedAt := time.Now()
+	// Backdated past the 9s live-delivery budget, with no callback recorded.
+	switchedAt := time.Now().Add(-(switchAgentLiveDeliveryTimeout + time.Second))
 	session.Metadata.AgentSwitchedAt = switchedAt
 	seedParentWithInteractions(t, mem, session, 1)
 

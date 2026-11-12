@@ -7,6 +7,11 @@ set -euo pipefail
 # Rolls back a failed release by cleaning up partially-published artifacts.
 # Idempotent — safe to run multiple times.
 #
+# The git tag is kept, so a release that failed on a flaky step is retried by
+# restarting its Drone build. Deleting the tag forced re-cutting it, and a
+# re-cut tag could be deleted again by a rollback still running for the
+# previous attempt (2.12.55 was cut 8 times).
+#
 # Usage:
 #   scripts/release-rollback.sh VERSION
 #   scripts/release-rollback.sh 2.9.14
@@ -14,7 +19,7 @@ set -euo pipefail
 # In CI: VERSION is read from DRONE_TAG if not provided.
 #
 # Required environment variables:
-#   GITHUB_TOKEN              - GitHub PAT for gh CLI (release + tag deletion)
+#   GITHUB_TOKEN              - GitHub PAT for gh CLI (release deletion)
 #
 # Optional environment variables (skip cleanup if not set):
 #   GCS_SERVICE_ACCOUNT_KEY   - Base64-encoded GCS service account JSON
@@ -62,23 +67,7 @@ rollback_github_release() {
   fi
 }
 
-# --- 2. Delete Remote Git Tag ---
-rollback_git_tag() {
-  if [ -z "${GITHUB_TOKEN:-}" ]; then
-    warn "GITHUB_TOKEN not set, skipping git tag cleanup"
-    return 0
-  fi
-
-  log "Deleting remote git tag $VERSION..."
-  if gh api "repos/$REPO/git/refs/tags/$VERSION" >/dev/null 2>&1; then
-    gh api --method DELETE "repos/$REPO/git/refs/tags/$VERSION"
-    log "Remote git tag $VERSION deleted"
-  else
-    log "Remote git tag $VERSION not found (already deleted or never created)"
-  fi
-}
-
-# --- 3. Delete Helm Chart Packages from GCS ---
+# --- 2. Delete Helm Chart Packages from GCS ---
 rollback_helm_charts() {
   if [ -z "${GCS_SERVICE_ACCOUNT_KEY:-}" ]; then
     # Fall back to ambient credentials (e.g. developer's local gcloud auth)
@@ -129,7 +118,7 @@ rollback_helm_charts() {
   fi
 }
 
-# --- 4. Delete R2 Assets (DMG, VM disk) ---
+# --- 3. Delete R2 Assets (DMG, VM disk) ---
 rollback_r2_assets() {
   if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
     warn "R2 credentials not set, skipping R2 cleanup"
@@ -159,7 +148,7 @@ rollback_r2_assets() {
   fi
 }
 
-# --- 5. Revert latest.json ---
+# --- 4. Revert latest.json ---
 rollback_latest_json() {
   if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
     warn "R2 credentials not set, skipping latest.json revert"
@@ -208,7 +197,7 @@ rollback_latest_json() {
   log "latest.json reverted to $PREV_VERSION"
 }
 
-# --- 6. Send Slack Notification ---
+# --- 5. Send Slack Notification ---
 send_slack_notification() {
   if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
     return 0
@@ -230,7 +219,6 @@ log "============================================"
 
 FAILED=0
 rollback_github_release || { warn "GitHub release cleanup encountered errors"; FAILED=1; }
-rollback_git_tag        || { warn "Git tag cleanup encountered errors"; FAILED=1; }
 rollback_helm_charts    || { warn "Helm chart cleanup encountered errors"; FAILED=1; }
 rollback_r2_assets      || { warn "R2 asset cleanup encountered errors"; FAILED=1; }
 rollback_latest_json    || { warn "latest.json revert encountered errors"; FAILED=1; }

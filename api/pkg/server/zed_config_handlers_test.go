@@ -153,6 +153,42 @@ func TestGetProviderSnapshotSubscriptionExcludesGlobalProviders(t *testing.T) {
 	require.Empty(t, snapshot)
 }
 
+func TestGetProviderSnapshotIncludesCachedModelAvailability(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{
+		NumCounters: 1e3,
+		MaxCost:     1 << 20,
+		BufferItems: 64,
+	})
+	require.NoError(t, err)
+	defer cache.Close()
+
+	server := &HelixAPIServer{providerManager: providerManager, cache: cache}
+	endpoints := []*types.ProviderEndpoint{
+		nil,
+		{ID: "pe_available", Name: "available", Owner: "user_1"},
+		{ID: "pe_empty", Name: "empty", Owner: "user_1"},
+		{ID: "pe_unknown", Name: "unknown", Owner: "user_1"},
+	}
+	providerManager.EXPECT().ListProviderEndpoints(gomock.Any(), "user_1").Return(endpoints, nil)
+	server.storeCachedModels(modelCacheKey("available", "user_1"), []types.OpenAIModel{
+		{ID: "model-1", Enabled: true},
+		{ID: "billing-disabled", Enabled: false},
+	}, time.Now())
+	server.storeCachedModels(modelCacheKey("empty", "user_1"), []types.OpenAIModel{}, time.Now())
+	cache.Wait()
+
+	snapshot, err := server.getProviderSnapshot(context.Background(), "user_1", &types.App{})
+
+	require.NoError(t, err)
+	require.Equal(t, []external_agent.ProviderRef{
+		{ID: "pe_available", Name: "available", ModelsKnown: true, Models: []string{"model-1"}},
+		{ID: "pe_empty", Name: "empty", ModelsKnown: true, Models: []string{}},
+		{ID: "pe_unknown", Name: "unknown"},
+	}, snapshot)
+}
+
 func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 	helixURL := "http://localhost:8080"
 	ctx := context.Background()
