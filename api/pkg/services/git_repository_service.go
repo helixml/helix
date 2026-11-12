@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -2751,6 +2752,22 @@ func (s *GitRepositoryService) adoPolicy() netguard.Policy {
 		return netguard.Policy{}
 	}
 	return *s.outboundPolicy
+}
+
+// gitProviderAPITimeout bounds one git provider API request made through
+// providerHTTPClient.
+const gitProviderAPITimeout = 60 * time.Second
+
+// providerHTTPClient returns the HTTP client for a GitHub, GitLab or
+// Bitbucket API at baseURL. A repository-supplied (self-hosted) baseURL gets
+// a client guarded by the outbound policy, so it cannot reach loopback,
+// internal services or cloud metadata; "" keeps the SDK default for the
+// public host.
+func (s *GitRepositoryService) providerHTTPClient(baseURL string) *http.Client {
+	if baseURL == "" {
+		return nil
+	}
+	return s.adoPolicy().NewClient(gitProviderAPITimeout)
 }
 
 // pinUpstream applies the outbound policy, when one is set, to remote.
