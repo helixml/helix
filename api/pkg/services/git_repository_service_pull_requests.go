@@ -149,7 +149,7 @@ func (s *GitRepositoryService) updateGitHubPullRequest(ctx context.Context, repo
 		if repo.GitHub != nil {
 			baseURL = repo.GitHub.BaseURL
 		}
-		client = github.NewClientWithOAuthAndBaseURL(token, baseURL)
+		client = github.NewClientWithPATBaseURLAndHTTPClient(token, baseURL, s.providerHTTPClient(baseURL))
 		owner, repoName, err = github.ParseGitHubURL(repo.ExternalURL)
 		if err != nil {
 			return fmt.Errorf("failed to parse GitHub URL: %w", err)
@@ -197,9 +197,9 @@ func (s *GitRepositoryService) updateGitLabMergeRequest(ctx context.Context, rep
 	baseURL := gitLabBaseURL(repo)
 	var client *gitlab.Client
 	if oauth {
-		client, err = gitlab.NewClientWithOAuth(baseURL, token)
+		client, err = gitlab.NewClientWithOAuthAndHTTPClient(baseURL, token, s.providerHTTPClient(baseURL))
 	} else {
-		client, err = gitlab.NewClientWithPAT(baseURL, token)
+		client, err = gitlab.NewClientWithPATAndHTTPClient(baseURL, token, s.providerHTTPClient(baseURL))
 	}
 	if err != nil {
 		return err
@@ -396,7 +396,7 @@ func (s *GitRepositoryService) updateBitbucketPullRequest(ctx context.Context, r
 	if repo.Bitbucket != nil {
 		baseURL = repo.Bitbucket.BaseURL
 	}
-	client := bitbucket.NewClient(username, token, baseURL)
+	client := bitbucket.NewClientWithHTTPClient(username, token, baseURL, s.providerHTTPClient(baseURL))
 	workspace, repoSlug, _, err := bitbucket.ParseBitbucketURL(repo.ExternalURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse Bitbucket URL: %w", err)
@@ -852,7 +852,7 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 		}
 		for _, conn := range connections {
 			if OAuthConnectionMatchesProvider(conn, types.OAuthProviderTypeGitHub) && conn.AccessToken != "" {
-				return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
+				return github.NewClientWithPATBaseURLAndHTTPClient(conn.AccessToken, baseURL, s.providerHTTPClient(baseURL)), nil
 			}
 		}
 		return nil, &OAuthRequiredError{ProviderType: "github"}
@@ -863,7 +863,7 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 	// First check for GitHub App authentication (service-to-service)
 	// This takes priority as it's the recommended approach for automated systems
 	if repo.GitHub != nil && repo.GitHub.AppID != 0 && repo.GitHub.InstallationID != 0 && repo.GitHub.PrivateKey != "" {
-		client, err := github.NewClientWithGitHubApp(repo.GitHub.AppID, repo.GitHub.InstallationID, repo.GitHub.PrivateKey, baseURL)
+		client, err := github.NewClientWithGitHubAppAndHTTPClient(repo.GitHub.AppID, repo.GitHub.InstallationID, repo.GitHub.PrivateKey, baseURL, s.providerHTTPClient(baseURL))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create GitHub App client: %w", err)
 		}
@@ -874,7 +874,7 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 	if repo.OAuthConnectionID != "" {
 		conn, err := s.store.GetOAuthConnection(ctx, repo.OAuthConnectionID)
 		if err == nil && conn.AccessToken != "" {
-			return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
+			return github.NewClientWithPATBaseURLAndHTTPClient(conn.AccessToken, baseURL, s.providerHTTPClient(baseURL)), nil
 		}
 		// The pinned connection is gone (the owner disconnected/reconnected GitHub,
 		// which soft-deletes the old connection row). Self-heal to the repo owner's
@@ -883,19 +883,19 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 		// GitHub authentication configured" even though push works.
 		if repo.OwnerID != "" {
 			if token := s.newestLiveOAuthToken(ctx, repo.OwnerID, repo.ExternalType); token != "" {
-				return github.NewClientWithOAuthAndBaseURL(token, baseURL), nil
+				return github.NewClientWithPATBaseURLAndHTTPClient(token, baseURL, s.providerHTTPClient(baseURL)), nil
 			}
 		}
 	}
 
 	// Check for GitHub-specific PAT
 	if repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "" {
-		return github.NewClientWithPATAndBaseURL(repo.GitHub.PersonalAccessToken, baseURL), nil
+		return github.NewClientWithPATBaseURLAndHTTPClient(repo.GitHub.PersonalAccessToken, baseURL, s.providerHTTPClient(baseURL)), nil
 	}
 
 	// Fall back to username/password (password is typically a PAT)
 	if repo.Password != "" {
-		return github.NewClientWithPATAndBaseURL(repo.Password, baseURL), nil
+		return github.NewClientWithPATBaseURLAndHTTPClient(repo.Password, baseURL, s.providerHTTPClient(baseURL)), nil
 	}
 
 	return nil, fmt.Errorf("no GitHub authentication configured - provide a Personal Access Token, GitHub App, or connect via OAuth")
@@ -1163,7 +1163,7 @@ func (s *GitRepositoryService) getGitLabClient(ctx context.Context, repo *types.
 		}
 		for _, conn := range connections {
 			if OAuthConnectionMatchesProvider(conn, types.OAuthProviderTypeGitLab) && conn.AccessToken != "" {
-				return gitlab.NewClientWithOAuth(baseURL, conn.AccessToken)
+				return gitlab.NewClientWithOAuthAndHTTPClient(baseURL, conn.AccessToken, s.providerHTTPClient(baseURL))
 			}
 		}
 		if !hasGitLabRepoPAT(repo) {
@@ -1175,26 +1175,26 @@ func (s *GitRepositoryService) getGitLabClient(ctx context.Context, repo *types.
 	if repo.OAuthConnectionID != "" {
 		conn, err := s.store.GetOAuthConnection(ctx, repo.OAuthConnectionID)
 		if err == nil && conn.AccessToken != "" {
-			return gitlab.NewClientWithOAuth(baseURL, conn.AccessToken)
+			return gitlab.NewClientWithOAuthAndHTTPClient(baseURL, conn.AccessToken, s.providerHTTPClient(baseURL))
 		}
 		// Pinned connection is gone (owner disconnected/reconnected). Self-heal to
 		// the repo owner's newest live connection, matching getGitHubClient and the
 		// git-credential path in getCredentialsForRepo.
 		if repo.OwnerID != "" {
 			if token := s.newestLiveOAuthToken(ctx, repo.OwnerID, repo.ExternalType); token != "" {
-				return gitlab.NewClientWithOAuth(baseURL, token)
+				return gitlab.NewClientWithOAuthAndHTTPClient(baseURL, token, s.providerHTTPClient(baseURL))
 			}
 		}
 	}
 
 	// Check for GitLab-specific PAT
 	if repo.GitLab != nil && repo.GitLab.PersonalAccessToken != "" {
-		return gitlab.NewClientWithPAT(baseURL, repo.GitLab.PersonalAccessToken)
+		return gitlab.NewClientWithPATAndHTTPClient(baseURL, repo.GitLab.PersonalAccessToken, s.providerHTTPClient(baseURL))
 	}
 
 	// Fall back to username/password (password is typically a PAT)
 	if repo.Password != "" {
-		return gitlab.NewClientWithPAT(baseURL, repo.Password)
+		return gitlab.NewClientWithPATAndHTTPClient(baseURL, repo.Password, s.providerHTTPClient(baseURL))
 	}
 
 	return nil, fmt.Errorf("no GitLab authentication configured - provide a Personal Access Token or connect via OAuth")
@@ -1466,7 +1466,7 @@ func (s *GitRepositoryService) getBitbucketClient(ctx context.Context, repo *typ
 		return nil, fmt.Errorf("no Bitbucket authentication configured - provide username and app password")
 	}
 
-	return bitbucket.NewClient(username, appPassword, baseURL), nil
+	return bitbucket.NewClientWithHTTPClient(username, appPassword, baseURL, s.providerHTTPClient(baseURL)), nil
 }
 
 func (s *GitRepositoryService) createBitbucketPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {
