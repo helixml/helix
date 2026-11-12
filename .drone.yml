@@ -39,7 +39,7 @@ steps:
       - cd frontend
       - yarn install --frozen-lockfile --check-files
       - npx tsc --noEmit -p tsconfig.json
-      - yarn test
+      - yarn test --maxWorkers=2 --minWorkers=1
       - yarn build
     depends_on: []
 
