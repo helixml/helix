@@ -333,11 +333,18 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
                     </IconButton>
                   </span>
                 </Box>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  3. Add a <strong>TXT</strong> record named{' '}
+                  <code>_helix-challenge.app.yourcompany.com</code> whose value is
+                  the verification token shown under your domain once it is
+                  added. This proves you control the domain's DNS; without it,
+                  anyone could connect your domain to their own project.
+                </Typography>
                 <Typography variant="body2">
-                  3. That's it. Helix checks every minute and your domain
+                  4. That's it. Helix checks every minute and your domain
                   will go live automatically — usually within a couple
-                  of minutes once DNS has propagated. The HTTPS certificate
-                  is issued and renewed for you, no extra steps.
+                  of minutes once both records have propagated. The HTTPS
+                  certificate is issued and renewed for you, no extra steps.
                 </Typography>
                 {acmeChallengeTarget && (
                   <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid rgba(0,0,0,0.12)' }}>
@@ -590,6 +597,43 @@ const DomainList: FC<{
                 )}
               </span>
             </Box>
+            {d.verification_token && (
+              <>
+                <Typography variant="body2" sx={{ mt: 1.5, mb: 1 }}>
+                  Also add this TXT record. It proves to Helix that you control
+                  the domain's DNS, so nobody else can connect your domain to
+                  their project. The domain goes live once both records are in
+                  place:
+                </Typography>
+                <Box
+                  sx={{
+                    fontFamily: 'monospace',
+                    fontSize: '0.85rem',
+                    p: 1.5,
+                    borderRadius: 1,
+                    backgroundColor: 'rgba(0,0,0,0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <strong>Name:</strong> {ownershipTXTName(d.hostname)}
+                    <IconButton size="small" onClick={() => onCopy(ownershipTXTName(d.hostname!), 'Record name')}>
+                      <ContentCopyIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                  <span><strong>Type:</strong> TXT</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <strong>Value:</strong> {d.verification_token}
+                    <IconButton size="small" onClick={() => onCopy(d.verification_token!, 'TXT value')}>
+                      <ContentCopyIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Box>
+              </>
+            )}
           </Alert>
         ))}
     </Stack>
@@ -603,6 +647,10 @@ const leftmostLabel = (hostname: string): string => {
   const parts = hostname.split('.')
   return parts[0] || hostname
 }
+
+// ownershipTXTName is the full DNS name of the ownership-proof TXT record
+// the API verifier looks up (types.DomainOwnershipTXTName on the backend).
+const ownershipTXTName = (hostname: string): string => `_helix-challenge.${hostname}`
 
 const ActiveSandboxSummary: FC<{ state?: TypesProjectWebServiceState }> = ({ state }) => {
   if (!state?.active_sandbox_id) {
