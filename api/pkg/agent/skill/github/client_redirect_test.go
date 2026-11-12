@@ -33,3 +33,22 @@ func TestPATClientKeepsInjectedRedirectPolicy(t *testing.T) {
 	require.Error(t, err)
 	require.Zero(t, targetHits.Load(), "redirect must not be followed")
 }
+
+// The injected client's timeout must also survive the oauth2 wrapping, so a
+// slow or hanging GitHub Enterprise server cannot hold a request open.
+func TestPATClientKeepsInjectedTimeout(t *testing.T) {
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		<-release
+	}))
+	defer slow.Close()
+	defer close(release)
+
+	httpClient := netguard.Policy{AllowPrivate: true}.NewClient(200 * time.Millisecond)
+	client := NewClientWithPATBaseURLAndHTTPClient("dummy", slow.URL+"/api/v3/", httpClient)
+
+	start := time.Now()
+	_, _, _, err := client.GetAuthenticatedUserWithScopes(context.Background())
+	require.Error(t, err)
+	require.Less(t, time.Since(start), 5*time.Second, "request outlived the injected client's timeout")
+}

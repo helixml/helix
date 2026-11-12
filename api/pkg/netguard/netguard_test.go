@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -244,5 +245,65 @@ func TestGuardContext(t *testing.T) {
 	}
 	if got.Load() != before {
 		t.Fatal("request over a pooled connection reached a loopback server")
+	}
+}
+
+func TestRedirectingClientFollowsAllowedHops(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusMovedPermanently)
+	}))
+	defer redirector.Close()
+
+	resp, err := Policy{AllowPrivate: true}.NewRedirectingClient(5 * time.Second).Get(redirector.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 after following the redirect", resp.StatusCode)
+	}
+}
+
+func TestRedirectingClientRechecksEachHop(t *testing.T) {
+	for _, location := range []string{
+		"http://169.254.169.254/latest/meta-data/", // always blocked
+		"file:///etc/passwd",                       // bad scheme
+		"http://127.0.0.1:1/",                      // private, not allowed by this policy
+	} {
+		var hops atomic.Int32
+		policy := Policy{}
+		client := policy.NewRedirectingClient(5 * time.Second)
+		// Stand the redirector up on loopback but reach it through a
+		// transport that skips the guard, so only the redirect hop is checked.
+		redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hops.Add(1)
+			http.Redirect(w, r, location, http.StatusFound)
+		}))
+		client.Transport = http.DefaultTransport
+		_, err := client.Get(redirector.URL)
+		redirector.Close()
+		if !errors.Is(err, ErrBlockedDestination) {
+			t.Errorf("redirect to %s: err = %v, want ErrBlockedDestination", location, err)
+		}
+		if hops.Load() != 1 {
+			t.Errorf("redirect to %s: %d requests, want 1", location, hops.Load())
+		}
+	}
+}
+
+func TestRedirectingClientCapsHops(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, srv.URL+"/again", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	_, err := Policy{AllowPrivate: true}.NewRedirectingClient(5 * time.Second).Get(srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "stopped after 10 redirects") {
+		t.Fatalf("err = %v, want redirect cap", err)
 	}
 }
