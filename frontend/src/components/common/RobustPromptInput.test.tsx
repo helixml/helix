@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, fireEvent, waitFor, screen } from '@testing-library/react'
 import { PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import RobustPromptInput from './RobustPromptInput'
@@ -246,8 +246,13 @@ describe('RobustPromptInput empty-Enter promotes oldest queued to interrupt', ()
 // out of the way when it is (spec tasks).
 describe('RobustPromptInput client-side queue pump', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     saveToHistory.mockClear()
     pendingPrompts = []
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('dispatches a pending message via onSend when there is no spec task', async () => {
@@ -256,10 +261,8 @@ describe('RobustPromptInput client-side queue pump', () => {
     render(
       <RobustPromptInput sessionId="ses_test" projectId="prj_1" onSend={onSend} />
     )
-    await waitFor(
-      () => expect(onSend).toHaveBeenCalledWith('hello worker', false),
-      { timeout: 2000 },
-    )
+    await act(() => vi.advanceTimersByTimeAsync(1000))
+    expect(onSend).toHaveBeenCalledWith('hello worker', false)
   })
 
   it('does NOT pump the queue when the backend queue is enabled (spec task)', async () => {
@@ -274,8 +277,8 @@ describe('RobustPromptInput client-side queue pump', () => {
         onSend={onSend}
       />
     )
-    // Give the pump's 500ms/300ms timers room to (not) fire.
-    await new Promise((r) => setTimeout(r, 800))
+    // Run past the pump's 500ms/300ms timers.
+    await act(() => vi.advanceTimersByTimeAsync(1000))
     expect(onSend).not.toHaveBeenCalled()
   })
 })
@@ -370,11 +373,20 @@ describe('RobustPromptInput queue panel only appears for genuinely queued prompt
     expect(screen.getByText('2 queued')).toBeInTheDocument()
   })
 
-  it('reveals an undispatched prompt once the grace window elapses', async () => {
-    pendingPrompts = [mkEntry('a', Date.now() - (QUEUE_DISPATCH_GRACE_MS - 150))]
-    renderQueued()
-    expect(screen.queryByText(/queued/)).not.toBeInTheDocument()
-    await waitFor(() => expect(screen.getByText('1 queued')).toBeInTheDocument())
+  it('reveals an undispatched prompt once the grace window elapses', () => {
+    // A frozen clock: a slow render must not eat into the grace window.
+    vi.useFakeTimers()
+    try {
+      pendingPrompts = [mkEntry('a', Date.now())]
+      renderQueued()
+      expect(screen.queryByText(/queued/)).not.toBeInTheDocument()
+      act(() => {
+        vi.advanceTimersByTime(QUEUE_DISPATCH_GRACE_MS + 100)
+      })
+      expect(screen.getByText('1 queued')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

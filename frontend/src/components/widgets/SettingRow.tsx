@@ -1,5 +1,7 @@
 import { FC, ReactNode } from 'react'
-import { Box, BoxProps, Typography } from '@mui/material'
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import type { BoxProps } from '@mui/material';
 
 interface SettingRowProps {
   /** What the setting is called. Replaces the control's own floating label. */

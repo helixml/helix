@@ -1,14 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import {
-  DialogContent,
-  DialogActions,
-  Button,
-  Box,
-  Typography,
-  Switch,
-  FormControlLabel,
-  Alert,
-} from '@mui/material';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Alert from '@mui/material/Alert';
 import { IAppFlatState } from '../../types';
 import { TypesAssistantBrowser } from '../../api/api';
 import { styled } from '@mui/material/styles';

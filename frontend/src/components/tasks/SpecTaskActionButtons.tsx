@@ -1,16 +1,14 @@
 import React, { RefObject, useState } from "react";
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Menu,
-  MenuItem,
-  ListItemText,
-  Tooltip,
-  Typography,
-} from "@mui/material";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import ListItemText from "@mui/material/ListItemText";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import {
   ArchiveRestore,
   CircleCheck as ApproveIcon,

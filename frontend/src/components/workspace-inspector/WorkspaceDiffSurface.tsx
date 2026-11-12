@@ -9,19 +9,17 @@ import type {
   LineAnnotation,
   SelectedLineRange,
 } from "@pierre/diffs";
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  IconButton,
-  ListItemIcon,
-  Menu,
-  MenuItem,
-  Select,
-  Tooltip,
-  Typography,
-} from "@mui/material";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import { Columns2, Copy, Pilcrow, RefreshCw, Rows3, WrapText } from "lucide-react";
 import type { TypesWorkspaceReviewSource } from "../../api/api";
 import useLightTheme from "../../hooks/useLightTheme";

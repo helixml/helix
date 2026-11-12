@@ -6,7 +6,7 @@ import Button from '@mui/material/Button'
 import Alert from '@mui/material/Alert'
 import Fade from '@mui/material/Fade'
 import CircularProgress from '@mui/material/CircularProgress'
-import type { SxProps, Theme } from '@mui/material'
+import type { SxProps, Theme } from '@mui/material';
 
 import { useTheme } from '@mui/material/styles'
 

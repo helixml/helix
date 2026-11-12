@@ -1,4 +1,7 @@
-import { Alert, Box, Button, Tooltip } from "@mui/material";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Tooltip from "@mui/material/Tooltip";
 import { Code2 } from "lucide-react";
 
 interface ReviewActionFooterProps {

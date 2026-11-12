@@ -11,10 +11,14 @@ vi.mock("../../hooks/useSnackbar", () => ({
   default: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
 
-// The controls read the selected model's supported reasoning efforts through
-// React Query (useModelReasoningEfforts), so they need a client the same way
-// they do under App.tsx. Retries off so a query that has nothing to resolve
-// fails fast instead of holding the test open.
+// The selected model's supported reasoning efforts come from the provider
+// list; stub it so the controls never issue a real request from jsdom.
+vi.mock("../../services/providersService", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../services/providersService")>()),
+  useListProviders: () => ({ data: [] }),
+}));
+
+// The controls use React Query the same way they do under App.tsx.
 const render = (ui: ReactElement) => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },

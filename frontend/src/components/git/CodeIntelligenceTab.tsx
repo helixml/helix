@@ -1,28 +1,26 @@
 import React, { FC, useState, useEffect, useMemo, useCallback } from 'react'
 import ReactMarkdown, { Components } from 'react-markdown'
-import {
-  Box,
-  Typography,
-  Alert,
-  Chip,
-  Stack,
-  Card,
-  CardContent,
-  Collapse,
-  IconButton,
-  CircularProgress,
-  TextField,
-  InputAdornment,
-  Tab,
-  Tabs,
-  List,
-  ListItemButton,
-  ListItemText,
-  Select,
-  MenuItem,
-  useMediaQuery,
-  useTheme,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Alert from '@mui/material/Alert';
+import Chip from '@mui/material/Chip';
+import Stack from '@mui/material/Stack';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import Collapse from '@mui/material/Collapse';
+import IconButton from '@mui/material/IconButton';
+import CircularProgress from '@mui/material/CircularProgress';
+import TextField from '@mui/material/TextField';
+import InputAdornment from '@mui/material/InputAdornment';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemText from '@mui/material/ListItemText';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import {
   Brain,
   BookOpen,
