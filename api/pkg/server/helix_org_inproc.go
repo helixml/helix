@@ -209,6 +209,19 @@ func applyResolvedAgentDefaults(assistant *types.AssistantConfig, defaults types
 	assistant.ReasoningEffort = defaults.ReasoningEffort
 }
 
+// AuthorizeAgentUpdate reports whether the request's user may update appID.
+func (c *inProcHelixClient) AuthorizeAgentUpdate(ctx context.Context, appID string) error {
+	user, err := c.resolveUser(ctx)
+	if err != nil {
+		return err
+	}
+	app, err := c.server.Store.GetApp(ctx, appID)
+	if err != nil {
+		return err
+	}
+	return c.server.authorizeUserToApp(ctx, user, app, types.ActionUpdate)
+}
+
 func (c *inProcHelixClient) UpdateAgent(ctx context.Context, appID string, patch orgapi.AgentConfigPatch, name, instructions *string) error {
 	user, err := c.resolveUser(ctx)
 	if err != nil {

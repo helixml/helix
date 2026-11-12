@@ -620,7 +620,11 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	apiKey := s.extractAPIKey(r)
 	restriction, err := s.getBranchRestrictionForAPIKey(r.Context(), apiKey, repoID)
 	if err != nil {
+		// Without the key record we cannot tell whether this is a restricted
+		// agent key, so refuse rather than push unrestricted.
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get branch restriction for API key")
+		http.Error(w, "Push denied: could not resolve push permissions; try again", http.StatusServiceUnavailable)
+		return
 	}
 	if restriction != nil && restriction.IsAgentKey && restriction.ErrorMessage != "" {
 		log.Error().Str("repo_id", repoID).Str("error", restriction.ErrorMessage).Msg("Agent push denied")
@@ -1146,6 +1150,11 @@ func (s *GitHTTPServer) handleCloneInfo(w http.ResponseWriter, r *http.Request) 
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
 
+	if !s.hasReadAccess(r.Context(), s.getUser(r), repoID) {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
+
 	cloneURL := s.GetCloneURL(repoID)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1155,6 +1164,11 @@ func (s *GitHTTPServer) handleCloneInfo(w http.ResponseWriter, r *http.Request) 
 func (s *GitHTTPServer) handleRepositoryStatus(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
+
+	if !s.hasReadAccess(r.Context(), s.getUser(r), repoID) {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
 
 	repoPath, repo, err := s.getRepoPath(r.Context(), repoID)
 	if err != nil {
