@@ -861,6 +861,28 @@ helix_compose_args() {
     fi
 }
 
+# warn_postgres_eol: the controlplane compose file defaults to PostgreSQL 12
+# so existing data volumes keep starting. 12 is end-of-life; moving to a
+# supported major is an opt-in dump/restore (docs/postgres-upgrade.md).
+warn_postgres_eol() {
+    local image=""
+    if [ -f "$INSTALL_DIR/.env" ]; then
+        image=$(grep -E '^[[:space:]]*HELIX_POSTGRES_IMAGE[[:space:]]*=' "$INSTALL_DIR/.env" 2>/dev/null \
+            | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)
+    fi
+    case "${image:-postgres:12}" in
+        postgres:12*|*/postgres:12*)
+            echo
+            echo "┌───────────────────────────────────────────────────────────────────────────"
+            echo "│ ⚠️  Helix's database runs PostgreSQL 12, which is end-of-life and no longer"
+            echo "│    receives security fixes. Upgrading is a one-time dump and restore that"
+            echo "│    keeps your current data volume as a rollback:"
+            echo "│    https://github.com/helixml/helix/blob/main/docs/postgres-upgrade.md"
+            echo "└───────────────────────────────────────────────────────────────────────────"
+            ;;
+    esac
+}
+
 # --------------------------------------------------------------------------
 # do_upgrade: lightweight controlplane upgrade path.
 #
@@ -987,6 +1009,7 @@ do_upgrade() {
     echo
     echo "Upgrade complete. Running containers:"
     $DOCKER_CMD compose "${HELIX_COMPOSE_ARGS[@]}" ps
+    warn_postgres_eol
     exit 0
 }
 
@@ -2309,6 +2332,7 @@ CADDYEOF"
         echo
         echo "✅ Helix $LATEST_RELEASE started"
         echo "   Helix is available at $API_HOST"
+        warn_postgres_eol
     fi
 fi
 

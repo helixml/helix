@@ -847,7 +847,7 @@ steps:
 
 services:
   - name: postgres
-    image: postgres:12.13-alpine
+    image: postgres:12.22-alpine
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres

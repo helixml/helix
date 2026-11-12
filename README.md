@@ -106,6 +106,8 @@ The installer will prompt you before making changes to your system. By default, 
 
 For setting up a deployment with a DNS name, see `./install.sh --help` or read [the detailed docs](https://helix.ml/docs). We've documented easy TLS termination for you.
 
+Existing Docker installs run PostgreSQL 12, which is end-of-life. To move to a supported version, follow [the PostgreSQL upgrade guide](docs/postgres-upgrade.md).
+
 **Next steps:**
 - Attach your own GPU runners per [runners docs](https://helix.ml/docs)
 - Use any [external OpenAI-compatible LLM](https://helix.ml/docs) (including self-hosted vLLM)
