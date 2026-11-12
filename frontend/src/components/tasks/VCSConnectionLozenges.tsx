@@ -1,5 +1,10 @@
 import React, { useState } from "react";
-import { Box, Chip, Menu, MenuItem, Tooltip, Typography } from "@mui/material";
+import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import LinkOffIcon from "@mui/icons-material/LinkOff";

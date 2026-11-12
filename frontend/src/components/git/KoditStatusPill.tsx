@@ -1,11 +1,9 @@
 import { FC } from 'react'
-import {
-  Box,
-  Chip,
-  CircularProgress,
-  IconButton,
-  Tooltip,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import {
   Check,
   AlertCircle,

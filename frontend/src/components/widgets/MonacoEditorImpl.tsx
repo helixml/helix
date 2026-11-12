@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import * as monaco from 'monaco-editor';
-import { Box, BoxProps } from '@mui/material';
+import Box from '@mui/material/Box';
+import type { BoxProps } from '@mui/material';
 import useThemeConfig from '../../hooks/useThemeConfig';
 import useLightTheme from '../../hooks/useLightTheme';
 import { getMonacoClipboardOverrideServices } from '../../utils/clipboard';

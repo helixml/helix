@@ -1,16 +1,14 @@
 import React, { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Alert,
-  Box,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Stack,
-  TextField,
-  Typography,
-} from "@mui/material";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import FormControl from "@mui/material/FormControl";
+import InputLabel from "@mui/material/InputLabel";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 
 import useApi from "../../hooks/useApi";
 import { ServerProjectGooseRecipe } from "../../api/api";

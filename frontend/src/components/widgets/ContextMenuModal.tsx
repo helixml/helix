@@ -1,15 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
-    Menu,
-    MenuItem,
-    InputBase,
-    Paper,
-    MenuList,
-    Box,
-    Typography,
-    Divider,
-    ListSubheader
-} from '@mui/material';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import InputBase from '@mui/material/InputBase';
+import Paper from '@mui/material/Paper';
+import MenuList from '@mui/material/MenuList';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Divider from '@mui/material/Divider';
+import ListSubheader from '@mui/material/ListSubheader';
 import { useTheme } from '@mui/material/styles';
 import useApi from '../../hooks/useApi';
 import { TypesContextMenuAction } from '../../api/api';

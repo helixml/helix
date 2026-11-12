@@ -1,15 +1,13 @@
 import React, { FC, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Box,
-  Button,
-  CircularProgress,
-  IconButton,
-  InputBase,
-  Popover,
-  Stack,
-  Tooltip,
-  Typography,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import InputBase from "@mui/material/InputBase";
+import Popover from "@mui/material/Popover";
+import Stack from "@mui/material/Stack";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import { ChevronDown, Search } from "lucide-react";
 import type {
   TypesProviderEndpoint,

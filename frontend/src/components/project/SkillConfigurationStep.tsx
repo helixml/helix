@@ -1,22 +1,18 @@
 import React, { FC, useState, useEffect } from 'react'
-import {
-  Box,
-  Typography,
-  TextField,
-  Alert,
-  Checkbox,
-  FormControlLabel,
-  InputAdornment,
-  IconButton,
-  Link,
-  Chip,
-} from '@mui/material'
-import {
-  Visibility,
-  VisibilityOff,
-  CheckCircle,
-  Warning,
-} from '@mui/icons-material'
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import TextField from '@mui/material/TextField';
+import Alert from '@mui/material/Alert';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import InputAdornment from '@mui/material/InputAdornment';
+import IconButton from '@mui/material/IconButton';
+import Link from '@mui/material/Link';
+import Chip from '@mui/material/Chip';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import CheckCircle from '@mui/icons-material/CheckCircle';
+import Warning from '@mui/icons-material/Warning';
 import { TypesAssistantMCP, TypesAssistantSkills } from '../../api/api'
 
 interface SkillConfigurationStepProps {
