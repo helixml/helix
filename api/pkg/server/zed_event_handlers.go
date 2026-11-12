@@ -2,12 +2,65 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// authorizeZedSpecTask binds a Zed ingestion request to the spec task it
+// names: the caller must be able to update that task's project (the in-sandbox
+// agent's session key is minted for exactly that project and passes), and
+// when the task has a Zed instance the request's instance must be it.
+// Unknown tasks and tasks the caller cannot reach both answer 404, so the
+// routes do not reveal which ids exist.
+//
+// On failure it writes the response and returns nil.
+func (s *HelixAPIServer) authorizeZedSpecTask(w http.ResponseWriter, r *http.Request, specTaskID, instanceID string) *types.SpecTask {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return nil
+	}
+	if specTaskID == "" {
+		http.Error(w, "spec_task_id is required", http.StatusBadRequest)
+		return nil
+	}
+	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		http.Error(w, "spec task not found", http.StatusNotFound)
+		return nil
+	}
+	if err := s.authorizeUserToZedSpecTask(r, user, specTask); err != nil {
+		log.Warn().Err(err).Str("user_id", user.ID).Str("spec_task_id", specTaskID).Msg("Refused Zed event for spec task")
+		http.Error(w, "spec task not found", http.StatusNotFound)
+		return nil
+	}
+	if instanceID != "" && specTask.ZedInstanceID != "" && instanceID != specTask.ZedInstanceID {
+		http.Error(w, "instance does not belong to this spec task", http.StatusConflict)
+		return nil
+	}
+	return specTask
+}
+
+// authorizeUserToZedSpecTask checks update access to a spec task: through its
+// project, or for a legacy task without one, by being its creator with a
+// credential that is not confined to some project.
+func (s *HelixAPIServer) authorizeUserToZedSpecTask(r *http.Request, user *types.User, specTask *types.SpecTask) error {
+	if specTask.ProjectID != "" {
+		return s.authorizeUserToProjectByID(r.Context(), user, specTask.ProjectID, types.ActionUpdate)
+	}
+	if err := enforceKeyProjectScope(user, ""); err != nil {
+		return err
+	}
+	if specTask.CreatedBy != user.ID {
+		return fmt.Errorf("user is not the creator of spec task %s", specTask.ID)
+	}
+	return nil
+}
 
 // handleZedInstanceEvent godoc
 // @Summary Handle Zed instance events
@@ -18,15 +71,13 @@ import (
 // @Param   request body types.ZedInstanceEvent true "Zed instance event"
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 409 {object} types.APIError
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/zed/events [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) handleZedInstanceEvent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
-	// For Zed events, we might not have a regular user session
-	// These events come from Zed runners, so we need different auth
-	// For now, we'll validate based on headers or API key
 
 	var event types.ZedInstanceEvent
 	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
@@ -41,6 +92,10 @@ func (s *HelixAPIServer) handleZedInstanceEvent(w http.ResponseWriter, r *http.R
 	}
 	if event.EventType == "" {
 		http.Error(w, "event_type is required", http.StatusBadRequest)
+		return
+	}
+	// Every event acts on the threads of the spec task it names.
+	if s.authorizeZedSpecTask(w, r, event.SpecTaskID, event.InstanceID) == nil {
 		return
 	}
 
@@ -76,6 +131,8 @@ func (s *HelixAPIServer) handleZedInstanceEvent(w http.ResponseWriter, r *http.R
 // @Param   request body map[string]interface{} true "Thread event data"
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 409 {object} types.APIError
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/zed/instances/{instanceId}/threads/{threadId}/events [post]
 // @Security BearerAuth
@@ -114,20 +171,16 @@ func (s *HelixAPIServer) handleZedThreadEvent(w http.ResponseWriter, r *http.Req
 		event.EventType = eventType
 	}
 
-	// Try to find SpecTask ID from thread mapping
+	// The spec task comes from the body, or else from the thread's own record.
 	if specTaskID, ok := eventData["spec_task_id"].(string); ok {
 		event.SpecTaskID = specTaskID
-	} else {
-		// Try to find it from database
-		zedThreads, err := s.Store.ListSpecTaskZedThreads(ctx, "")
-		if err == nil {
-			for _, thread := range zedThreads {
-				if thread.ZedThreadID == threadID {
-					event.SpecTaskID = thread.SpecTaskID
-					break
-				}
-			}
-		}
+	} else if zedThread, err := s.Store.GetSpecTaskZedThreadByZedThreadID(ctx, threadID); err == nil {
+		event.SpecTaskID = zedThread.SpecTaskID
+	}
+	// The service only touches threads of this task, so authorizing the task
+	// also scopes threadID to it.
+	if s.authorizeZedSpecTask(w, r, event.SpecTaskID, instanceID) == nil {
+		return
 	}
 
 	// Process event
@@ -361,6 +414,9 @@ func (s *HelixAPIServer) updateZedThreadActivity(w http.ResponseWriter, r *http.
 		http.Error(w, "Zed thread not found", http.StatusNotFound)
 		return
 	}
+	if s.authorizeZedSpecTask(w, r, zedThread.SpecTaskID, "") == nil {
+		return
+	}
 
 	// Determine new status from activity data
 	status := zedThread.Status
@@ -424,9 +480,11 @@ func (s *HelixAPIServer) handleZedConnectionHeartbeat(w http.ResponseWriter, r *
 		Data:       heartbeatData,
 	}
 
-	// Try to get SpecTask ID from heartbeat data or lookup
 	if specTaskID, ok := heartbeatData["spec_task_id"].(string); ok {
 		event.SpecTaskID = specTaskID
+	}
+	if s.authorizeZedSpecTask(w, r, event.SpecTaskID, instanceID) == nil {
+		return
 	}
 
 	// Process heartbeat
