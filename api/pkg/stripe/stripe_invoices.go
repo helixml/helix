@@ -133,6 +133,15 @@ func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
 		TransactionType: types.TransactionTypeSubscription,
 		StripeInvoiceID: invoice.ID,
 	})
+	if errors.Is(err, store.ErrNotFound) {
+		// The wallet was deleted after it was looked up (its account is
+		// gone); a retry cannot succeed.
+		log.Info().
+			Str("invoice_id", invoice.ID).
+			Str("wallet_id", wallet.ID).
+			Msg("wallet deleted before subscription credit, skipping")
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("error updating wallet balance: %w", err)
 	}

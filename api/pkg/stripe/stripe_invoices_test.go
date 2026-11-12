@@ -478,3 +478,28 @@ func TestProcessWebhook_InvoicePaidReturns500OnFailedCredit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusInternalServerError, deliverEvent(t, s, payload))
 }
+
+// A wallet deleted between lookup and credit cannot be credited by a retry,
+// so the webhook is acknowledged.
+func TestProcessWebhook_InvoicePaidWalletDeletedReturns200(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{WebhookSigningSecret: testWebhookSecret}, db)
+	installInvoiceWebhookBackend(t, &invoiceWebhookBackend{
+		t:                t,
+		subscriptionPath: invoiceSubscriptionPath,
+		subscription:     nonAdminSubscription("sub_1Rv1oVFNNvjhkCqzI3vgc41P"),
+		productPath:      invoiceProductPath,
+		product: &stripe.Product{
+			ID:       "prod_Sqia5TdP4XGk1x",
+			Metadata: map[string]string{"credits": "250"},
+		},
+	})
+
+	db.EXPECT().GetWalletByStripeCustomerID(gomock.Any(), "cus_SqicesZoU7LrDR").Return(&types.Wallet{ID: "123"}, nil)
+	db.EXPECT().UpdateWalletBalance(gomock.Any(), "123", float64(250), gomock.Any()).Return(nil, store.ErrNotFound)
+
+	payload, err := os.ReadFile("testdata/paid.json")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, deliverEvent(t, s, payload))
+}
