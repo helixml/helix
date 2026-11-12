@@ -578,7 +578,8 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 	// prefix so these exact paths win the match.
 	if orgHandlers.publicGitHubManifestCallback != nil {
 		insecureRouter.
-			Handle("/orgs/{org}/github/app-manifest/callback", orgHandlers.publicGitHubManifestCallback).
+			Handle("/orgs/{org}/github/app-manifest/callback",
+				s.authMiddleware.extractMiddleware(orgHandlers.publicGitHubManifestCallback)).
 			Methods(http.MethodGet)
 	}
 	// /api/v1/slack/events — single global inbound Slack Events API
@@ -595,7 +596,7 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 	// session cookie); authenticated by the encrypted ?state= carrying
 	// the org id.
 	insecureRouter.
-		HandleFunc("/slack/oauth/callback", s.slackOAuthCallback).
+		Handle("/slack/oauth/callback", s.slackOAuthCallbackHandler()).
 		Methods(http.MethodGet)
 	// Socket Mode ingress — long-lived, only active when the global app
 	// is configured for it. Started like streamCron.
@@ -1419,7 +1420,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		GitHubInstallation: gitHubInt.InstallationStatus,
 		GitHubAppRepos:     gitHubInt.AppRepos,
 		// GitHubManifestStart builds the "create the Helix app" manifest flow.
-		GitHubManifestStart: helixorg.NewGitHubManifestStart(cfg.APIServer.getEncryptionKey, cfg.APIServer.Cfg.GitHub.WebURL()),
+		GitHubManifestStart: helixorg.NewGitHubManifestStart(cfg.APIServer.getEncryptionKey, cfg.APIServer.Cfg.GitHub.WebURL(), requestUserIDFromContext),
 		// PublicServerURL is the externally-reachable base URL the
 		// auto-installed GitHub webhook should POST back to. Helix's
 		// SERVER_URL env var is the canonical place it lives.
@@ -1545,6 +1546,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	publicGitHubManifestCallback := helixorg.NewGitHubManifestCallbackHandler(
 		cfg.APIServer.getEncryptionKey, helixStore, deps.NewID,
 		cfg.APIServer.Cfg.GitHub.WebURL(), cfg.APIServer.Cfg.GitHub.APIBaseURL(),
+		func(r *http.Request) string { return requestUserIDFromContext(r.Context()) },
 	)
 
 	// The Chief of Staff seeder reuses the same lifecycle service as REST bot

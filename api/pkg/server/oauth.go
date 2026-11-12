@@ -564,6 +564,14 @@ func sanitizeOAuthError(errInput interface{}) oauthErrorInfo {
 }
 
 // handleOAuthCallback handles the OAuth callback
+// oauthCallbackHandler serves /oauth/flow/callback. The route is unauthenticated
+// (it is a top-level redirect from the provider), but it runs the standard
+// identity extraction so the handler can compare the browser session against
+// the user who started the flow.
+func (s *HelixAPIServer) oauthCallbackHandler() http.Handler {
+	return s.authMiddleware.extractMiddleware(http.HandlerFunc(s.handleOAuthCallback))
+}
+
 func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// Get the OAuth parameters from the query
 	code := r.URL.Query().Get("code")
@@ -670,6 +678,19 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 
 	// Use the most recent request token
 	requestToken := requestTokens[0]
+
+	// The callback must be completed by the same browser identity that started
+	// the flow. The state alone only proves the flow exists; a link carrying
+	// someone else's state would otherwise attach the visitor's provider account
+	// to the account that started the flow.
+	if caller := getRequestUser(r); !hasUser(caller) || caller.ID != requestToken.UserID {
+		log.Warn().
+			Str("provider_id", requestToken.ProviderID).
+			Str("flow_user_id", requestToken.UserID).
+			Msg("OAuth callback identity does not match the flow starter")
+		http.Error(w, "OAuth flow must be completed from the signed-in session that started it", http.StatusForbidden)
+		return
+	}
 
 	// The flow was started by an authenticated user, but the callback is
 	// public: re-check the account so an inactive user can't finish linking.

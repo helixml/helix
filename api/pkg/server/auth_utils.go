@@ -180,6 +180,15 @@ func setRequestUser(ctx context.Context, user types.User) context.Context {
 	return context.WithValue(ctx, userKey, user)
 }
 
+// requestUserIDFromContext returns the id of the user the auth layer attached
+// to ctx, or "" when the request is anonymous.
+func requestUserIDFromContext(ctx context.Context) string {
+	if user, ok := ctx.Value(userKey).(types.User); ok {
+		return user.ID
+	}
+	return ""
+}
+
 func getRequestUser(req *http.Request) *types.User {
 	// First check if user was set in context (e.g., by socket middleware)
 	userIntf := req.Context().Value(userKey)
