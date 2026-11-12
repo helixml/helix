@@ -205,10 +205,11 @@ func (w *slackWorkspaces) toWorkspace(conn *types.ServiceConnection) (slacktrans
 		token = string(dec)
 	}
 	return slacktransport.Workspace{
-		ID:       conn.ID,
-		OrgID:    conn.OrganizationID,
-		TeamID:   conn.SlackTeamID,
-		BotToken: token,
+		ID:              conn.ID,
+		OrgID:           conn.OrganizationID,
+		TeamID:          conn.SlackTeamID,
+		BotToken:        token,
+		AppConnectionID: conn.SlackAppConnectionID,
 	}, nil
 }
 
@@ -384,7 +385,10 @@ func (s *HelixAPIServer) newSlackSocketManager(ingest *slacktransport.Ingest, lo
 		appCtx, cancel := context.WithCancel(ctx)
 		go func() {
 			connector := slackcore.NewConnector(app.AppToken, "", "", logger)
-			runner := slackcore.NewSocketMode(ingest.OnEvent, connector, logger)
+			onEvent := func(ctx context.Context, teamID string, ev slackcore.Event) error {
+				return ingest.OnEvent(slackcore.WithVerifiedAppID(ctx, app.ID), teamID, ev)
+			}
+			runner := slackcore.NewSocketMode(onEvent, connector, logger)
 			if err := runner.Run(appCtx); err != nil && appCtx.Err() == nil {
 				logger.Error("slack.socketmode: connection exited", "app", app.ID, "err", err)
 			}
@@ -397,7 +401,7 @@ func (s *HelixAPIServer) newSlackSocketManager(ingest *slacktransport.Ingest, lo
 // slackSigningSecrets returns every configured app's decrypted signing
 // secret. The Events handler accepts a request that verifies against any
 // of them. Empty slice = no app configured (handler stays inert).
-func (s *HelixAPIServer) slackSigningSecrets(ctx context.Context) ([]string, error) {
+func (s *HelixAPIServer) slackSigningSecrets(ctx context.Context) ([]slackcore.SigningSecret, error) {
 	apps, err := s.listSlackApps(ctx)
 	if err != nil || len(apps) == 0 {
 		return nil, nil
@@ -406,13 +410,13 @@ func (s *HelixAPIServer) slackSigningSecrets(ctx context.Context) ([]string, err
 	if err != nil {
 		return nil, err
 	}
-	var out []string
+	var out []slackcore.SigningSecret
 	for _, app := range apps {
 		if app.SlackSigningSecret == "" {
 			continue
 		}
 		if dec, err := crypto.DecryptAES256GCM(app.SlackSigningSecret, key); err == nil {
-			out = append(out, string(dec))
+			out = append(out, slackcore.SigningSecret{AppID: app.ID, Secret: string(dec)})
 		}
 	}
 	return out, nil

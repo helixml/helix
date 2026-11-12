@@ -83,6 +83,15 @@ func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event)
 		return fmt.Errorf("slack ingest: resolve workspace: %w", err)
 	}
 
+	// A delivery authenticated by one app must not be routed into a
+	// workspace installed from another: the signature proves which app's
+	// secret signed it, and team_id alone is attacker-chosen content.
+	if verifiedApp := slackcore.VerifiedAppIDFromContext(ctx); verifiedApp != "" && ws.AppConnectionID != "" && verifiedApp != ws.AppConnectionID {
+		i.logger.Warn("slack.ingest: delivery signed by a different app than the workspace install — dropping",
+			"team", teamID, "workspace", ws.ID, "verified_app", verifiedApp, "workspace_app", ws.AppConnectionID)
+		return nil
+	}
+
 	triggers, err := i.matchingTriggers(ctx, ws, ev.Channel)
 	if err != nil {
 		return err

@@ -33,7 +33,9 @@ func signedRequest(body string) *http.Request {
 	return r
 }
 
-func secretFn(_ context.Context) ([]string, error) { return []string{testSecret}, nil }
+func secretFn(_ context.Context) ([]SigningSecret, error) {
+	return []SigningSecret{{AppID: "app-1", Secret: testSecret}}, nil
+}
 
 // messageEventBody is a real (signature-gated) delivery — used by the
 // tests that assert the signature/secret gate, which the unauthenticated
@@ -62,7 +64,7 @@ func TestEventsAPI_URLVerification_EchoesChallenge(t *testing.T) {
 // invalid signature — this is what lets a manifest-set Request URL verify
 // at app-create time, before the operator has copied the secret in.
 func TestEventsAPI_URLVerification_EchoesBeforeSecretExists(t *testing.T) {
-	empty := func(context.Context) ([]string, error) { return nil, nil }
+	empty := func(context.Context) ([]SigningSecret, error) { return nil, nil }
 	h := EventsAPIHandler(empty, func(context.Context, string, Event) error {
 		t.Fatal("onEvent must not be called for url_verification")
 		return nil
@@ -118,7 +120,7 @@ func TestEventsAPI_StaleTimestamp_Rejected(t *testing.T) {
 }
 
 func TestEventsAPI_NoSigningSecret_Inert(t *testing.T) {
-	empty := func(context.Context) ([]string, error) { return nil, nil }
+	empty := func(context.Context) ([]SigningSecret, error) { return nil, nil }
 	h := EventsAPIHandler(empty, func(context.Context, string, Event) error {
 		t.Fatal("a real event must not dispatch when no secret is configured")
 		return nil
@@ -177,5 +179,25 @@ func TestEventsAPI_NonMessageEvent_Ignored(t *testing.T) {
 	}
 	if called {
 		t.Fatal("onEvent should not be called for non-message events")
+	}
+}
+
+// The handler tells the event consumer which configured app's secret
+// verified the delivery, so routing can hold the team to that app.
+func TestEventsAPI_PassesVerifiedAppToHandler(t *testing.T) {
+	var gotApp string
+	h := EventsAPIHandler(secretFn, func(ctx context.Context, _ string, _ Event) error {
+		gotApp = VerifiedAppIDFromContext(ctx)
+		return nil
+	}, nil)
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, signedRequest(messageEventBody))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if gotApp != "app-1" {
+		t.Fatalf("verified app = %q, want app-1", gotApp)
 	}
 }

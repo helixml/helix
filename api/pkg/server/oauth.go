@@ -705,7 +705,7 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Complete the OAuth flow
-	connection, err := s.oauthManager.CompleteOAuthFlow(r.Context(), requestToken.UserID, requestToken.ProviderID, code)
+	connection, err := s.oauthManager.CompleteOAuthFlowWithState(r.Context(), requestToken.UserID, requestToken.ProviderID, code, state)
 	if err != nil {
 		log.Error().
 			Err(err).
