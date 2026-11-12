@@ -1944,22 +1944,33 @@ func writeErrResponse(rw http.ResponseWriter, err error, statusCode int) {
 const embeddingsSocketMode = 0o660
 
 // listenEmbeddingsSocket replaces any stale socket file at socketPath and
-// listens on it with embeddingsSocketMode.
+// listens on it with embeddingsSocketMode. The socket is bound inside a
+// private (0700) directory, given its final mode, and only then renamed into
+// place, so it is never reachable with wider permissions.
 func listenEmbeddingsSocket(socketPath string) (net.Listener, error) {
-	if _, err := os.Lstat(socketPath); err == nil {
-		if err := os.Remove(socketPath); err != nil {
-			return nil, fmt.Errorf("failed to remove existing socket file: %w", err)
-		}
+	tmpDir, err := os.MkdirTemp(filepath.Dir(socketPath), ".embeddings-sock-")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create socket staging directory: %w", err)
 	}
+	defer os.RemoveAll(tmpDir)
 
-	listener, err := net.Listen("unix", socketPath)
+	tmpPath := filepath.Join(tmpDir, "s.sock")
+	listener, err := net.Listen("unix", tmpPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on unix socket: %w", err)
 	}
+	// The listener's path changes with the rename below; a stale socket file
+	// is replaced on the next start.
+	listener.(*net.UnixListener).SetUnlinkOnClose(false)
 
-	if err := os.Chmod(socketPath, embeddingsSocketMode); err != nil {
+	if err := os.Chmod(tmpPath, embeddingsSocketMode); err != nil {
 		_ = listener.Close()
 		return nil, fmt.Errorf("failed to set socket permissions: %w", err)
+	}
+	// rename(2) atomically replaces a stale socket file at socketPath.
+	if err := os.Rename(tmpPath, socketPath); err != nil {
+		_ = listener.Close()
+		return nil, fmt.Errorf("failed to move socket into place: %w", err)
 	}
 	return listener, nil
 }

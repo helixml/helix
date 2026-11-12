@@ -138,8 +138,23 @@ var dividerRegex = regexp.MustCompile(`(?m)^[\s]*([-*=_─━═]{3,})[\s]*$`)
 
 // emailHTMLPolicy is applied to rendered message HTML before it is placed in
 // an email template. Message content comes from model output and user input,
-// so only ordinary formatting markup is kept.
-var emailHTMLPolicy = bluemonday.UGCPolicy()
+// so only text formatting and plain http(s)/mailto links (marked nofollow)
+// are kept: no images, styles, classes or other attributes.
+var emailHTMLPolicy = newEmailHTMLPolicy()
+
+func newEmailHTMLPolicy() *bluemonday.Policy {
+	p := bluemonday.NewPolicy()
+	p.AllowElements(
+		"p", "br", "hr", "strong", "em", "code", "pre", "blockquote",
+		"h1", "h2", "h3", "h4", "h5", "h6",
+		"ul", "ol", "li",
+		"table", "thead", "tbody", "tr", "th", "td",
+	)
+	p.AllowAttrs("href").OnElements("a")
+	p.AllowStandardURLs()
+	p.RequireNoFollowOnLinks(true)
+	return p
+}
 
 // renderMarkdown converts message markdown to HTML that is safe to embed in
 // an email: raw HTML in the source is not passed through, and the output is

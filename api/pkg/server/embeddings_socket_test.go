@@ -58,3 +58,28 @@ func TestListenEmbeddingsSocket_NotWorldAccessible(t *testing.T) {
 	require.Equal(t, os.FileMode(0o660), info.Mode().Perm())
 	require.Zero(t, info.Mode().Perm()&0o007, "socket is accessible to other users")
 }
+
+// The socket accepts connections at its final path and leaves no staging
+// directory behind.
+func TestListenEmbeddingsSocket_ServesAtFinalPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "embeddings.sock")
+
+	listener, err := listenEmbeddingsSocket(path)
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go func() {
+		if conn, err := listener.Accept(); err == nil {
+			_ = conn.Close()
+		}
+	}()
+	conn, err := net.Dial("unix", path)
+	require.NoError(t, err)
+	_ = conn.Close()
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "staging directory left behind")
+	require.Equal(t, "embeddings.sock", entries[0].Name())
+}

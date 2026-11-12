@@ -52,51 +52,66 @@ func New(cfg *config.Notifications, store store.Store, webhookPolicy netguard.Po
 	}, nil
 }
 
-// allowedRecipients returns the explicit recipients of a notification that
-// belong to the owner of the notifying session: the owner's own account, or a
-// Helix user who is a member of the session's organization. Recipient lists
-// are user-configured (e.g. on cron triggers), and Helix only sends mail on a
-// user's behalf to people inside that user's account or organization.
-func (n *NotificationsProvider) allowedRecipients(ctx context.Context, notification *Notification) []string {
-	if notification.Session == nil || notification.Session.Owner == "" {
-		log.Warn().Str("notification", notification.Event.String()).
-			Msg("dropping notification recipients: no owning session")
-		return nil
-	}
-	owner := notification.Session.Owner
-	orgID := notification.Session.OrganizationID
-
-	var allowed []string
+// CheckRecipients splits emails into the addresses Helix may notify on behalf
+// of ownerID and the rest. A recipient must be a Helix user who is either the
+// owner or a member of orgID (when set). Recipient lists are user-configured
+// (e.g. on cron triggers), and Helix only sends mail on a user's behalf to
+// people inside that user's account or organization. Blank and duplicate
+// (case-insensitive) addresses are skipped.
+func CheckRecipients(ctx context.Context, st store.Store, ownerID, orgID string, emails []string) (allowed, rejected []string) {
 	seen := map[string]bool{}
-	for _, email := range notification.Emails {
+	for _, email := range emails {
 		email = strings.TrimSpace(email)
 		key := strings.ToLower(email)
 		if email == "" || seen[key] {
 			continue
 		}
 		seen[key] = true
-
-		user, err := n.store.GetUser(ctx, &store.GetUserQuery{Email: email})
-		if err != nil || user == nil {
-			log.Warn().Str("notification", notification.Event.String()).
-				Msg("dropping notification recipient: not a Helix user")
-			continue
-		}
-		if user.ID == owner {
+		if ownerID != "" && recipientAllowed(ctx, st, ownerID, orgID, email) {
 			allowed = append(allowed, email)
-			continue
+		} else {
+			rejected = append(rejected, email)
 		}
-		if orgID != "" {
-			if _, err := n.store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
-				OrganizationID: orgID,
-				UserID:         user.ID,
-			}); err == nil {
-				allowed = append(allowed, email)
-				continue
-			}
-		}
-		log.Warn().Str("notification", notification.Event.String()).Str("user_id", user.ID).
-			Msg("dropping notification recipient: not in the owner's organization")
+	}
+	return allowed, rejected
+}
+
+func recipientAllowed(ctx context.Context, st store.Store, ownerID, orgID, email string) bool {
+	user, err := st.GetUser(ctx, &store.GetUserQuery{Email: email})
+	if err != nil || user == nil {
+		return false
+	}
+	if user.ID == ownerID {
+		return true
+	}
+	if orgID == "" {
+		return false
+	}
+	_, err = st.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+		OrganizationID: orgID,
+		UserID:         user.ID,
+	})
+	return err == nil
+}
+
+// allowedRecipients applies CheckRecipients to a notification's explicit
+// recipients, using the notifying session's owner and organization. Dropped
+// recipients are logged as a count, without their addresses.
+func (n *NotificationsProvider) allowedRecipients(ctx context.Context, notification *Notification) []string {
+	var ownerID, orgID, sessionID string
+	if notification.Session != nil {
+		ownerID, orgID, sessionID = notification.Session.Owner, notification.Session.OrganizationID, notification.Session.ID
+	}
+	allowed, rejected := CheckRecipients(ctx, n.store, ownerID, orgID, notification.Emails)
+	if len(rejected) > 0 {
+		log.Warn().
+			Str("notification", notification.Event.String()).
+			Str("owner_id", ownerID).
+			Str("organization_id", orgID).
+			Str("session_id", sessionID).
+			Int("dropped_recipients", len(rejected)).
+			Int("allowed_recipients", len(allowed)).
+			Msg("dropped notification recipients outside the owner's account and organization")
 	}
 	return allowed
 }

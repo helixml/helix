@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 )
@@ -25,22 +26,68 @@ func RedactURLCredentials(rawURL string) string {
 	return parsed.String()
 }
 
-// redactURLSecretInError removes the password of rawURL from err's message, so
-// an error that echoes an authenticated URL does not leak the credential. The
-// original error is returned unchanged when it does not contain the secret.
-func redactURLSecretInError(err error, rawURL string) error {
-	if err == nil {
+// nonSecretURLUsernames are usernames that conventionally carry no secret
+// when a URL has no password (e.g. git@host).
+var nonSecretURLUsernames = map[string]bool{"git": true, "oauth2": true, "x-access-token": true, "api": true}
+
+// urlSecrets returns the credential parts of rawURL's userinfo: the password,
+// or the username when it is the only credential (a token used as username).
+func urlSecrets(rawURL string) []string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.User == nil {
 		return nil
 	}
-	parsed, perr := url.Parse(rawURL)
-	if perr != nil || parsed.User == nil {
+	if password, ok := parsed.User.Password(); ok {
+		if password == "" {
+			return nil
+		}
+		return []string{password}
+	}
+	if username := parsed.User.Username(); username != "" && !nonSecretURLUsernames[strings.ToLower(username)] {
+		return []string{username}
+	}
+	return nil
+}
+
+// redactedError carries a redacted message while keeping the original error
+// in the chain for errors.Is / errors.As.
+type redactedError struct {
+	msg string
+	err error
+}
+
+func (e *redactedError) Error() string { return e.msg }
+func (e *redactedError) Unwrap() error { return e.err }
+
+// redactURLSecretInError rewrites err's message so it does not leak the
+// credentials of rawURL: every occurrence of rawURL is replaced with its
+// RedactURLCredentials form, and any remaining copy of its password (or
+// token-as-username) becomes REDACTED. err is returned unchanged when its
+// message contains neither.
+func redactURLSecretInError(err error, rawURL string) error {
+	if err == nil || rawURL == "" {
 		return err
 	}
-	secret, ok := parsed.User.Password()
-	if !ok || secret == "" || !strings.Contains(err.Error(), secret) {
+	orig := err.Error()
+	msg := strings.ReplaceAll(orig, rawURL, RedactURLCredentials(rawURL))
+	for _, secret := range urlSecrets(rawURL) {
+		msg = strings.ReplaceAll(msg, secret, "REDACTED")
+		if escaped := url.PathEscape(secret); escaped != secret {
+			msg = strings.ReplaceAll(msg, escaped, "REDACTED")
+		}
+	}
+	if msg == orig {
 		return err
 	}
-	msg := strings.ReplaceAll(err.Error(), rawURL, RedactURLCredentials(rawURL))
-	msg = strings.ReplaceAll(msg, secret, "REDACTED")
-	return errors.New(msg)
+	return &redactedError{msg: msg, err: err}
+}
+
+// redactURLParseError drops the URL that *url.Error embeds in its message,
+// keeping only the operation and the underlying parse error.
+func redactURLParseError(err error) error {
+	var uerr *url.Error
+	if errors.As(err, &uerr) {
+		return fmt.Errorf("%s URL: %w", uerr.Op, uerr.Err)
+	}
+	return err
 }

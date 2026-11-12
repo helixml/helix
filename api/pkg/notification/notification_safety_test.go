@@ -103,3 +103,22 @@ func TestAllowedRecipients_OwnerAndOrgMembersOnly(t *testing.T) {
 		Emails: []string{"owner@example.com"},
 	}))
 }
+
+func TestRenderMarkdown_ImagesAndAutolinks(t *testing.T) {
+	html, err := newTestEmail().renderMarkdown(
+		"![logo](https://img.example/x.png)\n\n" +
+			"<https://x.example/path>\n\n" +
+			"[ok](https://docs.example) [bad](javascript:alert(1))\n\n" +
+			"# Title\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n> quote\n\n`code`")
+	require.NoError(t, err)
+
+	require.NotContains(t, html, "<img")
+	require.NotContains(t, html, "img.example")
+	require.Contains(t, html, `<a href="https://x.example/path" rel="nofollow">https://x.example/path</a>`)
+	require.Contains(t, html, `<a href="https://docs.example" rel="nofollow">ok</a>`)
+	require.NotContains(t, html, "javascript:")
+	require.NotContains(t, html, " id=", "heading ids are not kept")
+	for _, tag := range []string{"<h1>", "<table>", "<thead>", "<tbody>", "<th>", "<td>", "<blockquote>", "<code>"} {
+		require.Contains(t, html, tag)
+	}
+}
