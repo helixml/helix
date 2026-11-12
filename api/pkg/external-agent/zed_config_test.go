@@ -733,7 +733,7 @@ func TestValidateAssistantModelConfig_ProviderAvailability(t *testing.T) {
 			Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
 				AgentType: types.AgentTypeZedExternal,
 				Provider:  "pe_provider",
-				Model:     "model",
+				Model:     "qwen3.8-flash-next",
 			}}}},
 		}
 	}
@@ -741,6 +741,28 @@ func TestValidateAssistantModelConfig_ProviderAvailability(t *testing.T) {
 	assert.Equal(t, types.OrganizationProviderUnavailableMessage, ValidateAssistantModelConfig(app("org_id"), []ProviderRef{}))
 	assert.Contains(t, ValidateAssistantModelConfig(app(""), []ProviderRef{}), "does not match any current provider")
 	assert.Empty(t, ValidateAssistantModelConfig(app("org_id"), []ProviderRef{{ID: "pe_provider", Name: "provider"}}))
+	assert.Empty(t, ValidateAssistantModelConfig(app("org_id"), []ProviderRef{{
+		ID: "pe_provider", Name: "provider", ModelsKnown: true, Models: []string{"qwen3.8-flash-next"},
+	}}))
+	prefixed := app("org_id")
+	prefixed.Config.Helix.Assistants[0].Model = "provider/qwen3.8-flash-next"
+	assert.Empty(t, ValidateAssistantModelConfig(prefixed, []ProviderRef{{
+		ID: "pe_provider", Name: "provider", ModelsKnown: true, Models: []string{"qwen3.8-flash-next"},
+	}}))
+	prefixed.Config.Helix.Assistants[0].Model = "pe_provider/qwen3.8-flash-next"
+	assert.Empty(t, ValidateAssistantModelConfig(prefixed, []ProviderRef{{
+		ID: "pe_provider", Name: "provider", ModelsKnown: true, Models: []string{"qwen3.8-flash-next"},
+	}}))
+	prefixed.Config.Helix.Assistants[0].Model = "provider/qwen3.8-flash-next"
+	assert.Empty(t, ValidateAssistantModelConfig(prefixed, []ProviderRef{{
+		ID: "pe_provider", Name: "provider", ModelsKnown: true, Models: []string{"provider/qwen3.8-flash-next"},
+	}}))
+	assert.Contains(t, ValidateAssistantModelConfig(app("org_id"), []ProviderRef{{
+		ID: "pe_provider", Name: "provider", ModelsKnown: true, Models: []string{"glm-5.3-flash"},
+	}}), "not currently available")
+	assert.Contains(t, ValidateAssistantModelConfig(app("org_id"), []ProviderRef{{
+		ID: "pe_provider", Name: "provider", ModelsKnown: true,
+	}}), "not currently available")
 
 	claudeCodeAPIKeyApp := &types.App{
 		ID:             "app",

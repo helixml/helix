@@ -576,7 +576,8 @@ func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndp
 		// and chat-completions routing both work. The catalogue read can't use
 		// that fallback — it exists to show what the upstream offers, so an
 		// unreachable upstream must surface as an error, not an empty list.
-		if wantCatalogue || len(providerEndpoint.Models) == 0 || !errors.Is(fetchErr, errUpstreamUnreachable) {
+		_, discoveredBefore := s.loadCachedModels(catalogueKey)
+		if wantCatalogue || discoveredBefore || len(providerEndpoint.Models) == 0 || !errors.Is(fetchErr, errUpstreamUnreachable) {
 			return nil, fetchErr
 		}
 		log.Debug().
@@ -585,7 +586,16 @@ func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndp
 			Str("owner", providerEndpoint.Owner).
 			Strs("enabled_models", providerEndpoint.Models).
 			Msg("upstream /v1/models failed; using the endpoint's configured model list")
-		catalogue = nil
+		catalogue = make([]types.OpenAIModel, 0, len(providerEndpoint.Models))
+		for _, id := range providerEndpoint.Models {
+			catalogue = append(catalogue, types.OpenAIModel{
+				ID:      id,
+				Object:  "model",
+				OwnedBy: providerEndpoint.Name,
+				Type:    "chat",
+				Enabled: true,
+			})
+		}
 	}
 
 	fetchedAt := time.Now()
@@ -657,10 +667,8 @@ func (s *HelixAPIServer) fetchUpstreamModels(ctx context.Context, providerEndpoi
 
 // applyModelWhitelist reduces a provider's upstream catalogue to the models the
 // operator enabled on the endpoint. An empty list means "everything upstream
-// offers" — the default for a freshly added provider. Enabled ids the upstream
-// doesn't advertise are still returned, synthesized: that is what makes a
-// custom endpoint with no working /v1/models usable, and it keeps a pinned
-// model working when an aggregator temporarily drops it from its listing.
+// offers" - the default for a freshly added provider. Missing configured IDs
+// are excluded because a successful discovery response is authoritative.
 func applyModelWhitelist(providerEndpoint *types.ProviderEndpoint, catalogue []types.OpenAIModel) []types.OpenAIModel {
 	if len(providerEndpoint.Models) == 0 {
 		return catalogue
@@ -680,15 +688,7 @@ func applyModelWhitelist(providerEndpoint *types.ProviderEndpoint, catalogue []t
 		seen[id] = true
 		if m, ok := byID[id]; ok {
 			models = append(models, m)
-			continue
 		}
-		models = append(models, types.OpenAIModel{
-			ID:      id,
-			Object:  "model",
-			OwnedBy: providerEndpoint.Name,
-			Type:    "chat",
-			Enabled: true,
-		})
 	}
 	return models
 }
