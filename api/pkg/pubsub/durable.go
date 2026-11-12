@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -49,11 +48,12 @@ func (n *Nats) ConsumeDurable(ctx context.Context, streamName, consumerName, sub
 	if err != nil {
 		return nil, fmt.Errorf("ensure durable consumer %q: %w", consumerName, err)
 	}
-	messages, err := consumer.Messages(jetstream.PullMaxMessages(1))
+	// Missing heartbeats are transient; only terminal errors end the loop.
+	messages, err := consumer.Messages(jetstream.PullMaxMessages(1), jetstream.WithMessagesErrOnMissingHeartbeat(false))
 	if err != nil {
 		return nil, fmt.Errorf("open durable consumer %q: %w", consumerName, err)
 	}
-	sub := &durableSubscription{messages: messages, done: make(chan struct{})}
+	sub := &messagesSubscription{messages: messages, done: make(chan struct{})}
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -64,9 +64,9 @@ func (n *Nats) ConsumeDurable(ctx context.Context, streamName, consumerName, sub
 	go func() {
 		defer sub.Unsubscribe()
 		for {
-			msg, err := messages.Next()
+			msg, err := sub.next()
 			if err != nil {
-				if ctx.Err() == nil {
+				if ctx.Err() == nil && !sub.stopped() {
 					log.Error().Err(err).Str("consumer", consumerName).Msg("durable consumer stopped")
 				}
 				return
@@ -122,19 +122,5 @@ func (n *Nats) PurgeDurableSubject(ctx context.Context, streamName, subject stri
 	if err := stream.Purge(ctx, jetstream.WithPurgeSubject(subject)); err != nil {
 		return fmt.Errorf("purge durable subject %q: %w", subject, err)
 	}
-	return nil
-}
-
-type durableSubscription struct {
-	messages jetstream.MessagesContext
-	done     chan struct{}
-	once     sync.Once
-}
-
-func (s *durableSubscription) Unsubscribe() error {
-	s.once.Do(func() {
-		close(s.done)
-		s.messages.Stop()
-	})
 	return nil
 }
