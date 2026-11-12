@@ -1045,6 +1045,70 @@ func TestRESTBotRoutesFollowAgentEditRule(t *testing.T) {
 	}
 }
 
+type fakeBatchAgentEditAuthorizer struct {
+	fakeAgentEditAuthorizer
+	batches   int
+	perAgent  int
+	lastBatch []string
+}
+
+func (f *fakeBatchAgentEditAuthorizer) AuthorizeAgentUpdate(ctx context.Context, appID string) error {
+	f.perAgent++
+	return f.fakeAgentEditAuthorizer.AuthorizeAgentUpdate(ctx, appID)
+}
+
+func (f *fakeBatchAgentEditAuthorizer) EditableAgents(_ context.Context, appIDs []string) (map[string]bool, error) {
+	f.batches++
+	f.lastBatch = append([]string(nil), appIDs...)
+	out := map[string]bool{}
+	for _, id := range appIDs {
+		out[id] = f.allowed[id]
+	}
+	return out, nil
+}
+
+// The bot list resolves the caller once for all rows when the authorizer
+// can batch, and never consults it for owners and admins.
+func TestRESTBotListBatchesCanEdit(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedLinkedBot(t, st, ctx, "w-mine", "app-mine")
+	seedLinkedBot(t, st, ctx, "w-theirs", "app-theirs")
+	seedBot(t, st, ctx, "w-legacy", "# No agent")
+	auth := &fakeBatchAgentEditAuthorizer{fakeAgentEditAuthorizer: fakeAgentEditAuthorizer{allowed: map[string]bool{"app-mine": true}}}
+	deps.AgentEditAuthorizer = auth
+	h := orgapi.Handler(deps)
+
+	var list []orgapi.BotDTO
+	decode(t, doAsRole(t, h, http.MethodGet, "/bots", nil, types.OrganizationRoleMember, false), &list)
+	if auth.batches != 1 || auth.perAgent != 0 {
+		t.Fatalf("member list: batches=%d perAgent=%d, want one batch and no per-agent calls", auth.batches, auth.perAgent)
+	}
+	slices.Sort(auth.lastBatch)
+	if !slices.Equal(auth.lastBatch, []string{"app-mine", "app-theirs"}) {
+		t.Fatalf("batch = %v, want the two linked agents", auth.lastBatch)
+	}
+	got := map[string]bool{}
+	for _, b := range list {
+		got[b.ID] = b.CanEdit
+	}
+	for id, want := range map[string]bool{"w-mine": true, "w-theirs": false, "w-legacy": false} {
+		if got[id] != want {
+			t.Errorf("can_edit[%s] = %v, want %v", id, got[id], want)
+		}
+	}
+
+	decode(t, doAsRole(t, h, http.MethodGet, "/bots", nil, types.OrganizationRoleOwner, false), &list)
+	if auth.batches != 1 || auth.perAgent != 0 {
+		t.Fatalf("owner list consulted the authorizer: batches=%d perAgent=%d", auth.batches, auth.perAgent)
+	}
+	for _, b := range list {
+		if !b.CanEdit {
+			t.Errorf("owner can_edit[%s] = false", b.ID)
+		}
+	}
+}
+
 // can_edit tells the UI which controls to show, computed by the same rule the
 // mutations enforce.
 func TestRESTBotDTOCanEdit(t *testing.T) {

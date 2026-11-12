@@ -236,6 +236,14 @@ type AgentEditAuthorizer interface {
 	AuthorizeAgentUpdate(ctx context.Context, appID string) error
 }
 
+// AgentEditBatchAuthorizer is an optional extension of AgentEditAuthorizer
+// for list views: it resolves the caller once and reports, per agent app,
+// whether they may update it. Unknown or unauthorized apps are absent or
+// false.
+type AgentEditBatchAuthorizer interface {
+	EditableAgents(ctx context.Context, appIDs []string) (map[string]bool, error)
+}
+
 // BotProjectAuthorizer reports whether botID may be given access to
 // projectID; nil means allowed.
 type BotProjectAuthorizer interface {
