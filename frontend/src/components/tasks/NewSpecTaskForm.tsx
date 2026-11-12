@@ -25,7 +25,10 @@ import {
   IconButton,
   Fade,
 } from "@mui/material";
-import { Add as AddIcon, AttachFile as AttachFileIcon, Close as CloseIcon, CloudUpload as CloudUploadIcon } from "@mui/icons-material";
+import AddIcon from "@mui/icons-material/Add";
+import AttachFileIcon from "@mui/icons-material/AttachFile";
+import CloseIcon from "@mui/icons-material/Close";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import { useDropzone } from "react-dropzone";
 import { ChevronDown, X } from "lucide-react";
 import AssigneeSelector from "./AssigneeSelector";

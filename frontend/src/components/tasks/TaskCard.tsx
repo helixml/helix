@@ -20,24 +20,22 @@ import {
   ListItemText,
   Chip,
 } from "@mui/material";
-import {
-  Description as SpecIcon,
-  Visibility as ViewIcon,
-  CheckCircle as ApproveIcon,
-  Stop as StopIcon,
-  RocketLaunch as LaunchIcon,
-  Close as CloseIcon,
-  Circle as CircleIcon,
-  CheckCircle as CheckCircleIcon,
-  RadioButtonUnchecked as UncheckedIcon,
-  AccountTree as BatchIcon,
-  Delete as DeleteIcon,
-  Archive as ArchiveIcon,
-  Unarchive as UnarchiveIcon,
-  RemoveCircleOutline as RemoveFromQueueIcon,
-  Undo as UndoIcon,
-  Schedule as ScheduleIcon,
-} from "@mui/icons-material";
+import SpecIcon from "@mui/icons-material/Description";
+import ViewIcon from "@mui/icons-material/Visibility";
+import ApproveIcon from "@mui/icons-material/CheckCircle";
+import StopIcon from "@mui/icons-material/Stop";
+import LaunchIcon from "@mui/icons-material/RocketLaunch";
+import CloseIcon from "@mui/icons-material/Close";
+import CircleIcon from "@mui/icons-material/Circle";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import UncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import BatchIcon from "@mui/icons-material/AccountTree";
+import DeleteIcon from "@mui/icons-material/Delete";
+import ArchiveIcon from "@mui/icons-material/Archive";
+import UnarchiveIcon from "@mui/icons-material/Unarchive";
+import RemoveFromQueueIcon from "@mui/icons-material/RemoveCircleOutline";
+import UndoIcon from "@mui/icons-material/Undo";
+import ScheduleIcon from "@mui/icons-material/Schedule";
 import {
   EllipsisVertical,
   Flag,
