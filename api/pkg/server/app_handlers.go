@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -498,6 +499,9 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 	app.Owner = user.ID
 	app.OwnerType = user.Type
 	app.Updated = time.Now()
+	// A new agent has no stored avatar yet; its content type is set by the
+	// upload route, never by the request body.
+	app.Config.Helix.AvatarContentType = ""
 
 	// Apply model substitutions BEFORE validation if provided
 	var modelSubstitutions []ModelSubstitution
@@ -1213,6 +1217,9 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	update.OwnerType = existing.OwnerType
 	update.Created = existing.Created
 	update.AgentKind = existing.AgentKind
+	// The avatar's content type is derived by the upload route from the
+	// bytes it stored; the config API cannot relabel it.
+	update.Config.Helix.AvatarContentType = existing.Config.Helix.AvatarContentType
 
 	err = s.authorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
 	if err != nil {
@@ -2155,15 +2162,41 @@ func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set content type and serve the image
-	contentType := app.Config.Helix.AvatarContentType
-	if contentType == "" {
-		contentType = http.DetectContentType(data)
-	}
-
-	rw.Header().Set("Content-Type", contentType)
+	rw.Header().Set("Content-Type", avatarContentType(app.Config.Helix.AvatarContentType, data))
 	rw.Header().Set("Cache-Control", "no-cache")
+	// The avatar is user-supplied and this route is public on the app
+	// origin: never sniff it, and send SVG (which can carry script) as a
+	// sandboxed download — <img> rendering is unaffected.
+	applyServedFilePolicy(rw.Header(), "avatar")
 	_, _ = rw.Write(data)
+}
+
+// avatarContentType is the type an avatar is served with. The stored value
+// is only trusted when it is an image type the upload route could have
+// derived; anything else (including a value written through the agent
+// config API) is replaced by what the bytes actually are.
+func avatarContentType(stored string, data []byte) string {
+	if normalized := normalizeAvatarContentType(stored); normalized != "" {
+		return normalized
+	}
+	if detected := normalizeAvatarContentType(http.DetectContentType(data)); detected != "" {
+		return detected
+	}
+	return "application/octet-stream"
+}
+
+// normalizeAvatarContentType returns the lowercase media type when it is an
+// image type, "" otherwise.
+func normalizeAvatarContentType(contentType string) string {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return ""
+	}
+	mediaType = strings.ToLower(mediaType)
+	if !strings.HasPrefix(mediaType, "image/") {
+		return ""
+	}
+	return mediaType
 }
 
 func getAvatarKey(id string) string {

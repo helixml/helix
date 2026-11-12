@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import useApi from './useApi'
+import { isOAuthPopupMessage } from '../utils/oauthPopupMessage'
 
 // Re-exported from utils/oauthProviders (single source of truth) so the many
 // callers that import it from this hook keep working. See vcsScopesForProvider
@@ -73,7 +74,7 @@ export function useOAuthFlow(): UseOAuthFlowResult {
 
       // Listen for OAuth completion message
       const handleMessage = (event: MessageEvent) => {
-        if (event.data?.type === 'oauth-success') {
+        if (isOAuthPopupMessage(event, popup)) {
           cleanup()
           onSuccess?.()
         }
