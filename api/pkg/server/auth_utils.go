@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -22,6 +23,10 @@ Middlewares
 */
 // errRunnerTokenNotAccepted is the answer requireUser gives the runner token.
 const errRunnerTokenNotAccepted = "the runner token is not accepted on this route"
+
+// errRunnerTokenRefused reports a refusal of the runner token from a handler
+// that checks auth itself.
+var errRunnerTokenRefused = errors.New(errRunnerTokenNotAccepted)
 
 // requireUser admits an authenticated user. The runner token is refused: it
 // authenticates sandbox hosts, not a person, and would otherwise act as the

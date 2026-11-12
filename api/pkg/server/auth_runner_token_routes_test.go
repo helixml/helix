@@ -66,6 +66,11 @@ func TestRunnerToken_RefusedOnUserRoutes(t *testing.T) {
 		{http.MethodGet, "/api/v1/filestore/list?path=x", ""},
 		{http.MethodGet, "/api/v1/sessions/ses_route_victim/toc", ""},
 		{http.MethodDelete, "/api/v1/admin/users/usr_route_victim", ""},
+		// Handler-auth routes that resolve the token themselves.
+		{http.MethodGet, "/api/v1/filestore/viewer/dev/users/usr_route_victim/secret.txt", ""},
+		{http.MethodGet, "/api/v1/filestore/viewer/dev/users/runner-system/x.txt", ""},
+		{http.MethodGet, "/api/v1/filestore/viewer/dev/apps/app_route_victim/x.txt", ""},
+		{http.MethodGet, "/api/v1/ws/user?session_id=ses_route_victim", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
@@ -83,6 +88,12 @@ func TestRunnerToken_RefusedOnUserRoutes(t *testing.T) {
 		out, body := serveWithToken(s, calls, http.MethodGet, path, "", routeTestUserKey)
 		assert.Equal(t, http.StatusOK, out.status, "%s with a user key: %s", path, body)
 	}
+	// Control: the viewer still lets a user past auth to their own folder (the
+	// file does not exist, so the filestore answers, not the access check).
+	userPath, err := s.Controller.GetFilestoreUserPath(types.OwnerContext{Owner: routeTestUserID, OwnerType: types.OwnerTypeUser}, "")
+	require.NoError(t, err)
+	out, body := serveWithToken(s, calls, http.MethodGet, "/api/v1/filestore/viewer/"+userPath+"/missing.txt", "", routeTestUserKey)
+	assert.NotEqual(t, http.StatusForbidden, out.status, body)
 }
 
 // Every route mounted behind a gate that admits the runner token must still

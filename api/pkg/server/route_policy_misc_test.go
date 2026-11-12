@@ -32,6 +32,6 @@ func init() {
 		"GET /api/v1/mcp/{server}/{path:.*}":  noAuthzHelper("MCP gateway: each backend authorizes its own resources"),
 		"POST /api/v1/mcp/{server}/{path:.*}": noAuthzHelper("MCP gateway: each backend authorizes its own resources"),
 		"POST /api/v1/stripe/webhook":         webhook("Stripe-Signature verified with the webhook signing secret"),
-		"ANY /api/v1/filestore/viewer/":       handlerAuth("extractMiddleware; isFilestoreRouteAuthorized checks the path belongs to the caller").authz("isFilestoreRouteAuthorized"),
+		"ANY /api/v1/filestore/viewer/":       handlerAuth("extractMiddleware; isFilestoreRouteAuthorized refuses the runner token and checks the path belongs to the caller").authz("isFilestoreRouteAuthorized"),
 	})
 }
