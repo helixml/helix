@@ -495,7 +495,8 @@ func NewServer(
 		"/data/workspaces/sandboxes",
 	)
 	apiServer.webServiceController = webservice.New(store, apiServer.sandboxController)
-	go webservice.NewDomainVerifier(store).Start(context.Background())
+	go webservice.NewDomainVerifier(store,
+		netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks}).Start(context.Background())
 
 	// Unify compute billing: desktops provisioned by the external-agent
 	// executor (spec tasks, exploratory sessions, subscription desktops) get a
