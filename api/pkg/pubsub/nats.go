@@ -45,8 +45,6 @@ type Nats struct {
 	ownedStoreDir string
 	stopMonitor   context.CancelFunc
 
-	stream jetstream.Stream
-
 	consumerMu sync.Mutex
 	consumer   jetstream.Consumer
 
@@ -160,7 +158,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 	var ns *server.Server
 	var err error
 
-	// Falback to runner token if no token is provided
+	// Fall back to the runner token if no token is provided
 	if cfg.PubSub.Server.Token == "" {
 		cfg.PubSub.Server.Token = cfg.WebServer.RunnerToken
 	}
@@ -281,7 +279,6 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 	}
 
 	// Store streams in map
-	n.stream = stream
 	n.streams["ZED_AGENTS"] = stream
 	n.streams["SCRIPT_RUNNERS"] = scriptStream
 
@@ -383,10 +380,6 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 			}
 		}
 	}()
-
-	// Update the Nats struct with stream and consumer
-	n.stream = stream
-	n.consumer = c
 
 	// Setup connection monitoring
 	setupConnectionHandlers(nc, n)
@@ -650,19 +643,10 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 	hdr.Set(helixNatsReplyHeader, replyInbox)
 	hdr.Set(helixNatsSubjectHeader, subject)
 
-	// streamTopic := getStreamSub(stream, subject) + "." + nuid.Next()
 	streamTopic := getStreamSub(stream, subject)
 
-	log.Debug().
-		Str("EXTERNAL_AGENT_DEBUG", "publishing_to_jetstream").
-		Str("stream_topic", streamTopic).
-		Str("stream", stream).
-		Str("subject", subject).
-		Msg("🚀 EXTERNAL_AGENT_DEBUG: Publishing message to JetStream")
-
-	// Publish the message to the JetStream stream,
-	// one of the consumer will pick it up
-	ackFuture, err := n.js.PublishMsg(ctx, &nats.Msg{
+	// One of the stream's consumers will pick it up.
+	ack, err := n.js.PublishMsg(ctx, &nats.Msg{
 		Subject: streamTopic,
 		Data:    payload,
 		Header:  hdr,
@@ -671,29 +655,14 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 		jetstream.WithRetryAttempts(10),
 	)
 	if err != nil {
-		log.Error().
-			Str("EXTERNAL_AGENT_DEBUG", "jetstream_publish_error").
-			Err(err).
-			Str("stream_topic", streamTopic).
-			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to publish to JetStream")
-		return nil, fmt.Errorf("failed to publish message to jetstream: %w", err)
+		return nil, fmt.Errorf("failed to publish message to jetstream subject %s: %w", streamTopic, err)
 	}
-
-	// Log the JetStream acknowledgment info
-	if ackFuture != nil {
-		log.Debug().
-			Str("EXTERNAL_AGENT_DEBUG", "jetstream_publish_ack").
-			Str("stream_topic", streamTopic).
-			Str("stream_name", ackFuture.Stream).
-			Uint64("sequence", ackFuture.Sequence).
-			Bool("duplicate", ackFuture.Duplicate).
-			Msg("✅ EXTERNAL_AGENT_DEBUG: JetStream acknowledged message")
-	} else {
-		log.Warn().
-			Str("EXTERNAL_AGENT_DEBUG", "jetstream_publish_no_ack").
-			Str("stream_topic", streamTopic).
-			Msg("⚠️ EXTERNAL_AGENT_DEBUG: JetStream publish returned no acknowledgment")
-	}
+	log.Debug().
+		Str("stream", ack.Stream).
+		Str("subject", streamTopic).
+		Uint64("sequence", ack.Sequence).
+		Bool("duplicate", ack.Duplicate).
+		Msg("published request to jetstream")
 
 	select {
 	case <-ctx.Done():
@@ -701,7 +670,10 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 		if !ok {
 			return nil, ctx.Err()
 		}
-		info, err := target.Info(context.Background())
+		// The caller's context is done; bound the diagnostic on its own.
+		infoCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		info, err := target.Info(infoCtx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get stream info: %w", err)
 		}

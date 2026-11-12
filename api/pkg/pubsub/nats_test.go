@@ -312,3 +312,4 @@ func TestStreamRequestReportsMissingConsumers(t *testing.T) {
 	_, err := n.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), map[string]string{}, testWait)
 	require.ErrorContains(t, err, "no consumers available")
 }
+
