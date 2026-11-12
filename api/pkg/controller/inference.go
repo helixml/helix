@@ -158,7 +158,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 
 	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+		return nil, nil, fmt.Errorf("failed to get client: %w", err)
 	}
 
 	billingEnabled := client.BillingEnabled()
@@ -358,7 +358,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 
 	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+		return nil, nil, fmt.Errorf("failed to get client: %w", err)
 	}
 
 	billingEnabled := client.BillingEnabled()
@@ -594,6 +594,24 @@ func (c *Controller) getClient(ctx context.Context, organizationID, userID, prov
 	return client, nil
 }
 
+// ErrModelNotConfigured marks a request that named no provider for a model the
+// default provider does not serve. ModelNotConfiguredError matches it.
+var ErrModelNotConfigured = errors.New("model is not configured in the default provider")
+
+// ModelNotConfiguredError names the model and the default provider that does
+// not serve it. The message is for operators and logs; API handlers answer
+// with their own text so the default provider name is not disclosed.
+type ModelNotConfiguredError struct {
+	Model    string
+	Provider string
+}
+
+func (e *ModelNotConfiguredError) Error() string {
+	return fmt.Sprintf("model %q is not configured in the default provider %q; prefix the model with the target provider (e.g. \"openai/%s\") or supply an app_id", e.Model, e.Provider, e.Model)
+}
+
+func (e *ModelNotConfiguredError) Is(target error) bool { return target == ErrModelNotConfigured }
+
 // assertProviderServesModel returns an explicit error when `provider`'s model
 // list doesn't contain `model`. Used to fence the silent-default-to-helix
 // path in getClient: if the caller didn't tell us where to route and the
@@ -619,7 +637,7 @@ func assertProviderServesModel(ctx context.Context, client oai.Client, provider,
 			return nil
 		}
 	}
-	return fmt.Errorf("model %q is not configured in the default provider %q; prefix the model with the target provider (e.g. \"openai/%s\") or supply an app_id", model, provider, model)
+	return &ModelNotConfiguredError{Model: model, Provider: provider}
 }
 
 func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, bool, error) {

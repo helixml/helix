@@ -64,7 +64,7 @@ func (s *HelixAPIServer) decideSpecTaskPRProposal(w http.ResponseWriter, r *http
 	}
 	var req types.PRProposalDecisionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrResponse(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+		writeErrResponse(w, jsonDecodeHTTPError(err), http.StatusBadRequest)
 		return
 	}
 
@@ -158,7 +158,7 @@ func (s *HelixAPIServer) decideSpecTaskCompletion(w http.ResponseWriter, r *http
 	}
 	var req types.CompletionDecisionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrResponse(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+		writeErrResponse(w, jsonDecodeHTTPError(err), http.StatusBadRequest)
 		return
 	}
 	updated, err := s.prProposals.DecideCompletion(r.Context(), getRequestUser(r), task.ID, &req)

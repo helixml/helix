@@ -531,6 +531,24 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// optionalUser puts the caller on the request context when the request carries
+// a valid session or token, and otherwise serves it anonymously. It never
+// refuses a request, so it suits public routes whose response only narrows
+// for anonymous callers; anything that must be authenticated belongs on
+// authRouter instead.
+func (auth *authMiddleware) optionalUser(f http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, err := auth.getUserFromSession(r.Context(), r)
+		if err != nil || user == nil {
+			user, err = auth.getUserFromToken(r.Context(), getRequestToken(r))
+		}
+		if err == nil && hasUser(user) && user.AccountAccessError() == nil {
+			r = r.WithContext(setRequestUser(r.Context(), *user))
+		}
+		f(w, r)
+	}
+}
+
 // carriesCookieCredential reports whether the browser could authenticate this
 // request by itself: it holds a session cookie or a legacy access_token cookie.
 func carriesCookieCredential(r *http.Request) bool {

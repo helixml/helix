@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger/cron"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // requireTriggerAgentKind reports whether triggers may be attached to this agent.
@@ -408,19 +409,32 @@ func (s *HelixAPIServer) executeAppTrigger(_ http.ResponseWriter, r *http.Reques
 
 	app, err := s.Store.GetAppWithTools(ctx, triggerConfig.AppID)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, storeLookupError(err, "agent")
 	}
 
 	// Authorize user to execute triggers for this app
 	err = s.authorizeUserToApp(ctx, user, app, types.ActionGet)
 	if err != nil {
-		return nil, system.NewHTTPError403(err.Error())
+		log.Debug().Err(err).Str("trigger_id", triggerID).Msg("trigger execute refused")
+		return nil, system.NewHTTPError403("not authorized to execute this trigger")
 	}
 
-	// Execute the trigger
+	// A disabled or archived trigger stays off: the scheduler skips it, and a
+	// manual run must not start the work the operator paused.
+	if !triggerConfig.Enabled || triggerConfig.Archived {
+		return nil, system.NewHTTPError409("trigger is disabled; enable it before running it")
+	}
+	if triggerConfig.Trigger.Cron == nil {
+		return nil, system.NewHTTPError400("only scheduled (cron) triggers can be run manually")
+	}
+
 	response, err := cron.ExecuteCronTask(ctx, s.Store, s.Controller, s.Controller.Options.Notifier, s.specDrivenTaskService, s, app, user.ID, triggerID, triggerConfig.Trigger.Cron, triggerConfig.Name)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		log.Error().Err(err).Str("trigger_id", triggerID).Str("app_id", app.ID).Msg("manual trigger execution failed")
+		if isModelResolutionError(err) {
+			return nil, system.NewHTTPError422("the agent's model could not be resolved; check the model and provider configured for this agent")
+		}
+		return nil, system.NewHTTPError500("trigger execution failed")
 	}
 
 	return response, nil

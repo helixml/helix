@@ -83,6 +83,26 @@ func redactProviderEndpointCredentials(endpoint *types.ProviderEndpoint) {
 	}
 }
 
+// callerOwnsProviderEndpoint reports whether the caller manages endpoint and
+// may therefore see its connection details: a deployment admin, the user who
+// owns it, or a member of the organization being listed when that org owns it.
+func callerOwnsProviderEndpoint(user *types.User, orgID string, endpoint *types.ProviderEndpoint) bool {
+	if isAdmin(user) {
+		return true
+	}
+	if !hasUser(user) {
+		return false
+	}
+	switch endpoint.OwnerType {
+	case types.OwnerTypeUser:
+		return endpoint.Owner == user.ID
+	case types.OwnerTypeOrg:
+		return orgID != "" && endpoint.Owner == orgID
+	default:
+		return false
+	}
+}
+
 // providersManagementEnabled reports whether non-admin users may manage their
 // own provider endpoints. Two operator controls grant this and they mean the
 // same thing: the static ENABLE_CUSTOM_USER_PROVIDERS env var and the admin
@@ -301,6 +321,11 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 
 	for _, endpoint := range providerEndpoints {
 		redactProviderEndpointCredentials(endpoint)
+		if !callerOwnsProviderEndpoint(user, orgID, endpoint) {
+			// Global and other tenants' endpoints are usable by name; where
+			// they point is backend infrastructure the caller does not manage.
+			endpoint.BaseURL = ""
+		}
 	}
 
 	writeResponse(rw, providerEndpoints, http.StatusOK)

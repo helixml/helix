@@ -193,7 +193,7 @@ func (apiServer *HelixAPIServer) adminActivateTrial(_ http.ResponseWriter, req *
 	body := ActivateTrialRequest{}
 	if req.Body != nil && req.ContentLength > 0 {
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+			return nil, jsonDecodeHTTPError(err)
 		}
 	}
 	if body.Days <= 0 {

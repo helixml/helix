@@ -39,7 +39,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 	// Parse request
 	var req types.CloneTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -523,7 +523,7 @@ func (s *HelixAPIServer) quickCreateProject(w http.ResponseWriter, r *http.Reque
 
 	var req QuickCreateProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 

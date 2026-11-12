@@ -24,7 +24,7 @@ func (s *HelixAPIServer) resourceSearch(_ http.ResponseWriter, r *http.Request) 
 
 	var req types.ResourceSearchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if req.Query == "" {

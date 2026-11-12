@@ -44,7 +44,7 @@ type CompletionOutcome struct {
 func (s *PRProposalService) RequestCompletion(ctx context.Context, taskID, summary string) (*CompletionOutcome, error) {
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
-		return nil, invalidProposal("summary is required: tell the user what was done and why the task is finished")
+		return nil, invalidCompletion("summary is required: tell the user what was done and why the task is finished")
 	}
 	var out *CompletionOutcome
 	var newRequest bool
@@ -54,14 +54,14 @@ func (s *PRProposalService) RequestCompletion(ctx context.Context, taskID, summa
 			return err
 		}
 		if !completableStatuses[task.Status] {
-			return invalidProposal("the task is in %q; it can only be marked complete while you are working on it", task.Status)
+			return invalidCompletion("the task is in %q; it can only be marked complete while you are working on it", task.Status)
 		}
 		outstanding, err := s.HasOutstanding(ctx, task.ID)
 		if err != nil {
 			return err
 		}
 		if outstanding {
-			return conflictingProposal("a pull request proposal is still pending, approved but not opened, or failed; wait for it to be resolved (or ask the user to reject it) before marking the task complete")
+			return conflictingCompletion("a pull request proposal is still pending, approved but not opened, or failed; wait for it to be resolved (or ask the user to reject it) before marking the task complete")
 		}
 		out = &CompletionOutcome{Task: task, OpenPRs: openPRs(task)}
 		// Postgres keeps microseconds; the request's attention key is derived
@@ -105,7 +105,7 @@ func (s *PRProposalService) DecideCompletion(ctx context.Context, user *types.Us
 		return s.CompleteTask(ctx, taskID)
 	case types.CompletionDecisionReject:
 	default:
-		return nil, invalidProposal("decision must be %q or %q", types.CompletionDecisionApprove, types.CompletionDecisionReject)
+		return nil, invalidCompletion("decision must be %q or %q", types.CompletionDecisionApprove, types.CompletionDecisionReject)
 	}
 	var task *types.SpecTask
 	var key string
@@ -115,7 +115,7 @@ func (s *PRProposalService) DecideCompletion(ctx context.Context, user *types.Us
 			return err
 		}
 		if task.CompletionRequestedAt == nil {
-			return conflictingProposal("the agent has not asked to complete this task")
+			return conflictingCompletion("the agent has not asked to complete this task")
 		}
 		key = CompletionRequestAttentionKey(task)
 		task.CompletionRequestedAt = nil
@@ -148,16 +148,16 @@ func (s *PRProposalService) CompleteTask(ctx context.Context, taskID string) (*t
 			return err
 		}
 		if task.Status == types.TaskStatusDone {
-			return conflictingProposal("the task is already done")
+			return conflictingCompletion("the task is already done")
 		}
 		if task.Archived {
-			return conflictingProposal("the task is archived")
+			return conflictingCompletion("the task is archived")
 		}
 		// Done is the exit of the pipeline: a task that has not reached
 		// planning or implementation (backlog, queued, failed) cannot skip
 		// straight to it.
 		if !completableStatuses[task.Status] {
-			return conflictingProposal("the task is in %q; only a task that is being worked on can be marked done", task.Status)
+			return conflictingCompletion("the task is in %q; only a task that is being worked on can be marked done", task.Status)
 		}
 		completeTask(task, time.Now())
 		return s.store.UpdateSpecTask(ctx, task)
@@ -318,4 +318,23 @@ func BuildPRSettledPrompt(task *types.SpecTask, pr types.RepoPR) string {
 			"if follow-up work is needed, carry on and propose another pull request."
 	}
 	return msg
+}
+
+// completionError reads as a completion error but matches ErrPRProposalInvalid
+// or ErrPRProposalConflict, so handlers map it to 400 or 409 like the pull
+// request proposal errors it shares a service with.
+type completionError struct {
+	kind error
+	msg  string
+}
+
+func (e *completionError) Error() string        { return e.msg }
+func (e *completionError) Is(target error) bool { return target == e.kind }
+
+func invalidCompletion(format string, args ...any) error {
+	return &completionError{kind: ErrPRProposalInvalid, msg: "invalid completion request: " + fmt.Sprintf(format, args...)}
+}
+
+func conflictingCompletion(format string, args ...any) error {
+	return &completionError{kind: ErrPRProposalConflict, msg: "completion conflict: " + fmt.Sprintf(format, args...)}
 }

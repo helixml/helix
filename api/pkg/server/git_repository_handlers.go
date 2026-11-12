@@ -81,7 +81,7 @@ func redactGitRepositories(repos []*types.GitRepository) []*types.GitRepository 
 func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Request) {
 	var request types.GitRepositoryCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -279,12 +279,12 @@ func (s *HelixAPIServer) getGitRepository(w http.ResponseWriter, r *http.Request
 	repository, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get git repository")
-		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		writeStoreLookupError(w, err, "repository")
 		return
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -317,7 +317,7 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 
 	var request types.GitRepositoryUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -331,7 +331,7 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 	if request.ExternalURL != "" && rejectDisallowedOutboundURL(r.Context(), w, s.gitProviderURLPolicy(), "external_url", request.ExternalURL) {
@@ -414,7 +414,7 @@ func (s *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionDelete); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -551,7 +551,7 @@ func (s *HelixAPIServer) createSampleRepository(w http.ResponseWriter, r *http.R
 
 	var request types.CreateSampleRepositoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -636,12 +636,12 @@ func (apiServer *HelixAPIServer) getGitRepositoryCloneCommand(w http.ResponseWri
 	repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Repository not found for clone command")
-		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		writeStoreLookupError(w, err, "repository")
 		return
 	}
 
 	if err := apiServer.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -676,7 +676,7 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 
 	var request InitializeSampleRepositoriesRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -958,7 +958,7 @@ func (apiServer *HelixAPIServer) browseGitRepositoryTree(w http.ResponseWriter, 
 	}
 
 	if err := apiServer.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1022,7 +1022,7 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 	}
 
 	if err := apiServer.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1121,7 +1121,7 @@ func (apiServer *HelixAPIServer) getGitRepositoryFileContents(w http.ResponseWri
 	}
 
 	if err := apiServer.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1181,7 +1181,7 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 
 	var request types.UpdateGitRepositoryFileContentsRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -1194,7 +1194,7 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1313,7 +1313,7 @@ func (s *HelixAPIServer) syncAllBranches(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1377,7 +1377,7 @@ func (s *HelixAPIServer) pullFromRemote(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1438,7 +1438,7 @@ func (s *HelixAPIServer) pushToRemote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1500,7 +1500,7 @@ func (s *HelixAPIServer) pushPullGitRepository(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1572,12 +1572,12 @@ func (s *HelixAPIServer) listGitRepositoryCommits(w http.ResponseWriter, r *http
 	repository, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get git repository")
-		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		writeStoreLookupError(w, err, "repository")
 		return
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1657,18 +1657,18 @@ func (s *HelixAPIServer) createGitRepositoryBranch(w http.ResponseWriter, r *htt
 	repository, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get git repository")
-		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		writeStoreLookupError(w, err, "repository")
 		return
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
 	var request types.CreateBranchRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -1741,12 +1741,12 @@ func (s *HelixAPIServer) listGitRepositoryPullRequests(w http.ResponseWriter, r 
 	repository, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get git repository")
-		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		writeStoreLookupError(w, err, "repository")
 		return
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
@@ -1789,18 +1789,18 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 	repository, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get git repository")
-		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		writeStoreLookupError(w, err, "repository")
 		return
 	}
 
 	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionUpdate); err != nil {
-		writeErrResponse(w, err, http.StatusForbidden)
+		writeRepositoryAuthzError(w, err)
 		return
 	}
 
 	var request types.CreatePullRequestRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -1915,7 +1915,7 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 
 	var request types.BrowseRemoteRepositoriesRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 

@@ -53,7 +53,7 @@ func (apiServer *HelixAPIServer) adminSetOrgPlan(rw http.ResponseWriter, r *http
 	}
 	var body SetOrgPlanRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	switch body.Plan {
