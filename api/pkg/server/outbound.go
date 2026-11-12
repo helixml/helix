@@ -23,12 +23,13 @@ func (s *HelixAPIServer) gitProviderURLPolicy() netguard.Policy {
 
 // gitProviderHTTPClient returns a netguard-guarded client when the caller
 // supplied a self-hosted baseURL, and nil (library default, i.e. github.com /
-// gitlab.com) otherwise.
+// gitlab.com) otherwise. It follows redirects (self-hosted servers often sit
+// behind one), re-checking every hop against the policy.
 func gitProviderHTTPClient(policy netguard.Policy, baseURL string) *http.Client {
 	if baseURL == "" {
 		return nil
 	}
-	return policy.NewClient(gitProviderRequestTimeout)
+	return policy.NewRedirectingClient(gitProviderRequestTimeout)
 }
 
 // rejectDisallowedOutboundURL validates rawURL against policy and, if it is

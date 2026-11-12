@@ -2761,13 +2761,13 @@ const gitProviderAPITimeout = 60 * time.Second
 // providerHTTPClient returns the HTTP client for a GitHub, GitLab or
 // Bitbucket API at baseURL. A repository-supplied (self-hosted) baseURL gets
 // a client guarded by the outbound policy, so it cannot reach loopback,
-// internal services or cloud metadata; "" keeps the SDK default for the
-// public host.
+// internal services or cloud metadata, including through a redirect (each
+// hop is re-checked); "" keeps the SDK default for the public host.
 func (s *GitRepositoryService) providerHTTPClient(baseURL string) *http.Client {
 	if baseURL == "" {
 		return nil
 	}
-	return s.adoPolicy().NewClient(gitProviderAPITimeout)
+	return s.adoPolicy().NewRedirectingClient(gitProviderAPITimeout)
 }
 
 // pinUpstream applies the outbound policy, when one is set, to remote.
