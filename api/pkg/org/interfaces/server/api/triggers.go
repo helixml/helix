@@ -444,6 +444,9 @@ func (a *apiHandler) createBotAttachment(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, 400, "validation_failed", err.Error())
 		return
 	}
+	if !a.authorizeBotAttachmentChange(w, r, orgID, orgchart.NodeID(r.PathValue("id"))) {
+		return
+	}
 	var req AttachmentWriteRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeAPIError(w, 400, "validation_failed", err.Error())
@@ -485,6 +488,9 @@ func (a *apiHandler) deleteBotAttachment(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, 400, "validation_failed", err.Error())
 		return
 	}
+	if !a.authorizeBotAttachmentChange(w, r, orgID, orgchart.NodeID(r.PathValue("id"))) {
+		return
+	}
 	rows, err := a.deps.Attachments.ListForWorker(r.Context(), orgID, orgchart.NodeID(r.PathValue("id")))
 	if err != nil {
 		writeAPIError(w, 404, "not_found", "Attachment not found")
@@ -507,4 +513,36 @@ func (a *apiHandler) deleteBotAttachment(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.WriteHeader(204)
+}
+
+// authorizeBotAttachmentChange allows org owners and platform admins, and
+// any member who may update the Bot's agent app: wiring a source to a Bot
+// decides what wakes that agent, which is an edit of it. It writes the error
+// response and returns false when the caller may not.
+func (a *apiHandler) authorizeBotAttachmentChange(w http.ResponseWriter, r *http.Request, orgID string, botID orgchart.NodeID) bool {
+	ctx := r.Context()
+	if helixorgserver.CanManageOrganization(ctx) {
+		return true
+	}
+	const denied = "Only organization owners, administrators, or people who can edit this bot's agent can change its attachments"
+	if a.deps.AgentEditAuthorizer == nil || a.deps.Queries == nil {
+		writeAPIError(w, http.StatusForbidden, "forbidden", denied)
+		return false
+	}
+	bot, err := a.deps.Queries.GetBot(ctx, orgID, botID)
+	if err != nil {
+		writeAPIError(w, errStatus(err), "not_found", "Bot not found")
+		return false
+	}
+	agentID := bot.AgentID
+	if agentID == "" && a.deps.BotRuntime != nil {
+		if info, err := a.deps.BotRuntime.State(ctx, orgID, botID); err == nil {
+			agentID = info.AgentID
+		}
+	}
+	if agentID == "" || a.deps.AgentEditAuthorizer.AuthorizeAgentUpdate(ctx, agentID) != nil {
+		writeAPIError(w, http.StatusForbidden, "forbidden", denied)
+		return false
+	}
+	return true
 }

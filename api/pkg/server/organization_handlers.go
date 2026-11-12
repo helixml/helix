@@ -697,12 +697,9 @@ func (apiServer *HelixAPIServer) getOrganizationGuidelinesHistory(rw http.Respon
 		return
 	}
 
-	// Check if user is a member of the organization
-	_, err = apiServer.Store.GetOrganizationMembership(r.Context(), &store.GetOrganizationMembershipQuery{
-		OrganizationID: org.ID,
-		UserID:         user.ID,
-	})
-	if err != nil && !user.Admin {
+	// Members (and platform admins) may read; org-scoped keys stay confined
+	// to their own organization.
+	if _, err := apiServer.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
 		http.Error(rw, "Not authorized to view organization guidelines history", http.StatusForbidden)
 		return
 	}

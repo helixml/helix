@@ -1015,6 +1015,10 @@ func (s *HelixAPIServer) ensureAzureDevOpsTrigger(ctx context.Context, existingT
 		}
 	}
 
+	if _, err := ensureWebhookTriggerSecret(&trigger, nil); err != nil {
+		return err
+	}
+
 	// Create a new trigger configuration
 	triggerConfig := &types.TriggerConfiguration{
 		AppID:          app.ID,
