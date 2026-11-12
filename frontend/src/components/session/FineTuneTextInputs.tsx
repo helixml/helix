@@ -40,7 +40,12 @@ import {
 import {
   mapFileExtension,
 } from '../../utils/filestore'
-import { ListItem, ListItemButton, ListItemText, ListItemIcon, IconButton, List } from '@mui/material'
+import ListItem from '@mui/material/ListItem';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemText from '@mui/material/ListItemText';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import IconButton from '@mui/material/IconButton';
+import List from '@mui/material/List';
 
 interface CustomFile {
   file: File;

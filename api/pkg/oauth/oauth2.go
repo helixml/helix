@@ -147,20 +147,46 @@ func (p *OAuth2Provider) GetAuthorizationURL(ctx context.Context, userID, redire
 	return authURL, nil
 }
 
-// CompleteAuthorization exchanges the authorization code for an access token
-func (p *OAuth2Provider) CompleteAuthorization(ctx context.Context, userID, code string) (*types.OAuthConnection, error) {
-	// Get the most recent request token for this user and provider
+// lookupRequestToken resolves the request token a callback completes. With a
+// state it is the exact token sealed into the authorize URL, and that token
+// must belong to userID and this provider: a code arriving with someone
+// else's state, or a state from another provider, is refused rather than
+// matched against whatever flow the user started most recently.
+func (p *OAuth2Provider) lookupRequestToken(ctx context.Context, userID, state string) (*types.OAuthRequestToken, error) {
+	if state != "" {
+		tokens, err := p.store.GetOAuthRequestTokenByState(ctx, state)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get request token: %w", err)
+		}
+		for _, token := range tokens {
+			if token.UserID != userID || token.ProviderID != p.config.ID {
+				continue
+			}
+			if time.Now().After(token.ExpiresAt) {
+				return nil, errors.New("request token has expired")
+			}
+			return token, nil
+		}
+		return nil, errors.New("request token does not match this user and provider")
+	}
+
+	// No state: the user's most recent request token for this provider.
 	requestTokens, err := p.store.GetOAuthRequestToken(ctx, userID, p.config.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get request token: %w", err)
 	}
-
 	if len(requestTokens) == 0 {
 		return nil, errors.New("no request token found")
 	}
+	return requestTokens[0], nil
+}
 
-	// Use the most recent request token
-	requestToken := requestTokens[0]
+// CompleteAuthorization exchanges the authorization code for an access token
+func (p *OAuth2Provider) CompleteAuthorization(ctx context.Context, userID, code, state string) (*types.OAuthConnection, error) {
+	requestToken, err := p.lookupRequestToken(ctx, userID, state)
+	if err != nil {
+		return nil, err
+	}
 
 	// Delete the request token as it's no longer needed
 	defer func() {

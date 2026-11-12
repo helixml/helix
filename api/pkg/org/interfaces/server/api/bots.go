@@ -825,6 +825,7 @@ func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 		ProjectIDs:      b.ProjectIDs,
 		ParentIDs:       parentIDs,
 		OrganizationID:  b.OrganizationID,
+		PortraitIndex:   b.PortraitIndex,
 		PreserveContext: b.PreserveContext,
 		SandboxRuntime:  types.SandboxRuntime(b.SandboxRuntime),
 		InstanceProfile: b.EffectiveInstanceProfile(),

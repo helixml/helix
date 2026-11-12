@@ -1,35 +1,33 @@
 import React, { FC, useState, useEffect, useMemo, useCallback } from 'react'
-import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  CardHeader,
-  Chip,
-  Button,
-  IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Tooltip,
-  Alert,
-  Avatar,
-  Badge,
-  Menu,
-  ListItemIcon,
-  ListItemText,
-  Divider,
-  Paper,
-  Stack,
-  Grid,
-  LinearProgress
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import CardHeader from '@mui/material/CardHeader';
+import Chip from '@mui/material/Chip';
+import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import TextField from '@mui/material/TextField';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import Tooltip from '@mui/material/Tooltip';
+import Alert from '@mui/material/Alert';
+import Avatar from '@mui/material/Avatar';
+import Badge from '@mui/material/Badge';
+import Menu from '@mui/material/Menu';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Divider from '@mui/material/Divider';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import Grid from '@mui/material/Grid';
+import LinearProgress from '@mui/material/LinearProgress';
 import {
   DndContext,
   DragEndEvent,
@@ -47,28 +45,26 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import {
-  Add as AddIcon,
-  MoreVert as MoreVertIcon,
-  Computer as ComputerIcon,
-  PlayArrow as PlayArrowIcon,
-  Pause as PauseIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  OpenInNew as OpenInNewIcon,
-  Source as BranchIcon,
-  Person as PersonIcon,
-  Schedule as ScheduleIcon,
-  PriorityHigh as PriorityIcon,
-  Code as CodeIcon,
-  BugReport as BugIcon,
-  Star as FeatureIcon,
-  Task as TaskIcon,
-  AutoAwesome as AutoAwesomeIcon,
-  ContentCopy as CopyIcon,
-  Delete as DeleteIcon,
-  Edit as EditIcon
-} from '@mui/icons-material'
+import AddIcon from '@mui/icons-material/Add';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import ComputerIcon from '@mui/icons-material/Computer';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import PauseIcon from '@mui/icons-material/Pause';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ErrorIcon from '@mui/icons-material/Error';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import BranchIcon from '@mui/icons-material/Source';
+import PersonIcon from '@mui/icons-material/Person';
+import ScheduleIcon from '@mui/icons-material/Schedule';
+import PriorityIcon from '@mui/icons-material/PriorityHigh';
+import CodeIcon from '@mui/icons-material/Code';
+import BugIcon from '@mui/icons-material/BugReport';
+import FeatureIcon from '@mui/icons-material/Star';
+import TaskIcon from '@mui/icons-material/Task';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import CopyIcon from '@mui/icons-material/ContentCopy';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
 import { useTheme } from '@mui/material/styles'
 // Removed date-fns dependency - using native JavaScript instead
 

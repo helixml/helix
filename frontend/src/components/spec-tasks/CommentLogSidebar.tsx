@@ -1,5 +1,10 @@
 import React from 'react'
-import { Box, Typography, Paper, Chip, Button, Tooltip } from '@mui/material'
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Paper from '@mui/material/Paper';
+import Chip from '@mui/material/Chip';
+import Button from '@mui/material/Button';
+import Tooltip from '@mui/material/Tooltip';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import { MessageWithToolCalls, ResponseEntry } from '../session/InteractionInference'
 import { DesignReviewComment } from '../../services/designReviewService'

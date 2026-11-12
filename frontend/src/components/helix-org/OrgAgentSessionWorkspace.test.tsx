@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import OrgAgentSessionWorkspace, { botSandboxIndicatorState } from './OrgAgentSessionWorkspace'
+import OrgAgentSessionWorkspace from './OrgAgentSessionWorkspace'
+import { botSandboxIndicatorState } from './BotProfile'
 
 const mocks = vi.hoisted(() => ({
   isBigScreen: true,
@@ -69,6 +70,7 @@ const runningBot = {
   id: 'b-eng',
   status: 'running',
   sandbox_status: 'running',
+  portrait_index: 5,
   effective_sandbox_runtime: 'ubuntu-desktop',
 } as const
 
@@ -88,6 +90,84 @@ describe('OrgAgentSessionWorkspace', () => {
 
     expect(screen.getByText('Session chat')).toBeInTheDocument()
     expect(screen.getByText('Desktop for session-one')).toBeInTheDocument()
+    expect(screen.queryByText(/Your Helix bot/i)).not.toBeInTheDocument()
+  })
+
+  it('identifies the bot conversation and its desktop', () => {
+    render(
+      <OrgAgentSessionWorkspace
+        sessionId="session-chief"
+        organizationId="acme"
+        bot={{ ...runningBot, id: 'chief-of-staff', name: 'Chief of Staff' } as any}
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Chief of Staff' })).toBeInTheDocument()
+    expect(screen.getByText('Your Helix bot')).toBeInTheDocument()
+    expect(screen.getByText('Ready to chat')).toBeInTheDocument()
+    expect(screen.getByTestId('bot-profile-compact')).toBeInTheDocument()
+    expect(screen.queryByTestId('bot-profile-expanded')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: "Chief of Staff's desktop" })).toBeInTheDocument()
+  })
+
+  it('replaces the compact banner with the expanded new-conversation profile', () => {
+    render(
+      <OrgAgentSessionWorkspace
+        sessionId="session-chief"
+        organizationId="acme"
+        bot={{ ...runningBot, id: 'chief-of-staff', name: 'Chief of Staff' } as any}
+        expandedBotProfile
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    expect(screen.getByTestId('bot-profile-expanded')).toBeInTheDocument()
+    expect(screen.queryByTestId('bot-profile-compact')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: "Chief of Staff's desktop" })).toBeInTheDocument()
+  })
+
+  it('reports bot work and failure states without claiming it is available', () => {
+    const view = render(
+      <OrgAgentSessionWorkspace
+        sessionId="session-chief"
+        organizationId="acme"
+        bot={{ ...runningBot, agent_work_state: 'working' } as any}
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    expect(screen.getByText('Replying')).toBeInTheDocument()
+    expect(screen.queryByText('Ready to chat')).not.toBeInTheDocument()
+
+    view.rerender(
+      <OrgAgentSessionWorkspace
+        sessionId="session-chief"
+        organizationId="acme"
+        bot={{ ...runningBot, status: 'stopped', sandbox_status: 'stopped', agent_work_state: 'working' } as any}
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    expect(screen.getByText('Stopped')).toBeInTheDocument()
+    expect(screen.queryByText('Replying')).not.toBeInTheDocument()
+
+    view.rerender(
+      <OrgAgentSessionWorkspace
+        sessionId="session-chief"
+        organizationId="acme"
+        bot={{ ...runningBot, activation_error: 'Agent stopped unexpectedly' } as any}
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    expect(screen.getByText('Needs attention')).toBeInTheDocument()
+    expect(screen.queryByText('Ready to chat')).not.toBeInTheDocument()
   })
 
   it('shows the latest activation error above the workspace', () => {
@@ -251,6 +331,24 @@ describe('OrgAgentSessionWorkspace', () => {
     expect(screen.queryByText('Desktop for session-two')).not.toBeInTheDocument()
   })
 
+  it('keeps bot identity on smaller screens when switching from its desktop to chat', () => {
+    mocks.isBigScreen = false
+    render(
+      <OrgAgentSessionWorkspace
+        sessionId="session-mobile"
+        organizationId="acme"
+        bot={{ ...runningBot, id: 'chief-of-staff', name: 'Chief of Staff' } as any}
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    expect(screen.getByRole('heading', { name: "Chief of Staff's desktop" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /chat view/i }))
+    expect(screen.getByRole('heading', { name: 'Chief of Staff' })).toBeInTheDocument()
+    expect(screen.getByText('Your Helix bot')).toBeInTheDocument()
+  })
+
   it('switches between the diff, files, browser and details surfaces', () => {
     render(
       <OrgAgentSessionWorkspace sessionId="session-three" organizationId="acme" bot={runningBot as any}>
@@ -319,6 +417,7 @@ describe('OrgAgentSessionWorkspace', () => {
 
     expect(screen.queryByRole('button', { name: /desktop view/i })).not.toBeInTheDocument()
     expect(screen.getByText('changes for session-four')).toBeInTheDocument()
+    expect(screen.queryByText(/'s desktop/)).not.toBeInTheDocument()
   })
 
   it('offers start for a stopped bot and stop for a running one', () => {

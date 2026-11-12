@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
-import {
-  Container,
-  Box,
-  Typography,
-  TextField,
-  Button,
-  Alert,
-  Paper,
-} from '@mui/material';
+import Container from '@mui/material/Container';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import TextField from '@mui/material/TextField';
+import Button from '@mui/material/Button';
+import Alert from '@mui/material/Alert';
+import Paper from '@mui/material/Paper';
 import useApi from '../hooks/useApi';
 import useSnackbar from '../hooks/useSnackbar';
 import { TypesPasswordResetRequest } from '../api/api';

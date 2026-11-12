@@ -1,5 +1,10 @@
 import { FC, useMemo, useState } from 'react'
-import { Box, CircularProgress, IconButton, Tooltip, Typography, alpha } from '@mui/material'
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
+import { alpha } from '@mui/material/styles';
 import { CircleAlert, FileText, Paperclip, RefreshCw, X } from 'lucide-react'
 
 import { prettyBytes } from '../../utils/format'

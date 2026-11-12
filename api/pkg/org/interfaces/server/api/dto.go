@@ -59,6 +59,7 @@ type BotDTO struct {
 	ProjectIDs     []string `json:"project_ids,omitempty"`
 	ParentIDs      []string `json:"parent_ids,omitempty"`
 	OrganizationID string   `json:"organization_id,omitempty"`
+	PortraitIndex  *int     `json:"portrait_index,omitempty"`
 	// CanEdit is true when the caller may change this Bot: organization
 	// owners and platform admins, or a member who may update the Bot's
 	// agent app. The UI hides edit, delete and re-parent controls when false.

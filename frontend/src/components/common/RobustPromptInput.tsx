@@ -12,18 +12,16 @@
  */
 
 import React, { FC, useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react'
-import {
-  Box,
-  IconButton,
-  CircularProgress,
-  Tooltip,
-  Typography,
-  alpha,
-  Collapse,
-  LinearProgress,
-  Chip,
-  Popover,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import IconButton from '@mui/material/IconButton';
+import CircularProgress from '@mui/material/CircularProgress';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
+import Collapse from '@mui/material/Collapse';
+import LinearProgress from '@mui/material/LinearProgress';
+import Chip from '@mui/material/Chip';
+import Popover from '@mui/material/Popover';
+import { alpha } from '@mui/material/styles';
 import {
   SendHorizontal,
   ListStart,

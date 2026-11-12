@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import {
-  DialogContent,
-  DialogActions,
-  Button,
-  Box,
-  Typography,
-  Alert,
-  TextField,
-  Link,
-  InputAdornment,
-  IconButton,
-} from '@mui/material';
-import { Visibility, VisibilityOff } from '@mui/icons-material';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Alert from '@mui/material/Alert';
+import TextField from '@mui/material/TextField';
+import Link from '@mui/material/Link';
+import InputAdornment from '@mui/material/InputAdornment';
+import IconButton from '@mui/material/IconButton';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { IAppFlatState } from '../../types';
 import { TypesAssistantMCP } from '../../api/api';
 import { styled } from '@mui/material/styles';

@@ -15,6 +15,11 @@ const pickerProps = vi.hoisted(() => ({ current: {} as Record<string, unknown> }
 vi.mock('../../hooks/useSnackbar', () => ({
   default: () => ({ success: vi.fn(), error: vi.fn() }),
 }))
+// Reasoning efforts come from the provider list; never request it from jsdom.
+vi.mock('../../services/providersService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/providersService')>()),
+  useListProviders: () => ({ data: [] }),
+}))
 vi.mock('../../services/codeAgentHarnessesService', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/codeAgentHarnessesService')>()),
   useHasEnabledCodeAgentHarnesses: () => availability,

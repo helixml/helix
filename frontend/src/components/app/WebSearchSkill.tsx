@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import {
-  DialogContent,
-  DialogActions,
-  Button,
-  Box,
-  Typography,
-  Switch,
-  FormControlLabel,
-  Alert,
-  TextField,
-} from '@mui/material';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Alert from '@mui/material/Alert';
+import TextField from '@mui/material/TextField';
 import { IAppFlatState } from '../../types';
 import { TypesAssistantWebSearch } from '../../api/api';
 import { styled } from '@mui/material/styles';

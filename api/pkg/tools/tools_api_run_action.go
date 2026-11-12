@@ -55,105 +55,9 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 		}
 	}
 
-	// Add OAuth token handling for API tools
-	var oauthTokens map[string]string
-
-	// First check if OAuth tokens were directly provided in options
-	if len(opts.oauthTokens) > 0 {
-		oauthTokens = opts.oauthTokens
-		log.Info().
-			Str("session_id", sessionID).
-			Str("tool_name", tool.Name).
-			Int("token_count", len(oauthTokens)).
-			Msg("Using OAuth tokens from options")
-	} else if c.oauthManager != nil || opts.oauthManager != nil {
-		// Use OAuth manager from options or from the ChainStrategy
-		manager := c.oauthManager
-		if opts.oauthManager != nil {
-			manager = opts.oauthManager
-		}
-
-		// Try to get app ID from context
-		appID, ok := oai.GetContextAppID(ctx)
-		if !ok || appID == "" {
-			// If no app ID in context, try to get it from the session
-			if sessionID != "" && manager != nil {
-				// Try to get user and app from session ID
-				userID, err := c.getUserIDFromSessionID(ctx, sessionID)
-				if err != nil {
-					log.Warn().
-						Err(err).
-						Str("session_id", sessionID).
-						Str("tool_name", tool.Name).
-						Msg("Failed to get user ID from session for OAuth tokens")
-				} else if userID != "" {
-					// Get the session to look up the app ID
-					session, err := c.sessionStore.GetSession(ctx, sessionID)
-					if err != nil {
-						log.Warn().
-							Err(err).
-							Str("session_id", sessionID).
-							Str("tool_name", tool.Name).
-							Msg("Failed to get session for OAuth tokens")
-					} else if session.ParentApp != "" {
-						appID = session.ParentApp
-						log.Info().
-							Str("session_id", sessionID).
-							Str("app_id", appID).
-							Str("user_id", userID).
-							Msg("Found app ID from session for OAuth tokens")
-					}
-				}
-			}
-		}
-
-		// Get OAuth tokens if we have an app ID and user ID
-		if appID != "" && manager != nil {
-			// Initialize map for tokens
-			oauthTokens = make(map[string]string)
-
-			// Get the app to find owner
-			app, err := c.appStore.GetApp(ctx, appID)
-			if err != nil {
-				log.Warn().
-					Err(err).
-					Str("app_id", appID).
-					Str("session_id", sessionID).
-					Str("tool_name", tool.Name).
-					Msg("Failed to get app for OAuth tokens")
-			} else if app.Owner != "" && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
-				// Get token for this specific provider
-				token, err := manager.GetTokenForTool(ctx, app.Owner, tool.Config.API.OAuthProvider, tool.Config.API.OAuthScopes)
-				if err != nil {
-					log.Warn().
-						Err(err).
-						Str("app_id", appID).
-						Str("user_id", app.Owner).
-						Str("provider", tool.Config.API.OAuthProvider).
-						Str("session_id", sessionID).
-						Str("tool_name", tool.Name).
-						Msg("Failed to get OAuth token for tool")
-				} else if token != "" {
-					// Add the token to our map
-					oauthTokens[tool.Config.API.OAuthProvider] = token
-
-					log.Info().
-						Str("app_id", appID).
-						Str("user_id", app.Owner).
-						Str("provider", tool.Config.API.OAuthProvider).
-						Str("session_id", sessionID).
-						Str("tool_name", tool.Name).
-						Int("token_length", len(token)).
-						Msg("Retrieved OAuth token for provider")
-				}
-			}
-		} else {
-			log.Warn().
-				Str("app_id", appID).
-				Str("session_id", sessionID).
-				Bool("has_oauth_manager", manager != nil).
-				Msg("No app ID available for OAuth token retrieval")
-		}
+	oauthTokens := c.resolveOAuthTokens(ctx, sessionID, tool, opts)
+	if err := requireOAuthToken(tool, oauthTokens); err != nil {
+		return nil, err
 	}
 
 	// Process the OAuth tokens if we have any
@@ -204,106 +108,9 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 		}
 	}
 
-	// Add OAuth token handling for API tools
-	var oauthTokens map[string]string
-
-	// First check if OAuth tokens were directly provided in options
-	if len(opts.oauthTokens) > 0 {
-		oauthTokens = opts.oauthTokens
-		log.Info().
-			Str("session_id", sessionID).
-			Str("tool_name", tool.Name).
-			Int("token_count", len(oauthTokens)).
-			Msg("Using OAuth tokens from options in stream")
-	} else if c.oauthManager != nil || opts.oauthManager != nil {
-		// Use OAuth manager from options or from the ChainStrategy
-		manager := c.oauthManager
-		if opts.oauthManager != nil {
-			manager = opts.oauthManager
-		}
-
-		// Try to get app ID from context
-		appID, ok := oai.GetContextAppID(ctx)
-		if !ok || appID == "" {
-			// If no app ID in context, try to get it from the session
-			if sessionID != "" && manager != nil {
-				// Try to get user and app from session ID
-				userID, err := c.getUserIDFromSessionID(ctx, sessionID)
-				if err != nil {
-					log.Warn().
-						Err(err).
-						Str("session_id", sessionID).
-						Str("tool_name", tool.Name).
-						Msg("Failed to get user ID from session for OAuth tokens in stream")
-				} else if userID != "" {
-					// Get the session to look up the app ID
-					session, err := c.sessionStore.GetSession(ctx, sessionID)
-					if err != nil {
-						log.Warn().
-							Err(err).
-							Str("session_id", sessionID).
-							Str("tool_name", tool.Name).
-							Msg("Failed to get session for OAuth tokens in stream")
-					} else if session.ParentApp != "" {
-						appID = session.ParentApp
-						log.Info().
-							Str("session_id", sessionID).
-							Str("app_id", appID).
-							Str("user_id", userID).
-							Msg("Found app ID from session for OAuth tokens in stream")
-					}
-				}
-			}
-		}
-
-		// Get OAuth tokens if we have an app ID and user ID
-		if appID != "" && manager != nil {
-			// Note: Manager doesn't have a method to get all tokens for an app
-			// So we need to collect tokens for each tool configuration instead
-			oauthTokens = make(map[string]string)
-
-			// Get the app to find owner
-			app, err := c.appStore.GetApp(ctx, appID)
-			if err != nil {
-				log.Warn().
-					Err(err).
-					Str("app_id", appID).
-					Str("session_id", sessionID).
-					Str("tool_name", tool.Name).
-					Msg("Failed to get app for OAuth tokens in stream")
-			} else if app.Owner != "" && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
-				// Get token for this specific provider with required scopes
-				token, err := manager.GetTokenForTool(ctx, app.Owner, tool.Config.API.OAuthProvider, tool.Config.API.OAuthScopes)
-				if err != nil {
-					log.Warn().
-						Err(err).
-						Str("app_id", appID).
-						Str("user_id", app.Owner).
-						Str("provider", tool.Config.API.OAuthProvider).
-						Strs("required_scopes", tool.Config.API.OAuthScopes).
-						Str("session_id", sessionID).
-						Str("tool_name", tool.Name).
-						Msg("Failed to get OAuth token for tool in stream")
-				} else if token != "" {
-					// Add the token to our map
-					oauthTokens[tool.Config.API.OAuthProvider] = token
-					log.Info().
-						Str("app_id", appID).
-						Str("user_id", app.Owner).
-						Str("provider", tool.Config.API.OAuthProvider).
-						Str("session_id", sessionID).
-						Str("tool_name", tool.Name).
-						Int("token_length", len(token)).
-						Msg("Retrieved OAuth token for provider in stream")
-				}
-			}
-		} else {
-			log.Warn().
-				Str("app_id", appID).
-				Str("session_id", sessionID).
-				Bool("has_oauth_manager", manager != nil).
-				Msg("No app ID available for OAuth token retrieval in stream")
-		}
+	oauthTokens := c.resolveOAuthTokens(ctx, sessionID, tool, opts)
+	if err := requireOAuthToken(tool, oauthTokens); err != nil {
+		return nil, err
 	}
 
 	// Process the OAuth tokens if we have any
@@ -642,4 +449,163 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 	}
 
 	return &types.RunAPIActionResponse{Response: string(body)}, nil
+}
+
+// oauthCallerID resolves the user whose OAuth connections a tool run may use:
+// the request's owner from the inference context, else the owner of the
+// session the run belongs to. Empty when neither is known.
+func (c *ChainStrategy) oauthCallerID(ctx context.Context, sessionID string) string {
+	if vals, ok := oai.GetContextValues(ctx); ok && vals != nil && vals.OwnerID != "" {
+		return vals.OwnerID
+	}
+	if sessionID == "" || c.sessionStore == nil {
+		return ""
+	}
+	session, err := c.sessionStore.GetSession(ctx, sessionID)
+	if err != nil || session == nil {
+		return ""
+	}
+	return session.Owner
+}
+
+// resolveOAuthTokens returns the OAuth tokens an API tool run may use, keyed
+// by provider name. Tokens passed in by the caller win; otherwise they are
+// looked up for the calling user only (see oauthCallerID). The app's owner
+// is never used as a stand-in for the caller.
+func (c *ChainStrategy) resolveOAuthTokens(ctx context.Context, sessionID string, tool *types.Tool, opts Options) map[string]string {
+	var oauthTokens map[string]string
+
+	// First check if OAuth tokens were directly provided in options
+	if len(opts.oauthTokens) > 0 {
+		oauthTokens = opts.oauthTokens
+		log.Info().
+			Str("session_id", sessionID).
+			Str("tool_name", tool.Name).
+			Int("token_count", len(oauthTokens)).
+			Msg("Using OAuth tokens from options")
+	} else if c.oauthManager != nil || opts.oauthManager != nil {
+		// Use OAuth manager from options or from the ChainStrategy
+		manager := c.oauthManager
+		if opts.oauthManager != nil {
+			manager = opts.oauthManager
+		}
+
+		// Try to get app ID from context
+		appID, ok := oai.GetContextAppID(ctx)
+		if !ok || appID == "" {
+			// If no app ID in context, try to get it from the session
+			if sessionID != "" && manager != nil {
+				// Try to get user and app from session ID
+				userID, err := c.getUserIDFromSessionID(ctx, sessionID)
+				if err != nil {
+					log.Warn().
+						Err(err).
+						Str("session_id", sessionID).
+						Str("tool_name", tool.Name).
+						Msg("Failed to get user ID from session for OAuth tokens")
+				} else if userID != "" {
+					// Get the session to look up the app ID
+					session, err := c.sessionStore.GetSession(ctx, sessionID)
+					if err != nil {
+						log.Warn().
+							Err(err).
+							Str("session_id", sessionID).
+							Str("tool_name", tool.Name).
+							Msg("Failed to get session for OAuth tokens")
+					} else if session.ParentApp != "" {
+						appID = session.ParentApp
+						log.Info().
+							Str("session_id", sessionID).
+							Str("app_id", appID).
+							Str("user_id", userID).
+							Msg("Found app ID from session for OAuth tokens")
+					}
+				}
+			}
+		}
+
+		// Get OAuth tokens if we have an app ID and user ID. Tokens are always
+		// the calling user's own connections: an app's owner may have linked
+		// their accounts, but a different user chatting with that app must not
+		// act with them.
+		callerID := c.oauthCallerID(ctx, sessionID)
+		if appID != "" && manager != nil && callerID == "" {
+			log.Warn().
+				Str("app_id", appID).
+				Str("session_id", sessionID).
+				Str("tool_name", tool.Name).
+				Msg("No calling user resolved for OAuth tokens; not using app owner credentials")
+		}
+		if appID != "" && manager != nil && callerID != "" {
+			// Initialize map for tokens
+			oauthTokens = make(map[string]string)
+
+			// Get the app to find owner
+			app, err := c.appStore.GetApp(ctx, appID)
+			if err != nil {
+				log.Warn().
+					Err(err).
+					Str("app_id", appID).
+					Str("session_id", sessionID).
+					Str("tool_name", tool.Name).
+					Msg("Failed to get app for OAuth tokens")
+			} else if app != nil && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
+				// Get token for this specific provider
+				token, err := manager.GetTokenForTool(ctx, callerID, tool.Config.API.OAuthProvider, tool.Config.API.OAuthScopes)
+				if err != nil {
+					log.Warn().
+						Err(err).
+						Str("app_id", appID).
+						Str("user_id", callerID).
+						Str("provider", tool.Config.API.OAuthProvider).
+						Str("session_id", sessionID).
+						Str("tool_name", tool.Name).
+						Msg("Failed to get OAuth token for tool")
+				} else if token != "" {
+					// Add the token to our map
+					oauthTokens[tool.Config.API.OAuthProvider] = token
+
+					log.Info().
+						Str("app_id", appID).
+						Str("user_id", callerID).
+						Str("provider", tool.Config.API.OAuthProvider).
+						Str("session_id", sessionID).
+						Str("tool_name", tool.Name).
+						Int("token_length", len(token)).
+						Msg("Retrieved OAuth token for provider")
+				}
+			}
+		} else {
+			log.Warn().
+				Str("app_id", appID).
+				Str("session_id", sessionID).
+				Bool("has_oauth_manager", manager != nil).
+				Msg("No app ID available for OAuth token retrieval")
+		}
+	}
+	return oauthTokens
+}
+
+// OAuthConnectionRequiredError is returned when a tool is bound to an OAuth
+// provider and the calling user has no usable connection for it. The tool is
+// never called unauthenticated in that case.
+type OAuthConnectionRequiredError struct {
+	Provider string
+	Tool     string
+}
+
+func (e *OAuthConnectionRequiredError) Error() string {
+	return fmt.Sprintf("the %s tool needs your %s account: connect your %s account in Account → Connections and try again", e.Tool, e.Provider, e.Provider)
+}
+
+// requireOAuthToken fails an API tool run whose provider token did not
+// resolve, instead of sending the request without credentials.
+func requireOAuthToken(tool *types.Tool, oauthTokens map[string]string) error {
+	if tool.ToolType != types.ToolTypeAPI || tool.Config.API == nil || tool.Config.API.OAuthProvider == "" {
+		return nil
+	}
+	if oauthTokens[tool.Config.API.OAuthProvider] != "" {
+		return nil
+	}
+	return &OAuthConnectionRequiredError{Provider: tool.Config.API.OAuthProvider, Tool: tool.Name}
 }

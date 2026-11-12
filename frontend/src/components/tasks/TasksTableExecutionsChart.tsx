@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Tooltip } from '@mui/material';
+import Box from '@mui/material/Box';
+import Tooltip from '@mui/material/Tooltip';
 import { TypesTriggerExecution, TypesTriggerExecutionStatus } from '../../api/api';
 import { useListAppTriggerExecutions } from '../../services/appService';
 import useTheme from '@mui/material/styles/useTheme';

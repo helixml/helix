@@ -1,15 +1,13 @@
 import React, { FC, useCallback } from 'react';
-import {
-  Box,
-  Button,
-  Avatar,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  IconButton,
-  Typography,
-  Alert,
-} from '@mui/material';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Avatar from '@mui/material/Avatar';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import IconButton from '@mui/material/IconButton';
+import Typography from '@mui/material/Typography';
+import Alert from '@mui/material/Alert';
 import PeopleIcon from '@mui/icons-material/People';
 import { X, User } from 'lucide-react';
 import {

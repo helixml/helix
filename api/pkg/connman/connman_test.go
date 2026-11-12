@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -122,7 +123,7 @@ func TestConnectionManager_GracePeriod(t *testing.T) {
 func TestConnectionManager_GracePeriodExpires(t *testing.T) {
 	// Create manager with very short grace period
 	gracePeriod := 100 * time.Millisecond
-	m := NewWithGracePeriod(gracePeriod)
+	m := newWithIntervals(gracePeriod, testCleanupInterval)
 	defer m.Stop()
 
 	key := "test-runner"
@@ -138,14 +139,9 @@ func TestConnectionManager_GracePeriodExpires(t *testing.T) {
 		t.Fatalf("Expected key in grace period")
 	}
 
-	// Wait for grace period to expire (plus cleanup interval buffer)
-	time.Sleep(gracePeriod + CleanupInterval + 100*time.Millisecond)
-
-	// Should now be cleaned up
-	graceKeys = m.ListWithGracePeriod()
-	if len(graceKeys) != 0 {
-		t.Fatalf("Expected empty grace period list after expiry, got %v", graceKeys)
-	}
+	// Wait for grace period to expire and the cleanup loop to run
+	waitFor(t, func() bool { return len(m.ListWithGracePeriod()) == 0 },
+		"Expected empty grace period list after expiry")
 
 	// Dial should return ErrNoConnection immediately
 	ctx := context.Background()
@@ -294,7 +290,7 @@ func TestConnectionManager_ContextCancellation(t *testing.T) {
 func TestConnectionManager_OnGracePeriodExpiredCallback(t *testing.T) {
 	// Use a short grace period and cleanup interval for faster test
 	gracePeriod := 100 * time.Millisecond
-	m := NewWithGracePeriod(gracePeriod)
+	m := newWithIntervals(gracePeriod, testCleanupInterval)
 	defer m.Stop()
 
 	// Track callback invocations
@@ -319,8 +315,12 @@ func TestConnectionManager_OnGracePeriodExpiredCallback(t *testing.T) {
 		t.Fatal("Expected key to be in grace period")
 	}
 
-	// Wait for grace period to expire (grace period + cleanup interval + buffer)
-	time.Sleep(gracePeriod + CleanupInterval + 50*time.Millisecond)
+	// Wait for grace period to expire and the callback to fire
+	waitFor(t, func() bool {
+		callbackMu.Lock()
+		defer callbackMu.Unlock()
+		return len(callbackKeys) > 0
+	}, "Expected callback to be called")
 
 	// Verify callback was called with the correct key
 	callbackMu.Lock()
@@ -342,7 +342,7 @@ func TestConnectionManager_OnGracePeriodExpiredCallback(t *testing.T) {
 
 func TestConnectionManager_OnGracePeriodExpiredCallback_MultipleKeys(t *testing.T) {
 	gracePeriod := 100 * time.Millisecond
-	m := NewWithGracePeriod(gracePeriod)
+	m := newWithIntervals(gracePeriod, testCleanupInterval)
 	defer m.Stop()
 
 	// Track callback invocations
@@ -363,8 +363,12 @@ func TestConnectionManager_OnGracePeriodExpiredCallback_MultipleKeys(t *testing.
 		m.OnDisconnect(key)
 	}
 
-	// Wait for grace period to expire
-	time.Sleep(gracePeriod + CleanupInterval + 50*time.Millisecond)
+	// Wait for grace period to expire and every callback to fire
+	waitFor(t, func() bool {
+		callbackMu.Lock()
+		defer callbackMu.Unlock()
+		return len(callbackKeys) >= len(keys)
+	}, "Expected a callback for every key")
 
 	// Verify all callbacks were called
 	callbackMu.Lock()
@@ -389,12 +393,12 @@ func TestConnectionManager_OnGracePeriodExpiredCallback_MultipleKeys(t *testing.
 
 func TestConnectionManager_OnGracePeriodExpiredCallback_ReconnectPreventsCallback(t *testing.T) {
 	gracePeriod := 200 * time.Millisecond
-	m := NewWithGracePeriod(gracePeriod)
+	m := newWithIntervals(gracePeriod, testCleanupInterval)
 	defer m.Stop()
 
-	callbackCalled := false
+	var callbackCalled atomic.Bool
 	m.SetOnGracePeriodExpired(func(key string) {
-		callbackCalled = true
+		callbackCalled.Store(true)
 	})
 
 	key := "hydra-sandbox123"
@@ -409,12 +413,27 @@ func TestConnectionManager_OnGracePeriodExpiredCallback_ReconnectPreventsCallbac
 	conn2 := newMockConn()
 	m.Set(key, conn2, "")
 
-	// Wait past original grace period
-	time.Sleep(gracePeriod + CleanupInterval + 50*time.Millisecond)
+	// Wait past original grace period and several cleanup passes
+	time.Sleep(gracePeriod + 5*testCleanupInterval)
 
 	// Callback should NOT have been called since we reconnected
-	if callbackCalled {
+	if callbackCalled.Load() {
 		t.Fatal("Callback should not be called when reconnection happens before grace period expires")
+	}
+}
+
+// testCleanupInterval replaces the 5s production cleanup tick so expiry tests
+// don't sleep through it.
+const testCleanupInterval = 10 * time.Millisecond
+
+func waitFor(t *testing.T, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal(msg)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

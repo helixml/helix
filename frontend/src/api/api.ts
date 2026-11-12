@@ -141,6 +141,7 @@ export interface ApiBotDTO {
    */
   name?: string;
   organization_id?: string;
+  portrait_index?: number;
   parent_ids?: string[];
   /**
    * PreserveContext, when true, stops the runtime from wiping this

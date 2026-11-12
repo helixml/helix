@@ -205,10 +205,11 @@ func (w *slackWorkspaces) toWorkspace(conn *types.ServiceConnection) (slacktrans
 		token = string(dec)
 	}
 	return slacktransport.Workspace{
-		ID:       conn.ID,
-		OrgID:    conn.OrganizationID,
-		TeamID:   conn.SlackTeamID,
-		BotToken: token,
+		ID:              conn.ID,
+		OrgID:           conn.OrganizationID,
+		TeamID:          conn.SlackTeamID,
+		BotToken:        token,
+		AppConnectionID: conn.SlackAppConnectionID,
 	}, nil
 }
 
@@ -384,7 +385,10 @@ func (s *HelixAPIServer) newSlackSocketManager(ingest *slacktransport.Ingest, lo
 		appCtx, cancel := context.WithCancel(ctx)
 		go func() {
 			connector := slackcore.NewConnector(app.AppToken, "", "", logger)
-			runner := slackcore.NewSocketMode(ingest.OnEvent, connector, logger)
+			onEvent := func(ctx context.Context, teamID string, ev slackcore.Event) error {
+				return ingest.OnEvent(slackcore.WithVerifiedAppIDs(ctx, []string{app.ID}), teamID, ev)
+			}
+			runner := slackcore.NewSocketMode(onEvent, connector, logger)
 			if err := runner.Run(appCtx); err != nil && appCtx.Err() == nil {
 				logger.Error("slack.socketmode: connection exited", "app", app.ID, "err", err)
 			}
@@ -397,7 +401,7 @@ func (s *HelixAPIServer) newSlackSocketManager(ingest *slacktransport.Ingest, lo
 // slackSigningSecrets returns every configured app's decrypted signing
 // secret. The Events handler accepts a request that verifies against any
 // of them. Empty slice = no app configured (handler stays inert).
-func (s *HelixAPIServer) slackSigningSecrets(ctx context.Context) ([]string, error) {
+func (s *HelixAPIServer) slackSigningSecrets(ctx context.Context) ([]slackcore.SigningSecret, error) {
 	apps, err := s.listSlackApps(ctx)
 	if err != nil || len(apps) == 0 {
 		return nil, nil
@@ -406,13 +410,13 @@ func (s *HelixAPIServer) slackSigningSecrets(ctx context.Context) ([]string, err
 	if err != nil {
 		return nil, err
 	}
-	var out []string
+	var out []slackcore.SigningSecret
 	for _, app := range apps {
 		if app.SlackSigningSecret == "" {
 			continue
 		}
 		if dec, err := crypto.DecryptAES256GCM(app.SlackSigningSecret, key); err == nil {
-			out = append(out, string(dec))
+			out = append(out, slackcore.SigningSecret{AppID: app.ID, Secret: string(dec)})
 		}
 	}
 	return out, nil
@@ -554,7 +558,7 @@ func (s *HelixAPIServer) slackOAuthStart(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
-	state, err := encodeSlackOAuthState(key, org.ID, app.ID, time.Now())
+	state, err := encodeSlackOAuthState(key, org.ID, app.ID, user.ID, time.Now())
 	if err != nil {
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
@@ -568,32 +572,43 @@ func (s *HelixAPIServer) slackOAuthStart(w http.ResponseWriter, r *http.Request)
 // slackOAuthStateTTL bounds how long an "Add to Slack" link stays usable.
 const slackOAuthStateTTL = 15 * time.Minute
 
-// encodeSlackOAuthState seals the org and Slack app being installed, and
-// when the install started, into the OAuth state parameter.
-func encodeSlackOAuthState(key []byte, orgID, appID string, now time.Time) (string, error) {
-	return crypto.EncryptAES256GCM([]byte(orgID+"|"+appID+"|"+strconv.FormatInt(now.Unix(), 10)), key)
+// encodeSlackOAuthState seals the org and Slack app being installed, the
+// user who started the install, and when it started, into the OAuth state
+// parameter. The callback only completes for that same user's session.
+func encodeSlackOAuthState(key []byte, orgID, appID, userID string, now time.Time) (string, error) {
+	if orgID == "" || appID == "" || userID == "" {
+		return "", errors.New("org, app and user are required")
+	}
+	return crypto.EncryptAES256GCM([]byte(orgID+"|"+appID+"|"+userID+"|"+strconv.FormatInt(now.Unix(), 10)), key)
 }
 
 // decodeSlackOAuthState opens a state from encodeSlackOAuthState, refusing
 // one older than slackOAuthStateTTL (or without an issue time).
-func decodeSlackOAuthState(key []byte, state string, now time.Time) (orgID, appID string, err error) {
+func decodeSlackOAuthState(key []byte, state string, now time.Time) (orgID, appID, userID string, err error) {
 	plain, err := crypto.DecryptAES256GCM(state, key)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	parts := strings.Split(string(plain), "|")
-	if len(parts) != 3 || parts[0] == "" || parts[1] == "" {
-		return "", "", errors.New("malformed state")
+	if len(parts) != 4 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", "", errors.New("malformed state")
 	}
-	issued, err := strconv.ParseInt(parts[2], 10, 64)
+	issued, err := strconv.ParseInt(parts[3], 10, 64)
 	if err != nil {
-		return "", "", errors.New("malformed state issue time")
+		return "", "", "", errors.New("malformed state issue time")
 	}
 	age := now.Sub(time.Unix(issued, 0))
 	if age > slackOAuthStateTTL || age < -time.Minute {
-		return "", "", errors.New("state expired")
+		return "", "", "", errors.New("state expired")
 	}
-	return parts[0], parts[1], nil
+	return parts[0], parts[1], parts[2], nil
+}
+
+// slackOAuthCallbackHandler serves /slack/oauth/callback with the standard
+// identity extraction in front, so the handler can match the browser session
+// against the user sealed into the state.
+func (s *HelixAPIServer) slackOAuthCallbackHandler() http.Handler {
+	return s.authMiddleware.extractMiddleware(http.HandlerFunc(s.slackOAuthCallback))
 }
 
 // slackOAuthCallback (GET /api/v1/slack/oauth/callback) completes the
@@ -613,10 +628,17 @@ func (s *HelixAPIServer) slackOAuthCallback(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
-	orgID, appConnID, err := decodeSlackOAuthState(key, state, time.Now())
+	orgID, appConnID, starterID, err := decodeSlackOAuthState(key, state, time.Now())
 	if err != nil {
 		log.Debug().Err(err).Msg("slack oauth: rejected state")
 		http.Error(w, "invalid state", http.StatusBadRequest)
+		return
+	}
+	// The install must finish in the browser session of the org admin who
+	// started it; the state alone does not say who is completing it.
+	if caller := getRequestUser(r); !hasUser(caller) || caller.ID != starterID {
+		log.Warn().Str("org", orgID).Str("starter_user_id", starterID).Msg("slack oauth: callback identity does not match the install starter")
+		http.Error(w, "Slack install must be completed from the signed-in session that started it", http.StatusForbidden)
 		return
 	}
 	if slackError := r.URL.Query().Get("error"); slackError != "" {

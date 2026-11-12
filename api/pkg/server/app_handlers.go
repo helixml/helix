@@ -824,6 +824,9 @@ func (s *HelixAPIServer) validateKnowledge(k *types.AssistantKnowledge) error {
 func (s *HelixAPIServer) validateTriggers(triggers []types.Trigger) error {
 	// If it's cron, check that it runs not more than once every 90 seconds
 	for _, trigger := range triggers {
+		if err := validateTeamsTrigger(trigger.Teams); err != nil {
+			return err
+		}
 		if trigger.Cron != nil && trigger.Cron.Schedule != "" && trigger.Cron.Enabled {
 			cronSchedule, err := cron.ParseStandard(trigger.Cron.Schedule)
 			if err != nil {
@@ -836,6 +839,29 @@ func (s *HelixAPIServer) validateTriggers(triggers []types.Trigger) error {
 				return fmt.Errorf("cron trigger must not run more than once per 90 seconds")
 			}
 		}
+	}
+	return nil
+}
+
+// validateTeamsTrigger refuses to enable a Teams trigger without both Bot
+// Framework credentials. The activity handler
+// authenticates deliveries with the App ID; without one the Bot Framework
+// SDK treats authentication as disabled, so an incomplete trigger must never
+// be saved as enabled.
+func validateTeamsTrigger(teams *types.TeamsTrigger) error {
+	if teams == nil {
+		return nil
+	}
+	// A disabled block may be partial: the editor saves as the operator
+	// types. Only an enabled trigger has to be complete.
+	if !teams.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(teams.AppID) == "" {
+		return fmt.Errorf("teams trigger requires an app_id")
+	}
+	if teams.AppPassword == "" {
+		return fmt.Errorf("teams trigger requires an app_password")
 	}
 	return nil
 }
