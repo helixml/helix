@@ -1041,13 +1041,6 @@ type Store interface {
 	RotateVHostRouteHostname(ctx context.Context, id, newHostname string) error
 	MarkVHostRouteVerified(ctx context.Context, id string) error
 
-	// Custom-domain claim history, kept across route deletion so a hostname
-	// re-claimed by another project or organization can be told apart from
-	// its previous holder re-adding it.
-	CreateVHostDomainClaim(ctx context.Context, claim *types.VHostDomainClaim) error
-	GetLatestVHostDomainClaim(ctx context.Context, hostname string) (*types.VHostDomainClaim, error)
-	ReleaseVHostDomainClaims(ctx context.Context, hostname string) error
-
 	// Project web service state and deploy history.
 	UpsertProjectWebServiceState(ctx context.Context, state *types.ProjectWebServiceState) error
 	GetProjectWebServiceState(ctx context.Context, projectID string) (*types.ProjectWebServiceState, error)

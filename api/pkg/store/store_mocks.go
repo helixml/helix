@@ -1431,20 +1431,6 @@ func (mr *MockStoreMockRecorder) CreateUserSession(ctx, session any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUserSession", reflect.TypeOf((*MockStore)(nil).CreateUserSession), ctx, session)
 }
 
-// CreateVHostDomainClaim mocks base method.
-func (m *MockStore) CreateVHostDomainClaim(ctx context.Context, claim *types.VHostDomainClaim) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateVHostDomainClaim", ctx, claim)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// CreateVHostDomainClaim indicates an expected call of CreateVHostDomainClaim.
-func (mr *MockStoreMockRecorder) CreateVHostDomainClaim(ctx, claim any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateVHostDomainClaim", reflect.TypeOf((*MockStore)(nil).CreateVHostDomainClaim), ctx, claim)
-}
-
 // CreateVHostRoute mocks base method.
 func (m *MockStore) CreateVHostRoute(ctx context.Context, r *types.VHostRoute) error {
 	m.ctrl.T.Helper()
@@ -3305,21 +3291,6 @@ func (m *MockStore) GetLatestInteractionsForSessions(ctx context.Context, sessio
 func (mr *MockStoreMockRecorder) GetLatestInteractionsForSessions(ctx, sessionIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestInteractionsForSessions", reflect.TypeOf((*MockStore)(nil).GetLatestInteractionsForSessions), ctx, sessionIDs)
-}
-
-// GetLatestVHostDomainClaim mocks base method.
-func (m *MockStore) GetLatestVHostDomainClaim(ctx context.Context, hostname string) (*types.VHostDomainClaim, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetLatestVHostDomainClaim", ctx, hostname)
-	ret0, _ := ret[0].(*types.VHostDomainClaim)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetLatestVHostDomainClaim indicates an expected call of GetLatestVHostDomainClaim.
-func (mr *MockStoreMockRecorder) GetLatestVHostDomainClaim(ctx, hostname any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestVHostDomainClaim", reflect.TypeOf((*MockStore)(nil).GetLatestVHostDomainClaim), ctx, hostname)
 }
 
 // GetLicenseKey mocks base method.
@@ -6583,20 +6554,6 @@ func (m *MockStore) RegisterSandboxInstance(ctx context.Context, instance *types
 func (mr *MockStoreMockRecorder) RegisterSandboxInstance(ctx, instance any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterSandboxInstance", reflect.TypeOf((*MockStore)(nil).RegisterSandboxInstance), ctx, instance)
-}
-
-// ReleaseVHostDomainClaims mocks base method.
-func (m *MockStore) ReleaseVHostDomainClaims(ctx context.Context, hostname string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReleaseVHostDomainClaims", ctx, hostname)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ReleaseVHostDomainClaims indicates an expected call of ReleaseVHostDomainClaims.
-func (mr *MockStoreMockRecorder) ReleaseVHostDomainClaims(ctx, hostname any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseVHostDomainClaims", reflect.TypeOf((*MockStore)(nil).ReleaseVHostDomainClaims), ctx, hostname)
 }
 
 // RemoveSpecTaskLabel mocks base method.

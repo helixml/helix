@@ -49,13 +49,6 @@ type VHostRoute struct {
 	// DNS-based verification. Null for default and preview rows.
 	VerificationToken string `json:"verification_token,omitempty"`
 
-	// OwnershipProofRequired is set on a custom domain that a different
-	// project or organization held before. The HTTP echo check only proves
-	// the hostname points at Helix, which a stale CNAME also does, so such a
-	// claim must additionally publish VerificationToken in a TXT record at
-	// DomainOwnershipTXTName(Hostname).
-	OwnershipProofRequired bool `json:"ownership_proof_required,omitempty"`
-
 	// AccessUserID and ExpiresAt are set only on private artifact viewer routes.
 	// They are deliberately excluded from API responses: the route hostname is
 	// an internal viewer capability, not a share URL.
@@ -71,41 +64,15 @@ type VHostRoute struct {
 func (VHostRoute) TableName() string { return "vhost_routes" }
 
 // DomainOwnershipTXTLabel is the DNS label, prepended to a custom hostname,
-// whose TXT record must carry the route's VerificationToken when
-// OwnershipProofRequired is set.
+// whose TXT record must carry the route's VerificationToken before the
+// domain is verified. Pointing the hostname at Helix is not proof of
+// ownership on its own: a previous holder's stale CNAME does that too.
 const DomainOwnershipTXTLabel = "_helix-challenge"
 
 // DomainOwnershipTXTName returns the DNS name of the ownership TXT record
 // for hostname.
 func DomainOwnershipTXTName(hostname string) string {
 	return DomainOwnershipTXTLabel + "." + hostname
-}
-
-// VHostDomainClaim records every custom-domain registration, surviving the
-// hard delete of its vhost_routes row. A new claim consults the latest
-// claim on the same hostname to decide whether DNS ownership proof is
-// required.
-type VHostDomainClaim struct {
-	ID             string          `gorm:"primaryKey" json:"id"`
-	Hostname       string          `gorm:"index" json:"hostname"` // always lowercased
-	TargetKind     VHostTargetKind `json:"target_kind"`
-	TargetID       string          `gorm:"index" json:"target_id"`
-	OrganizationID string          `json:"organization_id"`
-	ClaimedAt      time.Time       `json:"claimed_at"`
-	VerifiedAt     *time.Time      `json:"verified_at,omitempty"`
-	ReleasedAt     *time.Time      `json:"released_at,omitempty"`
-}
-
-func (VHostDomainClaim) TableName() string { return "vhost_domain_claims" }
-
-// RequiresOwnershipProof reports whether a claim on the same hostname by
-// (targetID, organizationID) must prove DNS ownership given this previous
-// claim: anything but the same project in the same organization.
-func (c *VHostDomainClaim) RequiresOwnershipProof(targetID, organizationID string) bool {
-	if c == nil {
-		return false
-	}
-	return c.TargetID != targetID || c.OrganizationID != organizationID
 }
 
 // ProjectWebServiceState is the per-project enablement and runtime state for

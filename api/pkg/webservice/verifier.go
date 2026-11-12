@@ -22,10 +22,9 @@ import (
 //
 //	http://<hostname>/.well-known/helix-domain-verify/<token>
 //
-// If the response body contains the token, the row is marked verified.
-// A row with OwnershipProofRequired additionally needs the token published
-// as a TXT record at types.DomainOwnershipTXTName(hostname).
-// Designed to be run on a ticker from the API process.
+// and resolves the TXT record at types.DomainOwnershipTXTName(hostname).
+// The row is marked verified once the response body and a TXT record both
+// carry the token. Designed to be run on a ticker from the API process.
 type DomainVerifier struct {
 	store    store.Store
 	client   *http.Client
@@ -142,18 +141,23 @@ func (v *DomainVerifier) checkRow(ctx context.Context, row *types.VHostRoute) bo
 	return v.verifyRow(ctx, row, url)
 }
 
-// verifyRow runs the HTTP echo check against url and, for a row that needs
-// ownership proof, the TXT check. Pointing a hostname at Helix is something
-// a previous holder's stale CNAME already does, so a hostname another
-// project or organization held must also publish the token in DNS.
+// verifyRow runs the HTTP echo check against url and the DNS ownership
+// check. Both are required for every pending custom domain: the echo shows
+// the hostname reaches this deployment, which a previous holder's stale
+// CNAME also does, and the TXT record shows the claimant controls its DNS.
 func (v *DomainVerifier) verifyRow(ctx context.Context, row *types.VHostRoute, url string) bool {
 	if !v.fetchToken(ctx, url, row.VerificationToken) {
+		log.Debug().Str("hostname", row.Hostname).Str("project_id", row.TargetID).
+			Msg("domain verifier: hostname does not echo its verification token over HTTP yet")
 		return false
 	}
-	if !row.OwnershipProofRequired {
-		return true
+	if !v.hasOwnershipTXT(ctx, row.Hostname, row.VerificationToken) {
+		log.Debug().Str("hostname", row.Hostname).Str("project_id", row.TargetID).
+			Str("txt_name", types.DomainOwnershipTXTName(row.Hostname)).
+			Msg("domain verifier: ownership TXT record with the verification token not found yet")
+		return false
 	}
-	return v.hasOwnershipTXT(ctx, row.Hostname, row.VerificationToken)
+	return true
 }
 
 // hasOwnershipTXT reports whether one TXT record at the hostname's ownership

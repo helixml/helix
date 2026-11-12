@@ -44923,10 +44923,6 @@
                     "description": "IsDefault is true for project default subdomains (\u003cslug\u003e.\u003cbase\u003e).\nUser-added custom domains and preview tokens are false.",
                     "type": "boolean"
                 },
-                "ownership_proof_required": {
-                    "description": "OwnershipProofRequired is set on a custom domain that a different\nproject or organization held before. The HTTP echo check only proves\nthe hostname points at Helix, which a stale CNAME also does, so such a\nclaim must additionally publish VerificationToken in a TXT record at\nDomainOwnershipTXTName(Hostname).",
-                    "type": "boolean"
-                },
                 "port": {
                     "description": "destination port inside the container; zero for static artifacts",
                     "type": "integer"

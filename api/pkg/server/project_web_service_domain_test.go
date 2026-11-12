@@ -16,128 +16,146 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// addDomainTestServer wires the add-domain handler for a project owned by
-// usr_owner with the web service enabled and the hostname free in
-// vhost_routes. previous is what the claim history returns for it.
-func addDomainTestServer(t *testing.T, project *types.Project, previous *types.VHostDomainClaim) (*HelixAPIServer, *types.VHostRoute, *types.VHostDomainClaim) {
+// domainTestServer wires the domain handlers for a project owned by
+// usr_owner with the web service enabled. Routes created through the add
+// handler are kept so the delete handler and the verifier echo can see them.
+type domainTestServer struct {
+	*HelixAPIServer
+	routes map[string]*types.VHostRoute // by hostname
+}
+
+func newDomainTestServer(t *testing.T, project *types.Project) *domainTestServer {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
-	mockStore.EXPECT().GetVHostRouteByHostname(gomock.Any(), "app.customer.example").Return(nil, store.ErrNotFound)
-	mockStore.EXPECT().GetProjectWebServiceState(gomock.Any(), project.ID).Return(&types.ProjectWebServiceState{ProjectID: project.ID, Enabled: true, ContainerPort: 3000}, nil)
-	if previous == nil {
-		mockStore.EXPECT().GetLatestVHostDomainClaim(gomock.Any(), "app.customer.example").Return(nil, store.ErrNotFound)
-	} else {
-		mockStore.EXPECT().GetLatestVHostDomainClaim(gomock.Any(), "app.customer.example").Return(previous, nil)
-	}
-	created := &types.VHostRoute{}
+	s := &domainTestServer{routes: map[string]*types.VHostRoute{}}
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).AnyTimes()
+	mockStore.EXPECT().GetProjectWebServiceState(gomock.Any(), project.ID).Return(&types.ProjectWebServiceState{ProjectID: project.ID, Enabled: true, ContainerPort: 3000}, nil).AnyTimes()
+	mockStore.EXPECT().GetVHostRouteByHostname(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, hostname string) (*types.VHostRoute, error) {
+			if route, ok := s.routes[hostname]; ok {
+				return route, nil
+			}
+			return nil, store.ErrNotFound
+		}).AnyTimes()
+	mockStore.EXPECT().GetVHostRouteByID(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, id string) (*types.VHostRoute, error) {
+			for _, route := range s.routes {
+				if route.ID == id {
+					return route, nil
+				}
+			}
+			return nil, store.ErrNotFound
+		}).AnyTimes()
 	mockStore.EXPECT().CreateVHostRoute(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, r *types.VHostRoute) error { *created = *r; return nil })
-	claim := &types.VHostDomainClaim{}
-	mockStore.EXPECT().CreateVHostDomainClaim(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, c *types.VHostDomainClaim) error { *claim = *c; return nil })
+		func(_ context.Context, r *types.VHostRoute) error {
+			r.ID = "vhr_" + r.Hostname + "_" + r.VerificationToken
+			s.routes[r.Hostname] = r
+			return nil
+		}).AnyTimes()
+	mockStore.EXPECT().DeleteVHostRoute(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, id string) error {
+			for hostname, route := range s.routes {
+				if route.ID == id {
+					delete(s.routes, hostname)
+				}
+			}
+			return nil
+		}).AnyTimes()
 
 	cfg := &config.ServerConfig{}
 	cfg.WebServer.URL = "https://helix.example"
-	return &HelixAPIServer{Cfg: cfg, Store: mockStore}, created, claim
+	s.HelixAPIServer = &HelixAPIServer{Cfg: cfg, Store: mockStore}
+	return s
 }
 
-func addDomain(t *testing.T, server *HelixAPIServer, projectID string) *types.VHostRoute {
+func (s *domainTestServer) addDomain(t *testing.T, projectID, hostname string) *types.VHostRoute {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/web-service/domains",
-		strings.NewReader(`{"hostname":"App.Customer.Example"}`))
+		strings.NewReader(`{"hostname":"`+hostname+`"}`))
 	req = mux.SetURLVars(req, map[string]string{"id": projectID})
 	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_owner"}))
-	route, herr := server.addProjectWebServiceDomain(httptest.NewRecorder(), req)
+	route, herr := s.addProjectWebServiceDomain(httptest.NewRecorder(), req)
 	require.Nil(t, herr)
 	return route
 }
 
-func TestAddDomainFirstClaimNeedsNoOwnershipProof(t *testing.T) {
-	project := &types.Project{ID: "prj_a", UserID: "usr_owner"}
-	server, created, claim := addDomainTestServer(t, project, nil)
-
-	route := addDomain(t, server, "prj_a")
-	require.False(t, route.OwnershipProofRequired)
-	require.False(t, created.OwnershipProofRequired)
-	require.NotEmpty(t, created.VerificationToken)
-	require.Equal(t, "app.customer.example", claim.Hostname)
-	require.Equal(t, "prj_a", claim.TargetID)
-	require.Equal(t, types.VHostTargetProjectWebService, claim.TargetKind)
+func (s *domainTestServer) deleteDomain(t *testing.T, projectID, routeID string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/projects/"+projectID+"/web-service/domains/"+routeID, nil)
+	req = mux.SetURLVars(req, map[string]string{"id": projectID, "domain_id": routeID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_owner"}))
+	_, herr := s.deleteProjectWebServiceDomain(httptest.NewRecorder(), req)
+	require.Nil(t, herr)
 }
 
-func TestAddDomainSameProjectReclaimNeedsNoOwnershipProof(t *testing.T) {
-	project := &types.Project{ID: "prj_a", UserID: "usr_owner"}
-	server, created, _ := addDomainTestServer(t, project, &types.VHostDomainClaim{
-		Hostname: "app.customer.example", TargetID: "prj_a", OrganizationID: "",
-	})
-
-	route := addDomain(t, server, "prj_a")
-	require.False(t, route.OwnershipProofRequired)
-	require.False(t, created.OwnershipProofRequired)
-}
-
-// A hostname that another project held before may still point at Helix
-// through its old CNAME, so the new claim must prove DNS control.
-func TestAddDomainReclaimByOtherProjectRequiresOwnershipProof(t *testing.T) {
-	project := &types.Project{ID: "prj_b", UserID: "usr_owner"}
-	server, created, claim := addDomainTestServer(t, project, &types.VHostDomainClaim{
-		Hostname: "app.customer.example", TargetID: "prj_a", OrganizationID: "",
-	})
-
-	route := addDomain(t, server, "prj_b")
-	require.True(t, route.OwnershipProofRequired)
-	require.True(t, created.OwnershipProofRequired)
-	require.Equal(t, "prj_b", claim.TargetID)
-}
-
-func TestAddDomainReclaimByOtherOrganizationRequiresOwnershipProof(t *testing.T) {
-	// Same project ID (a move between organizations) still counts as a
-	// different holder.
-	project := &types.Project{ID: "prj_a", UserID: "usr_owner"}
-	server, created, _ := addDomainTestServer(t, project, &types.VHostDomainClaim{
-		Hostname: "app.customer.example", TargetID: "prj_a", OrganizationID: "org_other",
-	})
-
-	route := addDomain(t, server, "prj_a")
-	require.True(t, route.OwnershipProofRequired)
-	require.True(t, created.OwnershipProofRequired)
-}
-
-func verificationRouter(server *HelixAPIServer) http.Handler {
+func (s *domainTestServer) echo(host, token string) *httptest.ResponseRecorder {
 	router := mux.NewRouter()
-	router.HandleFunc("/.well-known/helix-domain-verify/{token}", server.domainVerificationResponse).Methods(http.MethodGet)
-	return router
+	router.HandleFunc("/.well-known/helix-domain-verify/{token}", s.domainVerificationResponse).Methods(http.MethodGet)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://"+host+"/.well-known/helix-domain-verify/"+token, nil))
+	return rec
+}
+
+// Every added custom domain starts unverified with its own token, whether it
+// is the first claim or a delete-and-re-add: there is no history that could
+// make the DNS proof optional.
+func TestAddDomainAlwaysStartsUnverifiedWithFreshToken(t *testing.T) {
+	project := &types.Project{ID: "prj_a", UserID: "usr_owner"}
+	server := newDomainTestServer(t, project)
+
+	first := server.addDomain(t, "prj_a", "App.Customer.Example")
+	require.Equal(t, "app.customer.example", first.Hostname)
+	require.Nil(t, first.VerifiedAt)
+	require.NotEmpty(t, first.VerificationToken)
+
+	server.deleteDomain(t, "prj_a", first.ID)
+	readded := server.addDomain(t, "prj_a", "app.customer.example")
+	require.Nil(t, readded.VerifiedAt)
+	require.NotEmpty(t, readded.VerificationToken)
+	require.NotEqual(t, first.VerificationToken, readded.VerificationToken)
+
+	// The old token is dead with its row; only the live claim's token is echoed.
+	require.Equal(t, http.StatusNotFound, server.echo("app.customer.example", first.VerificationToken).Code)
+	require.Equal(t, http.StatusOK, server.echo("app.customer.example", readded.VerificationToken).Code)
 }
 
 func TestDomainVerificationResponseEchoesOnlyTheHostsOwnToken(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().GetVHostRouteByHostname(gomock.Any(), "app.customer.example").Return(&types.VHostRoute{
-		Hostname: "app.customer.example", TargetKind: types.VHostTargetProjectWebService, TargetID: "prj_a", VerificationToken: "tok_a",
-	}, nil).AnyTimes()
-	mockStore.EXPECT().GetVHostRouteByHostname(gomock.Any(), "stale.customer.example").Return(nil, store.ErrNotFound).AnyTimes()
-	mockStore.EXPECT().GetVHostRouteByHostname(gomock.Any(), "share-x.dev.helix.example").Return(&types.VHostRoute{
-		Hostname: "share-x.dev.helix.example", TargetKind: types.VHostTargetSandboxPreview, TargetID: "ses_1", VerificationToken: "tok_p",
-	}, nil).AnyTimes()
-	handler := verificationRouter(&HelixAPIServer{Store: mockStore})
-
-	get := func(host, token string) *httptest.ResponseRecorder {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "http://"+host+"/.well-known/helix-domain-verify/"+token, nil)
-		handler.ServeHTTP(rec, req)
-		return rec
+	project := &types.Project{ID: "prj_a", UserID: "usr_owner"}
+	server := newDomainTestServer(t, project)
+	route := server.addDomain(t, "prj_a", "app.customer.example")
+	server.routes["share-x.dev.helix.example"] = &types.VHostRoute{
+		ID: "vhr_p", Hostname: "share-x.dev.helix.example", TargetKind: types.VHostTargetSandboxPreview, TargetID: "ses_1", VerificationToken: "tok_p",
 	}
 
-	own := get("app.customer.example:80", "tok_a")
+	own := server.echo("app.customer.example:80", route.VerificationToken)
 	require.Equal(t, http.StatusOK, own.Code)
-	require.Equal(t, "tok_a", own.Body.String())
+	require.Equal(t, route.VerificationToken, own.Body.String())
 
-	// Another project's token is not echoed on this host, and no token is
-	// echoed on a host with no route — Helix answering for a stale CNAME
-	// must not satisfy a claim.
-	require.Equal(t, http.StatusNotFound, get("app.customer.example", "tok_b").Code)
-	require.Equal(t, http.StatusNotFound, get("stale.customer.example", "tok_a").Code)
-	require.Equal(t, http.StatusNotFound, get("share-x.dev.helix.example", "tok_p").Code)
+	// Another token is not echoed on this host, no token is echoed on a host
+	// with no route (Helix answering for a stale CNAME must not satisfy a
+	// claim), and non-custom-domain rows never echo.
+	require.Equal(t, http.StatusNotFound, server.echo("app.customer.example", "tok_other").Code)
+	require.Equal(t, http.StatusNotFound, server.echo("stale.customer.example", route.VerificationToken).Code)
+	require.Equal(t, http.StatusNotFound, server.echo("share-x.dev.helix.example", "tok_p").Code)
+}
+
+func TestVHostShouldIssueCertOnlyForVerifiedCustomDomains(t *testing.T) {
+	project := &types.Project{ID: "prj_a", UserID: "usr_owner"}
+	server := newDomainTestServer(t, project)
+	cfg := parseVHostConfig("dev.helix.example", "https://helix.example")
+	pending := server.addDomain(t, "prj_a", "app.customer.example")
+
+	require.NoError(t, server.vhostShouldIssueCert(context.Background(), cfg, "helix.example"), "canonical host")
+	require.Error(t, server.vhostShouldIssueCert(context.Background(), cfg, "app.customer.example"), "pending custom domain")
+	require.Error(t, server.vhostShouldIssueCert(context.Background(), cfg, "unknown.customer.example"), "unregistered host")
+
+	verifiedAt := pending.CreatedAt
+	pending.VerifiedAt = &verifiedAt
+	require.NoError(t, server.vhostShouldIssueCert(context.Background(), cfg, "app.customer.example"), "verified custom domain")
+
+	server.routes["myproj.dev.helix.example"] = &types.VHostRoute{
+		Hostname: "myproj.dev.helix.example", TargetKind: types.VHostTargetProjectWebService, TargetID: "prj_a", IsDefault: true, VerifiedAt: &verifiedAt,
+	}
+	require.NoError(t, server.vhostShouldIssueCert(context.Background(), cfg, "myproj.dev.helix.example"), "default subdomain")
 }

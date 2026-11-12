@@ -82,49 +82,23 @@ func (s *PostgresStore) ListVHostRoutesByTarget(ctx context.Context, kind types.
 	return routes, nil
 }
 
-// DeleteVHostRoute removes one route by ID and releases the hostname's
-// open domain claims, so nothing verified about it outlives the row.
+// DeleteVHostRoute removes one route by ID.
 func (s *PostgresStore) DeleteVHostRoute(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id is required")
 	}
-	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var route types.VHostRoute
-		if err := tx.Where("id = ?", id).First(&route).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				return nil
-			}
-			return err
-		}
-		if err := tx.Delete(&types.VHostRoute{}, "id = ?", id).Error; err != nil {
-			return err
-		}
-		return releaseVHostDomainClaims(tx, route.Hostname)
-	})
+	return s.gdb.WithContext(ctx).Delete(&types.VHostRoute{}, "id = ?", id).Error
 }
 
-// DeleteVHostRoutesByTarget removes every route pointing at the given target
-// and releases their hostnames' open domain claims. Used by sandbox/session
-// cleanup hooks and the web-service disable path.
+// DeleteVHostRoutesByTarget removes every route pointing at the given target.
+// Used by sandbox/session cleanup hooks and the web-service disable path.
 func (s *PostgresStore) DeleteVHostRoutesByTarget(ctx context.Context, kind types.VHostTargetKind, targetID string) error {
 	if targetID == "" {
 		return fmt.Errorf("target_id is required")
 	}
-	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var routes []*types.VHostRoute
-		if err := tx.Where("target_kind = ? AND target_id = ?", kind, targetID).Find(&routes).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("target_kind = ? AND target_id = ?", kind, targetID).Delete(&types.VHostRoute{}).Error; err != nil {
-			return err
-		}
-		for _, route := range routes {
-			if err := releaseVHostDomainClaims(tx, route.Hostname); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	return s.gdb.WithContext(ctx).
+		Where("target_kind = ? AND target_id = ?", kind, targetID).
+		Delete(&types.VHostRoute{}).Error
 }
 
 // RotateVHostRouteHostname replaces the hostname on an existing route and
@@ -143,28 +117,16 @@ func (s *PostgresStore) RotateVHostRouteHostname(ctx context.Context, id, newHos
 		}).Error
 }
 
-// MarkVHostRouteVerified flips verified_at to now for a route and on the
-// hostname's open domain claim.
+// MarkVHostRouteVerified flips verified_at to now for a route.
 func (s *PostgresStore) MarkVHostRouteVerified(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id is required")
 	}
 	now := time.Now()
-	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var route types.VHostRoute
-		if err := tx.Where("id = ?", id).First(&route).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				return nil
-			}
-			return err
-		}
-		if err := tx.Model(&types.VHostRoute{}).Where("id = ?", id).Update("verified_at", &now).Error; err != nil {
-			return err
-		}
-		return tx.Model(&types.VHostDomainClaim{}).
-			Where("hostname = ? AND released_at IS NULL", route.Hostname).
-			Update("verified_at", &now).Error
-	})
+	return s.gdb.WithContext(ctx).
+		Model(&types.VHostRoute{}).
+		Where("id = ?", id).
+		Update("verified_at", &now).Error
 }
 
 // --- project_web_service_states ---
@@ -314,7 +276,7 @@ func (s *PostgresStore) FailInFlightWebServiceDeploys(ctx context.Context) (int6
 }
 
 // ListPendingVHostRoutes returns vhost routes that are waiting for DNS
-// ownership verification (verified_at IS NULL AND verification_token != ”).
+// ownership verification (verified_at IS NULL AND verification_token != '').
 // Caps at limit to avoid runaway sweeps.
 func (s *PostgresStore) ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error) {
 	if limit <= 0 {
@@ -393,62 +355,4 @@ func (s *PostgresStore) ListWebServiceDeploys(ctx context.Context, projectID str
 		return nil, err
 	}
 	return rows, nil
-}
-
-// --- vhost_domain_claims ---
-
-// CreateVHostDomainClaim records a custom-domain registration. Hostname is
-// lowercased; ID and ClaimedAt are stamped when empty.
-func (s *PostgresStore) CreateVHostDomainClaim(ctx context.Context, claim *types.VHostDomainClaim) error {
-	if claim.Hostname == "" {
-		return fmt.Errorf("hostname is required")
-	}
-	if claim.TargetKind == "" || claim.TargetID == "" {
-		return fmt.Errorf("target_kind and target_id are required")
-	}
-	if claim.ID == "" {
-		claim.ID = system.GenerateVHostDomainClaimID()
-	}
-	claim.Hostname = strings.ToLower(claim.Hostname)
-	if claim.ClaimedAt.IsZero() {
-		claim.ClaimedAt = time.Now()
-	}
-	return s.gdb.WithContext(ctx).Create(claim).Error
-}
-
-// GetLatestVHostDomainClaim returns the most recent claim on hostname,
-// released or not, or ErrNotFound when the hostname was never claimed.
-func (s *PostgresStore) GetLatestVHostDomainClaim(ctx context.Context, hostname string) (*types.VHostDomainClaim, error) {
-	if hostname == "" {
-		return nil, fmt.Errorf("hostname is required")
-	}
-	var claim types.VHostDomainClaim
-	err := s.gdb.WithContext(ctx).
-		Where("hostname = ?", strings.ToLower(hostname)).
-		Order("claimed_at DESC, id DESC").
-		First(&claim).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-	return &claim, nil
-}
-
-// ReleaseVHostDomainClaims stamps released_at on every open claim for
-// hostname. Called when the route is deleted, so the history shows who
-// held the name and when they let it go.
-func (s *PostgresStore) ReleaseVHostDomainClaims(ctx context.Context, hostname string) error {
-	if hostname == "" {
-		return fmt.Errorf("hostname is required")
-	}
-	return releaseVHostDomainClaims(s.gdb.WithContext(ctx), hostname)
-}
-
-func releaseVHostDomainClaims(tx *gorm.DB, hostname string) error {
-	now := time.Now()
-	return tx.Model(&types.VHostDomainClaim{}).
-		Where("hostname = ? AND released_at IS NULL", strings.ToLower(hostname)).
-		Update("released_at", &now).Error
 }

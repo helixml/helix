@@ -427,32 +427,18 @@ func (s *HelixAPIServer) addProjectWebServiceDomain(_ http.ResponseWriter, r *ht
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// A hostname that another project or organization held before may still
-	// CNAME at Helix, so pointing at us proves nothing about who owns it now:
-	// such a claim must also publish the token in DNS.
-	previous, err := s.Store.GetLatestVHostDomainClaim(r.Context(), hostname)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return nil, system.NewHTTPError500(err.Error())
-	}
-
+	// The row is unverified until the verifier sees the token both echoed
+	// over HTTP at this hostname and published as a TXT record at
+	// types.DomainOwnershipTXTName(hostname).
 	route := &types.VHostRoute{
-		Hostname:               hostname,
-		TargetKind:             types.VHostTargetProjectWebService,
-		TargetID:               project.ID,
-		Port:                   state.ContainerPort,
-		IsDefault:              false,
-		VerificationToken:      token,
-		OwnershipProofRequired: previous.RequiresOwnershipProof(project.ID, project.OrganizationID),
+		Hostname:          hostname,
+		TargetKind:        types.VHostTargetProjectWebService,
+		TargetID:          project.ID,
+		Port:              state.ContainerPort,
+		IsDefault:         false,
+		VerificationToken: token,
 	}
 	if err := s.Store.CreateVHostRoute(r.Context(), route); err != nil {
-		return nil, system.NewHTTPError500(err.Error())
-	}
-	if err := s.Store.CreateVHostDomainClaim(r.Context(), &types.VHostDomainClaim{
-		Hostname:       hostname,
-		TargetKind:     types.VHostTargetProjectWebService,
-		TargetID:       project.ID,
-		OrganizationID: project.OrganizationID,
-	}); err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 	return route, nil

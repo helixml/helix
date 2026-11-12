@@ -256,7 +256,6 @@ func (s *PostgresStore) runMigrations() error {
 		&types.EvaluationSuite{},
 		&types.EvaluationRun{},
 		&types.VHostRoute{},
-		&types.VHostDomainClaim{},
 		&types.ProjectWebServiceState{},
 		&types.WebServiceDeploy{},
 		&types.SandboxCacheState{}, // golden_builds
