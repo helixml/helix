@@ -1,14 +1,17 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/webservice"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -254,6 +257,7 @@ func TestDeleteOrganization_DeletesRepositoriesBeforeOrganization(t *testing.T) 
 	server := &HelixAPIServer{
 		Store:                mockStore,
 		gitRepositoryService: gitRepositoryService,
+		webServiceController: webservice.New(mockStore, sandbox.New(mockStore, nil, nil, "", "")),
 	}
 
 	orgID := "org_123"
@@ -288,6 +292,8 @@ func TestDeleteOrganization_DeletesRepositoriesBeforeOrganization(t *testing.T) 
 			OrganizationID:        orgID,
 			IncludeExternalAgents: true,
 		}).Return([]*types.Session{}, int64(0), nil),
+		mockStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{OrganizationID: orgID}).
+			Return([]*types.Project{}, nil),
 		mockStore.EXPECT().ListArtifacts(gomock.Any(), &store.ListArtifactsQuery{
 			OrganizationID: orgID,
 		}).Return([]*types.Artifact{}, nil),
@@ -304,4 +310,91 @@ func TestDeleteOrganization_DeletesRepositoriesBeforeOrganization(t *testing.T) 
 	server.deleteOrganization(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+func orgDeleteServer(t *testing.T, mockStore *store.MockStore) *HelixAPIServer {
+	t.Helper()
+	return &HelixAPIServer{
+		Store: mockStore,
+		gitRepositoryService: services.NewGitRepositoryService(
+			mockStore, t.TempDir(), "http://localhost:8080", "test", "test@example.com"),
+		webServiceController: webservice.New(mockStore, sandbox.New(mockStore, nil, nil, "", "")),
+	}
+}
+
+func expectOrgDeletePreamble(mockStore *store.MockStore, orgID, userID string) {
+	mockStore.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: orgID}).
+		Return(&types.Organization{ID: orgID}, nil)
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: orgID, UserID: userID,
+	}).Return(&types.OrganizationMembership{OrganizationID: orgID, UserID: userID, Role: types.OrganizationRoleOwner}, nil)
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), &types.ListGitRepositoriesRequest{OrganizationID: orgID}).
+		Return([]*types.GitRepository{}, nil)
+	mockStore.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		OrganizationID: orgID, IncludeExternalAgents: true,
+	}).Return([]*types.Session{}, int64(0), nil)
+}
+
+func deleteOrgRequest(orgID, userID string) *http.Request {
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/organizations/"+orgID, nil)
+	req = mux.SetURLVars(req, map[string]string{"id": orgID})
+	return req.WithContext(setRequestUser(req.Context(), types.User{ID: userID}))
+}
+
+// Deleting an org removes every project's web service (public routes,
+// including custom domains, the sandbox and the enabled state) before the
+// org rows go.
+func TestDeleteOrganization_TearsDownProjectWebServices(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := orgDeleteServer(t, mockStore)
+	orgID, userID := "org_ws", "user_1"
+
+	expectOrgDeletePreamble(mockStore, orgID, userID)
+	mockStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{OrganizationID: orgID}).
+		Return([]*types.Project{{ID: "prj_web"}, {ID: "prj_plain"}}, nil)
+
+	gomock.InOrder(
+		mockStore.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_web").
+			Return(&types.ProjectWebServiceState{ProjectID: "prj_web", Enabled: true, ActiveSandboxID: "sbx_web"}, nil),
+		mockStore.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetProjectWebService, "prj_web").Return(nil),
+		mockStore.EXPECT().GetSandbox(gomock.Any(), "sbx_web").Return(nil, store.ErrNotFound),
+		mockStore.EXPECT().UpsertProjectWebServiceState(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, state *types.ProjectWebServiceState) error {
+				require.Equal(t, "prj_web", state.ProjectID)
+				require.False(t, state.Enabled)
+				require.Empty(t, state.ActiveSandboxID)
+				return nil
+			}),
+		mockStore.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_plain").Return(nil, store.ErrNotFound),
+		mockStore.EXPECT().ListArtifacts(gomock.Any(), &store.ListArtifactsQuery{OrganizationID: orgID}).
+			Return([]*types.Artifact{}, nil),
+		mockStore.EXPECT().DeleteOrganization(gomock.Any(), orgID).Return(nil),
+	)
+
+	rr := httptest.NewRecorder()
+	server.deleteOrganization(rr, deleteOrgRequest(orgID, userID))
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+}
+
+// A failed web service teardown keeps the org, so a retry can finish it.
+func TestDeleteOrganization_WebServiceTeardownFailureKeepsOrganization(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := orgDeleteServer(t, mockStore)
+	orgID, userID := "org_ws", "user_1"
+
+	expectOrgDeletePreamble(mockStore, orgID, userID)
+	mockStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{OrganizationID: orgID}).
+		Return([]*types.Project{{ID: "prj_web"}}, nil)
+	mockStore.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_web").
+		Return(&types.ProjectWebServiceState{ProjectID: "prj_web", Enabled: true}, nil)
+	mockStore.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetProjectWebService, "prj_web").
+		Return(context.DeadlineExceeded)
+	// No ListArtifacts / DeleteOrganization: gomock fails on any unexpected call.
+
+	rr := httptest.NewRecorder()
+	server.deleteOrganization(rr, deleteOrgRequest(orgID, userID))
+	require.Equal(t, http.StatusInternalServerError, rr.Code)
+	require.Contains(t, rr.Body.String(), "prj_web")
 }

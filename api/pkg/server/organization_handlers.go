@@ -468,6 +468,15 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
+	// Project web services run in their own sandboxes behind public
+	// hostnames (default subdomains and custom domains). Deleting the project
+	// rows would leave them serving, so tear each one down as project delete
+	// does.
+	if err := apiServer.teardownOrgWebServices(r.Context(), orgID); err != nil {
+		http.Error(rw, "Could not tear down organization web services: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	// Public artifacts remain independently addressable, so deleting only the
 	// project rows would orphan live content. Remove every artifact route and
 	// blob owned by the organization before deleting its database graph.
@@ -491,6 +500,21 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	}
 
 	rw.WriteHeader(http.StatusOK)
+}
+
+// teardownOrgWebServices removes the web service (sandbox, public routes and
+// enabled state) of every project in the org.
+func (apiServer *HelixAPIServer) teardownOrgWebServices(ctx context.Context, orgID string) error {
+	projects, err := apiServer.Store.ListProjects(ctx, &store.ListProjectsQuery{OrganizationID: orgID})
+	if err != nil {
+		return fmt.Errorf("list organization projects: %w", err)
+	}
+	for _, project := range projects {
+		if err := apiServer.webServiceController.Teardown(ctx, project.ID); err != nil {
+			return fmt.Errorf("tear down web service of project %s: %w", project.ID, err)
+		}
+	}
+	return nil
 }
 
 // stopOrgDesktops stops and soft-deletes every running external-agent desktop
