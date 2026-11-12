@@ -80,3 +80,50 @@ func TestAuthorizeDesktopID_OwnerAndStranger(t *testing.T) {
 		}
 	}
 }
+
+// The command reaches the agent only for callers who may change the session:
+// its owner and the session key minted for its project. Anyone else, including
+// the owner's key confined to another project, is refused and nothing is
+// delivered.
+func TestSendCommandToExternalAgent_DeliversOnlyForSessionUpdaters(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		user types.User
+		want int
+	}{
+		{"owner", types.User{ID: "usr_owner"}, http.StatusOK},
+		{"sandbox session key", types.User{ID: "usr_owner", ProjectID: "prj_a", SessionID: "ses_a", TokenType: types.TokenTypeAPIKey}, http.StatusOK},
+		{"other user", types.User{ID: "usr_other"}, http.StatusForbidden},
+		{"key scoped to another project", types.User{ID: "usr_owner", ProjectID: "prj_b", TokenType: types.TokenTypeAPIKey}, http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			st := store.NewMockStore(ctrl)
+			st.EXPECT().GetSession(gomock.Any(), "ses_a").Return(&types.Session{
+				ID:        "ses_a",
+				Owner:     "usr_owner",
+				ProjectID: "prj_a",
+				Metadata:  types.SessionMetadata{AgentType: "zed_external"},
+			}, nil).AnyTimes()
+
+			sendChan := make(chan types.ExternalAgentCommand, 1)
+			manager := NewExternalAgentWSManager()
+			manager.registerConnection("ses_a", &ExternalAgentWSConnection{SessionID: "ses_a", SendChan: sendChan})
+			server := &HelixAPIServer{Store: st, Cfg: &config.ServerConfig{}, externalAgentWSManager: manager}
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/external-agents/ses_a/command",
+				strings.NewReader(`{"type":"chat_message","data":{"message":"hello"}}`))
+			req = mux.SetURLVars(req, map[string]string{"sessionID": "ses_a"})
+			req = req.WithContext(setRequestUser(req.Context(), tc.user))
+			rec := httptest.NewRecorder()
+			server.sendCommandToExternalAgentHandler(rec, req)
+
+			require.Equal(t, tc.want, rec.Code, rec.Body.String())
+			if tc.want == http.StatusOK {
+				require.Len(t, sendChan, 1, "the command reaches the agent")
+			} else {
+				require.Empty(t, sendChan, "a refused command must not reach the agent")
+			}
+		})
+	}
+}
