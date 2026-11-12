@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/agent/prompts"
 	mcpclient "github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -41,8 +42,9 @@ import (
 // - Can adapt between different MCP transports (SSE vs Streamable HTTP)
 // - Provides better error handling and logging
 type ExternalMCPBackend struct {
-	store        store.Store
-	clientGetter mcpclient.ClientGetter
+	store          store.Store
+	clientGetter   mcpclient.ClientGetter
+	connectTimeout time.Duration
 
 	// Cache of HTTP servers per session+mcp combination
 	servers      map[string]*externalMCPServer
@@ -54,6 +56,11 @@ type ExternalMCPBackend struct {
 	cleanupCancel context.CancelFunc
 }
 
+const (
+	externalMCPConnectTimeout = 3 * time.Second
+	externalMCPDegradedTTL    = 30 * time.Second
+)
+
 // externalMCPServer holds the MCP server for a specific external MCP
 type externalMCPServer struct {
 	httpServer  *server.StreamableHTTPServer
@@ -63,7 +70,8 @@ type externalMCPServer struct {
 	lastUsed    time.Time          // Updated on each access to keep connection alive
 	cancelFunc  context.CancelFunc // Cancel the background context when server is removed from cache
 	fingerprint [sha256.Size]byte  // Hash of the MCP config; never stores header secrets directly
-	mu          sync.Mutex         // Protects lastUsed
+	degraded    bool
+	mu          sync.Mutex // Protects lastUsed
 }
 
 // touch updates the lastUsed timestamp
@@ -73,10 +81,13 @@ func (s *externalMCPServer) touch() {
 	s.mu.Unlock()
 }
 
-// isExpired checks if the server has been idle for longer than the TTL
+// isExpired uses an absolute retry deadline for degraded servers and an idle TTL otherwise.
 func (s *externalMCPServer) isExpired(ttl time.Duration) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.degraded {
+		return time.Since(s.createdAt) > externalMCPDegradedTTL
+	}
 	return time.Since(s.lastUsed) > ttl
 }
 
@@ -341,16 +352,28 @@ func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *ty
 	// is the only path Zed's tool calls take, so omitting it left every such
 	// server unable to identify the caller — Find AI's tools failed with "this
 	// tool requires a signed-in session" for exactly this reason.
+	connectTimeout := b.connectTimeout
+	if connectTimeout == 0 {
+		connectTimeout = externalMCPConnectTimeout
+	}
+	connectTimer := time.AfterFunc(connectTimeout, clientCancel)
 	externalClient, err := b.clientGetter.NewClient(clientCtx, proxyMeta(user, sessionID), nil, mcpConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to external MCP server: %w", err)
+		connectTimer.Stop()
+		clientCancel()
+		return b.cacheDegradedServer(cacheKey, sessionID, mcpName, mcpConfig.Name, fingerprint, err), nil
 	}
 
 	// List tools from the external server
 	toolsResp, err := externalClient.ListTools(clientCtx, mcp.ListToolsRequest{})
 	if err != nil {
+		connectTimer.Stop()
 		clientCancel()
-		return nil, fmt.Errorf("failed to list tools from external MCP server: %w", err)
+		return b.cacheDegradedServer(cacheKey, sessionID, mcpName, mcpConfig.Name, fingerprint, err), nil
+	}
+	if !connectTimer.Stop() || clientCtx.Err() != nil {
+		clientCancel()
+		return b.cacheDegradedServer(cacheKey, sessionID, mcpName, mcpConfig.Name, fingerprint, context.DeadlineExceeded), nil
 	}
 
 	// Create our MCP server that proxies to the external server
@@ -373,6 +396,7 @@ func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *ty
 			Str("tool", tool.Name).
 			Msg("registered external MCP tool")
 	}
+	b.addConnectionStatusTool(mcpServer, mcpConfig.Name, externalClient, nil)
 
 	// Create Streamable HTTP server (modern MCP protocol)
 	// Use stateless mode so each request is independent
@@ -395,6 +419,72 @@ func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *ty
 	b.serversMu.Unlock()
 
 	return httpServer, nil
+}
+
+func (b *ExternalMCPBackend) cacheDegradedServer(cacheKey, sessionID, mcpName, displayName string, fingerprint [sha256.Size]byte, cause error) *server.StreamableHTTPServer {
+	httpServer := b.degradedServer(sessionID, mcpName, displayName, cause)
+	now := time.Now()
+	b.serversMu.Lock()
+	b.servers[cacheKey] = &externalMCPServer{
+		httpServer:  httpServer,
+		mcpName:     mcpName,
+		sessionID:   sessionID,
+		createdAt:   now,
+		lastUsed:    now,
+		fingerprint: fingerprint,
+		degraded:    true,
+	}
+	b.serversMu.Unlock()
+	return httpServer
+}
+
+func (b *ExternalMCPBackend) degradedServer(sessionID, mcpName, displayName string, cause error) *server.StreamableHTTPServer {
+	if displayName == "" {
+		displayName = mcpName
+	}
+	log.Error().Err(cause).
+		Str("session_id", sessionID).
+		Str("mcp_name", mcpName).
+		Msg("external MCP unavailable; serving connection status")
+	instructions := prompts.MCPConnectionUnavailable(displayName, isExternalMCPAuthenticationError(cause))
+	mcpServer := server.NewMCPServer("helix-external-proxy-"+mcpName, "1.0.0", server.WithLogging(), server.WithInstructions(instructions))
+	b.addConnectionStatusTool(mcpServer, displayName, nil, cause)
+	return server.NewStreamableHTTPServer(mcpServer, server.WithStateLess(true))
+}
+
+func (b *ExternalMCPBackend) addConnectionStatusTool(mcpServer *server.MCPServer, displayName string, client mcpclient.Client, cause error) {
+	if mcpServer.GetTool("helix_connection_status") != nil {
+		return
+	}
+	if displayName == "" {
+		displayName = "External MCP"
+	}
+	description := prompts.MCPConnectionAvailableToolDescription(displayName)
+	if cause != nil {
+		description = prompts.MCPConnectionUnavailableToolDescription(displayName) + " " +
+			prompts.MCPConnectionUnavailable(displayName, isExternalMCPAuthenticationError(cause))
+	}
+	mcpServer.AddTool(mcp.NewTool("helix_connection_status",
+		mcp.WithDescription(description)),
+		func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if cause != nil {
+				return mcp.NewToolResultText(prompts.MCPConnectionUnavailable(displayName, isExternalMCPAuthenticationError(cause))), nil
+			}
+			probeCtx, cancel := context.WithTimeout(ctx, externalMCPConnectTimeout)
+			defer cancel()
+			if _, err := client.ListTools(probeCtx, mcp.ListToolsRequest{}); err != nil {
+				log.Error().Err(err).Str("mcp_name", displayName).Msg("external MCP connection check failed")
+				return mcp.NewToolResultText(prompts.MCPConnectionUnavailable(displayName, isExternalMCPAuthenticationError(err))), nil
+			}
+			return mcp.NewToolResultText(prompts.MCPConnectionRestored(displayName)), nil
+		})
+}
+
+func isExternalMCPAuthenticationError(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "unauthorized") || strings.Contains(message, "forbidden") ||
+		strings.Contains(message, "status 401") || strings.Contains(message, "status code: 401") ||
+		strings.Contains(message, "status 403") || strings.Contains(message, "status code: 403")
 }
 
 // findMCPConfig searches project MCPs before app MCPs to match Zed config precedence.
