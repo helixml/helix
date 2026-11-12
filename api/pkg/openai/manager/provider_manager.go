@@ -462,10 +462,12 @@ func (m *MultiClientManager) GetClient(ctx context.Context, req *GetClientReques
 	}
 
 	// Build list of all available providers for error message
+	m.globalClientsMu.RLock()
 	availableProviders := make([]string, 0, len(m.globalClients)+len(userProviders))
 	for provider := range m.globalClients {
 		availableProviders = append(availableProviders, string(provider))
 	}
+	m.globalClientsMu.RUnlock()
 	for _, provider := range userProviders {
 		availableProviders = append(availableProviders, provider.Name)
 	}

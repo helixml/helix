@@ -347,6 +347,8 @@ func TestResilientProxy_BufferOverflow(t *testing.T) {
 		},
 		BufferSize: smallBufferSize,
 	})
+	// Every dial fails; don't sleep through the production 1s+2s+3s backoff.
+	proxy.backoffStep = 10 * time.Millisecond
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

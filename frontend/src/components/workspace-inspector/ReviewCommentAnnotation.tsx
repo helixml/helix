@@ -1,13 +1,11 @@
 import { useCallback, useState, type ChangeEvent, type KeyboardEvent } from "react";
-import {
-  alpha,
-  Box,
-  Button,
-  CircularProgress,
-  IconButton,
-  Tooltip,
-  Typography,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
+import { alpha } from "@mui/material/styles";
 import { MessageCircle, Trash2 } from "lucide-react";
 
 import { APP_FONT_FAMILY, TYPOGRAPHY } from "../../styles/typography";

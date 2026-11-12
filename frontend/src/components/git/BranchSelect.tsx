@@ -1,13 +1,11 @@
 import React, { FC } from 'react'
-import {
-  Box,
-  FormControl,
-  Select,
-  MenuItem,
-  Button,
-  Tooltip,
-  Typography,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import FormControl from '@mui/material/FormControl';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import Button from '@mui/material/Button';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 import { GitBranch, Plus, ArrowDown, ArrowUp } from 'lucide-react'
 
 interface BranchSelectProps {

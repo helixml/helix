@@ -1,36 +1,32 @@
 import React, { FC, useState, useMemo, useCallback } from 'react'
-import {
-  Box,
-  Container,
-  Typography,
-  Button,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Tabs,
-  Tab,
-  TextField,
-  CircularProgress,
-  Paper,
-  Chip,
-  IconButton,
-  Tooltip,
-  Alert,
-  Divider,
-  Collapse,
-} from '@mui/material'
-import {
-  PlayArrow as PlayIcon,
-  Stop as StopIcon,
-  Save as SaveIcon,
-  ContentCopy as CopyIcon,
-  Code as CodeIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
-  Add as AddIcon,
-  Close as CloseIcon,
-} from '@mui/icons-material'
+import Box from '@mui/material/Box';
+import Container from '@mui/material/Container';
+import Typography from '@mui/material/Typography';
+import Button from '@mui/material/Button';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
+import TextField from '@mui/material/TextField';
+import CircularProgress from '@mui/material/CircularProgress';
+import Paper from '@mui/material/Paper';
+import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import Alert from '@mui/material/Alert';
+import Divider from '@mui/material/Divider';
+import Collapse from '@mui/material/Collapse';
+import PlayIcon from '@mui/icons-material/PlayArrow';
+import StopIcon from '@mui/icons-material/Stop';
+import SaveIcon from '@mui/icons-material/Save';
+import CopyIcon from '@mui/icons-material/ContentCopy';
+import CodeIcon from '@mui/icons-material/Code';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import AddIcon from '@mui/icons-material/Add';
+import CloseIcon from '@mui/icons-material/Close';
 import { useQuery } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'

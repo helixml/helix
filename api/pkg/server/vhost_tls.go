@@ -10,6 +10,7 @@ import (
 
 	"github.com/caddyserver/certmagic"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/vhost"
 	"github.com/rs/zerolog/log"
 )
@@ -164,25 +165,31 @@ func (apiServer *HelixAPIServer) startCertMagicListener(ctx context.Context, vho
 //   - canonical Helix hostnames (SERVER_URL + aliases)
 //   - any hostname that appears in vhost_routes (project web services,
 //     including default subdomains and verified custom domains, and
-//     share-* preview tokens — verified_at gating happens at request
-//     dispatch, not here, so a pending custom domain can still be
-//     issued a cert as soon as the CA verifies DNS)
+//     share-* preview tokens)
 //
 // Refused:
+//   - custom domains whose verified_at is not set yet
 //   - everything else
 func (apiServer *HelixAPIServer) vhostShouldIssueCert(ctx context.Context, vhostCfg *VHostMiddlewareConfig, hostname string) error {
 	host := strings.ToLower(strings.TrimSuffix(hostname, "."))
 	if _, ok := vhostCfg.CanonicalHostnames[host]; ok {
 		return nil
 	}
-	_, err := apiServer.Store.GetVHostRouteByHostname(ctx, host)
-	if err == nil {
-		return nil
+	route, err := apiServer.Store.GetVHostRouteByHostname(ctx, host)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("vhost lookup failed: %w", err)
+		}
+		return fmt.Errorf("hostname %q is not registered with Helix; refusing to issue cert", host)
 	}
-	if !errors.Is(err, store.ErrNotFound) {
-		return fmt.Errorf("vhost lookup failed: %w", err)
+	// A custom domain is a claim until verified; issuing a certificate for
+	// it would let an unproven registration obtain one for someone else's
+	// hostname. Default subdomains and preview tokens are verified on
+	// creation.
+	if route.TargetKind == types.VHostTargetProjectWebService && !route.IsDefault && route.VerifiedAt == nil {
+		return fmt.Errorf("custom domain %q is not verified yet; refusing to issue cert", host)
 	}
-	return fmt.Errorf("hostname %q is not registered with Helix; refusing to issue cert", host)
+	return nil
 }
 
 // httpToHTTPSRedirect is the handler for the :80 listener. Custom-domain

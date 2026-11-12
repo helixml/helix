@@ -41,8 +41,10 @@ func newSandboxRegistryTestRouter(apiServer *HelixAPIServer, caller *types.User)
 	runnerRouter.Use(requireRunner)
 	adminOrRunnerRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
 	adminOrRunnerRouter.Use(requireAdminOrRunner)
+	userOrRunnerRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
+	userOrRunnerRouter.Use(requireUserOrRunner)
 
-	apiServer.registerSandboxRegistryRoutes(authRouter, runnerRouter, adminOrRunnerRouter)
+	apiServer.registerSandboxRegistryRoutes(authRouter, runnerRouter, adminOrRunnerRouter, userOrRunnerRouter)
 	return router
 }
 

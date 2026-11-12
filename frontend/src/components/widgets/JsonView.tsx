@@ -1,5 +1,10 @@
 import React, { FC, useState } from 'react'
-import { Box, Typography, Switch, FormControlLabel, IconButton, Tooltip } from '@mui/material'
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import useSnackbar from '../../hooks/useSnackbar'

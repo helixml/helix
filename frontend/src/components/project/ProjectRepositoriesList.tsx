@@ -1,13 +1,11 @@
 import React, { FC } from 'react'
-import {
-  List,
-  ListItem,
-  ListItemText,
-  IconButton,
-  Chip,
-  Box,
-  Typography,
-} from '@mui/material'
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemText from '@mui/material/ListItemText';
+import IconButton from '@mui/material/IconButton';
+import Chip from '@mui/material/Chip';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import DeleteIcon from '@mui/icons-material/Delete'

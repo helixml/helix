@@ -3,7 +3,7 @@
  * Used by GPU memory charts, disk usage charts, and other time-series visualizations
  */
 
-import { SxProps, Theme } from "@mui/material";
+import type { SxProps, Theme } from "@mui/material";
 
 /**
  * Common styling for LineChart components in dark theme

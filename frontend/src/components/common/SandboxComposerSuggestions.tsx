@@ -1,12 +1,10 @@
 import React, { FC, useEffect } from 'react'
-import {
-  Box,
-  CircularProgress,
-  ListItemButton,
-  ListItemIcon,
-  Paper,
-  Typography,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles'
 import { Folder, PackageOpen } from 'lucide-react'
 import { getChatColors } from '../session/chatStyles'

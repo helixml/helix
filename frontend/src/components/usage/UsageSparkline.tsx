@@ -1,11 +1,9 @@
 import React, { FC, useState } from 'react'
-import {
-  Box,
-  Typography,
-  Popper,
-  Paper,
-  Fade,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Popper from '@mui/material/Popper';
+import Paper from '@mui/material/Paper';
+import Fade from '@mui/material/Fade';
 import type { TypesAggregatedUsageMetric } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
 

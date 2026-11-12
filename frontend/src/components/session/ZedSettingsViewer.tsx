@@ -1,17 +1,15 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import useApi from '../../hooks/useApi';
-import {
-  Box,
-  Typography,
-  Alert,
-  CircularProgress,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Chip,
-  Stack,
-} from '@mui/material';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Alert from '@mui/material/Alert';
+import CircularProgress from '@mui/material/CircularProgress';
+import Accordion from '@mui/material/Accordion';
+import AccordionSummary from '@mui/material/AccordionSummary';
+import AccordionDetails from '@mui/material/AccordionDetails';
+import Chip from '@mui/material/Chip';
+import Stack from '@mui/material/Stack';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import TerminalIcon from '@mui/icons-material/Terminal';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';

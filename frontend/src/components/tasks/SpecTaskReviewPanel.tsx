@@ -1,27 +1,23 @@
 import React, { FC, useState } from 'react';
-import {
-  Card,
-  CardHeader,
-  CardContent,
-  Button,
-  Alert,
-  Typography,
-  Stack,
-  IconButton,
-  Tooltip,
-  Switch,
-  FormControlLabel,
-  Box,
-} from '@mui/material';
-import {
-  Share as ShareIcon,
-  Chat as ChatIcon,
-  CheckCircle as CheckCircleIcon,
-  Edit as EditIcon,
-  ContentCopy as ContentCopyIcon,
-  Public as PublicIcon,
-  Lock as LockIcon,
-} from '@mui/icons-material';
+import Card from '@mui/material/Card';
+import CardHeader from '@mui/material/CardHeader';
+import CardContent from '@mui/material/CardContent';
+import Button from '@mui/material/Button';
+import Alert from '@mui/material/Alert';
+import Typography from '@mui/material/Typography';
+import Stack from '@mui/material/Stack';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Box from '@mui/material/Box';
+import ShareIcon from '@mui/icons-material/Share';
+import ChatIcon from '@mui/icons-material/Chat';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import EditIcon from '@mui/icons-material/Edit';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import PublicIcon from '@mui/icons-material/Public';
+import LockIcon from '@mui/icons-material/Lock';
 import useAccount from '../../hooks/useAccount';
 import useSnackbar from '../../hooks/useSnackbar';
 import useApi from '../../hooks/useApi';
