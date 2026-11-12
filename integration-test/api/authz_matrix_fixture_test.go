@@ -262,7 +262,7 @@ func (f *authzFixture) createApp(t *testing.T, name, orgID, kind string) string 
 				// call a real model.
 				Assistants: []types.AssistantConfig{{
 					Name:     "assistant",
-					Provider: f.agentProvider(orgID),
+					Provider: f.agentProvider(t, orgID),
 					Model:    "authz-matrix-missing-model",
 				}},
 			},
@@ -576,12 +576,26 @@ func (f *authzFixture) createBrowserSession(t *testing.T) string {
 // authzMissingProvider names a provider that no deployment configures.
 const authzMissingProvider = "authz-matrix-missing-provider"
 
-// agentProvider is the fixture endpoint an agent in orgID runs on.
-func (f *authzFixture) agentProvider(orgID string) string {
-	if orgID == "" {
-		return f.markers["providerPersonal"]
+// agentProvider is the fixture endpoint an agent in orgID runs on: org A's
+// endpoint for org A, aOwner's personal one outside any org. Any other org has
+// no fixture endpoint, and an agent there would silently run on the wrong
+// one, so it fails the fixture instead.
+func (f *authzFixture) agentProvider(t *testing.T, orgID string) string {
+	t.Helper()
+	var name string
+	switch orgID {
+	case "":
+		name = "providerPersonal"
+	case f.vars["orgA"]:
+		name = "providerA"
+	default:
+		t.Fatalf("no fixture provider endpoint for organization %s", orgID)
 	}
-	return f.markers["providerA"]
+	marker, ok := f.markers[name]
+	if !ok {
+		t.Fatalf("fixture provider %s is created after the agents that use it", name)
+	}
+	return marker
 }
 
 // setupCtx bounds one fixture call by authzSetupTimeout. The client would

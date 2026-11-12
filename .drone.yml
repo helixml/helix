@@ -300,8 +300,45 @@ steps:
       # Debug: verify binary was copied and test server startup
       - which helix && helix version
       - timeout 5 helix serve 2>&1 || echo "Server exited (expected - checking for startup errors)"
-      # Run tests
-      - pwd && ./scripts/run-tests-with-timeout.sh 600 -tags ORT -timeout 8m -v ./integration-test/api/...
+      # Run tests. The authorization matrix runs in its own step below,
+      # without provider credentials.
+      - pwd && ./scripts/run-tests-with-timeout.sh 600 -tags ORT -timeout 8m -v -skip '^TestAuthzMatrix$' ./integration-test/api/...
+    when:
+      event:
+        - push
+    depends_on: [run-migrations]
+
+  # Cross-tenant authorization matrix (integration-test/api/README.md,
+  # "Authorization matrix"). No secrets: the server it starts has no LLM
+  # provider credentials, so no row can reach a real, paid upstream.
+  - name: api-authz-matrix
+    image: golang:1.25-bookworm
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      LOG_LEVEL: "warn"
+      HELIX_SKIP_AUTOMIGRATE: "1"
+      HELIX_INTEGRATION_NO_PROVIDER_ENV: "true"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DATABASE: postgres
+      RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+      ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+      START_HELIX_TEST_SERVER: "true"
+      DEV_SUBDOMAIN: "dev"
+    commands:
+      # The pre-built binary links the ONNX runtime.
+      - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
+      - git config --global user.email "ci@helix.ml"
+      - git config --global user.name "CI"
+      - chmod +x ./scripts/run-tests-with-timeout.sh
+      - mkdir -p $GOPATH/bin && cp ./helix-bin $GOPATH/bin/helix
+      - ./scripts/run-tests-with-timeout.sh 600 -tags ORT -timeout 8m -v -run '^TestAuthzMatrix$' ./integration-test/api/
     when:
       event:
         - push
@@ -1040,58 +1077,6 @@ steps:
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
-
----
-# Cross-tenant authorization matrix on pull requests. It uses no secrets and
-# no host mounts (pull-request code must not touch the runner's shared
-# caches), so it builds from a cold module cache; it needs no LLM, only the
-# API binary, Postgres, and the browser launcher the server refuses to start
-# without. The full API integration suite still runs on push in the default
-# pipeline.
-# See integration-test/api/README.md ("Authorization matrix").
-kind: pipeline
-type: docker
-name: api-authz-pr
-
-workspace:
-  base: /go
-  path: src/github.com/helix-ml/helix
-
-trigger:
-  event:
-    - pull_request
-
-steps:
-  - name: api-authz-test
-    image: golang:1.25-bookworm
-    environment:
-      LOG_LEVEL: "warn"
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DATABASE: postgres
-      RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-      ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-      START_HELIX_TEST_SERVER: "true"
-      DEV_SUBDOMAIN: "dev"
-    commands:
-      - apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-      - git config --global user.email "ci@helix.ml"
-      - git config --global user.name "CI"
-      - mkdir -p $GOPATH/bin && CGO_ENABLED=0 go build -o $GOPATH/bin/helix ./api
-      - helix serve --migrate-only
-      - go test -timeout 8m -count=1 -run '^TestAuthzMatrix$' ./integration-test/api/
-
-services:
-  - name: postgres
-    image: postgres:12.13-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: postgres
-  - name: chrome
-    image: ghcr.io/go-rod/rod:v0.115.0
 
 ---
 # See integration-test/smoke/README.md

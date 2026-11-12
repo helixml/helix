@@ -181,7 +181,7 @@ func sessionRoutes() []route {
 	return []route{
 		{
 			Method: http.MethodGet, Path: "/api/v1/sessions/{sessA}",
-			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, admin: allow, appKey: deny}),
+			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, admin: allow, appKey: deny, sessKey: deny}),
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/sessions/{sessA2}",
@@ -193,8 +193,13 @@ func sessionRoutes() []route {
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/sessions/{sessOther}",
+			// A key minted for one chat session reaches that session only,
+			// not the rest of its owner's sessions.
 			Expect: expect{aOwner: allow, sessKey: deny},
-			Skip:   "tracked: a session key minted without a project still reaches every other session of its owner",
+		},
+		{
+			Method: http.MethodGet, Path: "/api/v1/sessions/{sessOther}/interactions",
+			Expect: expect{aOwner: allow, sessKey: deny},
 		},
 		{
 			Method: http.MethodPut, Path: "/api/v1/sessions/{sessA}", Body: tamper("name"),
@@ -571,7 +576,6 @@ func specTaskRoutes() []route {
 			// request proposals and task completion.
 			Method: http.MethodPost, Path: "/api/v1/spec-tasks/{taskBacklog}/approve-implementation",
 			Expect: expect{aOwner: reached, projKey: deny},
-			Skip:   "tracked: a project-scoped agent key can approve its own spec task's implementation",
 		},
 	}
 }

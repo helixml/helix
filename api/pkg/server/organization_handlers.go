@@ -436,7 +436,9 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
-		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
+		// The store error stays in the log: "not found" here would tell a
+		// stranger whether the organization exists.
+		http.Error(rw, "Could not authorize org owner", http.StatusForbidden)
 		return
 	}
 
@@ -546,7 +548,9 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
-		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
+		// The store error stays in the log: "not found" here would tell a
+		// stranger whether the organization exists.
+		http.Error(rw, "Could not authorize org owner", http.StatusForbidden)
 		return
 	}
 

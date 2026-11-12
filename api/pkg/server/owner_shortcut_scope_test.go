@@ -232,3 +232,32 @@ func TestAuthorizePersonalProviderEndpoint_ScopeBeforeAdmin(t *testing.T) {
 	endpoint := &types.ProviderEndpoint{ID: "pe_1", Owner: "usr_owner", OwnerType: types.OwnerTypeUser}
 	require.Error(t, authorizePersonalProviderEndpoint(&types.User{ID: "usr_admin", Admin: true, ProjectID: "prj_a"}, endpoint))
 }
+
+// A key minted for a plain chat's session (no project) belongs to the
+// session's owner; it must reach that session and no other.
+func TestAuthorizeUserToSession_SessionKeyConfinedToItsSession(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := newScopedKeyTestServer(t)
+	sessionKey := &types.User{ID: "usr_owner", TokenType: types.TokenTypeAPIKey, APIKeyType: types.APIkeytypeAPI, SessionID: "ses_chat"}
+
+	own := &types.Session{ID: "ses_chat", Owner: "usr_owner"}
+	other := &types.Session{ID: "ses_other", Owner: "usr_owner"}
+
+	require.NoError(t, srv.authorizeUserToSession(ctx, sessionKey, own, types.ActionGet))
+	err := srv.authorizeUserToSession(ctx, sessionKey, other, types.ActionGet)
+	require.ErrorIs(t, err, errSessionScopedKey)
+	require.NoError(t, srv.authorizeUserToSession(ctx, &types.User{ID: "usr_owner"}, other, types.ActionGet),
+		"the owner's own (unscoped) credential keeps every session")
+}
+
+func TestApproveImplementation_AgentKeyCannotApprove(t *testing.T) {
+	srv, st := newScopedKeyTestServer(t)
+	st.EXPECT().GetSpecTask(gomock.Any(), "spt_a").Return(&types.SpecTask{ID: "spt_a", ProjectID: "prj_a", Status: types.TaskStatusImplementationReview}, nil)
+	st.EXPECT().GetProject(gomock.Any(), "prj_a").Return(&types.Project{ID: "prj_a", UserID: "usr_owner"}, nil)
+
+	rec := httptest.NewRecorder()
+	srv.approveImplementation(rec, requestAs(http.MethodPost, "/api/v1/spec-tasks/spt_a/approve-implementation", "", ownerProjectKey(), map[string]string{"spec_task_id": "spt_a"}))
+
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), errAgentKeyDecision.Error())
+}

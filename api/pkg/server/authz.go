@@ -178,10 +178,10 @@ var errProjectScopedKey = errors.New("credential is scoped to another project")
 // other project sub-resources belonging to projects it was never dispatched
 // to.
 //
-// Only credentials that carry a project are constrained. Keycloak sessions and
-// ordinary user keys leave User.ProjectID empty and are unaffected, as are
-// session keys minted for work with no project (helix-org workers, plain chat
-// sessions), which keep their existing reach.
+// Only credentials that carry a project are constrained here. Keycloak
+// sessions and ordinary user keys leave User.ProjectID empty and are
+// unaffected; session keys minted for work with no project are confined to
+// their own session by enforceKeySessionScope.
 func enforceKeyProjectScope(user *types.User, projectID string) error {
 	if user == nil || user.ProjectID == "" || user.ProjectID == projectID {
 		return nil
@@ -189,10 +189,23 @@ func enforceKeyProjectScope(user *types.User, projectID string) error {
 	return fmt.Errorf("%w: key is scoped to project %s, request targets %s", errProjectScopedKey, user.ProjectID, projectID)
 }
 
+// errSessionScopedKey is returned when a key minted for one session (and no
+// project) is used against another session.
+var errSessionScopedKey = errors.New("credential is scoped to another session")
+
 // enforceKeySessionScope confines a project-scoped credential to sessions of
-// its own project (and to the session it was minted for).
+// its own project (and to the session it was minted for), and a key minted
+// for a session outside any project (a plain chat's desktop, a helix-org
+// worker) to that one session: it belongs to the session's owner, so
+// without this it would read every other session the owner has.
 func enforceKeySessionScope(user *types.User, session *types.Session) error {
-	if user == nil || user.ProjectID == "" {
+	if user == nil {
+		return nil
+	}
+	if user.ProjectID == "" {
+		if user.SessionID != "" && session.ID != user.SessionID {
+			return fmt.Errorf("%w: key is scoped to session %s, request targets %s", errSessionScopedKey, user.SessionID, session.ID)
+		}
 		return nil
 	}
 	if user.SessionID != "" && session.ID == user.SessionID {

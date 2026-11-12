@@ -146,6 +146,17 @@ func requireAuthzServer(t *testing.T) {
 	if os.Getenv("START_HELIX_TEST_SERVER") != "true" {
 		t.Skip("set START_HELIX_TEST_SERVER=true to run API integration tests")
 	}
+	// Rows exercise the LLM proxy as several actors. With real provider
+	// credentials in the server's environment, a row that regresses would
+	// make a real, paid upstream call.
+	if !providerEnvStripped() {
+		for _, kv := range os.Environ() {
+			if isProviderEnv(kv) {
+				t.Fatalf("the authorization matrix must run with %s=true: %s would reach the test server",
+					noProviderEnvVar, strings.SplitN(kv, "=", 2)[0])
+			}
+		}
+	}
 }
 
 var placeholderPattern = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)

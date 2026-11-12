@@ -42,8 +42,11 @@ spec-task, session, helix-org worker and app keys); and A's resources (projects,
 repositories, agents, sessions, spec tasks, secrets, knowledge, triggers,
 provider endpoints, artifacts, grants, filestore files). Every table row is
 then sent as every actor it lists. It needs Postgres and the browser launcher,
-but no LLM or sandbox, so Drone also runs it on pull requests (no secrets, no host mounts)
-(`api-authz-pr`).
+but no LLM or sandbox. Drone runs it in its own push step (`api-authz-matrix`)
+with `HELIX_INTEGRATION_NO_PROVIDER_ENV=true`, which starts the test server
+without any LLM provider credentials; the matrix refuses to run without it
+when such credentials are in the environment, so no row can make a real,
+paid upstream call. The other integration tests skip it.
 
 A row in `authz_matrix_routes_test.go` is a request and one expectation per
 actor:
@@ -78,6 +81,7 @@ docker run -d --rm --name pg-authz -e POSTGRES_PASSWORD=postgres -p 15432:5432 p
 docker run -d --rm --name chrome-authz -p 17317:7317 ghcr.io/go-rod/rod:v0.115.0
 (cd api && CGO_ENABLED=0 go build -o /tmp/helix-bin/helix .)
 export PATH=/tmp/helix-bin:$PATH START_HELIX_TEST_SERVER=true DEV_SUBDOMAIN=dev \
+  HELIX_INTEGRATION_NO_PROVIDER_ENV=true \
   POSTGRES_HOST=localhost POSTGRES_PORT=15432 POSTGRES_USER=postgres \
   POSTGRES_PASSWORD=postgres POSTGRES_DATABASE=postgres \
   RAG_CRAWLER_LAUNCHER_URL=http://localhost:17317 \
