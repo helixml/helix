@@ -27,11 +27,13 @@ import (
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/anthropic"
+	"github.com/helixml/helix/api/pkg/auditlog"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
+	"github.com/helixml/helix/api/pkg/crypto"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/janitor"
@@ -205,13 +207,17 @@ type HelixAPIServer struct {
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
-	adminAlerter               *notification.AdminAlerter
-	wg                         sync.WaitGroup // Control for goroutines to enable tests
-	summaryService             *SummaryService
-	goldenBuildService         *services.GoldenBuildService
-	syncEventHook              SyncEventHook      // optional test hook, nil in production
-	startTime                  time.Time          // when the server started, for grace periods
-	modelFetchGroup            singleflight.Group // deduplicates concurrent getProviderModels calls per cache key
+	// requestAudit is the durable request audit trail (one record per API
+	// request). Nil when HELIX_AUDIT_LOG_ENABLED=false.
+	requestAudit           *auditlog.Recorder
+	requestAuditMiddleware *requestAuditMiddleware
+	adminAlerter           *notification.AdminAlerter
+	wg                     sync.WaitGroup // Control for goroutines to enable tests
+	summaryService         *SummaryService
+	goldenBuildService     *services.GoldenBuildService
+	syncEventHook          SyncEventHook      // optional test hook, nil in production
+	startTime              time.Time          // when the server started, for grace periods
+	modelFetchGroup        singleflight.Group // deduplicates concurrent getProviderModels calls per cache key
 	// WebSocket proxy deduplication - cancels superseded proxies for same session+client
 	activeStreamProxies   map[string]*activeStreamProxy
 	activeStreamProxiesMu sync.Mutex
@@ -407,6 +413,19 @@ func NewServer(
 
 	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
 
+	// Durable request audit trail (incident forensics). The credential
+	// fingerprint is an HMAC under the deployment's existing encryption key, so
+	// a copy of the audit table cannot be brute-forced offline.
+	requestAuditRecorder := newRequestAuditRecorder(cfg.AuditLog, store)
+	requestAuditFingerprintKey, err := crypto.GetEncryptionKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive request audit fingerprint key: %w", err)
+	}
+	requestAuditOpts, err := newRequestAuditOptions(cfg.AuditLog, requestAuditFingerprintKey)
+	if err != nil {
+		return nil, err
+	}
+
 	apiServer := &HelixAPIServer{
 		Cfg:                        cfg,
 		Store:                      store,
@@ -470,6 +489,9 @@ func NewServer(
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
 		auditLogService:          services.NewAuditLogService(store),
+		// Durable request audit trail (incident forensics). Nil when disabled.
+		requestAudit:           requestAuditRecorder,
+		requestAuditMiddleware: newRequestAuditMiddleware(requestAuditRecorder, requestAuditOpts),
 
 		openAIResponsesLogStores:     responsesLogStores,
 		openAIResponsesBillingLogger: responsesBillingLogger,
@@ -823,6 +845,12 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		go apiServer.runSecretIntakeReaper(ctx)
 	}
 
+	// Request audit trail sinks: batched Postgres inserts and daily retention.
+	if apiServer.requestAudit != nil {
+		go apiServer.requestAudit.Run(ctx)
+		go apiServer.requestAudit.RunPruner(ctx)
+	}
+
 	// Close kodit client on shutdown
 	if apiServer.kodit != nil && apiServer.kodit.closer != nil {
 		defer func() {
@@ -949,6 +977,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	}
 	handler = NewVHostMiddleware(vhostCfg, apiServer, apiServer.router)
 
+	// Request audit trail: one durable record per request, wrapped around the
+	// vhost proxy so customer traffic that never reaches the mux is audited
+	// too. Independent of LOG_LEVEL.
+	handler = apiServer.requestAuditMiddleware.Handler(handler)
+
 	// Optional certmagic-based HTTPS on :443 + :80, alongside the plain
 	// HTTP listener below. No-op when HELIX_VHOST_TLS_MODE=off (default).
 	if err := apiServer.startCertMagicListener(ctx, vhostCfg, handler); err != nil {
@@ -986,6 +1019,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	if err != nil {
 		return nil, err
 	}
+
+	// The audit trail itself wraps the whole server (see ListenAndServe), outside
+	// the vhost proxy and outside this mux. This only hands the matched route
+	// template to it, which is all the mux can contribute.
+	router.Use(stampRequestAuditRoute)
 
 	// we do token extraction for all routes
 	// if there is a token we will assign the user if not then oh well no user it's all gravy
@@ -1444,6 +1482,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	adminRouter.HandleFunc("/admin/orgs", apiServer.adminListOrganizations).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/orgs/{id}/plan", apiServer.adminSetOrgPlan).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/service-accounts", system.Wrapper(apiServer.adminCreateServiceAccount)).Methods(http.MethodPost)
+
+	// Request audit trail reads (incident forensics): newest first, filterable.
+	adminRouter.HandleFunc("/admin/audit-events", apiServer.listRequestAuditEvents).Methods(http.MethodGet)
 
 	// Sandbox-absorbs-runner pivot: /scheduler/heartbeats and /slots
 	// endpoints removed — no scheduler, no slots.
@@ -1919,6 +1960,7 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	router := mux.NewRouter()
 
 	router.Use(ErrorLoggingMiddleware)
+	router.Use(stampRequestAuditRoute)
 
 	// If configured, load user from database and set in request context
 	if apiServer.Cfg.WebServer.EmbeddingsSocketUserID != "" {
@@ -1953,7 +1995,7 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 
 	// Create HTTP server
 	srv := &http.Server{
-		Handler:      router,
+		Handler:      apiServer.requestAuditMiddleware.Handler(router),
 		ReadTimeout:  0, // No timeout for long-running operations
 		WriteTimeout: 0, // No timeout for streaming responses
 	}
