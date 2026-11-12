@@ -194,31 +194,90 @@ func (s *PostgresStore) UpdateUser(ctx context.Context, user *types.User) (*type
 }
 
 // DeleteUser deletes a user by ID
+// RevokeUserAPIKeys deletes every API key the user owns, including org-,
+// project- and session-scoped keys. Authentication looks keys up on every
+// request, so they stop working as soon as this returns.
+func (s *PostgresStore) RevokeUserAPIKeys(ctx context.Context, userID string) error {
+	if userID == "" {
+		return fmt.Errorf("userID cannot be empty")
+	}
+	return s.gdb.WithContext(ctx).Where("owner = ?", userID).Delete(&types.ApiKey{}).Error
+}
+
+// DeleteUser deletes a user and, in one transaction, the data that belongs to
+// the user alone: credentials (API keys, login sessions, OAuth and git
+// provider connections, agent subscriptions), personal agents and their
+// triggers, personal secrets and provider endpoints, memories, the personal
+// wallet, and every organization, team and access-grant membership.
+//
+// Resources owned by an organization are kept even when the user created
+// them; removing the memberships revokes the user's access to them. Personal
+// projects, repositories, chat sessions and files need runtime teardown and
+// are removed by the caller before this runs. The users row is soft-deleted.
 func (s *PostgresStore) DeleteUser(ctx context.Context, userID string) error {
 	if userID == "" {
 		return fmt.Errorf("userID cannot be empty")
 	}
 
-	err := s.gdb.WithContext(ctx).Delete(&types.User{ID: userID}).Error
-	if err != nil {
-		return err
-	}
-
-	// Delete all API keys for the user
-	err = s.gdb.WithContext(ctx).Where("owner = ?", userID).Delete(&types.ApiKey{}).Error
-	if err != nil {
-		return err
-	}
-
-	// Delete user meta
-	err = s.gdb.WithContext(ctx).Delete(&types.UserMeta{
-		ID: userID,
-	}).Error
-	if err != nil {
-		return err
-	}
-
-	return nil
+	personal := "(organization_id = '' OR organization_id IS NULL)"
+	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		personalApps := tx.Model(&types.App{}).Select("id").Where("owner = ? AND "+personal, userID)
+		steps := []struct {
+			what string
+			run  func() error
+		}{
+			{"api keys", func() error { return tx.Where("owner = ?", userID).Delete(&types.ApiKey{}).Error }},
+			{"login sessions", func() error { return tx.Where("user_id = ?", userID).Delete(&types.UserSession{}).Error }},
+			{"oauth connections", func() error {
+				return tx.Unscoped().Where("user_id = ?", userID).Delete(&types.OAuthConnection{}).Error
+			}},
+			{"oauth request tokens", func() error {
+				return tx.Where("user_id = ?", userID).Delete(&types.OAuthRequestToken{}).Error
+			}},
+			{"git provider connections", func() error {
+				return tx.Unscoped().Where("user_id = ?", userID).Delete(&types.GitProviderConnection{}).Error
+			}},
+			{"claude subscriptions", func() error {
+				return tx.Where("owner_id = ? AND owner_type = ?", userID, types.OwnerTypeUser).Delete(&types.ClaudeSubscription{}).Error
+			}},
+			{"codex subscriptions", func() error {
+				return tx.Where("owner_id = ? AND owner_type = ?", userID, types.OwnerTypeUser).Delete(&types.CodexSubscription{}).Error
+			}},
+			{"triggers", func() error {
+				return tx.Where("app_id IN (?) OR (owner = ? AND "+personal+")", personalApps, userID).
+					Delete(&types.TriggerConfiguration{}).Error
+			}},
+			{"secrets", func() error {
+				return tx.Where("owner = ? AND owner_type = ? AND (project_id = '' OR project_id IS NULL) AND "+
+					"(app_id = '' OR app_id IS NULL OR app_id IN (?))", userID, types.OwnerTypeUser, personalApps).
+					Delete(&types.Secret{}).Error
+			}},
+			{"provider endpoints", func() error {
+				return tx.Where("owner = ? AND owner_type = ?", userID, types.OwnerTypeUser).Delete(&types.ProviderEndpoint{}).Error
+			}},
+			{"memories", func() error { return tx.Where("user_id = ?", userID).Delete(&types.Memory{}).Error }},
+			{"agents", func() error { return tx.Where("owner = ? AND "+personal, userID).Delete(&types.App{}).Error }},
+			{"wallet", func() error { return tx.Where("user_id = ?", userID).Delete(&types.Wallet{}).Error }},
+			{"access grant role bindings", func() error {
+				return tx.Where("access_grant_id IN (?)",
+					tx.Model(&types.AccessGrant{}).Select("id").Where("user_id = ?", userID),
+				).Delete(&types.AccessGrantRoleBinding{}).Error
+			}},
+			{"access grants", func() error { return tx.Where("user_id = ?", userID).Delete(&types.AccessGrant{}).Error }},
+			{"team memberships", func() error { return tx.Where("user_id = ?", userID).Delete(&types.TeamMembership{}).Error }},
+			{"organization memberships", func() error {
+				return tx.Where("user_id = ?", userID).Delete(&types.OrganizationMembership{}).Error
+			}},
+			{"user meta", func() error { return tx.Where("id = ?", userID).Delete(&types.UserMeta{}).Error }},
+			{"user", func() error { return tx.Delete(&types.User{ID: userID}).Error }},
+		}
+		for _, step := range steps {
+			if err := step.run(); err != nil {
+				return fmt.Errorf("delete user %s: %w", step.what, err)
+			}
+		}
+		return nil
+	})
 }
 
 func (s *PostgresStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, int64, error) {

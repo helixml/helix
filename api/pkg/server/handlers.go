@@ -1001,10 +1001,8 @@ func (apiServer *HelixAPIServer) adminDeleteUser(_ http.ResponseWriter, req *htt
 		return nil, system.NewHTTPError500("failed to get user: " + err.Error())
 	}
 
-	// Delete the user
-	err = apiServer.Store.DeleteUser(ctx, targetUserID)
-	if err != nil {
-		return nil, system.NewHTTPError500("failed to delete user: " + err.Error())
+	if httpErr := apiServer.deleteUserAccount(ctx, targetUser); httpErr != nil {
+		return nil, httpErr
 	}
 
 	log.Info().

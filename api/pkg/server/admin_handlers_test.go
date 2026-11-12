@@ -10,7 +10,9 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/auth"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -260,6 +262,7 @@ func TestAdminDeleteUser(t *testing.T) {
 				mockStore.EXPECT().
 					GetUser(gomock.Any(), &store.GetUserQuery{ID: "user-456"}).
 					Return(targetUser, nil)
+				expectEmptyUserPurge(mockStore, "user-456")
 				mockStore.EXPECT().
 					DeleteUser(gomock.Any(), "user-456").
 					Return(nil)
@@ -334,6 +337,7 @@ func TestAdminDeleteUser(t *testing.T) {
 				mockStore.EXPECT().
 					GetUser(gomock.Any(), &store.GetUserQuery{ID: "user-456"}).
 					Return(targetUser, nil)
+				expectEmptyUserPurge(mockStore, "user-456")
 				mockStore.EXPECT().
 					DeleteUser(gomock.Any(), "user-456").
 					Return(assert.AnError)
@@ -350,9 +354,15 @@ func TestAdminDeleteUser(t *testing.T) {
 
 			mockStore := store.NewMockStore(ctrl)
 			tt.setupMocks(mockStore)
+			fs := filestore.NewMockFileStore(ctrl)
+			fs.EXPECT().Delete(gomock.Any(), "users/user-456/").Return(nil).AnyTimes()
 
 			server := &HelixAPIServer{
 				Store: mockStore,
+				Controller: &controller.Controller{Options: controller.Options{
+					Config:    &config.ServerConfig{},
+					Filestore: fs,
+				}},
 			}
 
 			req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/users/"+tt.targetUserID, nil)
@@ -382,6 +392,23 @@ func TestAdminDeleteUser(t *testing.T) {
 			}
 		})
 	}
+}
+
+// expectEmptyUserPurge expects the teardown reads for a user who owns no
+// organizations, sessions, projects, repositories or agents, plus the API key
+// revocation that precedes them.
+func expectEmptyUserPurge(mockStore *store.MockStore, userID string) {
+	gomock.InOrder(
+		mockStore.EXPECT().ListOrganizationMemberships(gomock.Any(), &store.ListOrganizationMembershipsQuery{UserID: userID}).
+			Return(nil, nil),
+		mockStore.EXPECT().RevokeUserAPIKeys(gomock.Any(), userID).Return(nil),
+		mockStore.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+			Owner: userID, OwnerType: types.OwnerTypeUser, IncludeExternalAgents: true,
+		}).Return(nil, int64(0), nil),
+		mockStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{UserID: userID}).Return(nil, nil),
+		mockStore.EXPECT().ListGitRepositories(gomock.Any(), &types.ListGitRepositoriesRequest{OwnerID: userID}).Return(nil, nil),
+		mockStore.EXPECT().ListApps(gomock.Any(), &store.ListAppsQuery{Owner: userID, OwnerType: types.OwnerTypeUser}).Return(nil, nil),
+	)
 }
 
 // The point of this endpoint is that an orchestrator stops putting a whole fleet
