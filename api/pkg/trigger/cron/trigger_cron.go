@@ -883,6 +883,7 @@ func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator
 	// Send success notification
 	err = notifier.Notify(ctx, &types.Notification{
 		Event:   types.EventCronTriggerComplete,
+		Session: specTaskNotificationSession(a, sessionName),
 		Message: output,
 		Emails:  trigger.Emails,
 	})
@@ -915,6 +916,13 @@ func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator
 	return output, nil
 }
 
+// specTaskNotificationSession identifies the owner and organization of a
+// spec_task trigger for its notifications. No chat session exists for these
+// runs, so the session carries no ID.
+func specTaskNotificationSession(a *types.App, name string) *types.Session {
+	return &types.Session{Name: name, Owner: a.Owner, OrganizationID: a.OrganizationID}
+}
+
 // recordSpecTaskFailure marks the execution failed, notifies, and returns cause so
 // the caller can propagate it. Every spec_task failure path goes through here so a
 // fire that produced no task always leaves a row explaining why.
@@ -927,6 +935,7 @@ func recordSpecTaskFailure(ctx context.Context, str store.Store, notifier notifi
 
 	if err := notifier.Notify(ctx, &types.Notification{
 		Event:   types.EventCronTriggerFailed,
+		Session: specTaskNotificationSession(a, execution.Name),
 		Message: cause.Error(),
 		Emails:  emails,
 	}); err != nil {

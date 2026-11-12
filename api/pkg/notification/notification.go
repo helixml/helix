@@ -52,6 +52,55 @@ func New(cfg *config.Notifications, store store.Store, webhookPolicy netguard.Po
 	}, nil
 }
 
+// allowedRecipients returns the explicit recipients of a notification that
+// belong to the owner of the notifying session: the owner's own account, or a
+// Helix user who is a member of the session's organization. Recipient lists
+// are user-configured (e.g. on cron triggers), and Helix only sends mail on a
+// user's behalf to people inside that user's account or organization.
+func (n *NotificationsProvider) allowedRecipients(ctx context.Context, notification *Notification) []string {
+	if notification.Session == nil || notification.Session.Owner == "" {
+		log.Warn().Str("notification", notification.Event.String()).
+			Msg("dropping notification recipients: no owning session")
+		return nil
+	}
+	owner := notification.Session.Owner
+	orgID := notification.Session.OrganizationID
+
+	var allowed []string
+	seen := map[string]bool{}
+	for _, email := range notification.Emails {
+		email = strings.TrimSpace(email)
+		key := strings.ToLower(email)
+		if email == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		user, err := n.store.GetUser(ctx, &store.GetUserQuery{Email: email})
+		if err != nil || user == nil {
+			log.Warn().Str("notification", notification.Event.String()).
+				Msg("dropping notification recipient: not a Helix user")
+			continue
+		}
+		if user.ID == owner {
+			allowed = append(allowed, email)
+			continue
+		}
+		if orgID != "" {
+			if _, err := n.store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+				OrganizationID: orgID,
+				UserID:         user.ID,
+			}); err == nil {
+				allowed = append(allowed, email)
+				continue
+			}
+		}
+		log.Warn().Str("notification", notification.Event.String()).Str("user_id", user.ID).
+			Msg("dropping notification recipient: not in the owner's organization")
+	}
+	return allowed
+}
+
 func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notification) error {
 	if n.store == nil {
 		return nil
@@ -71,7 +120,7 @@ func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notifi
 
 	// If multiple emails are specified, send to each one
 	if len(notification.Emails) > 0 {
-		for _, email := range notification.Emails {
+		for _, email := range n.allowedRecipients(ctx, notification) {
 			perRecipient := &Notification{
 				Event:          notification.Event,
 				Session:        notification.Session,
