@@ -870,6 +870,11 @@ type Store interface {
 	CreateOrgAuditLog(ctx context.Context, log *types.OrgAuditLog) error
 	ListOrgAuditLogs(ctx context.Context, filters *types.OrgAuditLogFilters) (*types.OrgAuditLogResponse, error)
 
+	// Request Audit Event methods - append-only forensic record of API requests
+	InsertRequestAuditEvents(ctx context.Context, events []*types.RequestAuditEvent) error
+	ListRequestAuditEvents(ctx context.Context, filters *types.RequestAuditEventFilters) (*types.RequestAuditEventResponse, error)
+	PruneRequestAuditEvents(ctx context.Context, before time.Time, batchSize int) (int64, error)
+
 	// Sample Project methods
 	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)
 	GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error)
