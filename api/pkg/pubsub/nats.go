@@ -398,16 +398,14 @@ func NewInMemoryNats() (*Nats, error) {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
-	randomPort, err := freeport.GetFreePort()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get free port: %w", err)
-	}
-
 	cfg := &config.ServerConfig{}
 	cfg.PubSub.StoreDir = tmpDir
 	cfg.PubSub.Server.Host = "0.0.0.0"
-	cfg.PubSub.Server.Port = randomPort
-	cfg.PubSub.Server.WebsocketPort = randomPort + 1
+	// Let the kernel assign both ports at bind time. Probing for a free port
+	// first (and assuming port+1 is free too) races with every other
+	// in-process server; a lost race costs ReadyForConnections' full 4s.
+	cfg.PubSub.Server.Port = server.RANDOM_PORT
+	cfg.PubSub.Server.WebsocketPort = server.RANDOM_PORT
 	cfg.PubSub.Server.JetStream = true
 	cfg.PubSub.Server.MaxPayload = 32 * 1024 * 1024 // 32MB
 	cfg.PubSub.Server.EmbeddedNatsServerEnabled = true
