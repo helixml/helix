@@ -16,7 +16,8 @@ import (
 
 type LoggingResponseWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode   int
+	bytesWritten int64
 }
 
 func NewLoggingResponseWriter(w http.ResponseWriter) *LoggingResponseWriter {
@@ -27,6 +28,26 @@ func (lrw *LoggingResponseWriter) WriteHeader(code int) {
 	lrw.statusCode = code
 	lrw.ResponseWriter.WriteHeader(code)
 }
+
+func (lrw *LoggingResponseWriter) Write(b []byte) (int, error) {
+	written, err := lrw.ResponseWriter.Write(b)
+	lrw.bytesWritten += int64(written)
+	return written, err
+}
+
+func (lrw *LoggingResponseWriter) StatusCode() int { return lrw.statusCode }
+
+func (lrw *LoggingResponseWriter) BytesWritten() int64 { return lrw.bytesWritten }
+
+// Flush lets streaming handlers (SSE, video) keep flushing through the wrapper.
+func (lrw *LoggingResponseWriter) Flush() {
+	if flusher, ok := lrw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+// Unwrap exposes the underlying writer to http.ResponseController.
+func (lrw *LoggingResponseWriter) Unwrap() http.ResponseWriter { return lrw.ResponseWriter }
 
 // Hijack lets the caller take over the connection.
 // Implement this method to support websockets.

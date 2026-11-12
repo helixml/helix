@@ -27,6 +27,7 @@ import (
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/anthropic"
+	"github.com/helixml/helix/api/pkg/auditlog"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/connman"
@@ -205,13 +206,16 @@ type HelixAPIServer struct {
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
-	adminAlerter               *notification.AdminAlerter
-	wg                         sync.WaitGroup // Control for goroutines to enable tests
-	summaryService             *SummaryService
-	goldenBuildService         *services.GoldenBuildService
-	syncEventHook              SyncEventHook      // optional test hook, nil in production
-	startTime                  time.Time          // when the server started, for grace periods
-	modelFetchGroup            singleflight.Group // deduplicates concurrent getProviderModels calls per cache key
+	// requestAudit is the durable request audit trail (one record per API
+	// request). Nil when HELIX_AUDIT_LOG_ENABLED=false.
+	requestAudit       *auditlog.Recorder
+	adminAlerter       *notification.AdminAlerter
+	wg                 sync.WaitGroup // Control for goroutines to enable tests
+	summaryService     *SummaryService
+	goldenBuildService *services.GoldenBuildService
+	syncEventHook      SyncEventHook      // optional test hook, nil in production
+	startTime          time.Time          // when the server started, for grace periods
+	modelFetchGroup    singleflight.Group // deduplicates concurrent getProviderModels calls per cache key
 	// WebSocket proxy deduplication - cancels superseded proxies for same session+client
 	activeStreamProxies   map[string]*activeStreamProxy
 	activeStreamProxiesMu sync.Mutex
@@ -470,6 +474,8 @@ func NewServer(
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
 		auditLogService:          services.NewAuditLogService(store),
+		// Durable request audit trail (incident forensics). Nil when disabled.
+		requestAudit: newRequestAuditRecorder(cfg.AuditLog, store),
 
 		openAIResponsesLogStores:     responsesLogStores,
 		openAIResponsesBillingLogger: responsesBillingLogger,
@@ -822,6 +828,12 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		go apiServer.runSecretIntakeReaper(ctx)
 	}
 
+	// Request audit trail sinks: batched Postgres inserts and daily retention.
+	if apiServer.requestAudit != nil {
+		go apiServer.requestAudit.Run(ctx)
+		go apiServer.requestAudit.RunPruner(ctx)
+	}
+
 	// Close kodit client on shutdown
 	if apiServer.kodit != nil && apiServer.kodit.closer != nil {
 		defer func() {
@@ -985,6 +997,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	if err != nil {
 		return nil, err
 	}
+
+	// Request audit trail: one durable record per request. Outermost on the root
+	// router so login/register attempts, 401s, proxied traffic and anonymous
+	// calls are captured too. Independent of LOG_LEVEL.
+	router.Use(newRequestAuditMiddleware(apiServer.requestAudit, apiServer.Cfg.AuditLog.SkipRunnerReads).Handler)
 
 	// we do token extraction for all routes
 	// if there is a token we will assign the user if not then oh well no user it's all gravy
@@ -1443,6 +1460,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	adminRouter.HandleFunc("/admin/orgs", apiServer.adminListOrganizations).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/orgs/{id}/plan", apiServer.adminSetOrgPlan).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/service-accounts", system.Wrapper(apiServer.adminCreateServiceAccount)).Methods(http.MethodPost)
+
+	// Request audit trail reads (incident forensics): newest first, filterable.
+	adminRouter.HandleFunc("/admin/audit-events", apiServer.listRequestAuditEvents).Methods(http.MethodGet)
 
 	// Sandbox-absorbs-runner pivot: /scheduler/heartbeats and /slots
 	// endpoints removed — no scheduler, no slots.

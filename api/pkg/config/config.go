@@ -40,6 +40,7 @@ type ServerConfig struct {
 	Webhooks           Webhooks
 	GitProviders       GitProviders
 	ConnectPortal      ConnectPortalConfig
+	AuditLog           AuditLog
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
 	// Inactivity is measured as the time since the last interaction was created or updated
@@ -1254,4 +1255,38 @@ type SSL struct {
 
 type Organizations struct {
 	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"true"`
+}
+
+// AuditLog configures the request audit trail: one durable record per API
+// request (who, from where, what, and the outcome) for incident forensics.
+//
+// It is deliberately independent of LOG_LEVEL. The API normally runs at warn
+// and records nothing about successful requests, which is why an incident on
+// Nov 10 had to be reconstructed from leftover database rows.
+type AuditLog struct {
+	// Enabled turns the whole trail on or off.
+	Enabled bool `envconfig:"HELIX_AUDIT_LOG_ENABLED" default:"true"`
+
+	// Stdout writes one JSON line per request to stdout.
+	Stdout bool `envconfig:"HELIX_AUDIT_LOG_STDOUT" default:"true"`
+
+	// Database persists events to the request_audit_events table.
+	Database bool `envconfig:"HELIX_AUDIT_LOG_DB" default:"true"`
+
+	// RetentionDays is how long events are kept. A daily pruner deletes older
+	// rows in chunks.
+	//
+	// Volume: one row per request (minus skipped machine polling). A busy
+	// deployment sustains thousands of requests per minute, so 180 days can mean
+	// hundreds of millions of rows. Lower it, or disable Stdout, if the database
+	// is size-constrained.
+	RetentionDays int `envconfig:"HELIX_AUDIT_LOG_RETENTION_DAYS" default:"180"`
+
+	// BufferSize is how many events can be queued for the database writer
+	// before new ones are dropped. The recorder never blocks a request.
+	BufferSize int `envconfig:"HELIX_AUDIT_LOG_BUFFER_SIZE" default:"8192"`
+
+	// SkipRunnerReads omits GET/HEAD requests authenticated with the runner or
+	// sandbox token, which are machine polling rather than user actions.
+	SkipRunnerReads bool `envconfig:"HELIX_AUDIT_LOG_SKIP_RUNNER_READS" default:"true"`
 }
