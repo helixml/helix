@@ -4,7 +4,7 @@ package server
 // for the classes; routePolicyFile says which file a new route belongs in.
 func init() {
 	declareRoutePolicies(map[string]routePolicy{
-		"GET /api/v1/slack/oauth/callback":                                                                public("browser redirect from Slack; the encrypted state parameter carries the org and is verified"),
+		"GET /api/v1/slack/oauth/callback":                                                                handlerAuth("browser redirect from Slack; runs extractMiddleware and completes only when the browser session is the org admin sealed into the encrypted state parameter"),
 		"GET /api/v1/orgs/{org}/slack/apps":                                                               object("authorizeOrgMember"),
 		"GET /api/v1/orgs/{org}/slack/oauth/start":                                                        object("authorizeOrgOwner"),
 		"GET /api/v1/orgs/{org}/slack/workspaces":                                                         object("authorizeOrgMember"),

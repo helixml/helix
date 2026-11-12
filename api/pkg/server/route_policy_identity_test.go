@@ -4,7 +4,7 @@ package server
 // for the classes; routePolicyFile says which file a new route belongs in.
 func init() {
 	declareRoutePolicies(map[string]routePolicy{
-		"GET /api/v1/oauth/flow/callback":                 public("OAuth provider redirect; the state parameter is matched to a pending flow"),
+		"GET /api/v1/oauth/flow/callback":                 handlerAuth("OAuth provider redirect; runs extractMiddleware and completes only when the browser session is the user who started the flow named by the state parameter"),
 		"POST /api/v1/auth/register":                      public("account registration (refused when registration or password auth is off)"),
 		"GET /api/v1/invitations/{id}/info":               public("invitation landing page; the unguessable invitation id is the credential"),
 		"POST /api/v1/invitations/{id}/accept":            handlerAuth("requires a BFF session cookie and CSRF token"),
