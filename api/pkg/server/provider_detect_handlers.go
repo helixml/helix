@@ -44,7 +44,13 @@ var probeHosts = []string{
 	"localhost",
 }
 
+// detectLocalProviders probes well-known local model server ports from the
+// API host. Admin-only: it reveals services on the host's network.
 func (s *HelixAPIServer) detectLocalProviders(rw http.ResponseWriter, r *http.Request) {
+	if !isAdmin(getRequestUser(r)) {
+		http.Error(rw, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 

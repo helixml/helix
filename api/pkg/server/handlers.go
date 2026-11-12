@@ -1,8 +1,6 @@
 package server
 
 import (
-	"archive/tar"
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -82,7 +80,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	}
 
 	config := types.ServerConfigForFrontend{
-		RegistrationEnabled:                    apiServer.Cfg.Auth.RegistrationEnabled,
+		RegistrationEnabled:                    apiServer.Cfg.Auth.RegistrationEnabled && apiServer.passwordAuthEnabled(),
 		RequireActiveSubscription:              apiServer.Cfg.Stripe.RequireActiveSubscription,
 		AuthProvider:                           apiServer.Cfg.Auth.Provider,
 		FilestorePrefix:                        filestorePrefix,
@@ -577,183 +575,6 @@ func filestoreAppUploadDestination(requestPath, appID, uploadedFilename string) 
 	return filestoreUploadDestination(relativePath, uploadedFilename)
 }
 
-// in this case the path contains the full /dev/users/XXX/sessions/XXX path
-// so we need to remove the /dev/users/XXX part and then we load the session based on it's ID
-func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	sessionid := vars["sessionid"]
-	filePath := req.URL.Query().Get("path")
-	filename := filepath.Base(filePath)
-
-	log.Debug().
-		Msgf("🔵 download file: %s", filePath)
-
-	err := func() error {
-		filePath, ownerContext, err := apiServer.convertFilestorePath(req.Context(), sessionid, filePath)
-		if err != nil {
-			return err
-		}
-		reader, err := apiServer.Controller.FilestoreDownloadFile(ownerContext, filePath)
-		if err != nil {
-			return err
-		}
-		defer reader.Close()
-
-		// Set the appropriate mime-type headers
-		res.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
-		res.Header().Set("Content-Type", http.DetectContentType([]byte(filename)))
-
-		// Write the file to the http.ResponseWriter
-		_, err = io.Copy(res, reader)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}()
-
-	if err != nil {
-		log.Error().Msgf("error for download file: %s", err.Error())
-		http.Error(res, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (apiServer *HelixAPIServer) runnerSessionDownloadFolder(res http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	sessionid := vars["sessionid"]
-	filePath := req.URL.Query().Get("path")
-	filename := filepath.Base(filePath)
-
-	log.Debug().
-		Msgf("🔵 download folder: %s", filePath)
-
-	err := func() error {
-		filePath, requestContext, err := apiServer.convertFilestorePath(req.Context(), sessionid, filePath)
-		if err != nil {
-			return err
-		}
-		tarStream, err := apiServer.Controller.FilestoreDownloadFolder(requestContext, filePath)
-		if err != nil {
-			return err
-		}
-
-		// Set the appropriate mime-type headers
-		res.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s,tar", filename))
-		res.Header().Set("Content-Type", "application/x-tar")
-
-		// Write the file to the http.ResponseWriter
-		_, err = io.Copy(res, tarStream)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}()
-
-	if err != nil {
-		log.Error().Msgf("error for download file: %s", err.Error())
-		http.Error(res, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-// TODO: this need auth because right now it's an open filestore
-func (apiServer *HelixAPIServer) runnerSessionUploadFiles(_ http.ResponseWriter, req *http.Request) ([]filestore.Item, error) {
-	vars := mux.Vars(req)
-	sessionid := vars["sessionid"]
-	filePath := req.URL.Query().Get("path")
-
-	err := req.ParseMultipartForm(10 << 20)
-	if err != nil {
-		return nil, err
-	}
-
-	session, err := apiServer.Store.GetSession(req.Context(), sessionid)
-	if err != nil {
-		return nil, err
-	}
-
-	uploadFolder := filepath.Join(controller.GetSessionFolder(session.ID), filePath)
-
-	ownerContext := types.OwnerContext{
-		Owner:     session.Owner,
-		OwnerType: session.OwnerType,
-	}
-
-	result := []filestore.Item{}
-	files := req.MultipartForm.File["files"]
-
-	for _, fileHeader := range files {
-		// Handle non-tar files as before
-		file, err := fileHeader.Open()
-		if err != nil {
-			return nil, fmt.Errorf("unable to open file")
-		}
-		defer file.Close()
-
-		item, err := apiServer.Controller.FilestoreUploadFile(ownerContext, filepath.Join(uploadFolder, fileHeader.Filename), file)
-		if err != nil {
-			return nil, fmt.Errorf("unable to upload file: %s", err.Error())
-		}
-		result = append(result, item)
-	}
-
-	return result, nil
-}
-
-func (apiServer *HelixAPIServer) runnerSessionUploadFolder(_ http.ResponseWriter, req *http.Request) (*filestore.Item, error) {
-	vars := mux.Vars(req)
-	sessionid := vars["sessionid"]
-	filePath := req.URL.Query().Get("path")
-
-	session, err := apiServer.Store.GetSession(req.Context(), sessionid)
-	if err != nil {
-		return nil, err
-	}
-
-	uploadFolder := filepath.Join(controller.GetSessionFolder(session.ID), filePath)
-
-	ownerContext := types.OwnerContext{
-		Owner:     session.Owner,
-		OwnerType: session.OwnerType,
-	}
-
-	tarReader := tar.NewReader(req.Body)
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("error reading tar file: %s", err)
-		}
-
-		if strings.Contains(header.Name, "..") {
-			return nil, fmt.Errorf("invalid tar file: %s", header.Name)
-		}
-
-		if header.Typeflag == tar.TypeReg {
-			buffer := bytes.NewBuffer(nil)
-			if _, err := io.Copy(buffer, tarReader); err != nil {
-				return nil, fmt.Errorf("error reading file inside tar: %s", err)
-			}
-
-			// Create a virtual file from the buffer to upload
-			vFile := bytes.NewReader(buffer.Bytes())
-			_, err := apiServer.Controller.FilestoreUploadFile(ownerContext, filepath.Join(uploadFolder, header.Name), vFile)
-			if err != nil {
-				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
-			}
-		}
-	}
-
-	finalFolder, err := apiServer.Controller.FilestoreGet(ownerContext, uploadFolder)
-	if err != nil {
-		return nil, err
-	}
-
-	return &finalFolder, nil
-}
-
 func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 	user := getRequestUser(req)
 	if user.ID == "" {
@@ -903,7 +724,7 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 		return nil, system.NewHTTPError403("only admins can create users")
 	}
 
-	if apiServer.Cfg.Auth.Provider == types.AuthProviderOIDC {
+	if !apiServer.passwordAuthEnabled() {
 		return nil, system.NewHTTPError400(
 			"User creation is managed by your OIDC provider. " +
 				"Create the user in the OIDC provider's admin console; " +
@@ -975,6 +796,11 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 
 	if !adminUser.Admin {
 		return nil, system.NewHTTPError403("only admins can reset user passwords")
+	}
+
+	if !apiServer.passwordAuthEnabled() {
+		return nil, system.NewHTTPError400(
+			"Passwords are managed by your OIDC provider; Helix passwords cannot be set.")
 	}
 
 	targetUserID := mux.Vars(req)["id"]
@@ -1495,7 +1321,17 @@ func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Re
 	apiKey := req.URL.Query().Get("key")
 	key, err := apiServer.Controller.CheckAPIKey(ctx, apiKey)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("api key not found")
+		}
 		return nil, err
+	}
+	// Report only on the caller's own keys. Anyone else's key reads as not
+	// found, so the endpoint cannot be used to validate a key someone found
+	// or to learn whose it is.
+	user := getRequestUser(req)
+	if user == nil || (key.Owner != user.ID && !isAdmin(user)) {
+		return nil, system.NewHTTPError404("api key not found")
 	}
 	return key, nil
 }

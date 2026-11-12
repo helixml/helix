@@ -11,10 +11,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -301,4 +305,114 @@ func (p Policy) NewClient(timeout time.Duration) *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	p.GuardTransport(t)
 	return &http.Client{Timeout: timeout, Transport: t, CheckRedirect: NoRedirects}
+}
+
+// MaxRedirects is the most redirects a NewRedirectingClient follows.
+const MaxRedirects = 10
+
+// NewRedirectingClient is NewClient that follows up to MaxRedirects
+// redirects. Each hop's URL is checked against p before it is requested
+// (http/https only, and any locally resolvable host must pass CheckIP), and
+// the guarded transport re-checks every address it dials, so a redirect
+// cannot lead the client somewhere a direct request could not go. Go's
+// client drops credentials (Authorization, cookies) on redirects to another
+// host.
+func (p Policy) NewRedirectingClient(timeout time.Duration) *http.Client {
+	client := p.NewClient(timeout)
+	client.CheckRedirect = p.checkRedirect
+	return client
+}
+
+func (p Policy) checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= MaxRedirects {
+		return fmt.Errorf("stopped after %d redirects", MaxRedirects)
+	}
+	if err := p.ValidateURL(req.Context(), req.URL.String()); err != nil {
+		return fmt.Errorf("redirect: %w", err)
+	}
+	return nil
+}
+
+// ResolveHost resolves host (a name or IP literal) and checks every address
+// against the policy, for callers that hand the vetted addresses to another
+// program (e.g. git's http.curloptResolve) so it cannot re-resolve. A host
+// with any blocked address is rejected; a lookup failure is returned as is.
+func (p Policy) ResolveHost(ctx context.Context, host string) ([]net.IP, error) {
+	return p.resolve(ctx, host)
+}
+
+// GuardContext returns a context that applies the policy to every connection
+// an HTTP request made with it dials, for third-party clients that build
+// their own http.Client and accept no transport (e.g. SDKs). When a dial
+// targets a blocked address (after DNS resolution, so rebinding is covered)
+// the context is cancelled with an error wrapping ErrBlockedDestination
+// before any request bytes are sent; context.Cause reports it. Prefer
+// GuardTransport wherever the transport can be set.
+//
+// Connections to an operator-configured HTTP(S)_PROXY are allowed.
+func (p Policy) GuardContext(ctx context.Context) context.Context {
+	ctx, cancel := context.WithCancelCause(ctx)
+	proxies := environmentProxyAddrs()
+	refuse := func(addr string) bool {
+		if proxies[addr] {
+			return false
+		}
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			cancel(fmt.Errorf("%w: unparseable address", ErrBlockedDestination))
+			return true
+		}
+		if err := p.CheckIP(net.ParseIP(host)); err != nil {
+			log.Warn().Err(err).Msg("outbound connection refused by policy")
+			cancel(err)
+			return true
+		}
+		return false
+	}
+	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		// A new connection: refuse before the dial completes.
+		ConnectStart: func(_, addr string) { refuse(addr) },
+		// Any connection, including one reused from a shared pool: close
+		// it before the request is written.
+		GotConn: func(info httptrace.GotConnInfo) {
+			if refuse(info.Conn.RemoteAddr().String()) {
+				_ = info.Conn.Close()
+			}
+		},
+	})
+}
+
+// BlockedCause returns the policy rejection recorded on a GuardContext
+// context, or nil.
+func BlockedCause(ctx context.Context) error {
+	if cause := context.Cause(ctx); errors.Is(cause, ErrBlockedDestination) {
+		return cause
+	}
+	return nil
+}
+
+// environmentProxyAddrs returns the ip:port addresses of the HTTP(S)_PROXY
+// servers configured in the environment.
+func environmentProxyAddrs() map[string]bool {
+	addrs := map[string]bool{}
+	for _, key := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
+		raw := os.Getenv(key)
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			continue
+		}
+		hostPort := canonicalProxyAddr(u)
+		host, port, _ := net.SplitHostPort(hostPort)
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			continue
+		}
+		for _, ip := range ips {
+			addrs[net.JoinHostPort(ip.String(), port)] = true
+		}
+	}
+	return addrs
 }

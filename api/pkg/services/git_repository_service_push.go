@@ -74,7 +74,7 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 			Msg("[GitPush] WARNING: No auth configured for push!")
 	}
 
-	remote := newUpstreamRemote(gitRepo.ExternalURL, username, password)
+	remote := s.pinUpstream(ctx, newUpstreamRemote(gitRepo.ExternalURL, username, password))
 
 	log.Info().
 		Str("repo_id", gitRepo.ID).

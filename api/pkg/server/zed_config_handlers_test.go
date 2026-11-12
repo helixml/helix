@@ -55,6 +55,10 @@ func TestGetZedConfigHarnessPolicyUsesGenerationModelProvider(t *testing.T) {
 				getSessionCalls = 2
 			}
 			mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).Times(getSessionCalls)
+			// The owner still has to be a member of the session's organization.
+			mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+				OrganizationID: session.OrganizationID, UserID: session.Owner, Role: types.OrganizationRoleMember,
+			}, nil)
 			mockStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
 			mockStore.EXPECT().GetOrgCodeAgentHarness(gomock.Any(), app.OrganizationID, types.CodeAgentRuntimeZedAgent).Return(&types.OrgCodeAgentHarness{
 				Enabled: true, ProviderRefs: []string{"pe_allowed"},

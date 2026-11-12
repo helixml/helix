@@ -149,15 +149,21 @@ func NewClientWithPATAndHTTPClient(baseURL, token string, httpClient *http.Clien
 // NewClientWithOAuth creates a new GitLab client using an OAuth access token
 // baseURL is optional - leave empty for gitlab.com, or provide for self-hosted GitLab
 func NewClientWithOAuth(baseURL, accessToken string) (*Client, error) {
-	var client *gitlab.Client
-	var err error
+	return NewClientWithOAuthAndHTTPClient(baseURL, accessToken, nil)
+}
 
+// NewClientWithOAuthAndHTTPClient is NewClientWithOAuth using httpClient for
+// all requests (nil = library default). Use it with a netguard client when
+// baseURL is caller-supplied.
+func NewClientWithOAuthAndHTTPClient(baseURL, accessToken string, httpClient *http.Client) (*Client, error) {
+	var opts []gitlab.ClientOptionFunc
 	if baseURL != "" {
-		client, err = gitlab.NewOAuthClient(accessToken, gitlab.WithBaseURL(baseURL))
-	} else {
-		client, err = gitlab.NewOAuthClient(accessToken)
+		opts = append(opts, gitlab.WithBaseURL(baseURL))
 	}
-
+	if httpClient != nil {
+		opts = append(opts, gitlab.WithHTTPClient(httpClient))
+	}
+	client, err := gitlab.NewOAuthClient(accessToken, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GitLab OAuth client: %w", err)
 	}
@@ -305,6 +311,64 @@ func (c *Client) GetCurrentUser(ctx context.Context) (*gitlab.User, error) {
 		return nil, fmt.Errorf("failed to get current user: %w", err)
 	}
 	return user, nil
+}
+
+// ListGroupsWithMinAccess lists every group in which the authenticated user
+// has at least the given access level (e.g. gitlab.DeveloperPermissions).
+func (c *Client) ListGroupsWithMinAccess(ctx context.Context, level gitlab.AccessLevelValue) ([]*gitlab.Group, error) {
+	var all []*gitlab.Group
+	opt := &gitlab.ListGroupsOptions{
+		ListOptions:    gitlab.ListOptions{PerPage: 100},
+		MinAccessLevel: gitlab.Ptr(level),
+	}
+	for {
+		groups, resp, err := c.client.Groups.ListGroups(opt, gitlab.WithContext(ctx))
+		if err != nil {
+			return nil, fmt.Errorf("failed to list groups: %w", err)
+		}
+		all = append(all, groups...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
+	}
+	return all, nil
+}
+
+// GetNamespace gets a user or group namespace by its full path.
+func (c *Client) GetNamespace(ctx context.Context, path string) (*gitlab.Namespace, error) {
+	namespace, _, err := c.client.Namespaces.GetNamespace(path, gitlab.WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get namespace %q: %w", path, err)
+	}
+	return namespace, nil
+}
+
+// CreateProjectFromImportURL creates a project in a namespace by importing an
+// existing repository from a public git URL. The import runs asynchronously;
+// poll GetImportStatus until it finishes.
+func (c *Client) CreateProjectFromImportURL(ctx context.Context, name string, namespaceID int, visibility gitlab.VisibilityValue, description, importURL string) (*gitlab.Project, error) {
+	project, _, err := c.client.Projects.CreateProject(&gitlab.CreateProjectOptions{
+		Name:        gitlab.Ptr(name),
+		Path:        gitlab.Ptr(name),
+		NamespaceID: gitlab.Ptr(namespaceID),
+		Visibility:  gitlab.Ptr(visibility),
+		Description: gitlab.Ptr(description),
+		ImportURL:   gitlab.Ptr(importURL),
+	}, gitlab.WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create project: %w", err)
+	}
+	return project, nil
+}
+
+// GetImportStatus gets the import status of a project.
+func (c *Client) GetImportStatus(ctx context.Context, projectID int) (*gitlab.ImportStatus, error) {
+	status, _, err := c.client.ProjectImportExport.ImportStatus(projectID, gitlab.WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get import status: %w", err)
+	}
+	return status, nil
 }
 
 // ParseGitLabURL extracts the project path or ID from a GitLab URL

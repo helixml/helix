@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"code.gitea.io/gitea/modules/setting"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -86,12 +88,23 @@ type GitRepositoryService struct {
 	// rate limit. Set on construction; safe for concurrent use.
 	prListCache *prListCache
 
+	// outboundPolicy, when set, restricts the addresses external repository
+	// URLs may reach (see SetOutboundPolicy).
+	outboundPolicy *netguard.Policy
+
 	// githubReviewWebhooksURL enables PR review feedback for spec tasks: when
 	// set, creating a GitHub pull request also installs (idempotently) a
 	// pull_request_review webhook on the external repo so Helix gets review
 	// deliveries. Deliveries are signed with a per-repo secret stored on the
 	// repo row. Set via SetGitHubReviewWebhooks from server wiring.
 	githubReviewWebhooksURL string
+
+	// compatBaseURL / compatDispatch bridge the go-github client used for
+	// Helix-hosted repositories to this instance's in-process
+	// GitHub-compatible API (see SetInternalGitHubCompat). Set from server
+	// wiring; both empty means internal pull requests are unavailable.
+	compatBaseURL  string
+	compatDispatch InternalCompatDispatch
 }
 
 // NewGitRepositoryService creates a new git repository service
@@ -1080,6 +1093,10 @@ func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID stri
 	repoPath := filepath.Join(s.gitRepoBase, repoID)
 	if err := os.RemoveAll(repoPath); err != nil {
 		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository directory")
+	}
+
+	if err := s.store.DeleteGitPullRequestsForRepository(ctx, repoID); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository pull requests")
 	}
 
 	if err := s.store.DeleteGitRepository(ctx, repoID); err != nil {
@@ -2718,7 +2735,47 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 // upstreamRemoteForRepo returns the external URL and the credentials to send with it.
 func (s *GitRepositoryService) upstreamRemoteForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) upstreamRemote {
 	username, password := s.getCredentialsForRepo(ctx, gitRepo, userID...)
-	return newUpstreamRemote(gitRepo.ExternalURL, username, password)
+	return s.pinUpstream(ctx, newUpstreamRemote(gitRepo.ExternalURL, username, password))
+}
+
+// SetOutboundPolicy restricts the addresses external repository URLs may
+// reach. Each upstream command is pinned to addresses the policy approved
+// at the time the remote was prepared.
+func (s *GitRepositoryService) SetOutboundPolicy(policy netguard.Policy) {
+	s.outboundPolicy = &policy
+}
+
+// adoPolicy is the outbound policy for Azure DevOps organization URLs:
+// the configured one, or the strict default.
+func (s *GitRepositoryService) adoPolicy() netguard.Policy {
+	if s.outboundPolicy == nil {
+		return netguard.Policy{}
+	}
+	return *s.outboundPolicy
+}
+
+// gitProviderAPITimeout bounds one git provider API request made through
+// providerHTTPClient.
+const gitProviderAPITimeout = 60 * time.Second
+
+// providerHTTPClient returns the HTTP client for a GitHub, GitLab or
+// Bitbucket API at baseURL. A repository-supplied (self-hosted) baseURL gets
+// a client guarded by the outbound policy, so it cannot reach loopback,
+// internal services or cloud metadata, including through a redirect (each
+// hop is re-checked); "" keeps the SDK default for the public host.
+func (s *GitRepositoryService) providerHTTPClient(baseURL string) *http.Client {
+	if baseURL == "" {
+		return nil
+	}
+	return s.adoPolicy().NewRedirectingClient(gitProviderAPITimeout)
+}
+
+// pinUpstream applies the outbound policy, when one is set, to remote.
+func (s *GitRepositoryService) pinUpstream(ctx context.Context, remote upstreamRemote) upstreamRemote {
+	if s.outboundPolicy == nil {
+		return remote
+	}
+	return remote.pin(ctx, *s.outboundPolicy)
 }
 
 // getCredentialsForRepo returns username and password/token for a repository
@@ -2735,7 +2792,7 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 		})
 		if err == nil {
 			for _, conn := range connections {
-				if oauthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
+				if OAuthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
 					return oauthGitUsername(gitRepo.ExternalType), conn.AccessToken
 				}
 			}
@@ -2818,7 +2875,7 @@ func (s *GitRepositoryService) newestLiveOAuthToken(ctx context.Context, userID 
 	}
 	var newest *types.OAuthConnection
 	for _, conn := range conns {
-		if !oauthConnectionMatchesProvider(conn, wantType) || conn.AccessToken == "" {
+		if !OAuthConnectionMatchesProvider(conn, wantType) || conn.AccessToken == "" {
 			continue
 		}
 		if newest == nil || conn.UpdatedAt.After(newest.UpdatedAt) {
@@ -2864,7 +2921,9 @@ func OAuthProviderTypeForRepo(t types.ExternalRepositoryType) types.OAuthProvide
 	}
 }
 
-func oauthConnectionMatchesProvider(conn *types.OAuthConnection, providerType types.OAuthProviderType) bool {
+// OAuthConnectionMatchesProvider reports whether conn is a connection to the
+// given provider, including custom providers whose name contains the type.
+func OAuthConnectionMatchesProvider(conn *types.OAuthConnection, providerType types.OAuthProviderType) bool {
 	return conn != nil && (conn.Provider.Type == providerType ||
 		(conn.Provider.Type == types.OAuthProviderTypeCustom && strings.Contains(strings.ToLower(conn.Provider.Name), string(providerType))))
 }
@@ -2897,7 +2956,7 @@ func (s *GitRepositoryService) GetActingAccountHandle(ctx context.Context, gitRe
 		conns, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: actingUserID})
 		if err == nil {
 			for _, conn := range conns {
-				if oauthConnectionMatchesProvider(conn, providerType) && conn.ProviderUsername != "" {
+				if OAuthConnectionMatchesProvider(conn, providerType) && conn.ProviderUsername != "" {
 					return "@" + conn.ProviderUsername
 				}
 			}

@@ -160,6 +160,10 @@ type Deps struct {
 	AgentUpdater        AgentUpdater
 	AgentReader         AgentReader
 	AgentDefaultApplier AgentDefaultApplier
+	// AgentEditAuthorizer decides whether a caller who cannot manage the
+	// org may still change a Bot's trigger attachments: they may when they
+	// can update the Bot's agent app. nil → only owners/admins may.
+	AgentEditAuthorizer AgentEditAuthorizer
 
 	// GitHubTokenResolver is the production hook for "reinstate the
 	// GitHub topic + reuse the existing GitHub integration for
@@ -216,6 +220,12 @@ type Deps struct {
 
 type AgentUpdater interface {
 	UpdateAgent(ctx context.Context, appID string, patch AgentConfigPatch, name, instructions *string) error
+}
+
+// AgentEditAuthorizer reports whether the caller on ctx may update the
+// agent app appID; nil means allowed.
+type AgentEditAuthorizer interface {
+	AuthorizeAgentUpdate(ctx context.Context, appID string) error
 }
 
 type AgentReader interface {

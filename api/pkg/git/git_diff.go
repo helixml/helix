@@ -6,6 +6,8 @@ import (
 	"os"
 
 	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/netguard"
 )
 
 type GetPullRequestChangeOptions struct {
@@ -14,11 +16,22 @@ type GetPullRequestChangeOptions struct {
 	SourceCommitID string
 	Owner          string
 	Repository     string
+
+	// Outbound, when set, restricts the addresses RemoteURL may reach.
+	Outbound *netguard.Policy
 }
 
 // GetPullRequestChange downloads the repository and returns changes between target and source commits
 func GetPullRequestChange(ctx context.Context, token string, opts GetPullRequestChangeOptions) ([]*PullRequestChange, error) {
 	logger := log.Ctx(ctx)
+
+	// Commit IDs come from webhook payloads; check them before any git
+	// command (the checkout below takes the target as an argument).
+	for _, commit := range []string{opts.TargetCommitID, opts.SourceCommitID} {
+		if !commitIDPattern.MatchString(commit) {
+			return nil, fmt.Errorf("invalid commit ID %q", commit)
+		}
+	}
 
 	gitRepoTempPath, err := os.MkdirTemp("", "helix-git-diff")
 	if err != nil {
@@ -32,6 +45,9 @@ func GetPullRequestChange(ctx context.Context, token string, opts GetPullRequest
 	}()
 
 	manager := NewGitManager(opts.RemoteURL, token)
+	if opts.Outbound != nil {
+		manager.WithOutboundPolicy(*opts.Outbound)
+	}
 
 	repo, err := manager.CloneRepository(ctx, gitRepoTempPath)
 	if err != nil {
