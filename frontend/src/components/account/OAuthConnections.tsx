@@ -34,6 +34,7 @@ import useRouter from '../../hooks/useRouter'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { formatDate } from '../../utils/format'
 import { vcsScopesForProvider } from '../../utils/oauthProviders'
+import { isOAuthPopupMessage } from '../../utils/oauthPopupMessage'
 import { 
   PROVIDER_ICONS,
   PROVIDER_COLORS,
@@ -329,8 +330,8 @@ const OAuthConnections: React.FC<{}> = () => {
       
       // Add a listener to reload connections when the popup completes
       window.addEventListener('message', function handleOAuthMessage(event) {
-        // Check if this is our OAuth success message
-        if (event.data && event.data.type === 'oauth-success') {
+        // Only accept the success message from the popup we opened, on our origin
+        if (isOAuthPopupMessage(event, popup)) {
           console.log('🍅 TOMATO: Received OAuth success message:', event.data);
           // Clean up the event listener
           window.removeEventListener('message', handleOAuthMessage);
