@@ -838,9 +838,13 @@ func (n *oidcSignupNotifier) OnNewUser(user *types.User) {
 }
 
 func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.CleanupManager) error {
-	apiRouter, err := apiServer.registerRoutes(ctx)
-	if err != nil {
+	if err := apiServer.buildRouter(ctx); err != nil {
 		return err
+	}
+
+	log.Info().Msg("Loading YAML skills")
+	if err := apiServer.skillManager.LoadSkills(ctx); err != nil {
+		log.Error().Err(err).Msg("Failed to load skills, continuing without them")
 	}
 
 	// Ensure MCP gateway cleanup on shutdown
@@ -939,18 +943,6 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 			}
 		}()
 	}
-
-	apiServer.startUserWebSocketServer(
-		ctx,
-		apiRouter,
-		"/ws/user",
-	)
-
-	apiServer.startRunnerWebSocketServer(
-		ctx,
-		apiRouter,
-		"/ws/runner",
-	)
 
 	// Zed Agent Runner WebSocket Server
 	// External Agent Runner WebSocket Server (with query parameter auth)
@@ -1081,7 +1073,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	apiServer.setupOAuthRoutes(authRouter)
 
 	// Setup OAuth callback route (no auth required)
-	insecureRouter.HandleFunc("/oauth/flow/callback", apiServer.handleOAuthCallback).Methods("GET")
+	insecureRouter.Handle("/oauth/flow/callback", apiServer.oauthCallbackHandler()).Methods("GET")
 
 	insecureRouter.HandleFunc("/webhooks/{id}", apiServer.webhookTriggerHandler).Methods(http.MethodPost, http.MethodPut)
 
@@ -1557,13 +1549,15 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// Kodit admin routes
 	adminRouter.HandleFunc("/admin/kodit/stats", apiServer.adminGetKoditStats).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/kodit/repositories", apiServer.adminListKoditRepositories).Methods(http.MethodGet)
+	// Batch routes before /{koditRepoId}/...: otherwise "batch" is read as a
+	// repository id and POST .../batch/rescan reaches the single-repo rescan.
+	adminRouter.HandleFunc("/admin/kodit/repositories/batch/delete", apiServer.adminBatchDeleteKoditRepositories).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/kodit/repositories/batch/rescan", apiServer.adminBatchRescanKoditRepositories).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}", apiServer.adminGetKoditRepository).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}/sync", apiServer.adminSyncKoditRepository).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}/rescan", apiServer.adminRescanKoditRepository).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}/tasks", apiServer.adminGetKoditRepositoryTasks).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}", apiServer.adminDeleteKoditRepository).Methods(http.MethodDelete)
-	adminRouter.HandleFunc("/admin/kodit/repositories/batch/delete", apiServer.adminBatchDeleteKoditRepositories).Methods(http.MethodPost)
-	adminRouter.HandleFunc("/admin/kodit/repositories/batch/rescan", apiServer.adminBatchRescanKoditRepositories).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/kodit/queue", apiServer.adminListKoditQueue).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/kodit/queue/{taskId}", apiServer.adminDeleteKoditTask).Methods(http.MethodDelete)
 	adminRouter.HandleFunc("/admin/kodit/queue/{taskId}/priority", apiServer.adminUpdateKoditTaskPriority).Methods(http.MethodPut)
@@ -1836,13 +1830,20 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	apiServer.router = router
 
-	// Initialize skills
-	log.Info().Msg("Loading YAML skills")
-	if err := apiServer.skillManager.LoadSkills(ctx); err != nil {
-		log.Error().Err(err).Msg("Failed to load skills, continuing without them")
-	}
-
 	return subRouter, nil
+}
+
+// buildRouter registers every HTTP route the API serves on apiServer.router.
+// It is the single place routes are mounted, so route_auth_policy_test.go can
+// walk exactly what production serves.
+func (apiServer *HelixAPIServer) buildRouter(ctx context.Context) error {
+	apiRouter, err := apiServer.registerRoutes(ctx)
+	if err != nil {
+		return err
+	}
+	apiServer.startUserWebSocketServer(ctx, apiRouter, "/ws/user")
+	apiServer.startRunnerWebSocketServer(ctx, apiRouter, "/ws/runner")
+	return nil
 }
 
 func getID(r *http.Request) string {
@@ -1975,43 +1976,37 @@ func listenEmbeddingsSocket(socketPath string) (net.Listener, error) {
 	return listener, nil
 }
 
-// startEmbeddingsSocketServer starts a UNIX socket server that serves just the /v1/embeddings endpoint with no auth
-func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context) error {
-	socketPath := apiServer.Cfg.WebServer.EmbeddingsSocket
-
-	listener, err := listenEmbeddingsSocket(socketPath)
-	if err != nil {
-		return err
-	}
-
-	// Create a new router for the socket server
+// embeddingsSocketRouter serves the embeddings unix socket. The socket has no
+// credentials, so every request runs as one fixed identity: the configured
+// HELIX_EMBEDDINGS_SOCKET_USER_ID, or the built-in socket user. The identity
+// is attached here, so handlers that require a caller (listModels) serve it.
+func (apiServer *HelixAPIServer) embeddingsSocketRouter(ctx context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
 
 	router.Use(ErrorLoggingMiddleware)
 	router.Use(stampRequestAuditRoute)
 
-	// If configured, load user from database and set in request context
+	// The socket identity: the configured user if set, else the socket user.
+	user := &types.User{ID: socketUserID, Type: types.OwnerTypeSocket, TokenType: types.TokenTypeSocket}
 	if apiServer.Cfg.WebServer.EmbeddingsSocketUserID != "" {
-		user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{
+		configured, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{
 			ID: apiServer.Cfg.WebServer.EmbeddingsSocketUserID,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to get user for socket: %w", err)
+			return nil, fmt.Errorf("failed to get user for socket: %w", err)
 		}
+		user = configured
 
 		log.Info().
 			Str("user_id", apiServer.Cfg.WebServer.EmbeddingsSocketUserID).
 			Str("user_email", user.Email).
 			Msg("setting user for embeddings socket")
-
-		router.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Set user to the request context
-				r = r.WithContext(setRequestUser(r.Context(), *user))
-				next.ServeHTTP(w, r)
-			})
-		})
 	}
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(setRequestUser(r.Context(), *user)))
+		})
+	})
 
 	// Register only the necessary endpoints with no auth
 	router.HandleFunc("/v1/embeddings", apiServer.createEmbeddings).Methods(http.MethodPost, http.MethodOptions)
@@ -2020,6 +2015,23 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	router.HandleFunc("/v1/models", apiServer.listModels).Methods(http.MethodGet, http.MethodOptions)
 
 	router.HandleFunc("/v1/chat/completions", apiServer.createChatCompletion).Methods(http.MethodPost, http.MethodOptions)
+
+	return router, nil
+}
+
+// startEmbeddingsSocketServer starts a UNIX socket server that serves just the /v1/embeddings endpoint with no auth
+func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context) error {
+	socketPath := apiServer.Cfg.WebServer.EmbeddingsSocket
+
+	router, err := apiServer.embeddingsSocketRouter(ctx)
+	if err != nil {
+		return err
+	}
+
+	listener, err := listenEmbeddingsSocket(socketPath)
+	if err != nil {
+		return err
+	}
 
 	// Create HTTP server
 	srv := &http.Server{

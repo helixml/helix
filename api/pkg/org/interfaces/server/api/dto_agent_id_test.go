@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 )
 
 func TestBotDTOExposesBotVocabulary(t *testing.T) {
@@ -28,6 +30,25 @@ func TestBotDTOExposesBotVocabulary(t *testing.T) {
 	}
 	if _, exists := fields["agent_status"]; exists {
 		t.Fatalf("Bot DTO exposes agent_status: %s", data)
+	}
+}
+
+func TestBotDTOIncludesPersistedPortraitIndex(t *testing.T) {
+	index := 0
+	dto := botDTO(orgchart.Node{ID: "b-joke-writer", PortraitIndex: &index}, nil)
+	if dto.PortraitIndex == nil || *dto.PortraitIndex != index {
+		t.Fatalf("portrait index = %v", dto.PortraitIndex)
+	}
+	data, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if fields["portrait_index"] != float64(0) {
+		t.Fatalf("portrait_index missing from JSON: %s", data)
 	}
 }
 

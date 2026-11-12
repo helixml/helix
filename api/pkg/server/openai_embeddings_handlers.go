@@ -121,6 +121,27 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Embeddings are paid for like any other inference call on this client,
+	// so they go through the same account-state and wallet gate as chat
+	// completions.
+	if !isSocket && s.Controller != nil {
+		user := getRequestUser(r)
+		if user.Waitlisted {
+			http.Error(rw, "account is waiting for approval", http.StatusForbidden)
+			return
+		}
+		hasEnoughBalance, err := s.Controller.HasEnoughBalance(r.Context(), user, user.OrganizationID, client.BillingEnabled())
+		if err != nil {
+			log.Error().Err(err).Str("user_id", user.ID).Msg("failed to check balance for embeddings")
+			http.Error(rw, "Failed to check balance: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !hasEnoughBalance {
+			http.Error(rw, "Insufficient balance", http.StatusPaymentRequired)
+			return
+		}
+	}
+
 	// Forward the request to the provider using the flexible embeddings method
 	resp, err := client.CreateFlexibleEmbeddings(r.Context(), embeddingRequest)
 	if err != nil {

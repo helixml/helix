@@ -20,7 +20,11 @@ type Provider interface {
 	// metadata is optional JSON string with provider-specific data (e.g., organization_url for Azure DevOps)
 	// scopes is optional - if provided, these scopes are requested instead of the provider's default scopes
 	GetAuthorizationURL(ctx context.Context, userID, redirectURL, metadata string, scopes []string) (string, error)
-	CompleteAuthorization(ctx context.Context, userID, code string) (*types.OAuthConnection, error)
+	// CompleteAuthorization exchanges code for a connection owned by userID.
+	// state selects the request token the flow was started with; it must
+	// belong to userID. An empty state falls back to the user's most recent
+	// request token for this provider (in-process callers only).
+	CompleteAuthorization(ctx context.Context, userID, code, state string) (*types.OAuthConnection, error)
 
 	// Token management
 	RefreshTokenIfNeeded(ctx context.Context, connection *types.OAuthConnection) error

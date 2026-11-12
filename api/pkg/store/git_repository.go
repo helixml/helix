@@ -162,6 +162,20 @@ func (s *PostgresStore) CountGitRepositoriesByKoditRepoID(ctx context.Context, k
 	return count, nil
 }
 
+// ListGitRepositoriesByKoditRepoID lists the git repositories whose JSONB
+// metadata references the given kodit_repo_id. Several repositories can share
+// one Kodit repository (same upstream URL).
+func (s *PostgresStore) ListGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64) ([]*types.GitRepository, error) {
+	var repos []*types.GitRepository
+	err := s.gdb.WithContext(ctx).
+		Where("(metadata->>'kodit_repo_id')::bigint = ?", koditRepoID).
+		Find(&repos).Error
+	if err != nil {
+		return nil, fmt.Errorf("list git repositories by kodit repo ID: %w", err)
+	}
+	return repos, nil
+}
+
 // DeleteGitRepository deletes a git repository record
 func (s *PostgresStore) DeleteGitRepository(ctx context.Context, id string) error {
 	if id == "" {

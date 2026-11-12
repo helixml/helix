@@ -4,7 +4,7 @@
 // numbered steps, an expandable copy-paste manifest, copyable URLs — so
 // the markup lives here once.
 
-import React, { FC, useState } from 'react'
+import React, { FC, useEffect, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
@@ -69,9 +69,25 @@ export const StepNumber: FC<{ n: number }> = ({ n }) => (
 // for button/icon feedback.
 function useCopied(): [boolean, (text: string) => void] {
   const [copied, setCopied] = useState(false)
+  const mounted = useRef(false)
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      if (resetTimer.current) clearTimeout(resetTimer.current)
+    }
+  }, [])
+
   const copy = (text: string) => {
     copyTextToClipboard(text).then(
-      () => { setCopied(true); setTimeout(() => setCopied(false), 1500) },
+      () => {
+        if (!mounted.current) return
+        setCopied(true)
+        if (resetTimer.current) clearTimeout(resetTimer.current)
+        resetTimer.current = setTimeout(() => setCopied(false), 1500)
+      },
       () => { /* ignore */ },
     )
   }

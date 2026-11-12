@@ -11,7 +11,7 @@ import (
 )
 
 func TestGitHubManifestState_RoundTrip(t *testing.T) {
-	in := githubManifestState{OrgID: "org-1", GitHubOrg: "acme", ExpiresAt: time.Now().Add(time.Hour).Unix()}
+	in := githubManifestState{OrgID: "org-1", GitHubOrg: "acme", UserID: "usr_admin", ExpiresAt: time.Now().Add(time.Hour).Unix()}
 	enc, err := encodeGitHubManifestState(in, testEncKey)
 	require.NoError(t, err)
 	require.NotEmpty(t, enc)
@@ -20,10 +20,15 @@ func TestGitHubManifestState_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, in.OrgID, out.OrgID)
 	require.Equal(t, in.GitHubOrg, out.GitHubOrg)
+	require.Equal(t, in.UserID, out.UserID)
+}
+
+func testCaller(id string) func(context.Context) string {
+	return func(context.Context) string { return id }
 }
 
 func TestGitHubManifestState_Expired(t *testing.T) {
-	in := githubManifestState{OrgID: "org-1", GitHubOrg: "acme", ExpiresAt: time.Now().Add(-time.Minute).Unix()}
+	in := githubManifestState{OrgID: "org-1", GitHubOrg: "acme", UserID: "usr_admin", ExpiresAt: time.Now().Add(-time.Minute).Unix()}
 	enc, err := encodeGitHubManifestState(in, testEncKey)
 	require.NoError(t, err)
 	_, err = decodeGitHubManifestState(enc, testEncKey)
@@ -31,7 +36,7 @@ func TestGitHubManifestState_Expired(t *testing.T) {
 }
 
 func TestGitHubManifestState_WrongKeyRejected(t *testing.T) {
-	in := githubManifestState{OrgID: "org-1", GitHubOrg: "acme", ExpiresAt: time.Now().Add(time.Hour).Unix()}
+	in := githubManifestState{OrgID: "org-1", GitHubOrg: "acme", UserID: "usr_admin", ExpiresAt: time.Now().Add(time.Hour).Unix()}
 	enc, err := encodeGitHubManifestState(in, testEncKey)
 	require.NoError(t, err)
 	otherKey := []byte("ffffffffffffffffffffffffffffffff")
@@ -55,7 +60,7 @@ func TestNormalizeOrigin(t *testing.T) {
 }
 
 func TestGitHubManifestStart_BuildsManifestAndPostURL(t *testing.T) {
-	start := NewGitHubManifestStart(testKeyGetter, "https://github.com")
+	start := NewGitHubManifestStart(testKeyGetter, "https://github.com", testCaller("usr_admin"))
 	resp, err := start(context.Background(), "org-1", "acme", "http://localhost:8080")
 	require.NoError(t, err)
 
@@ -85,12 +90,13 @@ func TestGitHubManifestStart_BuildsManifestAndPostURL(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "org-1", decoded.OrgID)
 	require.Equal(t, "acme", decoded.GitHubOrg)
+	require.Equal(t, "usr_admin", decoded.UserID)
 }
 
 func TestGitHubManifestStart_GHESWebURL(t *testing.T) {
 	// A GitHub Enterprise Server origin must drive the app-creation URL, not
 	// the hardcoded github.com.
-	start := NewGitHubManifestStart(testKeyGetter, "https://github.acme.com")
+	start := NewGitHubManifestStart(testKeyGetter, "https://github.acme.com", testCaller("usr_admin"))
 	resp, err := start(context.Background(), "org-1", "acme", "http://localhost:8080")
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(resp.PostURL, "https://github.acme.com/organizations/acme/settings/apps/new?state="),
@@ -102,7 +108,7 @@ func TestGitHubManifestStart_GHESWebURL(t *testing.T) {
 // always absent regardless of origin — covered by the BuildsManifest test.
 
 func TestGitHubManifestStart_RejectsBadInput(t *testing.T) {
-	start := NewGitHubManifestStart(testKeyGetter, "https://github.com")
+	start := NewGitHubManifestStart(testKeyGetter, "https://github.com", testCaller("usr_admin"))
 	_, err := start(context.Background(), "org-1", "", "http://localhost:8080")
 	require.Error(t, err, "empty github org rejected")
 	_, err = start(context.Background(), "org-1", "acme", "not-a-url")
