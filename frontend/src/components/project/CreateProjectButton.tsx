@@ -1,13 +1,11 @@
 import React, { FC, useState } from 'react'
-import {
-  Button,
-  ButtonGroup,
-  Menu,
-  MenuItem,
-  Typography,
-  Box,
-  Tooltip,
-} from '@mui/material'
+import Button from '@mui/material/Button';
+import ButtonGroup from '@mui/material/ButtonGroup';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import Typography from '@mui/material/Typography';
+import Box from '@mui/material/Box';
+import Tooltip from '@mui/material/Tooltip';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import { FilePlus, Package } from 'lucide-react'
 

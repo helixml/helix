@@ -1,11 +1,9 @@
 import React, { FC, useState } from "react";
-import {
-  Container,
-  Box,
-  Menu,
-  MenuItem,
-  CircularProgress,
-} from "@mui/material";
+import Container from "@mui/material/Container";
+import Box from "@mui/material/Box";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import CircularProgress from "@mui/material/CircularProgress";
 import SettingsIcon from "@mui/icons-material/Settings";
 import { useQueryClient } from "@tanstack/react-query";
 

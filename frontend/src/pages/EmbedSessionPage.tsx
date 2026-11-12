@@ -1,6 +1,7 @@
 import React, { FC } from 'react'
 import { useRoute } from 'react-router5'
-import { Box, useTheme } from '@mui/material'
+import Box from '@mui/material/Box';
+import { useTheme } from '@mui/material/styles';
 import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
 import AgentChat from '../components/session/AgentChat'
 import { initialQueryParams } from '../router'

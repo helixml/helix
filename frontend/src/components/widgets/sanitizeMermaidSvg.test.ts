@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Regression test for Helix Cyber pentest finding TST-01-293
  * (GHSA-ghcm-xqfw-q4vr: classDef in mermaid state diagrams -> HTML injection).

@@ -1,17 +1,15 @@
 import React, { FC, FormEvent, useEffect, useRef, useState } from 'react'
-import {
-  Alert,
-  Box,
-  CircularProgress,
-  Menu,
-  MenuItem,
-  IconButton,
-  Tab,
-  Tabs,
-  TextField,
-  Tooltip,
-  Typography,
-} from '@mui/material'
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import IconButton from '@mui/material/IconButton';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
+import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 import {
   ArrowLeft,
   ArrowRight,
