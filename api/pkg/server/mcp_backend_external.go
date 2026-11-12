@@ -56,7 +56,10 @@ type ExternalMCPBackend struct {
 	cleanupCancel context.CancelFunc
 }
 
-const externalMCPConnectTimeout = 3 * time.Second
+const (
+	externalMCPConnectTimeout = 3 * time.Second
+	externalMCPDegradedTTL    = 30 * time.Second
+)
 
 // externalMCPServer holds the MCP server for a specific external MCP
 type externalMCPServer struct {
@@ -67,7 +70,8 @@ type externalMCPServer struct {
 	lastUsed    time.Time          // Updated on each access to keep connection alive
 	cancelFunc  context.CancelFunc // Cancel the background context when server is removed from cache
 	fingerprint [sha256.Size]byte  // Hash of the MCP config; never stores header secrets directly
-	mu          sync.Mutex         // Protects lastUsed
+	degraded    bool
+	mu          sync.Mutex // Protects lastUsed
 }
 
 // touch updates the lastUsed timestamp
@@ -77,10 +81,13 @@ func (s *externalMCPServer) touch() {
 	s.mu.Unlock()
 }
 
-// isExpired checks if the server has been idle for longer than the TTL
+// isExpired uses an absolute retry deadline for degraded servers and an idle TTL otherwise.
 func (s *externalMCPServer) isExpired(ttl time.Duration) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.degraded {
+		return time.Since(s.createdAt) > externalMCPDegradedTTL
+	}
 	return time.Since(s.lastUsed) > ttl
 }
 
@@ -354,7 +361,7 @@ func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *ty
 	if err != nil {
 		connectTimer.Stop()
 		clientCancel()
-		return b.degradedServer(sessionID, mcpName, mcpConfig.Name, err), nil
+		return b.cacheDegradedServer(cacheKey, sessionID, mcpName, mcpConfig.Name, fingerprint, err), nil
 	}
 
 	// List tools from the external server
@@ -362,11 +369,11 @@ func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *ty
 	if err != nil {
 		connectTimer.Stop()
 		clientCancel()
-		return b.degradedServer(sessionID, mcpName, mcpConfig.Name, err), nil
+		return b.cacheDegradedServer(cacheKey, sessionID, mcpName, mcpConfig.Name, fingerprint, err), nil
 	}
 	if !connectTimer.Stop() || clientCtx.Err() != nil {
 		clientCancel()
-		return b.degradedServer(sessionID, mcpName, mcpConfig.Name, context.DeadlineExceeded), nil
+		return b.cacheDegradedServer(cacheKey, sessionID, mcpName, mcpConfig.Name, fingerprint, context.DeadlineExceeded), nil
 	}
 
 	// Create our MCP server that proxies to the external server
@@ -412,6 +419,23 @@ func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *ty
 	b.serversMu.Unlock()
 
 	return httpServer, nil
+}
+
+func (b *ExternalMCPBackend) cacheDegradedServer(cacheKey, sessionID, mcpName, displayName string, fingerprint [sha256.Size]byte, cause error) *server.StreamableHTTPServer {
+	httpServer := b.degradedServer(sessionID, mcpName, displayName, cause)
+	now := time.Now()
+	b.serversMu.Lock()
+	b.servers[cacheKey] = &externalMCPServer{
+		httpServer:  httpServer,
+		mcpName:     mcpName,
+		sessionID:   sessionID,
+		createdAt:   now,
+		lastUsed:    now,
+		fingerprint: fingerprint,
+		degraded:    true,
+	}
+	b.serversMu.Unlock()
+	return httpServer
 }
 
 func (b *ExternalMCPBackend) degradedServer(sessionID, mcpName, displayName string, cause error) *server.StreamableHTTPServer {

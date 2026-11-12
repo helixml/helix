@@ -29,8 +29,11 @@ responses omit the internal URL, HTTP status chain, and response body.
 Connection setup is bounded to three seconds. A successful client stops that
 timer and keeps its background context alive for the normal cached connection;
 the timeout does not tear down healthy SSE or Streamable HTTP clients.
-Degraded proxies are not cached, so a later request retries the upstream
-connection and can recover after credentials or service health are fixed.
+Degraded proxies use a short 30-second absolute cache. Traffic does not extend
+that expiry. A changed MCP configuration fingerprint, including corrected
+authorization headers, bypasses the degraded cache immediately; a remote
+health change with the same configuration is retried after the 30 seconds.
+Healthy proxies retain the existing five-minute idle cache.
 Healthy status checks probe the existing client with a bounded context without
 cancelling it. If the connection recovers after the coding agent initialized
 in degraded mode, the agent still needs to reconnect so the restored tool
@@ -50,16 +53,23 @@ a new UI action for that operation or restart active work automatically.
 
 ## Validation and limits
 
-The full server and prompt test packages passed. Focused regressions were
-rerun after the final copy edit. Coverage includes rejected
+The full server and prompt test packages passed with `TMPDIR=/tmp` on macOS,
+where the default long temp path exceeds Unix-socket path limits in the
+embeddings socket tests. Focused race and lifecycle
+regressions were rerun after the final copy edit. Coverage includes rejected
 credentials, continued degraded status, tool-list failures, bounded setup,
-successful client lifetime, readiness `OPTIONS` handling, recovery, upstream
+successful client lifetime, readiness `OPTIONS` handling, recovery, the
+absolute degraded-cache expiry, configuration-change recovery, upstream
 status-tool name collisions, diagnostic redaction, and session-owner
-isolation. The core settings-sync MCP readiness tests also passed. A
-negative-control run with the owner check removed failed the owner-isolation
-regression, confirming that the authorization guard is exercised.
+isolation. A late `ListTools` success after the setup timer expires remains
+degraded by design. The healthy collision test preserves an upstream status
+tool without adding the degraded `cause` path. The core settings-sync MCP
+readiness tests also passed. A negative-control run with the owner check
+removed failed the owner-isolation regression, confirming that the
+authorization guard is exercised.
 
 No Meta deployment, production configuration change, credential update,
 desktop image rebuild, or live bot recovery was performed. The exact wording
 shown in a live bot response remains model-generated and was not observed in a
-live run.
+live run. The three-second budget covers the external client path, which passes
+no OAuth manager; stdio MCP OAuth handling is separate and unchanged.

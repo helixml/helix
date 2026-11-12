@@ -288,9 +288,6 @@ func TestExternalMCPBackendStartsDegradedAndReportsRecovery(t *testing.T) {
 	mockStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil).AnyTimes()
 	gomock.InOrder(
 		getter.EXPECT().NewClient(gomock.Any(), gomock.Any(), nil, gomock.Eq(&config)).Return(nil, errors.New("transport error: unauthorized (401)")),
-		getter.EXPECT().NewClient(gomock.Any(), gomock.Any(), nil, gomock.Eq(&config)).Return(nil, errors.New("transport error: unauthorized (401)")),
-		getter.EXPECT().NewClient(gomock.Any(), gomock.Any(), nil, gomock.Eq(&config)).Return(nil, errors.New("transport error: unauthorized (401)")),
-		getter.EXPECT().NewClient(gomock.Any(), gomock.Any(), nil, gomock.Eq(&config)).Return(nil, errors.New("transport error: unauthorized (401)")),
 		getter.EXPECT().NewClient(gomock.Any(), gomock.Any(), nil, gomock.Eq(&config)).Return(client, nil),
 		client.EXPECT().ListTools(gomock.Any(), gomock.Any()).Return(&mcp.ListToolsResult{}, nil),
 		client.EXPECT().ListTools(gomock.Any(), gomock.Any()).Return(&mcp.ListToolsResult{}, nil),
@@ -322,9 +319,58 @@ func TestExternalMCPBackendStartsDegradedAndReportsRecovery(t *testing.T) {
 	if !strings.Contains(unavailable, "tools are unavailable") || strings.Contains(unavailable, "is connected") {
 		t.Fatalf("unavailable response = %s", unavailable)
 	}
+	backend.serversMu.Lock()
+	backend.servers[session.ID+":cyber"].createdAt = time.Now().Add(-externalMCPDegradedTTL - time.Second)
+	backend.serversMu.Unlock()
 	called := serveExternalBackendRequest(t, backend, user, "cyber", `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"helix_connection_status","arguments":{}}}`)
 	if !strings.Contains(called, "Cyber is connected") || !strings.Contains(called, "Reconnect the coding agent") {
 		t.Fatalf("recovery response = %s", called)
+	}
+}
+
+func TestExternalMCPBackendConfigChangeBypassesDegradedCache(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	getter := mcpclient.NewMockClientGetter(ctrl)
+	client := mcpclient.NewMockClient(ctrl)
+	oldConfig := types.AssistantMCP{Name: "Cyber", URL: "https://cyber.example/mcp"}
+	newConfig := oldConfig
+	newConfig.Headers = map[string]string{"Authorization": "Bearer fixed"}
+	app := &types.App{ID: "app_1", Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{MCPs: []types.AssistantMCP{oldConfig}}}}}}
+	session := &types.Session{ID: "ses_1", Owner: "user_1", ParentApp: app.ID}
+	mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).AnyTimes()
+	mockStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil).AnyTimes()
+	gomock.InOrder(
+		getter.EXPECT().NewClient(gomock.Any(), gomock.Any(), nil, gomock.Eq(&oldConfig)).Return(nil, errors.New("unauthorized")),
+		getter.EXPECT().NewClient(gomock.Any(), gomock.Any(), nil, gomock.Eq(&newConfig)).Return(client, nil),
+		client.EXPECT().ListTools(gomock.Any(), gomock.Any()).Return(&mcp.ListToolsResult{}, nil),
+	)
+	backend := NewExternalMCPBackend(mockStore)
+	backend.clientGetter = getter
+	defer backend.Stop()
+	user := &types.User{ID: session.Owner}
+
+	if _, err := backend.getOrCreateServer(context.Background(), user, session.ID, "cyber"); err != nil {
+		t.Fatal(err)
+	}
+	app.Config.Helix.Assistants[0].MCPs[0] = newConfig
+	if _, err := backend.getOrCreateServer(context.Background(), user, session.ID, "cyber"); err != nil {
+		t.Fatal(err)
+	}
+	if backend.servers[session.ID+":cyber"].degraded {
+		t.Fatal("updated credentials reused degraded cache")
+	}
+}
+
+func TestExternalMCPDegradedCacheExpiresDespiteTraffic(t *testing.T) {
+	server := &externalMCPServer{
+		createdAt: time.Now().Add(-externalMCPDegradedTTL - time.Second),
+		lastUsed:  time.Now(),
+		degraded:  true,
+	}
+	server.touch()
+	if !server.isExpired(5 * time.Minute) {
+		t.Fatal("degraded cache traffic extended its absolute TTL")
 	}
 }
 
@@ -396,6 +442,33 @@ func TestExternalMCPBackendConnectTimeoutIsDegraded(t *testing.T) {
 	}
 }
 
+func TestExternalMCPBackendListToolsCompletingAfterTimeoutIsDegraded(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	getter := mcpclient.NewMockClientGetter(ctrl)
+	client := mcpclient.NewMockClient(ctrl)
+	config := types.AssistantMCP{Name: "Slow", URL: "https://slow.example/mcp"}
+	app := &types.App{ID: "app_1", Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{MCPs: []types.AssistantMCP{config}}}}}}
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_1").Return(&types.Session{ID: "ses_1", Owner: "user_1", ParentApp: app.ID}, nil)
+	mockStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+	getter.EXPECT().NewClient(gomock.Any(), gomock.Any(), nil, gomock.Eq(&config)).Return(client, nil)
+	client.EXPECT().ListTools(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ mcp.ListToolsRequest) (*mcp.ListToolsResult, error) {
+		<-ctx.Done()
+		return &mcp.ListToolsResult{}, nil
+	})
+	backend := NewExternalMCPBackend(mockStore)
+	backend.clientGetter = getter
+	backend.connectTimeout = 20 * time.Millisecond
+	defer backend.Stop()
+
+	if _, err := backend.getOrCreateServer(context.Background(), &types.User{ID: "user_1"}, "ses_1", "slow"); err != nil {
+		t.Fatal(err)
+	}
+	if !backend.servers["ses_1:slow"].degraded {
+		t.Fatal("client completing after timeout was cached as healthy")
+	}
+}
+
 func TestExternalMCPAuthenticationErrorClassification(t *testing.T) {
 	for _, message := range []string{"transport error: unauthorized (401)", "request failed with status 403", "unexpected status code: 401"} {
 		if !isExternalMCPAuthenticationError(errors.New(message)) {
@@ -412,11 +485,25 @@ func TestExternalMCPBackendPreservesUpstreamConnectionStatusTool(t *testing.T) {
 	upstream.AddTool(mcp.NewTool("helix_connection_status", mcp.WithDescription("upstream status")), func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return mcp.NewToolResultText("upstream"), nil
 	})
-	(&ExternalMCPBackend{}).addConnectionStatusTool(upstream, "Cyber", nil, errors.New("unauthorized"))
+	(&ExternalMCPBackend{}).addConnectionStatusTool(upstream, "Cyber", mcpclient.NewMockClient(gomock.NewController(t)), nil)
 	httpServer := mcpserver.NewStreamableHTTPServer(upstream, mcpserver.WithStateLess(true))
 	listed := serveExternalMCPRequest(t, httpServer, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	if !strings.Contains(listed, "upstream status") || strings.Contains(listed, "currently unavailable") {
 		t.Fatalf("upstream connection status was replaced: %s", listed)
+	}
+}
+
+func TestExternalMCPBackendCleanupRemovesDegradedServerWithoutCancel(t *testing.T) {
+	backend := NewExternalMCPBackend(nil)
+	defer backend.Stop()
+	backend.servers["session:mcp"] = &externalMCPServer{
+		createdAt: time.Now().Add(-externalMCPDegradedTTL - time.Second),
+		lastUsed:  time.Now(),
+		degraded:  true,
+	}
+	backend.cleanupExpiredServers(5 * time.Minute)
+	if _, ok := backend.servers["session:mcp"]; ok {
+		t.Fatal("expired degraded server was not removed")
 	}
 }
 
