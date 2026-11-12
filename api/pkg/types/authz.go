@@ -288,6 +288,15 @@ type User struct {
 
 	AuthProvider AuthProvider `json:"auth_provider"`
 
+	// EmailVerified records that the account's owner has been shown to control
+	// Email: the identity provider asserted email_verified, an admin created the
+	// account, or the owner used a link sent to the address (invitation,
+	// password reset). A password sign-up proves nothing, so it is false until
+	// then. Resolving an account by email for a grant (adding an org or team
+	// member) requires it; anything else would hand the grant to whoever
+	// registered the address first.
+	EmailVerified bool `json:"email_verified"`
+
 	Password           string `json:"-" gorm:"-"`           // Temporary field for password input, not persisted
 	PasswordHash       []byte `json:"-"`                    // bcrypt hash of the password
 	MustChangePassword bool   `json:"must_change_password"` // if the user must change their password

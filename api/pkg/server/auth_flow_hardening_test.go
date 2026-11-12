@@ -244,8 +244,15 @@ func TestCSRFMiddleware_CookieCredentialsNeedToken(t *testing.T) {
 // The login form answers an unknown address and a wrong password alike.
 func TestLogin_UnknownEmailIsIndistinguishableFromWrongPassword(t *testing.T) {
 	unknown := func(t *testing.T) *httptest.ResponseRecorder {
-		s, st, _ := newRegularAuthServer(t)
+		s, st, authn := newRegularAuthServer(t)
 		st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{Email: "nobody@example.com"}).Return(nil, store.ErrNotFound)
+		// The same bcrypt work is spent as for a real account, against a
+		// decoy no password matches.
+		authn.EXPECT().ValidatePassword(gomock.Any(), gomock.Any(), "guess").DoAndReturn(func(_ any, u *types.User, _ string) error {
+			require.Empty(t, u.ID)
+			require.NotEmpty(t, u.PasswordHash)
+			return assert.AnError
+		})
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
 			jsonBody(t, types.LoginRequest{Email: "nobody@example.com", Password: "guess"}))
 		rr := httptest.NewRecorder()

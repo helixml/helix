@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	authpkg "github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -369,6 +370,23 @@ func (s *HelixAPIServer) startRegularSession(w http.ResponseWriter, r *http.Requ
 		return false
 	}
 	return true
+}
+
+// adoptLegacyJWTCookie moves a browser that is still signed in with a legacy
+// JWT cookie (set by sign-up and reset before they issued sessions) onto a
+// server-side session: the session cookies are set and the JWT cookies
+// cleared. The JWT itself stays accepted until it expires but is never
+// renewed, so nobody is signed out and no new JWT cookie is issued.
+func (s *HelixAPIServer) adoptLegacyJWTCookie(w http.ResponseWriter, r *http.Request, user *types.User) {
+	if s.sessionManager == nil || user == nil || user.ID == "" || !s.passwordAuthEnabled() {
+		return
+	}
+	if _, err := s.sessionManager.CreateSession(r.Context(), w, r, user.ID, types.AuthProviderRegular, "", "", "", time.Time{}); err != nil {
+		log.Warn().Err(err).Str("user_id", user.ID).Msg("Failed to move legacy JWT cookie to a session")
+		return
+	}
+	NewCookieManager(s.Cfg).DeleteAllCookies(w)
+	log.Info().Str("user_id", user.ID).Msg("Moved legacy JWT cookie to a server-side session")
 }
 
 // refuseScopedKeyAccountChange writes a 403 and returns true when the caller
@@ -746,6 +764,9 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if user == nil {
+			// Spend the bcrypt work a real attempt would, so the response
+			// time does not say whether the address has an account.
+			_ = s.authenticator.ValidatePassword(r.Context(), authpkg.PasswordTimingDecoy(), loginRequest.Password)
 			log.Debug().Msg("login attempt for an unknown email")
 			http.Error(w, invalidCredentials, http.StatusUnauthorized)
 			return
@@ -851,7 +872,6 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 			Err(err).
 			Str("provider_url", s.Cfg.Auth.OIDC.URL).
 			Str("callback_url", fmt.Sprintf("%s/api/v1/auth/callback", s.Cfg.WebServer.URL)).
-			Str("auth_code", code).
 			Msg("Failed to exchange token")
 		http.Error(w, "Failed to exchange token: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1006,6 +1026,8 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.adoptLegacyJWTCookie(w, r, user)
+		accessToken = ""
 
 	default:
 		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
@@ -1242,7 +1264,11 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 
 	switch s.Cfg.Auth.Provider {
 	case types.AuthProviderRegular:
-		_, err = s.authenticator.ValidateUserToken(ctx, accessToken)
+		var user *types.User
+		user, err = s.authenticator.ValidateUserToken(ctx, accessToken)
+		if err == nil {
+			s.adoptLegacyJWTCookie(w, r, user)
+		}
 	default:
 		// OIDC-based auth - first check for stale Helix JWTs
 		// This can happen when AUTH_PROVIDER was changed from "regular" to "oidc"
@@ -1266,20 +1292,10 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 			// Attempt to refresh the access token
 			switch s.Cfg.Auth.Provider {
 			case types.AuthProviderRegular:
-				// For regular auth, refresh token is the same as access token (JWT)
-				user, validateErr := s.authenticator.ValidateUserToken(ctx, refreshToken)
-				if validateErr == nil {
-					newToken, genErr := s.authenticator.GenerateUserToken(ctx, user)
-					if genErr == nil {
-						cm.Set(w, accessTokenCookie, newToken)
-						cm.Set(w, refreshTokenCookie, newToken)
-						log.Debug().Msg("Token refreshed successfully during authenticated check")
-						writeResponse(w, types.AuthenticatedResponse{
-							Authenticated: true,
-						}, http.StatusOK)
-						return
-					}
-				}
+				// A legacy JWT is accepted until it expires but never
+				// renewed (the refresh cookie holds the same JWT): a valid
+				// one was moved to a session above, an expired one is a
+				// sign-in.
 			default:
 				// OIDC - use the refresh token to get new access token
 				newToken, refreshErr := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
@@ -1343,23 +1359,18 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 
 	switch s.Cfg.Auth.Provider {
 	case types.AuthProviderRegular:
-
+		// Legacy JWT cookies are not renewed: a still-valid one moves the
+		// browser onto a server-side session instead, an expired one means
+		// signing in again.
 		user, err := s.authenticator.ValidateUserToken(ctx, refreshToken)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to validate user token")
-			http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
+			log.Debug().Err(err).Msg("Legacy refresh token is no longer valid")
+			http.Error(w, "Session expired: please log in again", http.StatusUnauthorized)
 			return
 		}
-
-		token, err := s.authenticator.GenerateUserToken(ctx, user)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to generate user token")
-			http.Error(w, "Failed to generate user token: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		newAccessToken = token
-		newRefreshToken = token
+		s.adoptLegacyJWTCookie(w, r, user)
+		w.WriteHeader(http.StatusNoContent)
+		return
 	default:
 		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
 		// First check for stale Helix JWTs - this can happen when AUTH_PROVIDER

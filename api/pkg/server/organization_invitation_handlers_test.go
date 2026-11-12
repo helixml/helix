@@ -59,7 +59,7 @@ func TestAddOrganizationMember_ExistingUser_CreatesMembership(t *testing.T) {
 	expectOrgOwner(mockStore, orgID, ownerID)
 
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{Email: "existing@example.com"}).
-		Return(&types.User{ID: newUserID, Email: "existing@example.com"}, nil)
+		Return(&types.User{ID: newUserID, Email: "existing@example.com", EmailVerified: true}, nil)
 	mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ any, m *types.OrganizationMembership) (*types.OrganizationMembership, error) {
 			require.Equal(t, orgID, m.OrganizationID)

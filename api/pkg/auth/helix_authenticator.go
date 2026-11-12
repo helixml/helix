@@ -290,6 +290,9 @@ func (h *HelixAuthenticator) PasswordResetComplete(ctx context.Context, accessTo
 
 	user.PasswordHash = hash
 	user.Password = ""
+	// The reset link went to the account's address, so completing it shows
+	// the caller controls that mailbox.
+	user.EmailVerified = true
 
 	user, err = h.store.UpdateUser(ctx, user)
 	if err != nil {
@@ -305,6 +308,18 @@ func (h *HelixAuthenticator) PasswordResetComplete(ctx context.Context, accessTo
 
 func (h *HelixAuthenticator) ValidatePassword(_ context.Context, user *types.User, password string) error {
 	return bcrypt.CompareHashAndPassword(user.PasswordHash, []byte(password))
+}
+
+// passwordTimingDecoyHash is a bcrypt hash (default cost, as CreateUser uses)
+// of a random value that was discarded. It matches no password.
+const passwordTimingDecoyHash = "$2a$10$cIVXlgpj4dPyFn1PbbvDKOBrgoAANLXJe3RP//.UzEkzKWlOauBjG"
+
+// PasswordTimingDecoy returns an account that no password matches, for a
+// login attempt against an address that has no account: validating against
+// it costs the same bcrypt work as a real attempt, so the response time does
+// not tell the two apart.
+func PasswordTimingDecoy() *types.User {
+	return &types.User{PasswordHash: []byte(passwordTimingDecoyHash)}
 }
 
 func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error) {

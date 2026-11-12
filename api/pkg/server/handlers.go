@@ -757,15 +757,17 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 
 	userID := system.GenerateUserID()
 	newUser := &types.User{
-		ID:           userID,
-		Email:        request.Email,
-		FullName:     request.FullName,
-		Username:     request.Email,
-		Password:     request.Password,
-		Admin:        request.Admin,
-		Type:         types.OwnerTypeUser,
-		AuthProvider: types.AuthProviderRegular,
-		CreatedAt:    time.Now(),
+		ID:       userID,
+		Email:    request.Email,
+		FullName: request.FullName,
+		Username: request.Email,
+		Password: request.Password,
+		Admin:    request.Admin,
+		// An admin creating the account vouches for the address.
+		EmailVerified: true,
+		Type:          types.OwnerTypeUser,
+		AuthProvider:  types.AuthProviderRegular,
+		CreatedAt:     time.Now(),
 	}
 
 	createdUser, err := apiServer.authenticator.CreateUser(ctx, newUser)
