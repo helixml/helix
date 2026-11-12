@@ -430,6 +430,13 @@ type Store interface {
 	GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error)
 	CreateUser(ctx context.Context, user *types.User) (*types.User, error)
 	UpdateUser(ctx context.Context, user *types.User) (*types.User, error)
+	// UpdateUserEmailVerification writes only the email-verification columns
+	// (email_verified and, when oidcSubject is set, oidc_subject), so a
+	// sign-in cannot clobber a concurrent password change with a stale row.
+	UpdateUserEmailVerification(ctx context.Context, id string, verified bool, oidcSubject string) error
+	// MarkUserOnboarded writes only the onboarding columns: onboarding
+	// complete now, and off the waitlist.
+	MarkUserOnboarded(ctx context.Context, id string) error
 	DeleteUser(ctx context.Context, id string) error
 	RevokeUserAPIKeys(ctx context.Context, userID string) error
 	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, int64, error)

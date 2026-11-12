@@ -32,8 +32,11 @@ func newRegisterTestServer(t *testing.T) (*HelixAPIServer, *store.MockStore) {
 	authn.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ any, u *types.User) (*types.User, error) {
 		return u, nil
 	})
-	authn.EXPECT().GenerateUserToken(gomock.Any(), gomock.Any()).Return("token", nil)
-	return &HelixAPIServer{Cfg: cfg, Store: st, authenticator: authn}, st
+	// Sign-up starts a server-side session, as a password login does.
+	st.EXPECT().CreateUserSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ any, sess *types.UserSession) (*types.UserSession, error) {
+		return sess, nil
+	})
+	return &HelixAPIServer{Cfg: cfg, Store: st, authenticator: authn, sessionManager: auth.NewSessionManager(st, nil, cfg)}, st
 }
 
 func register(t *testing.T, s *HelixAPIServer, body string) *httptest.ResponseRecorder {

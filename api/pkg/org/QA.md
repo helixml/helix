@@ -1060,3 +1060,20 @@ Org Bots only.
   has a **global** PK, so two orgs creating the same bot id in the same
   second collide and the second org's desktop fails to provision (the
   org-graph rows still land correctly). See §16's "Known sharp edge".
+- Who may change a Bot: organization owners and platform admins, or a
+  member who may update the Bot's agent app (`can_edit` on `BotDTO`,
+  enforced on PATCH/DELETE `/bots/{id}`, reporting lines on both ends,
+  attachments, secrets, asset links, instances, stop/restart/apply-config;
+  chat and activate stay open to every member). A legacy Bot with **no
+  agent app** (hired before agents were linked and not yet reconciled by
+  `ReconcileAgentLinks`) has nothing a member could be authorized
+  against, so only owners and admins can edit it until the next org
+  bootstrap links an agent to it. The Chief of Staff is hired as the
+  organization owner (recorded owner while still a member, otherwise the
+  earliest owner-role membership); a Chief of Staff seeded before this
+  keeps its current hiring user.
+- A Bot's `project_ids` allowlist is bounded by its hiring user: adding a
+  project the hiring user cannot read is refused (403 naming the project
+  and reason), and every spec-task call into an allowlisted project is
+  authorized per verb (read vs create/update) against that user. A Bot
+  with no persisted hiring user acts as the organization owner.

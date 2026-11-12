@@ -45,6 +45,8 @@ func (apiServer *HelixAPIServer) acceptInvitation(ctx context.Context, user *typ
 	user.OnboardingCompleted = true
 	user.OnboardingCompletedAt = time.Now()
 	user.Waitlisted = false
+	// The token came from the invitation sent to this address.
+	user.EmailVerified = true
 	if _, err := apiServer.Store.UpdateUser(ctx, user); err != nil {
 		log.Warn().Err(err).Str("user_id", user.ID).Msg("failed to mark invited user as onboarded")
 	}

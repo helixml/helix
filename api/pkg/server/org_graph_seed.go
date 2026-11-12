@@ -11,7 +11,9 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // The Chief of Staff seed prompt lives in domain/seedprompts so this
@@ -26,6 +28,13 @@ type orgGraphSeeder struct {
 	lifecycle *lifecycle.Service
 	bots      *nodes.Nodes
 	botStore  store.Nodes
+	// owner resolves the organization owner the Chief of Staff is hired
+	// as. The seed runs inside whichever request bootstraps the org first,
+	// and that request's user must not become the hiring user of a bot
+	// that carries OwnerBotTools: its agent app, project and activations
+	// would then belong to an arbitrary member. nil keeps the request's
+	// identity (tests).
+	owner func(ctx context.Context, orgID string) (*types.User, error)
 }
 
 // SeedChiefOfStaff creates the org's Chief of Staff bot as a top-level bot.
@@ -56,6 +65,17 @@ func (s *orgGraphSeeder) SeedChiefOfStaff(ctx context.Context, orgID string) err
 	}
 	if !errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("check chief of staff: %w", err)
+	}
+	if s.owner != nil {
+		owner, err := s.owner(ctx, orgID)
+		if err != nil {
+			return fmt.Errorf("resolve organization owner for chief of staff: %w", err)
+		}
+		if owner == nil || owner.ID == "" {
+			return fmt.Errorf("resolve organization owner for chief of staff: organization %s has no owner", orgID)
+		}
+		ctx = runtimehelix.WithUserID(ctx, owner.ID)
+		ctx = runtimehelix.WithUser(ctx, owner)
 	}
 	// Bootstrap has already provisioned the org service key, but activation
 	// waits for the operator's runtime selection so the scaffold App is

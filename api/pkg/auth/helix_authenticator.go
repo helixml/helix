@@ -3,10 +3,12 @@ package auth
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -290,6 +292,9 @@ func (h *HelixAuthenticator) PasswordResetComplete(ctx context.Context, accessTo
 
 	user.PasswordHash = hash
 	user.Password = ""
+	// The reset link went to the account's address, so completing it shows
+	// the caller controls that mailbox.
+	user.EmailVerified = true
 
 	user, err = h.store.UpdateUser(ctx, user)
 	if err != nil {
@@ -305,6 +310,31 @@ func (h *HelixAuthenticator) PasswordResetComplete(ctx context.Context, accessTo
 
 func (h *HelixAuthenticator) ValidatePassword(_ context.Context, user *types.User, password string) error {
 	return bcrypt.CompareHashAndPassword(user.PasswordHash, []byte(password))
+}
+
+var (
+	decoyOnce sync.Once
+	decoyHash []byte
+)
+
+// PasswordTimingDecoy returns an account that no password matches, for a
+// login attempt against an address that has no account: validating against
+// it costs the same bcrypt work as a real attempt, so the response time does
+// not tell the two apart. The hash (default cost, as CreateUser uses) is of
+// random bytes generated once per process and never kept.
+func PasswordTimingDecoy() *types.User {
+	decoyOnce.Do(func() {
+		secret := make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			panic(fmt.Sprintf("password timing decoy: %v", err))
+		}
+		hash, err := bcrypt.GenerateFromPassword(secret, bcrypt.DefaultCost)
+		if err != nil {
+			panic(fmt.Sprintf("password timing decoy: %v", err))
+		}
+		decoyHash = hash
+	})
+	return &types.User{PasswordHash: decoyHash}
 }
 
 func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error) {
@@ -342,6 +372,13 @@ func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken 
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
+	// A session token bound to the credentials it was issued under stops
+	// working once the password changes. Tokens issued before the binding
+	// existed carry none and are accepted until they expire.
+	if claims.PasswordBinding != "" && !hmac.Equal([]byte(claims.PasswordBinding), []byte(h.passwordBinding(user))) {
+		return nil, errors.New("invalid token: credentials have changed since it was issued")
+	}
+
 	// Check admin status:
 	// - If user ID is in ADMIN_USER_IDS list (or "all" is set): admin
 	// - Otherwise: use database admin field
@@ -376,6 +413,8 @@ func (h *HelixAuthenticator) GenerateUserToken(_ context.Context, user *types.Us
 		"user_id": user.ID,
 		"email":   user.Email,
 		"admin":   user.Admin,
+		// Bound to the current credentials: see ValidateUserToken.
+		"pwb": h.passwordBinding(user),
 	}
 
 	builder := jwt.Signed(h.signer).Claims(claims).Claims(customClaims)
