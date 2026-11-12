@@ -181,20 +181,34 @@ func sessionRoutes() []route {
 	return []route{
 		{
 			Method: http.MethodGet, Path: "/api/v1/sessions/{sessA}",
-			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, admin: allow, appKey: deny, sessKey: deny}),
+			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, admin: allow, appKey: deny, sessKey: deny, exploreKey: allow}),
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/sessions/{sessA2}",
-			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny, exploreKey: deny}),
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/sessions/{sessChat}",
-			Expect: strangers(expect{aOwner: allow, sessKey: allow, aMember: deny, projKey: deny}),
+			Expect: strangers(expect{aOwner: allow, sessKey: allow, aMember: deny, projKey: deny, exploreKey: deny}),
 		},
 		{
-			Method: http.MethodGet, Path: "/api/v1/sessions/{sessOther}",
+			// A project's exploratory desktop reads the spec-task sessions of
+			// its own project, and nothing outside it.
+			Method: http.MethodGet, Path: "/api/v1/sessions/{sessA}/interactions",
+			Expect: expect{aOwner: allow, exploreKey: allow},
+		},
+		{
+			Method: http.MethodGet, Path: "/api/v1/sessions/{sessA2}/interactions",
+			Expect: expect{aOwner: allow, exploreKey: deny},
+		},
+		{
+			Method: http.MethodGet, Path: "/api/v1/sessions/{sessExplore}",
+			Expect: expect{aOwner: allow, exploreKey: allow, sessKey: deny, projKey: allow},
+		},
+		{
 			// A key minted for one chat session reaches that session only,
 			// not the rest of its owner's sessions.
+			Method: http.MethodGet, Path: "/api/v1/sessions/{sessOther}",
 			Expect: expect{aOwner: allow, sessKey: deny},
 		},
 		{

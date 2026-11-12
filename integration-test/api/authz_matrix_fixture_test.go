@@ -175,6 +175,14 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 		SessionID: f.vars["sessChat"],
 	})
 	f.keys[appKey] = f.createAppKey(t, f.vars["appA"])
+	// projA's exploratory desktop: a project session with no spec task.
+	f.vars["sessExplore"] = f.createExploratorySession(t, orgA.ID, f.vars["projA"])
+	f.keys[exploreKey] = f.createScopedKey(t, &types.ApiKey{
+		Name:           "Session key - authz matrix (exploratory)",
+		OrganizationID: orgA.ID,
+		SessionID:      f.vars["sessExplore"],
+		ProjectID:      f.vars["projA"],
+	})
 	f.keys[aOwnerBrowser] = f.createBrowserSession(t)
 	// A helix-org worker's key: its session names the bot it runs as.
 	f.vars["sessWorker"] = f.createWorkerSession(t, orgA.ID, "chief-of-staff")
@@ -604,4 +612,24 @@ func (f *authzFixture) setupCtx(t *testing.T) context.Context {
 	ctx, cancel := context.WithTimeout(f.ctx, authzSetupTimeout)
 	t.Cleanup(cancel)
 	return ctx
+}
+
+func (f *authzFixture) createExploratorySession(t *testing.T, orgID, projectID string) string {
+	t.Helper()
+	session, err := f.db.CreateSession(f.ctx, types.Session{
+		ID:             system.GenerateSessionID(),
+		Name:           f.mark("sessExplore"),
+		Owner:          f.users[aOwner].ID,
+		OwnerType:      types.OwnerTypeUser,
+		OrganizationID: orgID,
+		ProjectID:      projectID,
+		Mode:           types.SessionModeInference,
+		Type:           types.SessionTypeText,
+		Metadata:       types.SessionMetadata{ProjectID: projectID, SessionRole: "exploratory", AgentType: "zed_external"},
+	})
+	if err != nil {
+		t.Fatalf("create exploratory session: %v", err)
+	}
+	t.Cleanup(func() { _, _ = f.db.DeleteSession(context.Background(), session.ID) })
+	return session.ID
 }

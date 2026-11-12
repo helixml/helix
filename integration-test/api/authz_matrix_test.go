@@ -45,6 +45,10 @@ const (
 	// workerKey is a helix-org worker's session key: A's owner, org A,
 	// session sessWorker running as the chief-of-staff bot.
 	workerKey actor = "a-worker-key"
+	// exploreKey is the key of projA's exploratory desktop: A's owner,
+	// scoped to projA and session sessExplore, no spec task
+	// (services.sessionKeyScope).
+	exploreKey actor = "a-exploratory-key"
 
 	// Everyone else.
 	bOwner     actor = "b-owner"    // owner of organization B
