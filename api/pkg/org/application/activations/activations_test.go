@@ -114,6 +114,15 @@ func (f fakeSessions) SessionID(_ context.Context, _ string, _ orgchart.NodeID) 
 	return f.id, f.err
 }
 
+type fakeSessionProgress struct {
+	startedAt time.Time
+	err       error
+}
+
+func (f fakeSessionProgress) LatestSuccessfulTurnStartedAt(context.Context, string, orgchart.NodeID) (time.Time, error) {
+	return f.startedAt, f.err
+}
+
 func TestActivate_FirstChiefOfStaffSessionUsesHire(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
@@ -287,6 +296,108 @@ func TestLatestErrorClearsForPendingAndSuccessfulActivation(t *testing.T) {
 	}
 	if got, err := svc.LatestError(ctx, "org-test", workerID); err != nil || got != "" {
 		t.Fatalf("successful activation did not clear error: %q, %v", got, err)
+	}
+}
+
+func TestLatestErrorClearsOnlyAfterSubsequentSuccessfulTurn(t *testing.T) {
+	t.Parallel()
+	endedAt := time.Date(2026, 11, 5, 16, 0, 1, 0, time.UTC)
+	for _, tc := range []struct {
+		name      string
+		turnStart time.Time
+		want      string
+	}{
+		{name: "no successful turn", want: "provider timeout"},
+		{name: "older successful turn", turnStart: endedAt.Add(-time.Second), want: "provider timeout"},
+		{name: "simultaneous successful turn", turnStart: endedAt, want: "provider timeout"},
+		{name: "subsequent successful turn", turnStart: endedAt.Add(time.Second)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			st := memory.New()
+			workerID := orgchart.NodeID("b-worker")
+			failed, err := activation.New("a-failed", workerID, []activation.Trigger{{Kind: activation.TriggerManual}}, endedAt.Add(-time.Second), "org-test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := st.Activations.Create(ctx, failed); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.Activations.Complete(ctx, "org-test", failed.ID, activation.Outcome{Status: activation.StatusError, Error: "provider timeout"}, endedAt); err != nil {
+				t.Fatal(err)
+			}
+
+			svc := New(Deps{Repo: st.Activations, Progress: fakeSessionProgress{startedAt: tc.turnStart}})
+			got, err := svc.LatestError(ctx, "org-test", workerID)
+			if err != nil || got != tc.want {
+				t.Fatalf("LatestError = %q, %v; want %q, nil", got, err, tc.want)
+			}
+			stored, err := st.Activations.Get(ctx, "org-test", failed.ID)
+			if err != nil || stored.Outcome.Error != "provider timeout" {
+				t.Fatalf("activation audit changed: %+v, %v", stored, err)
+			}
+		})
+	}
+}
+
+func TestLatestErrorKeepsNewFailureAfterSuccessfulTurn(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := memory.New()
+	workerID := orgchart.NodeID("b-worker")
+	base := time.Date(2026, 11, 5, 16, 0, 0, 0, time.UTC)
+	for i, spec := range []struct {
+		id      activation.ID
+		started time.Time
+		ended   time.Time
+		err     string
+	}{
+		{id: "a-old", started: base, ended: base.Add(time.Second), err: "old timeout"},
+		{id: "a-new", started: base.Add(3 * time.Second), ended: base.Add(4 * time.Second), err: "new timeout"},
+	} {
+		a, err := activation.New(spec.id, workerID, []activation.Trigger{{Kind: activation.TriggerManual}}, spec.started, "org-test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Activations.Create(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Activations.Complete(ctx, "org-test", a.ID, activation.Outcome{Status: activation.StatusError, Error: spec.err}, spec.ended); err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			svc := New(Deps{Repo: st.Activations, Progress: fakeSessionProgress{startedAt: base.Add(2 * time.Second)}})
+			if got, err := svc.LatestError(ctx, "org-test", workerID); err != nil || got != "" {
+				t.Fatalf("old failure after successful turn = %q, %v", got, err)
+			}
+		}
+	}
+	svc := New(Deps{Repo: st.Activations, Progress: fakeSessionProgress{startedAt: base.Add(2 * time.Second)}})
+	if got, err := svc.LatestError(ctx, "org-test", workerID); err != nil || got != "new timeout" {
+		t.Fatalf("new failure = %q, %v", got, err)
+	}
+}
+
+func TestLatestErrorPreservesFailureWhenProgressReadFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := memory.New()
+	workerID := orgchart.NodeID("b-worker")
+	started := time.Date(2026, 11, 5, 16, 0, 0, 0, time.UTC)
+	failed, err := activation.New("a-failed", workerID, []activation.Trigger{{Kind: activation.TriggerManual}}, started, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Create(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Complete(ctx, "org-test", failed.ID, activation.Outcome{Status: activation.StatusError, Error: "provider timeout"}, started.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	readErr := errors.New("database unavailable")
+	svc := New(Deps{Repo: st.Activations, Progress: fakeSessionProgress{err: readErr}})
+	if got, err := svc.LatestError(ctx, "org-test", workerID); got != "" || !errors.Is(err, readErr) {
+		t.Fatalf("LatestError = %q, %v; want read error", got, err)
 	}
 }
 
